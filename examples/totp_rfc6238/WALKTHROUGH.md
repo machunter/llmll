@@ -5,7 +5,7 @@
 
 ## Overview
 
-This benchmark implements the core TOTP algorithm from RFC 6238, demonstrating LLMLL's capability to:
+This benchmark **specifies** the TOTP algorithm from RFC 6238 with placeholder, `asserted`-tier bodies (the crypto core is opaque and the arithmetic is nonlinear, so nothing here is solver-proven). It demonstrates LLMLL's capability to:
 
 1. **Specify cryptographic algorithms** with formal contracts and RFC `:source` provenance
 2. **Handle opaque primitives** (HMAC-SHA1) with `weakness-ok` suppression governance
@@ -17,11 +17,13 @@ This benchmark implements the core TOTP algorithm from RFC 6238, demonstrating L
 | Function | Pre | Post | RFC Source | Notes |
 |----------|-----|------|-----------|-------|
 | `compute-time-step` | `x > 0 ∧ t ≥ t0` | `result ≥ 0` | §4.2 | Floor division: `(t - t0) / x` |
-| `dynamic-truncate` | `0 < digits ≤ 10` | `0 ≤ result < 10^10` | §5.3 (RFC 4226) | Modular truncation of HMAC output |
+| `dynamic-truncate` | `0 < digits ≤ 10` | `0 ≤ result < 10^10` | §5.3 (RFC 4226) | Contract: modular truncation. Body is an asserted placeholder (ignores `hmac-result`) |
 | `hmac-sha1-wrap` | *(weakness-ok)* | *(weakness-ok)* | RFC 2104 | Delegates to `hmac-sha1` builtin |
-| `generate-totp` | `time-step > 0 ∧ 0 < digits ≤ 10` | `result ≥ 0` | §4 | Composes time-step → HMAC → truncate |
+| `generate-totp` | `time-step > 0 ∧ 0 < digits ≤ 10` | `result ≥ 0` | §4 | Contract: compose time-step → HMAC → truncate. Body is an asserted placeholder (time step not fed to the HMAC) |
 | `validate-totp` | `expected ≥ 0 ∧ actual ≥ 0` | — | §5.2 | Pure equality comparison |
 | `pad-otp` | — | `|result| = d` | §5.4 (RFC 4226) | Zero-pad OTP to `d` digits |
+
+> **Bodies are asserted placeholders, by design.** No function here is solver-proven: the crypto core is opaque (HMAC-SHA1) and truncation/compose are nonlinear, so every body lands at the `asserted` tier. The bodies satisfy the *types* and the delegation chain, not the RFC algorithm: `dynamic-truncate` returns `mod(abs(digits), …)` without consuming `hmac-result`, and `generate-totp` does not thread its time step into the HMAC. The benchmark's value is the contract + `:source` + spec-coverage + weakness-governance layer over opaque crypto, not a runnable TOTP.
 
 ## Spec Coverage
 
@@ -47,7 +49,7 @@ The filled implementation includes 4 check blocks from RFC 6238 §A.1:
 
 1. **Time step T=59, X=30 → step 1** — verifies the floor division formula
 2. **Time step T=1111111109, X=30 → step 37037036** — large timestamp test vector
-3. **validate-totp reflexive** — `∀n. validate-totp(n, n) = true`
+3. **validate-totp reflexive** — `∀n. validate-totp(n, n) = true` (skipped at runtime: QuickCheck discards all 1000 samples, so it reports as skipped, not passed)
 4. **pad-otp 42 6 → "000042"** — zero-padding to 6 digits
 
 ## Design Decisions

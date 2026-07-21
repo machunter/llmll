@@ -45,11 +45,12 @@ error: decreases-condition of 'sum-to' not verified (constraint #0)
 error: descent-condition of 'sum-to' not verified (constraint #4)
 ```
 Exit 1. The body is byte-identical to `sum-to.llmll` and still computes the
-right answer — what fails is the *termination evidence*: `(- 100 n)` increases
-along the recursion, so strict descent is disproved and the trust report
-stamps the function `measure-not-decreasing`. The verifier distinguishes "your
-function is wrong" (refuted) from "your termination measure is wrong"
-(measure-not-decreasing).
+right answer; what fails is the *termination evidence*: `(- 100 n)` increases
+along the recursion, so strict descent is disproved. The `measure-not-decreasing`
+verdict is what `--obligation-report` stamps for this function; the render-only
+`--trust-report` path shows it as termination-unverified (exit 0), and plain
+`verify` (above) hard-fails exit 1. The verifier distinguishes "your function is
+wrong" (refuted) from "your termination measure is wrong" (measure-not-decreasing).
 
 ## The discriminative point
 

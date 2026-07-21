@@ -125,7 +125,7 @@ See [research-track.md](archive/research-track.md) for additional research items
 | Claim | Evidence | Verification level | Command / artifact |
 |---|---|---|---|
 | "Compiler accepts or rejects code against contracts" | All shipped examples type-check and verify | **Verified** (within QF-LIA) | `llmll check`, `llmll verify` |
-| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, full test suite | **Verified** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
+| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, full test suite | **Verified** (QF-LIA) | `llmll verify examples/payments-core/conserve.llmll` |
 | "Leanstral proves a nonlinear obligation in Lean" | Demo slice: live Lean 4 + Mathlib proof, kernel-checked `verified-lean` certificate | **Shipped (experimental, demo-only)** — inductive + production rebuild deferred (`LEAN-GA`) | `llmll verify --leanstral` |
 | "Trust levels propagate through dependencies" | `--trust-report` emits transitive trust closure, loads `.verified.json` sidecar | **Shipped** | `llmll verify --trust-report` |
 | "Weakness checker detects under-specified contracts" | Trivial-implementation construction | **Shipped** | `llmll verify --weakness-check` |

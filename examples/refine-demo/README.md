@@ -120,6 +120,6 @@ assemble through the cross-module contract system; that is how the 163-function 
 [`../heartbleed/secure-channel/`](../heartbleed/secure-channel/) was built, with agents
 owning modules in parallel.
 
-*Every command here was run against the built `llmll` (v0.14.16). The request `token`
+*Every command here was run against the built `llmll` (v0.14.61). The request `token`
 fields read `<TOKEN-from-checkout>`; substitute the token `checkout` returns — a real token
 witnesses the file's content hash and goes stale if the file changed under you.*

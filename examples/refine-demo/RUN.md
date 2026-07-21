@@ -1,6 +1,6 @@
 # Cascading-refinement demo — a live run
 
-Observed transcript of running this demo end to end against `llmll 0.14.16`. It answers a
+Observed transcript of running this demo end to end, re-verified against `llmll 0.14.61`. It answers a
 specific confusion: why a `refine` fill body names functions that have no visible definition and
 no `?` decorator. Runbook and full command sequence are in [`README.md`](README.md); this file
 records what the run actually produced.
@@ -41,19 +41,19 @@ Frontier: `1 → 2 → 3 → 4 → 3 → 2 → 1 → 0`. Zero hole nodes remain 
 ## The merged program — what the seven edits add up to
 
 ```lisp
-(def-shell admit-byte    … -> int  = (if (and (= (authenticated computed expected hs_state) 1) (= (ordered seq last claimed received) 1)) 1 0))
-(def-shell authenticated … -> int  = (if (and (= (mac-matches computed expected) 1) (= (handshake-up hs_state) 1)) 1 0))
-(def-shell ordered       … -> int  = (if (and (= (seq-fresh seq last) 1) (= (length-sound claimed received) 1)) 1 0))
-(def-shell mac-matches   … -> int  = (if (= computed expected) 1 0))
-(def-shell handshake-up  … -> int  = (if (= hs_state 2) 1 0))
-(def-shell seq-fresh     … -> int  = (if (> seq last) 1 0))
-(def-shell length-sound  … -> int  = (if (<= claimed received) 1 0))
+(def-shell admit-byte     … -> bool = (and (authenticated computed expected hs_state) (ordered seq last claimed received)))
+(def-shell authenticated  … -> bool = (and (mac-matches computed expected) (handshake-up hs_state)))
+(def-shell ordered        … -> bool = (and (seq-fresh seq last) (length-sound claimed received)))
+(def-shell mac-matches    … -> bool = (= computed expected))
+(def-shell handshake-up   … -> bool = (= hs_state 2))
+(def-shell seq-fresh      … -> bool = (> seq last))
+(def-shell length-sound   … -> bool = (<= claimed received))
 ```
 
 `02-refine-authenticated.sexp` showed `(mac-matches computed expected)` with no definition in
 sight. Here `mac-matches` is a real function and `authenticated` calls it with byte-identical
 text. Between step 2 and step 4 only `mac-matches`'s body changed
-(`?impl → (if (= computed expected) 1 0)`); the call site was stable throughout. That stability
+(`?impl → (= computed expected)`); the call site was stable throughout. That stability
 *is* the soundness — the call always reasoned about the contract, which was present from the spawn.
 
 ## Part 2 — the two gates against a cheating decomposition

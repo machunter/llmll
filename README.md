@@ -195,6 +195,17 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 
 ## Examples
 
+Start here: [`examples/README.md`](examples/README.md) is the tiered index to every example.
+
+### Emergent & famous-bug flagships
+
+| Example | What it proves |
+|------|----------------|
+| [`examples/secure-channel-emergent/`](examples/secure-channel-emergent/) | **Emergent flagship.** A Heartbleed-domain secure channel, 25 functions across 7 import-linked modules, where agents *invented the entire decomposition* via cascading `refine` with no reference solution; the spine composes six modules through cross-module assume-guarantee and declines an unsteered goto-fail bait |
+| [`examples/token-revocation-emergent/`](examples/token-revocation-emergent/) | **Emergent data flagship.** An OAuth RFC 7662/7009 introspection/revocation service, 8 functions / 5 modules, where both the contracts (RFC `:source`-tagged) and the agent-invented bodies are machine-auditable; 5 famous-bug refute twins, CI-frozen |
+| [`examples/heartbleed/`](examples/heartbleed/) | Heartbleed (CVE-2014-0160) + a full TLS record layer: the buggy heartbeat that echoes an unbounded `claimed` length is `refuted` at `copy-bytes`' bound; scales to a 163-function channel |
+| [`examples/gotofail/`](examples/gotofail/) | Apple "goto fail" (CVE-2014-1266) modeled with real sum types: `Verified` only if the signature stage returned `Continue`; the bug (returning `Verified` on the `Abort` arm) is `refuted` |
+
 ### Verification demos (`llmll verify`)
 
 | Demo | What it proves |
@@ -205,8 +216,9 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` |
 | [`examples/refined-payload/`](examples/refined-payload/) | A matched `Result[Pos,string]` arm uses its payload's `> 0` (`verified`); a caller forwarding a weaker `Result[int]` is refused |
 | [`examples/outcome-totality/`](examples/outcome-totality/) | A payload-carrying `Accepted(n)`/`Rejected(n)` outcome with a verified legal→Accepted / illegal→Rejected totality |
-| [`examples/banking_ledger/`](examples/banking_ledger/) | Three-level assume-guarantee chain (`transfer → withdraw → safe-subtract`), all verified |
+| [`examples/banking_ledger/`](examples/banking_ledger/) | Three-level assume-guarantee chain (`transfer → withdraw → safe-subtract`), all verified; the twin that drops one guard is `refuted` at the call site |
 | [`examples/withdraw-demo/`](examples/withdraw-demo/) | The repair loop (hole → rejected bad fills → accepted fix → verified) + the `return-refine` beat |
+| [`examples/refine-demo/`](examples/refine-demo/) | Cascading `refine`: one hole decomposed top-down into a contracted sub-hole tree, every intermediate state `verified` via assume-guarantee; two guardrails reject a vacuous or orphan decomposition |
 | [`examples/bytes-bounds/`](examples/bytes-bounds/) | `bytes[n]` memory safety: a correct bounds check verifies; the off-by-one (`<=` for `<`) and an out-of-range write are `refuted` at the call site |
 | [`examples/total-recursion/`](examples/total-recursion/) | A recursive function with `(decreases n)` verifies **total** (termination discharged); a bad measure fails on the distinct `measure-not-decreasing` channel |
 | [`examples/rfc1982_serial/`](examples/rfc1982_serial/) | RFC 1982 serial arithmetic via the spec-from-RFC pipeline: all three functions `verified` with per-clause `:source`; the historical naive-`<` DNS bug refutes |
@@ -218,15 +230,13 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | `examples/hangman_sexp/` | S-expression | Full Hangman game with ASCII gallows art; uses `def-main :mode console` |
 | `examples/hangman_json/` | JSON-AST | Same program, JSON-AST schema-constrained version |
 | `examples/tictactoe_sexp/` | S-expression | Two-player Tic-Tac-Toe; demonstrates `:done?` + `:on-done` |
-| `examples/tictactoe_json/` | JSON-AST | Same Tic-Tac-Toe program in JSON-AST format |
 | `examples/life_sexp/` | S-expression | Conway's Game of Life; multi-module (`core`, `world`, `main`) |
 | `examples/life_json/` | JSON-AST | Same Life program in JSON-AST format |
 | `examples/withdraw.llmll` | S-expression | Simple withdraw with `pre`/`post` contracts; acceptance gate |
 | `examples/hangman_json_verifier/` | JSON-AST | Hangman with `apply-guess` contracts (`llmll verify`; asserted, not solver-proven) |
 | `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with `set-cell` contracts (asserted, not solver-proven) |
-| `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life — `next-cell` verified; `count-neighbors`'s own postcondition discharges too, but reports asserted (depends on asserted `cell-at`/`neighbor-alive`) |
-| `examples/pair_type_test/` | Mixed | TPair type system and do-notation test fixtures |
-| `examples/event_log_test/` | S-expression | Event log codegen validation |
+| `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life — `next-cell`/`count-neighbors` contracts (see its `VERIFICATION_SCOPE.md`) |
+| `examples/replay-demo/` | S-expression | The `llmll replay` demo: codegen + deterministic event-log replay (used by `docs/getting-started.md`) |
 | `examples/proof_required_test/` | S-expression | Leanstral proof pipeline validation |
 | `examples/erc20_token/` | JSON-AST | ERC-20 benchmark — frozen ground truth with verification-scope matrix |
 | `examples/totp_rfc6238/` | JSON-AST | TOTP RFC 6238 benchmark — crypto builtins, RFC `:source` provenance |
@@ -280,27 +290,30 @@ compiler/                   ← Haskell compiler (stack project)
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
-  hangman_json/             ← Full Hangman (JSON-AST)
+  hangman_json/             ← Full Hangman (JSON-AST); getting-started.md's worked example
   tictactoe_sexp/           ← Tic-Tac-Toe (S-expression)
-  tictactoe_json/           ← Tic-Tac-Toe (JSON-AST)
   life_sexp/                ← Conway's Life (S-expression, multi-module)
   life_json/                ← Conway's Life (JSON-AST, multi-module)
   withdraw.llmll            ← Contract demo
-  hangman_json_verifier/    ← Hangman with verified contracts
-  tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
-  conways_life_json_verifier/ ← Life with verified contracts
+  hangman_json_verifier/    ← Hangman with contracts (asserted, not solver-proven)
+  tictactoe_json_verifier/  ← Tic-Tac-Toe with contracts (asserted, not solver-proven)
+  conways_life_json_verifier/ ← Life with contracts (see its VERIFICATION_SCOPE.md)
   erc20_token/              ← ERC-20 benchmark (frozen ground truth)
   totp_rfc6238/             ← TOTP RFC 6238 benchmark
-  benchmarks/               ← benchmark suite (B1/B3/B5)
+  benchmarks/               ← agent-fill benchmark seeds (B1/B3/B5)
+  secure-channel-emergent/  ← emergent flagship: 25 fns / 7 modules, agents invented the decomposition
+  token-revocation-emergent/ ← emergent data flagship: RFC 7662/7009, agent-invented bodies, 5 refute twins
+  heartbleed/               ← Heartbleed (CVE-2014-0160) + TLS record layer; scales to a 163-fn channel
+  gotofail/                 ← Apple "goto fail" (CVE-2014-1266) with real sum types
   payments-core/            ← flagship verified-payments demo: two-account conservation, transfer/debit call chain, settle (see "See it")
   withdraw-demo/            ← repair-loop demo: holes → checkout/patch → two-axis trust + composition + CDP + proof-artifact
+  refine-demo/              ← cascading refine: one hole → contracted sub-hole tree, each state verified
   tcp_rfc793/               ← RFC 793 connection state machine, legal-successor safety
   session-pay/              ← Connected demo: protocol state-safety + verified payment + bounded amount in one verified function
   nested-result/            ← Nested Result-variable match under let
   refined-payload/          ← Matched Result payload refinement + weaker-forward refusal
   outcome-totality/         ← Payload-carrying outcome sum, verified legal/illegal totality
-  banking_ledger/           ← Three-level assume-guarantee chain (transfer → withdraw → safe-subtract)
-  pair_type_test/           ← TPair + do-notation test fixtures
+  banking_ledger/           ← Three-level assume-guarantee chain (transfer → withdraw → safe-subtract) + refuting twin
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix

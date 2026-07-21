@@ -22,7 +22,7 @@ the modeled discipline is the error-propagation control flow the bug broke.
 | `nested.llmll` | `SAFE` — the multi-stage pipeline via nested matches (reordered arms) |
 | `sequential.llmll` | `SAFE` — the sequential `(let [(h (match hash …))] (match sig …))` form (MATCH-WIDEN-2 Commit B) |
 | `sequential-bad.llmll` | **refuted** — `Verified` on the signature stage's `Abort` arm, threaded across the sequence (the bug) |
-| `nary.llmll` | `SAFE` — a 3-arm `Step3` sum, `Verified` only if `sig = Continue` (MATCH-WIDEN-2 Commit A; `def-shell`) |
+| `nary.llmll` | `SAFE` — a 3-arm `Step3` sum, `Verified` only if `sig = Continue` (MATCH-WIDEN-2 Commit A; strict-core `def`, v0.14.27) |
 
 ```
 llmll verify examples/gotofail/finalize.llmll        # SAFE
@@ -38,8 +38,8 @@ llmll verify examples/gotofail/nary.llmll            # SAFE
 **Scope.** As of MATCH-WIDEN-2 (v0.14.26): two-arm **and** n-arm payload-bearing sums,
 nested matches, and sequential two-match-in-one-body composition all discharge
 body-faithfully. The scrutinee must be `match`ed in the body (a constructor post over
-an *un-matched* param falls back to contract-only, not a crash). Two residual limits:
-an n-arm (>2-arm) match currently requires `def-shell` — the strict-core `def` grammar
-gate still admits only two-arm matches, a follow-on to widen it to n-arm; and
+an *un-matched* param falls back to contract-only, not a crash). The n-arm strict-core
+`def` grammar gap (an n-arm match once needing a `def-shell` escape hatch) closed in
+v0.14.27, so `nary.llmll` earns the strict tier directly. One residual limit remains:
 recursive / non-admissible sums stay firewalled (int-tag discrimination is for acyclic
 admissible sums).
