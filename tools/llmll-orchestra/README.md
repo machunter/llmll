@@ -18,26 +18,26 @@ Requires the `llmll` compiler binary on `$PATH` (or pass `--llmll /path/to/llmll
 ### Scan holes and scheduling tiers (no API calls)
 
 ```bash
-llmll-orchestra ../examples/auth_module/auth_module.ast.json --scan-only
+llmll-orchestra fixtures/auth_module/auth_module.ast.json --scan-only
 ```
 
 ### Dry run (stub patches, no API calls)
 
 ```bash
-llmll-orchestra ../examples/auth_module/auth_module.ast.json --dry-run -v
+llmll-orchestra fixtures/auth_module/auth_module.ast.json --dry-run -v
 ```
 
 ### Full run (requires `ANTHROPIC_API_KEY`)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-llmll-orchestra ../examples/auth_module/auth_module.ast.json -v
+llmll-orchestra fixtures/auth_module/auth_module.ast.json -v
 ```
 
 ### JSON output
 
 ```bash
-llmll-orchestra ../examples/auth_module/auth_module.ast.json --scan-only --json
+llmll-orchestra fixtures/auth_module/auth_module.ast.json --scan-only --json
 ```
 
 ## Architecture

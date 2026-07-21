@@ -548,12 +548,12 @@ This means `DLVerified` with `body_faithful = true` guarantees the implementatio
 
 ```console
 # Run a console program — produces .event-log.jsonl automatically:
-$ stack exec llmll -- build ../examples/event_log_test/event_log_test.llmll
-$ cd event_log_test && stack exec event_log_test
+$ stack exec llmll -- build ../examples/replay-demo/replay-demo.llmll
+$ cd replay-demo && stack exec replay-demo
 # (interact with program — .event-log.jsonl written on exit)
 
 # Replay: rebuild from source, feed logged inputs, compare outputs:
-$ stack exec llmll -- replay ../examples/event_log_test/event_log_test.llmll event_log_test.event-log.jsonl
+$ stack exec llmll -- replay ../examples/replay-demo/replay-demo.llmll replay-demo.event-log.jsonl
 Replay: 5/5 events matched
 ```
 

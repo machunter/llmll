@@ -1,0 +1,20 @@
+;; replay-demo — deterministic event-log replay
+;;
+;; Minimal console program that echoes input. When compiled and run it produces
+;; a .event-log.jsonl; `llmll replay` rebuilds from source, feeds the logged
+;; inputs back, and confirms the outputs match (determinism verification).
+;;
+;; Procedure:
+;;   1. llmll build replay-demo.llmll
+;;   2. Run the generated program, typing a few lines of stdin
+;;   3. replay-demo.event-log.jsonl is written on exit
+;;   4. llmll replay replay-demo.llmll replay-demo.event-log.jsonl
+;;   5. replay reports every event matched
+
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell echo-step [state: string input: string]
+  (pair state (wasi.io.stdout input)))
+
+(def-main :mode console
+  :step echo-step)
