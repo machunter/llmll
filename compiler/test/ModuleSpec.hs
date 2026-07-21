@@ -583,7 +583,7 @@ moduleSpec = describe "Module System" $ do
           case result of
             Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
             Right (cache, _ord, env) ->
-              emitFixpointWithCache (EmitOptions True)
+              emitFixpointWithCache (EmitOptions True Nothing)
                 (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache (meStatements env)
 
     it "XMOD-AG-OPEN: opened-import caller (double) is body-faithful, not a fallback" $ do
@@ -613,7 +613,7 @@ moduleSpec = describe "Module System" $ do
       case result of
         Left diags -> expectationFailure $ "load failed: " ++ show (map diagMessage diags)
         Right (_cache, _ord, env) -> do
-          er <- emitFixpointWith (EmitOptions True) (srcRoot ++ "/use_double.llmll") (meStatements env)
+          er <- emitFixpointWith (EmitOptions True Nothing) (srcRoot ++ "/use_double.llmll") (meStatements env)
           erBodyFallback er `shouldContain` ["use-double"]
           ("use-double" `elem` erBodyFaithfulFns er) `shouldBe` False
 

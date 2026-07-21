@@ -29,6 +29,7 @@ module LLMLL.PatchApply
   , parsePatchOp
   , toPatchOpInfos
   , hasContracts     -- v0.10: exported for testing
+  , patchTargetFns   -- R8: patched-function re-verify slice, exported for testing
   -- v0.10: SHA-256 hashing (used by Main.hs for checkout staleness)
   , hashFile
   ) where
@@ -425,8 +426,11 @@ applyPatchWithMode scopeMode mode fp pr = do
                           let report = typeCheck mode emptyEnv stmts
                           if reportSuccess report
                             then do
-                              -- 6.5 Re-verify via SMT (if contracts present)
-                              verifyResult <- reVerify fp stmts
+                              -- 6.5 Re-verify via SMT (if contracts present).
+                              -- R8: slice to the patched function's body-VC; a patch
+                              -- changes only that function's body (contracts never
+                              -- change), so re-verifying {F} is sound and complete.
+                              verifyResult <- reVerify fp stmts (patchTargetFns (prPatch pr) stmts)
                               case verifyResult of
                                 Just (unsafeReport, mCpu) -> do
                                   -- Verification failed: rebase diagnostics, don't write, preserve lock
@@ -534,12 +538,40 @@ hasContracts = any stmtHasContract
 --
 -- Graceful degradation: if liquid-fixpoint is not installed, returns Nothing
 -- (patch proceeds on typecheck success alone). This matches doVerify behavior.
-reVerify :: FilePath -> [Statement] -> IO (Maybe (DiagnosticReport, Maybe CalleePreUnmet))
-reVerify fp stmts
+-- | R8: the single function whose body a patch fills, for the incremental
+-- re-verify slice. Every op path is scope-checked descendant-or-self of the
+-- checkout pointer, so a plain patch touches exactly one @/statements/N@ subtree.
+-- Returns @Just [name]@ for that def, or @Nothing@ (→ whole-module re-verify,
+-- fail-safe) when unresolvable: an unparseable index, a @/statements/-@
+-- refine-style add, ops spanning >1 statement, or an unnamed statement.
+-- Soundness: a patch never changes a contract (contract-position holes are
+-- excluded from checkout, 'LLMLL.HoleAnalysis') and VCs are assume-guarantee
+-- modular, so only the patched function's body-VC differs from the pre-patch VC.
+patchTargetFns :: [PatchOp] -> [Statement] -> Maybe [Text]
+patchTargetFns ops stmts =
+  case traverse stmtIndexOfOp ops of
+    Just idxs@(n:_)
+      | all (== n) idxs, n >= 0, n < length stmts
+      , Just (nm, _, _, _, _) <- normalizeDefStmt (stmts !! n) -> Just [nm]
+    _ -> Nothing
+  where
+    stmtIndexOfOp op = case parsePointer (opPathOf op) of
+      ("statements" : nTok : _) -> readIndex nTok
+      _                         -> Nothing
+    opPathOf (PatchReplace p _) = p
+    opPathOf (PatchAdd p _)     = p
+    opPathOf (PatchRemove p)    = p
+    opPathOf (PatchTest p _)    = p
+    readIndex t = case reads (T.unpack t) of { [(k, "")] -> Just k; _ -> Nothing }
+
+-- | R8: @bodyTargets@ slices the re-verify — @Just [F]@ emits only F's body-VC
+-- (the patched function); @Nothing@ re-verifies the whole module (fail-safe).
+reVerify :: FilePath -> [Statement] -> Maybe [Text] -> IO (Maybe (DiagnosticReport, Maybe CalleePreUnmet))
+reVerify fp stmts bodyTargets
   | not (hasContracts stmts) = pure Nothing  -- no contracts → skip
   | otherwise = do
-      -- Emit .fq constraints with body-faithful VCs
-      let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+      -- Emit .fq constraints with body-faithful VCs (R8: sliced to bodyTargets)
+      let emitOpts = defaultEmitOptions { emitBodyVCs = True, emitBodyVCTargets = bodyTargets }
       emitR <- emitFixpointWith emitOpts fp stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR

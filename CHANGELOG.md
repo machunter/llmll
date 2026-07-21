@@ -4,6 +4,27 @@
 
 <a id="Latest"></a>
 
+## v0.14.61 — R8: incremental patch re-verification (2026-07-20)
+
+### Changed — `patch` re-verifies only the patched function, not the whole module
+
+- **Sliced re-verify.** `llmll patch` re-verified the **whole merged module** on every fill
+  (`reVerify` over all statements). It now re-verifies only the **patched function `{F}`**. The slice is
+  **sound and complete**, not heuristic: a patch fills a *body*-position hole (contract-position holes are
+  excluded from checkout, `HoleAnalysis`), so no contract changes; and VCs are assume-guarantee modular
+  (`FixpointEmit` has no cross-function body coupling), so every other function's body-VC is
+  character-identical. Therefore re-verifying `{F}` discharges exactly the obligations that changed.
+  Design + soundness argument: `docs/design/incremental-reverify-r8-proposal.md`.
+- **Implementation.** New `EmitOptions.emitBodyVCTargets :: Maybe [Name]` (`Nothing` = all, the default —
+  every existing caller is unchanged; `Just [F]` = emit only F's body-VC, all contracts still registered as
+  context). `PatchApply.patchTargetFns` resolves `F` from the patch op paths and **fails safe** to
+  whole-module (`Nothing`) on anything unresolvable — a `/statements/-` refine-style add, ops spanning >1
+  statement, or an out-of-range index. No schema/trust/verdict change: identical SAFE/UNSAFE, fewer
+  constraints emitted and solved.
+- Verdict-preservation is proven: every existing patch test passes through the sliced path, plus 4 new
+  `patchTargetFns` unit tests. **1368 examples, 0 failures.** The repair-loop latency benchmark (the
+  roadmap's O(module)→O(1) demonstration) is deferred residue — the correctness/soundness is the shipped part.
+
 ## v0.14.60 — OBLIG-PBT-5b: `tested-joint` evidence tier (2026-07-20)
 
 ### Added — a real `tested-joint` tier for jointly PBT-tested functions

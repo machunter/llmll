@@ -75,7 +75,7 @@ import LLMLL.DivergenceCheck
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson
   , verdictLabel, probeSet )
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts, patchTargetFns)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -2171,6 +2171,23 @@ main = hspec $ do
         `shouldBe` Just "/statements/0/body"
 
   -- =========================================================================
+  -- R8: incremental patch re-verify slice — patchTargetFns resolves the patched
+  -- function so reVerify emits only its body-VC.
+  describe "R8 patchTargetFns (incremental re-verify slice)" $ do
+    let emptyC   = Contract Nothing Nothing Nothing Nothing Nothing
+        mk n     = SDef n [] (Just TInt) emptyC (ELit (LitInt 0))
+        twoFns   = [mk "f", mk "g"]
+    it "resolves the enclosing function from a body op path" $ do
+      patchTargetFns [PatchReplace "/statements/1/body" (String "z")] twoFns `shouldBe` Just ["g"]
+      patchTargetFns [PatchReplace "/statements/0/body" (String "z")] twoFns `shouldBe` Just ["f"]
+    it "fails safe (Nothing → whole module) on a /statements/- refine-style add" $
+      patchTargetFns [PatchAdd "/statements/-" (String "z")] twoFns `shouldBe` Nothing
+    it "fails safe when ops span more than one statement" $
+      patchTargetFns [ PatchReplace "/statements/0/body" (String "a")
+                     , PatchReplace "/statements/1/body" (String "b") ] twoFns `shouldBe` Nothing
+    it "fails safe on an out-of-range statement index" $
+      patchTargetFns [PatchReplace "/statements/9/body" (String "z")] twoFns `shouldBe` Nothing
+
   -- v0.3: PatchApply ops tests (pure, on Value)
   -- =========================================================================
 
@@ -6122,7 +6139,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "IMPL-SUGAR (=> / <=> implication sugar)" $ do
       let emitS src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "IMPL-1: (=> p q) emits byte-identical .fq to (or (not p) q)" $ do
         a <- emitS "(def f [x: int] -> int (post (=> (> x 0) (>= result 0))) (if (> x 0) x 0))"
@@ -6155,7 +6172,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "NIW measure verification (emission)" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "NIW-B1: string-length post is body-faithful with carrier binder, range fact, constant" $ do
         er <- emitSrc "(def-shell f [s: string] (post (>= result 0)) (string-length s))"
@@ -6213,7 +6230,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "BOOL-FRAG (bool in the body-faithful fragment)" $ do
       let emitB src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "BOOL-1 bool param + bool-if + bool-atom-mixed-with-int post is body-faithful" $ do
         er <- emitB "(def gate-mac [n: int mac_ok: bool] -> int (pre (>= n 0)) (post (and (>= result 0) (and (<= result n) (or (<= result 0) mac_ok)))) (if mac_ok n 0))"
@@ -6271,7 +6288,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "ENUM-EQ-FALLBACK (nullary-enum contract atoms stay body-faithful)" $ do
       let emitE src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "ENUM-EQ-1 if-body: ctor-equality atoms on a nullary-enum param in the post are body-faithful" $ do
         er <- emitE "(type E (| A) (| B)) (def f [x: E] -> int (post (and (=> (= x A) (= result 1)) (=> (= x B) (= result 2)))) (if (= x A) 1 2))"
@@ -6359,7 +6376,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "A0-8 verification inertness: a body using array ops falls back (unreflected ops), never crashes emission" $ do
         er <- case parseStatements GrammarCoreInversion "test" (T.pack "(def-shell f [m: map[int,int] k: int] -> int (pre (map-has m k)) (map-get m k))") of
                 Left err -> error (show err)
-                Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+                Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
         erBodyFallback er `shouldSatisfy` elem "f"
 
     -- LEVER-A1 (data-scope-lever-a-arrays-proposal.md §10 stage A1): bytes[n]
@@ -6372,7 +6389,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "LEVER-A1 (bytes[n] static discharge)" $ do
       let emitA1 src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           findSolver = do a <- findExecutable "liquid-fixpoint"
                           maybe (findExecutable "fixpoint") (pure . Just) a
           cruxSrc cmp = unlines
@@ -6507,7 +6524,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "LEVER-A2 (map[int,int] static discharge)" $ do
       let emitA2 src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           findSolver = do a <- findExecutable "liquid-fixpoint"
                           maybe (findExecutable "fixpoint") (pure . Just) a
           solveFq er = do
@@ -7176,7 +7193,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "STRLIT (string-literal distinctness)" $ do
       let emitStr src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           findSolver = do a <- findExecutable "liquid-fixpoint"
                           maybe (findExecutable "fixpoint") (pure . Just) a
           solveStr er = do
@@ -7502,7 +7519,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "Fixpoint sum-type data declaration emission" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           sumSrc = T.concat
             [ "(type Color (| Red unit) (| Green unit) (| Blue unit))\n"
             , "(def f [x: int] -> int (post (>= result 0)) (if (> x 0) x 0))"
@@ -7525,7 +7542,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "NIW refinement-aliased params" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           word = "(type Word (where [s: string] (> (string-length s) 0)))\n"
           blockid = "(type BlockID (where [s: string] (regex-match \"^[a-f0-9]+$\" s)))\n"
 
@@ -7581,7 +7598,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "NIW intro-side call-pre (F-NIW-2)" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           word = "(type Word (where [s: string] (> (string-length s) 0)))\n"
           wlen = "(def wlen [w: Word] (post (> result 0)) (string-length w))\n"
 
@@ -7611,7 +7628,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "F-NIW-3 qualifier/identifier sanitization" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "F3-1: emitPred maps illegal identifier chars to underscore" $ do
         emitPred (FQVar "measure-word") `shouldBe` "measure_word"
@@ -7747,7 +7764,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
-            emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            emitR <- emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
             -- v0.8.0: standalone post is suppressed when body VCs are active.
             -- Instead, body-faithful VC is the correct proof obligation.
             erEmittedPost emitR `shouldBe` []  -- standalone post not emitted
@@ -7904,7 +7921,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  (let [[t (sub1 x a)]] (sub1 t b)))" ]
         er <- case parseStatements GrammarCoreInversion "test" (T.pack src) of
                 Left e      -> error ("parse failed: " <> show e)
-                Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+                Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
         erBodyFaithfulFns er `shouldSatisfy` elem "sub2"   -- the let-call-chain is body-faithful
         erCallPreFns er      `shouldSatisfy` elem "sub2"   -- the 2nd call emits a call-pre obligation
         erSkipped er         `shouldSatisfy` not . elem "sub2"
@@ -7916,7 +7933,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "F-NIW-4b let-value into call-pre" $ do
       let emitN4b src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
             Left e      -> error ("parse failed: " <> show e)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           g = "(def-shell g [a: int] (pre (>= a 2)) (post (>= result 0)) a)\n"
 
       it "F4b-1: a let-bound non-call value feeding a callee pre is body-faithful (no free var)" $ do
@@ -7951,7 +7968,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseStatements GrammarCoreInversion "test.llmll" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
-            emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            emitR <- emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
             erCallPreFns emitR `shouldSatisfy` elem "withdraw"
             erBodyFaithfulFns emitR `shouldSatisfy` elem "safe-sub"
             erBodyFaithfulFns emitR `shouldSatisfy` elem "withdraw"
@@ -8045,7 +8062,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "EMatch on Result + refinement return (COMP-3b)" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           word = "(type Word (where [x: int] (and (>= x 0) (<= x 65535))))\n"
           clampSrc = word
             <> "(def clamp-result [r: Result[int, string]] -> Word "
@@ -8092,7 +8109,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "COMP-3b-general: opaque-sum elimination (nested + localization)" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
           word = "(type Word (where [x: int] (and (>= x 0) (<= x 65535))))\n"
           nestedSrc = word
             <> "(def clamp-nested [r: Result[int, string]] -> Word "
@@ -8166,7 +8183,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "COMP-4 (d-elim): two-arm user-ADT opaque-sum elimination" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "DELIM-1: a match on an admissible two-arm USER ADT is body-faithful (beyond Result)" $ do
         er <- emitSrc (T.unlines
@@ -8207,7 +8224,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "MATCH-WIDEN-2: n-arm payload-bearing sum matches" $ do
       let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "MW2A-1: a 3-arm mixed sum (nullary + two payloads) is body-faithful" $ do
         er <- emitSrc (T.unlines
@@ -8425,7 +8442,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (pair (- from amount) (+ to amount)))" ]
           emitText src = case parseStatements GrammarCoreInversion "<test>" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> erFQText <$> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> erFQText <$> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "PR-1: exprToPred reflects first/second/pair to the Pair2 selector/ctor terms" $ do
         exprToPred (EApp "first"  [EVar "r"])    `shouldBe` Just (FQApp "pair2_0" [FQVar "r"])
@@ -8480,7 +8497,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           treeAm = Map.fromList [("Tree", TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)])]
           emitR src = case parseStatements GrammarCoreInversion "<test>" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "PR2-1: typeToSortA lowers (int, Box) to (Pair2 int Box) — sum component preserved" $
         typeToSortA boxAm (TPair TInt (TCustom "Box"))
@@ -8534,7 +8551,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           treeAm = Map.fromList [("Tree", TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)])]
           emitR src = case parseStatements GrammarCoreInversion "<test>" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "CR-1: typeToSortA lowers Result to the native (Result a b) datatype sort" $ do
         typeToSortA Map.empty (TResult TInt TInt) `shouldBe` FQDataApp "Result" [FQInt, FQInt]
@@ -8612,7 +8629,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           colorTags = buildCtorTagMap colorAliases
           emitSrc src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
 
       it "CG-1: buildCtorTagMap assigns declaration-index tags to a nullary enum" $
         colorTags `shouldBe` Map.fromList [("Red", 0), ("Green", 1), ("Blue", 2)]
@@ -9275,7 +9292,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (post (= result (- b amt)))"
             , "  (withdraw b amt))" ]      -- flat call → emitter supports it
           flatStmts = parse flatSrc
-      flatR <- emitFixpointWith (EmitOptions True) "<test>" flatStmts
+      flatR <- emitFixpointWith (EmitOptions True Nothing) "<test>" flatStmts
       -- Exactly one 'call-pre:withdraw' origin (one call site).
       let flatOrigins = [ o | o <- Map.elems (erConstraintTable flatR)
                             , "call-pre:" `T.isPrefixOf` coClause o ]
@@ -9294,14 +9311,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- Nested-call fixture (§10 withdraw-twice): A-normalization lifts the
       -- nested-call argument into a let, so BOTH withdraw call sites now emit a
       -- call-pre origin (the two the proposal prose anticipated).
-      wtR <- emitFixpointWith (EmitOptions True) "<test>" (parse withdrawTwiceSrc)
+      wtR <- emitFixpointWith (EmitOptions True Nothing) "<test>" (parse withdrawTwiceSrc)
       let wtOrigins = [ coClause o | o <- Map.elems (erConstraintTable wtR)
                                    , "call-pre:" `T.isPrefixOf` coClause o ]
       length wtOrigins `shouldBe` 2
       all (== "call-pre:withdraw") wtOrigins `shouldBe` True
 
       -- quadruple over pre-free double: zero call-pre obligations (no pre).
-      qEmit <- emitFixpointWith (EmitOptions True) "<test>" (parse quadrupleSrc)
+      qEmit <- emitFixpointWith (EmitOptions True Nothing) "<test>" (parse quadrupleSrc)
       length [ () | o <- Map.elems (erConstraintTable qEmit)
                   , "call-pre:" `T.isPrefixOf` coClause o ] `shouldBe` 0
 
@@ -10815,7 +10832,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarCoreInversion "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
-          emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
+          emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
           erOverflowTaintedFns emitR `shouldBe` []
           erBodyFaithfulFns    emitR `shouldBe` ["add-one"]
 
@@ -10832,7 +10849,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarCoreInversion "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
-          emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T11.llmll" stmts
+          emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "T11.llmll" stmts
           erOverflowTaintedFns emitR `shouldBe` []
 
     -- T12: VerifiedCache round-trip: erOverflowTainted=True survives JSON encode/decode.

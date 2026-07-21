@@ -131,10 +131,26 @@ import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 -- | Options controlling what the emitter generates.
 data EmitOptions = EmitOptions
   { emitBodyVCs :: Bool   -- ^ Emit body-faithful verification conditions
+  , emitBodyVCTargets :: Maybe [Name]
+      -- ^ R8 (incremental patch re-verify): when @Just names@, emit body-VC
+      -- constraints ONLY for these functions. All functions' contracts are still
+      -- registered (assume-guarantee context), so a targeted function's body-VC is
+      -- byte-identical to the whole-module emission — only the untargeted functions'
+      -- body-VCs are omitted. @Nothing@ (the default) = every function. Sound for a
+      -- patch because a patch fills one function's body hole: contracts never change
+      -- (contract-position holes are excluded from checkout, 'HoleAnalysis') and VCs
+      -- are assume-guarantee modular ('FixpointEmit' has no cross-function body
+      -- coupling), so only the patched function's body-VC differs.
   } deriving (Show, Eq)
 
 defaultEmitOptions :: EmitOptions
-defaultEmitOptions = EmitOptions { emitBodyVCs = False }
+defaultEmitOptions = EmitOptions { emitBodyVCs = False, emitBodyVCTargets = Nothing }
+
+-- | R8: is this function targeted for body-VC emission? @Nothing@ targets = all.
+bodyVCTargeted :: EmitOptions -> Name -> Bool
+bodyVCTargeted opts nm = case emitBodyVCTargets opts of
+  Nothing    -> True
+  Just names -> nm `elem` names
 
 -- ---------------------------------------------------------------------------
 -- Result
@@ -784,7 +800,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
 
     -- v0.8.0: Emit body-faithful verification conditions
     -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q
-    when (emitBodyVCs opts) $ case mBody of
+    when (emitBodyVCs opts && bodyVCTargeted opts name) $ case mBody of
       Nothing -> pure ()  -- letrec: no body VC (recursive, excluded from BODY-VC-0)
       Just body -> do
         -- Fallback policy (§0.7): require translatable post. If pre exists, it must
