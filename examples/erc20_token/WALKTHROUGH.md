@@ -81,7 +81,7 @@ Spec Coverage Report
 llmll verify examples/erc20_token/erc20_filled.ast.json --weakness-check
 ```
 
-No weaknesses expected — all functions have meaningful, non-trivially-satisfiable contracts.
+Two confirmed weaknesses expected: `total-supply` and `balance-of` carry a trivially-satisfiable post (`result >= 0`, satisfied by the identity body). The other candidates report as unknown (body translation outside the checkable QF-LIA fragment), not confirmed weak. Strengthening these two posts is deferred with the erc20 richer-benchmark; they are recorded as expected in `EXPECTED_RESULTS.json` so `benchmark-erc20.sh` has teeth against a *new* weakness.
 
 ---
 

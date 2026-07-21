@@ -118,17 +118,15 @@ echo "▸ Running --weakness-check ..."
 # if solver is not installed, skip gracefully.
 if command -v fixpoint &> /dev/null || command -v liquid-fixpoint &> /dev/null; then
   WEAK_OUTPUT=$(cd "$REPO_ROOT/compiler" && $LLMLL verify "$FILLED" --weakness-check 2>&1 || true)
-  if echo "$WEAK_OUTPUT" | grep -q "No spec weaknesses detected"; then
-    check_result "no weak functions" "true" "true"
-  elif echo "$WEAK_OUTPUT" | grep -q "SAFE"; then
-    # SAFE but no weakness message = no weaknesses
-    check_result "no weak functions (SAFE)" "true" "true"
-  elif echo "$WEAK_OUTPUT" | grep -q "spec weakness"; then
-    check_result "no weak functions" "true" "false"
-  else
-    echo "  ⚠ weakness-check produced unexpected output — skipped"
-    echo "    output: $(echo "$WEAK_OUTPUT" | head -3)"
-  fi
+  # Count CONFIRMED weaknesses ("Spec weakness detected for <fn>") and compare
+  # against the frozen expected list. This is distinct from the "could not be
+  # validated ... unknown, not confirmed weak" candidates AND from the verify
+  # `SAFE` banner — the old cascade tested `SAFE` before `spec weakness`, so the
+  # weakness branch was unreachable and the gate dead-passed regardless. Now the
+  # gate has teeth: a NEW confirmed weakness, or a dropped one, fails the check.
+  EXPECTED_WEAK=$(jq '.expected_weakness_check.weak_functions | length' "$EXPECTED")
+  ACTUAL_WEAK=$(echo "$WEAK_OUTPUT" | grep -c "Spec weakness detected for")
+  check_result "confirmed weak functions" "$EXPECTED_WEAK" "$ACTUAL_WEAK"
 else
   echo "  ⚠ liquid-fixpoint not installed — weakness check skipped"
 fi
