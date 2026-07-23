@@ -36,7 +36,7 @@ import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, hole
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
-import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, maxFuel)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
@@ -9879,6 +9879,65 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           `shouldBe` Just (ELit (LitBool True))
         evalExprStatic Map.empty (EOp "=" [ELit (LitString "hello"), ELit (LitString "hello")])
           `shouldBe` Just (ELit (LitBool True))
+
+    -- Map operations in the test-path static evaluator. 'map-has' is TOTAL
+    -- (always a Bool); 'map-get' is PARTIAL — an absent key returns Nothing so
+    -- PBT discards the sample per the map-has precondition (LLMLL.md §13.12),
+    -- rather than fabricating a value. Store-chain is last-writer-wins.
+    describe "Static evaluator map semantics" $ do
+      let m1 = EApp "map-put" [EApp "map-empty" [], ELit (LitInt 7), ELit (LitString "x")]
+      it "(map-has (map-put (map-empty) 7 \"x\") 7) = True" $
+        evalExprStatic Map.empty (EApp "map-has" [m1, ELit (LitInt 7)])
+          `shouldBe` Just (ELit (LitBool True))
+      it "(map-has ... 9) = False on an absent key (total)" $
+        evalExprStatic Map.empty (EApp "map-has" [m1, ELit (LitInt 9)])
+          `shouldBe` Just (ELit (LitBool False))
+      it "(map-has (map-empty) 7) = False" $
+        evalExprStatic Map.empty (EApp "map-has" [EApp "map-empty" [], ELit (LitInt 7)])
+          `shouldBe` Just (ELit (LitBool False))
+      it "(map-get ... 7) = \"x\" on a present key" $
+        evalExprStatic Map.empty (EApp "map-get" [m1, ELit (LitInt 7)])
+          `shouldBe` Just (ELit (LitString "x"))
+      it "(map-get ... 9) = Nothing on an absent key (PBT discards)" $
+        evalExprStatic Map.empty (EApp "map-get" [m1, ELit (LitInt 9)])
+          `shouldBe` Nothing
+      it "(map-get (map-empty) 7) = Nothing (empty base, PBT discards)" $
+        evalExprStatic Map.empty (EApp "map-get" [EApp "map-empty" [], ELit (LitInt 7)])
+          `shouldBe` Nothing
+      it "map-get is last-writer-wins on a duplicate key" $ do
+        let m2 = EApp "map-put" [m1, ELit (LitInt 7), ELit (LitString "b")]
+        evalExprStatic Map.empty (EApp "map-get" [m2, ELit (LitInt 7)])
+          `shouldBe` Just (ELit (LitString "b"))
+
+    -- Bytes operations in the test-path static evaluator. 'bytes-zero' length is
+    -- reified by 'buildFuncEnv' from the def's declared bytes[n] return, so
+    -- 'bytes-get' discards an out-of-bounds read (Nothing) rather than
+    -- fabricate a byte. 'bytes-set' overrides; the base reads 0.
+    describe "Static evaluator bytes semantics" $ do
+      -- sample-buffer : -> bytes[8] = (bytes-zero); length reified by buildFuncEnv
+      let stmts = [ SDef "sample-buffer" [] (Just (TBytes 8))
+                      (Contract Nothing Nothing Nothing Nothing Nothing)
+                      (EApp "bytes-zero" []) ]
+          fe    = buildFuncEnv stmts
+          buf   = EApp "sample-buffer" []
+          ev e  = evalExprStaticWith fe maxFuel Map.empty e
+      it "(bytes-get (sample-buffer) 0) = 0 in bounds" $
+        ev (EApp "bytes-get" [buf, ELit (LitInt 0)]) `shouldBe` Just (ELit (LitInt 0))
+      it "(bytes-get (sample-buffer) 7) = 0 at the last in-bounds index" $
+        ev (EApp "bytes-get" [buf, ELit (LitInt 7)]) `shouldBe` Just (ELit (LitInt 0))
+      it "(bytes-get (sample-buffer) 8) = Nothing OOB (PBT discards, not fabricated 0)" $
+        ev (EApp "bytes-get" [buf, ELit (LitInt 8)]) `shouldBe` Nothing
+      it "(bytes-length (sample-buffer)) = 8 from the reified tag" $
+        ev (EApp "bytes-length" [buf]) `shouldBe` Just (ELit (LitInt 8))
+      it "get-after-set reads the set value at that index" $ do
+        let setb = EApp "bytes-set" [buf, ELit (LitInt 3), ELit (LitInt 42)]
+        ev (EApp "bytes-get" [setb, ELit (LitInt 3)]) `shouldBe` Just (ELit (LitInt 42))
+      it "get-after-set reads 0 at an untouched index" $ do
+        let setb = EApp "bytes-set" [buf, ELit (LitInt 3), ELit (LitInt 42)]
+        ev (EApp "bytes-get" [setb, ELit (LitInt 4)]) `shouldBe` Just (ELit (LitInt 0))
+      it "bytes-get on an un-reified (untagged) base discards" $
+        evalExprStatic Map.empty (EApp "bytes-get" [EApp "bytes-zero" [], ELit (LitInt 0)])
+          `shouldBe` Nothing
 
     -- OBLIG-PBT-2 / F-032: complex-type PBT generators + extended static
     -- evaluator. The previous evaluator skipped any property whose for-all

@@ -355,10 +355,20 @@ maxFuel = 256
 -- Excludes SLetrec (explicitly recursive — would need decreases measure).
 buildFuncEnv :: [Statement] -> FuncEnv
 buildFuncEnv stmts = Map.fromList
-  [ (name, (map fst params, body))
+  [ (name, (map fst params, reifyBytesLen mRet body))
   | stmt <- stmts
-  , Just (name, params, _mRet, _contract, body) <- [normalizeDefStmt stmt]
+  , Just (name, params, mRet, _contract, body) <- [normalizeDefStmt stmt]
   ]
+  where
+    -- Reify the declared bytes[n] length into a whole-body 'bytes-zero' so the
+    -- test-path evaluator can decide the 'bytes-get' 0<=i<n precondition and
+    -- discard an out-of-bounds read rather than fabricate a byte. §13.12
+    -- restricts 'bytes-zero' to a whole def body, so this covers every legal
+    -- occurrence; any other form is left untagged and a get on it discards.
+    reifyBytesLen :: Maybe Type -> Expr -> Expr
+    reifyBytesLen (Just (TBytes n)) (EApp "bytes-zero" []) =
+      EApp "bytes-zero" [ELit (LitInt (toInteger n))]
+    reifyBytesLen _ b = b
 
 -- ---------------------------------------------------------------------------
 -- Minimal Symbolic Evaluator
@@ -559,7 +569,85 @@ evalBuiltinApp _ _ "string-empty?" [ELit (LitString s)] =
   Just (ELit (LitBool (T.null s)))
 evalBuiltinApp _ _ "string-empty?" _ = Nothing
 
+-- Map operations (test-path static evaluator). Constructors reduce to a
+-- normalized store-chain over 'map-empty'; destructors walk it outermost-first
+-- (last-writer-wins). 'map-has' is TOTAL — it always reduces to a Bool.
+-- 'map-get' is PARTIAL: an absent key (or a 'map-empty' base) returns Nothing,
+-- so PBT discards the sample per the 'map-has' precondition (LLMLL.md §13.12).
+-- Keys and values are already-reduced literals here (the EApp handler reduces
+-- args before dispatch), compared by derived Eq.
+evalBuiltinApp _ _ "map-empty" []      = Just (EApp "map-empty" [])
+evalBuiltinApp _ _ "map-put" [m, k, v] = Just (EApp "map-put" [m, k, v])
+evalBuiltinApp _ _ "map-has" [m, k]    = Just (ELit (LitBool (mapChainHas m k)))
+evalBuiltinApp _ _ "map-get" [m, k]    = mapChainLookup m k
+
+-- Bytes operations (test-path static evaluator). 'bytes-zero' is length-tagged
+-- by 'buildFuncEnv'; 'bytes-set' builds an override chain over it. 'bytes-get'
+-- is PARTIAL on the 0<=i<n precondition (LLMLL.md §13.12): an out-of-bounds
+-- index (or an untagged, length-unknown base) returns Nothing, so PBT discards
+-- the sample rather than fabricating a byte. 'bytes-length' reads the tag.
+evalBuiltinApp _ _ "bytes-zero" [ELit (LitInt n)] =
+  Just (EApp "bytes-zero" [ELit (LitInt n)])
+evalBuiltinApp _ _ "bytes-set" [b, i, v]          = Just (EApp "bytes-set" [b, i, v])
+evalBuiltinApp _ _ "bytes-length" [b]             = ELit . LitInt <$> bytesChainLen b
+evalBuiltinApp _ _ "bytes-get" [b, ELit (LitInt i)] = bytesChainGet b i
+
 evalBuiltinApp _ _ _ _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Map Helpers (test-path static evaluator)
+-- ---------------------------------------------------------------------------
+-- Walk a normalized 'map-put' store-chain over a 'map-empty' base,
+-- outermost-first. Structurally decreasing on a finite chain, so no fuel is
+-- threaded (the walk applies no lambda). Keys are compared by derived Eq on the
+-- reduced literal argVals.
+
+-- | True iff key 'k' is present in the store-chain (presence is
+-- order-independent; walk order only matters for last-writer-wins lookup).
+mapChainHas :: Expr -> Expr -> Bool
+mapChainHas (EApp "map-put" [inner, k', _]) k
+  | k' == k   = True
+  | otherwise = mapChainHas inner k
+mapChainHas _ _ = False
+
+-- | Value at key 'k', last-writer-wins (outermost 'map-put' first). Nothing on
+-- an absent key or the 'map-empty' base — the 'map-has' precondition is
+-- violated there, so PBT discards the sample rather than fabricating a value.
+mapChainLookup :: Expr -> Expr -> Maybe Expr
+mapChainLookup (EApp "map-put" [inner, k', v]) k
+  | k' == k   = Just v
+  | otherwise = mapChainLookup inner k
+mapChainLookup _ _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Bytes Helpers (test-path static evaluator)
+-- ---------------------------------------------------------------------------
+-- Walk a 'bytes-set' override chain over a length-tagged 'bytes-zero' base.
+
+-- | Length carried by a bytes normal form: the tagged 'bytes-zero' base, which
+-- 'bytes-set' preserves. Nothing if the base is untagged (e.g. a bytes param or
+-- an un-reified 'bytes-zero'), so a get on it cannot certify in-bounds.
+bytesChainLen :: Expr -> Maybe Integer
+bytesChainLen (EApp "bytes-zero" [ELit (LitInt n)]) = Just n
+bytesChainLen (EApp "bytes-set" [b, _, _])          = bytesChainLen b
+bytesChainLen _                                     = Nothing
+
+-- | Byte at index 'i' over the override chain (outermost 'bytes-set' first);
+-- the 'bytes-zero' base reads 0. Nothing when 'i' is outside the declared
+-- 0<=i<n bound (the 'bytes-get' precondition is violated → PBT discards) or the
+-- base length is unknown.
+bytesChainGet :: Expr -> Integer -> Maybe Expr
+bytesChainGet b i = do
+  n <- bytesChainLen b
+  if i < 0 || i >= n
+    then Nothing
+    else Just (ELit (LitInt (bytesWalk b i)))
+  where
+    bytesWalk (EApp "bytes-set" [base, ELit (LitInt j), ELit (LitInt v)]) idx
+      | j == idx  = v
+      | otherwise = bytesWalk base idx
+    bytesWalk (EApp "bytes-set" [base, _, _]) idx = bytesWalk base idx
+    bytesWalk _ _ = 0
 
 -- ---------------------------------------------------------------------------
 -- List Helpers (OBLIG-PBT-2 / F-032)
