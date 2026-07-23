@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.14.63 — fix: map/bytes ops in the property-test evaluator (2026-07-23)
+
+### Fixed — `llmll test` property-checks map/bytes code instead of skipping it
+
+- **Discard, not skip.** The static property evaluator (`evalBuiltinApp` in `Contracts.hs`, driving
+  `llmll test` via `PBT.hs`) had no reduction clauses for `map-has`/`map-get`/`map-put`/`map-empty` or
+  `bytes-get`/`bytes-set`/`bytes-zero`/`bytes-length`, so every `check` body calling one failed to reduce,
+  QuickCheck discarded all samples, and the property reported **`Skipped`** with no `tested` evidence. Now
+  those bodies reduce: present-key and in-bounds reads evaluate and count.
+- **Precondition-guarded discard.** A sample that violates a callee precondition — an absent key for
+  `map-get`, an out-of-bounds index for `bytes-get` (§13.12) — is **discarded**, contributing to neither the
+  pass count nor a falsification, rather than fabricating a value. `map-has` is total; `map-get`/`bytes-get`
+  are partial. Maps use a McCarthy store-chain (last-writer-wins); `buildFuncEnv` reifies a whole-body
+  `bytes-zero`'s declared `bytes[n]` length so `bytes-get` can decide the bound. This keeps the §4.4.5
+  PBT-Lift sound: a fabricated pass on an out-of-precondition read would mint unsound `tested` evidence.
+- **Verify path unchanged.** `FixpointEmit.hs` and the SMT trust closure are untouched; map/bytes still
+  verify in the QF-LIA array class (§5.3.3). Spec gap closed: the precondition-guarded discard semantics is
+  now stated in `LLMLL.md §4.4.5`. No CLI, flag, or schema change. **1384 Haskell examples, 0 failures**
+  (Python suite unchanged at 45).
+
 ## v0.14.62 — fix: boolean-return sort for annotation-less predicate helpers (2026-07-21)
 
 ### Fixed — `verify` no longer crashes liquid-fixpoint on a boolean predicate used as an `if`-guard
