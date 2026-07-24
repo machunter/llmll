@@ -1026,53 +1026,89 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
-              (Just (steps, (hT, vT)), _) -> do
-                -- LEVER-A2.1: chain-step binders — pins ride the binder
-                -- refinement (the F-NIW-4b discipline), so both the presence
-                -- obligations and the final constraint see them via the env.
-                stepBindIds <- forM steps $ \st -> do
-                  bid <- freshBid
-                  case st of
-                    -- A2.2-string: the get-step binder carries the chain's value
-                    -- sort (Str for a string-map read) so the pin is well-sorted.
-                    MRGet v _ sel vSort ->
-                      addBind (FQBind bid v (FQReft "v" vSort
-                                (FQBinPred FQEq (FQVar "v") sel)))
-                    MRDef v t ->
-                      addBind (FQBind bid v (FQReft "v" FQInt
-                                (FQBinPred FQEq (FQVar "v") t)))
-                  return bid
-                -- A2.2-string: result$val threads the return type's value-array
-                -- sort ((Map_t int Str) for a string-valued map return).
-                rhbid <- freshBid
-                addBind (FQBind rhbid "result$has"
-                          (FQReft "v" (maybe mapArraySort (mapHasArraySort aliases) mRet) FQTrue))
-                rvbid <- freshBid
-                addBind (FQBind rvbid "result$val"
-                          (FQReft "v" (maybe mapArraySort (mapValArraySort aliases) mRet) FQTrue))
-                -- LEVER-A2.1: PROVE-polarity presence obligation per chain get.
-                let getObls = [ pres | MRGet _ pres _ _ <- steps ]
-                unless (null getObls) (addCallPre name)
-                forM_ getObls $ \pres -> do
-                  ocid <- freshCid
-                  let olhs = FQReft "v" FQInt (conjoinAll (maybe [] (:[]) mPre))
-                      orhs = FQReft "v" FQInt pres
-                      oc = FQConstraint ocid (envIds ++ stepBindIds) olhs orhs
-                             [name, "call-pre:map-get"]
-                  addConst oc
-                  let optr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                  addOrigin ocid (ConstraintOrigin name "call-pre:map-get" optr srcFile)
-                cid <- freshCid
-                let pins = [ FQBinPred FQEq (FQVar "result$has") hT
-                           , FQBinPred FQEq (FQVar "result$val") vT ]
-                    lhsPred = conjoinAll (maybe [] (:[]) mPre ++ pins)
-                    lhs = FQReft "result" FQInt lhsPred
-                    rhs = FQReft "result" FQInt postPred
-                    c = FQConstraint cid (envIds ++ stepBindIds ++ [rhbid, rvbid]) lhs rhs [name, "body-post"]
-                addConst c
-                let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                addOrigin cid (ConstraintOrigin name "body-post" ptr srcFile)
-                addBodyFaithful name
+              (Just tree, _) -> do
+                -- F-011.3: flatten the guarded map-return tree; each leaf is one
+                -- component-pin constraint with its path guard conjoined onto the
+                -- LHS and its arm tag from provenance. A branch-free body is a
+                -- single Nothing-provenance leaf with empty guards — byte-identical
+                -- to the pre-F-011.3 straight-line emission (binder/constraint
+                -- counters advance in the same order). Preserve the 4096-path cap
+                -- (§6.1): a pathological branch fan-out falls back whole rather
+                -- than emitting past the cap.
+                let leaves = flattenMapRetTree tree
+                    isMRGet MRGet{} = True
+                    isMRGet _       = False
+                if length (take 4097 leaves) > 4096
+                  then do
+                    addBodyFallback name
+                    addDiag $ mkWarning Nothing $
+                      "body VC for '" <> name <> "' exceeded 4096 path limit — "
+                      <> "falling back to contract-only verification"
+                  else do
+                  -- Record the call-pre marker once per function (any leaf with a
+                  -- chain get emits a presence obligation); 'addCallPre' appends,
+                  -- so keep it out of the per-leaf loop to avoid duplicate entries.
+                  when (any (\(steps, _, _, _) -> any isMRGet steps) leaves)
+                       (addCallPre name)
+                  forM_ leaves $ \(steps, guards, (hT, vT), prov) -> do
+                    -- LEVER-A2.1: chain-step binders — pins ride the binder
+                    -- refinement (the F-NIW-4b discipline), so both the presence
+                    -- obligations and the final constraint see them via the env.
+                    stepBindIds <- forM steps $ \st -> do
+                      bid <- freshBid
+                      case st of
+                        -- A2.2-string: the get-step binder carries the chain's value
+                        -- sort (Str for a string-map read) so the pin is well-sorted.
+                        MRGet v _ sel vSort ->
+                          addBind (FQBind bid v (FQReft "v" vSort
+                                    (FQBinPred FQEq (FQVar "v") sel)))
+                        MRDef v t ->
+                          addBind (FQBind bid v (FQReft "v" FQInt
+                                    (FQBinPred FQEq (FQVar "v") t)))
+                      return bid
+                    -- A2.2-string: result$val threads the return type's value-array
+                    -- sort ((Map_t int Str) for a string-valued map return).
+                    rhbid <- freshBid
+                    addBind (FQBind rhbid "result$has"
+                              (FQReft "v" (maybe mapArraySort (mapHasArraySort aliases) mRet) FQTrue))
+                    rvbid <- freshBid
+                    addBind (FQBind rvbid "result$val"
+                              (FQReft "v" (maybe mapArraySort (mapValArraySort aliases) mRet) FQTrue))
+                    -- LEVER-A2.1: PROVE-polarity presence obligation per chain get.
+                    -- F-011.3: the path guard gates each obligation — a shared get
+                    -- ahead of a branch is proven under g and under ¬g (jointly
+                    -- unconditional); an arm-local get only under its arm's guard.
+                    let getObls = [ pres | MRGet _ pres _ _ <- steps ]
+                    forM_ getObls $ \pres -> do
+                      ocid <- freshCid
+                      let olhs = FQReft "v" FQInt (conjoinAll (maybe [] (:[]) mPre ++ guards))
+                          orhs = FQReft "v" FQInt pres
+                          oc = FQConstraint ocid (envIds ++ stepBindIds) olhs orhs
+                                 [name, "call-pre:map-get"]
+                      addConst oc
+                      let optr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                      addOrigin ocid (ConstraintOrigin name "call-pre:map-get" optr srcFile)
+                    cid <- freshCid
+                    -- F-011.3: the else-arm's `result$has = m$has ∧ result$val = m$val`
+                    -- for a returned param map is the body-VC aliasing of `result`
+                    -- to ⟦body⟧ (component-pin discipline), NOT a surface `(= result m)`
+                    -- of two independently-built maps — so it does not trip the
+                    -- whole-structure-`=` firewall (contract channel only). Same
+                    -- discipline MAP-RET-CALL already ships for call tails.
+                    let pins = [ FQBinPred FQEq (FQVar "result$has") hT
+                               , FQBinPred FQEq (FQVar "result$val") vT ]
+                        lhsPred = conjoinAll (maybe [] (:[]) mPre ++ guards ++ pins)
+                        lhs = FQReft "result" FQInt lhsPred
+                        rhs = FQReft "result" FQInt postPred
+                        tag = case prov of
+                                Nothing    -> "body-post"
+                                Just True  -> "body-post-then"
+                                Just False -> "body-post-else"
+                        c = FQConstraint cid (envIds ++ stepBindIds ++ [rhbid, rvbid]) lhs rhs [name, tag]
+                    addConst c
+                    let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                    addOrigin cid (ConstraintOrigin name tag ptr srcFile)
+                  addBodyFaithful name
               (Nothing, Nothing) -> addBodyFallback name  -- body outside QF-LIA fragment
               (Nothing, Just bvc) -> do
                 -- Path count check (bounded)
@@ -2069,6 +2105,19 @@ data MapRetStep
   = MRGet Name FQPred FQPred FQSort  -- ^ bound var, presence pred (PROVE), value select (pin), value sort (A2.2-string: Str for a string-map read, else int)
   | MRDef Name FQPred                 -- ^ bound var, defining scalar term (pin)
 
+-- | F-011.3: a guarded tree of map-return leaves. A 'Leaf' carries the
+-- straight-line steps peeled on its path (each 'MRGet' its presence obligation
+-- and pin, each 'MRDef' its scalar pin) plus the terminal component pair; a
+-- 'Branch' carries the reflected guard and its two arms. Reflecting an @if@
+-- through the array-valued result is sound and stays in QF_AUFLIA (same
+-- fragment as the straight-line map path): each leaf becomes one component-pin
+-- constraint with the path guard conjoined onto its LHS and the arm tag taken
+-- from provenance (§6.1 exact-reflection; a branch-free body is a single Leaf,
+-- byte-identical to the pre-F-011.3 straight-line emission).
+data MapRetTree
+  = Leaf [MapRetStep] (FQPred, FQPred)
+  | Branch FQPred MapRetTree MapRetTree
+
 -- | LEVER-A2.1 (read-modify-write class): peel a straight-line, ANF'd,
 -- let-expanded map-returning body — a spine of lets whose RHSs are map-gets
 -- or scalar int terms, terminating in a pure map term. Each map-get step
@@ -2080,7 +2129,7 @@ data MapRetStep
 -- passed to the terminal translation — a bare `(map-empty)` (or an empty-rooted
 -- put chain whose value doesn't reveal the sort) on a string-map return then
 -- emits the Str-defaulted value array (the hz1 elaborator-crash fix).
-mapRetChain :: FQSort -> SortEnv -> Expr -> Maybe ([MapRetStep], (FQPred, FQPred))
+mapRetChain :: FQSort -> SortEnv -> Expr -> Maybe MapRetTree
 mapRetChain esRet se0 = go se0
   where
     go se (ELet [(PVar v, _, rhs0)] body)
@@ -2097,17 +2146,52 @@ mapRetChain esRet se0 = go se0
               let pres  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
                   sel   = FQApp "Map_select" [vl, k]
                   vSort = mapSelValSort se vl
-              (steps, term) <- go (Map.insert v vSort se) body
-              pure (MRGet v pres sel vSort : steps, term)
+              sub <- go (Map.insert v vSort se) body
+              pure (prependStep (MRGet v pres sel vSort) sub)
             rhs -> do
               t <- scalarIntTerm Map.empty se rhs
-              (steps, term) <- go (Map.insert v FQInt se) body
-              pure (MRDef v t : steps, term)
+              sub <- go (Map.insert v FQInt se) body
+              pure (prependStep (MRDef v t) sub)
+    -- F-011.3: reflect an `if` through the array-valued result. The body is
+    -- ANF'd before this runs, so a guard's `map-get` operands are hoisted to
+    -- seeded lets ahead of the branch — the guard is var-operand, so the
+    -- existing var-operand classifier ('guardToPredM'/'classifyGuardM', whose
+    -- State counter is inert for guards) suffices. An un-reflectable guard, or
+    -- an un-reflectable arm, → Nothing → whole-body fallback (§6.1: never a
+    -- partial reflection). Terminal arms accept a param-map root and a pure
+    -- map-put/map-empty chain (both exact reflections via 'mapPairTermsBWith').
+    go se (EIf c t e) = do
+      g  <- evalState (guardToPredM Map.empty se c) 0
+      tt <- go se t
+      et <- go se e
+      pure (Branch g tt et)
     go se (ELet (b:bs) body) = go se (ELet [b] (ELet bs body))
     go se (ELet [] body)     = go se body
-    go se e                  = (,) [] <$> mapPairTermsBWith esRet Map.empty se e
+    go se e                  = Leaf [] <$> mapPairTermsBWith esRet Map.empty se e
     normOp (EOp f as) = EApp f as
     normOp e          = e
+    -- Push a peeled step down to every leaf it dominates (shared lets ahead of a
+    -- branch land in both arms; each leaf then emits its own binder — safe, the
+    -- generic per-path emission duplicates path binders the same way).
+    prependStep :: MapRetStep -> MapRetTree -> MapRetTree
+    prependStep st (Leaf steps term) = Leaf (st : steps) term
+    prependStep st (Branch g l r)    = Branch g (prependStep st l) (prependStep st r)
+
+-- | F-011.3: flatten a 'MapRetTree' to one entry per leaf —
+-- @(path steps, accumulated guard predicates, terminal component pair,
+-- outermost-branch provenance)@. Guards accumulate top-down (@¬g@ on the else
+-- arm); provenance is the OUTERMOST branch side (@Nothing@ for a branch-free
+-- tree), mirroring 'pathBranchSides' so a refuted arm localizes structurally
+-- (@body-post-then@/@body-post-else@) rather than by a path-index midpoint.
+flattenMapRetTree :: MapRetTree -> [([MapRetStep], [FQPred], (FQPred, FQPred), Maybe Bool)]
+flattenMapRetTree = go [] Nothing
+  where
+    go accG prov (Leaf steps term) = [(steps, accG, term, prov)]
+    go accG prov (Branch g l r)    =
+         go (accG ++ [g])       (setProv True  prov) l
+      ++ go (accG ++ [FQNot g]) (setProv False prov) r
+    setProv side Nothing = Just side
+    setProv _    p       = p
 
 -- | LEVER-A2 (§5.1, the pipeline shape): substitute PURE map-typed
 -- let-bindings into their bodies BEFORE ANF/translation, reducing the
@@ -2135,6 +2219,20 @@ expandMapLets callNames e0
       where rhs' = go rhs
     go (ELet (b:bs) body) = go (ELet [b] (ELet bs body))
     go (ELet [] body)     = go body
+    -- F-011.3 (if-floating): push a single `if` out of a strict, pure, callFree
+    -- argument of map-put/bytes-set/+/-, reducing the conditional-stored-value
+    -- case to the map-valued-if case before mapRetChain runs. §6.1-exact: these
+    -- ops are strict and pure in every argument, so
+    -- `(f … (if c a b) …)` ≡ `(if c (f … a …) (f … b …))`; the existing callFree
+    -- guard (over ALL args, so the duplicated operands carry no contracted call)
+    -- prevents duplicating a call's obligations. One `if` per rewrite; the outer
+    -- `go`/recursion floats any remaining ones. Byte-inert for map-op-free bodies
+    -- (the enclosing gate returns them untouched before `go` ever runs).
+    go (EApp f args)
+      | f `elem` ["map-put", "bytes-set", "+", "-"]
+      , all callFree args
+      , (pre, EIf c a b : post) <- break isIfE args
+      = go (EIf c (EApp f (pre ++ a : post)) (EApp f (pre ++ b : post)))
     go (EApp f args)      = EApp f (map go args)
     go (EOp f args)       = EOp f (map go args)
     go (EIf c t e)        = EIf (go c) (go t) (go e)
@@ -2150,6 +2248,8 @@ expandMapLets callNames e0
     isPureMapTerm _ = False
     isVarE (EVar _) = True
     isVarE _        = False
+    isIfE (EIf{}) = True
+    isIfE _       = False
     callFree = not . mentionsCallName
     mentionsCallName (EApp f args) = f `Set.member` callNames || any mentionsCallName args
     mentionsCallName (EOp f args)  = mentionsCallName (EApp f args)

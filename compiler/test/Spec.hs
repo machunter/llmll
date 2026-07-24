@@ -7079,6 +7079,103 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- body-map-get body itself is not int-channel reflected → whole fallback.
         erBodyFallback erBool `shouldSatisfy` elem "flag"
 
+      -- F-011.3 (map-return branch reflection): an `if` inside a map-store body
+      -- reflects through the array-valued result — the guarded-tree path
+      -- (mapRetChain → MapRetTree → per-leaf component-pin constraints, each with
+      -- its path guard conjoined and its arm tag from provenance). The
+      -- conditional-STORED-value case reduces to the map-valued-if case by
+      -- if-floating in expandMapLets. Stays in QF_AUFLIA (same fragment as the
+      -- straight-line map path); a contracted-call arm refuses whole (§6.1).
+      let mapIfSrc guard thenB elseB = unlines
+            [ "(def clamp [bal: map[int,int] a: int limit: int] -> map[int,int]"
+            , "  (pre (map-has bal a))"
+            , "  (post (map-has result a))"
+            , "  (if " <> guard <> " " <> thenB <> " " <> elseB <> "))" ]
+
+      it "F011.3-1 map-valued if: (if (> (map-get bal a) limit) (map-put bal a limit) bal) is body-faithful, emits the get's presence obligation, and localizes both arms" $ do
+        er <- emitA2 (mapIfSrc "(> (map-get bal a) limit)" "(map-put bal a limit)" "bal")
+        erBodyFaithfulFns er `shouldSatisfy`    elem "clamp"
+        erBodyFallback er    `shouldNotSatisfy` elem "clamp"
+        erCallPreFns er      `shouldSatisfy`    elem "clamp"
+        -- each arm's post constraint is tagged with its structural provenance
+        let clauses = map coClause (Map.elems (erConstraintTable er))
+        clauses `shouldSatisfy` elem "body-post-then"
+        clauses `shouldSatisfy` elem "body-post-else"
+        -- the else arm pins result to the param map component-wise (NOT a
+        -- whole-structure (= result bal) — that would trip the §7 firewall)
+        erFQText er `shouldSatisfy` T.isInfixOf "(result_has = bal_has)"
+
+      it "F011.3-2 map-valued if solver crux: correct clamp SAFE; the then-arm-drops-presence twin REFUTED" $ do
+        erGood <- emitA2 (mapIfSrc "(> (map-get bal a) limit)" "(map-put bal a limit)" "bal")
+        erBad  <- emitA2 (mapIfSrc "(> (map-get bal a) limit)" "(map-empty)" "bal")
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "F011.3-3 conditional stored value (if-floating): (map-put bal a (if (< newbal 0) 0 newbal)) is body-faithful" $ do
+        er <- emitA2 (unlines
+          [ "(def clamp-store [bal: map[int,int] a: int newbal: int] -> map[int,int]"
+          , "  (post (>= (map-get result a) 0))"
+          , "  (map-put bal a (if (< newbal 0) 0 newbal)))" ])
+        erBodyFaithfulFns er `shouldSatisfy`    elem "clamp-store"
+        erBodyFallback er    `shouldNotSatisfy` elem "clamp-store"
+
+      it "F011.3-4 conditional stored value solver crux: the clamp SAFE; the negated-clamp twin (leaks negatives) REFUTED" $ do
+        let src cond = unlines
+              [ "(def clamp-store [bal: map[int,int] a: int newbal: int] -> map[int,int]"
+              , "  (post (>= (map-get result a) 0))"
+              , "  (map-put bal a (if " <> cond <> " 0 newbal)))" ]
+        erGood <- emitA2 (src "(< newbal 0)")   -- stores 0 exactly when newbal<0 → result ≥ 0
+        erBad  <- emitA2 (src "(> newbal 0)")   -- stores 0 only when newbal>0 → negatives leak through
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "F011.3-5 refuse-not-pad: an `if` whose arm is a contracted call falls back WHOLE (no partial reflection)" $ do
+        er <- emitA2 (unlines
+          [ "(def helper [m: map[int,int] k: int] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (map-has result k))"
+          , "  (map-put m k 0))"
+          , "(def clamp-call [bal: map[int,int] a: int limit: int] -> map[int,int]"
+          , "  (pre (map-has bal a))"
+          , "  (post (map-has result a))"
+          , "  (if (> (map-get bal a) limit) (helper bal a) bal))" ])
+        erBodyFallback er    `shouldSatisfy`    elem "clamp-call"
+        erBodyFaithfulFns er `shouldNotSatisfy` elem "clamp-call"
+
+      it "F011.3-6 if-floating byte-identical: (map-put bal a (if c 0 newbal)) emits the SAME .fq as the hand-floated (if c (map-put bal a 0) (map-put bal a newbal))" $ do
+        floated <- emitA2 (unlines
+          [ "(def cs [bal: map[int,int] a: int newbal: int] -> map[int,int]"
+          , "  (post (map-has result a))"
+          , "  (map-put bal a (if (< newbal 0) 0 newbal)))" ])
+        byHand  <- emitA2 (unlines
+          [ "(def cs [bal: map[int,int] a: int newbal: int] -> map[int,int]"
+          , "  (post (map-has result a))"
+          , "  (if (< newbal 0) (map-put bal a 0) (map-put bal a newbal)))" ])
+        erFQText floated `shouldBe` erFQText byHand
+
+      it "F011.3-7 byte-inertness: an int-if clamp stays on the generic scalar path (no map component pins introduced by the F-011.3 changes)" $ do
+        er <- emitA2 (unlines
+          [ "(def iclamp [x: int] -> int"
+          , "  (post (>= result 0))"
+          , "  (if (< x 0) 0 x))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "iclamp"
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "result_has"
+        fq `shouldNotSatisfy` T.isInfixOf "result_val"
+        fq `shouldNotSatisfy` T.isInfixOf "Map_store"
+
       -- LEVER-A2.2 (bool-VALUED maps via the int-0/1 bridge). Bool values ride
       -- the same int array as presence: true/false lower to 1/0 (literal-bridge),
       -- and each occurring bool VALUE read carries the ground range fact
