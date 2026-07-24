@@ -400,7 +400,7 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
            }
 
     candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates gm ss)
-    hasContracts (Contract pre _ post _ _) =
+    hasContracts (Contract pre _ post _ _ _ _) =
       pre /= Nothing || post /= Nothing
 
 -- | Compute the per-function result for an in-scope function, given its

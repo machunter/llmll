@@ -675,26 +675,32 @@ collectAllContractStatus cache entryStmts =
     -- only ever record-updates `contractPost`, so `contractPostSource cAug`
     -- always equals `contractPostSource c` (the return-refinement synthesis
     -- carries no citation of its own to merge in).
+    -- SRC-CONJ-1: mkER also threads the per-conjunct sources
+    -- (contractPreClauses / contractPostClauses projected to pcSource) into
+    -- erSources; empty on 0-or-1-clause sides. augmentContractPost never
+    -- touches the clause lists (parse-time-only invariant), so the post list
+    -- read off cAug equals the authored one.
     mkCS name mRet c =
       let cAug = augmentContractPost am mRet c
       in if contractPre c /= Nothing || contractPost cAug /= Nothing
            then Just (name, ContractStatus
-                  { csPre  = fmap (mkER (contractPreSource c)) (contractPre c)
-                  , csPost = fmap (mkER (contractPostSource cAug)) (contractPost cAug)
+                  { csPre  = fmap (mkER (contractPreSource c) (map pcSource (contractPreClauses c))) (contractPre c)
+                  , csPost = fmap (mkER (contractPostSource cAug) (map pcSource (contractPostClauses cAug))) (contractPost cAug)
                   , csAssumptions = []
                   })
            else Nothing
     -- LT-PPR (v0.11): populate predicate fields when clause is a
     -- predicate-carrying ?proof-required hole; otherwise use defaults.
-    mkER :: Maybe Text -> Expr -> EvidenceRecord
-    mkER src (EHole (HProofRequired _ (Just pred))) =
+    mkER :: Maybe Text -> [Maybe Text] -> Expr -> EvidenceRecord
+    mkER src srcs (EHole (HProofRequired _ (Just pred))) =
       EvidenceRecord DLAsserted False src [] False
         (Just "runtime")
         (Just (TL.toStrict (encodeToLazyText (exprToJson pred))))
         True
         Nothing
         False
-    mkER src _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing False
+        srcs
+    mkER src srcs _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing False srcs
 
 -- | XMOD-TIER: inject bare-name aliases into the contract-status map for every
 -- name brought into scope by an @(open M)@ in the entry module, mirroring the
@@ -876,13 +882,18 @@ transitiveClose graph = fixpoint initial
 -- clause is present. A cooperative-author heuristic, not soundness-grade
 -- vouching: a ':source' string is unvalidated free-form metadata, so an
 -- adversarial exclusion is caught by R5, not this predicate (Rev-8 threat model).
+-- SRC-CONJ-1: a side authored as multiple clauses is vouched iff EVERY
+-- conjunct carries its own ':source' (the per-clause reading generalized to
+-- the per-conjunct list; before SRC-CONJ-1 the multi-clause combine dropped
+-- all sources, making such a contract structurally unvouchable, which was the
+-- defect, not the semantics).
 contractVouched :: Contract -> Bool
 contractVouched c =
-  let present =
-        [ isJust src
-        | (mClause, src) <- [ (contractPre  c, contractPreSource  c)
-                            , (contractPost c, contractPostSource c) ]
-        , isJust mClause ]
+  let sideOk mClause scalarSrc cls = case cls of
+        [] -> [ isJust scalarSrc | isJust mClause ]
+        _  -> map (isJust . pcSource) cls
+      present = sideOk (contractPre  c) (contractPreSource  c) (contractPreClauses  c)
+             ++ sideOk (contractPost c) (contractPostSource c) (contractPostClauses c)
   in not (null present) && and present
 
 -- | Cascade L3(d) (Rev 8): the decomposition-trust meet for 'fn' over its
@@ -1490,6 +1501,16 @@ formatTrustReportJson report =
       ] ++
       maybe [] (\s -> ["pre_source" .= s]) (tePre e >>= erSource) ++
       maybe [] (\s -> ["post_source" .= s]) (tePost e >>= erSource) ++
+      -- SRC-CONJ-1: per-conjunct provenance arrays (author order; null for an
+      -- unsourced conjunct), emitted only when the side was authored as
+      -- multiple clauses — single-clause entries keep the scalar shape above
+      -- byte-identically. RFC-COV-1 indexes against this order.
+      (case tePre e of
+         Just er | not (null (erSources er)) -> ["pre_sources" .= erSources er]
+         _ -> []) ++
+      (case tePost e of
+         Just er | not (null (erSources er)) -> ["post_sources" .= erSources er]
+         _ -> []) ++
       -- TRUST-PRE (Position B): the consumer-facing 'effective_level' HEADLINE is
       -- the post-side tier (same classification the summary counts), so a
       -- pre-bearing post-verified function reads 'verified' here — and so does a

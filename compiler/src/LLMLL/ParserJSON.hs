@@ -41,15 +41,17 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- v0.11 LT-INV: bumped from 0.5.0 to 0.6.0; gate confirmed EL-5 2026-05-30.
 -- DEF-RET (v0.13.x): bumped 0.6.0 → 0.7.0 for the optional return_type field on def/def-shell.
 -- REC-DESCENT (v0.14.24): bumped 0.7.0 → 0.8.0 for the optional decreases array on def-shell.
+-- SRC-CONJ-1: bumped 0.8.0 → 0.9.0 for the optional pre_clauses/post_clauses
+-- per-conjunct provenance arrays on def/def-shell/letrec.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.8.0"
+expectedSchemaVersion = "0.9.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
 -- one — accept all for backward-compatible reads. Emission stamps 'expectedSchemaVersion'.
 -- Grammar discipline (e.g. def-logic rejection) is enforced separately by GrammarMode.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -213,36 +215,74 @@ parseStatement mode = withObject "Statement" $ \o -> do
     "weakness-ok"  -> parseWeaknessOkDecl o
     _              -> fail $ "unknown Statement kind: " ++ T.unpack kind
 
+-- | SRC-CONJ-1: decode one clause of a pre_clauses/post_clauses array:
+-- {"expr": <Expr>, "source": <string, optional>}.
+parseProvClause :: Value -> Parser ProvClause
+parseProvClause = withObject "ContractClause" $ \c -> do
+  e <- c .: "expr" >>= parseExpr
+  s <- c .:? "source"
+  pure (ProvClause e s)
+
+-- | SRC-CONJ-1: resolve one contract side from its two admissible shapes. The
+-- legacy scalar shape ("pre" + optional "pre_source") and the per-conjunct
+-- array shape ("pre_clauses": [{"expr","source"?}, ...]) are mutually
+-- exclusive; both present on the same side is a parse error naming the side,
+-- and an empty array is a parse error (author intent is ambiguous). The array
+-- derives the scalar by left and-fold in author order, matching the S-expr
+-- parser's 'foldClauses'; a one-element array normalizes to the scalar shape
+-- (empty ProvClause list), preserving the "list non-empty implies >= 2
+-- clauses" invariant on 'Contract'.
+resolveClauseSide :: String -> Maybe Expr -> Maybe Text -> Maybe [Value]
+                  -> Parser (Maybe Expr, Maybe Text, [ProvClause])
+resolveClauseSide _ mScalar mSrc Nothing = pure (mScalar, mSrc, [])
+resolveClauseSide side mScalar mSrc (Just vs) = do
+  when (mScalar /= Nothing || mSrc /= Nothing) $
+    fail $ "contract-clause-shape: '" ++ side ++ "_clauses' cannot be combined with scalar '"
+        ++ side ++ "'/'" ++ side ++ "_source' on the same side (use one shape)"
+  cls <- mapM parseProvClause vs
+  case cls of
+    []                 -> fail $ "contract-clause-shape: '" ++ side
+                              ++ "_clauses' must contain at least one clause"
+    [ProvClause e s]   -> pure (Just e, s, [])
+    _                  -> pure ( Just (foldl1 (\a b -> EApp "and" [a, b]) (map pcExpr cls))
+                               , Nothing
+                               , cls )
+
+-- | SRC-CONJ-1: fetch the three fields of one contract side and resolve them.
+contractSide :: Object -> Key.Key -> Key.Key -> Key.Key -> String
+             -> Parser (Maybe Expr, Maybe Text, [ProvClause])
+contractSide o exprK srcK clausesK side = do
+  mScalar <- o .:? exprK >>= mapM parseExpr
+  mSrc    <- o .:? srcK
+  mArr    <- o .:? clausesK
+  resolveClauseSide side mScalar mSrc mArr
+
 -- | LT-INV (v0.11): parse {"kind":"def",...} into SDef (strict-core).
 parseDefCore :: Object -> Parser Statement
 parseDefCore o = do
   name     <- o .: "name"
   params   <- o .: "params" >>= mapM parseTypedParam
-  mPre     <- o .:? "pre"         >>= mapM parseExpr
-  mPreSrc  <- o .:? "pre_source"
-  mPost    <- o .:? "post"        >>= mapM parseExpr
-  mPostSrc <- o .:? "post_source"
+  (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
+  (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   mRet     <- o .:? "return_type" >>= mapM parseType
   body     <- o .: "body"         >>= parseExpr
-  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body
 
 -- | LT-INV (v0.11): parse {"kind":"def-shell",...} into SDefShell (permissive).
 parseDefShellJSON :: Object -> Parser Statement
 parseDefShellJSON o = do
   name     <- o .: "name"
   params   <- o .: "params" >>= mapM parseTypedParam
-  mPre     <- o .:? "pre"         >>= mapM parseExpr
-  mPreSrc  <- o .:? "pre_source"
-  mPost    <- o .:? "post"        >>= mapM parseExpr
-  mPostSrc <- o .:? "post_source"
+  (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
+  (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   mRet     <- o .:? "return_type" >>= mapM parseType
   body     <- o .: "body"         >>= parseExpr
   -- REC-DESCENT (v0.14.24): optional termination-measure list (schema 0.8.0).
   -- Absent → []; Phase 1 parses + round-trips only, no obligation.
   decreases <- o .:? "decreases" >>= maybe (pure []) (mapM parseExpr)
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body decreases
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body decreases
 
 -- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
 -- contract object. Strict — unknown labels are a parse error rather than a
@@ -283,7 +323,7 @@ parseDefInvariant o = do
   body  <- o .: "body"  >>= parseExpr
   -- v0.12.1: def-invariant now has its own node (SDefInvariant), so AstEmit
   -- can round-trip it faithfully instead of re-emitting it as 'def-logic'.
-  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
+  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] []) body
 
 parseTypeDecl :: Object -> Parser Statement
 parseTypeDecl o = do
@@ -295,14 +335,12 @@ parseLetrec :: Object -> Parser Statement
 parseLetrec o = do
   name     <- o .: "name"
   params   <- o .: "params" >>= mapM parseTypedParam
-  mPre     <- o .:? "pre"      >>= mapM parseExpr
-  mPreSrc  <- o .:? "pre_source"
-  mPost    <- o .:? "post"     >>= mapM parseExpr
-  mPostSrc <- o .:? "post_source"
+  (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
+  (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   dec      <- o .: "decreases" >>= parseExpr
   body     <- o .: "body"      >>= parseExpr
-  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) dec body
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) dec body
 
 parseTypeBody :: Value -> Parser Type
 parseTypeBody = withObject "TypeBody" $ \o -> do

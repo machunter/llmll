@@ -217,6 +217,13 @@ filterContracts cs contract = Contract
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
   , contractSpecEntropy = contractSpecEntropy contract
+  -- SRC-CONJ-1: provenance lists follow their scalar — the pre side is never
+  -- stripped so its list rides along; a stripped post drops its list with it
+  -- (the "non-empty list implies scalar = fold of list" invariant).
+  , contractPreClauses = contractPreClauses contract
+  , contractPostClauses = case csPost cs of
+      Just er | isVerifiedLevel (erDisplayLevel er) && erBodyFaithful er -> []
+      _                 -> contractPostClauses contract
   }
 
 -- | v0.8.1b: Body-faithfulness is tracked via EvidenceRecord.erBodyFaithful
@@ -224,7 +231,7 @@ filterContracts cs contract = Contract
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
-noContract = Contract Nothing Nothing Nothing Nothing Nothing
+noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
 
 -- | Pre-process statements for codegen: strip contract clauses based on mode.
 -- Full: keep all contracts (codegen emits them as runtime assertions).

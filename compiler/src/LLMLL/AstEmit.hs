@@ -24,6 +24,8 @@ import Paths_llmll (version)
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (Value(..), object, (.=), toJSON, encode)
+import Data.Aeson.Key (Key)
+import Data.Aeson.Types (Pair)
 import Data.Aeson.Encode.Pretty (encodePretty', defConfig, confIndent, Indent(..))
 import qualified Data.Vector as V
 
@@ -75,7 +77,7 @@ stmtToJson (SDefLogic name _ _ _ _) =
        ++ "def-invariant is SDefInvariant)"
 
 -- LT-INV (v0.11): SDef emits {"kind":"def",...} and SDefShell emits {"kind":"def-shell",...}.
-stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) body) =
   object $
     [ "kind"   .= ("def" :: Text)
     , "name"   .= name
@@ -83,13 +85,11 @@ stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEn
     , "body"   .= exprToJson body
     ] ++
     maybe [] (\t -> ["return_type" .= typeToJson t]) ret ++  -- DEF-RET: emit only when present
-    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    clauseSideJson "pre" "pre_source" "pre_clauses" mPre _preSource preCls ++
+    clauseSideJson "post" "post_source" "post_clauses" mPost _postSource postCls ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
-stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy) body decreases) =
+stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) body decreases) =
   object $
     [ "kind"   .= ("def-shell" :: Text)
     , "name"   .= name
@@ -97,16 +97,14 @@ stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSourc
     , "body"   .= exprToJson body
     ] ++
     maybe [] (\t -> ["return_type" .= typeToJson t]) ret ++  -- DEF-RET: emit only when present
-    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    clauseSideJson "pre" "pre_source" "pre_clauses" mPre _preSource preCls ++
+    clauseSideJson "post" "post_source" "post_clauses" mPost _postSource postCls ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy ++
     -- REC-DESCENT (v0.14.24): emit the measure list only when present, so a
     -- decreases-free def-shell is byte-identical to pre-0.8.0 output.
     (if null decreases then [] else ["decreases" .= map exprToJson decreases])
 
-stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy) dec body) =
+stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) dec body) =
   object $
     [ "kind"      .= ("letrec" :: Text)
     , "name"      .= name
@@ -114,10 +112,8 @@ stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource
     , "decreases" .= exprToJson dec
     , "body"      .= exprToJson body
     ] ++
-    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    clauseSideJson "pre" "pre_source" "pre_clauses" mPre _preSource preCls ++
+    clauseSideJson "post" "post_source" "post_clauses" mPost _postSource postCls ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
 stmtToJson (SDefInterface name fns laws) =
@@ -282,6 +278,22 @@ typeBodyToJson t = typeToJson t
 -- ---------------------------------------------------------------------------
 -- Expression serialiser
 -- ---------------------------------------------------------------------------
+
+-- | SRC-CONJ-1: emit one contract side. A non-empty per-conjunct list emits
+-- the array shape only (the scalar is derivable by and-fold and the two shapes
+-- are mutually exclusive on parse); 0-or-1-clause contracts emit the legacy
+-- scalar shape, byte-identical to pre-0.9.0 output.
+clauseSideJson :: Key -> Key -> Key -> Maybe Expr -> Maybe Text -> [ProvClause] -> [Pair]
+clauseSideJson exprK srcK _ mExpr mSrc [] =
+  maybe [] (\e -> [exprK .= exprToJson e]) mExpr ++
+  maybe [] (\s -> [srcK .= s]) mSrc
+clauseSideJson _ _ clausesK _ _ cls =
+  [clausesK .= map provClauseToJson cls]
+
+-- | SRC-CONJ-1: one clause of a pre_clauses/post_clauses array.
+provClauseToJson :: ProvClause -> Value
+provClauseToJson (ProvClause e s) =
+  object $ ["expr" .= exprToJson e] ++ maybe [] (\t -> ["source" .= t]) s
 
 exprToJson :: Expr -> Value
 exprToJson (ELit (LitInt n))    = object ["kind" .= ("lit-int"    :: Text), "value" .= n]

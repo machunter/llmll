@@ -43,6 +43,7 @@ module LLMLL.Syntax
 
     -- * Contracts
   , Contract(..)
+  , ProvClause(..)
   , SpecEntropy(..)
   , specEntropyLabel
   , parseSpecEntropy
@@ -313,6 +314,24 @@ data Contract = Contract
                                              -- author intent. Wire-line absence sentinel is
                                              -- distinguished from explicit ':strict' so CDP can
                                              -- report annotation provenance honestly.
+  -- SRC-CONJ-1: per-conjunct provenance. When a side was authored as multiple
+  -- clauses (S-expr: repeated (pre e :source s) / (post e :source s); JSON-AST:
+  -- pre_clauses / post_clauses arrays), the list holds each clause with its own
+  -- :source in author order, and the scalar 'contractPre'/'contractPost' above
+  -- holds their left and-fold — every verifier-side consumer reads only the
+  -- scalar, so the VC surface is unchanged. Invariant: the lists are populated
+  -- at PARSE TIME ONLY (never synthesized; 'augmentContractPost' touches only
+  -- the scalar), and a non-empty list implies its scalar equals
+  -- foldl1 and (map pcExpr list). Empty on every 0-or-1-clause contract, whose
+  -- provenance stays on the scalar source fields (legacy shape preserved).
+  , contractPreClauses  :: [ProvClause]      -- ^ SRC-CONJ-1: per-conjunct pre provenance
+  , contractPostClauses :: [ProvClause]      -- ^ SRC-CONJ-1: per-conjunct post provenance
+  } deriving (Show, Eq, Generic)
+
+-- | SRC-CONJ-1: one authored contract clause with its own provenance.
+data ProvClause = ProvClause
+  { pcExpr   :: Expr        -- ^ the clause expression (one conjunct of the folded scalar)
+  , pcSource :: Maybe Text  -- ^ its :source citation, when authored
   } deriving (Show, Eq, Generic)
 
 -- | LT-CDP (v0.11): per-contract spec-entropy annotation.
@@ -433,6 +452,13 @@ data EvidenceRecord = EvidenceRecord
   -- 'checkCalleeAdmissibility': a RECURSIVE callee is strict-core-admissible
   -- only when this is True (the b1 lift).
   , erTerminationVerified  :: Bool
+  -- SRC-CONJ-1: per-conjunct :source provenance for this clause side, in
+  -- author order ('Contract.contractPreClauses' / 'contractPostClauses'
+  -- projected to their sources). Empty on 0-or-1-clause contracts (whose
+  -- provenance is 'erSource') and on pre-SRC-CONJ-1 sidecars (additive
+  -- back-compat, reader defaults to []). Report metadata only: never part of
+  -- 'canonicalDefEvidenceHash', never consulted by admission.
+  , erSources              :: [Maybe Text]
   } deriving (Show, Eq, Generic)
 
 -- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose

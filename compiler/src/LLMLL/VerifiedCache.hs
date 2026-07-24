@@ -13,6 +13,8 @@ module LLMLL.VerifiedCache
   , sidecarNeedsRevalidation
   , dlToJSON           -- DisplayLevel JSON codec (exposed for tests / round-trip)
   , dlFromJSON
+  , erToJSON           -- SRC-CONJ-1: EvidenceRecord codec (exposed for tests / round-trip)
+  , erFromJSON
   ) where
 
 import Data.Aeson (Value(..), (.=), object)
@@ -100,7 +102,11 @@ erToJSON er = object $
   maybe [] (\h -> ["verified_hash" .= h]) (erVerifiedHash er) ++
   -- REC-DESCENT Phase 3: emit termination_verified only when True (additive,
   -- omitted on non-total records so existing sidecars stay byte-identical).
-  ["termination_verified" .= True | erTerminationVerified er]
+  ["termination_verified" .= True | erTerminationVerified er] ++
+  -- SRC-CONJ-1: per-conjunct :source list (author order, null for an unsourced
+  -- conjunct), emitted only when non-empty so 0-or-1-clause records stay
+  -- byte-identical. Report metadata only; never consulted by admission.
+  (if null (erSources er) then [] else ["sources" .= erSources er])
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -145,7 +151,14 @@ erFromJSON (Object o) = do
       tv  = case KM.lookup "termination_verified" o of
               Just (Bool b) -> b
               _             -> False
-  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh tv
+      -- SRC-CONJ-1: optional per-conjunct source list; pre-SRC-CONJ-1 sidecars
+      -- default to [] (additive back-compat, symmetric with erToJSON's
+      -- omit-when-empty).
+      srcs = case KM.lookup "sources" o of
+               Just (Array arr) -> [ case v of { String s -> Just s; _ -> Nothing }
+                                   | v <- foldr (:) [] arr ]
+               _                -> []
+  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh tv srcs
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)

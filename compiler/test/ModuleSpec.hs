@@ -55,7 +55,7 @@ mkEnv path stmts = buildModuleEnv path stmts emptyEnv
 -- | A simple def-logic that returns its parameter.
 defLogic :: T.Text -> [(T.Text, Type)] -> Maybe Type -> Expr -> Statement
 defLogic name params mRet body =
-  SDefLogic name params mRet (Contract Nothing Nothing Nothing Nothing Nothing) body
+  SDefLogic name params mRet (Contract Nothing Nothing Nothing Nothing Nothing [] []) body
 
 -- | Module A: defines f and g, no export restriction.
 modA_stmts :: [Statement]
@@ -352,7 +352,7 @@ moduleSpec = describe "Module System" $ do
               SDefLogic n p r _c b ->
                 SDefLogic n p r
                   (Contract Nothing Nothing
-                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
                   b
               other -> other
           localF =
@@ -360,7 +360,7 @@ moduleSpec = describe "Module System" $ do
               SDefLogic n p r _c b ->
                 SDefLogic n p r
                   (Contract Nothing Nothing
-                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
                   b
               other -> other
           importedEnv = mkEnv ["imported"] [importedGContracted]
@@ -456,7 +456,7 @@ moduleSpec = describe "Module System" $ do
             Just (SDef _ _ _ c b) -> (canonicalDefEvidenceHash "def" b (contractPre c) (contractPost c) [])
             _                     -> error "core.withdraw def not found in fixture"
         mkER dl bf vh =
-          EvidenceRecord dl bf Nothing [] False Nothing Nothing False vh False
+          EvidenceRecord dl bf Nothing [] False Nothing Nothing False vh False []
         -- Build a compose sidecar making safe-withdraw's OWN post verified (the
         -- realistic verify-time state once it has discharged withdraw's pre and
         -- proved its own post). The hash is recovered from the live def-shell.

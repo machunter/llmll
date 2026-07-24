@@ -785,7 +785,7 @@ processRun contractByName qualMap propsByDesc delegateBodies run =
               h      = canonicalPropBodyHash body
               w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False
+                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False []
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
@@ -886,6 +886,9 @@ mergePbtWriteback a b = ContractStatus
            , erVerifiedHash        = Nothing
            -- REC-DESCENT: PBT join never establishes termination.
            , erTerminationVerified = False
+           -- SRC-CONJ-1: prefer the side that carries per-conjunct provenance,
+           -- mirroring the erSource preference above.
+           , erSources             = case erSources x of { [] -> erSources y; xs -> xs }
            }
 
     dedupWitnesses ws =

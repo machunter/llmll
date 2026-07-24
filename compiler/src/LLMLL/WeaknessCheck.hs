@@ -200,7 +200,7 @@ generateForStmt _ _ _ _ = []
 
 -- | Does this contract have at least one clause?
 hasContracts :: Contract -> Bool
-hasContracts (Contract pre _ post _ _) = pre /= Nothing || post /= Nothing
+hasContracts (Contract pre _ post _ _ _ _) = pre /= Nothing || post /= Nothing
 
 -- ---------------------------------------------------------------------------
 -- Catalog builders

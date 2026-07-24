@@ -42,7 +42,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -1501,7 +1501,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False Nothing False))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False Nothing False (map pcSource (contractPreClauses c))))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
@@ -1514,9 +1514,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                             hash = if tainted
                                                    then Nothing
                                                    else Just (canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost cAug) (case s of SDefShell _ _ _ _ _ d -> d; _ -> []))
-                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash (Set.member n descentDischargedSet)))
+                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash (Set.member n descentDischargedSet) (map pcSource (contractPostClauses c))))
                                                 (contractPost cAug)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing False))
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing False (map pcSource (contractPostClauses c))))
                                              (contractPost cAug)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9

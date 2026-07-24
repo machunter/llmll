@@ -1290,7 +1290,7 @@ paramToScope :: (Name, Type) -> Value
 paramToScope (n, ty) = object ["name" .= n, "type" .= typeLabel ty, "source" .= ("param" :: Text)]
 
 emptyContract :: Contract
-emptyContract = Contract Nothing Nothing Nothing Nothing Nothing
+emptyContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
 
 -- | OBLIG-1: per-hole contract brief for @llmll checkout@. Shares the exact
 -- primitives 'mkHoleObl' uses (enclosingFunc / findFunctionInfo /

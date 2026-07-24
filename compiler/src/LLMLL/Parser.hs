@@ -177,7 +177,7 @@ pDefInvariant = do
   param <- brackets pTypedParam
   body  <- pExpr
   _ <- symbol ")"
-  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
+  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] []) body
 
 -- | Parse (letrec name [params] :decreases measure body)
 -- Introduces an explicitly recursive function with a termination measure.
@@ -189,20 +189,15 @@ pLetrec = do
   name    <- pIdent
   params  <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
-  postClause <- optional (try pPostClause)
+  -- SRC-CONJ-1: post accepts multiple clauses, symmetric with pre.
+  postClauses <- many (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
   dec     <- symbol ":decreases" *> pExpr
   body    <- pExpr
   _       <- symbol ")"
-  let (mPre, mPreSrc) = case preClauses of
-               []       -> (Nothing, Nothing)
-               [(p, s)] -> (Just p, s)
-               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
-                            Nothing)
-      (mPost, mPostSrc) = case postClause of
-               Nothing     -> (Nothing, Nothing)
-               Just (p, s) -> (Just p, s)
-  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) dec body
+  let (mPre, mPreSrc, preCls) = foldClauses preClauses
+      (mPost, mPostSrc, postCls) = foldClauses postClauses
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) dec body
 
 -- | LT-INV (v0.11): Parse (def name [params] (pre ...) (post ...) body) — strict-core.
 -- Uses notFollowedBy (char '-') so that (def-logic), (def-shell), (def-main),
@@ -217,19 +212,14 @@ pDef = do
   -- before contract clauses. Absent → Nothing (inferred), byte-identical to pre-DEF-RET.
   mRet <- optional (try (pArrowSym *> pType))
   preClauses <- many (try pPreClause)
-  postClause <- optional (try pPostClause)
+  -- SRC-CONJ-1: post accepts multiple clauses, symmetric with pre.
+  postClauses <- many (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
   body <- pExpr
   _ <- symbol ")"
-  let (mPre, mPreSrc) = case preClauses of
-               []       -> (Nothing, Nothing)
-               [(p, s)] -> (Just p, s)
-               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
-                            Nothing)
-      (mPost, mPostSrc) = case postClause of
-               Nothing     -> (Nothing, Nothing)
-               Just (p, s) -> (Just p, s)
-  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  let (mPre, mPreSrc, preCls) = foldClauses preClauses
+      (mPost, mPostSrc, postCls) = foldClauses postClauses
+  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body
 
 -- | LT-INV (v0.11): Parse (def-shell name [params] (pre ...) (post ...) body) — permissive.
 pDefShell :: Parser Statement
@@ -240,21 +230,16 @@ pDefShell = do
   -- DEF-RET (v0.13.x): optional return-type annotation (see pDef).
   mRet <- optional (try (pArrowSym *> pType))
   preClauses <- many (try pPreClause)
-  postClause <- optional (try pPostClause)
+  -- SRC-CONJ-1: post accepts multiple clauses, symmetric with pre.
+  postClauses <- many (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
   -- REC-DESCENT (v0.14.24): optional termination-measure clause, def-shell only.
   mDecreases <- optional (try pDecreasesClause)
   body <- pExpr
   _ <- symbol ")"
-  let (mPre, mPreSrc) = case preClauses of
-               []       -> (Nothing, Nothing)
-               [(p, s)] -> (Just p, s)
-               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
-                            Nothing)
-      (mPost, mPostSrc) = case postClause of
-               Nothing     -> (Nothing, Nothing)
-               Just (p, s) -> (Just p, s)
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body (maybe [] id mDecreases)
+  let (mPre, mPreSrc, preCls) = foldClauses preClauses
+      (mPost, mPostSrc, postCls) = foldClauses postClauses
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body (maybe [] id mDecreases)
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -534,6 +519,19 @@ pDeterministicFlag = do
 -- ---------------------------------------------------------------------------
 -- Contracts
 -- ---------------------------------------------------------------------------
+
+-- | SRC-CONJ-1: fold authored clause pairs into the scalar contract view plus
+-- the per-conjunct provenance list. 0 or 1 clause keeps the legacy shape
+-- (scalar source, empty list); >= 2 clauses left-and-fold the exprs and RETAIN
+-- each clause's :source as a 'ProvClause' (previously dropped as "ambiguous
+-- provenance", LLMLL.md §4.6). The fold order is the author order; RFC-COV-1
+-- and the trust report's pre_sources/post_sources arrays index against it.
+foldClauses :: [(Expr, Maybe Text)] -> (Maybe Expr, Maybe Text, [ProvClause])
+foldClauses []       = (Nothing, Nothing, [])
+foldClauses [(p, s)] = (Just p, s, [])
+foldClauses ps       = ( Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps))
+                       , Nothing
+                       , map (uncurry ProvClause) ps )
 
 -- | Parse (pre expr) or (pre expr :source "...").
 -- v0.6: optional :source annotation for per-clause provenance.

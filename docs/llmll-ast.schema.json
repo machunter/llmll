@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.8/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.9/ast.schema.json",
   "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.8.0' (REC-DESCENT: optional decreases array on def-shell; was 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.9.0' (SRC-CONJ-1: optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, plus the pre_source/post_source scalar fields the compiler has read since v0.6; was 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.8.0'. The compiler rejects files with an unrecognised version, but reads 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.8.0 adds the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "Must be '0.9.0'. The compiler rejects files with an unrecognised version, but reads 0.8.0, 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.9.0 adds the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "const": "0.8.0"
+          "const": "0.9.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -65,8 +65,12 @@
           "type": "array",
           "items": { "$ref": "#/$defs/TypedParam" }
         },
-        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
-        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'. Mutually exclusive with pre_clauses." },
+        "pre_source":   { "type": "string", "description": "Clause-level :source provenance for the scalar pre (v0.6; LLMLL.md section 4.6). Free-form citation text, e.g. an RFC clause. Pure metadata. Requires pre; mutually exclusive with pre_clauses." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only. Mutually exclusive with post_clauses." },
+        "post_source":  { "type": "string", "description": "Clause-level :source provenance for the scalar post (v0.6). Same semantics as pre_source. Requires post; mutually exclusive with post_clauses." },
+        "pre_clauses":  { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct precondition list, each clause carrying its own optional :source. The effective precondition is the left and-fold of the clause exprs in array order. Mutually exclusive with pre/pre_source; a one-element array is normalized to the scalar shape on read." },
+        "post_clauses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct postcondition list ('result' in scope in each clause). Same fold and exclusivity semantics as pre_clauses." },
         "spec_entropy": {
           "type": "string",
           "enum": ["strict", "intentional", "unknown"],
@@ -123,8 +127,12 @@
           "type": "array",
           "items": { "$ref": "#/$defs/TypedParam" }
         },
-        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
-        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'. Mutually exclusive with pre_clauses." },
+        "pre_source":   { "type": "string", "description": "Clause-level :source provenance for the scalar pre (v0.6). Same semantics as on DefCore." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only. Mutually exclusive with post_clauses." },
+        "post_source":  { "type": "string", "description": "Clause-level :source provenance for the scalar post (v0.6). Same semantics as on DefCore." },
+        "pre_clauses":  { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct precondition list. Same fold and exclusivity semantics as on DefCore." },
+        "post_clauses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct postcondition list. Same fold and exclusivity semantics as on DefCore." },
         "spec_entropy": {
           "type": "string",
           "enum": ["strict", "intentional", "unknown"],
@@ -149,6 +157,23 @@
               {"kind": "var", "name": "n"},
               {"kind": "app", "fn": "factorial", "args": [{"kind": "op", "op": "-", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 1}]}]}
             ]}}
+        }
+      ]
+    },
+
+    "ContractClause": {
+      "description": "SRC-CONJ-1 (0.9.0): one authored contract clause with its own optional :source provenance. Used by the pre_clauses/post_clauses arrays on def/def-shell; the effective contract side is the left and-fold of the clause exprs in array order. The S-expression equivalent is repeated (pre e :source \"...\") / (post e :source \"...\") clauses. Provenance is pure metadata: it never affects type checking, verification, or codegen; the trust report surfaces it as pre_sources/post_sources arrays in author order.",
+      "type": "object",
+      "required": ["expr"],
+      "additionalProperties": false,
+      "properties": {
+        "expr":   { "$ref": "#/$defs/Expr", "description": "The clause expression (one conjunct of the effective contract side). Must be bool-typed." },
+        "source": { "type": "string", "description": "Optional :source citation for this clause, e.g. \"RFC 1350 s5\". Free-form; a traceability pointer, not a fidelity proof." }
+      },
+      "examples": [
+        {
+          "expr": {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "m"}, {"kind": "lit-int", "value": 0}]},
+          "source": "RFC 1350 s5 - block numbers begin at one, zero reserved for RRQ/WRQ ack"
         }
       ]
     },
