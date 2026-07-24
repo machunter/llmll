@@ -49,7 +49,7 @@ A clause that classifies C2-nonlinear or quantified has two dispositions, in pre
 Author the contract *from the RFC text*, not from the intended body — RFC 793's post is the full transition-table totality, which is why a handshake-skipping body refutes. Binding conventions:
 
 - One `:source` string per `pre`/`post` clause: `"RFC NNN §X.Y — eight-to-fifteen-word paraphrase"` (grammar: `LLMLL.md:1979-1980`; semantics: §4.6 — pure metadata, threaded to `--trust-report` and `.verified.json`).
-- **Provenance granularity limit:** when multiple `pre` clauses are `and`-combined, `:source` is dropped as ambiguous (`LLMLL.md:746`). A function whose precondition draws on two distinct RFC clauses cannot carry both provenances today — **gap G2** (compiler-engineer, deferred: per-conjunct provenance list; JSON-AST schema delta, so it queues behind a schema-bump occasion).
+- **Provenance granularity limit — CLOSED (v0.14.65, SRC-CONJ-1):** formerly, `and`-combining multiple `pre` clauses dropped `:source` as ambiguous, so a precondition drawing on two distinct RFC clauses could not carry both provenances (**gap G2**). Each authored clause now keeps its own `:source` (per-conjunct `contractPreClauses`/`contractPostClauses`; JSON-AST 0.9.0 `pre_clauses`/`post_clauses`; trust-report `pre_sources`/`post_sources` in author order). See `LLMLL.md §4.6` and `CHANGELOG.md §v0.14.65`.
 - **C4 convention:** `weakness-ok` functions have no `pre`/`post` to suffix, so RFC provenance lives in the reason string (`LLMLL.md:2427`). This is a convention, not a checked channel — the trust report cannot distinguish an RFC-cited reason from a free-form one. Acceptable at current scale; recorded as the boundary of what §2's audit can lean on.
 
 ### S4 — Adequacy checking
@@ -77,7 +77,7 @@ Translates today, with evidence: state machines over finite enums with payload-b
 
 Degenerate inputs the pipeline must classify rather than mishandle:
 
-1. **A clause spanning two RFC sources** (e.g. RFC 6238 delegating truncation to RFC 4226 §5.3) — expected: one clause, `:source` cites the operative section; the inventory row records the delegation chain. Channel: audit/human; G2 is the eventual mechanized fix.
+1. **A clause spanning two RFC sources** (e.g. RFC 6238 delegating truncation to RFC 4226 §5.3) — expected: one clause, `:source` cites the operative section; the inventory row records the delegation chain. Channel: audit/human; the mechanized alternative shipped as SRC-CONJ-1 (v0.14.65): author one clause per source and each keeps its citation.
 2. **A constructor-valued test vector** (C5 over a sum type) — expected: `check` block parses but the property evaluator skips constructor-valued vectors (the RFC 793 runbook's verify-time-vs-run-time boundary); the vector's content is instead carried by the C1 post. Channel: spec is silent on runtime evaluation of constructed sums — intentional today, flagged in the scope matrix.
 3. **An RFC clause quantified over unbounded time** ("for all future time steps") — expected: C6, or C2 restricted to the per-call obligation (`t ≥ t0` as `pre`, not a temporal invariant). Channel: type/contract per call; the temporal claim is recorded as out of scope.
 4. **A weakness-ok'd function later given a contract** — expected: W602 fires, contract wins, `weakness-ok` reported redundant (`LLMLL.md:721-722`). Channel: trust.
@@ -101,7 +101,7 @@ Success = all of: (i) a persisted S1 clause inventory with every normative claus
 | ID | Gap | Owner | Weight |
 |----|-----|-------|--------|
 | G1 | ~~No persisted clause-inventory convention~~ — **CLOSED**: first persisted inventory delivered by the RFC 1982 run (`examples/rfc1982_serial/VERIFICATION_SCOPE.md`, 9/9 clauses; the template future runs copy) | language-team | closed 2026-07-12 |
-| G2 | `:source` dropped on `and`-combined `pre` clauses; no multi-source provenance (`LLMLL.md:746`) | compiler-engineer | deferred — JSON-AST schema delta; queue behind next schema-bump occasion |
+| G2 | `:source` dropped on `and`-combined `pre` clauses; no multi-source provenance | compiler-engineer | **CLOSED v0.14.65 (SRC-CONJ-1)** — per-conjunct provenance; JSON-AST 0.9.0 `pre_clauses`/`post_clauses`; `LLMLL.md §4.6` |
 | G3 | C4 provenance is an unchecked reason-string convention | none (accepted) | recorded boundary, revisit only if an auditor consumer materializes |
 | G4 | ~~Evaluation run (§4) not yet executed~~ — **CLOSED**: executed on RFC 1982, all six criteria pass (outcome appendix) | experiment-lead | closed 2026-07-12 |
 
