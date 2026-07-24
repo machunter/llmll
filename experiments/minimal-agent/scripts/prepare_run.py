@@ -82,11 +82,10 @@ RETURN_TYPE_BRIEF_BLOCKS = {
     ),
 }
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
-    "003": ["ecommerce-order-handler"],
+    # 003 retired (dead scaffold: schema 0.4.0 + removed def-logic). 007/008
+    # retired: superseded by the discriminative 009/010 (see SUMMARY.md).
     "005": ["seeded-return-holes"],
     "006": ["reservoir-inflow"],
-    "007": ["map-revocation"],
-    "008": ["bytes-scaled-read"],
     "009": ["transfer-conservation"],
     "010": ["byte-saturate"],
 }
