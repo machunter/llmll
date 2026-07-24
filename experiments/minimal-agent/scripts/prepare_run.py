@@ -82,10 +82,9 @@ RETURN_TYPE_BRIEF_BLOCKS = {
     ),
 }
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
-    # 003 retired (dead scaffold: schema 0.4.0 + removed def-logic). 007/008
-    # retired: superseded by the discriminative 009/010 (see SUMMARY.md).
-    "005": ["seeded-return-holes"],
-    "006": ["reservoir-inflow"],
+    # Retired (see SUMMARY.md): 003 (dead scaffold), 007/008 (superseded by
+    # 009/010), 005 (DEF-RET A/B, never ran), 006 (linear-int solver-catches,
+    # subsumed by 009/010). Kept: the discriminative solver-catches trio.
     "009": ["transfer-conservation"],
     "010": ["byte-saturate"],
     "011": ["assume-guarantee-order"],
@@ -93,8 +92,6 @@ EXPERIMENT_SCAFFOLD_TEMPLATES = {
 
 LEGACY_PROBLEM_IDS = {
     "1": "001",
-    "2": "002",
-    "3": "003",
 }
 
 

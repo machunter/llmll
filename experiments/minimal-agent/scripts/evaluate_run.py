@@ -53,76 +53,22 @@ FEATURE_PATTERNS = {
 # return type (001-two-agent-auth.md:23).
 REQUIRED_FEATURES = {
     1: ["def-interface", "delegate", "on-failure", "check", "pre", "post", "Result-type"],
-    2: [
-        "def-interface",
-        "delegate",
-        "delegate-async",
-        "await",
-        "DelegationError",
-        # Promise removed (inferred from ?delegate-async per §11.2).
-        ["Result-type", "Result-pattern"],  # disjunction (F-301 loosening)
-        "proof-required",
-        "def-invariant",
-        "check",
-        "pre",
-        "post",
-    ],
-    3: [
-        "type",
-        "def-interface",
-        "delegate",
-        "delegate-async",
-        "await",
-        "on-failure",
-        "DelegationError",
-        ["Result-type", "Result-pattern"],  # disjunction (F-301 loosening)
-        "proof-required",
-        "def-invariant",
-        "check",
-        "pre",
-        "post",
-    ],
     # F-B0-3 (postmortem-007): 004 had no entry → feature_scan.required=[] →
     # the evaluator graded vacuous solutions A. The `check` block and the
     # count-lines `post` contract are mandated by the 004 task; this stops the
     # evaluator passing stubs. Capability-correctness (fs effects present, no
     # forbidden cap) stays the scorer's job (`score_capability.py --require`).
     4: ["check", "post"],
-    # DEF-RET (experiment 005, postmortem-009/-010): the fill-the-hole task
-    # mandates a `check` and a `post` on clamp-to-word; a correct find-account fill
-    # produces a Result return (type annotation or a match on Success/Error).
-    # `type` is satisfied by the seeded Account/LookupError aliases carried into
-    # the solution (and, in a correct fill, the refinement alias the agent ADDS for
-    # the clamp return — the seed no longer pre-declares it, per the postmortem-010
-    # blindness fix). The scan reads the SOLUTION (scan_features), not the seed, so
-    # the agent must supply these features itself. The non-vacuity bar mirrors
-    # F-B0-3 — without an entry the evaluator grades stub bodies A.
-    5: ["type", "check", "post", ["Result-type", "Result-pattern"]],
-    # P3 grader-gap (experiment 006, solver-catches mode): the discriminating
-    # postcondition is WITHHELD (hidden-specs/006.json) and injected at grade
-    # time, so the agent must NOT be required to author a `post` — requiring one
-    # would defeat the grader-gap. The only feature gate is the provided `check`
-    # (the non-adversarial "tests blind" arm): if the agent strips it,
-    # solver_caught can never be established (effective_total=0 → test_passed
-    # False), so its presence is the non-vacuity bar. Stub bodies are caught
-    # separately by the vacuous→C gate in solver_catch_grade (fixpoint cannot
-    # reach a body-faithful VC). `scaffold` is intentionally NOT required:
-    # detect_scaffold_usage keys on a stray scaffold.ast.json, which a hole-fill
-    # solution need not produce.
-    6: ["check"],
-    # 009 (transfer-conservation) / 010 (byte-saturate): solver-catches, same
-    # gate rationale as 006 — the discriminating post is withheld (hidden-specs/
-    # 009.json, 010.json), so requiring the agent to author a `post` would defeat
-    # the grader-gap; the provided non-adversarial `check` is the only non-vacuity
-    # bar. Correct fills verify body-faithfully (B); the plausible errors (dropped
-    # debit leg / missing saturation clamp) refute (A). (007/008 retired: the
-    # superseded trivial round; see SUMMARY.md.)
+    # 009 (transfer-conservation) / 010 (byte-saturate) / 011 (assume-guarantee-
+    # order): solver-catches. The discriminating post/pre is WITHHELD (hidden-specs/
+    # NNN.json) and injected at grade time, so requiring the agent to author a
+    # `post` would defeat the grader-gap; the provided non-adversarial `check` is
+    # the only non-vacuity bar (strip it → effective_total=0 → test_passed False →
+    # no grade A). 009/010 withhold a post (dropped-debit / missing-clamp refute);
+    # 011 withholds a callee PRE (a wrong call order refutes on the call-pre).
+    # (002/003/005/006/007/008 retired — see SUMMARY.md.)
     9: ["check"],
     10: ["check"],
-    # 011 (assume-guarantee-order): solver-catches. The withheld discriminator is
-    # a callee's strengthened PRE (hidden-specs/011.json, side=pre on `consume`),
-    # not a post; the target re-verified is the caller `process`. A wrong call
-    # order refutes on the withheld call-pre (A); correct order discharges it (B).
     11: ["check"],
 }
 
