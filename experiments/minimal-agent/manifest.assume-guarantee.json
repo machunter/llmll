@@ -1,0 +1,15 @@
+{
+  "_comment": "The adjudicating experiment the professor and language-team agreed on (postmortem-011 debate): an in-fragment (QF-LIA + arrays) sequential assume-guarantee task where a wrong CALL ORDER passes a blind PBT but the solver refutes a withheld call-pre (consume's non-negativity requirement). If frontier models thread guard-then-consume correctly (30/30 B) the professor's decidable-easy coupling gains support; if any skip the guard (grade A) the language-team's fixture-artifact claim is confirmed empirically. Single-arm solver-catches, run_count=5. 1 experiment x 3 models x 5 tries = 15 attempts.",
+  "_feasibility_gate": "llmll >= 0.14.63 on PATH (confirmed). Mechanic validated pre-launch: correct order (consume (guard bal k) k) verifies SAFE with the withheld strengthened consume-pre injected; wrong order (consume bal k) refutes on consume's call-pre ('call-site precondition of consume not satisfied in process'); the visible check samples a positive balance so both orders pass it (blind). process carries an anchor post so its body VC (and the call-pre obligation) is emitted.",
+  "_cmd_note": "claude-opus-4-8; gpt-5.5 via bare `codex exec`; gemini-3.1-pro-preview (paid tier; 2.x pro retired for new users). Folder-trust of /experiments + paid key in repo .env are set.",
+  "experiments": ["011"],
+  "run_count": 5,
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    { "name": "claude-opus-4-8",        "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gpt-5.5",                "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gemini-3.1-pro-preview", "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-3.1-pro-preview --yolo" }
+  ]
+}

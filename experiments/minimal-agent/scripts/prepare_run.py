@@ -88,6 +88,7 @@ EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "006": ["reservoir-inflow"],
     "009": ["transfer-conservation"],
     "010": ["byte-saturate"],
+    "011": ["assume-guarantee-order"],
 }
 
 LEGACY_PROBLEM_IDS = {

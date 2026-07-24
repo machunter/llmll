@@ -119,6 +119,11 @@ REQUIRED_FEATURES = {
     # superseded trivial round; see SUMMARY.md.)
     9: ["check"],
     10: ["check"],
+    # 011 (assume-guarantee-order): solver-catches. The withheld discriminator is
+    # a callee's strengthened PRE (hidden-specs/011.json, side=pre on `consume`),
+    # not a post; the target re-verified is the caller `process`. A wrong call
+    # order refutes on the withheld call-pre (A); correct order discharges it (B).
+    11: ["check"],
 }
 
 

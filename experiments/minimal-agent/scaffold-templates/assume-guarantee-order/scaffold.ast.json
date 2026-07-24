@@ -1,0 +1,316 @@
+{
+  "llmll_version": "0.14.63",
+  "schemaVersion": "0.8.0",
+  "source_file": "assume-guarantee-order.scaffold.llmll",
+  "_fixture_note": "Solver-catches seed (experiment 011, assume-guarantee-order). The adjudicating experiment the professor and language-team agreed on: an in-fragment (QF-LIA + arrays) task where a WRONG CALL ORDER passes a blind test but the solver refutes a withheld call-pre. Given: `guard` (ensures the account's value is non-negative: post map-has result k AND >= 0) and `consume` (its VISIBLE pre is only map-has; its body is identity). The agent fills `process-body` to prepare then consume the account. GRADER-GAP INVARIANT: consume's REAL precondition (the value must be non-negative) is WITHHELD \u2014 hidden-specs/011.json strengthens consume's pre to (and (map-has m k) (>= (map-get m k) 0)), injected onto consume at grade time, and process is re-verified. refuted = a fill that calls consume before guarding (so consume's non-negativity call-pre is unmet on a negative-balance input the solver quantifies over) = grade A; verified = guard-then-consume, the call-pre discharged by guard's post = grade B; vacuous = C. The visible check samples a POSITIVE balance (k=5), where consume's weak visible pre holds for either order, so a wrong-order fill passes it (tests blind); only the solver, via the withheld non-negativity call-pre, catches the ordering. process carries an anchor post (map-has result k, weak, non-discriminating) so its body VC \u2014 and thus the consume call-pre obligation \u2014 is emitted (a naive anchorless map-returning body falls back, LLMLL.md \u00a75.3.4). Straight-line at the store level; sidesteps the F-011.3 conditional-store residue. Stripped by prepare_run.py::_strip_fixture_metadata on copytree.",
+  "statements": [
+    {
+      "kind": "def-shell",
+      "name": "guard",
+      "params": [
+        {
+          "name": "m",
+          "param_type": {
+            "kind": "map",
+            "key_type": {
+              "kind": "primitive",
+              "name": "int"
+            },
+            "val_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        },
+        {
+          "name": "k",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "map",
+        "key_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "val_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "pre": {
+        "kind": "app",
+        "fn": "map-has",
+        "args": [
+          {
+            "kind": "var",
+            "name": "m"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          }
+        ]
+      },
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "map-has",
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "var",
+                "name": "k"
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "map-get",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "k"
+                  }
+                ]
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "kind": "app",
+        "fn": "map-put",
+        "args": [
+          {
+            "kind": "var",
+            "name": "m"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": "def-shell",
+      "name": "consume",
+      "params": [
+        {
+          "name": "m",
+          "param_type": {
+            "kind": "map",
+            "key_type": {
+              "kind": "primitive",
+              "name": "int"
+            },
+            "val_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        },
+        {
+          "name": "k",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "map",
+        "key_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "val_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "pre": {
+        "kind": "app",
+        "fn": "map-has",
+        "args": [
+          {
+            "kind": "var",
+            "name": "m"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          }
+        ]
+      },
+      "post": {
+        "kind": "app",
+        "fn": "map-has",
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          }
+        ]
+      },
+      "body": {
+        "kind": "var",
+        "name": "m"
+      }
+    },
+    {
+      "kind": "def-shell",
+      "name": "process",
+      "params": [
+        {
+          "name": "bal",
+          "param_type": {
+            "kind": "map",
+            "key_type": {
+              "kind": "primitive",
+              "name": "int"
+            },
+            "val_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        },
+        {
+          "name": "k",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "map",
+        "key_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "val_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "pre": {
+        "kind": "app",
+        "fn": "map-has",
+        "args": [
+          {
+            "kind": "var",
+            "name": "bal"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          }
+        ]
+      },
+      "post": {
+        "kind": "app",
+        "fn": "map-has",
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "var",
+            "name": "k"
+          }
+        ]
+      },
+      "body": {
+        "kind": "hole-named",
+        "name": "process-body"
+      }
+    },
+    {
+      "kind": "check",
+      "label": "process keeps the account present",
+      "for_all": {
+        "bindings": [
+          {
+            "name": "d",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "kind": "app",
+          "fn": "map-has",
+          "args": [
+            {
+              "kind": "app",
+              "fn": "process",
+              "args": [
+                {
+                  "kind": "app",
+                  "fn": "map-put",
+                  "args": [
+                    {
+                      "kind": "app",
+                      "fn": "map-empty",
+                      "args": []
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 7
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 5
+                    }
+                  ]
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 7
+                }
+              ]
+            },
+            {
+              "kind": "lit-int",
+              "value": 7
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

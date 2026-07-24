@@ -1,0 +1,61 @@
+{
+  "_doc": "Grader-gap hidden-spec for experiment 011 (assume-guarantee-order). WITHHELD: consume's real precondition (value non-negative). Injected onto consume's PRE at grade time (side=pre), then `process` is re-verified. refuted (process, on consume's call-pre) = the solver caught a wrong call order (grade A); verified = correct guard-then-consume order (grade B); vacuous = C. In-fragment: QF-LIA + array class; the discriminator is a PROVE-polarity call-site precondition obligation (LLMLL.md \u00a75.3.4), not a body post.",
+  "experiment_id": "011",
+  "grading_mode": "solver_catches",
+  "hidden_posts": [
+    {
+      "function": "consume",
+      "side": "pre",
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "map-has",
+            "args": [
+              {
+                "kind": "var",
+                "name": "m"
+              },
+              {
+                "kind": "var",
+                "name": "k"
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "map-get",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "m"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "k"
+                  }
+                ]
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "targets": [
+    {
+      "function": "process",
+      "side": "post"
+    }
+  ]
+}

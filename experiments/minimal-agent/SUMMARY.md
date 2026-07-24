@@ -35,7 +35,7 @@ Across the entire program, **where a solution was graded below the ceiling, the 
 
 The final campaign set out to observe the verification safety net *catching* an agent: a blind visible test plus a withheld postcondition, so that a subtly-wrong fill would pass the agent's own testing yet be refuted by the solver. The safety net is real — every hand-written wrong fill was refuted body-faithfully by the same machinery — but **it was never triggered by a real agent fill, because the agents did not produce wrong fills.** The value of verification *under agent error* is therefore established by construction, not by an observed agent mistake.
 
-Whether that gap is closable inside the auto-decidable fragment at all — or whether it structurally requires weaker agents (where errors appear as non-compiling attempts, not subtly-wrong-but-verifiable ones) or out-of-fragment tasks (dependent lengths, induction, richer invariants) — is the open question the program surfaces and does not itself resolve.
+Whether that gap is closable inside the auto-decidable fragment at all — or whether it structurally requires weaker agents (where errors appear as non-compiling attempts, not subtly-wrong-but-verifiable ones) or out-of-fragment tasks (dependent lengths, induction, richer invariants) — is the open question the program surfaces and does not itself resolve. A follow-up experiment built specifically to probe it (`011-assume-guarantee-order`, the in-fragment ordering task a design review judged most likely to elicit a subtly-wrong fill) also returned all-B: **0 grade-A across 69 frontier-model attempts spanning three fixture shapes** (trivial, discriminative-by-value, discriminative-by-ordering). See `findings/postmortem-012`.
 
 ## Bottom line
 
