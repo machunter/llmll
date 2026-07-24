@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## v0.14.64 — fix: map-store conditional bodies verify body-faithfully (2026-07-24)
+
+### Fixed — a conditional in a map-returning body no longer falls back to contract-only
+
+- **Coverage hole.** A conditional (`if`) inside a map-returning body fell back from body-faithful
+  verification — both a map-valued `if` (`(if c (map-put …) bal)`) and a conditional stored value
+  (`(map-put bal a (if c …))`) — even though straight-line stores reflect and refute correctly. Under
+  `--strict-verified-core` a *wrong* conditional-map body passed via the contract-only fallback instead of
+  being refuted; the body-faithful map fragment was limited to straight-line store bodies.
+- **Fix.** `mapRetChain` (`FixpointEmit.hs`) now returns a guarded `MapRetTree`, and the map-return emission
+  path-splits it into one guard-conjoined component-pin constraint per arm with arm-localized provenance
+  (`body-post-then`/`-else`); `expandMapLets` if-floats a conditional stored value out of a strict, pure,
+  call-free `map-put`/`bytes-set`/`+`/`-` argument, reducing it to the map-valued-`if` case. Reflection stays
+  in the QF-AUFLIA array class (`select`/`store` under a Boolean case-split); the 4096-path cap is preserved;
+  emission is activation-gated so non-map functions emit byte-identical `.fq`. No `FQ` ite constructor, no CLI
+  or schema change. **Strictly trust-tightening**: a wrong conditional-map body now refutes body-faithfully.
+- Surfaced by the minimal-agent solver-catches campaign (F-011.3). **1391 Haskell examples, 0 failures**
+  (Python suite unchanged at 45); refute-crux corpus 41/41 unchanged.
+
 ## v0.14.63 — fix: map/bytes ops in the property-test evaluator (2026-07-23)
 
 ### Fixed — `llmll test` property-checks map/bytes code instead of skipping it
