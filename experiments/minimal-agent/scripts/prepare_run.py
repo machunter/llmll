@@ -85,6 +85,10 @@ EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "003": ["ecommerce-order-handler"],
     "005": ["seeded-return-holes"],
     "006": ["reservoir-inflow"],
+    "007": ["map-revocation"],
+    "008": ["bytes-scaled-read"],
+    "009": ["transfer-conservation"],
+    "010": ["byte-saturate"],
 }
 
 LEGACY_PROBLEM_IDS = {

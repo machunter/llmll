@@ -1,0 +1,37 @@
+{
+  "_doc": "Grader-gap hidden-spec for experiment 007 (map-revocation, solver-catches mode). The post below is WITHHELD from the agent entirely: problem.md describes the revocation behavior in prose but mandates no contract, and the seeded scaffold declares only the map[int,string] return with a map-has precondition. This file lives in the harness tree and is NEVER copied into a run directory. evaluate_run.py resolves it by experiment_id at grade time, injects the post onto revoke in a graded COPY of the agent solution, and runs `llmll verify <copy> --strict-verified-core`. Polarity is INVERTED: refuted = the solver caught a fill that does not actually mark the token revoked (grade A); verified = a correct map-put (grade B); vacuous = fixpoint could not reach a body-faithful VC (grade C). The post is the complete revocation property: (1) map-has result tid — the token id is still present; (2) (= (map-get result tid) \"revoked\") — its value is the revoked marker, the discriminator that a return-tokens-unchanged fill violates (the pre guarantees presence, not the value). Reflects exactly in the Str value-array class, so a wrong fill refutes body-faithfully.",
+  "experiment_id": "007",
+  "grading_mode": "solver_catches",
+  "hidden_posts": [
+    {
+      "function": "revoke",
+      "side": "post",
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "map-has",
+            "args": [ { "kind": "var", "name": "result" }, { "kind": "var", "name": "tid" } ]
+          },
+          {
+            "kind": "op",
+            "op": "=",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "map-get",
+                "args": [ { "kind": "var", "name": "result" }, { "kind": "var", "name": "tid" } ]
+              },
+              { "kind": "lit-string", "value": "revoked" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "targets": [
+    { "function": "revoke", "side": "post" }
+  ]
+}

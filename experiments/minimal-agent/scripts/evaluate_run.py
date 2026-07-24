@@ -110,6 +110,20 @@ REQUIRED_FEATURES = {
     # detect_scaffold_usage keys on a stray scaffold.ast.json, which a hole-fill
     # solution need not produce.
     6: ["check"],
+    # 007 (map-revocation) / 008 (bytes-scaled-read): solver-catches, same gate
+    # rationale as 006 — the discriminating post is withheld (hidden-specs/
+    # 007.json, 008.json), so requiring the agent to author a `post` would defeat
+    # the grader-gap. The provided non-adversarial `check` is the only non-vacuity
+    # bar (stripping it → effective_total=0 → test_passed False → no grade A).
+    7: ["check"],
+    8: ["check"],
+    # 009 (transfer-conservation) / 010 (byte-saturate): discriminative
+    # redesigns of 007/008, same solver-catches gate — withheld post
+    # (hidden-specs/009.json, 010.json), the provided non-adversarial `check` is
+    # the only non-vacuity bar. Correct fills verify body-faithfully (B); the
+    # plausible errors (dropped debit leg / missing saturation clamp) refute (A).
+    9: ["check"],
+    10: ["check"],
 }
 
 

@@ -1,0 +1,17 @@
+{
+  "_comment": "Gemini re-run of discriminative cells (009+010) on the PAID tier. Auth fixed (repo-root .env GEMINI_API_KEY updated to the paid key; the free_tier 429 is gone). Slot = gemini-3.1-pro-preview: gemini-2.5-pro is 'no longer available to new users' on the paid key, and the project Phase-3 gemini-2 step-down was a free-tier throttling workaround (moot on paid). 3.1-pro-preview smoke-confirmed available. Peer to opus/gpt-5.5 for the three-strong-model one-shot comparison.",
+  "experiments": [
+    "009",
+    "010"
+  ],
+  "run_count": 5,
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    {
+      "name": "gemini-3.1-pro-preview",
+      "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-3.1-pro-preview --yolo"
+    }
+  ]
+}

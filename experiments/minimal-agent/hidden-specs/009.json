@@ -1,0 +1,131 @@
+{
+  "_doc": "Grader-gap hidden-spec for experiment 009 (transfer-conservation). WITHHELD conservation post injected onto transfer at grade time; refuted=A (non-conserving fill, e.g. forgot the debit leg), verified=B (conserving), vacuous=C. Never copied into a run dir. Reflects body-faithfully for straight-line double-put bodies with linear values.",
+  "experiment_id": "009",
+  "grading_mode": "solver_catches",
+  "hidden_posts": [
+    {
+      "function": "transfer",
+      "side": "post",
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "map-has",
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "var",
+                "name": "a"
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "and",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "map-has",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "b"
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "=",
+                "args": [
+                  {
+                    "kind": "op",
+                    "op": "+",
+                    "args": [
+                      {
+                        "kind": "app",
+                        "fn": "map-get",
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "result"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "a"
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "app",
+                        "fn": "map-get",
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "result"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "+",
+                    "args": [
+                      {
+                        "kind": "app",
+                        "fn": "map-get",
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "bal"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "a"
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "app",
+                        "fn": "map-get",
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "bal"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "targets": [
+    {
+      "function": "transfer",
+      "side": "post"
+    }
+  ]
+}

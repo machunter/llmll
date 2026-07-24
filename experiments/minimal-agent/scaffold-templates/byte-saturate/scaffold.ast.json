@@ -1,0 +1,124 @@
+{
+  "llmll_version": "0.14.63",
+  "schemaVersion": "0.8.0",
+  "source_file": "byte-saturate.scaffold.llmll",
+  "_fixture_note": "Solver-catches seed (experiment 010, byte-saturate). Fill-the-hole: the brighten signature (bytes[8] int -> int), its precondition (0<=i<8), a sample-buffer helper (all-zero bytes[8]) the visible test reads through, and a NON-ADVERSARIAL visible check are written; the agent fills ONLY brighten-body. GRADER-GAP: the withheld byte-range post ((and (>= result 0) (<= result 255))) lives only in hidden-specs/010.json, injected at grade time. refuted = a fill whose result can exceed 255 (e.g. adds a constant but forgets to saturate/clamp at 255) = grade A; verified = a saturating add = grade B; vacuous = C. The visible check samples the all-zero buffer, where add-then-clamp and add-without-clamp agree (both small, non-negative), so a forgot-the-clamp fill passes it (tests blind); only the solver, via the withheld <=255 ceiling on a high byte, catches the overflow. bytes-get emits the ground 0<=v<=255 range fact; an int-returning if-clamp reflects body-faithfully (LLMLL.md \u00a75.3.3). Stripped by prepare_run.py::_strip_fixture_metadata on copytree.",
+  "statements": [
+    {
+      "kind": "def",
+      "name": "sample-buffer",
+      "params": [],
+      "return_type": {
+        "kind": "bytes",
+        "length": 8
+      },
+      "body": {
+        "kind": "app",
+        "fn": "bytes-zero",
+        "args": []
+      }
+    },
+    {
+      "kind": "def",
+      "name": "brighten",
+      "params": [
+        {
+          "name": "b",
+          "param_type": {
+            "kind": "bytes",
+            "length": 8
+          }
+        },
+        {
+          "name": "i",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      },
+      "pre": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "i"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "<",
+            "args": [
+              {
+                "kind": "var",
+                "name": "i"
+              },
+              {
+                "kind": "lit-int",
+                "value": 8
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "kind": "hole-named",
+        "name": "brighten-body"
+      }
+    },
+    {
+      "kind": "check",
+      "label": "brighten non-negative on sample buffer",
+      "for_all": {
+        "bindings": [
+          {
+            "name": "d",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "kind": "op",
+          "op": ">=",
+          "args": [
+            {
+              "kind": "app",
+              "fn": "brighten",
+              "args": [
+                {
+                  "kind": "app",
+                  "fn": "sample-buffer",
+                  "args": []
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ]
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

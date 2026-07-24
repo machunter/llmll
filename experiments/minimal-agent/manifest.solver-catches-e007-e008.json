@@ -1,0 +1,28 @@
+{
+  "_comment": "Solver-catches campaign for the Lever A array class: experiment 007 (map-revocation) and 008 (bytes-scaled-read). SINGLE-ARM by design (like e006, unlike the e004/e005 context-injection A/B): each model appears ONCE per experiment; the same authored artifact is graded two ways by the evaluator (the visible non-adversarial `check` near-ceiling vs the WITHHELD discriminating post under fixpoint). Per-cell metric: solver_caught = (test PASS on the visible check) AND (verify REFUTED on the withheld post injected onto the target). Grade A = refuted (the solver caught a subtly-wrong fill), B = verified-clean, C = vacuous (fixpoint could not reach a body-faithful VC), F = non-compile/missing-check. Grading mode auto-resolves to solver_catches because hidden-specs/007.json and hidden-specs/008.json exist (prepare_run.py resolve_grading_mode). HYPOTHESIS: agents that fill map/bytes bodies mostly produce body-faithful-verifiable fills (grade B, one-shot correct on the array class), with a minority of subtly-wrong fills the solver catches (grade A, test-blind refute). SUCCESS = a non-trivial grade-A/B split with the array-class VC reached (all_targets_body_faithful true) on both experiments. NULL = every fill trivially correct (all B \u2014 the tasks are too easy to be discriminative) or every fill vacuous (all C \u2014 the VC never reaches the array class, i.e. a harness/compiler regression). run_count=5 (the discriminating quantity is a mid-range catch rate; a saturated 3-try pilot gives too wide a CI). 3 experiments (006 anchor + 007 + 008) x 3 models x 5 tries = 45 attempts. 006 (reservoir-inflow, linear-int) is the pre-existing solver-catches fixture, included as a June->HEAD baseline anchor; 007/008 are the new Lever A array-class cells.",
+  "_feasibility_gate": "REQUIRES llmll >= 0.14.63 on the PATH the harness resolves (the map/bytes PBT test-path evaluator + precondition-guarded discard landed v0.14.63; a 0.14.62-or-earlier binary makes every visible map/bytes check discard to Skipped -> test_passed False -> solver_caught can never be established, false-nulling every cell to grade B). AS OF AUTHORING the PATH `llmll` reports 0.14.62 (STALE); `stack exec -- llmll version` reports 0.14.63. Before the billed run: (1) install 0.14.63 to PATH (or point the harness bin/llmll wrapper at the 0.14.63 build) and confirm `llmll version` == 0.14.63; (2) `run_matrix.py --prepare-only` and confirm, per prepared run dir, grading_mode=solver_catches in metadata, the scaffold is provided under .llmll/templates/<slug>/, hidden-specs/007.json and 008.json are NOT copied into any agent-visible dir, and no underscore-prefixed key (e.g. _fixture_note) survives in the prepared scaffold; (3) spot-verify the discriminative pair on the fixed binary (correct fill -> visible test PASS + withheld-post verify SAFE = B; obvious-wrong fill -> visible test PASS + withheld-post verify REFUTED = A).",
+  "_cmd_note": "Confirm model IDs against your auth tier before launch: (1) codex 'gpt-5.5' uses bare `codex exec` with NO --model flag (API-key-only models are auth-rejected on ChatGPT-tier accounts, postmortem-001 F-102). (2) Gemini slot is gemini-2.0-pro-exp-02-05 \u2014 the deliberate Phase-3 step-down from gemini-3-pro-preview (project memory: gemini-3 throttling 529s nulled e005's Gemini cells). Do not silently restore gemini-3 here. (3) claude model id is claude-opus-4-8.",
+  "experiments": [
+    "006",
+    "007",
+    "008"
+  ],
+  "run_count": 5,
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    {
+      "name": "claude-opus-4-8",
+      "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'"
+    },
+    {
+      "name": "gpt-5.5",
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'"
+    },
+    {
+      "name": "gemini-2-pro",
+      "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-2.0-pro-exp-02-05 --yolo"
+    }
+  ]
+}

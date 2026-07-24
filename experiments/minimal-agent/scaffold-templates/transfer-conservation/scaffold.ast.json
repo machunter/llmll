@@ -1,0 +1,200 @@
+{
+  "llmll_version": "0.14.63",
+  "schemaVersion": "0.8.0",
+  "source_file": "transfer-conservation.scaffold.llmll",
+  "_fixture_note": "Solver-catches seed (experiment 009, transfer-conservation). Fill-the-hole: the transfer signature (map[int,int] int int int -> map[int,int]), its precondition (both accounts present, a != b), and a NON-ADVERSARIAL visible check are written; the agent fills ONLY transfer-body. GRADER-GAP: the withheld conservation post (total of the two accounts is preserved) lives only in hidden-specs/009.json, injected at grade time. refuted = a fill that does not conserve the total (e.g. credits b but forgets to debit a) = grade A; verified = a conserving straight-line double-put = grade B; vacuous = C. The visible check only asserts an account stays present, which a forgot-the-debit fill still satisfies (tests blind); only the solver, via the withheld conservation clause, catches the missing debit leg. Straight-line nested puts with linear-integer values reflect body-faithfully (LLMLL.md \u00a75.3.3); a conditional (if) in a map-store body falls back, so keep the body straight-line. Stripped by prepare_run.py::_strip_fixture_metadata on copytree.",
+  "statements": [
+    {
+      "kind": "def-shell",
+      "name": "transfer",
+      "params": [
+        {
+          "name": "bal",
+          "param_type": {
+            "kind": "map",
+            "key_type": {
+              "kind": "primitive",
+              "name": "int"
+            },
+            "val_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        },
+        {
+          "name": "a",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "b",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amt",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "map",
+        "key_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "val_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "pre": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "map-has",
+            "args": [
+              {
+                "kind": "var",
+                "name": "bal"
+              },
+              {
+                "kind": "var",
+                "name": "a"
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "and",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "map-has",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "bal"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "b"
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "not",
+                "args": [
+                  {
+                    "kind": "op",
+                    "op": "=",
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "a"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "kind": "hole-named",
+        "name": "transfer-body"
+      }
+    },
+    {
+      "kind": "check",
+      "label": "transfer keeps both accounts present",
+      "for_all": {
+        "bindings": [
+          {
+            "name": "d",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "kind": "app",
+          "fn": "map-has",
+          "args": [
+            {
+              "kind": "app",
+              "fn": "transfer",
+              "args": [
+                {
+                  "kind": "app",
+                  "fn": "map-put",
+                  "args": [
+                    {
+                      "kind": "app",
+                      "fn": "map-put",
+                      "args": [
+                        {
+                          "kind": "app",
+                          "fn": "map-empty",
+                          "args": []
+                        },
+                        {
+                          "kind": "lit-int",
+                          "value": 1
+                        },
+                        {
+                          "kind": "lit-int",
+                          "value": 50
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 2
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 30
+                    }
+                  ]
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 1
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 2
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 10
+                }
+              ]
+            },
+            {
+              "kind": "lit-int",
+              "value": 1
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

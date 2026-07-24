@@ -6,6 +6,18 @@
 
 ---
 
+### F-011.3. `if` in a map-store body falls back from body-faithful verification
+
+**Source:** solver-catches campaign, `postmortem-011-solver-catches-array-class.md`
+**Date:** 2026-07-24
+**Priority:** Medium — Lever A residue
+
+`(if c (map-put …) bal)` (a map-valued `if`) and `(map-put bal a (if c …))` (a conditional stored value) both verify as `body-fallback: <fn>` under `--strict-verified-core`, while straight-line stores and each branch alone reflect body-faithfully (a straight-line wrong fill refutes). The body-faithful map fragment is currently limited to straight-line store bodies; a conditional inside a map-store body routes to the fallback channel. An int-returning `if`-clamp (e.g. the bytes `brighten` fixture, e010) is unaffected. Surfaced while designing experiment 009; forced the correct fill to stay straight-line.
+
+**Acceptance:** a `map[k,v]`-returning `def`/`def-shell` whose body is `(if c (map-put …) …)` reaches a body-faithful VC (emits a refutable body VC rather than `body-fallback`), so a wrong conditional-store fill is `refuted`, not `verified`-vacuous.
+
+---
+
 ### F-GATE-1. `GrammarCoreInversion` not enforced for `.ast.json` input
 
 **Source:** §8 pre/post comparison, `postmortem-003-s8-gate-pre-post.md`
@@ -474,6 +486,16 @@ If the new `unknown` status from PBT vacuity fix becomes user-visible in `llmll 
 
 ## Experiment-lead
 
+
+### F-011.1/2. Frontier models one-shot the Lever A array class; solver-catches measures correctness, not catch-rate
+
+**Source:** `postmortem-011-solver-catches-array-class.md`
+**Date:** 2026-07-24
+**Priority:** High (positive) / Medium (null)
+
+54 solver-catches attempts on `map`/`bytes` fill-the-hole fixtures (007/008 trivial, 009/010 discriminative), compiler 0.14.63: **0/54 grade-A**, and **30/30 grade B on the discriminative fixtures** across `claude-opus-4-8` / `gpt-5.5` / `gemini-3.1-pro-preview`. Frontier models write body-faithful-verifiable correct fills first-try, even on tasks with a designed subtle-error surface (a transfer where dropping the debit leg breaks conservation; a saturating add where forgetting the clamp overflows 255). The v0.14.32→62 depth arc delivers one-shot correctness on the array class (F-011.1, positive). The grade-A catch signal is a null on the frontier (F-011.2): eliciting it needs a much weaker model (likely grade F, not a catch) or adversarial tasks (an escalation game). The solver's catch value stays established by construction — isolated wrong fills refute body-faithfully — not by an agent trace. Operational: gemini needed folder-trust + a repo-`.env` auth-shadow fix + a model swap to `gemini-3.1-pro-preview`; `manifest.gemini-rerun.json` is reusable.
+
+---
 
 **Source:** Integrated postmortem of 18 attempts × 5 models on `001-two-agent-auth`
 **Date:** 2026-05-10
