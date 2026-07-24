@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.64)
+# LLMLL: Large Language Model Logical Language (v0.14.65)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.64.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.65.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -750,9 +750,9 @@ In LLMLL's target domains (financial compliance, protocol implementation, crypto
 
 **Backward compatible:** Omitting `:source` yields `Nothing` — all existing programs parse and compile unchanged.
 
-**Multiple pre clauses:** When multiple `(pre ...)` clauses are combined with `and`, the `:source` annotation is dropped (ambiguous provenance across combined clauses).
+**Multiple clauses (SRC-CONJ-1):** A contract side may be authored as several `(pre ...)` or `(post ...)` clauses, each carrying its own `:source`. The effective predicate is the left `and`-fold of the clauses in author order; every clause keeps its citation (`contractPreClauses` / `contractPostClauses`). The trust report surfaces them as `pre_sources` / `post_sources` arrays (author order); `.verified.json` evidence records carry them as `sources`. For the decomposition-trust vouched predicate (§4.4), a multi-clause side is vouched only when **every** clause carries `:source`.
 
-JSON-AST fields: `"pre_source"` / `"post_source"` (optional string).
+JSON-AST fields: `"pre_source"` / `"post_source"` (optional string, single-clause shape) or `"pre_clauses"` / `"post_clauses"` (arrays of `{"expr", "source"?}` for 2+ clauses; mutually exclusive with the scalar shape; a one-element array normalizes to it; `schemaVersion` 0.9.0).
 
 
 
@@ -2010,9 +2010,11 @@ SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
 (* ============================================================ *)
 def          = "(" "def"       IDENT "[" { typed-param } "]"
                  [ ARROW type ]
-                 [ pre-clause ] [ post-clause ] [ entropy-clause ]
+                 { pre-clause } { post-clause } [ entropy-clause ]
                  core-expr
                ")" ;
+                 (* Repeated pre/post clauses and-fold left in author order;    *)
+                 (* each keeps its own :source (SRC-CONJ-1, §4.6).              *)
                  (* Strict-core: body must satisfy isCoreBodySyntactic.         *)
                  (* Callee admission at EApp: body-faithful evidence, OR        *)
                  (* trustedPrelude membership, OR builtinEnv membership.        *)
@@ -2022,10 +2024,12 @@ def          = "(" "def"       IDENT "[" { typed-param } "]"
 
 def-shell    = "(" "def-shell" IDENT "[" { typed-param } "]"
                  [ ARROW type ]
-                 [ pre-clause ] [ post-clause ] [ entropy-clause ]
+                 { pre-clause } { post-clause } [ entropy-clause ]
                  [ decreases-clause ]
                  expr
                ")" ;
+                 (* Repeated pre/post clauses: same and-fold + :source          *)
+                 (* retention as def (SRC-CONJ-1, §4.6).                        *)
                  (* Permissive form: no body restriction; no callee check.      *)
                  (* Optional return-type annotation; same *)
                  (* checking semantics as on def.                               *)

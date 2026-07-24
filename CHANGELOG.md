@@ -4,6 +4,38 @@
 
 <a id="Latest"></a>
 
+## v0.14.65 — feat: SRC-CONJ-1 per-conjunct `:source` provenance (2026-07-24)
+
+### Added — multi-clause contract sides keep every clause's citation (JSON-AST 0.9.0)
+
+- **The G2 close-out.** Since v0.6, and-combining multiple `(pre ...)` clauses dropped every
+  `:source` annotation as "ambiguous provenance" (`LLMLL.md` §4.6), so a function whose
+  precondition encodes two distinct RFC clauses could not carry both citations. Each authored
+  clause now keeps its own `:source`: `Contract` gains a parse-time-only
+  `contractPreClauses`/`contractPostClauses :: [ProvClause]` channel beside the untouched
+  and-folded scalar predicates. Multiple `(post ...)` clauses are newly accepted, symmetric with
+  `pre` (§12 grammar).
+- **JSON-AST 0.9.0.** Additive `pre_clauses`/`post_clauses` arrays (new `ContractClause` def:
+  `{"expr", "source"?}`), mutually exclusive with the scalar `pre`/`pre_source` shape; a
+  one-element array normalizes to the scalar shape; the emitter writes the array form only for
+  2+ clauses, so existing corpus output is byte-identical and multi-clause programs now
+  round-trip faithfully (previously lossy). Readers accept 0.8.0/0.7.0/0.6.0. Also fixes a
+  pre-existing schema drift: `pre_source`/`post_source` were never listed in the schema despite
+  `additionalProperties: false`, so every `:source`-carrying JSON-AST was schema-invalid since
+  v0.6.
+- **Report and sidecar threading.** `EvidenceRecord` gains `erSources`; `--trust-report --json`
+  emits `pre_sources`/`post_sources` arrays in author order (the index surface for the upcoming
+  RFC-COV-1 coverage lint); `.verified.json` records carry `sources` (symmetric codec, additive
+  back-compat). `contractVouched` (Cascade L3(d)) generalizes: a multi-clause side is vouched
+  only when EVERY conjunct carries `:source`; before this release such a contract was
+  structurally unvouchable because the sources were already dropped.
+- **Verification-inert.** The VC surface consumes only the folded scalars: `.fq` output is
+  byte-identical with and without per-clause sources (regression SC6-1), and `:source` stays
+  outside `canonicalDefEvidenceHash`, so no sidecar re-verify wave. Phase 1 gate of the
+  RFC-SWARM roadmap (SRC-CONJ-1 default, decided before TFTP root authoring).
+- **1405 Haskell examples, 0 failures** (Python suite unchanged at 45); refute-crux corpus
+  41/41 unchanged; version-gate and doc-claims gates green.
+
 ## v0.14.64 — fix: map-store conditional bodies verify body-faithfully (2026-07-24)
 
 ### Fixed — a conditional in a map-returning body no longer falls back to contract-only
