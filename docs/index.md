@@ -14,6 +14,10 @@ compiler **proves** each function meets a specification and **AI agents** do the
 ends with a working slice of the protocol in which those two bug classes cannot be written and
 accepted.
 
+## Start here
+
+The series is five posts and reads in order.
+
 ## The series
 
 1. **[The bugs that looked like correct code](blog/post-1-the-bugs-that-looked-correct.md)**

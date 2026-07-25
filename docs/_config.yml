@@ -36,10 +36,17 @@ header_pages: []
 # The posts carry no YAML front matter, deliberately: adding it would make GitHub
 # render a metadata table above every post in the repository view. GitHub Pages
 # enables `jekyll-optional-front-matter` by default, which processes markdown
-# without front matter, and this default supplies the layout they would otherwise
-# have declared.
+# without front matter, and this default supplies the layout.
+#
+# `default`, NOT `page`. minima's page.html renders `<h1>{{ page.title }}</h1>`
+# itself, which with these files produces an empty h1 above every post (no front
+# matter, so no title) and a doubled title on index.md (which has both a
+# front-matter title and its own H1). minima's default.html injects no title, so
+# each file's own `#` heading is the only one. GitHub Pages also enables
+# `jekyll-titles-from-headings` by default, which derives page.title from that
+# first heading, so browser tab titles stay correct without front matter.
 defaults:
   - scope:
       path: ""
     values:
-      layout: page
+      layout: default
