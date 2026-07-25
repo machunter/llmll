@@ -1,0 +1,163 @@
+{
+ "counts": {
+  "A_rows": 119,
+  "B_rows": 125
+ },
+ "line_coverage": {
+  "RFC1350": {
+   "A_lines": 250,
+   "B_lines": 263,
+   "both": 238,
+   "union": 275,
+   "jaccard": 0.8655,
+   "A_only_lines": 12,
+   "B_only_lines": 25
+  },
+  "RFC1123": {
+   "A_lines": 31,
+   "B_lines": 38,
+   "both": 29,
+   "union": 40,
+   "jaccard": 0.725,
+   "A_only_lines": 2,
+   "B_only_lines": 9
+  }
+ },
+ "row_matching": {
+  "one_to_one": 43,
+  "A_rows_matching_multiple_B": 64,
+  "A_unmatched": 1,
+  "B_unmatched": 10
+ },
+ "A_unmatched_rows": [
+  {
+   "id": "A59",
+   "source": "RFC1350",
+   "lines": [
+    311,
+    312
+   ],
+   "rule": "N3",
+   "quote": "The mail recipient string should be of the form \"username\" or \"username@hostname\".",
+   "obligation": "A mail-mode recipient string should be username or username@hostname; superseded by the mail-mode deprecation."
+  }
+ ],
+ "B_unmatched_rows": [
+  {
+   "id": "B18",
+   "source": "RFC1350",
+   "lines": [
+    101,
+    103
+   ],
+   "rule": "N4",
+   "quote": "One sends data and receives acknowledgments, the other sends acknowledgments and receives ",
+   "obligation": "Each transfer has two complementary roles: DATA sender/ACK receiver and ACK sender/DATA receiver."
+  },
+  {
+   "id": "B53",
+   "source": "RFC1350",
+   "lines": [
+    254,
+    259
+   ],
+   "rule": "N3",
+   "quote": "When the second response to the request arrives, it should be rejected, but there is no re",
+   "obligation": "A second (duplicate-request) response is rejected while the first connection continues."
+  },
+  {
+   "id": "B104",
+   "source": "RFC1350",
+   "lines": [
+    543,
+    543
+   ],
+   "rule": "N2",
+   "quote": "Source Port     Picked by originator of packet.",
+   "obligation": "The source port of each packet is the TID picked by the packet's originator."
+  },
+  {
+   "id": "B107",
+   "source": "RFC1350",
+   "lines": [
+    549,
+    552
+   ],
+   "rule": "N3",
+   "quote": "(The implementor of this should be sure that the correct algorithm is used here.) Field co",
+   "obligation": "The implementor should compute the datagram checksum with the correct algorithm, or send zero when unused."
+  },
+  {
+   "id": "B115",
+   "source": "RFC1123",
+   "lines": [
+    148,
+    151
+   ],
+   "rule": "N1",
+   "quote": "A variety of non-standard extensions have been made to TFTP ... None of these have been st",
+   "obligation": "TFTP extensions are non-standard and optional; an implementation need not support any of them."
+  },
+  {
+   "id": "B118",
+   "source": "RFC1123",
+   "lines": [
+    193,
+    193
+   ],
+   "rule": "N3",
+   "quote": "Fix Sorcerer's Apprentice Syndrome               |4.2.3.1 |x| | | | |",
+   "obligation": "The requirements summary rates the Sorcerer's Apprentice fix as MUST."
+  },
+  {
+   "id": "B121",
+   "source": "RFC1123",
+   "lines": [
+    197,
+    197
+   ],
+   "rule": "N3",
+   "quote": "mail                                           |4.2.2.1 | | | |x| |",
+   "obligation": "The summary rates mail mode as SHOULD NOT be supported."
+  },
+  {
+   "id": "B123",
+   "source": "RFC1123",
+   "lines": [
+    199,
+    199
+   ],
+   "rule": "N3",
+   "quote": "Use adaptive timeout                             |4.2.3.2 |x| | | | |",
+   "obligation": "The summary rates the adaptive timeout as MUST."
+  },
+  {
+   "id": "B124",
+   "source": "RFC1123",
+   "lines": [
+    200,
+    200
+   ],
+   "rule": "N3",
+   "quote": "Configurable access control                      |4.2.3.4 | |x| | | |",
+   "obligation": "The summary rates configurable access control as SHOULD."
+  },
+  {
+   "id": "B125",
+   "source": "RFC1123",
+   "lines": [
+    201,
+    201
+   ],
+   "rule": "N3",
+   "quote": "Silently ignore broadcast request                |4.2.3.5 | |x| | | |",
+   "obligation": "The summary rates silently ignoring broadcast requests as SHOULD."
+  }
+ ],
+ "rule_agreement": {
+  "compared": 43,
+  "identical": 41,
+  "raw_agreement": 0.9535,
+  "cohens_kappa": 0.9378
+ }
+}

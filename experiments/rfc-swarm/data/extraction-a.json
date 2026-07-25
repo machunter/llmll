@@ -1,0 +1,2000 @@
+{
+ "extractor": "A",
+ "normative": [
+  {
+   "id": "A1",
+   "source": "RFC1350",
+   "line_start": 64,
+   "line_end": 65,
+   "section": "1. Purpose",
+   "quote": "(This should not exclude the possibility of implementing TFTP on top of other datagram protocols.)",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "An implementation is permitted to run TFTP over datagram protocols other than UDP."
+  },
+  {
+   "id": "A2",
+   "source": "RFC1350",
+   "line_start": 67,
+   "line_end": 69,
+   "section": "1. Purpose",
+   "quote": "The only thing it can do is read and write files (or mail) from/to a remote server.  It cannot list directories",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "An implementation provides only file read and write operations, with no directory listing and no user authentication."
+  },
+  {
+   "id": "A3",
+   "source": "RFC1350",
+   "line_start": 70,
+   "line_end": 71,
+   "section": "1. Purpose",
+   "quote": "In common with other Internet protocols, it passes 8 bit bytes of data.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "File data is carried as 8-bit bytes."
+  },
+  {
+   "id": "A4",
+   "source": "RFC1350",
+   "line_start": 73,
+   "line_end": 76,
+   "section": "1. Purpose",
+   "quote": "netascii (This is ascii as defined in \"USA Standard Code for Information Interchange\" [1] with the modifications specified in \"Telnet Protocol Specification\" [3].)",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The netascii transfer mode is 8-bit ASCII per USAS X3.4-1968 with the Telnet Protocol Specification modifications."
+  },
+  {
+   "id": "A5",
+   "source": "RFC1350",
+   "line_start": 78,
+   "line_end": 79,
+   "section": "1. Purpose",
+   "quote": "octet (This replaces the \"binary\" mode of previous versions of this document.) raw 8 bit bytes",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The octet transfer mode carries raw 8-bit bytes and replaces the older \"binary\" mode name."
+  },
+  {
+   "id": "A6",
+   "source": "RFC1350",
+   "line_start": 80,
+   "line_end": 81,
+   "section": "1. Purpose",
+   "quote": "(The mail mode is obsolete and should not be implemented or used.)",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "An implementation must not implement or use the mail transfer mode."
+  },
+  {
+   "id": "A7",
+   "source": "RFC1350",
+   "line_start": 82,
+   "line_end": 82,
+   "section": "1. Purpose",
+   "quote": "Additional modes can be defined by pairs of cooperating hosts.",
+   "rule": "N3",
+   "strength": "declarative",
+   "obligation": "An implementation may define additional transfer modes by bilateral agreement with a cooperating peer."
+  },
+  {
+   "id": "A8",
+   "source": "RFC1350",
+   "line_start": 84,
+   "line_end": 85,
+   "section": "1. Purpose",
+   "quote": "Reference [4] (section 4.2) should be consulted for further valuable directives and suggestions on TFTP.",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "An implementation must also apply the TFTP directives of RFC 1123 section 4.2."
+  },
+  {
+   "id": "A9",
+   "source": "RFC1350",
+   "line_start": 89,
+   "line_end": 90,
+   "section": "2. Overview of the Protocol",
+   "quote": "Any transfer begins with a request to read or write a file, which also serves to request a connection.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "Every transfer is initiated by an RRQ or WRQ, which simultaneously requests the connection."
+  },
+  {
+   "id": "A10",
+   "source": "RFC1350",
+   "line_start": 90,
+   "line_end": 92,
+   "section": "2. Overview of the Protocol",
+   "quote": "If the server grants the request, the connection is opened and the file is sent in fixed length blocks of 512 bytes.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "On granting a request the server opens the connection and the file is transferred in fixed-length 512-byte blocks."
+  },
+  {
+   "id": "A11",
+   "source": "RFC1350",
+   "line_start": 92,
+   "line_end": 93,
+   "section": "2. Overview of the Protocol",
+   "quote": "Each data packet contains one block of data",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "A DATA packet carries exactly one block of data."
+  },
+  {
+   "id": "A12",
+   "source": "RFC1350",
+   "line_start": 93,
+   "line_end": 94,
+   "section": "2. Overview of the Protocol",
+   "quote": "must be acknowledged by an acknowledgment packet before the next packet can be sent",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "The sender must receive an ACK for a DATA packet before sending the next DATA packet (lock-step)."
+  },
+  {
+   "id": "A13",
+   "source": "RFC1350",
+   "line_start": 94,
+   "line_end": 95,
+   "section": "2. Overview of the Protocol",
+   "quote": "A data packet of less than 512 bytes signals termination of a transfer.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A DATA packet with fewer than 512 data bytes signals the end of the transfer."
+  },
+  {
+   "id": "A14",
+   "source": "RFC1350",
+   "line_start": 95,
+   "line_end": 98,
+   "section": "2. Overview of the Protocol",
+   "quote": "the intended recipient will timeout and may retransmit his last packet (which may be data or an acknowledgment)",
+   "rule": "N4",
+   "strength": "may",
+   "obligation": "On timeout a party may retransmit its last packet, which causes the peer to retransmit the lost packet; constrained by RFC 1123 4.2.3.1."
+  },
+  {
+   "id": "A15",
+   "source": "RFC1350",
+   "line_start": 98,
+   "line_end": 100,
+   "section": "2. Overview of the Protocol",
+   "quote": "The sender has to keep just one packet on hand for retransmission",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "An implementation need buffer only one outstanding packet for retransmission."
+  },
+  {
+   "id": "A16",
+   "source": "RFC1350",
+   "line_start": 105,
+   "line_end": 105,
+   "section": "2. Overview of the Protocol",
+   "quote": "Most errors cause termination of the connection.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An error terminates the connection except in the one case singled out below."
+  },
+  {
+   "id": "A17",
+   "source": "RFC1350",
+   "line_start": 105,
+   "line_end": 106,
+   "section": "2. Overview of the Protocol",
+   "quote": "An error is signalled by sending an error packet.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An implementation signals an error by sending an ERROR packet."
+  },
+  {
+   "id": "A18",
+   "source": "RFC1350",
+   "line_start": 106,
+   "line_end": 107,
+   "section": "2. Overview of the Protocol",
+   "quote": "This packet is not acknowledged, and not retransmitted",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An ERROR packet is neither acknowledged nor retransmitted."
+  },
+  {
+   "id": "A19",
+   "source": "RFC1350",
+   "line_start": 107,
+   "line_end": 108,
+   "section": "2. Overview of the Protocol",
+   "quote": "(i.e., a TFTP server or user may terminate after sending an error message)",
+   "rule": "N3",
+   "strength": "may",
+   "obligation": "A server or user may terminate immediately after sending an ERROR packet."
+  },
+  {
+   "id": "A20",
+   "source": "RFC1350",
+   "line_start": 109,
+   "line_end": 110,
+   "section": "2. Overview of the Protocol",
+   "quote": "Therefore timeouts are used to detect such a termination when the error packet has been lost.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An implementation uses timeouts to detect a peer termination whose ERROR packet was lost."
+  },
+  {
+   "id": "A21",
+   "source": "RFC1350",
+   "line_start": 110,
+   "line_end": 124,
+   "section": "2. Overview of the Protocol",
+   "quote": "Errors are caused by three types of events: not being able to satisfy the request ... receiving a packet which cannot be explained",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An implementation raises an error on unsatisfiable request, unexplainable/malformed packet, or loss of a needed resource."
+  },
+  {
+   "id": "A22",
+   "source": "RFC1350",
+   "line_start": 126,
+   "line_end": 127,
+   "section": "2. Overview of the Protocol",
+   "quote": "TFTP recognizes only one error condition that does not cause termination, the source port of a received packet being incorrect.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An incorrect source port on a received packet is the only error that does not terminate the connection."
+  },
+  {
+   "id": "A23",
+   "source": "RFC1350",
+   "line_start": 128,
+   "line_end": 128,
+   "section": "2. Overview of the Protocol",
+   "quote": "In this case, an error packet is sent to the originating host.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "On receiving a packet with an incorrect source port, an ERROR packet is sent to that packet's originator."
+  },
+  {
+   "id": "A24",
+   "source": "RFC1350",
+   "line_start": 142,
+   "line_end": 146,
+   "section": "3. Relation to other Protocols",
+   "quote": "the order of the contents of a packet will be: local medium header, if used, Internet header, Datagram header, TFTP header",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "A transmitted packet places the TFTP header after the local medium, Internet and Datagram headers, followed by the TFTP payload."
+  },
+  {
+   "id": "A25",
+   "source": "RFC1350",
+   "line_start": 147,
+   "line_end": 150,
+   "section": "3. Relation to other Protocols",
+   "quote": "the source and destination port fields of the Datagram header ... are used by TFTP and the length field reflects the size",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "TFTP uses the datagram source/destination port fields, and the datagram length field reflects the TFTP packet size."
+  },
+  {
+   "id": "A26",
+   "source": "RFC1350",
+   "line_start": 150,
+   "line_end": 152,
+   "section": "3. Relation to other Protocols",
+   "quote": "The transfer identifiers (TID's) used by TFTP are passed to the Datagram layer to be used as ports",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "An implementation passes its TIDs to the datagram layer to be used as port numbers."
+  },
+  {
+   "id": "A27",
+   "source": "RFC1350",
+   "line_start": 152,
+   "line_end": 152,
+   "section": "3. Relation to other Protocols",
+   "quote": "therefore they must be between 0 and 65,535",
+   "rule": "N2",
+   "strength": "must",
+   "obligation": "A TID must be an integer in the range 0 to 65535."
+  },
+  {
+   "id": "A28",
+   "source": "RFC1350",
+   "line_start": 155,
+   "line_end": 156,
+   "section": "3. Relation to other Protocols",
+   "quote": "The TFTP header consists of a 2 byte opcode field which indicates the packet's type",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Every TFTP packet begins with a 2-byte opcode field identifying its type."
+  },
+  {
+   "id": "A29",
+   "source": "RFC1350",
+   "line_start": 175,
+   "line_end": 179,
+   "section": "Figure 3-1: Order of Headers",
+   "quote": "|  Local Medium  |  Internet  |  Datagram  |  TFTP  |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Header order on the wire is local medium, Internet, Datagram, then TFTP."
+  },
+  {
+   "id": "A30",
+   "source": "RFC1350",
+   "line_start": 184,
+   "line_end": 186,
+   "section": "4. Initial Connection Protocol",
+   "quote": "A transfer is established by sending a request (WRQ to write onto a foreign file system, or RRQ to read from it)",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A client establishes a transfer by sending WRQ to write to the remote file system or RRQ to read from it."
+  },
+  {
+   "id": "A31",
+   "source": "RFC1350",
+   "line_start": 186,
+   "line_end": 187,
+   "section": "4. Initial Connection Protocol",
+   "quote": "receiving a positive reply, an acknowledgment packet for write, or the first data packet for read",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The positive reply is an ACK for a write request and the first DATA packet for a read request."
+  },
+  {
+   "id": "A32",
+   "source": "RFC1350",
+   "line_start": 187,
+   "line_end": 188,
+   "section": "4. Initial Connection Protocol",
+   "quote": "In general an acknowledgment packet will contain the block number of the data packet being acknowledged.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "An ACK carries the block number of the DATA packet it acknowledges."
+  },
+  {
+   "id": "A33",
+   "source": "RFC1350",
+   "line_start": 188,
+   "line_end": 190,
+   "section": "4. Initial Connection Protocol",
+   "quote": "Each data packet has associated with it a block number; block numbers are consecutive and begin with one.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "DATA block numbers start at one and are consecutive."
+  },
+  {
+   "id": "A34",
+   "source": "RFC1350",
+   "line_start": 190,
+   "line_end": 192,
+   "section": "4. Initial Connection Protocol",
+   "quote": "Since the positive response to a write request is an acknowledgment packet, in this special case the block number will be zero.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The ACK that positively answers a WRQ carries block number zero."
+  },
+  {
+   "id": "A35",
+   "source": "RFC1350",
+   "line_start": 194,
+   "line_end": 195,
+   "section": "4. Initial Connection Protocol",
+   "quote": "If the reply is an error packet, then the request has been denied.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An ERROR packet in reply to a request means the request was denied."
+  },
+  {
+   "id": "A36",
+   "source": "RFC1350",
+   "line_start": 197,
+   "line_end": 199,
+   "section": "4. Initial Connection Protocol",
+   "quote": "each end of the connection chooses a TID for itself, to be used for the duration of that connection",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "Each endpoint chooses one TID and keeps it for the whole connection."
+  },
+  {
+   "id": "A37",
+   "source": "RFC1350",
+   "line_start": 199,
+   "line_end": 201,
+   "section": "4. Initial Connection Protocol",
+   "quote": "The TID's chosen for a connection should be randomly chosen, so that the probability that the same number is chosen twice",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "An implementation should choose TIDs randomly so immediate reuse is improbable."
+  },
+  {
+   "id": "A38",
+   "source": "RFC1350",
+   "line_start": 201,
+   "line_end": 203,
+   "section": "4. Initial Connection Protocol",
+   "quote": "Every packet has associated with it the two TID's of the ends of the connection, the source TID and the destination TID.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Every packet carries a source TID and a destination TID identifying the two connection endpoints."
+  },
+  {
+   "id": "A39",
+   "source": "RFC1350",
+   "line_start": 203,
+   "line_end": 204,
+   "section": "4. Initial Connection Protocol",
+   "quote": "These TID's are handed to the supporting UDP (or other datagram protocol) as the source and destination ports.",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "An implementation maps the source and destination TIDs onto the datagram source and destination ports."
+  },
+  {
+   "id": "A40",
+   "source": "RFC1350",
+   "line_start": 205,
+   "line_end": 206,
+   "section": "4. Initial Connection Protocol",
+   "quote": "A requesting host chooses its source TID as described above",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "The requesting host selects its own source TID by the random-choice rule."
+  },
+  {
+   "id": "A41",
+   "source": "RFC1350",
+   "line_start": 206,
+   "line_end": 207,
+   "section": "4. Initial Connection Protocol",
+   "quote": "sends its initial request to the known TID 69 decimal (105 octal) on the serving host",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The initial RRQ/WRQ is addressed to destination TID 69 on the server."
+  },
+  {
+   "id": "A42",
+   "source": "RFC1350",
+   "line_start": 207,
+   "line_end": 209,
+   "section": "4. Initial Connection Protocol",
+   "quote": "The response to the request, under normal operation, uses a TID chosen by the server as its source TID",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The server answers the request from a newly chosen source TID rather than from TID 69."
+  },
+  {
+   "id": "A43",
+   "source": "RFC1350",
+   "line_start": 209,
+   "line_end": 210,
+   "section": "4. Initial Connection Protocol",
+   "quote": "the TID chosen for the previous message by the requestor as its destination TID",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The server's response is addressed to the requestor's source TID as destination TID."
+  },
+  {
+   "id": "A44",
+   "source": "RFC1350",
+   "line_start": 210,
+   "line_end": 210,
+   "section": "4. Initial Connection Protocol",
+   "quote": "The two chosen TID's are then used for the remainder of the transfer.",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "Both endpoints use the agreed TID pair for the rest of the transfer."
+  },
+  {
+   "id": "A45",
+   "source": "RFC1350",
+   "line_start": 237,
+   "line_end": 238,
+   "section": "4. Initial Connection Protocol",
+   "quote": "the first data packet can be sent by Host A with a sequence number of 1",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "After the WRQ/ACK exchange the writer sends its first DATA packet with block number 1."
+  },
+  {
+   "id": "A46",
+   "source": "RFC1350",
+   "line_start": 239,
+   "line_end": 241,
+   "section": "4. Initial Connection Protocol",
+   "quote": "the hosts should make sure that the source TID matches the value that was agreed on in steps 1 and 2",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "On every received packet a host should check that the source TID matches the TID agreed during connection setup."
+  },
+  {
+   "id": "A47",
+   "source": "RFC1350",
+   "line_start": 241,
+   "line_end": 242,
+   "section": "4. Initial Connection Protocol",
+   "quote": "If a source TID does not match, the packet should be discarded as erroneously sent from somewhere else.",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "A packet whose source TID does not match the connection must be discarded."
+  },
+  {
+   "id": "A48",
+   "source": "RFC1350",
+   "line_start": 242,
+   "line_end": 244,
+   "section": "4. Initial Connection Protocol",
+   "quote": "An error packet should be sent to the source of the incorrect packet, while not disturbing the transfer.",
+   "rule": "N5",
+   "strength": "should",
+   "obligation": "An ERROR packet is sent to the originator of a wrong-TID packet without disturbing the ongoing transfer."
+  },
+  {
+   "id": "A49",
+   "source": "RFC1350",
+   "line_start": 263,
+   "line_end": 271,
+   "section": "5. TFTP Packets",
+   "quote": "TFTP supports five types of packets ... 1 Read request (RRQ) 2 Write request (WRQ) 3 Data (DATA) 4 Acknowledgment (ACK) 5 Error (ERROR)",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Exactly five packet types exist with opcodes 1=RRQ, 2=WRQ, 3=DATA, 4=ACK, 5=ERROR."
+  },
+  {
+   "id": "A50",
+   "source": "RFC1350",
+   "line_start": 273,
+   "line_end": 274,
+   "section": "5. TFTP Packets",
+   "quote": "The TFTP header of a packet contains the opcode associated with that packet.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Each packet's TFTP header carries the opcode of that packet's type."
+  },
+  {
+   "id": "A51",
+   "source": "RFC1350",
+   "line_start": 287,
+   "line_end": 292,
+   "section": "Packet Formats / Figure 5-1: RRQ/WRQ packet",
+   "quote": "2 bytes  string  1 byte  string  1 byte | Opcode | Filename | 0 | Mode | 0 |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "An RRQ/WRQ packet is a 2-byte opcode, a Filename string, a zero byte, a Mode string, and a zero byte in that order."
+  },
+  {
+   "id": "A52",
+   "source": "RFC1350",
+   "line_start": 295,
+   "line_end": 296,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "RRQ and WRQ packets (opcodes 1 and 2 respectively) have the format shown in Figure 5-1.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "RRQ uses opcode 1 and WRQ opcode 2, both with the Figure 5-1 layout."
+  },
+  {
+   "id": "A53",
+   "source": "RFC1350",
+   "line_start": 296,
+   "line_end": 297,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "The file name is a sequence of bytes in netascii terminated by a zero byte.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The Filename field is netascii bytes terminated by a single zero byte."
+  },
+  {
+   "id": "A54",
+   "source": "RFC1350",
+   "line_start": 297,
+   "line_end": 300,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "The mode field contains the string \"netascii\", \"octet\", or \"mail\" (or any combination of upper and lower case ...) in netascii",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The Mode field is a netascii string equal to netascii, octet or mail, compared case-insensitively."
+  },
+  {
+   "id": "A55",
+   "source": "RFC1350",
+   "line_start": 300,
+   "line_end": 302,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "A host which receives netascii mode data must translate the data to its own format.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "A receiver in netascii mode must convert incoming netascii into its local text format."
+  },
+  {
+   "id": "A56",
+   "source": "RFC1350",
+   "line_start": 302,
+   "line_end": 304,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "Octet mode is used to transfer a file that is in the 8-bit format of the machine from which the file is being transferred.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "Octet mode transfers the file in the sending machine's native 8-bit format without translation."
+  },
+  {
+   "id": "A57",
+   "source": "RFC1350",
+   "line_start": 307,
+   "line_end": 308,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "If a host receives a octet file and then returns it, the returned file must be identical to the original.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "An octet-mode round trip must return a byte-identical file."
+  },
+  {
+   "id": "A58",
+   "source": "RFC1350",
+   "line_start": 309,
+   "line_end": 310,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "Mail mode uses the name of a mail recipient in place of a file and must begin with a WRQ.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "In mail mode the Filename field carries a recipient name and the transfer must start with a WRQ; superseded by the mail-mode deprecation and RFC 1123 4.2.2.1."
+  },
+  {
+   "id": "A59",
+   "source": "RFC1350",
+   "line_start": 311,
+   "line_end": 312,
+   "section": "Packet Formats / RRQ-WRQ",
+   "quote": "The mail recipient string should be of the form \"username\" or \"username@hostname\".",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "A mail-mode recipient string should be username or username@hostname; superseded by the mail-mode deprecation."
+  },
+  {
+   "id": "A60",
+   "source": "RFC1350",
+   "line_start": 334,
+   "line_end": 343,
+   "section": "Packet Formats / other modes",
+   "quote": "It is also possible to define other modes for cooperating pairs of hosts, although this must be done with care.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "An implementation may define non-standard modes only by agreement between cooperating hosts and with care."
+  },
+  {
+   "id": "A61",
+   "source": "RFC1350",
+   "line_start": 348,
+   "line_end": 353,
+   "section": "Packet Formats / Figure 5-2: DATA packet",
+   "quote": "2 bytes  2 bytes  n bytes | Opcode | Block # | Data |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "A DATA packet is a 2-byte opcode, a 2-byte block number, then n bytes of data."
+  },
+  {
+   "id": "A62",
+   "source": "RFC1350",
+   "line_start": 356,
+   "line_end": 357,
+   "section": "Packet Formats / DATA",
+   "quote": "DATA packets (opcode = 3) have a block number and data field.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "DATA uses opcode 3 and carries a block number field and a data field."
+  },
+  {
+   "id": "A63",
+   "source": "RFC1350",
+   "line_start": 357,
+   "line_end": 359,
+   "section": "Packet Formats / DATA",
+   "quote": "The block numbers on data packets begin with one and increase by one for each new block of data.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "DATA block numbers start at one and increment by one per new block."
+  },
+  {
+   "id": "A64",
+   "source": "RFC1350",
+   "line_start": 361,
+   "line_end": 361,
+   "section": "Packet Formats / DATA",
+   "quote": "The data field is from zero to 512 bytes long.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The DATA data field length is between 0 and 512 bytes inclusive."
+  },
+  {
+   "id": "A65",
+   "source": "RFC1350",
+   "line_start": 361,
+   "line_end": 362,
+   "section": "Packet Formats / DATA",
+   "quote": "If it is 512 bytes long, the block is not the last block of data",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A full 512-byte data field means the transfer continues."
+  },
+  {
+   "id": "A66",
+   "source": "RFC1350",
+   "line_start": 362,
+   "line_end": 363,
+   "section": "Packet Formats / DATA",
+   "quote": "if it is from zero to 511 bytes long, it signals the end of the transfer",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A data field of 0 to 511 bytes signals the end of the transfer."
+  },
+  {
+   "id": "A67",
+   "source": "RFC1350",
+   "line_start": 366,
+   "line_end": 367,
+   "section": "Packet Formats / acknowledgment discipline",
+   "quote": "All packets other than duplicate ACK's and those used for termination are acknowledged unless a timeout occurs [4].",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "Every packet except duplicate ACKs and termination packets is acknowledged, absent a timeout."
+  },
+  {
+   "id": "A68",
+   "source": "RFC1350",
+   "line_start": 367,
+   "line_end": 369,
+   "section": "Packet Formats / acknowledgment discipline",
+   "quote": "Sending a DATA packet is an acknowledgment for the first ACK packet of the previous DATA packet.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "Transmitting the next DATA packet implicitly acknowledges the first ACK of the previous DATA packet."
+  },
+  {
+   "id": "A69",
+   "source": "RFC1350",
+   "line_start": 369,
+   "line_end": 370,
+   "section": "Packet Formats / acknowledgment discipline",
+   "quote": "The WRQ and DATA packets are acknowledged by ACK or ERROR packets",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A WRQ or DATA packet is answered by an ACK or an ERROR packet."
+  },
+  {
+   "id": "A70",
+   "source": "RFC1350",
+   "line_start": 370,
+   "line_end": 381,
+   "section": "Packet Formats / acknowledgment discipline",
+   "quote": "RRQ and ACK packets are acknowledged by DATA or ERROR packets",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "An RRQ or ACK packet is answered by a DATA or an ERROR packet."
+  },
+  {
+   "id": "A71",
+   "source": "RFC1350",
+   "line_start": 373,
+   "line_end": 378,
+   "section": "Packet Formats / Figure 5-3: ACK packet",
+   "quote": "2 bytes  2 bytes | Opcode | Block # |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "An ACK packet is exactly a 2-byte opcode followed by a 2-byte block number."
+  },
+  {
+   "id": "A72",
+   "source": "RFC1350",
+   "line_start": 381,
+   "line_end": 382,
+   "section": "Packet Formats / ACK",
+   "quote": "Figure 5-3 depicts an ACK packet; the opcode is 4.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "ACK packets use opcode 4."
+  },
+  {
+   "id": "A73",
+   "source": "RFC1350",
+   "line_start": 382,
+   "line_end": 384,
+   "section": "Packet Formats / ACK",
+   "quote": "The block number in an ACK echoes the block number of the DATA packet being acknowledged.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "An ACK's block number equals the block number of the DATA packet it acknowledges."
+  },
+  {
+   "id": "A74",
+   "source": "RFC1350",
+   "line_start": 384,
+   "line_end": 385,
+   "section": "Packet Formats / ACK",
+   "quote": "A WRQ is acknowledged with an ACK packet having a block number of zero.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The ACK answering a WRQ carries block number zero."
+  },
+  {
+   "id": "A75",
+   "source": "RFC1350",
+   "line_start": 399,
+   "line_end": 404,
+   "section": "Packet Formats / Figure 5-4: ERROR packet",
+   "quote": "2 bytes  2 bytes  string  1 byte | Opcode | ErrorCode | ErrMsg | 0 |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "An ERROR packet is a 2-byte opcode, a 2-byte error code, an ErrMsg string and a terminating zero byte."
+  },
+  {
+   "id": "A76",
+   "source": "RFC1350",
+   "line_start": 407,
+   "line_end": 407,
+   "section": "Packet Formats / ERROR",
+   "quote": "An ERROR packet (opcode 5) takes the form depicted in Figure 5-4.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "ERROR packets use opcode 5 with the Figure 5-4 layout."
+  },
+  {
+   "id": "A77",
+   "source": "RFC1350",
+   "line_start": 407,
+   "line_end": 408,
+   "section": "Packet Formats / ERROR",
+   "quote": "An ERROR packet can be the acknowledgment of any other type of packet.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An ERROR packet is an admissible response to any packet type."
+  },
+  {
+   "id": "A78",
+   "source": "RFC1350",
+   "line_start": 409,
+   "line_end": 410,
+   "section": "Packet Formats / ERROR",
+   "quote": "The error code is an integer indicating the nature of the error.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The ErrorCode field is an integer selected from the defined error-code table."
+  },
+  {
+   "id": "A79",
+   "source": "RFC1350",
+   "line_start": 412,
+   "line_end": 413,
+   "section": "Packet Formats / ERROR",
+   "quote": "The error message is intended for human consumption, and should be in netascii.",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "The ErrMsg field should be netascii text meant for humans."
+  },
+  {
+   "id": "A80",
+   "source": "RFC1350",
+   "line_start": 413,
+   "line_end": 414,
+   "section": "Packet Formats / ERROR",
+   "quote": "Like all other strings, it is terminated with a zero byte.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The ErrMsg string, like every TFTP string, is terminated by a zero byte."
+  },
+  {
+   "id": "A81",
+   "source": "RFC1350",
+   "line_start": 418,
+   "line_end": 419,
+   "section": "6. Normal Termination",
+   "quote": "The end of a transfer is marked by a DATA packet that contains between 0 and 511 bytes of data (i.e., Datagram length < 516).",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A DATA packet with 0 to 511 data bytes marks the end of the transfer."
+  },
+  {
+   "id": "A82",
+   "source": "RFC1350",
+   "line_start": 420,
+   "line_end": 420,
+   "section": "6. Normal Termination",
+   "quote": "This packet is acknowledged by an ACK packet like all other DATA packets.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "The final DATA packet is acknowledged with an ACK exactly like any other DATA packet."
+  },
+  {
+   "id": "A83",
+   "source": "RFC1350",
+   "line_start": 421,
+   "line_end": 422,
+   "section": "6. Normal Termination",
+   "quote": "The host acknowledging the final DATA packet may terminate its side of the connection on sending the final ACK.",
+   "rule": "N3",
+   "strength": "may",
+   "obligation": "The acknowledger may close its side of the connection immediately after sending the final ACK."
+  },
+  {
+   "id": "A84",
+   "source": "RFC1350",
+   "line_start": 422,
+   "line_end": 425,
+   "section": "6. Normal Termination",
+   "quote": "dallying is encouraged.  This means that the host sending the final ACK will wait for a while before terminating",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "The acknowledger should dally after the final ACK so it can retransmit that ACK if it is lost."
+  },
+  {
+   "id": "A85",
+   "source": "RFC1350",
+   "line_start": 425,
+   "line_end": 426,
+   "section": "6. Normal Termination",
+   "quote": "The acknowledger will know that the ACK has been lost if it receives the final DATA packet again.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "A repeated final DATA packet tells the dallying acknowledger its final ACK was lost and must be resent."
+  },
+  {
+   "id": "A86",
+   "source": "RFC1350",
+   "line_start": 427,
+   "line_end": 428,
+   "section": "6. Normal Termination",
+   "quote": "The host sending the last DATA must retransmit it until the packet is acknowledged or the sending host times out.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "The sender of the last DATA packet must retransmit it until acknowledged or until it times out."
+  },
+  {
+   "id": "A87",
+   "source": "RFC1350",
+   "line_start": 428,
+   "line_end": 429,
+   "section": "6. Normal Termination",
+   "quote": "If the response is an ACK, the transmission was completed successfully.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "Receiving the ACK for the final DATA packet means the transfer completed successfully."
+  },
+  {
+   "id": "A88",
+   "source": "RFC1350",
+   "line_start": 433,
+   "line_end": 434,
+   "section": "6. Normal Termination",
+   "quote": "In any case, the connection has been closed.",
+   "rule": "N4",
+   "strength": "declarative",
+   "obligation": "After the sender's final timeout the connection is considered closed regardless of outcome."
+  },
+  {
+   "id": "A89",
+   "source": "RFC1350",
+   "line_start": 438,
+   "line_end": 439,
+   "section": "7. Premature Termination",
+   "quote": "If a request can not be granted, or some error occurs during the transfer, then an ERROR packet (opcode 5) is sent.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "An implementation sends an ERROR packet when a request cannot be granted or an error occurs mid-transfer."
+  },
+  {
+   "id": "A90",
+   "source": "RFC1350",
+   "line_start": 439,
+   "line_end": 440,
+   "section": "7. Premature Termination",
+   "quote": "This is only a courtesy since it will not be retransmitted or acknowledged",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "The ERROR packet is sent once: it is neither retransmitted nor acknowledged."
+  },
+  {
+   "id": "A91",
+   "source": "RFC1350",
+   "line_start": 441,
+   "line_end": 441,
+   "section": "7. Premature Termination",
+   "quote": "Timeouts must also be used to detect errors.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "An implementation must use timeouts to detect errors that no ERROR packet reports."
+  },
+  {
+   "id": "A92",
+   "source": "RFC1350",
+   "line_start": 457,
+   "line_end": 462,
+   "section": "I. Appendix / Order of Headers",
+   "quote": "| Local Medium | Internet | Datagram | TFTP Opcode |   (2 bytes)",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The TFTP opcode is the first 2 bytes following the datagram header."
+  },
+  {
+   "id": "A93",
+   "source": "RFC1350",
+   "line_start": 468,
+   "line_end": 471,
+   "section": "I. Appendix / TFTP Formats / RRQ-WRQ",
+   "quote": "RRQ/WRQ | 01/02 | Filename | 0 | Mode | 0 |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "RRQ opcode 01 and WRQ opcode 02, each followed by Filename, zero byte, Mode, zero byte."
+  },
+  {
+   "id": "A94",
+   "source": "RFC1350",
+   "line_start": 472,
+   "line_end": 475,
+   "section": "I. Appendix / TFTP Formats / DATA",
+   "quote": "DATA | 03 | Block # | Data |   2 bytes 2 bytes n bytes",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "DATA opcode 03 followed by a 2-byte block number and n data bytes."
+  },
+  {
+   "id": "A95",
+   "source": "RFC1350",
+   "line_start": 476,
+   "line_end": 479,
+   "section": "I. Appendix / TFTP Formats / ACK",
+   "quote": "ACK | 04 | Block # |   2 bytes 2 bytes",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "ACK opcode 04 followed by a 2-byte block number and nothing else."
+  },
+  {
+   "id": "A96",
+   "source": "RFC1350",
+   "line_start": 480,
+   "line_end": 483,
+   "section": "I. Appendix / TFTP Formats / ERROR",
+   "quote": "ERROR | 05 | ErrorCode | ErrMsg | 0 |",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "ERROR opcode 05 followed by a 2-byte error code, an ErrMsg string and a zero byte."
+  },
+  {
+   "id": "A97",
+   "source": "RFC1350",
+   "line_start": 515,
+   "line_end": 515,
+   "section": "I. Appendix / Error Codes",
+   "quote": "0         Not defined, see error message (if any).",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 0 means an undefined error described only by the accompanying message."
+  },
+  {
+   "id": "A98",
+   "source": "RFC1350",
+   "line_start": 516,
+   "line_end": 516,
+   "section": "I. Appendix / Error Codes",
+   "quote": "1         File not found.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 1 is returned when the requested file does not exist."
+  },
+  {
+   "id": "A99",
+   "source": "RFC1350",
+   "line_start": 517,
+   "line_end": 517,
+   "section": "I. Appendix / Error Codes",
+   "quote": "2         Access violation.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 2 is returned when the requester lacks permission for the file."
+  },
+  {
+   "id": "A100",
+   "source": "RFC1350",
+   "line_start": 518,
+   "line_end": 518,
+   "section": "I. Appendix / Error Codes",
+   "quote": "3         Disk full or allocation exceeded.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 3 is returned when storage is exhausted or a quota is exceeded."
+  },
+  {
+   "id": "A101",
+   "source": "RFC1350",
+   "line_start": 519,
+   "line_end": 519,
+   "section": "I. Appendix / Error Codes",
+   "quote": "4         Illegal TFTP operation.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 4 is returned for a malformed or illegal TFTP operation."
+  },
+  {
+   "id": "A102",
+   "source": "RFC1350",
+   "line_start": 520,
+   "line_end": 520,
+   "section": "I. Appendix / Error Codes",
+   "quote": "5         Unknown transfer ID.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 5 is returned to the source of a packet bearing an unknown transfer ID."
+  },
+  {
+   "id": "A103",
+   "source": "RFC1350",
+   "line_start": 521,
+   "line_end": 521,
+   "section": "I. Appendix / Error Codes",
+   "quote": "6         File already exists.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 6 is returned when a write target already exists."
+  },
+  {
+   "id": "A104",
+   "source": "RFC1350",
+   "line_start": 522,
+   "line_end": 522,
+   "section": "I. Appendix / Error Codes",
+   "quote": "7         No such user.",
+   "rule": "N5",
+   "strength": "declarative",
+   "obligation": "Error code 7 is returned when a mail-mode recipient does not exist."
+  },
+  {
+   "id": "A105",
+   "source": "RFC1350",
+   "line_start": 526,
+   "line_end": 527,
+   "section": "I. Appendix / Internet User Datagram Header",
+   "quote": "TFTP need not be implemented on top of the Internet User Datagram Protocol.",
+   "rule": "N3",
+   "strength": "declarative",
+   "obligation": "An implementation is not obliged to use UDP as the underlying transport."
+  },
+  {
+   "id": "A106",
+   "source": "RFC1350",
+   "line_start": 545,
+   "line_end": 545,
+   "section": "I. Appendix / Values of Fields",
+   "quote": "Dest. Port      Picked by destination machine (69 for RRQ or WRQ).",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The destination port for an initial RRQ or WRQ is 69; thereafter it is the peer's chosen TID."
+  },
+  {
+   "id": "A107",
+   "source": "RFC1350",
+   "line_start": 547,
+   "line_end": 547,
+   "section": "I. Appendix / Values of Fields",
+   "quote": "Length          Number of bytes in UDP packet, including UDP header.",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The datagram length field counts the whole UDP packet including its 8-byte header; RFC 1123 4.2.2.2 confirms this against RFC 783."
+  },
+  {
+   "id": "A108",
+   "source": "RFC1350",
+   "line_start": 554,
+   "line_end": 555,
+   "section": "I. Appendix / Values of Fields",
+   "quote": "TFTP passes transfer identifiers (TID's) to the Internet User Datagram protocol to be used as the source and destination ports.",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "An implementation supplies its TIDs as the UDP source and destination port numbers."
+  },
+  {
+   "id": "A109",
+   "source": "RFC1350",
+   "line_start": 583,
+   "line_end": 585,
+   "section": "Security Considerations",
+   "quote": "care must be taken in the rights granted to a TFTP server process so as not to violate the security",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "A deployment must restrict the file-system rights of the TFTP server process because TFTP has no login or access control."
+  },
+  {
+   "id": "A110",
+   "source": "RFC1123",
+   "line_start": 16,
+   "line_end": 19,
+   "section": "4.2.1",
+   "quote": "Vendors are urged to support TFTP for booting.",
+   "rule": "N1",
+   "strength": "declarative",
+   "obligation": "Host vendors are expected to provide TFTP so hosts can be bootstrapped over the network."
+  },
+  {
+   "id": "A111",
+   "source": "RFC1123",
+   "line_start": 28,
+   "line_end": 28,
+   "section": "4.2.2.1",
+   "quote": "The transfer mode \"mail\" SHOULD NOT be supported.",
+   "rule": "N3",
+   "strength": "SHOULD",
+   "obligation": "An implementation should not support the mail transfer mode; supersedes RFC 1350's mail-mode text."
+  },
+  {
+   "id": "A112",
+   "source": "RFC1123",
+   "line_start": 32,
+   "line_end": 33,
+   "section": "4.2.2.2",
+   "quote": "The Length field of a UDP header is incorrectly defined; it includes the UDP header length (8).",
+   "rule": "N2",
+   "strength": "declarative",
+   "obligation": "The UDP Length field includes the 8-byte UDP header, correcting RFC 783's definition."
+  },
+  {
+   "id": "A113",
+   "source": "RFC1123",
+   "line_start": 46,
+   "line_end": 60,
+   "section": "4.2.3.1",
+   "quote": "Implementations MUST contain the fix for this problem: the sender ... must never resend the current DATA packet on receipt of a duplicate ACK.",
+   "rule": "N3",
+   "strength": "MUST",
+   "obligation": "The DATA sender must never retransmit the current DATA packet in response to a duplicate ACK; overrides RFC 1350's may-retransmit-on-duplicate rule."
+  },
+  {
+   "id": "A114",
+   "source": "RFC1123",
+   "line_start": 139,
+   "line_end": 139,
+   "section": "4.2.3.2",
+   "quote": "A TFTP implementation MUST use an adaptive timeout.",
+   "rule": "N3",
+   "strength": "MUST",
+   "obligation": "An implementation must compute its retransmission timeout adaptively rather than using a fixed value."
+  },
+  {
+   "id": "A115",
+   "source": "RFC1123",
+   "line_start": 155,
+   "line_end": 157,
+   "section": "4.2.3.4",
+   "quote": "A server TFTP implementation SHOULD include some configurable access control over what pathnames are allowed in TFTP operations.",
+   "rule": "N3",
+   "strength": "SHOULD",
+   "obligation": "A server should provide configurable access control over which pathnames TFTP operations may touch."
+  },
+  {
+   "id": "A116",
+   "source": "RFC1123",
+   "line_start": 161,
+   "line_end": 162,
+   "section": "4.2.3.5",
+   "quote": "A TFTP request directed to a broadcast address SHOULD be silently ignored.",
+   "rule": "N3",
+   "strength": "SHOULD",
+   "obligation": "A server should discard a TFTP request that arrived on a broadcast address without replying."
+  },
+  {
+   "id": "A117",
+   "source": "RFC1123",
+   "line_start": 195,
+   "line_end": 195,
+   "section": "4.2.4 TFTP REQUIREMENTS SUMMARY",
+   "quote": "netascii                                       |RFC-783 |x| | | | |",
+   "rule": "N3",
+   "strength": "MUST",
+   "obligation": "An implementation must support the netascii transfer mode."
+  },
+  {
+   "id": "A118",
+   "source": "RFC1123",
+   "line_start": 196,
+   "line_end": 196,
+   "section": "4.2.4 TFTP REQUIREMENTS SUMMARY",
+   "quote": "octet                                          |RFC-783 |x| | | | |",
+   "rule": "N3",
+   "strength": "MUST",
+   "obligation": "An implementation must support the octet transfer mode."
+  },
+  {
+   "id": "A119",
+   "source": "RFC1123",
+   "line_start": 198,
+   "line_end": 198,
+   "section": "4.2.4 TFTP REQUIREMENTS SUMMARY",
+   "quote": "extensions                                     |4.2.3.3 | | |x| | |",
+   "rule": "N3",
+   "strength": "MAY",
+   "obligation": "An implementation may add non-standard TFTP extensions, none of which are standardized."
+  }
+ ],
+ "excluded": [
+  {
+   "id": "AX1",
+   "source": "RFC1350",
+   "line_start": 1,
+   "line_end": 13,
+   "rule": "X4",
+   "note": "Blank leading lines, RFC header block, document title"
+  },
+  {
+   "id": "AX2",
+   "source": "RFC1350",
+   "line_start": 15,
+   "line_end": 21,
+   "rule": "X4",
+   "note": "Status of this Memo"
+  },
+  {
+   "id": "AX3",
+   "source": "RFC1350",
+   "line_start": 23,
+   "line_end": 29,
+   "rule": "X4",
+   "note": "Summary of the document"
+  },
+  {
+   "id": "AX4",
+   "source": "RFC1350",
+   "line_start": 31,
+   "line_end": 48,
+   "rule": "X4",
+   "note": "Acknowledgements, revision credit, funding note"
+  },
+  {
+   "id": "AX5",
+   "source": "RFC1350",
+   "line_start": 50,
+   "line_end": 51,
+   "rule": "X4",
+   "note": "Section title: 1. Purpose"
+  },
+  {
+   "id": "AX6",
+   "source": "RFC1350",
+   "line_start": 52,
+   "line_end": 54,
+   "rule": "X1",
+   "note": "Motivation: named Trivial File Transfer Protocol, built over UDP"
+  },
+  {
+   "id": "AX7",
+   "source": "RFC1350",
+   "line_start": 63,
+   "line_end": 64,
+   "rule": "X5",
+   "note": "How UDP reachability lets TFTP span networks"
+  },
+  {
+   "id": "AX8",
+   "source": "RFC1350",
+   "line_start": 65,
+   "line_end": 67,
+   "rule": "X1",
+   "note": "Design rationale: small, easy, lacks regular FTP features"
+  },
+  {
+   "id": "AX9",
+   "source": "RFC1350",
+   "line_start": 76,
+   "line_end": 78,
+   "rule": "X4",
+   "note": "Terminology note fixing the term netascii for this document"
+  },
+  {
+   "id": "AX10",
+   "source": "RFC1350",
+   "line_start": 79,
+   "line_end": 80,
+   "rule": "X3",
+   "note": "Mail mode described: netascii characters sent to a user"
+  },
+  {
+   "id": "AX11",
+   "source": "RFC1350",
+   "line_start": 87,
+   "line_end": 88,
+   "rule": "X4",
+   "note": "Section title: 2. Overview of the Protocol"
+  },
+  {
+   "id": "AX12",
+   "source": "RFC1350",
+   "line_start": 101,
+   "line_end": 103,
+   "rule": "X1",
+   "note": "Commentary: both machines act as sender and receiver"
+  },
+  {
+   "id": "AX13",
+   "source": "RFC1350",
+   "line_start": 108,
+   "line_end": 109,
+   "rule": "X1",
+   "note": "Possibility: the other end may not get the error packet"
+  },
+  {
+   "id": "AX14",
+   "source": "RFC1350",
+   "line_start": 130,
+   "line_end": 133,
+   "rule": "X1",
+   "note": "Rationale: restrictiveness simplifies implementation and flow control"
+  },
+  {
+   "id": "AX15",
+   "source": "RFC1350",
+   "line_start": 135,
+   "line_end": 136,
+   "rule": "X4",
+   "note": "Section title: 3. Relation to other Protocols"
+  },
+  {
+   "id": "AX16",
+   "source": "RFC1350",
+   "line_start": 137,
+   "line_end": 142,
+   "rule": "X5",
+   "note": "How UDP/IP layering and local medium headers arise"
+  },
+  {
+   "id": "AX17",
+   "source": "RFC1350",
+   "line_start": 146,
+   "line_end": 147,
+   "rule": "X5",
+   "note": "TFTP does not specify Internet header values"
+  },
+  {
+   "id": "AX18",
+   "source": "RFC1350",
+   "line_start": 152,
+   "line_end": 153,
+   "rule": "X4",
+   "note": "Forward reference to the initial connection protocol section"
+  },
+  {
+   "id": "AX19",
+   "source": "RFC1350",
+   "line_start": 156,
+   "line_end": 158,
+   "rule": "X4",
+   "note": "Forward reference to the TFTP packets section"
+  },
+  {
+   "id": "AX20",
+   "source": "RFC1350",
+   "line_start": 182,
+   "line_end": 183,
+   "rule": "X4",
+   "note": "Section title: 4. Initial Connection Protocol"
+  },
+  {
+   "id": "AX21",
+   "source": "RFC1350",
+   "line_start": 192,
+   "line_end": 194,
+   "rule": "X1",
+   "note": "Parenthetical restating the ACK block-number rule already captured"
+  },
+  {
+   "id": "AX22",
+   "source": "RFC1350",
+   "line_start": 212,
+   "line_end": 216,
+   "rule": "X2",
+   "note": "Announcement of the worked example, appendix cross-reference"
+  },
+  {
+   "id": "AX23",
+   "source": "RFC1350",
+   "line_start": 231,
+   "line_end": 235,
+   "rule": "X2",
+   "note": "Numbered WRQ/ACK example exchange between hosts A and B"
+  },
+  {
+   "id": "AX24",
+   "source": "RFC1350",
+   "line_start": 244,
+   "line_end": 246,
+   "rule": "X5",
+   "note": "Depends on whether the supporting protocol exposes wrong-TID packets"
+  },
+  {
+   "id": "AX25",
+   "source": "RFC1350",
+   "line_start": 248,
+   "line_end": 259,
+   "rule": "X2",
+   "note": "Illustrative trace: duplicated request, two ACKs, second rejected"
+  },
+  {
+   "id": "AX26",
+   "source": "RFC1350",
+   "line_start": 261,
+   "line_end": 262,
+   "rule": "X4",
+   "note": "Section title: 5. TFTP Packets"
+  },
+  {
+   "id": "AX27",
+   "source": "RFC1350",
+   "line_start": 304,
+   "line_end": 307,
+   "rule": "X1",
+   "note": "Rationale and DEC-20 illustration for the machine 8-bit format"
+  },
+  {
+   "id": "AX28",
+   "source": "RFC1350",
+   "line_start": 310,
+   "line_end": 310,
+   "rule": "X3",
+   "note": "Mail mode otherwise identical to netascii mode"
+  },
+  {
+   "id": "AX29",
+   "source": "RFC1350",
+   "line_start": 312,
+   "line_end": 313,
+   "rule": "X1",
+   "note": "Rationale for the username@hostname mail forwarding form"
+  },
+  {
+   "id": "AX30",
+   "source": "RFC1350",
+   "line_start": 315,
+   "line_end": 332,
+   "rule": "X1",
+   "note": "Storage-server discussion and hypothetical machine-specific modes"
+  },
+  {
+   "id": "AX31",
+   "source": "RFC1350",
+   "line_start": 343,
+   "line_end": 345,
+   "rule": "X1",
+   "note": "No requirement others implement modes, no central naming authority"
+  },
+  {
+   "id": "AX32",
+   "source": "RFC1350",
+   "line_start": 359,
+   "line_end": 360,
+   "rule": "X1",
+   "note": "Rationale: one number discriminates new packets from duplicates"
+  },
+  {
+   "id": "AX33",
+   "source": "RFC1350",
+   "line_start": 363,
+   "line_end": 364,
+   "rule": "X4",
+   "note": "Cross-reference to the Normal Termination section"
+  },
+  {
+   "id": "AX34",
+   "source": "RFC1350",
+   "line_start": 410,
+   "line_end": 412,
+   "rule": "X4",
+   "note": "Pointer to appendix table plus note that error codes were added"
+  },
+  {
+   "id": "AX35",
+   "source": "RFC1350",
+   "line_start": 416,
+   "line_end": 417,
+   "rule": "X4",
+   "note": "Section title: 6. Normal Termination"
+  },
+  {
+   "id": "AX36",
+   "source": "RFC1350",
+   "line_start": 429,
+   "line_end": 433,
+   "rule": "X1",
+   "note": "Speculation about outcomes when the data sender times out"
+  },
+  {
+   "id": "AX37",
+   "source": "RFC1350",
+   "line_start": 436,
+   "line_end": 437,
+   "rule": "X4",
+   "note": "Section title: 7. Premature Termination"
+  },
+  {
+   "id": "AX38",
+   "source": "RFC1350",
+   "line_start": 440,
+   "line_end": 441,
+   "rule": "X1",
+   "note": "Possibility: the error packet may never be received"
+  },
+  {
+   "id": "AX39",
+   "source": "RFC1350",
+   "line_start": 455,
+   "line_end": 456,
+   "rule": "X4",
+   "note": "Appendix heading and Order of Headers heading"
+  },
+  {
+   "id": "AX40",
+   "source": "RFC1350",
+   "line_start": 464,
+   "line_end": 467,
+   "rule": "X4",
+   "note": "TFTP Formats table heading and column labels"
+  },
+  {
+   "id": "AX41",
+   "source": "RFC1350",
+   "line_start": 485,
+   "line_end": 491,
+   "rule": "X2",
+   "note": "Initial connection example for reading a file"
+  },
+  {
+   "id": "AX42",
+   "source": "RFC1350",
+   "line_start": 511,
+   "line_end": 513,
+   "rule": "X4",
+   "note": "Error Codes table heading and column labels"
+  },
+  {
+   "id": "AX43",
+   "source": "RFC1350",
+   "line_start": 524,
+   "line_end": 525,
+   "rule": "X4",
+   "note": "Appendix subheading for the Internet User Datagram header"
+  },
+  {
+   "id": "AX44",
+   "source": "RFC1350",
+   "line_start": 529,
+   "line_end": 539,
+   "rule": "X5",
+   "note": "UDP header bit-layout diagram, another protocol's format"
+  },
+  {
+   "id": "AX45",
+   "source": "RFC1350",
+   "line_start": 540,
+   "line_end": 543,
+   "rule": "X5",
+   "note": "UDP source port picked by the packet originator"
+  },
+  {
+   "id": "AX46",
+   "source": "RFC1350",
+   "line_start": 549,
+   "line_end": 552,
+   "rule": "X5",
+   "note": "UDP checksum rules deferred to RFC 768"
+  },
+  {
+   "id": "AX47",
+   "source": "RFC1350",
+   "line_start": 567,
+   "line_end": 579,
+   "rule": "X4",
+   "note": "References list"
+  },
+  {
+   "id": "AX48",
+   "source": "RFC1350",
+   "line_start": 581,
+   "line_end": 582,
+   "rule": "X4",
+   "note": "Section title: Security Considerations"
+  },
+  {
+   "id": "AX49",
+   "source": "RFC1350",
+   "line_start": 585,
+   "line_end": 588,
+   "rule": "X1",
+   "note": "Common deployment practice: public-read files only, writes disallowed"
+  },
+  {
+   "id": "AX50",
+   "source": "RFC1350",
+   "line_start": 590,
+   "line_end": 600,
+   "rule": "X4",
+   "note": "Author's address block"
+  },
+  {
+   "id": "AX51",
+   "source": "RFC1350",
+   "line_start": 55,
+   "line_end": 62,
+   "rule": "X4",
+   "note": "Page 1/2 break: footer, banner, blank lines"
+  },
+  {
+   "id": "AX52",
+   "source": "RFC1350",
+   "line_start": 111,
+   "line_end": 118,
+   "rule": "X4",
+   "note": "Page 2/3 break: footer, banner, blank lines"
+  },
+  {
+   "id": "AX53",
+   "source": "RFC1350",
+   "line_start": 159,
+   "line_end": 174,
+   "rule": "X4",
+   "note": "Page 3/4 break plus blank filler lines"
+  },
+  {
+   "id": "AX54",
+   "source": "RFC1350",
+   "line_start": 217,
+   "line_end": 230,
+   "rule": "X4",
+   "note": "Page 4/5 break plus blank filler lines"
+  },
+  {
+   "id": "AX55",
+   "source": "RFC1350",
+   "line_start": 275,
+   "line_end": 286,
+   "rule": "X4",
+   "note": "Page 5/6 break plus blank filler lines"
+  },
+  {
+   "id": "AX56",
+   "source": "RFC1350",
+   "line_start": 335,
+   "line_end": 342,
+   "rule": "X4",
+   "note": "Page 6/7 break interrupting the other-modes sentence"
+  },
+  {
+   "id": "AX57",
+   "source": "RFC1350",
+   "line_start": 386,
+   "line_end": 398,
+   "rule": "X4",
+   "note": "Page 7/8 break plus blank filler lines"
+  },
+  {
+   "id": "AX58",
+   "source": "RFC1350",
+   "line_start": 442,
+   "line_end": 454,
+   "rule": "X4",
+   "note": "Page 8/9 break plus blank filler lines"
+  },
+  {
+   "id": "AX59",
+   "source": "RFC1350",
+   "line_start": 492,
+   "line_end": 510,
+   "rule": "X4",
+   "note": "Page 9/10 break plus blank filler lines"
+  },
+  {
+   "id": "AX60",
+   "source": "RFC1350",
+   "line_start": 556,
+   "line_end": 566,
+   "rule": "X4",
+   "note": "Page 10/11 break plus blank filler lines"
+  },
+  {
+   "id": "AX61",
+   "source": "RFC1350",
+   "line_start": 601,
+   "line_end": 619,
+   "rule": "X4",
+   "note": "Trailing blank lines and final page footer"
+  },
+  {
+   "id": "AX62",
+   "source": "RFC1123",
+   "line_start": 1,
+   "line_end": 2,
+   "rule": "X4",
+   "note": "Section heading 4.2 TRIVIAL FILE TRANSFER PROTOCOL"
+  },
+  {
+   "id": "AX63",
+   "source": "RFC1123",
+   "line_start": 3,
+   "line_end": 7,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.1 and pointer to RFC-783"
+  },
+  {
+   "id": "AX64",
+   "source": "RFC1123",
+   "line_start": 8,
+   "line_end": 14,
+   "rule": "X1",
+   "note": "Descriptive: stop-and-wait window, delay*bandwidth, no security"
+  },
+  {
+   "id": "AX65",
+   "source": "RFC1123",
+   "line_start": 20,
+   "line_end": 25,
+   "rule": "X1",
+   "note": "Commentary: the TFTP spec is written in an open style"
+  },
+  {
+   "id": "AX66",
+   "source": "RFC1123",
+   "line_start": 26,
+   "line_end": 27,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.2.1 Transfer Modes"
+  },
+  {
+   "id": "AX67",
+   "source": "RFC1123",
+   "line_start": 30,
+   "line_end": 31,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.2.2 UDP Header"
+  },
+  {
+   "id": "AX68",
+   "source": "RFC1123",
+   "line_start": 35,
+   "line_end": 38,
+   "rule": "X4",
+   "note": "Subsection headings 4.2.3 and 4.2.3.1"
+  },
+  {
+   "id": "AX69",
+   "source": "RFC1123",
+   "line_start": 39,
+   "line_end": 45,
+   "rule": "X1",
+   "note": "Description of the Sorcerer's Apprentice Syndrome symptoms"
+  },
+  {
+   "id": "AX70",
+   "source": "RFC1123",
+   "line_start": 50,
+   "line_end": 57,
+   "rule": "X4",
+   "note": "Page 44/45 break: footer, banner, blank lines"
+  },
+  {
+   "id": "AX71",
+   "source": "RFC1123",
+   "line_start": 61,
+   "line_end": 78,
+   "rule": "X1",
+   "note": "DISCUSSION block on the cause of duplicate-datagram amplification"
+  },
+  {
+   "id": "AX72",
+   "source": "RFC1123",
+   "line_start": 79,
+   "line_end": 106,
+   "rule": "X2",
+   "note": "Illustrative TFTP A / TFTP B numbered packet trace"
+  },
+  {
+   "id": "AX73",
+   "source": "RFC1123",
+   "line_start": 107,
+   "line_end": 118,
+   "rule": "X4",
+   "note": "Page 45/46 break: footer, banner, blank lines"
+  },
+  {
+   "id": "AX74",
+   "source": "RFC1123",
+   "line_start": 119,
+   "line_end": 136,
+   "rule": "X1",
+   "note": "DISCUSSION continued: removing the receiver retransmission timer is OK"
+  },
+  {
+   "id": "AX75",
+   "source": "RFC1123",
+   "line_start": 137,
+   "line_end": 138,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.3.2 Timeout Algorithms"
+  },
+  {
+   "id": "AX76",
+   "source": "RFC1123",
+   "line_start": 140,
+   "line_end": 145,
+   "rule": "X1",
+   "note": "IMPLEMENTATION block suggesting TCP-style exponential backoff"
+  },
+  {
+   "id": "AX77",
+   "source": "RFC1123",
+   "line_start": 146,
+   "line_end": 151,
+   "rule": "X1",
+   "note": "Extensions: non-standard extensions exist, none standardized"
+  },
+  {
+   "id": "AX78",
+   "source": "RFC1123",
+   "line_start": 153,
+   "line_end": 154,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.3.4 Access Control"
+  },
+  {
+   "id": "AX79",
+   "source": "RFC1123",
+   "line_start": 158,
+   "line_end": 160,
+   "rule": "X4",
+   "note": "Subsection heading 4.2.3.5 Broadcast Request"
+  },
+  {
+   "id": "AX80",
+   "source": "RFC1123",
+   "line_start": 163,
+   "line_end": 179,
+   "rule": "X1",
+   "note": "DISCUSSION block on the broadcast-request security hole, plus page break"
+  },
+  {
+   "id": "AX81",
+   "source": "RFC1123",
+   "line_start": 180,
+   "line_end": 194,
+   "rule": "X4",
+   "note": "Requirements summary heading and rotated column legend"
+  },
+  {
+   "id": "AX82",
+   "source": "RFC1123",
+   "line_start": 193,
+   "line_end": 193,
+   "rule": "X4",
+   "note": "Summary row restating 4.2.3.1 Sorcerer's Apprentice fix"
+  },
+  {
+   "id": "AX83",
+   "source": "RFC1123",
+   "line_start": 197,
+   "line_end": 197,
+   "rule": "X4",
+   "note": "Summary row restating 4.2.2.1 mail SHOULD NOT"
+  },
+  {
+   "id": "AX84",
+   "source": "RFC1123",
+   "line_start": 199,
+   "line_end": 201,
+   "rule": "X4",
+   "note": "Summary rows restating 4.2.3.2, 4.2.3.4 and 4.2.3.5"
+  },
+  {
+   "id": "AX85",
+   "source": "RFC1123",
+   "line_start": 202,
+   "line_end": 218,
+   "rule": "X4",
+   "note": "Table rule lines and trailing blank lines"
+  }
+ ],
+ "counts": {
+  "normative": 119,
+  "excluded": 85
+ }
+}

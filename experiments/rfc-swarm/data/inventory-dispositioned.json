@@ -1,0 +1,878 @@
+{
+ "rows": [
+  {
+   "cid": "T001",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Choice of underlying datagram protocol is transport mechanics, outside the decidable fragment.",
+   "core": false
+  },
+  {
+   "cid": "T002",
+   "class": "C1",
+   "disposition": "Dispositioned out",
+   "reason": "True by construction: the request ADT has only RRQ/WRQ constructors, so no mutant can exercise a directory or authentication operation and the row carries no verification evidence. Aligned with T006/T058/T111 (professor F-5).",
+   "core": false
+  },
+  {
+   "cid": "T003",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: file data is a fixed bytes[512] buffer plus an int length; the 8-bit width of an individual byte is not represented.",
+   "core": false
+  },
+  {
+   "cid": "T004",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Defining netascii by reference to USAS X3.4 and Telnet is an opaque character-set transform with no arithmetic or enum content.",
+   "core": false
+  },
+  {
+   "cid": "T005",
+   "class": "C4",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: octet mode is the string literal tag \"octet\" over an untransformed bytes[512]+len payload; the raw-byte claim is the identity of that buffer.",
+   "core": false
+  },
+  {
+   "cid": "T006",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "RFC 1350 states \"the mail mode is obsolete and should not be implemented or used\" and RFC 1123 4.2.2.1 forbids it, so no mail constructor exists to verify.",
+   "core": false
+  },
+  {
+   "cid": "T007",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Bilaterally defined extra modes are an open-ended set of undefined mode strings; string structure and unbounded extension put it outside the fragment.",
+   "core": false
+  },
+  {
+   "cid": "T008",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "A directive to consult another document constrains the implementation corpus, not any single transition (trace-level).",
+   "core": false
+  },
+  {
+   "cid": "T009",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the step function: from Idle only an RRQ or WRQ input yields a connected state.",
+   "core": false
+  },
+  {
+   "cid": "T010",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the grant transition: Idle plus a granted request yields Transferring, with block length invariant len <= 512.",
+   "core": false
+  },
+  {
+   "cid": "T011",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the send step: the DATA constructor carries one block number and one buffer, and the step advances the block index by exactly one.",
+   "core": false
+  },
+  {
+   "cid": "T012",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract precondition on the sender step: DATA n+1 is emitted only from a state whose last-acked block equals n.",
+   "core": true
+  },
+  {
+   "cid": "T013",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the receive step: len < 512 implies the post-state is Terminating.",
+   "core": true
+  },
+  {
+   "cid": "T014",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Timeout detection and retransmission scheduling are timing properties with no single-transition encoding.",
+   "core": false
+  },
+  {
+   "cid": "T015",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "One-packet retransmission buffering is a claim about the retransmission machinery, which is timing-driven and not modeled.",
+   "core": false
+  },
+  {
+   "cid": "T016",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Error latch: contract states any state plus an ERROR input yields Terminated, and Terminated is absorbing.",
+   "core": true
+  },
+  {
+   "cid": "T017",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the error transition: its output packet is the ERROR constructor.",
+   "core": false
+  },
+  {
+   "cid": "T018",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract: the ERROR transition emits no acknowledgment and lands in the absorbing Terminated state, so no transition re-emits it.",
+   "core": false
+  },
+  {
+   "cid": "T019",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the permission is resolved deterministically, with the post-state after emitting ERROR always Terminated.",
+   "core": false
+  },
+  {
+   "cid": "T020",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Detecting a peer termination whose ERROR was lost is a timeout property; timing is outside the fragment.",
+   "core": false
+  },
+  {
+   "cid": "T021",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the three error causes enter as input events (request-denied flag, unexplainable packet, resource-lost flag) feeding the ERROR transition.",
+   "core": false
+  },
+  {
+   "cid": "T022",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). A wrong-source-TID packet is the one error that leaves the transfer state unchanged; expressible as a transition that does not enter Terminated.",
+   "core": false
+  },
+  {
+   "cid": "T023",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). The transition emits an ERROR addressed to the offending originator; decidable over the modeled TID pair.",
+   "core": false
+  },
+  {
+   "cid": "T024",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Ordering of local medium, Internet and Datagram headers is lower-layer encapsulation, below the decoded-packet model.",
+   "core": false
+  },
+  {
+   "cid": "T025",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Datagram source/destination port fields and the datagram length field are transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T026",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Passing TIDs to the datagram layer as ports is TID allocation and transport plumbing.",
+   "core": false
+  },
+  {
+   "cid": "T027",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). TID range 0..65535 is a refinement on the modeled TID pair; pure QF-LIA.",
+   "core": false
+  },
+  {
+   "cid": "T028",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the opcode field is the constructor tag of the decoded packet ADT; the 2-byte field width is not represented.",
+   "core": false
+  },
+  {
+   "cid": "T029",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Figure 3-1 fixes lower-layer header order on the wire, which is transport encapsulation.",
+   "core": false
+  },
+  {
+   "cid": "T030",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the initiating step: the request constructor (RRQ or WRQ) fixes the transfer direction in the post-state.",
+   "core": false
+  },
+  {
+   "cid": "T031",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the reply step: WRQ yields an ACK output and RRQ yields a DATA output.",
+   "core": false
+  },
+  {
+   "cid": "T032",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the ack step: the ACK block number equals the block number of the DATA being acknowledged (int equality).",
+   "core": true
+  },
+  {
+   "cid": "T033",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the sender spine: first block equals 1 and each successor block equals predecessor plus 1.",
+   "core": true
+  },
+  {
+   "cid": "T034",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the WRQ reply step: the acknowledging ACK carries block number 0, the initial block number of a write.",
+   "core": true
+  },
+  {
+   "cid": "T035",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the reply step: an ERROR reply to a request yields the Denied post-state rather than a transfer state.",
+   "core": false
+  },
+  {
+   "cid": "T036",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Choosing and holding a TID is transport identity allocation, outside the fragment.",
+   "core": false
+  },
+  {
+   "cid": "T037",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Random TID selection is transport allocation plus a probabilistic property, neither of which the fragment expresses.",
+   "core": false
+  },
+  {
+   "cid": "T038",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Source and destination TIDs on every packet are transport identity, not part of the decoded packet model.",
+   "core": false
+  },
+  {
+   "cid": "T039",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Mapping TIDs onto UDP source and destination ports is transport plumbing.",
+   "core": false
+  },
+  {
+   "cid": "T040",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Selection of the requestor's source TID is transport allocation.",
+   "core": false
+  },
+  {
+   "cid": "T041",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Addressing the initial request to TID 69 names a UDP port, which is transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T042",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Answering from a freshly chosen server TID is transport allocation.",
+   "core": false
+  },
+  {
+   "cid": "T043",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Addressing the response to the requestor's TID is transport addressing.",
+   "core": false
+  },
+  {
+   "cid": "T044",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Holding the agreed TID pair for the transfer is transport identity state, not modeled.",
+   "core": false
+  },
+  {
+   "cid": "T045",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the post-WRQ sender step: the first DATA emitted carries block number 1.",
+   "core": true
+  },
+  {
+   "cid": "T046",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). Source-TID equality against the connection's agreed TID is a guard over modeled state.",
+   "core": false
+  },
+  {
+   "cid": "T047",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). A non-matching source TID yields no state change and no data output; the injection-rejection crux.",
+   "core": false
+  },
+  {
+   "cid": "T048",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Modeled TID pair (Amendment 1). The wrong-TID ERROR leaves the ongoing transfer undisturbed; state-preservation is the discriminative part.",
+   "core": false
+  },
+  {
+   "cid": "T049",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on opcodeOf: the packet ADT has exactly five constructors mapped to the pinned ints 1 through 5.",
+   "core": false
+  },
+  {
+   "cid": "T050",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract: opcodeOf is total over the packet ADT and returns that packet's own opcode constant.",
+   "core": false
+  },
+  {
+   "cid": "T051",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: RRQ/WRQ is a decoded record (mode enum plus a filename handle); the NUL-terminated wire layout stays in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T052",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: opcodes 1 and 2 are pinned on the ADT tags while the Figure 5-1 field layout is carried by the decoded request record.",
+   "core": false
+  },
+  {
+   "cid": "T053",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "reason": "A zero-byte-terminated filename is string structure (NUL-terminated field splitting), which the fragment cannot express.",
+   "core": false
+  },
+  {
+   "cid": "T054",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: mode is a decoded enum with the \"octet\" literal pinned; case-insensitive string matching stays in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T055",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Translating netascii into a local text format is an opaque character-set transform.",
+   "core": false
+  },
+  {
+   "cid": "T056",
+   "class": "C4",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: octet mode is the identity on the bytes[512]+len payload, with no transform function applied.",
+   "core": false
+  },
+  {
+   "cid": "T057",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "A byte-identical round trip quantifies over a whole variable-length file across every block, which is trace-level.",
+   "core": false
+  },
+  {
+   "cid": "T058",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Mail mode is obsolete per RFC 1350 and SHOULD NOT be supported per RFC 1123 4.2.2.1, so no mail transfer exists in the model.",
+   "core": false
+  },
+  {
+   "cid": "T059",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "The recipient form username@hostname is both mail mode (deprecated) and string structure.",
+   "core": false
+  },
+  {
+   "cid": "T060",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Privately agreed extra modes are an open set of undefined mode strings with no fixed obligation to verify.",
+   "core": false
+  },
+  {
+   "cid": "T061",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: DATA is (block:int, buf:bytes[512], len:int); the 2-byte field widths and the variable n data bytes stay in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T062",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract: opcodeOf(DATA) = 3 and the DATA constructor exposes a block-number field and a data field.",
+   "core": false
+  },
+  {
+   "cid": "T063",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the sender spine: next block equals current block plus 1, with the first equal to 1.",
+   "core": true
+  },
+  {
+   "cid": "T064",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the DATA record: 0 <= len <= 512, checked against the fixed bytes[512] buffer bound.",
+   "core": false
+  },
+  {
+   "cid": "T065",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the receive step: len = 512 implies the post-state is still Transferring.",
+   "core": true
+  },
+  {
+   "cid": "T066",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the receive step: 0 <= len <= 511 implies the post-state is Terminating.",
+   "core": true
+  },
+  {
+   "cid": "T067",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the step function: every non-duplicate, non-terminal input packet produces a response packet; the timeout escape only weakens this, so the unconditional form is verified.",
+   "core": true
+  },
+  {
+   "cid": "T068",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the product-automaton spine: emitting DATA n+1 advances the joint state past ACK n, which is the implicit acknowledgment.",
+   "core": false
+  },
+  {
+   "cid": "T069",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the response step: the output constructor for a WRQ or DATA input is ACK or ERROR and nothing else.",
+   "core": false
+  },
+  {
+   "cid": "T070",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the response step: the output constructor for an RRQ or ACK input is DATA or ERROR and nothing else.",
+   "core": false
+  },
+  {
+   "cid": "T071",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: ACK is a constructor carrying one int block field; the 2-byte opcode and block widths stay in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T072",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract: opcodeOf(ACK) = 4.",
+   "core": false
+  },
+  {
+   "cid": "T073",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the receiver step: the emitted ACK block number equals the received DATA block number (int equality).",
+   "core": true
+  },
+  {
+   "cid": "T074",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract: the ACK emitted in reply to a WRQ has block number 0.",
+   "core": true
+  },
+  {
+   "cid": "T075",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: ERROR is a constructor carrying an int error code; the ErrMsg string and its zero terminator are not represented.",
+   "core": false
+  },
+  {
+   "cid": "T076",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: opcode 5 is pinned on the ERROR tag while the Figure 5-4 layout, including the ErrMsg string, is carried by the decoded record.",
+   "core": false
+  },
+  {
+   "cid": "T077",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract: the step function is defined on an ERROR input from every state, yielding Terminated.",
+   "core": false
+  },
+  {
+   "cid": "T078",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract: the error code is an enum whose constants are pinned to the defined ints, so no other value is emitted.",
+   "core": false
+  },
+  {
+   "cid": "T079",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "A human-readable netascii message is an opaque character-set transform with no functional property.",
+   "core": false
+  },
+  {
+   "cid": "T080",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "reason": "Zero-byte termination of ErrMsg is string structure, which the fragment cannot express.",
+   "core": false
+  },
+  {
+   "cid": "T081",
+   "class": "C3",
+   "disposition": "Encoded",
+   "reason": "Contract on the terminating step: 0 <= len <= 511 marks the final DATA; the datagram length < 516 restatement is transport arithmetic and not carried.",
+   "core": true
+  },
+  {
+   "cid": "T082",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract: the same ACK transition applies at the terminal block, so the final DATA is acknowledged like any other.",
+   "core": false
+  },
+  {
+   "cid": "T083",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the permission is resolved deterministically, with the acknowledger moving to Done on emitting the final ACK; dallying is not modeled.",
+   "core": false
+  },
+  {
+   "cid": "T084",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Dallying is a wait-before-terminating rule, which is timing.",
+   "core": false
+  },
+  {
+   "cid": "T085",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Inferring a lost ACK from a repeated final DATA depends on packet loss and retransmission timing.",
+   "core": false
+  },
+  {
+   "cid": "T086",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Retransmitting until acknowledged or timed out is liveness plus timing.",
+   "core": false
+  },
+  {
+   "cid": "T087",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the sender step: receiving the ACK whose block equals the final block yields the Completed state.",
+   "core": false
+  },
+  {
+   "cid": "T088",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Closure after a final timeout is a timing property.",
+   "core": false
+  },
+  {
+   "cid": "T089",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the error transition: a denied request or a detected mid-transfer fault emits the ERROR constructor.",
+   "core": false
+  },
+  {
+   "cid": "T090",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract: the ERROR transition emits no acknowledgment and Terminated is absorbing, so no transition re-emits the packet.",
+   "core": false
+  },
+  {
+   "cid": "T091",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Using timeouts to detect unreported errors is timing.",
+   "core": false
+  },
+  {
+   "cid": "T092",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the opcode is the decoded packet ADT tag; its byte offset after the datagram header is not represented.",
+   "core": false
+  },
+  {
+   "cid": "T093",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the appendix RRQ/WRQ layout is the decoded request record; Filename and Mode with their zero bytes stay in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T094",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the appendix DATA layout is (block:int, buf:bytes[512], len:int); the 2-byte widths and variable n stay in the decoder.",
+   "core": false
+  },
+  {
+   "cid": "T095",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the appendix ACK layout is a constructor with one int block field; byte widths are not represented.",
+   "core": false
+  },
+  {
+   "cid": "T096",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the appendix ERROR layout is a constructor with one int code field; ErrMsg and its zero byte are dropped.",
+   "core": false
+  },
+  {
+   "cid": "T097",
+   "class": "C5",
+   "disposition": "Vectored",
+   "reason": "An executed check block pins the undefined-error constant to 0; the accompanying message text is not modeled.",
+   "core": false
+  },
+  {
+   "cid": "T098",
+   "class": "C5",
+   "disposition": "Vectored",
+   "reason": "An executed check block pins the file-not-found constant to 1; file existence is an environment condition outside the model.",
+   "core": false
+  },
+  {
+   "cid": "T099",
+   "class": "C5",
+   "disposition": "Vectored",
+   "reason": "An executed check block pins the access-violation constant to 2; file permissions are an environment condition outside the model.",
+   "core": false
+  },
+  {
+   "cid": "T100",
+   "class": "C5",
+   "disposition": "Vectored",
+   "reason": "An executed check block pins the disk-full constant to 3; storage exhaustion is an environment condition outside the model.",
+   "core": false
+  },
+  {
+   "cid": "T101",
+   "class": "C2",
+   "disposition": "Encoded",
+   "reason": "Contract on the step function: a packet not admissible in the current state yields ERROR with code 4, a condition entirely inside the state machine.",
+   "core": false
+  },
+  {
+   "cid": "T102",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Code 5 fires on an unknown transfer ID, which is transport identity the model does not carry.",
+   "core": false
+  },
+  {
+   "cid": "T103",
+   "class": "C5",
+   "disposition": "Vectored",
+   "reason": "An executed check block pins the file-already-exists constant to 6; target existence is an environment condition outside the model.",
+   "core": false
+  },
+  {
+   "cid": "T104",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "Code 7 reports a missing mail recipient, and mail mode is obsolete per RFC 1350 and SHOULD NOT be supported per RFC 1123 4.2.2.1.",
+   "core": false
+  },
+  {
+   "cid": "T105",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Whether UDP carries TFTP is transport choice.",
+   "core": false
+  },
+  {
+   "cid": "T106",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Destination port 69 for an initial request names a UDP port, which is transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T107",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "The UDP length field and its header accounting are transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T108",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Supplying TIDs as UDP port numbers is transport plumbing.",
+   "core": false
+  },
+  {
+   "cid": "T109",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Restricting the server process's file-system rights constrains the deployment environment, not any protocol transition.",
+   "core": false
+  },
+  {
+   "cid": "T110",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Urging vendors to ship TFTP for booting is procurement guidance with no transition to verify.",
+   "core": false
+  },
+  {
+   "cid": "T111",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "reason": "RFC 1123 4.2.2.1 says mail SHOULD NOT be supported and RFC 1350 calls it obsolete, so the model has no mail mode to verify.",
+   "core": false
+  },
+  {
+   "cid": "T112",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "The UDP Length field definition is transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T113",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the sender step: an ACK whose block number equals the already-acked block (duplicate, detected by int equality) emits no DATA and leaves the block index unchanged.",
+   "core": true
+  },
+  {
+   "cid": "T114",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "An adaptive retransmission timeout is timing.",
+   "core": false
+  },
+  {
+   "cid": "T115",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Configurable pathname access control is deployment policy over a file system, and pathname matching is string structure.",
+   "core": false
+  },
+  {
+   "cid": "T116",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Recognising a broadcast address is transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T117",
+   "class": "C4",
+   "disposition": "Deployment-modeled",
+   "reason": "Model: the mode enum includes Netascii and the state machine accepts it, while the CR/LF translation itself stays opaque.",
+   "core": false
+  },
+  {
+   "cid": "T118",
+   "class": "C4",
+   "disposition": "Encoded",
+   "reason": "Contract on the request-accept step: mode equal to the string literal \"octet\" yields a transfer state rather than ERROR, using literal equality only.",
+   "core": false
+  },
+  {
+   "cid": "T119",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "An open permission to add unstandardized extensions constrains no transition (implementation-corpus, trace-level).",
+   "core": false
+  },
+  {
+   "cid": "T120",
+   "class": "C1",
+   "disposition": "Encoded",
+   "reason": "Contract on the product-automaton spine: the joint state pairs a DATA sender with an ACK sender and the invariant holds each step.",
+   "core": false
+  },
+  {
+   "cid": "T121",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Rejecting the second response while keeping the first connection requires comparing source TIDs, which is transport identity.",
+   "core": false
+  },
+  {
+   "cid": "T122",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "The source port as the originator's TID is transport identity.",
+   "core": false
+  },
+  {
+   "cid": "T123",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "Datagram checksum computation is transport mechanics.",
+   "core": false
+  },
+  {
+   "cid": "T124",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "reason": "A statement that extensions are non-standard and optional constrains no transition (implementation-corpus, trace-level).",
+   "core": false
+  }
+ ],
+ "summary": {
+  "Dispositioned out": 53,
+  "Deployment-modeled": 20,
+  "Encoded": 46,
+  "Vectored": 5
+ }
+}
