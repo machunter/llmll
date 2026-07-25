@@ -108,7 +108,7 @@ channel in [Post 5](post-5-the-payoff.md) used that module-per-agent split — t
 the *decomposition* was authored up front and the agents filled it. The build where the
 modules' internals are grown exactly as in this post — root contracts only, agents
 inventing the sub-contracts, an import-linked spine composed across module boundaries —
-is [`examples/secure-channel-emergent/`](../../examples/secure-channel-emergent/):
+is [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent):
 twenty-five functions, every step gated and verified, the full blind-agent transcript
 committed alongside.
 

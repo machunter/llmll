@@ -16,7 +16,7 @@ contract — the checkout brief from Post 2, and nothing else. To be precise abo
 authorship: the *decomposition* here was ours — the 163 contracts were carved out of a
 reference implementation; the agents' work is the fills. The companion build where agents
 invent the decomposition too — Post 4's cascade, run at module scale with an import-linked
-spine — is [`examples/secure-channel-emergent/`](../../examples/secure-channel-emergent/).
+spine — is [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent).
 
 Then the whole program is verified at once:
 

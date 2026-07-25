@@ -1,0 +1,45 @@
+# GitHub Pages configuration.
+#
+# The site is the blog series and nothing else. Everything else under docs/ is
+# working material (design proposals, findings, the roadmap, schemas) that reads
+# fine on GitHub but is not a published site, so it is excluded below rather than
+# rendered into pages nobody linked to.
+#
+# `jekyll-relative-links` is enabled by default on GitHub Pages and rewrites the
+# posts' relative `*.md` links to their `.html` equivalents, which is why the
+# cross-post links work unchanged. Links that point outside docs/ are absolute
+# GitHub URLs for the same reason: this site only serves docs/.
+
+title: LLMLL
+description: >-
+  A language where AI agents write the code and a compiler proves it meets its
+  specification.
+theme: minima
+lang: en
+
+# Serve only the blog. These still live in the repository and render on GitHub.
+exclude:
+  - archive/
+  - design/
+  - assets/
+  - compiler-team-roadmap.md
+  - getting-started.md
+  - one-pager.md
+  - orchestrator-walkthrough.md
+  - UPDATE-PROTOCOL.md
+  - llmll-ast.schema.json
+  - llmll-trust-report.schema.json
+  - proof-artifact.schema.json
+
+header_pages: []
+
+# The posts carry no YAML front matter, deliberately: adding it would make GitHub
+# render a metadata table above every post in the repository view. GitHub Pages
+# enables `jekyll-optional-front-matter` by default, which processes markdown
+# without front matter, and this default supplies the layout they would otherwise
+# have declared.
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: page
