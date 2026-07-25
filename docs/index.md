@@ -1,5 +1,5 @@
 ---
-layout: page
+layout: default
 ---
 
 # Writing a verified slice of TLS, with AI agents doing the typing
