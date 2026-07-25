@@ -240,12 +240,20 @@ N ≥ 4 concurrent blind agents on one module tree, coordinating only through ch
 refine. Retries carry compiler error text only, capped, with protocol-level conflict retries
 budgeted separately so concurrency cannot consume an agent's error budget.
 
-**The advisory lock is per-hole; the compare-and-swap is per-FILE.** Measured on the first real
-wave, not assumed: checkout tokens are keyed by JSON pointer, so N agents genuinely hold N
-different holes at once, but `patch` validates against a whole-source hash and rejects anything
-older than the current file (`PatchAuthError: obligation context is stale`). Two holes checked
-out concurrently, first patch `PatchSuccess`, second `PatchAuthError`. So **the first patch to
-land invalidates every other outstanding brief**, however unrelated the holes.
+**The advisory lock is per-hole; the compare-and-swap is per-FILE.** Checkout tokens are keyed
+by JSON pointer, so N agents genuinely hold N different holes at once, but `patch` validates
+against a whole-source hash and rejects anything older than the current file
+(`PatchAuthError: obligation context is stale`). So **the first patch to land invalidates every
+other outstanding brief**, however unrelated the holes.
+
+This was already known and written down (`docs/blog/post-4-who-writes-the-decomposition.md`:
+"a module carries a whole-file compare-and-swap … application to one module is serialized").
+The first wave re-derived it the expensive way, by wedging fourteen holes, because the harness
+was built without reading it. Recorded here so the next harness does not: the cost of the
+rediscovery was a whole wave, and the fact was one paragraph away.
+
+Independently confirmed on that run: two holes checked out concurrently, first patch
+`PatchSuccess`, second `PatchAuthError`.
 
 The consequence for the harness is specific: agents may think in parallel, but a submission must
 not reuse the brief the agent worked from. On submission, under a lock, **release the token,
