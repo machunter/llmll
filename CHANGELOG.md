@@ -4,6 +4,54 @@
 
 <a id="Latest"></a>
 
+## v0.14.67 — fix: FQ-CTOR-COLLIDE-1, a binder named like a constructor crashed the solver (2026-07-25)
+
+### Fixed — constraint-file namespace collision
+
+- **A parameter or `let` binder spelled like the lowercasing of any in-scope ADT constructor
+  took the same symbol as that constructor in the emitted `.fq`, and liquid-fixpoint failed
+  with a sort error naming a type the function need not even mention.** Constructor symbols and
+  ordinary binders share one flat namespace; constructors were emitted as the bare lowercasing
+  of their source name, so an `XferState` with a `Denied` state and a `denied: bool` flag
+  collided. Merely *declaring* the type was enough, because the datatype declaration lands in
+  the same file:
+
+  ```
+  data XferState 0 = [ | idle { } | ... | denied { } | terminated { }]
+  bind 1 denied : { v : bool | true }        <-- same symbol, different sort
+  ...
+  crash: SMTLIB2 Error "Sort mismatch at argument #1 for function
+         (declare-fun or (Bool Bool) Bool) supplied sort is XferState"
+  ```
+
+  User (uppercase-initial) constructors now emit through a single new
+  `FixpointIR.fqCtorSym` with a reserved `ctor_` prefix — `Denied` → `ctor_denied`, selectors
+  `ctor_denied_0` — while the built-in lowercase symbols (`ok`, `err`, `pair2`) stay verbatim,
+  since their declaration and use sites both spell them that way. The declaration site and all
+  four translation sites route through that one function, which is the thing that was missing:
+  the convention previously existed only as a comment asking the sites to agree. No type
+  qualification is needed, because the typechecker already rejects a duplicate constructor name
+  within or across type definitions, so constructor names are unique per module.
+
+  **This failed closed** — a collision crashed the solver and was never a false SAFE — so no
+  prior verdict is affected. It cost an agent a retry against an unactionable message, which is
+  why it was worth fixing before a fill swarm runs on an enum-heavy protocol model, where
+  `data`, `error`, `ack`, and `denied` are all natural parameter names.
+
+  Residual, deliberately accepted and documented at `fqCtorSym`: identifier sanitization maps
+  every illegal character to `_`, so a binder literally named `ctor_denied` would still collide.
+  That is reachable only by naming a binder after the internal convention, and it still fails
+  closed.
+
+  Analysis: [`docs/design/finding-fq-ctor-name-collision.md`](docs/design/finding-fq-ctor-name-collision.md).
+  Fixtures `compiler/test/fixtures/fq-ctor-collide/`; tests FQCOLL-1..4 plus an updated FQDATA-1
+  pinning the emitted symbol shape. 1415 examples, 0 failures.
+
+- **`.fq` byte-change notice.** Every constraint file containing a user sum type now spells its
+  constructor symbols with the `ctor_` prefix. Cached `.verified.json` evidence is unaffected
+  (verdicts are unchanged), but any tooling that pattern-matched raw `.fq` constructor symbols
+  needs the prefix.
+
 ## v0.14.66 — fix: MATCH-NULLARY-1, a bare nullary constructor in a match arm verified unsoundly (2026-07-25)
 
 ### Fixed — soundness

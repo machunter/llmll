@@ -41,11 +41,13 @@ module LLMLL.FixpointIR
     -- * STRLIT literal interning (shared by FixpointEmit + GuardClassifier)
   , strlitConst
   , strlitLen
+    -- * Constructor symbols (shared by FixpointEmit; FQ-CTOR-COLLIDE-1)
+  , fqCtorSym
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Char (isAlphaNum, ord)
+import Data.Char (isAlphaNum, isUpper, ord)
 import Numeric (showHex)
 
 -- | STRLIT (Stage 1): the interned nullary Str-constant NAME of a string literal.
@@ -260,6 +262,35 @@ emitConstant c =
 sanitizeFQId :: Text -> Text
 sanitizeFQId = T.map (\c -> if isAlphaNum c || c == '_' then c else '_')
 
+-- | The emitted @.fq@ symbol for a datatype constructor (FQ-CTOR-COLLIDE-1).
+--
+-- Constructor symbols and ordinary binders share one flat namespace in the
+-- emitted constraint file. Constructors were previously emitted as the bare
+-- lowercasing of their source name, so a parameter or @let@ binder spelled like
+-- any in-scope constructor took the same symbol: an @XferState@ with a @Denied@
+-- state and a @denied : bool@ flag made liquid-fixpoint fail with a sort error
+-- naming a type the function need not even mention. Merely DECLARING the type
+-- was enough, since the datatype declaration lands in the same file.
+--
+-- User constructors are uppercase-initial and therefore get a reserved prefix;
+-- the built-in lowercase constructor symbols (@ok@, @err@, @pair2@) are emitted
+-- verbatim, because their declaration and use sites both spell them that way.
+-- Constructor names are globally unique per module (the typechecker rejects a
+-- duplicate within or across type definitions), so the prefix alone separates
+-- the namespaces and no type qualification is needed.
+--
+-- Residual, deliberately accepted: 'sanitizeFQId' maps every illegal character
+-- to @_@, so a binder literally named @ctor_denied@ (or @ctor-denied@) would
+-- still collide. That is reachable only by naming a binder after the internal
+-- convention, and it fails closed as before.
+--
+-- This is the single definition of the convention. Declaration and every use
+-- site route through it, which is what was missing before.
+fqCtorSym :: Text -> Text
+fqCtorSym nm
+  | not (T.null nm), isUpper (T.head nm) = "ctor_" <> sanitizeFQId (T.toLower nm)
+  | otherwise                            = sanitizeFQId nm
+
 emitPred :: FQPred -> Text
 emitPred FQTrue               = "true"
 emitPred FQFalse              = "false"
@@ -351,7 +382,7 @@ emitDataDecl d =
     -- inadmissible (recursive) and nullary ctors emit `{ }`. Constructor symbols
     -- and field names stay sanitized lowercase, agreeing with the translation site.
     emitCtor (nm, flds) =
-      let cn     = sanitizeFQId (T.toLower nm)
+      let cn     = fqCtorSym nm
           fields = T.intercalate ", "
             [ cn <> "_" <> T.pack (show i) <> " : " <> emitSort s | (i, s) <- zip [0 :: Int ..] flds ]
       in if null flds then " | " <> cn <> " { }"

@@ -277,10 +277,13 @@
 ;; The packet emitted when a request cannot be granted or a fault is detected
 ;; mid-transfer.
 ;;
-;; NAMING CONSTRAINT (FQ-CTOR-COLLIDE-1, docs/design/finding-fq-ctor-name-collision.md):
-;; the first parameter is `refused`, not the natural `denied`, because the .fq
-;; emitter lowercases ADT constructor names and `XferState`'s `Denied` would then
-;; collide with a `denied` binder in the SMT namespace, crashing liquid-fixpoint.
+;; NAMING (FQ-CTOR-COLLIDE-1, docs/design/finding-fq-ctor-name-collision.md):
+;; the first parameter is `refused` rather than the natural `denied` because, when
+;; this surface was authored, the .fq emitter lowercased ADT constructor names and
+;; `XferState`'s `Denied` collided with a `denied` binder, crashing liquid-fixpoint.
+;; That defect is FIXED (v0.14.67, constructors now emit as `ctor_denied`). The name
+;; is kept anyway: this clause carries `:source` and the surface is frozen, and a
+;; cosmetic rename is not a reason to break the freeze.
 (def-shell error-reply [code: int refused: bool fault: bool] -> Packet
   (pre (and (>= code 0) (<= code 7))
     :source "[T078] RFC 1350 lines 409-410 - the error code is drawn from the defined table")

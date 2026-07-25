@@ -29,7 +29,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [rfc-swarm-coverage-review.md](rfc-swarm-coverage-review.md) | Professor: the fired STOP was a defective instrument; per-barrier ruling on widening | **Rev 0** — adopted; ratio ceiling retired by PRE-REGISTRATION Amendment 1 |
 | [rfc-swarm-coverage-widening.md](rfc-swarm-coverage-widening.md) | Language-team triage of the 58 excluded clauses; what features could recover them | **Rev 0** — build nothing; LEAN-GA stays parked (recovers zero rows) |
 | [finding-match-nullary-ctor-unsound.md](finding-match-nullary-ctor-unsound.md) | Bare nullary constructor in a match arm parses as a catch-all binder; verifier proves what codegen violates | **FIXED v0.14.66** (MATCH-NULLARY-1); blast radius was zero in-tree; unblocked the RFC-SWARM wave |
-| [finding-fq-ctor-name-collision.md](finding-fq-ctor-name-collision.md) | Binder named like a lowercased ADT constructor collides in the `.fq` namespace and crashes the solver | **OPEN — fail-closed crash (v0.14.65)** (FQ-CTOR-COLLIDE-1); shaped a parameter name in the TFTP roots |
+| [finding-fq-ctor-name-collision.md](finding-fq-ctor-name-collision.md) | Binder named like a lowercased ADT constructor collides in the `.fq` namespace and crashes the solver | **FIXED v0.14.67** (FQ-CTOR-COLLIDE-1); failed closed throughout, so no verdict was affected |
 | [leanstral-integration-scope.md](leanstral-integration-scope.md) | Leanstral/Lean-tier scoping: anti-laundering guard, C-property, three-layer LEAN-GA rebuild | **Parked (LEAN-GA)** — demo subset shipped v0.14.8; production rebuild deferred, cited by the roadmap parking lot |
 
 ---

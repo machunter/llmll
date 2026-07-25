@@ -536,7 +536,7 @@ emitFixpointWithCache opts srcFile cache stmts = do
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
   let ctorNames = Set.fromList $ concat
-        [ T.toLower c : [ T.toLower c <> "_" <> T.pack (show i) | i <- [0 .. length flds - 1] ]
+        [ fqCtorSym c : [ fqCtorSym c <> "_" <> T.pack (show i) | i <- [0 .. length flds - 1] ]
         | d <- dataDecs, (c, flds) <- ddCtors d ]
       -- COMP-4 (a): datatype constructors are declared via `data`, not as UF
       -- constants — exclude them from the measure-symbol sweep (else a spurious
@@ -2726,7 +2726,7 @@ exprToPred :: Expr -> Maybe FQPred
 -- all-nullary-enum ctors are int-tag-desugared (desugarCtorValues) before here, so an
 -- uppercase EVar reaching exprToPred is a mixed-sum nullary constructor, not a variable.
 exprToPred (EVar v)
-  | not (T.null v), isUpper (T.head v) = Just (FQApp (T.toLower v) [])
+  | not (T.null v), isUpper (T.head v) = Just (FQApp (fqCtorSym v) [])
   | otherwise                          = Just (FQVar v)
 exprToPred (ELit (LitInt n)) = Just (FQLit n)
 exprToPred (ELit (LitBool True))  = Just FQTrue
@@ -2834,7 +2834,7 @@ exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
 -- into the native FQData constructor term — so a post `result = Rejected reason`
 -- discharges by constructor equality.
 exprToPred (EApp ctor args)
-  | not (T.null ctor), isUpper (T.head ctor) = FQApp (T.toLower ctor) <$> mapM exprToPred args
+  | not (T.null ctor), isUpper (T.head ctor) = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 
 -- | Extract qualifiers from an expression (auto-synthesis from pre/post).
@@ -3053,7 +3053,7 @@ bodyToPredM _ _ _ _ (ELit (LitString s)) =
 -- as the FQData nullary constructor term, mirroring the payload EApp path below.
 bodyToPredM _ _ _ _ (EVar v)
   | not (T.null v), isUpper (T.head v) =
-      return (Just (SimpleVC [] (FQApp (T.toLower v) [])))
+      return (Just (SimpleVC [] (FQApp (fqCtorSym v) [])))
 
 -- Variables: look up renamed name, check sort env
 bodyToPredM env sortEnv _ _ (EVar v) =
@@ -3611,14 +3611,14 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
 -- native FQData constructor term `(ctor args)`. The strict-core gate admits only
 -- admissible-sum constructors, so a ctor reaching a body-faithful VC is declared
 -- (typeSorts real arities); the field name is the selector. The ctor symbol is
--- lowercased to agree with emitCtor's `sanitizeFQId (toLower nm)`.
+-- routed through `fqCtorSym` to agree with emitCtor's declaration symbol.
 bodyToPredM env se cenv sccSet (EApp ctor args)
   | not (T.null ctor), isUpper (T.head ctor) = do
       let tr (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
           tr a        = do mv <- bodyToPredM env se cenv sccSet a
                            return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
       margs <- mapM tr args
-      return $ (\fas -> SimpleVC [] (FQApp (T.toLower ctor) fas)) <$> sequence margs
+      return $ (\fas -> SimpleVC [] (FQApp (fqCtorSym ctor) fas)) <$> sequence margs
 
 -- COMP-4-RESULT: the lowercase Result builtins `ok`/`err` constructed in a body reflect
 -- to the native Result constructor term (the uppercase clause above misses them).

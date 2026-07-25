@@ -1,8 +1,8 @@
 ---
 name: finding-fq-ctor-name-collision
 title: "FQ-CTOR-COLLIDE-1: a binder named like a lowercased ADT constructor crashes the solver"
-status: "OPEN — robustness/DX defect (fail-closed), found 2026-07-25 against v0.14.65"
-severity: "fail-closed crash — never a false SAFE"
+status: "FIXED in v0.14.67; found 2026-07-25 against v0.14.65"
+severity: "fail-closed crash, never a false SAFE — resolved"
 found_by: main-agent, during RFC-SWARM Phase 1 contract authoring
 consumers: [compiler-engineer, user]
 ---
@@ -18,6 +18,12 @@ Unlike [MATCH-NULLARY-1](finding-match-nullary-ctor-unsound.md) this is **not** 
 bug: it fails closed. It is a usability trap, and a sharp one for a fill swarm, because the
 colliding names are exactly the natural ones for protocol code (`denied`, `data`, `error`,
 `ack`) and the error message points nowhere near the cause.
+
+> **RESOLVED in v0.14.67.** User (uppercase-initial) constructors emit through a single new
+> `FixpointIR.fqCtorSym` carrying a reserved `ctor_` prefix; built-in lowercase symbols
+> (`ok`, `err`, `pair2`) stay verbatim. The declaration site and all four translation sites
+> route through that one function. Tests FQCOLL-1..4; 1415 examples, 0 failures. The rest of
+> this document is the analysis as found.
 
 ## Reproduction
 
@@ -99,7 +105,7 @@ Authoring the TFTP root contracts (RFC-SWARM Phase 1). `XferState` has a `Denied
 `refused` with a comment pointing here, which is a workaround in the artifact for a
 compiler defect.
 
-## Recommended fix `[CT]`
+## The fix `[CT]` — shipped v0.14.67
 
 Separate the namespaces at emission. Preferred: qualify the emitted constructor symbol so
 it cannot collide with any source-level identifier — e.g. emit `Denied` as `ctor$denied`
@@ -117,5 +123,6 @@ path as parameters and should be covered by the same test.
 
 ## Regression fixture
 
-`compiler/test/fixtures/fq-ctor-collide/collide.llmll` (must verify SAFE once fixed; today
-it crashes) and `control.llmll` (the non-colliding twin, SAFE today and after).
+`compiler/test/fixtures/fq-ctor-collide/collide.llmll` (verifies SAFE as of v0.14.67; crashed
+before) and `control.llmll` (the non-colliding twin, SAFE before and after). Unit coverage is
+FQCOLL-1..4 in `compiler/test/Spec.hs`, plus FQDATA-1 pinning the emitted symbol shape.

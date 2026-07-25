@@ -27,7 +27,7 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
@@ -7744,12 +7744,53 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "FQDATA-1: a user sum type emits a parseable ADT decl (uppercase type name, | ctor { } form)" $ do
         er <- emitSrc sumSrc
         let fq = erFQText er
-        fq `shouldSatisfy`    T.isInfixOf "data Color 0 = [ | red { } | green { } | blue { }]"
+        -- FQ-CTOR-COLLIDE-1 (v0.14.67): constructor symbols carry the reserved
+        -- `ctor_` prefix so they cannot collide with a binder of the same
+        -- spelling. The TYPE name still preserves source case, because
+        -- fixpoint parses it with an uppercase identifier parser.
+        fq `shouldSatisfy`    T.isInfixOf "data Color 0 = [ | ctor_red { } | ctor_green { } | ctor_blue { }]"
         fq `shouldNotSatisfy` T.isInfixOf "data color"   -- prior lowercased type name
+        fq `shouldNotSatisfy` T.isInfixOf "| red { }"    -- prior unprefixed ctor symbol
 
       it "FQDATA-2: the int companion fn reaches a body-faithful VC alongside the sum decl" $ do
         er <- emitSrc sumSrc
         erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
+      -- FQ-CTOR-COLLIDE-1: constructor symbols and ordinary binders share one
+      -- flat namespace in the .fq. A binder spelled like the lowercasing of any
+      -- in-scope constructor used to take the SAME symbol, and liquid-fixpoint
+      -- failed with a sort error naming a type the function need not mention.
+      -- It failed closed (never a false SAFE), but it cost an agent a retry
+      -- against an unactionable message.
+      it "FQCOLL-1: a binder named like a lowercased constructor keeps its own symbol" $ do
+        er <- emitSrc (T.concat
+          [ "(type S (| Foo unit) (| Bar unit))\n"
+          , "(def f [bar: int] -> int (post (>= result 0)) (if (> bar 0) bar 0))"
+          ])
+        let fq = erFQText er
+        -- the constructor is prefixed; the binder keeps the bare name
+        fq `shouldSatisfy` T.isInfixOf "ctor_bar { }"
+        fq `shouldSatisfy` T.isInfixOf "bind 0 bar"
+        fq `shouldNotSatisfy` T.isInfixOf "| bar { }"
+
+      it "FQCOLL-2: the colliding shape now reaches a body-faithful VC" $ do
+        er <- emitSrc (T.concat
+          [ "(type S (| Foo unit) (| Bar unit))\n"
+          , "(def f [bar: int] -> int (post (>= result 0)) (if (> bar 0) bar 0))"
+          ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
+      it "FQCOLL-3: built-in lowercase ctor symbols (ok/err) are NOT prefixed" $ do
+        -- their declaration and use sites both spell them bare; prefixing only
+        -- the uppercase (user) constructors is what keeps the two in agreement
+        fqCtorSym "ok"    `shouldBe` "ok"
+        fqCtorSym "err"   `shouldBe` "err"
+        fqCtorSym "pair2" `shouldBe` "pair2"
+
+      it "FQCOLL-4: user constructors are prefixed and hyphen-sanitized" $ do
+        fqCtorSym "Denied"    `shouldBe` "ctor_denied"
+        fqCtorSym "DataPkt"   `shouldBe` "ctor_datapkt"
+        fqCtorSym "Not-Ready" `shouldBe` "ctor_not_ready"
 
     -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
     -- (alias-aware emitParamBind) and their predicate folded into the effective

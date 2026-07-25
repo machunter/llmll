@@ -111,11 +111,13 @@ Both were found by authoring against this surface, and both are routed on the ro
    sources and 1526 committed ASTs).
 
 2. **[FQ-CTOR-COLLIDE-1](../../../docs/design/finding-fq-ctor-name-collision.md) shaped a
-   parameter name in this file.** `error-reply` takes `refused: bool` rather than the natural
-   `denied: bool`, because the `.fq` emitter lowercases constructor names and `XferState`'s
-   `Denied` would collide, crashing liquid-fixpoint with a sort error naming a type the
-   function never mentions. This one fails closed, so it costs an agent's retry budget rather
-   than its correctness.
+   parameter name in this file. FIXED in v0.14.67.** `error-reply` takes `refused: bool` rather
+   than the natural `denied: bool`, because when this surface was authored the `.fq` emitter
+   lowercased constructor names and `XferState`'s `Denied` collided, crashing liquid-fixpoint
+   with a sort error naming a type the function never mentions. It failed closed, so it cost an
+   agent's retry budget rather than its correctness. Constructors now emit as `ctor_denied`.
+   **The parameter keeps the name `refused`**: that clause carries `:source`, the surface is
+   frozen, and a cosmetic rename is not a reason to break a freeze declared one day earlier.
 
 ## Model shape, and why the signatures look like this
 

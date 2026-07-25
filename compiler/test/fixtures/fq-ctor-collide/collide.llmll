@@ -5,12 +5,14 @@
 ;; `ca` neither takes nor returns an `S`; merely DECLARING the type is enough,
 ;; because the datatype declaration lands in the same .fq.
 ;;
-;; EXPECTED (v0.14.65, the defect):  liquid-fixpoint crash,
+;; BEFORE v0.14.67 (the defect): liquid-fixpoint crash,
 ;;   "Sort mismatch at argument #1 for function (declare-fun and (Bool Bool) Bool)
 ;;    supplied sort is S"
-;; EXPECTED (once fixed):            SAFE, body-faithful
+;; EXPECTED NOW:                  SAFE, body-faithful.
 ;;
-;; Fails CLOSED: this never yields a false SAFE.
+;; Fixed by emitting user constructors as `ctor_bar` (FixpointIR.fqCtorSym), so the
+;; binder `bar` and the constructor `Bar` no longer share a symbol.
+;; It failed CLOSED throughout: this never yielded a false SAFE.
 (type S (| Foo) (| Bar))
 
 (def-shell ca [bar: bool] -> int
