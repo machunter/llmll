@@ -1,6 +1,5 @@
 ---
 layout: page
-title: Writing a verified slice of TLS, with AI agents doing the typing
 ---
 
 # Writing a verified slice of TLS, with AI agents doing the typing

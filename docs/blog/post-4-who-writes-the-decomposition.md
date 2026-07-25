@@ -19,7 +19,8 @@ was received). With a `bool` result and `<=>`, the contract reads as that one se
 
 ```lisp
 (def-shell admit-byte
-    [computed: int expected: int hs_state: int seq: int last: int claimed: int received: int] -> bool
+    [computed: int expected: int hs_state: int
+     seq: int last: int claimed: int received: int] -> bool
   (post (<=> result (and (and (= computed expected) (= hs_state 2))
                          (and (> seq last) (<= claimed received)))))
   ?admit-byte-body)

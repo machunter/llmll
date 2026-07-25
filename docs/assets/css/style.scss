@@ -1,0 +1,72 @@
+---
+# Front matter (even empty) is required: it is what tells Jekyll to process this
+# file through Sass rather than copy it verbatim.
+---
+
+@import "{{ site.theme }}";
+
+// ---------------------------------------------------------------------------
+// Why these overrides exist
+//
+// The posts are technical prose carrying wide code blocks: annotated C for
+// goto-fail and Heartbleed, LLMLL contracts, and verbatim compiler output. The
+// longest lines run to ~105 characters. minima's 800px column fits about 80 at
+// its default code size, so the blocks overflowed and cut off exactly the
+// trailing comments that carry the explanation ("<- unconditional. always
+// taken.", "<- the actual signature check"). A reader saw the code and not the
+// point being made about it.
+//
+// The fix is split between here and the posts themselves: the worst lines were
+// reflowed in the markdown so they read on a phone too, and the column and code
+// size below are set so the remainder fit without a scrollbar.
+// ---------------------------------------------------------------------------
+
+// Wider than minima's 800px, but not so wide that PROSE loses its measure.
+// ~56rem keeps body text near 90 characters, which is still comfortable, while
+// giving code blocks roughly 830px of usable width.
+.wrapper {
+  max-width: 56rem;
+}
+
+// Code sized so ~105 characters fit the column above. Monospace at this size is
+// still comfortably legible; it is the annotated-C blocks that set the budget.
+pre,
+code {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+// Long lines still scroll rather than wrap: wrapping would destroy the column
+// alignment the annotated examples depend on. This is the fallback, not the
+// primary fix.
+pre.highlight,
+div.highlight pre {
+  overflow-x: auto;
+}
+
+// Give the code blocks a calmer background than minima's default lavender, and
+// enough padding that the first character is not against the edge.
+pre.highlight,
+div.highlight {
+  background-color: #f6f8fa;
+  border: 1px solid #e6e9ee;
+  border-radius: 4px;
+}
+
+// Inline code should not compete with body text.
+code.highlighter-rouge {
+  background-color: #f3f4f6;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+// The posts are long; give paragraphs a little more air than minima's default.
+.page-content p {
+  line-height: 1.65;
+}
+
+// minima's footer repeats the site title as a heading. On a five-post series
+// that reads as clutter under the last paragraph.
+.footer-heading {
+  display: none;
+}

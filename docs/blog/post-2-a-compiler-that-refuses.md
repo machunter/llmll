@@ -93,7 +93,8 @@ was, the way the real code returned `err = 0` on every path:
 $ llmll verify finalize-bad.llmll
    body-faithful: finalize
    Running liquid-fixpoint ...
-error: body verification of 'finalize' failed (else-branch does not satisfy postcondition) (constraint #1)
+error: body verification of 'finalize' failed
+       (else-branch does not satisfy postcondition) (constraint #1)
 ```
 
 **Refused** — and the solver names the branch: the `Abort` arm. It found the exact input

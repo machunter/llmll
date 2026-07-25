@@ -14,14 +14,18 @@ server that presented no valid signature — an attacker on the network could im
 any HTTPS site. The cause was one duplicated line:
 
 ```c
-    if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)  goto fail;
-        goto fail;                                    // ← unconditional. always taken.
-    if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)        goto fail;
+    if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+        goto fail;
+        goto fail;        // ← unconditional. always taken.
+    if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)
+        goto fail;
     ...
-    err = sslRawVerify(ctx, ctx->peerPubKey, ...);    // ← the actual signature check — never reached
+    err = sslRawVerify(ctx, ctx->peerPubKey, ...);
+        // ← the actual signature check. never reached.
     ...
 fail:
-    return err;                                       // ← err == 0 from the last hash update ⇒ "success"
+    return err;
+        // ← err == 0, left by the last hash update ⇒ reported as "success"
 ```
 
 The second `goto fail;` is unconditional. Control jumps to `fail:`, skips `sslRawVerify`
@@ -34,9 +38,10 @@ ping by echoing back the payload the peer sent:
 
 ```c
 /* trimmed to the shape that matters */
-memcpy(bp, pl, payload_length);   /* bp: the reply buffer.  pl: the packet we received.
-                                     payload_length: the length the sender CLAIMED —
-                                     never checked against the bytes that actually arrived. */
+/* bp: the reply buffer.  pl: the packet we received.
+   payload_length: the length the sender CLAIMED,
+   never checked against the bytes that actually arrived. */
+memcpy(bp, pl, payload_length);
 ```
 
 `payload_length` is attacker-controlled. Claim 64KB, send one byte, and the reply is that

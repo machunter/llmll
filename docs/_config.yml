@@ -21,7 +21,6 @@ lang: en
 exclude:
   - archive/
   - design/
-  - assets/
   - compiler-team-roadmap.md
   - getting-started.md
   - one-pager.md
