@@ -1,0 +1,18 @@
+{%- comment -%}
+Overrides minima's header.html.
+
+minima's version lists every page in the site as a nav link. `header_pages: []`
+does NOT suppress that: an empty list falls through to minima's "use all pages"
+branch, and `jekyll-titles-from-headings` (a GitHub Pages default plugin) had
+given every post a title to be listed under. The result was a wall of five
+full-sentence post titles across the top of every page.
+
+This site does not need page nav: the home page IS the series index, and the
+posts link to each other in prose. So the header is just the site title linking
+home.
+{%- endcomment -%}
+<header class="site-header" role="banner">
+  <div class="wrapper">
+    <a class="site-title" rel="author" href="{{ "/" | relative_url }}">{{ site.title | escape }}</a>
+  </div>
+</header>

@@ -31,6 +31,9 @@ exclude:
   - llmll-trust-report.schema.json
   - proof-artifact.schema.json
 
+# minima's header is overridden in _includes/header.html, so this key is not
+# what suppresses the page nav. Left documented rather than deleted because an
+# empty list here reads like it should work, and it does not.
 header_pages: []
 
 # The posts carry no YAML front matter, deliberately: adding it would make GitHub
