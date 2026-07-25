@@ -287,8 +287,40 @@ result as verification catching agent error.
 
 ## 4. Tooling index
 
+**The whole procedure is executable.** `scripts/rfc_to_implementation.py` runs stages A-O from
+an RFC URL:
+
+```bash
+scripts/rfc_to_implementation.py \
+  --rfc-url https://www.rfc-editor.org/rfc/rfc1350.txt \
+  --workdir runs/rfc1350 \
+  --agent-cmd 'claude -p "$(cat {prompt})"'
+```
+
+It is agent-agnostic (`--agent-cmd` is any shell command, the same abstraction
+`experiments/minimal-agent/scripts/run_agent.py` uses), resumable (every stage writes its
+artifact and hashes it into `MANIFEST.json`; completed stages are skipped), and it enforces the
+STOPs rather than reporting them. Three properties are worth knowing before relying on it:
+
+- **It separates what it automates from what it delegates.** Stages are `mechanical` (A, E, J,
+  L, and the scoring half of N: deterministic, no model), `agent` (B, C, D, F, G, H, I, K, M, O:
+  a judgment a model makes under a written contract, schema-checked on return), or `gate` (J, L,
+  and the per-fill bar in M). The script makes no judgment it labels mechanical.
+- **Blindness is structural, not requested.** Stage D's two extractors run in directories
+  holding the pinned bytes, the rubric, and nothing else. `--audit-blindness` re-checks after
+  the fact and fails on any unaccounted-for file.
+- **`--self-test` pins the mechanical spine to the first real run.** It replays the committed
+  TFTP Phase 0 data and asserts the exact published figures (Jaccard 0.8655 / 0.725, kappa
+  0.9378, 124 rows, 46 Encoded, 15/15 core, 62/65 carried, RFC-COV-1 green). A green run of the
+  driver therefore means something beyond internal consistency.
+
+Prompts carrying each stage's contract live in `experiments/rfc-swarm/prompts/`. Driver tests:
+`scripts/tests/test_rfc_to_implementation.py`, which drives every STOP into firing on purpose,
+because a gate that never fires is decorative.
+
 | Need | Tool |
 |---|---|
+| the whole pipeline, from a URL | `scripts/rfc_to_implementation.py` |
 | clause coverage cross-check | `scripts/rfc_coverage.py` (RFC-COV-1) |
 | per-conjunct provenance in reports | `llmll verify --trust-report --json` (`pre_sources`/`post_sources`) |
 | per-fill acceptance | `llmll verify --strict-verified-core` |
