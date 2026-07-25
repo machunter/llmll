@@ -1,0 +1,56 @@
+[
+ {
+  "name": "sorcerers-apprentice",
+  "file": "sorcerers-apprentice.ast.json",
+  "rows": "T113",
+  "good_twin": false
+ },
+ {
+  "name": "block-off-by-one",
+  "file": "block-off-by-one.ast.json",
+  "rows": "T033/T063/T045/T011",
+  "good_twin": false
+ },
+ {
+  "name": "ack-block-skew",
+  "file": "ack-block-skew.ast.json",
+  "rows": "T032/T073/T082",
+  "good_twin": false
+ },
+ {
+  "name": "short-block-inverted",
+  "file": "short-block-inverted.ast.json",
+  "rows": "T013/T065/T066/T081",
+  "good_twin": false
+ },
+ {
+  "name": "wrong-tid-terminates",
+  "file": "wrong-tid-terminates.ast.json",
+  "rows": "T022/T047/T048",
+  "good_twin": false
+ },
+ {
+  "name": "error-latch-open",
+  "file": "error-latch-open.ast.json",
+  "rows": "T016/T077",
+  "good_twin": false
+ },
+ {
+  "name": "wrq-ack-block-one",
+  "file": "wrq-ack-block-one.ast.json",
+  "rows": "T034/T074",
+  "good_twin": false
+ },
+ {
+  "name": "tid-range-wrong",
+  "file": "tid-range-wrong.ast.json",
+  "rows": "T027",
+  "good_twin": false
+ },
+ {
+  "name": "good-twin-tid-valid",
+  "file": "good-twin-tid-valid.ast.json",
+  "rows": "(correct variant)",
+  "good_twin": true
+ }
+]

@@ -412,7 +412,13 @@ rather than applied silently:
   connection" is a statement about not *driving* a live transfer into termination, and holds
   vacuously once the connection is already `Terminated`.
 
-Phase 2 is the blind concurrent wave. Its gate, MATCH-NULLARY-1
+**Phase 2 is done.** A wave of six concurrent blind agents filled all 23 holes:
+whole tree SAFE and body-faithful under `--strict-verified-core`, `verified: 23`, the clause
+surface byte-identical afterwards, and 8 of 8 mutants refuted against the agents' own bodies
+with the good twin surviving. Results and the claim boundaries:
+[`wave/RESULTS.md`](wave/RESULTS.md).
+
+Its gate, MATCH-NULLARY-1
 ([`../../docs/design/finding-match-nullary-ctor-unsound.md`](../../docs/design/finding-match-nullary-ctor-unsound.md)),
 is cleared: that soundness defect was found while authoring against this scope, returned a
 false SAFE under `--strict-verified-core` (the per-fill acceptance bar), and was fixed in

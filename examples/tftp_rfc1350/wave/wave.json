@@ -1,0 +1,149 @@
+{
+ "fills": [
+  {
+   "hole": "opcode-of",
+   "pointer": "/statements/5/body",
+   "status": "filled",
+   "attempts": 2
+  },
+  {
+   "hole": "data-length-valid",
+   "pointer": "/statements/6/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "error-code-valid",
+   "pointer": "/statements/7/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "request-direction",
+   "pointer": "/statements/8/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "request-next-state",
+   "pointer": "/statements/9/body",
+   "status": "filled",
+   "attempts": 3
+  },
+  {
+   "hole": "request-reply",
+   "pointer": "/statements/10/body",
+   "status": "filled",
+   "attempts": 3
+  },
+  {
+   "hole": "sender-next-block",
+   "pointer": "/statements/11/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "sender-reply",
+   "pointer": "/statements/12/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "sender-next-state",
+   "pointer": "/statements/13/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "receiver-next-state",
+   "pointer": "/statements/14/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "receiver-ack-block",
+   "pointer": "/statements/15/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "step-responds",
+   "pointer": "/statements/16/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "step-reply-kind",
+   "pointer": "/statements/17/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "error-next-state",
+   "pointer": "/statements/18/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "error-reply",
+   "pointer": "/statements/19/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "error-is-terminal",
+   "pointer": "/statements/20/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "illegal-op-reply",
+   "pointer": "/statements/21/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "tid-valid",
+   "pointer": "/statements/22/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "tid-matches",
+   "pointer": "/statements/23/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "wrong-tid-next-state",
+   "pointer": "/statements/24/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "wrong-tid-reply",
+   "pointer": "/statements/25/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "spine-coupled",
+   "pointer": "/statements/26/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "spine-implicit-ack",
+   "pointer": "/statements/27/body",
+   "status": "filled",
+   "attempts": 2
+  }
+ ],
+ "whole_tree": {
+  "file": "roots.ast.json",
+  "safe": true,
+  "body_faithful": true,
+  "returncode": 0,
+  "output": "   .fq written to /tmp/roots.ast.fq\n   body-faithful: opcode-of, data-length-valid, error-code-valid, request-direction, request-next-state, request-reply, sender-next-block, sender-reply, sender-next-state, receiver-next-state, receiver-ack-block, step-responds, step-reply-kind, error-next-state, error-reply, error-is-terminal, illegal-op-reply, tid-valid, tid-matches, wrong-tid-next-state, wrong-tid-reply, spine-coupled, spine-implicit-ack\n   Running liquid-fixpoint ...\n\u2705 /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/b624c7a9-ddd3-42e4-afe4-7140c8b00eac/scratchpad/tftp-wave2/12-wave/roots.ast.json \u2014 SAFE (liquid-fixpoint)\n   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/b624c7a9-ddd3-42e4-afe4-7140c8b00eac/scratchpad/tftp-wave2/12-wave/roots.ast.json.verified.json\n"
+ }
+}

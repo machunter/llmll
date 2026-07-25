@@ -184,7 +184,7 @@ def test_every_shipped_prompt_renders_with_its_documented_placeholders(tmp_path)
         "stage-I-prereg.md": dict(scope="s", barriers="{}"),
         "stage-K-contracts.md": dict(rfc_text="x", encoded="[]", scope="s",
                                      llmll="llmll"),
-        "stage-M-fill.md": dict(brief="b", hole="h", llmll="llmll"),
+        "stage-M-fill.md": dict(brief="b", hole="h", llmll="llmll", errors="none"),
         "stage-N-mutants.md": dict(tree="t", prereg="p"),
         "stage-O-writeup.md": dict(gate="{}", coverage="", kill_matrix="[]",
                                    wave="{}", reconcile="{}"),

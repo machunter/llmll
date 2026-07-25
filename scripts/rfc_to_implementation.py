@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import threading
 import hashlib
 import json
 import os
@@ -255,6 +256,8 @@ class Ctx:
     rfc_url: str
     amend_urls: list[str] = field(default_factory=list)
     wave_agents: int = 4
+    semantic_retries: int = 3
+    protocol_retries: int = 5
     force: bool = False
 
     def d(self, *parts: str) -> Path:
@@ -648,62 +651,226 @@ def stage_L_coverage(ctx: Ctx) -> None:
 def stage_M_wave(ctx: Ctx) -> None:
     """N blind agents fill holes concurrently (playbook stage M).
 
-    Coordination is only through checkout / patch / refine. Retries carry
-    compiler error text only. Per-fill bar: verify SAFE, the filled function
-    body-faithful, not flagged termination_unverified.
+    Coordination is only through checkout / patch. Each agent sees its checkout
+    brief and nothing else: no reference solution, no other agent's attempt, no
+    hint. Everything it knows arrives through the compiler.
 
-    A hole that exhausts its retries is a FINDING, routed to the compiler team
-    or back to the inventory as a scoping error. It is never an occasion for a
-    hint.
+    Two retry budgets, counted separately, because conflating them lets
+    contention eat an agent's error budget:
+
+      semantic  the fill did not verify. The agent is re-invoked with the
+                compiler's error text and nothing else added.
+      protocol  the patch was rejected because another agent moved the file
+                first (compare-and-swap on the brief's source_hash). The SAME
+                body is re-applied against a fresh checkout; no agent call.
+
+    Agents think in parallel; patches serialize, because the CAS is a real
+    mutual-exclusion point on one file and pretending otherwise would just
+    convert conflicts into lost work.
+
+    Per-fill bar: verify SAFE, the filled function body-faithful, not flagged
+    termination_unverified. A hole that exhausts its semantic budget is a
+    FINDING, routed to the compiler team or back to the inventory as a scoping
+    error. It is never an occasion for a hint.
     """
     roots = ctx.workdir / "10-roots" / "roots.llmll"
     wave = ctx.dir("12-wave")
-    target = wave / "tree.llmll"
-    if not target.exists() or ctx.force:
-        shutil.copy2(roots, target)
-    holes = _holes(ctx, target)
+    tree = wave / "roots.ast.json"
+    if not tree.exists() or ctx.force:
+        shutil.copy2(roots, wave / "roots.llmll")
+        p = subprocess.run([ctx.llmll, "build", str(wave / "roots.llmll"),
+                            "--emit", "-o", str(wave)],
+                           capture_output=True, text=True, check=False)
+        require(tree.exists(), f"stage M: could not emit the AST\n{p.stdout}{p.stderr}")
+    holes = _ast_holes(tree)
     require(holes, "stage M: no holes to fill")
     log(f"  {len(holes)} holes, {ctx.wave_agents} concurrent agents")
 
-    def fill(idx_hole: tuple[int, str]) -> dict:
-        i, hole = idx_hole
-        wd = wave / f"agent-{i:02d}"
-        brief = _checkout(ctx, target, hole, wd)
-        try:
-            ctx.agent.run(wd, ctx.prompt("stage-M-fill.md", brief=brief,
-                                         hole=hole, llmll=ctx.llmll),
-                          "body.json", f"fill-{hole}")
-        except StopCondition as e:
-            return {"hole": hole, "status": "agent-failed", "detail": str(e)}
-        return {"hole": hole, "status": "filled"}
+    patch_lock = threading.Lock()
+    results: list[dict] = []
+
+    def fill(item: tuple[int, tuple[str, str]]) -> dict:
+        i, (pointer, fn) = item
+        wd = ctx.dir("12-wave", f"agent-{i:02d}-{fn}")
+        # A PRISTINE scratch copy so the agent can self-check before submitting.
+        # Pristine matters: it is the frozen root surface with every hole still a
+        # hole, so it carries no other agent's body. Handing over the live tree
+        # would let one agent read another's attempt and destroy the blindness
+        # the wave exists to demonstrate. Discovered by running a real agent,
+        # which correctly refused to go looking for a tree it had not been given
+        # and therefore could not verify its own work.
+        shutil.copy2(wave / "roots.llmll", wd / "scratch.llmll")
+        errors = ""
+        for attempt in range(1, ctx.semantic_retries + 1):
+            brief = _checkout(ctx, tree, pointer, wd)
+            if brief is None:
+                return {"hole": fn, "pointer": pointer, "status": "checkout-failed"}
+            try:
+                ctx.agent.run(wd, ctx.prompt("stage-M-fill.md", brief=json.dumps(brief, indent=1),
+                                             hole=fn, llmll=ctx.llmll,
+                                             errors=errors or "(first attempt)"),
+                              "body.json", f"fill-{fn}#{attempt}")
+            except StopCondition as e:
+                errors = str(e)
+                _release(ctx, tree, brief["token"])
+                continue
+            body = read_json(wd / "body.json")
+            ok, err = _apply(ctx, tree, brief, body, patch_lock, wd)
+            if not ok:
+                errors = err
+                continue
+            v = _verify_fn(ctx, tree, fn)
+            if v["ok"]:
+                log(f"  fill {fn}: accepted (attempt {attempt})")
+                return {"hole": fn, "pointer": pointer, "status": "filled",
+                        "attempts": attempt}
+            # a wrong body never stays in the tree: put the hole back so the next
+            # attempt starts clean and no sibling reads a rejected fill
+            errors = v["detail"]
+            _revert(tree, pointer, brief["hole_node"], patch_lock)
+            _release(ctx, tree, brief["token"])
+        return {"hole": fn, "pointer": pointer, "status": "finding",
+                "attempts": ctx.semantic_retries, "last_error": errors[-1500:]}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=ctx.wave_agents) as ex:
         results = list(ex.map(fill, enumerate(holes)))
-    v = _verify(ctx, target, strict=True)
+
+    v = _verify(ctx, tree, strict=True)
     write_json(wave / "wave.json", {"fills": results, "whole_tree": v})
-    log(f"  whole tree: {'SAFE' if v['safe'] else 'NOT SAFE'}")
-    unfilled = [r["hole"] for r in results if r["status"] != "filled"]
-    if unfilled:
-        log(f"  FINDINGS (holes that exhausted retries, routed not hinted): {unfilled}")
+    filled = [r for r in results if r["status"] == "filled"]
+    findings = [r for r in results if r["status"] != "filled"]
+    log(f"  filled {len(filled)}/{len(holes)}; whole tree: "
+        f"{'SAFE' if v['safe'] else 'NOT SAFE'}")
+    if findings:
+        log("  FINDINGS (exhausted budget; routed, never hinted): "
+            + ", ".join(r["hole"] for r in findings))
 
 
-def _holes(ctx: Ctx, f: Path) -> list[str]:
-    p = subprocess.run([ctx.llmll, "check", str(f), "--json"],
+def _ast_holes(tree: Path) -> list[tuple[str, str]]:
+    """Every hole body in the AST, as (RFC-6901 pointer, function name)."""
+    doc = read_json(tree)
+    out = []
+    for i, st in enumerate(doc.get("statements", [])):
+        body = st.get("body")
+        if isinstance(body, dict) and str(body.get("kind", "")).startswith("hole"):
+            out.append((f"/statements/{i}/body", st.get("name", f"stmt{i}")))
+    return out
+
+
+def _checkout(ctx: Ctx, tree: Path, pointer: str, wd: Path) -> dict | None:
+    p = subprocess.run([ctx.llmll, "checkout", str(tree), pointer],
                        capture_output=True, text=True, check=False)
     try:
-        doc = json.loads(p.stdout)
+        brief = json.loads(p.stdout)
     except json.JSONDecodeError:
-        return re.findall(r"\?([a-zA-Z][\w-]*)", f.read_text(encoding="utf-8"))
-    return [h.get("name") for h in doc.get("holes", []) if h.get("name")]
-
-
-def _checkout(ctx: Ctx, f: Path, hole: str, wd: Path) -> str:
-    wd.mkdir(parents=True, exist_ok=True)
-    p = subprocess.run([ctx.llmll, "checkout", str(f), hole],
-                       capture_output=True, text=True, check=False)
-    brief = p.stdout or p.stderr
-    (wd / "BRIEF.md").write_text(brief, encoding="utf-8")
+        (wd / "checkout.err").write_text(p.stdout + p.stderr, encoding="utf-8")
+        return None
+    # keep the hole node so the patch can assert it (CAS) and so a failed fill
+    # can be reverted without guessing what was there
+    doc = read_json(tree)
+    node = doc
+    for seg in pointer.strip("/").split("/"):
+        node = node[int(seg)] if seg.isdigit() else node[seg]
+    brief["hole_node"] = node
+    (wd / "BRIEF.json").write_text(json.dumps(brief, indent=1), encoding="utf-8")
     return brief
+
+
+def _release(ctx: Ctx, tree: Path, token: str) -> None:
+    """Give the checkout lock back. Skipping this is what turns a recoverable
+    stale-context rejection into a permanently wedged hole."""
+    subprocess.run([ctx.llmll, "checkout", str(tree), "--release", token],
+                   capture_output=True, text=True, check=False)
+
+
+def _apply(ctx: Ctx, tree: Path, brief: dict, body: Any,
+           lock: "threading.Lock", wd: Path) -> tuple[bool, str]:
+    """Submit the agent's body, atomically, against a FRESH checkout.
+
+    The compare-and-swap is per-FILE, not per-hole: `patch` rejects any request
+    whose brief predates the current source (`PatchAuthError: obligation context
+    is stale`). With N agents on one tree, the first patch to land therefore
+    invalidates every other outstanding brief, however different the holes are.
+    Measured, not assumed: two holes checked out concurrently, first patch
+    PatchSuccess, second PatchAuthError.
+
+    So submission does not reuse the brief the agent worked from. Under the lock
+    it releases that token, takes a fresh checkout of the same pointer, and
+    builds the patch from the fresh token and the CURRENT hole node. The body is
+    unaffected, because it was authored against the contract, which does not
+    change when a sibling hole is filled. No agent call is involved, which is
+    why these retries are budgeted separately from semantic ones.
+    """
+    err = ""
+    for _ in range(ctx.protocol_retries):
+        with lock:
+            _release(ctx, tree, brief["token"])
+            fresh = _checkout(ctx, tree, brief["pointer"], wd)
+            if fresh is None:
+                return False, "could not re-checkout for submission"
+            brief = fresh
+            req = {"token": brief["token"],
+                   "patch": [{"op": "test", "path": brief["pointer"],
+                              "value": brief["hole_node"]},
+                             {"op": "replace", "path": brief["pointer"],
+                              "value": body}]}
+            rp = wd / "patch-request.json"
+            write_json(rp, req)
+            p = subprocess.run([ctx.llmll, "patch", str(tree), str(rp)],
+                               capture_output=True, text=True, check=False)
+            if p.returncode == 0:
+                return True, ""
+            err = (p.stdout + p.stderr)[-2000:]
+            # `patch` also runs the verifier, so a rejection here is usually the
+            # fill being wrong rather than a race. Only a stale context is worth
+            # retrying without re-consulting the agent.
+            if "stale" not in err and "PatchAuthError" not in err:
+                return False, err
+    return False, err
+
+
+def _revert(tree: Path, pointer: str, hole_node: Any, lock: "threading.Lock") -> None:
+    """Put the hole back after a rejected fill, so the next attempt starts clean
+    and a failed hole never leaves a wrong body in the tree."""
+    with lock:
+        doc = read_json(tree)
+        node = doc
+        segs = pointer.strip("/").split("/")
+        for seg in segs[:-1]:
+            node = node[int(seg)] if seg.isdigit() else node[seg]
+        last = segs[-1]
+        node[int(last) if last.isdigit() else last] = hole_node
+        write_json(tree, doc)
+
+
+def _verify_fn(ctx: Ctx, tree: Path, fn: str) -> dict:
+    """The per-fill bar, evaluated for THIS function only.
+
+    Deliberately NOT `--strict-verified-core`: that flag hard-errors when ANY
+    function in the module falls back, and during a wave every hole not yet
+    filled falls back by construction. Gating a fill on it would reject a
+    correct body because its siblings are unfinished (the strict-sibling wall)
+    and would make the whole wave order-dependent.
+
+    So the bar is read per function: the module must not be refuted, and THIS
+    function must appear in the body-faithful set. The whole-tree
+    `--strict-verified-core` check still runs once at the end of the wave, when
+    every hole is filled and it means what it says.
+    """
+    p = subprocess.run([ctx.llmll, "verify", str(tree)],
+                       capture_output=True, text=True, check=False)
+    out = p.stdout + p.stderr
+    safe = "SAFE" in out
+    refuted = f"body verification of '{fn}'" in out or "refuted" in out.lower()
+    faithful = fn in _faithful(out)
+    ok = safe and faithful and not refuted
+    return {"ok": ok, "safe": safe, "body_faithful": faithful, "refuted": refuted,
+            "detail": out[-3000:]}
+
+
+def _faithful(out: str) -> set[str]:
+    m = re.search(r"body-faithful:\s*(.+)", out)
+    return {s.strip() for s in m.group(1).split(",")} if m else set()
 
 
 def stage_N_killmatrix(ctx: Ctx) -> None:
@@ -719,7 +886,7 @@ def stage_N_killmatrix(ctx: Ctx) -> None:
     that the contract says what the RFC says.
     """
     wd = ctx.dir("13-kill-matrix")
-    tree = ctx.workdir / "12-wave" / "tree.llmll"
+    tree = ctx.workdir / "12-wave" / "roots.ast.json"
     out = ctx.agent.run(wd, ctx.prompt("stage-N-mutants.md",
                                        tree=tree.read_text(encoding="utf-8"),
                                        prereg=(ctx.workdir / "08-prereg"
@@ -937,6 +1104,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="shell command template; {prompt} {out} {workdir} expand")
     ap.add_argument("--llmll-cmd", default=os.environ.get("LLMLL_CMD", "llmll"))
     ap.add_argument("--wave-agents", type=int, default=4)
+    ap.add_argument("--semantic-retries", type=int, default=3,
+                    help="per-hole retries after a failed verify (agent re-invoked)")
+    ap.add_argument("--protocol-retries", type=int, default=5,
+                    help="per-hole retries after a patch CAS conflict (no agent call); "
+                         "budgeted separately so contention cannot eat the error budget")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--only", help="run only these stages, e.g. A,B,D")
     ap.add_argument("--from", dest="from_stage", help="start at this stage")
@@ -969,7 +1141,9 @@ def main(argv: list[str] | None = None) -> int:
     ctx = Ctx(workdir=a.workdir.resolve(),
               agent=AgentRunner(a.agent_cmd, a.timeout, a.llmll_cmd),
               llmll=a.llmll_cmd, rfc_url=a.rfc_url,
-              amend_urls=a.amend_url, wave_agents=a.wave_agents, force=a.force)
+              amend_urls=a.amend_url, wave_agents=a.wave_agents,
+              semantic_retries=a.semantic_retries,
+              protocol_retries=a.protocol_retries, force=a.force)
     ctx.workdir.mkdir(parents=True, exist_ok=True)
     manifest_path = ctx.workdir / "MANIFEST.json"
     manifest = read_json(manifest_path) if manifest_path.exists() else {"stages": {}}

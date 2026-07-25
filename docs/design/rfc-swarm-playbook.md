@@ -240,6 +240,39 @@ N ≥ 4 concurrent blind agents on one module tree, coordinating only through ch
 refine. Retries carry compiler error text only, capped, with protocol-level conflict retries
 budgeted separately so concurrency cannot consume an agent's error budget.
 
+**The advisory lock is per-hole; the compare-and-swap is per-FILE.** Measured on the first real
+wave, not assumed: checkout tokens are keyed by JSON pointer, so N agents genuinely hold N
+different holes at once, but `patch` validates against a whole-source hash and rejects anything
+older than the current file (`PatchAuthError: obligation context is stale`). Two holes checked
+out concurrently, first patch `PatchSuccess`, second `PatchAuthError`. So **the first patch to
+land invalidates every other outstanding brief**, however unrelated the holes.
+
+The consequence for the harness is specific: agents may think in parallel, but a submission must
+not reuse the brief the agent worked from. On submission, under a lock, **release the token,
+re-checkout the same pointer, and rebuild the patch from the fresh token and the current hole
+node**. The body is unaffected, because it was authored against the contract, which does not
+change when a sibling is filled. That costs no model call, which is exactly why these retries
+are budgeted apart from semantic ones.
+
+Two harness failure modes worth stating, because both silently manufacture fake findings:
+
+- **Never re-checkout without releasing.** A stale-context rejection followed by a bare
+  re-checkout returns `hole ... is already checked out` forever, and the hole is wedged. On the
+  first run this turned 14 correct fills into "findings"; one of them had already produced
+  `(+ acked 1)`, which is right.
+- **Do not gate a single fill on `--strict-verified-core`.** That flag hard-errors when *any*
+  function in the module falls back, and during a wave every unfilled hole falls back by
+  construction, so it rejects a correct body for its siblings being unfinished and makes the
+  bar order-dependent. Read the per-fill bar per function; keep the whole-tree strict check for
+  the end, when it means what it says.
+
+Give each agent a **pristine** scratch copy of the module (every hole still a hole) so it can
+verify its own candidate before submitting. Pristine is the operative word: handing over the
+live tree would let one agent read another's attempt and destroy the blindness the wave exists
+to demonstrate. Without a scratch copy an agent cannot self-check at all, and a real one said
+so and declined to go looking for the tree, which is the correct behaviour and also wasted
+attempts.
+
 Per-fill bar: verify SAFE, the filled function in the body-faithful set, not flagged
 `termination_unverified`.
 
