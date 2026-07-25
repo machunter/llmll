@@ -1,0 +1,376 @@
+;; ===========================================================================
+;; TFTP (RFC 1350 + RFC 1123 4.2.3.1) - ROOT CONTRACTS
+;; ===========================================================================
+;; Phase 1 of the RFC-SWARM track (docs/design/rfc-swarm-playbook.md stage K).
+;; ROOT CONTRACTS ONLY: every body is a hole. No reference solution exists in
+;; this tree - the probe bodies of Phase 0 were deliberately not committed
+;; (playbook stage H), and these are the functions the swarm is meant to invent.
+;;
+;; One contract clause per `Encoded` row of examples/tftp_rfc1350/
+;; VERIFICATION_SCOPE.md section 7, each carrying its own `:source` opened by the
+;; bracketed row tag (per-conjunct provenance, SRC-CONJ-1, v0.14.65). The
+;; inventory and these citations are cross-checked in both directions by
+;; scripts/rfc_coverage.py (RFC-COV-1): 46 Encoded rows, 46 cited clauses.
+;;
+;; ---------------------------------------------------------------------------
+;; MODEL SHAPE, and why the signatures look like this
+;; ---------------------------------------------------------------------------
+;; Inputs are nullary enum tags plus int scalars; outputs are constructed,
+;; payload-bearing packets. That is the shape the Phase 0 feasibility probes
+;; verified body-faithfully under `--strict-verified-core`.
+;;
+;; The decoded opcode travels as the nullary `PacketKind` tag rather than as a
+;; payload-bearing packet parameter, because in v0.14.65 a `match` ON a
+;; payload-bearing ADT parameter falls back from body-faithful verification,
+;; while CONSTRUCTING one does not. Block numbers therefore travel as ints
+;; beside the tag. This is a fragment-shape constraint, not a modeling choice:
+;; it keeps every root inside the tier its inventory class requires.
+;;
+;; Wire bytes stay outside the boundary (VERIFICATION_SCOPE.md section 8): the
+;; core operates on decoded packets, and NUL-terminated filename/mode fields
+;; stay in the decoder. `Mode` is accordingly a decoded enum, not a string.
+;;
+;; BLOCK NUMBERS CARRY NO ORDER (VERIFICATION_SCOPE.md section 8). RFC 1350
+;; defines no ordering and no rollover on block numbers, so these contracts
+;; reason by equality, disequality, and successor only. No clause below
+;; compares two block numbers with `<` or `>`.
+;; ===========================================================================
+
+;; ---------------------------------------------------------------------------
+;; Types
+;; ---------------------------------------------------------------------------
+
+;; The transfer's two complementary roles (T120): one endpoint sends DATA and
+;; receives ACKs, the other sends ACKs and receives DATA.
+(type Role
+  (| DataSender)
+  (| AckSender))
+
+;; Connection state. `Terminated` is the absorbing error latch (T016);
+;; `Denied` is the post-state of a request answered with ERROR (T035).
+(type XferState
+  (| Idle)
+  (| Transferring)
+  (| Terminating)
+  (| Completed)
+  (| Denied)
+  (| Terminated))
+
+;; The decoded opcode tag. Nullary by construction so that a step function may
+;; discriminate on it inside the body-faithful fragment.
+(type PacketKind
+  (| KRRQ)
+  (| KWRQ)
+  (| KDATA)
+  (| KACK)
+  (| KERROR))
+
+;; The decoded transfer mode (T054 model). The NUL-terminated wire field and its
+;; case-insensitive comparison stay in the decoder.
+(type Mode
+  (| Netascii)
+  (| Octet)
+  (| Mail))
+
+;; Emitted packets, constructed. `DataPkt`/`AckPkt` carry a block number and
+;; `ErrPkt` an error code; the 512-byte payload buffer travels beside the packet
+;; as bytes[512] + len (T061/T094 model), because a constructor payload must be
+;; an admissible scalar. `NoPacket` is the "emits nothing" outcome, which the
+;; duplicate-ACK rule (T113) requires as a real value.
+(type Packet
+  (| RRQ)
+  (| WRQ)
+  (| DataPkt int)
+  (| AckPkt int)
+  (| ErrPkt int)
+  (| NoPacket))
+
+;; ---------------------------------------------------------------------------
+;; Packet format and opcodes
+;; ---------------------------------------------------------------------------
+
+;; The opcode of a decoded packet. Total over the five packet types.
+(def-shell opcode-of [k: PacketKind] -> int
+  (post (and (=> (= k KRRQ) (= result 1))
+        (and (=> (= k KWRQ) (= result 2))
+        (and (=> (= k KDATA) (= result 3))
+        (and (=> (= k KACK) (= result 4))
+             (=> (= k KERROR) (= result 5))))))
+    :source "[T049] RFC 1350 lines 263-271 - exactly five packet types exist, with opcodes 1=RRQ, 2=WRQ, 3=DATA, 4=ACK, 5=ERROR")
+  (post (and (>= result 1) (<= result 5))
+    :source "[T050] RFC 1350 lines 273-274 - each packet's TFTP header carries the opcode of that packet's own type, so the function is total over the packet ADT and returns nothing outside the defined table")
+  (post (=> (= k KDATA) (= result 3))
+    :source "[T062] RFC 1350 lines 356-357 - DATA uses opcode 3 and carries a block number field and a data field")
+  (post (=> (= k KACK) (= result 4))
+    :source "[T072] RFC 1350 lines 381-382 - ACK packets use opcode 4")
+  ?impl)
+
+;; The DATA data field is a fixed 512-byte buffer plus a length. Only the length
+;; is proved; the content is opaque.
+(def-shell data-length-valid [buf: bytes[512] len: int] -> bool
+  (post (= result (and (>= len 0) (<= len 512)))
+    :source "[T064] RFC 1350 line 361 - the DATA data field length is between 0 and 512 bytes inclusive")
+  ?impl)
+
+;; The ErrorCode field is drawn from the defined table (RFC 1350 lines 515-522):
+;; codes 0 through 7, and nothing else.
+(def-shell error-code-valid [code: int] -> bool
+  (post (= result (and (>= code 0) (<= code 7)))
+    :source "[T078] RFC 1350 lines 409-410 - the ErrorCode field is an integer selected from the defined error-code table, so no other value is emitted")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Connection establishment
+;; ---------------------------------------------------------------------------
+
+;; Which of the two complementary roles the responding endpoint takes. A read
+;; request makes it the DATA sender; a write request makes it the ACK sender.
+(def-shell request-direction [k: PacketKind] -> Role
+  (pre (or (= k KRRQ) (= k KWRQ))
+    :source "[T030] RFC 1350 lines 184-186 - a client establishes a transfer by sending WRQ to write to the remote file system or RRQ to read from it")
+  (post (and (=> (= k KRRQ) (= result DataSender))
+             (=> (= k KWRQ) (= result AckSender)))
+    :source "[T030] RFC 1350 lines 184-186 - the request constructor fixes the transfer direction in the post-state")
+  ?impl)
+
+;; The post-state of a connection request. A granted request in `Octet` mode
+;; enters the transfer; a refused one is `Denied`; nothing else leaves `Idle`.
+(def-shell request-next-state [st: XferState k: PacketKind m: Mode granted: bool] -> XferState
+  (post (=> (and (= st Idle) (not (or (= k KRRQ) (= k KWRQ)))) (not (= result Transferring)))
+    :source "[T009] RFC 1350 lines 89-90 - every transfer is initiated by an RRQ or WRQ, which simultaneously requests the connection, so from Idle no other packet yields a connected state")
+  (post (=> (and (= st Idle) (and (or (= k KRRQ) (= k KWRQ)) (and granted (= m Octet))))
+            (= result Transferring))
+    :source "[T010] RFC 1350 lines 90-92 - on granting a request the server opens the connection and the file is transferred in fixed-length 512-byte blocks")
+  (post (=> (and (= st Idle) (and (or (= k KRRQ) (= k KWRQ)) (not granted)))
+            (= result Denied))
+    :source "[T035] RFC 1350 lines 194-195 - an ERROR packet in reply to a request means the request was denied, so the post-state is Denied rather than a transfer state")
+  (post (=> (and (= st Idle) (and (or (= k KRRQ) (= k KWRQ)) (and granted (= m Octet))))
+            (not (= result Denied)))
+    :source "[T118] RFC 1123 line 196 - an implementation MUST support the octet transfer mode, so a granted octet-mode request is not refused")
+  ?impl)
+
+;; The positive reply to a connection request.
+(def-shell request-reply [k: PacketKind granted: bool] -> Packet
+  (pre (or (= k KRRQ) (= k KWRQ))
+    :source "[T031] RFC 1350 lines 186-187 - the reply step is defined on a request packet")
+  (post (and (=> (and granted (= k KWRQ)) (= result (AckPkt 0)))
+             (=> (and granted (= k KRRQ)) (= result (DataPkt 1))))
+    :source "[T031] RFC 1350 lines 186-187 - the positive reply is an ACK for a write request and the first DATA packet for a read request")
+  (post (=> (and granted (= k KWRQ)) (= result (AckPkt 0)))
+    :source "[T034] RFC 1350 lines 190-192 - the ACK that positively answers a WRQ carries block number zero")
+  (post (=> (and granted (= k KWRQ)) (= result (AckPkt 0)))
+    :source "[T074] RFC 1350 lines 384-385 - the ACK answering a WRQ carries block number zero")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; The DATA sender
+;; ---------------------------------------------------------------------------
+
+;; The block number of the next DATA packet, given the last block acknowledged.
+;; The WRQ handshake acknowledges block 0, so the first DATA carries block 1.
+(def-shell sender-next-block [acked: int] -> int
+  (pre (>= acked 0)
+    :source "[T033] RFC 1350 lines 188-190 - block numbers are drawn from the acknowledged-block sequence, which begins at zero for the WRQ handshake")
+  (post (= result (+ acked 1))
+    :source "[T033] RFC 1350 lines 188-190 - DATA block numbers start at one and are consecutive")
+  (post (= result (+ acked 1))
+    :source "[T063] RFC 1350 lines 357-359 - DATA block numbers start at one and increment by one per new block")
+  (post (=> (= acked 0) (= result 1))
+    :source "[T045] RFC 1350 lines 237-238 - after the WRQ/ACK exchange the writer sends its first DATA packet with block number 1")
+  (post (not (= result acked))
+    :source "[T011] RFC 1350 lines 92-93 - a DATA packet carries exactly one block of data, so the step advances the block index by exactly one")
+  ?impl)
+
+;; The DATA sender's response to an incoming ACK. Lock-step: the next DATA is
+;; emitted only when the ACK just received is the one for the outstanding block.
+;; A duplicate ACK emits NOTHING - this is the RFC 1123 Sorcerer's Apprentice fix
+;; and it overrides RFC 1350's may-retransmit-on-duplicate latitude.
+(def-shell sender-reply [st: XferState acked: int ackblk: int] -> Packet
+  (pre (and (>= acked 0) (>= ackblk 0))
+    :source "[T012] RFC 1350 lines 93-94 - the sender step is defined on the acknowledged-block counters")
+  (post (=> (= result (DataPkt (+ acked 1))) (= ackblk acked))
+    :source "[T012] RFC 1350 lines 93-94 - the sender must receive an ACK for a DATA packet before sending the next DATA packet, so DATA n+1 is emitted only from a state whose last-acked block is n")
+  (post (=> (and (= st Transferring) (not (= ackblk acked))) (= result NoPacket))
+    :source "[T113] RFC 1123 lines 46-60 - the DATA sender MUST never retransmit the current DATA packet in response to a duplicate ACK; this overrides RFC 1350's may-retransmit-on-duplicate rule")
+  ?impl)
+
+;; The DATA sender's post-state on receiving an ACK. The ACK for the final block
+;; completes the transfer.
+(def-shell sender-next-state [st: XferState ackblk: int finalblk: int] -> XferState
+  (pre (and (>= ackblk 0) (>= finalblk 0))
+    :source "[T087] RFC 1350 lines 428-429 - the sender step is defined on the block counters")
+  (post (=> (and (= st Terminating) (= ackblk finalblk)) (= result Completed))
+    :source "[T087] RFC 1350 lines 428-429 - receiving the ACK for the final DATA packet means the transfer completed successfully")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; The DATA receiver
+;; ---------------------------------------------------------------------------
+
+;; The receiver's post-state on a DATA packet, decided entirely by its length.
+;; A full 512-byte block continues the transfer; a short block ends it.
+(def-shell receiver-next-state [st: XferState len: int] -> XferState
+  (pre (and (>= len 0) (<= len 512))
+    :source "[T064] RFC 1350 line 361 - the DATA data field length is between 0 and 512 bytes inclusive")
+  (post (=> (and (= st Transferring) (not (= len 512))) (= result Terminating))
+    :source "[T013] RFC 1350 lines 94-95 - a DATA packet with fewer than 512 data bytes signals the end of the transfer")
+  (post (=> (and (= st Transferring) (= len 512)) (= result Transferring))
+    :source "[T065] RFC 1350 lines 361-362 - a full 512-byte data field means the transfer continues")
+  (post (=> (and (= st Transferring) (and (>= len 0) (<= len 511))) (= result Terminating))
+    :source "[T066] RFC 1350 lines 362-363 - a data field of 0 to 511 bytes signals the end of the transfer")
+  (post (=> (and (= st Transferring) (and (>= len 0) (<= len 511))) (= result Terminating))
+    :source "[T081] RFC 1350 lines 418-419 - a DATA packet with 0 to 511 data bytes marks the end of the transfer")
+  ?impl)
+
+;; The block number the receiver puts in its ACK. It is the block number of the
+;; DATA packet being acknowledged, at every block including the last.
+(def-shell receiver-ack-block [datablk: int] -> int
+  (pre (>= datablk 0)
+    :source "[T032] RFC 1350 lines 187-188 - the ack step is defined on the received block number")
+  (post (= result datablk)
+    :source "[T032] RFC 1350 lines 187-188 - an ACK carries the block number of the DATA packet it acknowledges")
+  (post (= result datablk)
+    :source "[T073] RFC 1350 lines 382-384 - an ACK's block number equals the block number of the DATA packet it acknowledges")
+  (post (= result datablk)
+    :source "[T082] RFC 1350 line 420 - the final DATA packet is acknowledged with an ACK exactly like any other DATA packet, so the terminal block takes the same transition")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Responses and totality
+;; ---------------------------------------------------------------------------
+
+;; Whether the step answers at all. Every packet except a duplicate ACK and a
+;; termination packet is answered. The RFC's timeout escape only WEAKENS this,
+;; so the unconditional obligation is the stronger reading and is what is carried
+;; (VERIFICATION_SCOPE.md section 7, T067).
+(def-shell step-responds [st: XferState k: PacketKind dup: bool] -> bool
+  (post (=> (and (not dup) (and (not (= st Terminated)) (not (= st Completed))))
+            (= result true))
+    :source "[T067] RFC 1350 lines 366-367 - every packet except duplicate ACKs and termination packets is acknowledged, absent a timeout")
+  ?impl)
+
+;; Which packet TYPE answers which. The rows constrain the answering packet's
+;; type, not its payload, so the obligation is stated over the decoded opcode tag
+;; and the answer set is closed: nothing outside it may be emitted.
+(def-shell step-reply-kind [st: XferState k: PacketKind] -> PacketKind
+  (pre (not (= k KERROR))
+    :source "[T077] RFC 1350 lines 407-408 - an ERROR input is handled by the error latch, not by the reply step")
+  (post (=> (or (= k KWRQ) (= k KDATA)) (or (= result KACK) (= result KERROR)))
+    :source "[T069] RFC 1350 lines 369-370 - a WRQ or DATA packet is answered by an ACK or an ERROR packet, and by nothing else")
+  (post (=> (or (= k KRRQ) (= k KACK)) (or (= result KDATA) (= result KERROR)))
+    :source "[T070] RFC 1350 lines 370-381 - an RRQ or ACK packet is answered by a DATA or an ERROR packet, and by nothing else")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Errors and the error latch
+;; ---------------------------------------------------------------------------
+
+;; An ERROR packet terminates the connection from any state, and `Terminated`
+;; absorbs: no transition leaves it.
+(def-shell error-next-state [st: XferState] -> XferState
+  (post (and (= result Terminated) (=> (= st Terminated) (= result Terminated)))
+    :source "[T016] RFC 1350 line 105 - an error terminates the connection except in the one case singled out below (the wrong-source-TID case), and Terminated is absorbing")
+  (post (= result Terminated)
+    :source "[T077] RFC 1350 lines 407-408 - an ERROR packet is an admissible response to any packet type, so the step function is defined on an ERROR input from every state")
+  ?impl)
+
+;; The packet emitted when a request cannot be granted or a fault is detected
+;; mid-transfer.
+;;
+;; NAMING CONSTRAINT (FQ-CTOR-COLLIDE-1, docs/design/finding-fq-ctor-name-collision.md):
+;; the first parameter is `refused`, not the natural `denied`, because the .fq
+;; emitter lowercases ADT constructor names and `XferState`'s `Denied` would then
+;; collide with a `denied` binder in the SMT namespace, crashing liquid-fixpoint.
+(def-shell error-reply [code: int refused: bool fault: bool] -> Packet
+  (pre (and (>= code 0) (<= code 7))
+    :source "[T078] RFC 1350 lines 409-410 - the error code is drawn from the defined table")
+  (post (=> (or refused fault) (= result (ErrPkt code)))
+    :source "[T017] RFC 1350 lines 105-106 - an implementation signals an error by sending an ERROR packet, so the transition's output packet is the ERROR constructor")
+  (post (=> (or refused fault) (= result (ErrPkt code)))
+    :source "[T089] RFC 1350 lines 438-439 - an implementation sends an ERROR packet when a request cannot be granted or an error occurs mid-transfer")
+  ?impl)
+
+;; An ERROR is sent once: it is neither acknowledged nor retransmitted. Because
+;; Terminated is absorbing, no later transition can re-emit it.
+(def-shell error-is-terminal [st: XferState] -> bool
+  (post (= result (= st Terminated))
+    :source "[T018] RFC 1350 lines 106-107 - an ERROR packet is neither acknowledged nor retransmitted, so the transition emits no acknowledgment and lands in the absorbing Terminated state")
+  (post (= result (= st Terminated))
+    :source "[T090] RFC 1350 lines 439-440 - the ERROR packet is sent once: it is neither retransmitted nor acknowledged")
+  ?impl)
+
+;; A packet not admissible in the current state is an illegal TFTP operation.
+(def-shell illegal-op-reply [st: XferState k: PacketKind admissible: bool] -> Packet
+  (post (=> (not admissible) (= result (ErrPkt 4)))
+    :source "[T101] RFC 1350 line 519 - error code 4 is returned for a malformed or illegal TFTP operation, a condition entirely inside the state machine")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Transfer identifiers (the modeled TID pair, Amendment 1)
+;; ---------------------------------------------------------------------------
+
+;; A TID is a 16-bit integer.
+(def-shell tid-valid [t: int] -> bool
+  (post (= result (and (>= t 0) (<= t 65535)))
+    :source "[T027] RFC 1350 line 152 - a TID must be an integer in the range 0 to 65535")
+  ?impl)
+
+;; The source-TID guard: on every received packet the host checks the source TID
+;; against the one agreed at connection setup.
+(def-shell tid-matches [conn: int src: int] -> bool
+  (pre (and (and (>= conn 0) (<= conn 65535)) (and (>= src 0) (<= src 65535)))
+    :source "[T027] RFC 1350 line 152 - both TIDs are drawn from the 0 to 65535 range")
+  (post (= result (= src conn))
+    :source "[T046] RFC 1350 lines 239-241 - on every received packet a host should check that the source TID matches the TID agreed during connection setup")
+  ?impl)
+
+;; The injection-rejection crux. A packet from a source TID that is not the
+;; connection's is discarded: the ongoing transfer state is left EXACTLY as it
+;; was. Accepting it is the vulnerability; terminating on it is a denial of
+;; service. This is the one error that does not terminate the connection.
+(def-shell wrong-tid-next-state [st: XferState conn: int src: int] -> XferState
+  (pre (and (and (>= conn 0) (<= conn 65535)) (and (>= src 0) (<= src 65535)))
+    :source "[T027] RFC 1350 line 152 - both TIDs are drawn from the 0 to 65535 range")
+  (post (=> (and (not (= src conn)) (not (= st Terminated))) (not (= result Terminated)))
+    :source "[T022] RFC 1350 lines 126-127 - an incorrect source port on a received packet is the only error that does not terminate the connection, so a live transfer is not driven into Terminated by one")
+  (post (=> (not (= src conn)) (= result st))
+    :source "[T047] RFC 1350 lines 241-242 - a packet whose source TID does not match the connection must be discarded, yielding no state change and no data output")
+  (post (=> (not (= src conn)) (= result st))
+    :source "[T048] RFC 1350 lines 242-244 - an ERROR packet is sent to the originator of a wrong-TID packet without disturbing the ongoing transfer")
+  ?impl)
+
+;; The ERROR sent to the originator of a wrong-TID packet. Error code 5 is
+;; "unknown transfer ID" (RFC 1350 line 520).
+(def-shell wrong-tid-reply [conn: int src: int] -> Packet
+  (pre (and (and (>= conn 0) (<= conn 65535)) (and (>= src 0) (<= src 65535)))
+    :source "[T027] RFC 1350 line 152 - both TIDs are drawn from the 0 to 65535 range")
+  (post (=> (not (= src conn)) (= result (ErrPkt 5)))
+    :source "[T023] RFC 1350 line 128 - on receiving a packet with an incorrect source port, an ERROR packet is sent to that packet's originator")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; The product-automaton spine
+;; ---------------------------------------------------------------------------
+;; The spine pairs the two complementary roles and carries the coupling
+;; invariant. VERIFICATION_SCOPE.md section 9: the spine proves the invariant is
+;; preserved by EVERY SINGLE STEP. The closure from there to "the invariant holds
+;; on every reachable trace" is a trace induction, outside the decidable
+;; fragment, and is DISCLOSED as a trusted schema - never counted as verified.
+
+;; The coupling invariant on the joint state: the DATA sender's block counter is
+;; either level with the ACK sender's or exactly one ahead of it.
+(def-shell spine-coupled [dblk: int ablk: int] -> bool
+  (pre (and (>= dblk 0) (>= ablk 0))
+    :source "[T120] RFC 1350 lines 101-103 - the joint state pairs the two complementary roles, each carrying a block counter")
+  (post (= result (or (= dblk ablk) (= dblk (+ ablk 1))))
+    :source "[T120] RFC 1350 lines 101-103 - each transfer has two complementary roles, a DATA sender / ACK receiver and an ACK sender / DATA receiver, and the invariant pairing them holds at each step")
+  ?impl)
+
+;; Transmitting DATA n+1 implicitly acknowledges the ACK for block n: the joint
+;; state advances past ACK n.
+(def-shell spine-implicit-ack [dblk: int ablk: int] -> int
+  (pre (and (and (>= dblk 0) (>= ablk 0)) (= dblk (+ ablk 1)))
+    :source "[T068] RFC 1350 lines 367-369 - the implicit acknowledgment is defined on the joint state in which the DATA sender is one block ahead")
+  (post (= result dblk)
+    :source "[T068] RFC 1350 lines 367-369 - transmitting the next DATA packet implicitly acknowledges the first ACK of the previous DATA packet, advancing the joint state past ACK n")
+  ?impl)

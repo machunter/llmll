@@ -391,10 +391,29 @@ prerequisite, and dependent-length lists (Lever B) are not on this path. The pro
 deliberately not committed, because they are working implementations of functions the swarm is
 meant to invent; no reference solution exists in this tree.
 
-## 11. What happens next
+## 11. Phase 1: the clause surface is authored and frozen
 
-Phase 1 authors the root contracts against the `Encoded` rows, one contract clause per inventory
-row, each carrying its `:source` citation (per-conjunct provenance shipped in v0.14.65, so a
-multi-clause contract keeps every citation). The clause-carrying surface is then frozen before
-any fill agent runs, and `RFC-COV-1` mechanically cross-checks this inventory against the
-`:source` strings in both directions.
+**Done.** [`roots/tftp.llmll`](roots/tftp.llmll) carries all 46 `Encoded` rows across 23 root
+contracts, one clause per row, each with its `[Tnnn]`-tagged `:source`. `RFC-COV-1` passes at
+freeze strength (`--roots --require-full-coverage`): 46/46 `Encoded` rows cited, 15/15 core
+rows cited, no citation of an excluded row, provenance confined to the roots. Evidence,
+feasibility, and the 9-of-9 kill matrix: [`roots/FREEZE.md`](roots/FREEZE.md).
+
+Two corrections to this document's own dispositions were made during authoring, recorded
+rather than applied silently:
+
+- **T118's named contract shape was wrong.** Its reason above says the octet-mode obligation
+  is carried "using literal equality only" on a string. Bare `string` equality against a
+  literal falls back from body-faithful verification in v0.14.65, so the row is instead
+  carried as `(= m Octet)` over the decoded `Mode` enum. That agrees with T054's model ("mode
+  is a decoded enum with the `octet` literal pinned"). The row stays `Encoded`; only the
+  named shape changes.
+- **T022's obligation needed a guard.** "The only error that does not terminate the
+  connection" is a statement about not *driving* a live transfer into termination, and holds
+  vacuously once the connection is already `Terminated`.
+
+Phase 2 is the blind concurrent wave. Its gate, MATCH-NULLARY-1
+([`../../docs/design/finding-match-nullary-ctor-unsound.md`](../../docs/design/finding-match-nullary-ctor-unsound.md)),
+is cleared: that soundness defect was found while authoring against this scope, returned a
+false SAFE under `--strict-verified-core` (the per-fill acceptance bar), and was fixed in
+v0.14.66.

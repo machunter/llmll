@@ -1,0 +1,32 @@
+# TFTP root contracts - the clause-carrying surface (RFC-SWARM Phase 1).
+#
+# The provenance monopoly: ONLY these functions may carry a `:source`. Sub-contracts
+# spawned by `refine` during the wave are additive, carry no `:source`, and are
+# governed by the shipped spawn gates (playbook stage L). RFC-COV-1 enforces this
+# with --roots.
+#
+# 23 roots carrying 46 Encoded inventory rows, one clause per row.
+
+opcode-of
+data-length-valid
+error-code-valid
+request-direction
+request-next-state
+request-reply
+sender-next-block
+sender-reply
+sender-next-state
+receiver-next-state
+receiver-ack-block
+step-responds
+step-reply-kind
+error-next-state
+error-reply
+error-is-terminal
+illegal-op-reply
+tid-valid
+tid-matches
+wrong-tid-next-state
+wrong-tid-reply
+spine-coupled
+spine-implicit-ack
