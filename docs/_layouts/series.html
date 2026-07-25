@@ -9,8 +9,11 @@ Previous/next navigation for the series.
 
 The posts are plain pages rather than Jekyll `_posts`, so `page.previous` and
 `page.next` are not available. `_data/series.yml` carries the reading order and
-this walks it, matching on the page's own URL. `forloop.index0` gives the
-position, so the neighbours are just index-1 and index+1.
+this walks it, matching on the page's own URL.
+
+Note the index arithmetic is done with `assign` BEFORE the lookup. Liquid does not
+accept a filter expression inside index brackets, so `posts[idx | minus: 1]` is not
+prev-1: it silently yields nothing, which rendered an empty nav on the first try.
 {%- endcomment -%}
 
 {%- assign posts = site.data.series -%}
@@ -21,24 +24,26 @@ position, so the neighbours are just index-1 and index+1.
 {%- endfor -%}
 
 {%- if idx >= 0 -%}
+{%- assign previdx = idx | minus: 1 -%}
+{%- assign nextidx = idx | plus: 1 -%}
+{%- assign lastidx = posts.size | minus: 1 -%}
 <nav class="series-nav" aria-label="Series navigation">
   <div class="series-nav-prev">
     {%- if idx > 0 -%}
-      {%- assign prev = posts[idx | minus: 1] -%}
+      {%- assign prev = posts[previdx] -%}
       <span class="series-nav-label">Previous</span>
       <a href="{{ prev.url | relative_url }}">{{ prev.title }}</a>
     {%- endif -%}
   </div>
-  <div class="series-nav-up">
-    <a href="{{ "/" | relative_url }}">All five posts</a>
-  </div>
   <div class="series-nav-next">
-    {%- assign last = posts.size | minus: 1 -%}
-    {%- if idx < last -%}
-      {%- assign next = posts[idx | plus: 1] -%}
+    {%- if idx < lastidx -%}
+      {%- assign next = posts[nextidx] -%}
       <span class="series-nav-label">Next</span>
       <a href="{{ next.url | relative_url }}">{{ next.title }}</a>
     {%- endif -%}
+  </div>
+  <div class="series-nav-up">
+    <a href="{{ "/" | relative_url }}">All five posts</a>
   </div>
 </nav>
 {%- endif -%}
