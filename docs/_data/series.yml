@@ -1,0 +1,18 @@
+# The reading order of the series.
+#
+# The posts are ordinary pages, not Jekyll `_posts`, so `page.previous` and
+# `page.next` do not exist for them. This list is the ordering, and
+# _layouts/series.html walks it to render the previous/next links.
+#
+# Adding a post means adding a line here. Nothing else derives the order.
+
+- url: /blog/post-1-the-bugs-that-looked-correct.html
+  title: "Post 1 — The bugs that looked like correct code"
+- url: /blog/post-2-a-compiler-that-refuses.html
+  title: "Post 2 — A compiler that refuses"
+- url: /blog/post-3-composition-and-the-missing-bound.html
+  title: "Post 3 — Composition, and the bound that wasn't there"
+- url: /blog/post-4-who-writes-the-decomposition.html
+  title: "Post 4 — Who writes the decomposition?"
+- url: /blog/post-5-the-payoff.html
+  title: "Post 5 — A channel that stands where TLS fell"

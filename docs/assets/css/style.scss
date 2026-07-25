@@ -28,12 +28,14 @@
   max-width: 56rem;
 }
 
-// Code sized so ~105 characters fit the column above. Monospace at this size is
-// still comfortably legible; it is the annotated-C blocks that set the budget.
+// Code is set smaller than minima's default. Combined with reflowing every block
+// to <= 78 characters, that keeps the widest example inside the column at normal
+// window sizes, so the horizontal scrollbar stops being the common case rather
+// than the exception.
 pre,
 code {
-  font-size: 0.8125rem;
-  line-height: 1.45;
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 // Long lines still scroll rather than wrap: wrapping would destroy the column
@@ -69,4 +71,57 @@ code.highlighter-rouge {
 // that reads as clutter under the last paragraph.
 .footer-heading {
   display: none;
+}
+
+
+// ---------------------------------------------------------------------------
+// Series navigation (rendered by _layouts/series.html)
+//
+// The posts read in order and previously offered no way forward except the
+// prose link buried in the last paragraph.
+// ---------------------------------------------------------------------------
+.series-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e6e9ee;
+  font-size: 0.9rem;
+}
+
+.series-nav-prev,
+.series-nav-next {
+  flex: 1 1 40%;
+  min-width: 12rem;
+}
+
+.series-nav-next {
+  text-align: right;
+}
+
+.series-nav-up {
+  flex: 0 0 auto;
+  order: 3;
+  width: 100%;
+  text-align: center;
+  padding-top: 0.75rem;
+}
+
+.series-nav-label {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  color: #6b7280;
+}
+
+.footer-description {
+  margin-bottom: 0.35rem;
+}
+
+.footer-links {
+  font-size: 0.9rem;
 }

@@ -1,0 +1,44 @@
+---
+layout: default
+---
+
+{{ content }}
+
+{%- comment -%}
+Previous/next navigation for the series.
+
+The posts are plain pages rather than Jekyll `_posts`, so `page.previous` and
+`page.next` are not available. `_data/series.yml` carries the reading order and
+this walks it, matching on the page's own URL. `forloop.index0` gives the
+position, so the neighbours are just index-1 and index+1.
+{%- endcomment -%}
+
+{%- assign posts = site.data.series -%}
+{%- assign here = page.url | remove: site.baseurl -%}
+{%- assign idx = -1 -%}
+{%- for p in posts -%}
+  {%- if p.url == here -%}{%- assign idx = forloop.index0 -%}{%- endif -%}
+{%- endfor -%}
+
+{%- if idx >= 0 -%}
+<nav class="series-nav" aria-label="Series navigation">
+  <div class="series-nav-prev">
+    {%- if idx > 0 -%}
+      {%- assign prev = posts[idx | minus: 1] -%}
+      <span class="series-nav-label">Previous</span>
+      <a href="{{ prev.url | relative_url }}">{{ prev.title }}</a>
+    {%- endif -%}
+  </div>
+  <div class="series-nav-up">
+    <a href="{{ "/" | relative_url }}">All five posts</a>
+  </div>
+  <div class="series-nav-next">
+    {%- assign last = posts.size | minus: 1 -%}
+    {%- if idx < last -%}
+      {%- assign next = posts[idx | plus: 1] -%}
+      <span class="series-nav-label">Next</span>
+      <a href="{{ next.url | relative_url }}">{{ next.title }}</a>
+    {%- endif -%}
+  </div>
+</nav>
+{%- endif -%}

@@ -26,7 +26,8 @@ primitive's precondition:
 
 ```lisp
 (def copy-bytes [src_len: int n: int] -> int
-  (pre  (and (>= n 0) (<= n src_len)))   ;; may copy n bytes only if n ≤ src_len
+  ;; may copy n bytes only if n ≤ src_len
+  (pre  (and (>= n 0) (<= n src_len)))
   (post (= result n))
   n)
 ```
@@ -38,9 +39,10 @@ never return more than arrived:
 ```lisp
 (def-shell heartbeat-response [claimed_len: int received_len: int] -> int
   (pre  (and (>= claimed_len 0) (>= received_len 0)))
-  (post (<= result received_len))                   ;; never echo more than we received
+  ;; never echo more than we received
+  (post (<= result received_len))
   (if (<= claimed_len received_len)
-      (copy-bytes received_len claimed_len)          ;; checked: claimed ≤ received
+      (copy-bytes received_len claimed_len)   ;; checked: claimed ≤ received
       (copy-bytes received_len 0)))
 ```
 
@@ -69,7 +71,8 @@ Now write Heartbleed — copy the claimed length with no check, exactly the CVE:
 $ llmll verify heartbleed-bug.llmll --strict-verified-core
 error: body verification of 'heartbeat-response' failed
        — implementation does not satisfy postcondition (constraint #1)
-error: call-site precondition of 'copy-bytes' not satisfied in 'heartbeat-response'
+error: call-site precondition of 'copy-bytes'
+       not satisfied in 'heartbeat-response'
        — caller does not prove callee's precondition (constraint #2)
 ERROR: --strict-verified-core: refuted: heartbeat-response
 ```
@@ -95,7 +98,7 @@ together:
 ```
 $ llmll verify slice-gate.llmll        # SAFE — all four leaves compose
 $ llmll verify slice-gate-bug.llmll    # gate-mac verifies alone,
-error: body verification of 'deliver-plaintext' failed   # but the composer refuses
+error: body verification of 'deliver-plaintext' failed   # composition refused
 ```
 
 The instructive line is the second one: a version where each *leaf* still verifies on its

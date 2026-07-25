@@ -14,8 +14,10 @@ and a missing body. In LLMLL that is a `def-shell` with a `?body`:
 (type Step    (| Continue) (| Abort int))     ;; a stage's status
 (type Verdict (| Verified) (| Rejected int))  ;; the outcome
 
-(def-shell finalize [sig: Step payload: int] -> Verdict   ;; sig = signature-check status
-  (post (=> (= result Verified) (= sig Continue)))   ;; return Verified ⇒ sig was Continue
+;; sig = the signature-check status
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  ;; return Verified ⇒ sig was Continue
+  (post (=> (= result Verified) (= sig Continue)))
   ?body)
 ```
 
@@ -67,7 +69,8 @@ Say the agent returns the correct body — deliver `Verified` only on the `Conti
 when the hole is filled as such 
 ```lisp
 (def-shell finalize [sig: Step payload: int] -> Verdict
-  (post (=> (= result Verified) (= sig Continue)))   ;; return Verified ⇒ sig was Continue
+  ;; return Verified ⇒ sig was Continue
+  (post (=> (= result Verified) (= sig Continue)))
   (match sig ((Continue) Verified) ((Abort c) (Rejected c))))
 ```
 in the finalize.llmll. We can verify the result
@@ -86,7 +89,8 @@ Now say the agent makes the goto-fail mistake — returns `Verified` no matter w
 was, the way the real code returned `err = 0` on every path:
 
 ```lisp
-(match sig ((Continue) Verified) ((Abort c) Verified))   ;; Abort arm returns Verified too
+;; the Abort arm returns Verified too
+(match sig ((Continue) Verified) ((Abort c) Verified))
 ```
 
 ```

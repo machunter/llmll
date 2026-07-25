@@ -4,15 +4,6 @@
   "B_rows": 125
  },
  "line_coverage": {
-  "RFC1350": {
-   "A_lines": 250,
-   "B_lines": 263,
-   "both": 238,
-   "union": 275,
-   "jaccard": 0.8655,
-   "A_only_lines": 12,
-   "B_only_lines": 25
-  },
   "RFC1123": {
    "A_lines": 31,
    "B_lines": 38,
@@ -21,6 +12,15 @@
    "jaccard": 0.725,
    "A_only_lines": 2,
    "B_only_lines": 9
+  },
+  "RFC1350": {
+   "A_lines": 250,
+   "B_lines": 263,
+   "both": 238,
+   "union": 275,
+   "jaccard": 0.8655,
+   "A_only_lines": 12,
+   "B_only_lines": 25
   }
  },
  "row_matching": {

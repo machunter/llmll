@@ -58,7 +58,7 @@ admit-byte                     deliver iff authenticated ∧ ordered
 │   └── handshake-up           iff hs_state = CONNECTED
 └── ordered                    iff sequence fresh ∧ length sound
     ├── seq-fresh              iff seq > last
-    └── length-sound          iff claimed ≤ received     ← the Heartbleed bound, again
+    └── length-sound       iff claimed ≤ received   ← the Heartbleed bound
 ```
 
 Each function verifies against the contracts of the children below it, and the finished

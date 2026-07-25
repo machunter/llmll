@@ -79,8 +79,21 @@ def main():
     report: dict[str, Any] = {"counts": {"A_rows": len(an), "B_rows": len(bn)}}
 
     # --- line-coverage agreement, per source document ---
+    #
+    # The source set is DERIVED from the extractions, not hardcoded. It used to
+    # read `for src in ("RFC1350", "RFC1123")`, the two documents of the first
+    # run, so every later target silently reported zero lines and a null
+    # Jaccard for sources that were never in the data. That is the statistic
+    # which speaks to the completeness of the denominator, and the whole reason
+    # dual blind extraction exists, so producing an empty one and continuing was
+    # worse than failing. Caught on the second RFC (826), where every figure came
+    # back zero under RFC1350/RFC1123 keys the run had never heard of.
+    sources = sorted({r.get("source") for r in an + bn if r.get("source")})
+    if not sources:
+        raise SystemExit("reconcile: no `source` field on any extracted row; "
+                         "line-coverage cannot be computed")
     cov = {}
-    for src in ("RFC1350", "RFC1123"):
+    for src in sources:
         la, lb = lines_of(an, src), lines_of(bn, src)
         inter, union = la & lb, la | lb
         cov[src] = {

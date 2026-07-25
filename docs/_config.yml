@@ -52,3 +52,10 @@ defaults:
       path: ""
     values:
       layout: default
+  # The posts additionally get previous/next links. They are plain pages, not
+  # Jekyll `_posts`, so the ordering lives in _data/series.yml and the `series`
+  # layout walks it. `series` itself extends `default`.
+  - scope:
+      path: "blog"
+    values:
+      layout: series

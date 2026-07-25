@@ -21,7 +21,8 @@ spine — is [`examples/secure-channel-emergent/`](https://github.com/machunter/
 Then the whole program is verified at once:
 
 ```
-$ llmll verify examples/heartbleed/secure-channel/agent-fill/sc-channel-agentfilled.llmll
+$ llmll verify \
+    examples/heartbleed/secure-channel/agent-fill/sc-channel-agentfilled.llmll
    body-faithful: …
 ✅ … — SAFE (liquid-fixpoint)
 
