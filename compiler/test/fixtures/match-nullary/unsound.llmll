@@ -1,0 +1,18 @@
+;; MATCH-NULLARY-1 regression fixture — see docs/design/finding-match-nullary-ctor-unsound.md
+;;
+;; The bare nullary-constructor arm `(A 1)` parses as a catch-all BINDER named `A`
+;; (AST: {"kind":"bind","name":"A"}), not as the nullary constructor pattern `((A) ...)`.
+;; The verifier reasons about that catch-all reading and proves `result = 1`;
+;; the generated Haskell branches correctly and its own runtime assertion for the
+;; SAME postcondition fires on B.
+;;
+;; EXPECTED (v0.14.65, the defect):  verify --strict-verified-core => SAFE   [WRONG]
+;; EXPECTED (once fixed):            llmll check => hard error naming arm `A`,
+;;                                   "write ((A) ...) for the nullary constructor A"
+;;
+;; This file must NEVER verify SAFE again.
+(type E (| A) (| B) (| C))
+
+(def-shell s1 [x: E] -> int
+  (post (= result 1) :source "[MATCH-NULLARY-1] false under the real semantics: B yields 2")
+  (match x (A 1) (B 2) (C 3)))

@@ -4,6 +4,51 @@
 
 <a id="Latest"></a>
 
+## v0.14.66 — fix: MATCH-NULLARY-1, a bare nullary constructor in a match arm verified unsoundly (2026-07-25)
+
+### Fixed — soundness
+
+- **A nullary constructor written bare in a `match` arm parsed as a catch-all binder, and the
+  verifier proved postconditions the generated program violated.** `(A 1)` rather than the
+  spec's `((A) 1)` (`LLMLL.md` §3.4) fell through `Parser.hs`'s `PVar <$> pIdent` alternative to
+  a *binder* named `A`. The arm silently became a catch-all and every later arm was dead. The
+  verifier reasoned about that reading, while codegen emitted the name verbatim into Haskell,
+  where an uppercase identifier in a pattern **is** a constructor. The two halves therefore
+  disagreed about what the program meant, and the disagreement was reachable as a **false SAFE
+  under `--strict-verified-core`**:
+
+  ```lisp
+  (type E (| A) (| B) (| C))
+  (def-shell s1 [x: E] -> int
+    (post (= result 1))            ;; true under the catch-all misreading, false in fact
+    (match x (A 1) (B 2) (C 3)))   ;; verified SAFE; the built program errors on B
+  ```
+
+  `TypeCheck.checkPatternExpanded` now hard-errors when a match-arm pattern is a bare `PVar`
+  naming a constructor of the scrutinee's type (user sum types and `Result` alike), and the
+  message names the correct form: *"pattern 'A' names a constructor of the scrutinee type
+  (A | B | C), so it binds as a catch-all instead of matching that constructor; write
+  ((A) ...) for the constructor pattern"*. A hard error rather than a silent
+  reinterpretation-as-constructor: `((A) ...)` already exists, and rewriting would change the
+  meaning of a program that previously compiled. A genuine catch-all whose name is not a
+  constructor of the scrutinee type is unaffected.
+
+  Found while authoring the TFTP root contracts (RFC-SWARM Phase 1), whose model is enum-heavy.
+  **Blast radius was zero**: 0 occurrences across 127 in-tree `.llmll` sources and 1526
+  committed JSON-ASTs, so no shipped verified claim was affected — the defect trapped newly
+  written code, which is what a fill swarm produces. Full analysis, reproduction, and the
+  runtime transcript: [`docs/design/finding-match-nullary-ctor-unsound.md`](docs/design/finding-match-nullary-ctor-unsound.md).
+  Fixtures: `compiler/test/fixtures/match-nullary/`. Tests: MN-1..MN-6 (1411 examples, 0 failures).
+
+### Known issue — FQ-CTOR-COLLIDE-1 (open, fail-closed)
+
+- A parameter or `let` binder whose name equals the **lowercasing** of any in-scope ADT
+  constructor collides with it in the emitted `.fq` namespace (`FixpointEmit.hs` applies
+  `T.toLower` to constructor names), and liquid-fixpoint crashes with a sort error naming a type
+  the function need not even mention. This **fails closed** — it is never a false SAFE — and is
+  not fixed in this release. Analysis and recommended fix:
+  [`docs/design/finding-fq-ctor-name-collision.md`](docs/design/finding-fq-ctor-name-collision.md).
+
 ## v0.14.65 — feat: SRC-CONJ-1 per-conjunct `:source` provenance (2026-07-24)
 
 ### Added — multi-clause contract sides keep every clause's citation (JSON-AST 0.9.0)

@@ -1,0 +1,12 @@
+;; FQ-CTOR-COLLIDE-1 control fixture — see docs/design/finding-fq-ctor-name-collision.md
+;;
+;; Identical to collide.llmll except the parameter is `flag` instead of `bar`, so
+;; nothing collides with the lowercased constructor `Bar`. This isolates the name
+;; collision as the whole cause.
+;;
+;; EXPECTED (now and after the fix): SAFE, body-faithful.
+(type S (| Foo) (| Bar))
+
+(def-shell cb [flag: bool] -> int
+  (post (=> flag (= result 1)) :source "[FQ-CTOR-COLLIDE-1] non-colliding control")
+  (if flag 1 0))

@@ -1666,7 +1666,27 @@ checkPattern pat scrutTy = do
 -- | Internal: pattern checking against an already-expanded scrutinee type.
 checkPatternExpanded :: Pattern -> Type -> TC [(Name, Type)]
 checkPatternExpanded PWildcard _ = pure []
-checkPatternExpanded (PVar name) ty = pure [(name, ty)]
+-- MATCH-NULLARY-1 (docs/design/finding-match-nullary-ctor-unsound.md).
+-- A nullary constructor written bare in a match arm — `(Idle 1)` rather than the
+-- spec's `((Idle) 1)` (§3.4) — parses as a BINDER named `Idle` (Parser.hs's
+-- `PVar <$> pIdent` fallthrough), not as a constructor pattern. The arm then
+-- silently becomes a catch-all and every later arm is dead. Codegen emits the
+-- name verbatim, which Haskell reads back as a constructor, so the generated
+-- program branches correctly while the verifier reasons about the catch-all —
+-- and proves postconditions the running code violates (a false SAFE under
+-- --strict-verified-core). Reject it here, where the scrutinee's constructor set
+-- is known, and name the correct form. Hard error, not a rewrite: `((Idle) ...)`
+-- already exists and silently reinterpreting would change a program's meaning.
+checkPatternExpanded (PVar name) ty = do
+  let ctorNames = case ty of
+        TSumType ctorList -> map fst ctorList
+        TResult _ _       -> ["Success", "Error"]
+        _                 -> []
+  when (name `elem` ctorNames) $
+    tcError $ "pattern '" <> name <> "' names a constructor of the scrutinee type ("
+           <> typeLabel ty <> "), so it binds as a catch-all instead of matching that "
+           <> "constructor; write ((" <> name <> ") ...) for the constructor pattern"
+  pure [(name, ty)]
 checkPatternExpanded (PLiteral lit) scrutTy = do
   let litTy = inferLiteral lit
   unless (compatibleWith litTy scrutTy) $

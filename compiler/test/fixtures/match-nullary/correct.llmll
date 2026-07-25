@@ -1,0 +1,13 @@
+;; MATCH-NULLARY-1 control fixture — see docs/design/finding-match-nullary-ctor-unsound.md
+;;
+;; Identical body to unsound.llmll, written with the spec-correct parenthesized
+;; nullary patterns `((A) 1)`. The verifier reads the real semantics and REFUTES
+;; the false postcondition, which is the behavior unsound.llmll must converge to.
+;;
+;; EXPECTED (now and after the fix): body verification of 's2' fails
+;;   (else-branch does not satisfy postcondition) — i.e. refuted, never SAFE.
+(type E (| A) (| B) (| C))
+
+(def-shell s2 [x: E] -> int
+  (post (= result 1) :source "[MATCH-NULLARY-1] false: B yields 2, C yields 3")
+  (match x ((A) 1) ((B) 2) ((C) 3)))

@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.65)
+# LLMLL: Large Language Model Logical Language (v0.14.66)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.65.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.66.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -190,6 +190,8 @@ For unit-payload constructors (discouraged for new code; see "Idiomatic guidance
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
 **Pattern arity.** Each constructor pattern's sub-pattern count must equal the declared arity of the constructor at its declaration site. A constructor declared `(| Red)` has arity 0 and matches with zero sub-patterns. A constructor declared `(| Red unit)` has arity 1 and matches with one sub-pattern (conventionally `_`). A constructor declared `(| Circle float)` has arity 1 and matches with one sub-pattern bound to the payload. Mismatch produces a typechecker warning.
+
+**A constructor pattern is always parenthesized.** A nullary constructor matches as `((Red) …)`, never as `(Red …)`. A bare identifier in pattern position is a **binder**, so `(Red "stop")` would bind a fresh variable named `Red` and match everything, turning the arm into a catch-all and making every later arm dead. Because that reading is almost never what the author meant, and because it previously let the verifier reason about a different program than the one codegen emitted, the typechecker **rejects** a bare pattern variable whose name is a constructor of the scrutinee's type — user sum types and `Result` alike — and names the correct form in the diagnostic. A catch-all binder whose name is *not* a constructor of the scrutinee type (`(other …)`, `(_ …)`) is unaffected.
 
 ```lisp
 (match light

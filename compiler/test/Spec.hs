@@ -13647,6 +13647,68 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       buildSubsumptionFQ aliases (defParts csDef) (defParts nl) `shouldBe` Nothing
 
   -- -----------------------------------------------------------------------
+  -- MATCH-NULLARY-1: a bare nullary constructor in a match arm is a binder,
+  -- not a constructor pattern (docs/design/finding-match-nullary-ctor-unsound.md).
+  -- Before the fix this parsed as a catch-all, killed every later arm, and let
+  -- the verifier prove postconditions the generated code violated — a false SAFE
+  -- under --strict-verified-core.
+  -- -----------------------------------------------------------------------
+  describe "MATCH-NULLARY-1: bare nullary constructor in a match arm" $ do
+    let enumTy   = TSumType [("A", Nothing), ("B", Nothing), ("C", Nothing)]
+        mkMatch arms = SDefShell
+          { defShellName = "s", defShellParams = [("x", TCustom "E")]
+          , defShellReturn = Just TInt
+          , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+          , defShellBody = EMatch (EVar "x") arms, defShellDecreases = [] }
+        withTy stmts = STypeDef "E" enumTy : stmts
+        check stmts  = typeCheck GrammarCoreInversion emptyEnv (withTy stmts)
+
+    it "MN-1 rejects the bare form (A 1), which silently binds a catch-all" $ do
+      let report = check [ mkMatch [ (PVar "A", ELit (LitInt 1))
+                                   , (PConstructor "B" [], ELit (LitInt 2))
+                                   , (PConstructor "C" [], ELit (LitInt 3)) ] ]
+      reportSuccess report `shouldBe` False
+
+    it "MN-2 the error names the offending constructor and the correct form" $ do
+      let report = check [ mkMatch [ (PVar "A", ELit (LitInt 1))
+                                   , (PConstructor "B" [], ELit (LitInt 2))
+                                   , (PConstructor "C" [], ELit (LitInt 3)) ] ]
+          msgs   = map diagMessage (reportDiagnostics report)
+      any (\m -> "'A'" `T.isInfixOf` m && "((A) ...)" `T.isInfixOf` m) msgs
+        `shouldBe` True
+
+    it "MN-3 accepts the parenthesized nullary form ((A) 1)" $ do
+      let report = check [ mkMatch [ (PConstructor "A" [], ELit (LitInt 1))
+                                   , (PConstructor "B" [], ELit (LitInt 2))
+                                   , (PConstructor "C" [], ELit (LitInt 3)) ] ]
+      reportSuccess report `shouldBe` True
+
+    it "MN-4 still accepts a genuine catch-all binder that names no constructor" $ do
+      let report = check [ mkMatch [ (PConstructor "A" [], ELit (LitInt 1))
+                                   , (PVar "other",        ELit (LitInt 0)) ] ]
+      reportSuccess report `shouldBe` True
+
+    it "MN-5 rejects a bare payload-bearing constructor too (arity is not the issue)" $ do
+      let payloadTy = TSumType [("M0", Nothing), ("M1", Just TInt)]
+          report = typeCheck GrammarCoreInversion emptyEnv
+            [ STypeDef "E" payloadTy
+            , mkMatch [ (PVar "M1", ELit (LitInt 1))
+                      , (PConstructor "M0" [], ELit (LitInt 2)) ] ]
+      reportSuccess report `shouldBe` False
+
+    it "MN-6 rejects a bare Result constructor (Success 1)" $ do
+      let report = typeCheck GrammarCoreInversion emptyEnv
+            [ SDefShell { defShellName = "r"
+                        , defShellParams = [("v", TResult TInt TString)]
+                        , defShellReturn = Just TInt
+                        , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+                        , defShellBody = EMatch (EVar "v")
+                            [ (PVar "Success", ELit (LitInt 1))
+                            , (PConstructor "Error" [PWildcard], ELit (LitInt 0)) ]
+                        , defShellDecreases = [] } ]
+      reportSuccess report `shouldBe` False
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec
