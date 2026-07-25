@@ -3,6 +3,8 @@
 > **Status:** Rev 1 — **§4 evaluation EXECUTED** (RFC 1982, 2026-07-12: all six criteria pass — [`examples/rfc1982_serial/`](../../examples/rfc1982_serial/), findings [`experiments/rfc1982-eval/findings.md`](../../experiments/rfc1982-eval/findings.md); outcome appendix below). Rev 1 folds F-1982-3 (C5 width adaptation), F-1982-4 (S4.4 shape-accurate flag floor), F-1982-5 (S1 verbatim source-text input). Rev 0 was the design doc for the roadmap R3 Active row (promoted 2026-06-23; worked-example criterion met by `examples/totp_rfc6238/` + `examples/tcp_rfc793/`).
 > **Owner:** language-team. Consumers: experiment-lead (runs the evaluation plan), compiler-engineer (named gaps only), documentation-lead (INDEX entry, roadmap close-out).
 > **Supersedes nothing.** Generalizes source #1 ("External Standards") of [`specification-sources.md`](specification-sources.md) into a repeatable pipeline; that doc remains the survey, this is the operating procedure for its strongest lane.
+>
+> **Operational companion (2026-07-25):** this doc defines the *stages* (S0-S5) and the clause taxonomy. [`rfc-swarm-playbook.md`](rfc-swarm-playbook.md) is the *executable procedure* derived from the first full run (TFTP, RFC 1350): the order of operations, the decision rules, the gate, and the anti-patterns, written as instructions to an orchestrating agent that builds the specification and then spawns the implementing swarm. Where the two disagree operationally, the playbook is authoritative, having come from an execution rather than a design.
 
 ## Restatement
 
