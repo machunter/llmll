@@ -23,7 +23,8 @@
 | inventory rows | 124 | 91 |
 | Encoded / modeled / vectored / out | 46 / 20 / 5 / 53 | 39 / 3 / 1 / 48 |
 | characteristic core | 15, none out | 19, none out |
-| coverage of C1+C2+C3 | **62/65 = 95.4%** | **42/76 = 55.3%** |
+| coverage of C1+C2+C3, as published | 62/65 = 95.4% | 42/76 = 55.3% |
+| coverage, corrected (see below) | **51/65 = 78.5%** | **42/76 = 55.3%** |
 | gate J | PASS | PASS |
 | RFC-COV-1 at freeze | PASS 46/46, 15/15 | PASS 39/39, 19/19 |
 | feasibility probes | 4/4 | 6/6 |
