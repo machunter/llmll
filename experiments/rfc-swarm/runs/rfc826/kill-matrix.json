@@ -1,0 +1,116 @@
+[
+ {
+  "name": "discard-suppressed",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-multi-owner-target",
+  "good_twin": true,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-optional-checks-omitted",
+  "good_twin": true,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-structural-variant",
+  "good_twin": true,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-tha-arbitrary",
+  "good_twin": true,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-unsolicited-reply-merges",
+  "good_twin": true,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "hln-constant-wrong",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "merge-after-opcode",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "merge-key-substituted",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "old-address-wins",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "op-constant-swap",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "promiscuous-cache",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-broadcast",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-drops-parameters",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-fields-swapped",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-ignores-tpa",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-to-reply",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "tha-sensitive-receive",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "unicast-request",
+  "good_twin": false,
+  "verdict": "refuted",
+  "as_expected": true
+ }
+]

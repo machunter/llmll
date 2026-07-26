@@ -1,0 +1,10 @@
+{
+ "sources": [
+  {
+   "url": "https://www.rfc-editor.org/rfc/rfc826.txt",
+   "file": "rfc826.txt",
+   "sha256": "01bc62fe6a37e90f1246ac43e8e145f1322b4ed1474836145c3da93d2bd3c8a6",
+   "lines": 470
+  }
+ ]
+}

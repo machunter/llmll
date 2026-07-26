@@ -1,0 +1,689 @@
+{
+ "rows": [
+  {
+   "cid": "A1",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The obligation is a precondition on handing a frame to the Ethernet driver. Stage B \u00a74.3 keeps the frame header and the driver interface out of the model, so there is no transmit step for the rule to guard and no state in which a frame goes out without a resolved hardware address."
+  },
+  {
+   "cid": "A2",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Transmission order of multi-byte values is wire encoding. B:X2 puts byte order on the excluded side of the boundary drawn in scope \u00a72, and the transition relation reads a decoded field tuple in which no byte order exists."
+  },
+  {
+   "cid": "A3",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Byte-swapping ar$op on a low-byte-first host is an encoder obligation over the serialized packet. MD7 carries op as an uninterpreted constant, so the model has no bytes to swap and no mutant can get the swap wrong."
+  },
+  {
+   "cid": "A4",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The binding of the name ares_op$REQUEST to the numeral 1 is observable only in the encoded packet. MD7 models the opcode as the uninterpreted constant req, distinct from rep by axiom, so the model carries the distinctness the reception algorithm tests and never carries the numeral."
+  },
+  {
+   "cid": "A5",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "High-byte-first transmission of the opcode is byte order, the same excluded side as A2 and A3 (B:X2)."
+  },
+  {
+   "cid": "A6",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The binding of ares_op$REPLY to the numeral 2 is an encoding fact. The model carries only the constant rep and the axiom req != rep (MD7)."
+  },
+  {
+   "cid": "A7",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The binding of ares_hrd$Ethernet to the numeral 1 is an encoding fact. The model carries the constant eth : HwType (MD7) and nothing that could hold the number."
+  },
+  {
+   "cid": "A8",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The frame destination address is part of the Ethernet transmission header. Scope \u00a74.3 keeps the header out on purpose, so that no result turns on a check RFC 826 does not specify; the reception algorithm at lines 197 to 234 never reads it."
+  },
+  {
+   "cid": "A9",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The frame source address is part of the Ethernet transmission header, excluded by \u00a74.3. This is the field a strengthened protocol would compare against ar$sha, which is exactly the claim \u00a74.3 exists to prevent the ledger from booking."
+  },
+  {
+   "cid": "A10",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The Ethernet type field is the demultiplexing key of the frame header, excluded by \u00a74.3."
+  },
+  {
+   "cid": "A11",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The 16-bit width and the leading position of ar$hrd in the packet data are byte-stream structure (B:X1). The decoded tuple has an hrd component of sort HwType by MD8, but that component exists by assumption A-WF, which scope \u00a72 records as discharged by assumption rather than by proof."
+  },
+  {
+   "cid": "A12",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Width and position of ar$pro in the byte stream are B:X1 structure; only the decoded ProtoType value crosses into the model."
+  },
+  {
+   "cid": "A13",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "Membership of ar$pro in the assigned ether_type$ values is an external registry fact. No tool holds the list, which is why MD7 leaves ProtoType uninterpreted."
+  },
+  {
+   "cid": "A14",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The 8-bit width and position of ar$hln are byte-stream structure (B:X1). The value the field carries on Ethernet is A67, which is encoded."
+  },
+  {
+   "cid": "A15",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The 8-bit width and position of ar$pln are byte-stream structure (B:X1)."
+  },
+  {
+   "cid": "A16",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The 16-bit width and position of ar$op are byte-stream structure (B:X1). The admissible values are A17, which is encoded."
+  },
+  {
+   "cid": "A17",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on the emission relation: every packet a conforming station puts on the network satisfies op = req or op = rep. The sort Op carries no exhaustiveness axiom, so a generation step mutated to havoc op falsifies the clause."
+  },
+  {
+   "cid": "A18",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The position of ar$sha after ar$op is byte-stream structure (B:X1). The presence of a sender hardware address in every packet is A78 and the value it must carry is A37."
+  },
+  {
+   "cid": "A19",
+   "class": "C2",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The width of ar$sha is computed from the value of another field in the same packet. That is arithmetic over lengths applied to a sequence, which scope \u00a72 and \u00a73 place outside the fragment; substituting an order or a successor to recover it is forbidden by \u00a78 rule 4."
+  },
+  {
+   "cid": "A20",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The position of ar$spa after ar$sha is byte-stream structure (B:X1)."
+  },
+  {
+   "cid": "A21",
+   "class": "C2",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The width of ar$spa is derived from the value of ar$pln in the same packet, the same length arithmetic over a sequence as A19."
+  },
+  {
+   "cid": "A22",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The width and position of ar$tha are byte-stream structure (B:X1)."
+  },
+  {
+   "cid": "A23",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "The width and terminal position of ar$tpa are byte-stream structure (B:X1); locating it requires the offset computation named in A89."
+  },
+  {
+   "cid": "A24",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The obligation falls on the layer below to call the resolver. The model exposes the resolve step as an action and leaves its invocation to the environment; the module boundary is not modeled, so no state can hold a driver that failed to consult."
+  },
+  {
+   "cid": "A25",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the resolve step: the table alone decides the branch. The hit branch is parameterized by an address x and requires tbl(h, pt, pa, x); the miss branch requires forall x. not tbl(h, pt, pa, x). No other state may gate the outcome, so a mutant answering from anywhere but the table falsifies one of the two preconditions. Stated with a free witness variable rather than an existential to keep the quantifier-alternation graph acyclic."
+  },
+  {
+   "cid": "A26",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the resolve hit branch: the returned address x satisfies tbl(h, pt, pa, x), and with the functionality axiom of C7 it is the only address stored under that key, so the step cannot return an address it did not read."
+  },
+  {
+   "cid": "A27",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The caller transmitting the waiting frame is the driver side of the interface. There is no payload packet and no frame in the model (\u00a74.3, MD8)."
+  },
+  {
+   "cid": "A28",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The packet being discarded is the caller's outbound payload. The model has no payload and no send queue, so the discard has no expressible effect on any modeled state."
+  },
+  {
+   "cid": "A29",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "A local notification to the caller, with no wire content and no table effect. It lives entirely at the module boundary, which is not modeled."
+  },
+  {
+   "cid": "A30",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the resolve miss branch: precondition forall x. not tbl(h, pt, pa, x); postcondition that a tuple with op = req, pro = pt and tpa = pa is present in the network relation. Emission is tied to the miss guard, so a mutant that returns silently on a miss falsifies the postcondition."
+  },
+  {
+   "cid": "A31",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The Ethernet type field of the generated frame is frame header content, excluded by \u00a74.3."
+  },
+  {
+   "cid": "A32",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Postcondition of the request-generation step: hrd = eth. A step mutated to emit a havoced HwType falsifies the clause, since eth is the only named constant of that sort and the sort is not a singleton."
+  },
+  {
+   "cid": "A33",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Postcondition of the request-generation step: pro equals the protocol type argument of the resolve call that triggered it. The clause links the emitted field to the call, so an emission naming an unrelated ProtoType is caught."
+  },
+  {
+   "cid": "A34",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Postcondition of the Ethernet request-generation step: hln = six (scope C11). The numeral 6 is not modeled; six is the named Len constant of MD7 and the clause fixes which constant the field carries, not what it encodes to."
+  },
+  {
+   "cid": "A35",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Postcondition of the request-generation step: plen(hrd, pro, pln), the universal relation that realizes A-REDUNDANT. It is the generation-side half that C12 proves the receiver's optional pln check against at A50. It holds only under A-REDUNDANT, which is off by default, and it carries no attacker content, since nothing else in the transition relation reads pln."
+  },
+  {
+   "cid": "A36",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the request-generation step: op = req. With the axiom req != rep, a step mutated to emit rep produces a packet that can never reach the reply branch guarded at A58."
+  },
+  {
+   "cid": "A37",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the request-generation step: owns_hw(h, sha) for the emitting host h. Ownership is a relation (S3), so the clause says the emitter owns the address it names and does not assume that address is unique to it; A-UNIQ is not cited."
+  },
+  {
+   "cid": "A38",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the request-generation step: owns_pa(h, pro, spa), with pro the protocol type of the same emission. A mutant emitting a protocol address the host does not own falsifies it, which is the conformance half of C6."
+  },
+  {
+   "cid": "A39",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the request-generation step: tpa equals the protocol-address argument of the resolve call that triggered the emission, the same value the miss guard at A25 was evaluated on."
+  },
+  {
+   "cid": "A40",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded transition relation: the request-generation step takes tha as a universally quantified parameter with no precondition (scope C8, MD8). No clause tests it, because the freedom is the absence of a clause; the receiver-side half, that nothing depends on tha, is carried separately at A82 by C9."
+  },
+  {
+   "cid": "A41",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Same recorded model as A40: tha ranges over all of HwAddr in the generation step, so setting it to any chosen address is admitted. The all-ones broadcast address is a hardware-addressing constant that \u00a74.3 keeps out, and no clause in the model turns on its identity."
+  },
+  {
+   "cid": "A42",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the request-generation step: the emission carries delivery scope broadcast (S1), placing it in the receive set of every station on the link. A step mutated to emit with unicast scope to a chosen HwAddr falsifies the scope conjunct, and that conjunct is what separates R1 from R2."
+  },
+  {
+   "cid": "A43",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "MD2 models a single link, so there is no second piece of hardware to send on and no state can violate the row. MD2 already records that no result may claim cross-link isolation; counting this row would be that claim in another form."
+  },
+  {
+   "cid": "A44",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "The handoff from the Ethernet module to the Address Resolution module is demultiplexing on the frame type field, which \u00a74.3 keeps out."
+  },
+  {
+   "cid": "A45",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded model: the receive transition of scope \u00a71.1, clauses C1 through C3, is the algorithm of lines 203 to 225 step for step. The row has no clause of its own because it is the statement that this transition is the specification; rubric T5 fixes its observable content to rows A46 through A65, which carry the steps, and leaves unobservable internals free."
+  },
+  {
+   "cid": "A46",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the receive step: on each failing guard the post-state satisfies tbl' = tbl at every key and the network relation is unchanged. A mutant that falls through to the merge after a failed hrd, pro or tpa test falsifies this frame condition."
+  },
+  {
+   "cid": "A47",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Guard on the receive step: supports(h, hrd) is a precondition of the processing branch, and its complement is the discard branch of A46."
+  },
+  {
+   "cid": "A48",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the receive step under A-REDUNDANT (scope C12): adding the guard hln = six to the accept branch removes no behavior on packets produced by conforming generation, because A34 puts six there. The permission is carried as this non-rejection lemma. Enforcement against actual byte counts is B:X3 and stays out."
+  },
+  {
+   "cid": "A49",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Guard on the receive step: speaks(h, pro) is a precondition of the processing branch, with the discard branch of A46 as its complement."
+  },
+  {
+   "cid": "A50",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the receive step under A-REDUNDANT (scope C12): adding the guard plen(hrd, pro, pln) to the accept branch removes no behavior on packets produced by conforming generation, because A35 establishes it at emission. Against an attacker the check does nothing, since a chosen pln satisfies it, and the clause is labeled a conformance result for that reason."
+  },
+  {
+   "cid": "A51",
+   "class": "C1",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "Merge_flag is an internal of the pseudocode. With the functionality axiom of C7 the flag has no observable content: if the key was present the merge branch has already written sha, and adding the same triplet again reaches the same state. The model admits no state in which the flag's value changes the post-state, so no mutant can exercise the row. The two branch effects are carried at A53 and A57."
+  },
+  {
+   "cid": "A52",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Guard on the receive step, realized as a two-branch split on the key <pro, spa> (MD1): the merge branch is parameterized by a witness x with tbl(h, pro, spa, x), the add branch requires forall x. not tbl(h, pro, spa, x). A mutant that keys on <pro, tpa> or on the hardware type falsifies one branch precondition."
+  },
+  {
+   "cid": "A53",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the merge branch: tbl'(h, pro, spa, sha), and forall y. tbl'(h, pro, spa, y) implies y = sha, with every other key unchanged. A mutant that keeps the stored address falsifies the first conjunct."
+  },
+  {
+   "cid": "A54",
+   "class": "C1",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "Setting the flag is the same unobservable internal as A51: the model has no Merge_flag, and no post-state depends on one."
+  },
+  {
+   "cid": "A55",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Guard on the receive step: owns_pa(h, pro, tpa) is the precondition of both the add branch and the reply branch. Ownership is a relation (S4), so a station may own several protocol addresses and the guard tests membership rather than equality with a single address."
+  },
+  {
+   "cid": "A56",
+   "class": "C1",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "The flag test before adding has no observable content for the same reason as A51: adding when the merge branch already fired rewrites the same binding. The add guard that does have content, absence of the key, is carried at A52 and A57."
+  },
+  {
+   "cid": "A57",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the add branch, whose precondition is owns_pa(h, pro, tpa) and forall x. not tbl(h, pro, spa, x): tbl'(h, pro, spa, sha), every other key unchanged. Scope C2 states the clause for op = rep as well as op = req, and that is the gate R3 turns on."
+  },
+  {
+   "cid": "A58",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Guard on the reply branch: op = req. With req != rep a received reply provokes no emission, which is the corollary of scope C3; a mutant that drops the guard emits on replies and falsifies the emission clause stated at A77."
+  },
+  {
+   "cid": "A59",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the reply emission, the field map of scope C4: the emitted tha equals the received sha and the emitted tpa equals the received spa. A mutant that leaves the target fields as received falsifies both conjuncts."
+  },
+  {
+   "cid": "A60",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the reply emission: owns_hw(h, sha') for the replying host h, and spa' equals the tpa that matched the guard at A55 (MD3). The reply therefore carries a mapping the emitter owns rather than one it copied, which is the clause C6 and R1 turn on."
+  },
+  {
+   "cid": "A61",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the reply emission: op' = rep. With req != rep, a mutant that leaves op at req emits a packet that re-enters the reply branch at the peer."
+  },
+  {
+   "cid": "A62",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the reply emission: delivery scope is unicast (S1) with destination equal to the emitted tha, which by A59 is the request's sha. A mutant that broadcasts the reply falsifies the scope conjunct."
+  },
+  {
+   "cid": "A63",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "With a single link (MD2) the reply cannot go out on any other piece of hardware, so no mutant can exercise the row. MD2 records that a cross-link claim here would be vacuous, and this is that claim."
+  },
+  {
+   "cid": "A64",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the receive step: the merge branch's precondition does not mention op, so for every op the post-state satisfies tbl'(h, pro, spa, sha) whenever the key was present. The ordering is encoded as a single-transition post-state fact rather than as a property of a trace, which is why it needs no B3 exclusion. A mutant that guards the merge on op = req leaves the table unchanged for a received reply and falsifies the clause."
+  },
+  {
+   "cid": "A65",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Postcondition of the merge branch together with the functionality axiom of C7: tbl'(h, pro, spa, sha) and forall y. tbl'(h, pro, spa, y) implies y = sha, so the previous binding does not survive the step. Supersession is function update inside the transition (MD6); no time sort and no recency order is introduced to express it."
+  },
+  {
+   "cid": "A66",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on emitted packets, scope C11: hrd = eth. Read at the value level, which is where the model lives; the numeral 1 is B:X2 encoding and is dispositioned out at A7."
+  },
+  {
+   "cid": "A67",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on emitted packets, scope C11: hln = six. Read at the value level; six is the named Len constant of MD7 and carries no arithmetic."
+  },
+  {
+   "cid": "A68",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "The row releases ar$pro from membership in the assigned Ethernet type values when the hardware is not Ethernet. That membership is an external registry fact with no formal referent, as recorded at A13, and the release inherits it. MD1 also fixes one hardware type per link, so the model holds no non-Ethernet state to exercise."
+  },
+  {
+   "cid": "A69",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "Whether the value in ar$pro identifies the protocol whose resolution is sought is a correspondence between a code point and a protocol, not a property of any state. ProtoType is uninterpreted (MD7) and the model holds nothing for the value to be associated with."
+  },
+  {
+   "cid": "A70",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B1",
+   "reason": "Not broadcasting periodically is a statement about frequency over time. There is no time sort in the signature (\u00a73) and no single transition can express a period."
+  },
+  {
+   "cid": "A71",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "A packet is one field-value tuple with one component per field (MD8), so the model admits no packet carrying two resolutions and no mutant can exercise the row."
+  },
+  {
+   "cid": "A72",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Equality of the serialized lengths of a reply and a request is a claim about bytes. B:X4 records this one as looking provable and not being so: it is a consequence of the wire format, which is the excluded side."
+  },
+  {
+   "cid": "A73",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "Drawing ar$hrd from the assigned list of hardware address space values is registry conformance. No tool holds the list, and the RFC itself asks for an authority to manage it."
+  },
+  {
+   "cid": "A74",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "That 1 is the only assigned ar$hrd value is a registry fact about allocation at the time of writing, checkable against an external index and not against any model state."
+  },
+  {
+   "cid": "A75",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B8",
+   "reason": "Membership of ar$pro in the assigned Ethernet protocol type values is the same external registry fact as A13."
+  },
+  {
+   "cid": "A76",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on emitted packets: hln = six and plen(hrd, pro, pln). This is A-REDUNDANT read as an obligation on the generation step rather than as a premise, and it is the clause that the non-rejection result of C12 is proved against at A48 and A50."
+  },
+  {
+   "cid": "A77",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the receive step: the emission postcondition is reachable only from the branch with op = req, and for op = rep the step's postcondition asserts the network relation is unchanged. This is the corollary of scope C3, that receipt of a reply never provokes a packet."
+  },
+  {
+   "cid": "A78",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "Every packet in the model is a tuple with an sha and an spa component (MD8), so no state can hold a packet missing them and no mutant can exercise the row. The values those fields must carry are A37 and A38, both encoded."
+  },
+  {
+   "cid": "A79",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on tbl: the merge and add branches are its only writers, both take the key from <pro, spa> and the value from sha, so every entry tbl(h, pt, pa, ha) was written by a receipt whose spa = pa and sha = ha. A mutant that keyed on tpa or stored tha falsifies it."
+  },
+  {
+   "cid": "A80",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B7",
+   "reason": "The presence of a tpa component in every packet tuple is by construction (MD8). The value a request must carry there is A39, which is encoded and is where the content of this row lives."
+  },
+  {
+   "cid": "A81",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the receive step, scope C2: the add branch requires owns_pa(h, pro, tpa) whatever the opcode is. That clause decides the row and decides it against the RFC's reading: under attacker capability A4 an unsolicited reply reaches the add branch, so ar$tpa gates the add for replies too. This is the site of R3, and the refutation needs the exhibited witness, not the absence of a proof."
+  },
+  {
+   "cid": "A82",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the receive step in the two-packet form of scope C9: for all tha1 and tha2, two receipts differing only in tha reach the same table state and the same emission; equivalently the step's postcondition is a formula in which tha does not occur free. A mutant that adds any guard on tha falsifies it."
+  },
+  {
+   "cid": "A83",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Postcondition of the reply emission, part of the field map of scope C4: tha' equals the received sha, which is the hardware address of the station that sent the request."
+  },
+  {
+   "cid": "A84",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B2",
+   "reason": "Handing ar$tha to the hardware driver as the frame destination is an implementation shortcut at the driver interface. Scope \u00a74.3 keeps the frame header and that boundary out; the delivery scope the shortcut implements is carried separately at A62."
+  },
+  {
+   "cid": "A85",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Absence of padding between the address fields is byte-stream structure (B:X1)."
+  },
+  {
+   "cid": "A86",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Which field pairs are words and which bytes are an unaligned stream is byte-stream structure (B:X1, B:X2)."
+  },
+  {
+   "cid": "A87",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Most-significant-byte-first transmission of the three word fields is byte order (B:X2)."
+  },
+  {
+   "cid": "A88",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Same clause as A62: the reply emission's delivery scope is unicast with destination equal to the emitted tha. The row sits in the monitor passage, which B:X6 excludes as a role, but the obligation it states is on the replying resolver's wire behavior, and that is carried."
+  },
+  {
+   "cid": "A89",
+   "class": "C2",
+   "disposition": "Dispositioned out",
+   "core": false,
+   "barrier": "B5",
+   "reason": "Locating the address fields from ar$hln and ar$pln is the offset computation 8 + 2*ar$hln + ar$pln, arithmetic over lengths applied to a sequence. Scope \u00a72 and \u00a73 place it outside the fragment, and this row is the RFC's own clearest statement of what was excluded. The classic length-confusion failure lives here and no result may claim resistance to it."
+  },
+  {
+   "cid": "A90",
+   "class": "C5",
+   "disposition": "Vectored",
+   "core": false,
+   "reason": "Carried by an executed check block that replays the worked example of lines 370 to 401 as a concrete two-station run: X broadcasts a request with sha = EA(X), spa = IPA(X), tpa = IPA(Y); Y's receive step merges the triplet and emits a reply. The check asserts the emission's delivery scope is unicast rather than broadcast and its destination equals the request's sha."
+  },
+  {
+   "cid": "A91",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Invariant on the emission relation under A-CONF, scope C6: for every emitted packet, owns_hw(h, sha) and owns_pa(h, pro, spa) hold of the emitter h. With A79 it gives that every table entry originates from the station it names. The clause is stated so that removing A-CONF refutes it, which is where R1 bites; A-CONF is an assumption about stations, not a property the protocol checks."
+  }
+ ]
+}

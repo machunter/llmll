@@ -762,8 +762,18 @@ def stage_M_wave(ctx: Ctx) -> None:
     log(f"  filled {len(filled)}/{len(holes)}; whole tree: "
         f"{'SAFE' if v['safe'] else 'NOT SAFE'}")
     if findings:
-        log("  FINDINGS (exhausted budget; routed, never hinted): "
-            + ", ".join(r["hole"] for r in findings))
+        # Report the ACTUAL failure mode. Lumping checkout/harness faults under
+        # "exhausted budget" reads as an agent that could not do the work, when
+        # the agent may never have been asked. Only `finding` means the budget
+        # was genuinely spent.
+        by_kind: dict[str, list[str]] = {}
+        for r in findings:
+            by_kind.setdefault(r["status"], []).append(r["hole"])
+        for status, holes in sorted(by_kind.items()):
+            label = ("exhausted its retry budget; routed, never hinted"
+                     if status == "finding"
+                     else f"NOT a finding: {status} (harness fault, no budget spent)")
+            log(f"  {label}: " + ", ".join(holes))
 
 
 def _ast_holes(tree: Path) -> list[tuple[str, str]]:
@@ -1081,6 +1091,67 @@ def self_test() -> int:
 # Driver
 # ---------------------------------------------------------------------------
 
+def show_status(workdir: Path) -> int:
+    """Report what a run is ACTUALLY doing, from three independent signals.
+
+    Exists because "I launched it" is not evidence it is running, and inferring
+    liveness from a launch is how this reported a dead pipeline as live twice.
+    The signals:
+
+      process   is a driver bound to THIS workdir alive right now
+      log       when did run.log last advance (a live process with a stale log
+                is stuck, which looks identical to progress from the outside)
+      manifest  which stages actually completed, and which one stopped
+
+    None of the three alone is sufficient, which is why all three are printed.
+    """
+    log_path = workdir / "run.log"
+    man_path = workdir / "MANIFEST.json"
+
+    alive = False
+    try:
+        out = subprocess.run(["pgrep", "-af", "rfc_to_implementation.py"],
+                             capture_output=True, text=True, check=False).stdout
+        alive = any(str(workdir) in ln for ln in out.splitlines())
+    except Exception:
+        pass
+
+    print(f"workdir : {workdir}")
+    print(f"process : {'RUNNING' if alive else 'not running'}")
+
+    if log_path.exists():
+        age = time.time() - log_path.stat().st_mtime
+        units = f"{age:.0f}s" if age < 120 else f"{age/60:.0f}m"
+        stale = alive and age > 900
+        print(f"log     : last advanced {units} ago"
+              + ("   <-- STALE: process alive but log frozen" if stale else ""))
+    else:
+        print("log     : (none)")
+
+    if man_path.exists():
+        man = read_json(man_path)
+        done = man.get("stages", {})
+        print("stages  :")
+        for st in STAGES:
+            rec = done.get(st.key)
+            if rec is None:
+                mark, extra = "· pending", ""
+            elif rec.get("status") == "complete":
+                mark, extra = "✓ complete", f"  {rec.get('seconds','?')}s"
+            else:
+                mark, extra = "✗ STOPPED", f"  {str(rec.get('detail',''))[:90]}"
+            print(f"   {st.key} [{st.kind:10}] {st.name:<34} {mark}{extra}")
+    else:
+        print("stages  : (no manifest yet)")
+
+    if log_path.exists():
+        tail = log_path.read_text(errors="replace").splitlines()[-3:]
+        print("last    :")
+        for ln in tail:
+            print(f"   {ln}")
+    return 0
+
+
 def audit_blindness(workdir: Path) -> int:
     """Re-check that the blind stages were actually blind.
 
@@ -1138,10 +1209,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="replay committed TFTP data through the mechanical stages")
     ap.add_argument("--audit-blindness", action="store_true",
                     help="re-check that stage D's extractors were isolated")
+    ap.add_argument("--status", action="store_true",
+                    help="report whether a run is alive, advancing, and how far it got")
     a = ap.parse_args(argv)
 
     if a.self_test:
         return self_test()
+    if a.status:
+        require(a.workdir is not None, "--status needs --workdir")
+        return show_status(a.workdir.resolve())
     if a.audit_blindness:
         require(a.workdir is not None, "--audit-blindness needs --workdir")
         return audit_blindness(a.workdir)
@@ -1173,10 +1249,22 @@ def main(argv: list[str] | None = None) -> int:
     for stage in STAGES:
         if stage.key not in selected:
             continue
-        done = all((ctx.workdir / o).exists() for o in stage.outputs)
-        if done and not a.force:
+        # A stage is skipped ONLY when the manifest records it complete AND its
+        # artifacts are present. Artifacts alone are not evidence of success:
+        # a stage that fails AFTER writing output would then be skipped on the
+        # next run, which is precisely how a failing RFC-COV-1 freeze gate got
+        # bypassed and the wave ran on against an unfrozen surface. Gates are
+        # the stages most likely to write before failing, so "the file exists"
+        # is the worst possible completion test for them.
+        rec = manifest["stages"].get(stage.key)
+        recorded = bool(rec) and rec.get("status") == "complete"
+        artifacts = all((ctx.workdir / o).exists() for o in stage.outputs)
+        if recorded and artifacts and not a.force:
             log(f"stage {stage.key} ({stage.name}): already complete, skipping")
             continue
+        if artifacts and not recorded:
+            log(f"stage {stage.key}: artifacts present but no completion record "
+                "(interrupted, or a previous attempt failed) — re-running")
         log(f"stage {stage.key} [{stage.kind}] {stage.name}")
         started = time.monotonic()
         try:

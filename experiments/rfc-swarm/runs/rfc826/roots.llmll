@@ -1,0 +1,350 @@
+;; ============================================================================
+;; RFC 826 (Ethernet Address Resolution Protocol) - root contracts
+;;
+;; One contract clause per Encoded inventory row, each opened by its bracketed
+;; row tag. Every body is a hole: this file states what must be true, never how.
+;;
+;; Encoding decisions. All of them are forced by the body-faithful fragment,
+;; and none of them adds structure RFC 826 does not have.
+;;
+;;   Opaque sorts. Host, HwAddr, ProtoAddr and ProtoType carry no constants, no
+;;   order and no arithmetic in RFC 826 (B:3), so they are modelled as int and
+;;   appear below under = and != only. No clause uses <, <=, >, >=, + or -, and
+;;   nothing in this file has a successor.
+;;
+;;   Wire enumerations. Op, HwType and Len are decoded enums, not strings and
+;;   not numerals (MD7). Each carries the constants the RFC names plus one
+;;   further nullary tag, because none of these sorts is exhausted by its named
+;;   constants: the opcode field is 16 bits wide with two values assigned
+;;   (RFC 294-296), the hardware space is a registry with one entry so far
+;;   (RFC 68-75, 272-277), and ar$pln varies by protocol (RFC 180). Without
+;;   those tags the emission invariants at A17, A32 and A34 would be vacuous.
+;;
+;;   Relations as instantiated guards. owns_hw, owns_pa, speaks, supports and
+;;   plen are relations in the signature (B:5). A single protocol step reads
+;;   each of them at one argument tuple, so each enters the step as the bool it
+;;   evaluates to there: supports? is supports(h, ar$hrd), speaks? is
+;;   speaks(h, ar$pro), owns-target? is owns_pa(h, ar$pro, ar$tpa). Ownership
+;;   stays a relation and not a function: own-hw and own-pa-for-pro are
+;;   addresses the emitter owns, never the address it uniquely owns. A-UNIQ is
+;;   cited by no clause here.
+;;
+;;   The table as witness plus flag. tbl enters as key-present? together with
+;;   the witness key-hw, and leaves as a constructed Binding. That is the free
+;;   witness variable A25 asks for rather than an existential, so the
+;;   quantifier-alternation graph stays acyclic.
+;;
+;;   Delivery scope. Emission is a constructed value: Silent, Broadcast, or
+;;   Unicast carrying its destination hardware address (S1). The scope conjunct
+;;   is what separates R1 from R2, so it is first class rather than commentary.
+;;
+;;   The reception algorithm is split at its own seams. RFC 197-234 is a nested
+;;   conditional with a discard path, a merge branch and an add branch, and the
+;;   three appear here as three steps over the same table key. The split is the
+;;   RFC's, not a device for traceability: each step keeps every clause its
+;;   branch carries, and the guards that select the branch are its precondition.
+;;
+;;   No Packet sort (MD8), no time sort (MD6), no Ethernet frame header (B:X7),
+;;   no byte offsets (B:X1). Decoded field values parameterize the steps.
+;; ============================================================================
+
+(module roots
+
+;; ---------------------------------------------------------------------------
+;; Decoded wire enumerations and constructed step results
+;; ---------------------------------------------------------------------------
+
+;; ares_op$REQUEST and ares_op$REPLY (RFC 123-124), plus the rest of the 16-bit
+;; opcode space, which RFC 294-296 leaves unassigned rather than excluded.
+(type Op
+  (| Req)
+  (| Rep)
+  (| OpOther))
+
+;; ares_hrd$Ethernet (RFC 126), plus the hardware spaces the registry at
+;; RFC 68-75 and 272-277 anticipates.
+(type HwType
+  (| Eth)
+  (| HwOther))
+
+;; The named Len constant six (RFC 179, 238), plus the lengths other protocols
+;; and hardware types carry. Uninterpreted: no arithmetic, no order.
+(type Len
+  (| Six)
+  (| LenOther))
+
+;; The translation table at one key: either nothing is bound there, or a
+;; hardware address is.
+(type Binding
+  (| Absent)
+  (| Bound int))
+
+;; What a step puts on the link, carrying its delivery scope. Unicast carries
+;; the destination hardware address.
+(type Emission
+  (| Silent)
+  (| Broadcast)
+  (| Unicast int))
+
+;; ---------------------------------------------------------------------------
+;; Packet generation: the resolve step (RFC 158-190)
+;; ---------------------------------------------------------------------------
+
+;; The Address Resolution module answers <key-pro, key-pa> out of host h's
+;; table and out of nothing else. key-present? and key-hw are tbl at that key.
+(def arp-resolve [h: int key-pro: int key-pa: int key-present?: bool key-hw: int]
+  -> Binding
+  (post (=> (not key-present?) (= result Absent))
+    :source "[A25] RFC 826 lines 169-174 - the table alone decides the branch. On a miss, meaning no entry for the pair, the step answers nothing. A step that answered from any state other than the table falsifies this clause or the hit clause below.")
+  (post (=> key-present? (= result (Bound key-hw)))
+    :source "[A26] RFC 826 lines 170-172 - on a hit the step gives back the corresponding 48.bit Ethernet address. With the functionality of the table (scope C7) that is the only address stored under the key, so the step cannot answer with an address it did not read.")
+  ?impl)
+
+;; A miss, and only a miss, puts a packet on the link, and it is broadcast.
+(def arp-request-emit [key-present?: bool] -> Emission
+  (post (and (=> (not key-present?) (not (= result Silent)))
+             (=> key-present? (= result Silent)))
+    :source "[A30] RFC 826 lines 172-176, 188-190 - emission is tied to the miss guard. A resolve that returns silently on a miss falsifies the first conjunct; one that generates address resolution traffic on a hit falsifies the second.")
+  (post (=> (not key-present?) (= result Broadcast))
+    :source "[A42] RFC 826 lines 188-190, 391 - the generated request is broadcast to all stations on the cable, which puts it in the receive set of every station on the link. A step that unicast it to a chosen hardware address falsifies the scope conjunct, and that conjunct is what separates R1 from R2.")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Packet generation: the emitted request field map (RFC 176-190, 382-391)
+;; ---------------------------------------------------------------------------
+
+(def arp-request-hrd [] -> HwType
+  (post (= result Eth)
+    :source "[A32] RFC 826 lines 177-178, 382 - the Address Resolution module sets ar$hrd to ares_hrd$Ethernet. Eth is the only named constant of the sort and the sort is not a singleton, so a step emitting an arbitrary hardware type falsifies the clause.")
+  (post (= result Eth)
+    :source "[A66] RFC 826 lines 236-238 - Ethernet parameter agreement (scope C11) as an invariant on emitted packets, read at the value level where the model lives. The numeral 1 is wire encoding and stays outside.")
+  ?impl)
+
+(def arp-request-pro [pt: int] -> int
+  (post (= result pt)
+    :source "[A33] RFC 826 lines 178-179, 383 - ar$pro is the protocol type that is being resolved, which is the protocol type argument of the resolve call that triggered this emission. An emission naming an unrelated protocol type is caught here.")
+  ?impl)
+
+(def arp-request-hln [] -> Len
+  (post (= result Six)
+    :source "[A34] RFC 826 lines 179-180, 384 - ar$hln is set to 6, the number of bytes in a 48.bit Ethernet address. Six is the named Len constant, and the clause fixes which constant the field carries, not what it encodes to.")
+  (post (= result Six)
+    :source "[A67] RFC 826 lines 236-238 - Ethernet parameter agreement (scope C11) as an invariant on emitted packets, read at the value level and carrying no arithmetic.")
+  ?impl)
+
+;; Under A-REDUNDANT the length of a protocol address is determined by the
+;; hardware type and the protocol type (RFC 288-291). pln-of-hrd-pro is that
+;; determined value, and hrd and pro are the two fields determining it.
+(def arp-request-pln [hrd: HwType pro: int pln-of-hrd-pro: Len] -> Len
+  (post (= result pln-of-hrd-pro)
+    :source "[A35] RFC 826 lines 180, 385, 288-291 - ar$pln is set to the length of an address in that protocol. This is the generation-side half of A-REDUNDANT, the half the receiver's optional check is proved non-rejecting against. A-REDUNDANT is off by default, and the clause carries no attacker content, since nothing else in the transition relation reads ar$pln.")
+  (post (= result pln-of-hrd-pro)
+    :source "[A76] RFC 826 lines 288-291 - A-REDUNDANT read as an obligation on the generation step rather than as a premise. The ar$hln half of the same obligation is carried on arp-request-hln.")
+  ?impl)
+
+(def arp-request-op [] -> Op
+  (post (= result Req)
+    :source "[A36] RFC 826 lines 181, 386 - ar$op is set to ares_op$REQUEST. Since REQUEST and REPLY are distinct, a step emitting REPLY produces a packet that can never reach the reply branch of the reception algorithm.")
+  ?impl)
+
+;; own-hw is a hardware address the emitting host owns. Ownership is a relation
+;; (S3): the clause does not claim the address is unique to it, and A-UNIQ is
+;; not cited.
+(def arp-request-sha [own-hw: int] -> int
+  (post (= result own-hw)
+    :source "[A37] RFC 826 lines 181-182, 387 - ar$sha is filled with the 48.bit ethernet address of itself, so the emitter owns the hardware address it names.")
+  ?impl)
+
+;; own-pa-for-pro is a protocol address the emitting host owns under protocol
+;; type pro. Ownership is a relation (S4, MD3): a station may own several.
+(def arp-request-spa [pro: int own-pa-for-pro: int] -> int
+  (post (= result own-pa-for-pro)
+    :source "[A38] RFC 826 lines 182, 388 - ar$spa is filled with the protocol address of itself, under the protocol type of the same emission. A step emitting a protocol address the host does not own falsifies it, which is the conformance half of scope C6.")
+  ?impl)
+
+(def arp-request-tpa [pa: int] -> int
+  (post (= result pa)
+    :source "[A39] RFC 826 lines 182-184, 390 - ar$tpa is the protocol address of the machine that is trying to be accessed, which is the protocol-address argument of the resolve call whose miss guard triggered this emission.")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; The emission relation as a whole
+;; ---------------------------------------------------------------------------
+
+(def arp-emitted-op-well-formed? [op: Op] -> bool
+  (post (= result (or (= op Req) (= op Rep)))
+    :source "[A17] RFC 826 lines 122-124, 148, 294-296 - every packet a conforming station puts on the network carries ares_op$REQUEST or ares_op$REPLY. The opcode field is 16 bits wide and only two values are assigned, so the sort carries no exhaustiveness axiom and a generation step emitting an arbitrary opcode falsifies the clause.")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Packet reception: the optional length checks (RFC 205, 208, 288-292)
+;;
+;; Both clauses are one-directional by design. Each says that adding the check
+;; removes no behavior on packets produced by conforming generation. What the
+;; check does against an actual byte count is B:X3 and stays out, and against
+;; an attacker it does nothing, since a chosen length satisfies it. Both are
+;; conformance results under A-REDUNDANT.
+;; ---------------------------------------------------------------------------
+
+(def arp-hln-check [hln: Len] -> bool
+  (post (=> (= hln Six) result)
+    :source "[A48] RFC 826 lines 205, 288-291 - the optional hardware-length check accepts every packet conforming generation produces, because generation puts six in the field. The permission RFC 826 grants by marking the check optional is carried as this non-rejection lemma and nothing more.")
+  ?impl)
+
+(def arp-pln-check [hrd: HwType pro: int pln: Len pln-of-hrd-pro: Len] -> bool
+  (post (=> (= pln pln-of-hrd-pro) result)
+    :source "[A50] RFC 826 lines 208, 288-291 - the optional protocol-length check accepts every packet conforming generation produces, because generation establishes the determined length at emission. Against an attacker the check does nothing, since a chosen length satisfies it, so this is labeled a conformance result.")
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Packet reception: the table transition (RFC 197-234)
+;;
+;; The three steps below are the three branches of the algorithm at RFC 203-218,
+;; each stated at an arbitrary key <key-pro, key-pa> of host h's table. Together
+;; they cover every key and every receipt: key-present? and key-hw are the table
+;; at that key before the receipt, and the result is the table at that key after
+;; it. The receipt is <pro, spa, sha, tha, op> with its guards already
+;; instantiated at h.
+;;
+;; ar$tha is a parameter of the merge and add steps and occurs in no clause of
+;; either. That is the point of A82, not an oversight.
+;; ---------------------------------------------------------------------------
+
+;; Discard, and every key the receipt does not name (RFC 200-213, 232-233).
+(def arp-frame
+  [h: int key-pro: int key-pa: int key-present?: bool key-hw: int
+   pro: int spa: int supports?: bool speaks?: bool]
+  -> Binding
+
+  ;; Selects the paths on which the receipt writes nothing at this key.
+  (pre (not (and (and supports? speaks?)
+                 (and (= key-pro pro) (= key-pa spa)))))
+
+  (post (=> (not supports?)
+            (and (=> key-present? (= result (Bound key-hw)))
+                 (=> (not key-present?) (= result Absent))))
+    :source "[A47] RFC 826 lines 203-204 - Do I have the hardware type in ar$hrd. A negative conditional is an end of processing and a discarding of the packet, so the table is unchanged at every key. A step that falls through to the merge after a failed hardware-type test falsifies this frame condition.")
+
+  (post (=> (not speaks?)
+            (and (=> key-present? (= result (Bound key-hw)))
+                 (=> (not key-present?) (= result Absent))))
+    :source "[A49] RFC 826 lines 206-207 - Do I speak the protocol in ar$pro. The same negative conditional, the same discard, and the same frame condition on the table.")
+
+  (post (=> (not (and (= key-pro pro) (= key-pa spa)))
+            (and (=> key-present? (= result (Bound key-hw)))
+                 (=> (not key-present?) (= result Absent))))
+    :source "[A52] RFC 826 lines 210-213, 232-233 - the branch split is on the key <protocol type, sender protocol address> (MD1), so every other key of the table is untouched by the receipt. A step that keyed on the target protocol address, or that folded the hardware type into the key, changes a binding this clause holds fixed.")
+
+  ?impl)
+
+;; Merge: the key is already in the table (RFC 209-213, 227-234).
+(def arp-merge
+  [h: int key-pro: int key-pa: int key-present?: bool key-hw: int
+   pro: int spa: int sha: int tha: int op: Op supports?: bool speaks?: bool]
+  -> Binding
+
+  ;; Selects the merge branch: both guards passed and the key is present.
+  (pre (and (and supports? speaks?)
+            (and (and (= key-pro pro) (= key-pa spa)) key-present?)))
+
+  (post (= result (Bound sha))
+    :source "[A53] RFC 826 lines 210-213 - if the pair is already in my translation table, update the sender hardware address field of the entry with the new information in the packet. A step that keeps the address it found falsifies this.")
+
+  (post (=> (= op Rep) (= result (Bound sha)))
+    :source "[A64] RFC 826 lines 227-231, 308-309 - the triplet is merged into the table before the opcode is looked at, so the merge precondition does not mention ar$op and a received REPLY merges exactly as a REQUEST does. A step that guards the merge on the opcode leaves the table unchanged for a received reply and falsifies this. The ordering is a single-transition post-state fact, not a property of a trace.")
+
+  (post (=> (not (= sha key-hw)) (not (= result (Bound key-hw))))
+    :source "[A65] RFC 826 lines 231-234, 443-445 - the new hardware address supersedes the old one, so the binding that was there does not survive the step. Supersession is function update inside the transition (MD6): no time sort, no recency order, and no maximum over timestamps is introduced to express it.")
+
+  (post (or (= result (Bound sha)) (= result (Bound key-hw)))
+    :source "[A82] RFC 826 lines 184-187, 311-314 - ar$tha has no meaning in the request form and the generator does not set it to anything in particular, so two receipts differing only in ar$tha must reach the same table state. The value here is the incoming sender hardware address or the one already bound, both fixed by parameters other than ar$tha; ar$tha is in this step's signature and in none of its clauses.")
+
+  ?impl)
+
+;; Add: the key is not in the table, so ar$tpa decides (RFC 214-218, 302-309).
+(def arp-add
+  [h: int key-pro: int key-pa: int key-present?: bool
+   pro: int spa: int sha: int tha: int op: Op
+   supports?: bool speaks?: bool owns-target?: bool]
+  -> Binding
+
+  ;; Selects the add branch: both guards passed and the key is absent.
+  (pre (and (and supports? speaks?)
+            (and (and (= key-pro pro) (= key-pa spa)) (not key-present?))))
+
+  (post (and (=> owns-target? (= result (Bound sha)))
+             (=> (not owns-target?) (= result Absent)))
+    :source "[A57] RFC 826 lines 214-218 - Am I the target protocol address. If yes and Merge_flag is false, add the triplet <protocol type, sender protocol address, sender hardware address> to the translation table; if no, nothing is added and every key is left as it was. Scope C2 states this for ar$op equal to REPLY as well as REQUEST.")
+
+  (post (=> (= op Rep) (and (=> owns-target? (= result (Bound sha)))
+                            (=> (not owns-target?) (= result Absent))))
+    :source "[A81] RFC 826 lines 302-309 - the rationale holds that ar$tpa is not necessarily needed in the reply form if one assumes a reply is only provoked by a request. Under attacker capability A4 an unsolicited reply reaches this branch, so ar$tpa gates the add for replies too and the field is doing real work. This is the site of R3, and the refutation needs the exhibited witness, not the absence of a proof.")
+
+  (post (or (= result (Bound sha)) (= result Absent))
+    :source "[A79] RFC 826 lines 298-300, 227-228 - the merge branch and this one are the table's only writers, and both take the key from <ar$pro, ar$spa> and the value from ar$sha, so every entry was written by a receipt whose sender protocol address is that key and whose sender hardware address is that value. A step that keyed on ar$tpa or stored ar$tha falsifies it.")
+
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Packet reception: what goes back on the link (RFC 219-225)
+;; ---------------------------------------------------------------------------
+
+(def arp-emission [sha: int op: Op supports?: bool speaks?: bool owns-target?: bool]
+  -> Emission
+
+  (post (=> (not (and supports? speaks?)) (= result Silent))
+    :source "[A46] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet, so on a failing hardware-type or protocol guard the network relation is unchanged as well as the table.")
+
+  (post (=> (not owns-target?) (= result Silent))
+    :source "[A55] RFC 826 lines 214-215 - Am I the target protocol address gates the reply as well as the add. Ownership is a relation (S4), so a station may own several protocol addresses and the guard tests membership rather than equality with a single address.")
+
+  (post (=> (not (= op Req)) (= result Silent))
+    :source "[A58] RFC 826 lines 219-220 - Is the opcode ares_op$REQUEST, and NOW look at the opcode. The reply branch is guarded on REQUEST, so a step that drops the guard emits on packets the RFC leaves at an end of processing.")
+
+  (post (=> (= op Rep) (= result Silent))
+    :source "[A77] RFC 826 lines 219-225, 404-406 - the corollary of scope C3. The emission postcondition is reachable only from the REQUEST branch, so receipt of a reply never provokes a packet: machine X forms the map, notices the packet is a reply and throws it away.")
+
+  (post (=> (and (and supports? speaks?) (and owns-target? (= op Req)))
+            (= result (Unicast sha)))
+    :source "[A62] RFC 826 lines 224-225, 400-401 - send the packet to the (new) target hardware address on the same hardware on which the request was received, directly and not broadcast. The destination is the emitted ar$tha, which is the request's ar$sha. A step that broadcasts the reply falsifies the scope conjunct.")
+
+  (post (=> (and (and supports? speaks?) (and owns-target? (= op Req)))
+            (= result (Unicast sha)))
+    :source "[A88] RFC 826 lines 344-346 - the REPLY to the REQUEST will be sent directly to the requesting host. The row sits in the monitor passage, which B:X6 excludes as a role, but the obligation it states is on the replying resolver's wire behavior, and that is carried.")
+
+  ?impl)
+
+;; ---------------------------------------------------------------------------
+;; Packet reception: the reply field map (RFC 221-223, 393-401)
+;;
+;; Each step emits one field of the reply. sha, spa, tha and tpa are the
+;; received request's fields; own-hw is a hardware address the replying host
+;; owns; tpa is the target protocol address that matched the guard.
+;; ---------------------------------------------------------------------------
+
+(def arp-reply-op [op: Op] -> Op
+  (post (= result Rep)
+    :source "[A61] RFC 826 lines 223, 399-400 - set the ar$op field to ares_op$REPLY. Since REQUEST and REPLY are distinct, a step that leaves the opcode as received emits a packet that re-enters the reply branch at the peer.")
+  ?impl)
+
+(def arp-reply-sha [own-hw: int sha: int] -> int
+  (post (= result own-hw)
+    :source "[A91] RFC 826 lines 459-461 - since hosts do not transmit information about anyone other than themselves, under A-CONF the sender hardware address of every emitted packet is one the emitter owns. No station then transmits a mapping for another station, and every table entry originates from the station it names. The clause is stated so that removing A-CONF refutes it, which is where R1 bites: A-CONF is an assumption about stations, not a property the protocol checks.")
+  ?impl)
+
+(def arp-reply-spa [tpa: int spa: int] -> int
+  (post (= result tpa)
+    :source "[A60] RFC 826 lines 221-222, 399 - swap hardware and protocol fields, putting the local hardware and protocol addresses in the sender fields. The reply's sender protocol address is the target protocol address that matched the guard, not the one copied from the request (MD3). With the sender hardware address clause on arp-reply-sha, the reply carries a mapping the emitter owns rather than one it relayed.")
+  ?impl)
+
+(def arp-reply-tha [sha: int tha: int] -> int
+  (post (= result sha)
+    :source "[A83] RFC 826 lines 311-314 - the meaning of ar$tha in the reply form is the address of the machine making the request, so the emitted target hardware address is the received sender hardware address. A step that leaves the field as received falsifies it.")
+  ?impl)
+
+(def arp-reply-tpa [spa: int tpa: int] -> int
+  (post (= result spa)
+    :source "[A59] RFC 826 lines 221-222, 396-401 - the field map of scope C4: the swap puts the request's sender protocol address into the reply's target protocol address. The companion target-hardware-address conjunct of the same swap is carried on arp-reply-tha. A step that leaves the target fields as received falsifies both.")
+  ?impl)
+
+)

@@ -1,7 +1,14 @@
 # Stage N: the refute layer
 
-Execute the pre-registered mutant taxonomy against the implemented tree. Write each mutant to
+Author the pre-registered mutant taxonomy against the implemented tree. Write each mutant to
 your working directory, then write `mutants.json`.
+
+**Do NOT verify the mutants yourself.** The driver runs `llmll verify` on every entry and
+scores the matrix; that is its job, not yours, and it has no turn limit. Your deliverable is
+the mutant files plus `mutants.json`, and nothing else. Two runs of this stage were lost to an
+agent spending its whole budget on solver time and never writing `mutants.json` at all: the
+mutants existed and the catalogue that makes them scoreable did not. Write the catalogue
+FIRST, then stop.
 
 ```json
 [

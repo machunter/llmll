@@ -1,0 +1,142 @@
+{
+ "fills": [
+  {
+   "hole": "arp-resolve",
+   "pointer": "/statements/5/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-emit",
+   "pointer": "/statements/6/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-hrd",
+   "pointer": "/statements/7/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-pro",
+   "pointer": "/statements/8/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-hln",
+   "pointer": "/statements/9/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-pln",
+   "pointer": "/statements/10/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-op",
+   "pointer": "/statements/11/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-sha",
+   "pointer": "/statements/12/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-spa",
+   "pointer": "/statements/13/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-request-tpa",
+   "pointer": "/statements/14/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-emitted-op-well-formed?",
+   "pointer": "/statements/15/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-hln-check",
+   "pointer": "/statements/16/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-pln-check",
+   "pointer": "/statements/17/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-frame",
+   "pointer": "/statements/18/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-merge",
+   "pointer": "/statements/19/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-add",
+   "pointer": "/statements/20/body",
+   "status": "checkout-failed"
+  },
+  {
+   "hole": "arp-emission",
+   "pointer": "/statements/21/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-reply-op",
+   "pointer": "/statements/22/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-reply-sha",
+   "pointer": "/statements/23/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-reply-spa",
+   "pointer": "/statements/24/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-reply-tha",
+   "pointer": "/statements/25/body",
+   "status": "filled",
+   "attempts": 1
+  },
+  {
+   "hole": "arp-reply-tpa",
+   "pointer": "/statements/26/body",
+   "status": "filled",
+   "attempts": 1
+  }
+ ],
+ "whole_tree": {
+  "file": "roots.ast.json",
+  "safe": false,
+  "body_faithful": true,
+  "returncode": 1,
+  "output": "   .fq written to /tmp/roots.ast.fq\n   body-faithful: arp-resolve, arp-request-emit, arp-request-hrd, arp-request-pro, arp-request-hln, arp-request-pln, arp-request-op, arp-request-sha, arp-request-spa, arp-request-tpa, arp-emitted-op-well-formed?, arp-hln-check, arp-pln-check, arp-frame, arp-merge, arp-emission, arp-reply-op, arp-reply-sha, arp-reply-spa, arp-reply-tha, arp-reply-tpa\n   body-fallback: arp-add\nERROR: --strict-verified-core: 1 function(s) fell back from body-faithful verification: arp-add\n"
+ }
+}
