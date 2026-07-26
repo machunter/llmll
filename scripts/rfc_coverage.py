@@ -43,7 +43,14 @@ import re
 import sys
 from typing import Any
 
-TAG_RE = re.compile(r"^\s*\[(T\d{3,})\]")
+# A leading bracketed inventory tag. Deliberately NOT tied to a particular
+# prefix: this was `T\d{3,}`, the row-id convention of the FIRST target (TFTP),
+# so a second RFC whose inventory numbered its rows `A17`, `A25` reported every
+# citation as untagged and 0/39 rows covered. The tag's SHAPE is not the
+# constraint; membership in the inventory is, and the RESOLUTION check below
+# already enforces exactly that. So match any reasonable identifier and let the
+# inventory decide whether it resolves.
+TAG_RE = re.compile(r"^\s*\[([A-Za-z][A-Za-z0-9_.-]*)\]")
 
 CARRIED = ("Encoded", "Deployment-modeled", "Vectored")
 

@@ -15,6 +15,13 @@ your working directory, then write `mutants.json`.
 ]
 ```
 
+## The language reference is in your directory
+
+`LLMLL.md` (the language specification) and `llmll-ast.schema.json` (the machine-readable
+JSON-AST shape) are present. Read them: they define the syntax, the type system, and which
+predicates the verifier can discharge automatically. They say nothing about the target
+specification, so consulting them is not a shortcut, it is the tool manual.
+
 ## Build the mutants carefully
 
 Each mutant changes **one** thing, in a function body, and the change must be the specific

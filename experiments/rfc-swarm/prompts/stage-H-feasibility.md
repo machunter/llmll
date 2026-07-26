@@ -18,6 +18,13 @@ it carrying a plausible bug. Write both files into your working directory, then 
 ]
 ```
 
+## The language reference is in your directory
+
+`LLMLL.md` (the language specification) and `llmll-ast.schema.json` (the machine-readable
+JSON-AST shape) are present. Read them: they define the syntax, the type system, and which
+predicates the verifier can discharge automatically. They say nothing about the target
+specification, so consulting them is not a shortcut, it is the tool manual.
+
 ## The bar
 
 The pipeline runs `{{llmll}} verify <file> --strict-verified-core` on both and requires:

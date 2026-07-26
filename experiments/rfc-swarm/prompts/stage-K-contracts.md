@@ -48,6 +48,13 @@ shipped compiler:
 - **Import no ordering the RFC does not define.** If sequence numbers have no defined ordering
   or rollover in the source, reason by equality, disequality, and successor only.
 
+## The language reference is in your directory
+
+`LLMLL.md` (the language specification) and `llmll-ast.schema.json` (the machine-readable
+JSON-AST shape) are present. Read them: they define the syntax, the type system, and which
+predicates the verifier can discharge automatically. They say nothing about the target
+specification, so consulting them is not a shortcut, it is the tool manual.
+
 ## Self-check before you finish
 
 Run `{{llmll}} check roots.llmll`. It must typecheck. The pipeline will additionally run the

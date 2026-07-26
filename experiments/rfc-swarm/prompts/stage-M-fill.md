@@ -19,9 +19,14 @@ Example of the expected file, for a body `(if (> x 0) x 0)`:
 {"kind": "if",
  "cond": {"kind": "app", "fn": ">", "args": [{"kind": "var", "name": "x"},
                                              {"kind": "lit-int", "value": 0}]},
- "then": {"kind": "var", "name": "x"},
- "else": {"kind": "lit-int", "value": 0}}
+ "then_branch": {"kind": "var", "name": "x"},
+ "else_branch": {"kind": "lit-int", "value": 0}}
 ```
+
+Note `then_branch` / `else_branch`, not `then` / `else`. **`llmll-ast.schema.json` in
+your directory is the authority on every node's shape — check it rather than trusting
+this example.** An `if` written with the wrong key names type-checks as LLMLL source but
+is rejected when the JSON is applied.
 
 The brief's `postcondition_goal` is what you must satisfy, `expected_return_type` is the type
 you must return, `in_scope` lists every name you may use, and `type_definitions` gives each sum

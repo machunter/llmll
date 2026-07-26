@@ -337,6 +337,23 @@ def stage_C_rubric(ctx: Ctx) -> None:
     require(out.stat().st_size > 400, "stage C: rubric.md is too short")
 
 
+def _provision_reference(ctx: Ctx, wd: Path) -> None:
+    """Put the LANGUAGE reference in an agent's directory.
+
+    Stages H, K, M and N ask an agent to write LLMLL, and an agent that has
+    never seen the language cannot. This is the tool manual, not the answer:
+    LLMLL.md and the JSON-AST schema say what the language is, and neither says
+    anything about the target RFC. The same channel `prepare_run.py` gives the
+    minimal-agent harness.
+
+    Deliberately NOT provisioned: anything under examples/, which is where prior
+    worked instances (including their contracts and inventories) live.
+    """
+    for src in (REPO / "LLMLL.md", REPO / "docs" / "llmll-ast.schema.json"):
+        if src.exists():
+            shutil.copy2(src, wd / src.name)
+
+
 def _sources_text(ctx: Ctx) -> str:
     """The pinned bytes, presented with EXPLICIT line numbers.
 
@@ -485,6 +502,7 @@ def stage_H_feasibility(ctx: Ctx) -> None:
     solution.
     """
     wd = ctx.dir("07-feasibility")
+    _provision_reference(ctx, wd)
     out = ctx.agent.run(wd, ctx.prompt("stage-H-feasibility.md",
                                        llmll=ctx.llmll,
                                        scope=(ctx.workdir / "01-scope" / "scope.md"
@@ -594,7 +612,8 @@ def stage_K_contracts(ctx: Ctx) -> None:
     inv = ctx.workdir / "06-disposition" / "inventory-dispositioned.json"
     rows = read_json(inv)["rows"]
     encoded = [r for r in rows if r["disposition"] == "Encoded"]
-    wd = ctx.d("10-roots")
+    wd = ctx.dir("10-roots")
+    _provision_reference(ctx, wd)
     out = ctx.agent.run(
         wd,
         ctx.prompt("stage-K-contracts.md",
@@ -700,6 +719,7 @@ def stage_M_wave(ctx: Ctx) -> None:
         # which correctly refused to go looking for a tree it had not been given
         # and therefore could not verify its own work.
         shutil.copy2(wave / "roots.llmll", wd / "scratch.llmll")
+        _provision_reference(ctx, wd)
         errors = ""
         for attempt in range(1, ctx.semantic_retries + 1):
             brief = _checkout(ctx, tree, pointer, wd)
@@ -886,6 +906,7 @@ def stage_N_killmatrix(ctx: Ctx) -> None:
     that the contract says what the RFC says.
     """
     wd = ctx.dir("13-kill-matrix")
+    _provision_reference(ctx, wd)
     tree = ctx.workdir / "12-wave" / "roots.ast.json"
     out = ctx.agent.run(wd, ctx.prompt("stage-N-mutants.md",
                                        tree=tree.read_text(encoding="utf-8"),
