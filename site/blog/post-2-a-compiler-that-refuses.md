@@ -2,12 +2,12 @@
 
 *In [Post 1](post-1-the-bugs-that-looked-correct.md) we set the goal: build a slice of
 TLS where a compiler proves the code and agents write it, so goto-fail can't ship. This
-post is the smallest working version of that loop — one function, one contract, one agent,
+post is the smallest working version of that loop: one function, one contract, one agent,
 and a compiler that says no to the bug.*
 
 ## A hole is a contract
 
-Start with what the agent is *given*. Not a blank file — a function with a specification
+Start with what the agent is *given*. Not a blank file: a function with a specification
 and a missing body. In LLMLL that is a `def-shell` with a `?body`:
 
 ```lisp
@@ -24,7 +24,7 @@ and a missing body. In LLMLL that is a `def-shell` with a `?body`:
 The `post` is the invariant goto-fail broke, written down: *if the result is `Verified`,
 then the signature check `sig` was `Continue`.* The `?body` is the agent's job.
 
-When an agent checks that hole out, here is what it receives (abridged — the full
+When an agent checks that hole out, here is what it receives (abridged; the full
 brief also lists the remaining constructors, the type definitions, and staleness
 hashes; nothing in it is a hint):
 
@@ -49,24 +49,24 @@ hashes; nothing in it is a hint):
 
 (That `"status": "hole"` matters more than it looks: an early brief presented the
 function being filled as an available *filled* function, and a blind agent's answer
-was a degenerate call to itself — which type-checks, and even verifies, since a
+was a degenerate call to itself, which type-checks and even verifies, since a
 nonterminating body satisfies any contract vacuously. The brief now marks it as the
 hole, and a fill must verify *body-faithful*, so that dodge is closed.)
 
 The contract, the return type, the names in scope, and a lock token. **No worked example,
 no hint, no nudge toward the answer.** The agent gets the same thing a careful engineer
 would get from a ticket: here is the invariant, here are your materials, write the body.
-This matters for what comes next — if the demo fed the agent the answer, the compiler's
+This matters for what comes next: if the demo fed the agent the answer, the compiler's
 verdict would prove nothing.
 
 ## The agent writes a body; the compiler judges it
 
-Say the agent returns the correct body — deliver `Verified` only on the `Continue` arm:
+Say the agent returns the correct body, delivering `Verified` only on the `Continue` arm:
 
 ```lisp
   (match sig ((Continue) Verified) ((Abort c) (Rejected c)))
 ```
-when the hole is filled as such 
+when the hole is filled as such
 ```lisp
 (def-shell finalize [sig: Step payload: int] -> Verdict
   ;; return Verified ⇒ sig was Continue
@@ -85,7 +85,12 @@ $ llmll verify finalize.llmll
 contract, it proved the *body* establishes it. The one path that returns `Verified` is the
 one where `sig` was `Continue`.
 
-Now say the agent makes the goto-fail mistake — returns `Verified` no matter what `sig`
+Note which pass that is. `llmll build` gates on types and then emits Haskell, so it will
+compile the broken body below without complaint. The proof is its own command, and the loop
+in this series runs both. Everything that follows is the verifier's verdict, not a build
+error.
+
+Now say the agent makes the goto-fail mistake and returns `Verified` no matter what `sig`
 was, the way the real code returned `err = 0` on every path:
 
 ```lisp
@@ -101,7 +106,7 @@ error: body verification of 'finalize' failed
        (else-branch does not satisfy postcondition) (constraint #1)
 ```
 
-**Refused** — and the solver names the branch: the `Abort` arm. It found the exact input
+**Refused**, and the solver names the branch: the `Abort` arm. It found the exact input
 the real bug shipped on (`sig = Abort`, `result = Verified`) and reported that it violates
 the contract. This is not a lint warning you can turn off or a test case someone forgot to
 add. The postcondition makes the body that skips the check the one body that does *not*
@@ -113,14 +118,14 @@ That is the whole loop, in miniature:
 
 1. A specification exists as something the compiler enforces, not as a comment.
 2. An agent, given only that specification, writes a body.
-3. The compiler proves the body meets the spec — or refuses it and points at the flaw.
+3. `verify` proves the body meets the spec, or refuses it and points at the flaw.
 
 The agent proposes; the compiler disposes. Neither half is new on its own. The
 combination is a way to let something fast and fallible write code, and still get a
-result you can stand behind — because the fast, fallible thing does not get the last word.
+result you can stand behind, because the fast, fallible thing does not get the last word.
 
 The obvious objection is that `finalize` is one small function, and real protocols are
 thousands of them calling each other. That is exactly right, and it is
 [Post 3](post-3-composition-and-the-missing-bound.md): what happens to the guarantee when
-one function's correctness depends on another's — which is where the *other* famous bug,
+one function's correctness depends on another's, which is where the *other* famous bug,
 Heartbleed, lived.

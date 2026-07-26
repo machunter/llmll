@@ -1,0 +1,68 @@
+# Publishes the blog series in `site/` to GitHub Pages.
+#
+# Why this workflow exists at all: classic Pages ("deploy from a branch") can only
+# serve the repository root or `/docs`. The site used to live in `docs/`, mixed in
+# with the roadmap, design proposals, and schemas. Moving it to `site/` separates
+# published pages from working material, and costs this workflow.
+#
+# `actions/jekyll-build-pages` is deliberate, not incidental. It builds with the
+# `github-pages` gem, which supplies the default plugins the posts depend on:
+#   - jekyll-optional-front-matter — the posts carry NO front matter on purpose, so
+#     that GitHub's repository view does not render a metadata table above each one.
+#     Without this plugin they are copied as raw files instead of rendered.
+#   - jekyll-relative-links — rewrites the posts' relative `*.md` cross-links to
+#     `.html`. Without it every link between posts 404s.
+#   - jekyll-titles-from-headings — derives each page title from its first heading,
+#     which is what keeps browser tab titles correct given the absent front matter.
+# A bare `jekyll build` has none of these and produces a broken site that still
+# exits 0, so the failure would be silent. Keep this action.
+#
+# ONE-TIME MANUAL STEP: in repository Settings → Pages, set Source to
+# "GitHub Actions". Until that is done this workflow runs green and publishes
+# nothing, because the branch-based deployment stays authoritative.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway; a cancelled deploy
+# can leave the Pages environment on a half-published state.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./site
+          destination: ./_site
+
+      - uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

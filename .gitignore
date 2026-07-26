@@ -59,3 +59,8 @@ tools/llmll-orchestra/.env
 
 # ctags index (editor-local, regenerated)
 tags
+
+# Jekyll build output for the blog in site/ (generated; the published copy is
+# built by .github/workflows/pages.yml, never committed)
+_site/
+.jekyll-cache/

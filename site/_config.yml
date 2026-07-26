@@ -1,14 +1,22 @@
 # GitHub Pages configuration.
 #
-# The site is the blog series and nothing else. Everything else under docs/ is
-# working material (design proposals, findings, the roadmap, schemas) that reads
-# fine on GitHub but is not a published site, so it is excluded below rather than
-# rendered into pages nobody linked to.
+# The site is the blog series and nothing else. It lives in `site/`, not `docs/`,
+# and that separation is the point: `docs/` is working material (design proposals,
+# the roadmap, schemas) that reads fine on GitHub but is not published. This file
+# used to carry an `exclude:` list naming every working doc one by one, which meant
+# every new design doc silently became a published page until someone remembered to
+# add it here. Directory separation is the fix; there is nothing left to exclude.
 #
-# `jekyll-relative-links` is enabled by default on GitHub Pages and rewrites the
-# posts' relative `*.md` links to their `.html` equivalents, which is why the
-# cross-post links work unchanged. Links that point outside docs/ are absolute
-# GitHub URLs for the same reason: this site only serves docs/.
+# Serving `site/` instead of `/` or `/docs` requires the GitHub Actions deployment
+# in `.github/workflows/pages.yml` — classic branch-and-folder Pages can only serve
+# the repository root or `/docs`.
+#
+# `jekyll-relative-links` rewrites the posts' relative `*.md` links to their `.html`
+# equivalents, which is why the cross-post links work unchanged. Links that point
+# outside this directory are absolute GitHub URLs for the same reason: the site
+# only serves `site/`. That plugin is a GitHub Pages default and is supplied by the
+# `github-pages` gem, so the workflow must build with `actions/jekyll-build-pages`
+# rather than a bare `jekyll build` — see the note in the workflow.
 
 title: LLMLL
 description: >-
@@ -16,19 +24,6 @@ description: >-
   specification.
 theme: minima
 lang: en
-
-# Serve only the blog. These still live in the repository and render on GitHub.
-exclude:
-  - archive/
-  - design/
-  - compiler-team-roadmap.md
-  - getting-started.md
-  - one-pager.md
-  - orchestrator-walkthrough.md
-  - UPDATE-PROTOCOL.md
-  - llmll-ast.schema.json
-  - llmll-trust-report.schema.json
-  - proof-artifact.schema.json
 
 # minima's header is overridden in _includes/header.html, so this key is not
 # what suppresses the page nav. Left documented rather than deleted because an

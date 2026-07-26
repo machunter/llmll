@@ -95,7 +95,7 @@ is refuted.
 ## On the concurrency behaviour
 
 The wave's re-derivation of the whole-file compare-and-swap is not a new finding.
-`docs/blog/post-4-who-writes-the-decomposition.md` had already stated it plainly, and the
+`site/blog/post-4-who-writes-the-decomposition.md` had already stated it plainly, and the
 harness was built without reading it. What this run adds is an independent confirmation and a
 measured cost: the first wave wedged fourteen holes and discarded at least one correct body
 because of it.

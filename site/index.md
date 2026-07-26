@@ -4,16 +4,15 @@ layout: default
 
 # Writing a verified slice of TLS, with AI agents doing the typing
 
-Two of the most consequential bugs in the web's encryption, goto-fail and Heartbleed, passed
-code review, passed their test suites, and compiled without error. Neither defect lives in a
-line. One is a path a check does not take; the other is a bound nobody wrote down.
+Who doesn't remember goto-fail and Heartbleed, the two bugs that broke the web's encryption in
+2014? They both passed code review, passed their test suites, and compiled without error.
+Neither defect lives in a line. One is a path a check does not take; the other is a bound nobody
+wrote down.
 
 This series takes the layer of TLS where both bugs actually lived and builds it so that a
 compiler **proves** each function meets a specification and **AI agents** do the authoring. It
 ends with a working slice of the protocol in which those two bug classes cannot be written and
 accepted.
-
-## Start here
 
 The series is five posts and reads in order.
 

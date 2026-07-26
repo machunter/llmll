@@ -246,7 +246,7 @@ against a whole-source hash and rejects anything older than the current file
 (`PatchAuthError: obligation context is stale`). So **the first patch to land invalidates every
 other outstanding brief**, however unrelated the holes.
 
-This was already known and written down (`docs/blog/post-4-who-writes-the-decomposition.md`:
+This was already known and written down (`site/blog/post-4-who-writes-the-decomposition.md`:
 "a module carries a whole-file compare-and-swap … application to one module is serialized").
 The first wave re-derived it the expensive way, by wedging fourteen holes, because the harness
 was built without reading it. Recorded here so the next harness does not: the cost of the
