@@ -1,6 +1,6 @@
 # bytes-bounds — index-in-bounds proven on the buffer access itself
 
-The LEVER-A1 witness (data-scope Lever A, [`docs/design/data-scope-lever-a-arrays-proposal.md`](../../docs/design/data-scope-lever-a-arrays-proposal.md)):
+The LEVER-A1 witness (data-scope Lever A, [`docs/design/data-scope-lever-a-arrays-proposal.md`](../../docs/archive/shipped-design-specs/data-scope-lever-a-arrays-proposal.md)):
 `bytes[n]` reads and writes carry PROVE-polarity obligations — index-in-bounds
 and byte value-range — discharged by the solver at the call site. The bounds
 error is caught **on the buffer access**, not via a length-proxy contract.

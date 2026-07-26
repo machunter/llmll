@@ -7,7 +7,7 @@ real subsystem, where famous-bug invariants are wired into the proof and the com
 that reintroduces them.
 
 Design & plan of record:
-[`docs/design/flagship-secure-channel-proposal.md`](../../../docs/design/flagship-secure-channel-proposal.md).
+[`docs/design/flagship-secure-channel-proposal.md`](../../../docs/archive/shipped-design-specs/flagship-secure-channel-proposal.md).
 
 **Scope limits.** Cryptographic primitives are axiomatized as opaque contracts. LLMLL verifies
 the *length / ordering / monotonicity discipline* — the integer-relational layer (QF-LIA) where

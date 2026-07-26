@@ -875,7 +875,7 @@ const array, map-op routing, F1 routing, crypto-shape inertness, cross-function 
 
 - **`bytes-length` / `bytes-get` / `bytes-set` / `bytes-zero` and `map-has` / `map-get` / `map-put` / `map-empty`
   ship as typed, compilable, runnable builtins** (LLMLL.md §13.12) — the surface stage of the data-scope Lever A
-  design ([`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/design/data-scope-lever-a-arrays-proposal.md),
+  design ([`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/archive/shipped-design-specs/data-scope-lever-a-arrays-proposal.md),
   Rev 1.1). Reads carry PROVE-polarity preconditions (index-in-bounds, key-presence) enforced at this stage as
   runtime assertions in the generated code (the §5.3.4 backstop) — a violating `bytes-get` aborts with
   `index 9 out of bounds for bytes[8]`. Typing is dedicated (`inferArrayOp`): the v1 **int-only map-key gate** is a
@@ -934,7 +934,7 @@ designed `208042`; both precondition assertions fire on violating calls.
   getting-started schema/`--help`/coverage text re-captured; XMOD-STALE closed (no long-lived `ModuleCache`
   consumer exists — `Serve.hs` is stateless per request by recorded design); four settled design docs archived with
   redirect stubs; INDEX labels refreshed.
-- New design docs: [`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/design/data-scope-lever-a-arrays-proposal.md)
+- New design docs: [`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/archive/shipped-design-specs/data-scope-lever-a-arrays-proposal.md)
   (Lever A — QF array theory for `bytes[n]`/`map[k,v]`, Rev 0, awaiting professor review) and
   [`docs/design/spec-from-rfc-pipeline.md`](docs/design/spec-from-rfc-pipeline.md) (R3 pipeline design, Rev 0;
   remaining = its §4 evaluation run, experiment-lead-owned).
@@ -1185,7 +1185,7 @@ not a tactic hint); admit different-measure mutual recursion via the common-ℕ 
   strict descent (`eᵍ[args] < eᶠ`), the `measure-not-decreasing` verdict, folding the measure into the
   evidence hash, and the strict-core admission lift are the next phase (REC-DESCENT Phase 2/3). The
   surface lands first so the AST shape and the schema bump validate on their own.
-- **Increment 3 Phase 1 of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md §c`](docs/design/rec-body-vc-proposal.md)).
+- **Increment 3 Phase 1 of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md §c`](docs/archive/shipped-design-specs/rec-body-vc-proposal.md)).
 
 ### Schema — JSON-AST 0.7.0 → 0.8.0
 
@@ -1212,7 +1212,7 @@ positional `SDefShell` sites migrated for the new field.)
   only). A recursive `def-shell` keeps whatever tier its body VC earned (typically a `verified` post at
   partial correctness) and simply carries the flag. `--trust-report` text output gains a
   `Termination-unverified (recursive, partial correctness)` section. `trust_report_version` 1.4.0 → 1.5.0.
-- **Increment 2 (a) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/design/rec-body-vc-proposal.md));
+- **Increment 2 (a) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/archive/shipped-design-specs/rec-body-vc-proposal.md));
   increments (b1) fail-closed default and (c) `(decreases …)` strict descent remain open. Makes the
   `LLMLL.md §4.2` partiality-flag claim true (it previously promised a flag that did not exist), and
   unifies the tier of a refine-path cycle with a hand-written one (cascading-refinement Option 3, now
@@ -1247,7 +1247,7 @@ refuted + termination_unverified compose. No AST schema change; `trust_report_ve
   existing `downgradeStaleVerifiedSidecar` path → the flipped `def` re-verifies fresh → its self-call
   is rejected at strict-core admission (`core-membership-violation`), exactly as a from-scratch
   recursive `def` already was (probe A).
-- **Increment 1 (b0) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/design/rec-body-vc-proposal.md));
+- **Increment 1 (b0) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/archive/shipped-design-specs/rec-body-vc-proposal.md));
   increments (a) partiality marker, (b1) fail-closed default, and (c) `(decreases …)` call-site strict
   descent remain open.
 - **Sidecar invalidation (one-time):** the `av1` → `av2` bump changes every persisted `verified_hash`,

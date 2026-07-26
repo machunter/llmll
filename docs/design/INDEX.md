@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-07-11  
+> **Last updated:** 2026-07-26  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -31,6 +31,11 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [finding-match-nullary-ctor-unsound.md](finding-match-nullary-ctor-unsound.md) | Bare nullary constructor in a match arm parses as a catch-all binder; verifier proves what codegen violates | **FIXED v0.14.66** (MATCH-NULLARY-1); blast radius was zero in-tree; unblocked the RFC-SWARM wave |
 | [finding-fq-ctor-name-collision.md](finding-fq-ctor-name-collision.md) | Binder named like a lowercased ADT constructor collides in the `.fq` namespace and crashes the solver | **FIXED v0.14.67** (FQ-CTOR-COLLIDE-1); failed closed throughout, so no verdict was affected |
 | [leanstral-integration-scope.md](leanstral-integration-scope.md) | Leanstral/Lean-tier scoping: anti-laundering guard, C-property, three-layer LEAN-GA rebuild | **Parked (LEAN-GA)** — demo subset shipped v0.14.8; production rebuild deferred, cited by the roadmap parking lot |
+| [critique-2026-07-19-triage.md](critique-2026-07-19-triage.md) | 2026-07-19 external-critique triage of `v0.14.53`; dispositions recorded inline | **Settled** — no design adjudication required; §2 is the routing table |
+| [spec-agreement-proposal.md](spec-agreement-proposal.md) | SPEC-AGREE-1: independent formalization with mechanical agreement | **Rev 0, DRAFT** — awaiting professor review |
+| [spec-agreement-review.md](spec-agreement-review.md) | Professor review of SPEC-AGREE-1 Rev 0 | **Rev 0** — standalone, not yet folded |
+| [incremental-reverify-r8-proposal.md](incremental-reverify-r8-proposal.md) | R8: dependency-scoped `patch` re-verification replacing the whole-module re-verify | **Rev 0** — both soundness premises code-verified; ready for engineer feasibility read |
+| [examples-audit-2026-07-20-compiler-followups.md](examples-audit-2026-07-20-compiler-followups.md) | Two compiler/CI defects from the full `examples/` audit (R1 sort synthesis, R2 benchmark ordering) | **BOTH RESOLVED** (R1 v0.14.62, R2 2026-07-21) — archive-eligible |
 
 ---
 

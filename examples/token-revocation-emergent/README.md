@@ -7,7 +7,7 @@ which **both origins are machine-auditable** — every contract clause carries
 was invented by a fresh, blind, tool-disabled agent through cascading `refine`
 (the emergent discipline; no reference solution ever existed).
 
-Plan of record: [`docs/design/a4-flagship-token-revocation-plan.md`](../../docs/design/a4-flagship-token-revocation-plan.md).
+Plan of record: [`docs/design/a4-flagship-token-revocation-plan.md`](../../docs/archive/shipped-design-specs/a4-flagship-token-revocation-plan.md).
 Scope + clause inventory (Q1–Q9): [`VERIFICATION_SCOPE.md`](VERIFICATION_SCOPE.md).
 
 ## Result

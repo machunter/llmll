@@ -98,9 +98,9 @@ Both major escape classes the QF-LIA core firewalls out — **nonlinear arithmet
 - **Every proof uses Mathlib** (`nlinarith`, `pow_two_nonneg`, `ring`, `simp`, `induction`) → the C-property's trusted base is **Lean kernel + Mathlib** (small, auditable — state it in the claim).
 - **Data privacy:** `labs-*` is enabled via a `/privacy` setting — Labs models carry different data-usage terms than the standard API. Fine for toy demo theorems; a governance decision before real proprietary obligations are sent.
 
-**The one open risk (not closed by Step-0):** proofs were *generated*, not *kernel-checked* (no Lean+Mathlib toolchain in the test environment). The demo's Layer-3 check loop closes it; the pre-build validation ([`leanstral-demo-spec.md §7`](leanstral-demo-spec.md)) closes it *first*.
+**The one open risk (not closed by Step-0):** proofs were *generated*, not *kernel-checked* (no Lean+Mathlib toolchain in the test environment). The demo's Layer-3 check loop closes it; the pre-build validation ([`leanstral-demo-spec.md §7`](../archive/shipped-design-specs/leanstral-demo-spec.md)) closes it *first*.
 
-**Decision: the demo is greenlit.** Spec: [`leanstral-demo-spec.md`](leanstral-demo-spec.md).
+**Decision: the demo is greenlit.** Spec: [`leanstral-demo-spec.md`](../archive/shipped-design-specs/leanstral-demo-spec.md).
 
 ### 8.1 Kernel-check + retry validation (2026-07-04)
 
