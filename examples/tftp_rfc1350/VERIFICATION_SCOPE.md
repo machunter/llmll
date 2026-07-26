@@ -141,6 +141,16 @@ The original quantitative STOP was a ratio ceiling (no more than ~30% of rows di
 
 **All conditions pass. The target stands on the corrected instrument.**
 
+> **Correction (2026-07-26, after the second run).** The 95.4% above **overstates** coverage.
+> 14 of the 26 C3 rows are counted as carried under `Deployment-modeled` while their own model
+> notes record that the asserted content is not represented ("the 2-byte field width is not
+> represented", "ErrMsg and its zero byte are dropped"). By this document's own rule such a row
+> carries no verification evidence and should be excluded, not counted. Removing the 11
+> unambiguous cases gives **51/65 = 78.5%**; removing 3 further borderline cases gives 73.8%.
+> The RFC 826 run classified the identical row shape as excluded and applied the rule more
+> faithfully than this pass did. The inventory below is left as published; the correction is
+> recorded in [`experiments/rfc-swarm/SUMMARY.md`](../../experiments/rfc-swarm/SUMMARY.md).
+
 For completeness, the raw ledger ratios: Encoded 46/124 = 37.1%, dispositioned out 53/124 = 42.7%. These are reported, not graded: the denominator counts obligations of every genre, including 40 rows about timing and transport that no body-level verifier of any language carries.
 
 ### The closed barrier list

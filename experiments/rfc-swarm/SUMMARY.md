@@ -58,13 +58,52 @@ all 6 good twins surviving.**
 
 ## The honest weaknesses
 
-**Coverage is not stable across targets: 95.4% then 55.3%.** This is the most important
-number in the table and it is the one that bounds the repeatability claim. The gate passes in
-both cases because coverage is *reported and never thresholded*, which remains the right
-design, but a swing of forty points means "the process reproduces" is a claim about shape, not
-about yield. Whether ARP genuinely fits the shipped fragment worse, or its disposition agent
-was simply more conservative than the human pass on TFTP, is answerable from the 48 recorded
-barriers and **has not been answered**.
+**Coverage is not stable across targets, and about half of that instability was our own
+measurement error.** The published figures were 95.4% (TFTP) and 55.3% (ARP). Reading ARP's 48
+exclusions to find out which explanation held produced an answer that corrects TFTP rather
+than ARP.
+
+TFTP counted 14 of its 26 format rows as carried under `Deployment-modeled`. Their own model
+notes say what the model does with the asserted content: *"the 2-byte field width is not
+represented"*, *"byte widths are not represented"*, *"ErrMsg and its zero byte are dropped"*,
+*"the NUL-terminated wire layout stays in the decoder"*. The playbook's own rule is that a row
+the model cannot exercise carries no verification evidence and must be excluded rather than
+counted. No mutant can get *"the opcode field is 2 bytes"* wrong in a model with no byte
+widths. **ARP's agent classified the identical row shape as excluded under B5, and applied our
+rule more faithfully than the human pass did.**
+
+Correcting TFTP on the 11 unambiguous cases (3 more are borderline, pinning a value while
+dropping the layout):
+
+| | carried / verifiable | |
+|---|---|---|
+| TFTP as published | 62/65 | **95.4%** |
+| TFTP, 11 pure drops removed | 51/65 | **78.5%** |
+| TFTP, 3 borderline also removed | 48/65 | 73.8% |
+| ARP, as the agent ruled | 42/76 | **55.3%** |
+
+So the 40-point gap is really **19 to 23 points**, and the remainder is genuinely the target.
+The mechanism is specific and worth stating, because it predicts which RFCs suit this method:
+**TFTP's wire fields are fixed-length; ARP's are length-driven.** ARP's `ar$hln`/`ar$pln` set
+the widths and offsets of the four address fields, so locating them needs the arithmetic
+`8 + 2*ar$hln + ar$pln` over a byte sequence, which the fragment does not reach. That single
+structural fact accounts for 22 of ARP's 34 excluded C1-C3 rows.
+
+The agent was also more honest than the headline. Its reason for excluding A89 reads: *"The
+classic length-confusion failure lives here and no result may claim resistance to it."* That is
+the Heartbleed class, in the one protocol where it genuinely applies, explicitly disclaimed
+rather than quietly counted.
+
+A small effect runs the other way: ARP excluded three rows (A4, A6, A7) binding opcode names to
+their numerals, modelling opcodes as distinct uninterpreted constants instead. TFTP pinned those
+numerals and counted them. Under TFTP's choice ARP would reach 45/76 = 59.2%. That is a
+legitimate modelling difference, not an error on either side.
+
+**Consequence for the claim.** The corrected reading is that this method carries roughly
+55-80% of verifiable subject matter depending on whether the target's wire format is
+fixed-length, and that the earlier 95.4% overstated it. The TFTP inventory is left as
+published, per the pre-registration discipline of recording outcomes rather than editing prior
+artifacts; this section is the correction.
 
 **Agreement fell too** (kappa 0.938 to 0.824). The extractors agreed less about which rubric
 rule applies. Line coverage, the statistic that speaks to the completeness of the denominator,
