@@ -3,6 +3,9 @@
 Given an RFC, an agent builds the specification, then a swarm of blind agents builds the
 implementation, and the compiler proves the implementation satisfies the specification.
 
+**Start here: [`SUMMARY.md`](SUMMARY.md)** is the cross-run answer — both runs side by side,
+what is established, what is not, and where the claim is weakest.
+
 **The process is the deliverable, not any one protocol artifact.** The procedure is
 [`docs/design/rfc-swarm-playbook.md`](../../docs/design/rfc-swarm-playbook.md) (why each stage
 exists) and [`scripts/rfc_to_implementation.py`](../../scripts/rfc_to_implementation.py) (how to
@@ -70,10 +73,12 @@ A killed mutant is **eliminative** evidence: it proves the contract excludes one
 behavior. An unkilled mutant set proves nothing, and an agreement rate rises as contracts get
 weaker. Report detection yield, with witnesses.
 
-## The worked instance
+## The worked instances
 
-TFTP (RFC 1350 + RFC 1123 §4.2.3.1), run by hand in 2026-07, which is where the playbook and
-this driver come from.
+**TFTP** (RFC 1350 + RFC 1123 §4.2.3.1) is where the playbook and this driver come from; its
+contracts were authored by hand and only the fill wave was agent-driven. **ARP** (RFC 826) is
+the first run where agents did every stage, contracts included:
+[`runs/rfc826/RESULTS.md`](runs/rfc826/RESULTS.md).
 
 | Artifact | |
 |---|---|
