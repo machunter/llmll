@@ -58,6 +58,7 @@ Structured patches to a typed AST, validated before merge. Fine-grained, determi
 | "Agents can write good specs" | Spec quality is the bottleneck, not code generation |
 | "Verification solves hallucination" | It filters *some* hallucinations. Doesn't solve wrong specs, missing invariants, bad decomposition |
 | "Small language removes training need" | Learning shifts from implementation to specification. Doesn't disappear |
+| "CDP confirms the contract is correct" | CDP measures a contract's *discriminative power*: it catches a vacuous or non-discriminating contract (one a trivial or arbitrary body satisfies), not an incorrect one. A discriminative-but-wrong contract passes CDP and the code still verifies against it; spec adequacy is not mechanized |
 
 ---
 

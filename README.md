@@ -84,7 +84,7 @@ Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-f
 
 LLMLL treats **verification as the coordination protocol**. A lead agent defines types and contracts (the *what*); specialist agents fill typed holes with the *how*; the compiler verifies each fill against its contract before merging. Agents trust each other's *contracts*, not each other's *code*. Merges are structured JSON-AST patches, not text diffs — so there are no structural merge conflicts, and every patch is re-verified before it lands.
 
-**It does not claim program correctness.** It guarantees that all code is *consistent with its declared specifications*, and it tracks how strong each guarantee is: a `verified` contract was proven by the SMT solver; an `asserted` one was not. Trust propagates — no `verified` claim silently rests on an unproven dependency. The weakness checker (`--weakness-check`) even flags a contract so weak that a trivial implementation satisfies it.
+**It does not claim program correctness.** It guarantees that all code is *consistent with its declared specifications*, and it tracks how strong each guarantee is: a `verified` contract was proven by the SMT solver; an `asserted` one was not. Trust propagates — no `verified` claim silently rests on an unproven dependency. The weakness checker (`--weakness-check`) even flags a contract so weak that a trivial implementation satisfies it. Its discriminative-power sibling (`--cdp`) scores how sharply a contract rules out wrong bodies. Both checks measure *non-vacuity, not spec fidelity*: a contract that is discriminative yet captures the wrong behavior still passes, and the code still verifies against it.
 
 ---
 

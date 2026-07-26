@@ -888,6 +888,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` in the module (position does not matter) before relying on any `wasi.io.*` call |
+| `(open ...)` placed after a `def` that uses its bare names | `typecheck` passes with only a warning; `verify` and `build` fail with `error: call to unknown function` | Put `open` before any `def`/`def-shell` relying on its bare names (unlike `import`/`export`, `open` is order-sensitive) |
 
 > [!NOTE]
 > **`(module ...)` imports — position and capability.** `import` statements are collected regardless of
@@ -959,6 +960,33 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 
 > [!WARNING]
 > **Open shadowing.** If two `(open ...)` declarations export the same name, the second wins (last wins, LISP-style). The compiler emits a `WARNING` diagnostic. Use prefixed access when two modules share a function name.
+
+> [!WARNING]
+> **`open` ordering, and why `typecheck` will not catch it.** `import` and `export` are collected
+> regardless of position (above), but `(open ...)` is **not**: the type-checker walks statements in
+> order, so an `open` injects a module's bare names only into the scope of the statements that
+> **follow** it. An `open` placed after a `def` that calls one of those bare names leaves the call
+> unresolved.
+>
+> Where that surfaces is the trap (verified against v0.14.67): `llmll typecheck` **exits 0** and
+> reports only `warning: call to unknown function 'f'`, while `llmll verify` and `llmll build` both
+> **exit 1** with `error: call to unknown function 'f'`. A green typecheck is not evidence the
+> ordering is right. Put `open` declarations before any `def` or `def-shell` that relies on the bare
+> names they bring into scope.
+>
+> ```lisp
+> ;; CORRECT: open before the def that uses its bare names
+> (module good
+>   (import mylib)
+>   (open mylib)
+>   (def-shell use-it [n: int] -> int (inc n)))
+>
+> ;; WRONG: 'inc' is unresolved in use-it; typecheck still passes, verify and build fail
+> (module bad
+>   (import mylib)
+>   (def-shell use-it [n: int] -> int (inc n))
+>   (open mylib))
+> ```
 
 #### `export` — restrict what a module exposes
 
