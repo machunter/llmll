@@ -29,7 +29,7 @@ implementation came from agents reading the RFC text and the language reference.
 | RFC-COV-1 at freeze | **PASS** 39/39 Encoded, 19/19 core | PASS 46/46, 15/15 |
 | feasibility probes | **6/6** verify, 6/6 mutants refute | 4/4 |
 | implementation | **22/22 verified**, whole tree SAFE | 23/23 |
-| kill matrix | **14/14 refuted, 5/5 good twins SAFE, no survivors** | 8/8, 1/1 |
+| kill matrix | **14/14 refuted, 5/5 good twins SAFE, 1 unwritable, no survivors** | 8/8, 1/1 |
 
 ## The number that matters most
 
@@ -101,6 +101,31 @@ unfrozen surface with nothing stopping them. A stage is now skipped only when th
 The first two are the same mistake twice: a tool written during the first run hardcoding that
 target's incidental conventions. That is the clearest argument that the repeatability claim
 could not have been trusted before a second RFC was actually run through it.
+
+## Stages N and O, completed afterwards
+
+The first pass left two stages unfinished: stage N produced its mutants but never wrote the
+catalogue, and stage O never ran. Both prompts were corrected and re-run, so all fifteen stages
+have now completed under the driver.
+
+**The agent's kill matrix cross-checks the hand scoring exactly: 19 overlapping entries, zero
+disagreements.** It also carries one entry the hand pass dropped, `vector-reply-mismatch`,
+marked `unwritable` because no clause in the frozen surface cites A90 and there is therefore
+nothing for the perturbation to violate. Keeping it in the denominator rather than globbing
+only for mutant files is the more honest accounting, and the agent did it unprompted.
+
+The agent-written report is [`REPORT-agent-written.md`](REPORT-agent-written.md). It holds the
+claim discipline its prompt demands, on every point: class-stratified coverage rather than the
+raw ledger ratio, 19/19 core, survivors reported, the unwritable entry left visible, the
+trusted step disclosed, what is not claimed stated, evidence named as eliminative, the
+saturated benchmark acknowledged, and no framing of the result as verification catching agents
+out.
+
+Three things it does that the prompt did not ask for: it recomputed every figure from the
+artifacts rather than copying stage output and said so; it re-verified the tree cold in a fresh
+directory with no `.verified.json` sidecar, which is exactly the stale-cache trap this project
+has hit before; and it pinned the pre-registration by hash and confirmed it had not been edited
+after the run.
 
 ## Reproducing
 

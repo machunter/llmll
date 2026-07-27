@@ -1,0 +1,288 @@
+[
+ {
+  "name": "promiscuous-cache",
+  "file": "m-promiscuous-cache.ast.json",
+  "prereg": "S5.3 #1",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A55",
+   "A57"
+  ],
+  "site": "arp-add",
+  "operator": "CC1 O1 guard-drop",
+  "bug": "arp-add drops the owns-target? guard: the body becomes (Bound sha) unconditionally, so the <protocol type, sender protocol address, sender hardware address> triplet is added whether or not the receiver owns ar$tpa."
+ },
+ {
+  "name": "merge-after-opcode",
+  "file": "m-merge-after-opcode.ast.json",
+  "prereg": "S5.3 #2",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A64",
+   "A53"
+  ],
+  "site": "arp-merge",
+  "operator": "CC1 O3 order-swap",
+  "bug": "arp-merge guards the merge on the opcode: (if (= op Req) (Bound sha) (Bound key-hw)), so an existing entry is updated only from a REQUEST and a received REPLY leaves the table unchanged.",
+  "scope_note": "The registered change names both the target test and the opcode test. arp-merge's signature carries no owns-target? parameter, so only the opcode half is writable at this site; the target-test half is not expressed."
+ },
+ {
+  "name": "old-address-wins",
+  "file": "m-old-address-wins.ast.json",
+  "prereg": "S5.3 #3",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A65",
+   "A53"
+  ],
+  "site": "arp-merge",
+  "operator": "CC1 O4 update-suppress",
+  "bug": "arp-merge returns (Bound key-hw): the existing entry keeps its stored hardware address instead of being superseded by ar$sha."
+ },
+ {
+  "name": "reply-to-reply",
+  "file": "m-reply-to-reply.ast.json",
+  "prereg": "S5.3 #4",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A58",
+   "A77"
+  ],
+  "site": "arp-emission",
+  "operator": "CC1 O1 guard-drop",
+  "bug": "arp-emission drops the opcode match and returns (Unicast sha) for every opcode inside the guard, so a received REPLY provokes a packet."
+ },
+ {
+  "name": "reply-ignores-tpa",
+  "file": "m-reply-ignores-tpa.ast.json",
+  "prereg": "S5.3 #5",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A81",
+   "A55",
+   "A57"
+  ],
+  "site": "arp-add",
+  "operator": "CC1 O1 guard-drop",
+  "bug": "arp-add dispatches on the opcode and the Rep arm returns (Bound sha) without the owns-target? test, so processing a REPLY takes the add branch without the ar$tpa ownership test while REQUEST keeps it. This is the formal shadow of R3."
+ },
+ {
+  "name": "unicast-request",
+  "file": "m-unicast-request.ast.json",
+  "prereg": "S5.3 #6",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A42"
+  ],
+  "site": "arp-request-emit",
+  "operator": "CC1 O7 delivery-scope-flip",
+  "bug": "arp-request-emit returns (Unicast 0) on the table miss instead of Broadcast, so the generated request goes to a single hardware address rather than to all stations on the cable."
+ },
+ {
+  "name": "reply-broadcast",
+  "file": "m-reply-broadcast.ast.json",
+  "prereg": "S5.3 #7",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A62",
+   "A88"
+  ],
+  "site": "arp-emission",
+  "operator": "CC1 O7 delivery-scope-flip",
+  "bug": "arp-emission's Req arm returns Broadcast instead of (Unicast sha), so the reply is broadcast rather than sent to the hardware address now held in the target hardware address field."
+ },
+ {
+  "name": "reply-fields-swapped",
+  "file": "m-reply-fields-swapped.ast.json",
+  "prereg": "S5.3 #8",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A59",
+   "A60"
+  ],
+  "site": "arp-reply-spa",
+  "operator": "CC1 O6 field-substitute",
+  "bug": "arp-reply-spa returns spa instead of tpa, so the reply keeps the requester's protocol address in the sender field and carries no mapping for the replying station."
+ },
+ {
+  "name": "discard-suppressed",
+  "file": "m-discard-suppressed.ast.json",
+  "prereg": "S5.3 #9",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A46",
+   "A47",
+   "A49"
+  ],
+  "site": "arp-emission",
+  "operator": "CC1 O8 discard-suppress",
+  "bug": "arp-emission drops the (and supports? speaks?) conjunct from its guard, so a failed hardware-type or protocol test continues to the emission branch instead of ending processing and discarding the packet.",
+  "scope_note": "Written at the emission locus, which carries A46. The table-side discards A47 and A49 sit on arp-frame and are deliberately not touched: one change per mutant."
+ },
+ {
+  "name": "tha-sensitive-receive",
+  "file": "m-tha-sensitive-receive.ast.json",
+  "prereg": "S5.3 #10",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A82"
+  ],
+  "site": "arp-merge",
+  "operator": "CC1 O9 irrelevant-field-sensitivity",
+  "bug": "arp-merge returns (Bound tha), so the receive step's table effect depends on ar$tha, a field the request form leaves a don't-care."
+ },
+ {
+  "name": "merge-key-substituted",
+  "file": "m-merge-key-substituted.ast.json",
+  "prereg": "S5.3 #11",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A52",
+   "A79"
+  ],
+  "site": "arp-add",
+  "operator": "CC1 O5 branch-substitute",
+  "bug": "arp-add stores (Bound tha) rather than (Bound sha) under the <ar$pro, ar$spa> key, so the table is updated from the target hardware field instead of the sender hardware field."
+ },
+ {
+  "name": "hln-constant-wrong",
+  "file": "m-hln-constant-wrong.ast.json",
+  "prereg": "S5.3 #12",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A34",
+   "A67"
+  ],
+  "site": "arp-request-hln",
+  "operator": "CC3 O10 constant-substitute",
+  "bug": "arp-request-hln returns LenOther instead of Six, so a generated Ethernet request carries a value other than 6 in ar$hln."
+ },
+ {
+  "name": "op-constant-swap",
+  "file": "m-op-constant-swap.ast.json",
+  "prereg": "S5.3 #13",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A17",
+   "A36",
+   "A61"
+  ],
+  "site": "arp-request-op, arp-reply-op",
+  "operator": "CC3 O11 constant-swap",
+  "bug": "arp-request-op returns Rep and arp-reply-op returns Req: the REQUEST and REPLY code points are exchanged in generation and in the reply.",
+  "scope_note": "Two bodies change because the registered operator is itself a swap of one pair of constants across its two sites. It is one mutation, not two."
+ },
+ {
+  "name": "reply-drops-parameters",
+  "file": "m-reply-drops-parameters.ast.json",
+  "prereg": "S5.3 #14",
+  "good_twin": false,
+  "expected": "refuted",
+  "targets": [
+   "A76",
+   "A66"
+  ],
+  "site": "arp-request-pln",
+  "operator": "CC3 O12 field-preservation-drop",
+  "bug": "arp-request-pln returns the constant Six instead of pln-of-hrd-pro, so the protocol-address length is not carried through from the determined length of the hardware/protocol pair.",
+  "scope_note": "Partial against the registered wording, and the shortfall is stated rather than absorbed. The registered change is that THE REPLY fails to carry ar$hrd, ar$pro, ar$hln, ar$pln through unchanged. The implemented tree has no arp-reply-hrd, arp-reply-pro, arp-reply-hln or arp-reply-pln function, so the reply-side half of the registered change has no site and is not exercised by this entry. The mutation is written instead at arp-request-pln, the carrier of registered target row A76, so the entry does put field-preservation pressure on a registered target; it puts none on the reply side. Registered target A66 sits on arp-request-hrd and is not touched, so A66 is not expected to be among the refuting clauses."
+ },
+ {
+  "name": "vector-reply-mismatch",
+  "file": null,
+  "prereg": "S5.3 #15",
+  "good_twin": false,
+  "expected": "refuted",
+  "unwritable": true,
+  "targets": [
+   "A90"
+  ],
+  "site": null,
+  "operator": "CC5 O13 vector-field-perturbation",
+  "bug": "Registered change: instantiated at the worked example's field values (RFC 826 lines 382-401), the constructed reply differs from the example's stated reply in ar$tha.",
+  "reason": "Unwritable in the implemented tree. Row A90 is Vectored, not Encoded, and no clause in the 42-clause :source surface instantiates the worked example at any concrete field values, so no contract can refute a perturbation of it. Mutating arp-reply-tha instead would be refuted by A83, a row this entry does not target, and would report the vector as instrumented when it is not: that is the mutation-lands-somewhere-else failure, not a kill. The entry is retained and stays in the 15-mutant denominator per the closed taxonomy (prereg S5.3 #15 anticipates this outcome explicitly).",
+  "scorer_note": "Having no file, this entry is invisible to score826.py's m-*.ast.json glob. It must be re-added from taxonomy.json when the matrix is assembled, or the mutant denominator reads 14 instead of the registered 15."
+ },
+ {
+  "name": "good-twin-unsolicited-reply-merges",
+  "file": "m-good-twin-unsolicited-reply-merges.ast.json",
+  "prereg": "S5.4 G1",
+  "good_twin": true,
+  "expected": "SAFE",
+  "targets": [],
+  "site": "arp-merge",
+  "related_rows": [
+   "A53",
+   "A64"
+  ],
+  "bug": "Correct variant, must stay SAFE. arp-merge dispatches on the opcode and every arm returns (Bound sha), making explicit that a REPLY merges into an existing entry exactly as a REQUEST does. RFC 826 lines 209-213 and 227-234 require this merge and lines 441-447 rely on it for recovery. A kill would mean a contract imported a check RFC 826 never specifies, most likely the frame-header check Stage B excludes as X7. This is the entry that catches a contract set which has quietly proved a better protocol than the one from 1982."
+ },
+ {
+  "name": "good-twin-tha-arbitrary",
+  "file": "m-good-twin-tha-arbitrary.ast.json",
+  "prereg": "S5.4 G2",
+  "good_twin": true,
+  "expected": "SAFE",
+  "targets": [],
+  "site": "arp-merge",
+  "related_rows": [
+   "A40",
+   "A41",
+   "A82"
+  ],
+  "bug": "Correct variant, must stay SAFE. arp-merge reads ar$tha syntactically, (if (= tha 0) (Bound sha) (Bound sha)), while the result stays invariant in it. Line 389 marks ar$tha a don't-care in the request form, so a body may mention the field as long as the table effect does not depend on it. A kill would mean a contract forbids the mention rather than the dependence."
+ },
+ {
+  "name": "good-twin-optional-checks-omitted",
+  "file": "m-good-twin-optional-checks-omitted.ast.json",
+  "prereg": "S5.4 G3",
+  "good_twin": true,
+  "expected": "SAFE",
+  "targets": [],
+  "site": "arp-hln-check, arp-pln-check",
+  "related_rows": [
+   "A48",
+   "A50"
+  ],
+  "bug": "Correct variant, must stay SAFE. Both optional length checks return true unconditionally: a receiver that performs neither check. RFC 826 lines 205 and 208 say optionally, and A48/A50 are non-rejection lemmas, so returning true satisfies them. A kill would mean a contract made an optional check mandatory."
+ },
+ {
+  "name": "good-twin-multi-owner-target",
+  "file": "m-good-twin-multi-owner-target.ast.json",
+  "prereg": "S5.4 G4",
+  "good_twin": true,
+  "expected": "SAFE",
+  "targets": [],
+  "site": "arp-reply-spa",
+  "related_rows": [
+   "MD3",
+   "A55",
+   "A60"
+  ],
+  "bug": "Correct variant, must stay SAFE. arp-reply-spa returns (if (= spa tpa) spa tpa), which is tpa on both branches, since the then-branch is reached only when spa equals tpa: a station owning several protocol addresses replies with the matched ar$tpa as its ar$spa. This is the reading fixed as MD3 and supported by the example at lines 393-401. It also tests that the verifier reasons under the branch guard rather than matching syntax."
+ },
+ {
+  "name": "good-twin-structural-variant",
+  "file": "m-good-twin-structural-variant.ast.json",
+  "prereg": "S5.4 G5",
+  "good_twin": true,
+  "expected": "SAFE",
+  "targets": [],
+  "site": "arp-emission",
+  "related_rows": [],
+  "bug": "Correct variant, must stay SAFE. arp-emission's opcode dispatch is written as an if chain, (if (= op Req) (Unicast sha) Silent), where the implemented body uses a three-arm match whose Rep and OpOther arms are both Silent. Behaviour is identical. A kill would mean a contract fixes syntax rather than behaviour."
+ }
+]

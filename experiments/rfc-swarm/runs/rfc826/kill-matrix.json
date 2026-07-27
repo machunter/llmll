@@ -1,116 +1,142 @@
 [
  {
-  "name": "discard-suppressed",
+  "name": "promiscuous-cache",
   "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "good-twin-multi-owner-target",
-  "good_twin": true,
-  "verdict": "SAFE",
-  "as_expected": true
- },
- {
-  "name": "good-twin-optional-checks-omitted",
-  "good_twin": true,
-  "verdict": "SAFE",
-  "as_expected": true
- },
- {
-  "name": "good-twin-structural-variant",
-  "good_twin": true,
-  "verdict": "SAFE",
-  "as_expected": true
- },
- {
-  "name": "good-twin-tha-arbitrary",
-  "good_twin": true,
-  "verdict": "SAFE",
-  "as_expected": true
- },
- {
-  "name": "good-twin-unsolicited-reply-merges",
-  "good_twin": true,
-  "verdict": "SAFE",
-  "as_expected": true
- },
- {
-  "name": "hln-constant-wrong",
-  "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
   "as_expected": true
  },
  {
   "name": "merge-after-opcode",
   "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "merge-key-substituted",
-  "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
   "as_expected": true
  },
  {
   "name": "old-address-wins",
   "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "op-constant-swap",
-  "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "promiscuous-cache",
-  "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "reply-broadcast",
-  "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "reply-drops-parameters",
-  "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "reply-fields-swapped",
-  "good_twin": false,
-  "verdict": "refuted",
-  "as_expected": true
- },
- {
-  "name": "reply-ignores-tpa",
-  "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
   "as_expected": true
  },
  {
   "name": "reply-to-reply",
   "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
   "as_expected": true
  },
  {
-  "name": "tha-sensitive-receive",
+  "name": "reply-ignores-tpa",
   "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
   "as_expected": true
  },
  {
   "name": "unicast-request",
   "good_twin": false,
+  "killed": true,
   "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-broadcast",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-fields-swapped",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "discard-suppressed",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "tha-sensitive-receive",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "merge-key-substituted",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "hln-constant-wrong",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "op-constant-swap",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "reply-drops-parameters",
+  "good_twin": false,
+  "killed": true,
+  "verdict": "refuted",
+  "as_expected": true
+ },
+ {
+  "name": "vector-reply-mismatch",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "Unwritable in the implemented tree. Row A90 is Vectored, not Encoded, and no clause in the 42-clause :source surface instantiates the worked example at any concrete field values, so no contract can refute a perturbation of it. Mutating arp-reply-tha instead would be refuted by A83, a row this entry does not target, and would report the vector as instrumented when it is not: that is the mutation-lands-somewhere-else failure, not a kill. The entry is retained and stays in the 15-mutant denominator per the closed taxonomy (prereg S5.3 #15 anticipates this outcome explicitly)."
+ },
+ {
+  "name": "good-twin-unsolicited-reply-merges",
+  "good_twin": true,
+  "killed": false,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-tha-arbitrary",
+  "good_twin": true,
+  "killed": false,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-optional-checks-omitted",
+  "good_twin": true,
+  "killed": false,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-multi-owner-target",
+  "good_twin": true,
+  "killed": false,
+  "verdict": "SAFE",
+  "as_expected": true
+ },
+ {
+  "name": "good-twin-structural-variant",
+  "good_twin": true,
+  "killed": false,
+  "verdict": "SAFE",
   "as_expected": true
  }
 ]
