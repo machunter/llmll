@@ -1,3 +1,8 @@
+---
+name: contract-clause-refactor
+archive-disposition: deferred
+---
+
 # Deferred Design: `ContractClause` Type Refactor
 
 > **Status:** Deferred — captured for future reference  

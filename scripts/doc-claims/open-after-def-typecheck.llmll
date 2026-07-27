@@ -1,0 +1,8 @@
+;; @doc: getting-started.md §4.8 (gotchas table) + §4.9 (`open` ordering WARNING block)
+;; @cmd: typecheck {file}
+;; @expect: warn:call to unknown function
+;; @claim: an `(open ...)` placed AFTER a def-shell that calls its bare names leaves the call unresolved, and `llmll typecheck` still exits 0 reporting only `warning: call to unknown function`. This is the ORDER-SENSITIVE half of the "must appear before defs" cluster; import-after-def.llmll and decl-order-independent.llmll guard the position-INDEPENDENT half. A green typecheck is not evidence the ordering is right, see open-after-def-verify.llmll for the other half of the same claim.
+(module open-after-def-typecheck
+  (import open-aux-lib)
+  (def-shell use-it [n: int] -> int (inc n))
+  (open open-aux-lib))

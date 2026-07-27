@@ -4,6 +4,132 @@
 
 <a id="Latest"></a>
 
+## v0.14.68: DRIFT-DOC-3: the archive invariant is gated; `open`-ordering claim guarded (2026-07-26)
+
+Documentation and CI only. No compiler source changed, no schema change, no Haskell test added or
+removed.
+
+### Added, DRIFT-DOC-3, the third drift gate
+
+- **[`scripts/doc_archive_gate.sh`](scripts/doc_archive_gate.sh) asserts that an archived design
+  doc sits in the directory its declared disposition names.** Docs may carry
+  `archive-disposition: shipped | superseded | dropped | deferred` in YAML frontmatter; the first
+  two are shipped-side (`docs/archive/shipped-design-specs/`), the last two dormant-side
+  (`docs/archive/dormant-explorations/`). Wired into the fast `version-gate` job, which needs no
+  Stack because the gate has no compiler dependency. **Fail-closed:** unlike DRIFT-CT-2 there is no
+  SKIP path, because nothing it needs can be absent.
+
+- **It is a *consistency* gate, sibling of DRIFT-CI-1, not of DRIFT-CT-2.** `version_gate.sh` and
+  this one both compare records maintained inside the repository and detect *disagreement*;
+  `doc_claims_gate.sh` executes the compiler, so it has an oracle and detects *falsity*. DRIFT-DOC-3
+  cannot catch a field and a path being wrong together, which is the structural limit of a
+  self-attestation channel that **F-002** already settled (`LLMLL.md §4.4.6`). The gate's header
+  and `docs/UPDATE-PROTOCOL.md` both say so rather than implying the stronger claim.
+
+- **Opt-in field with a ratchet, not an allowlist.** Files without the field are ungated; the gate
+  counts them and fails if the count exceeds `UNGATED_BOUND` (58 at landing), so a newly archived
+  doc either declares the field or forces a visible bound raise. A named allowlist with a
+  shrink-only *convention* had no forcing function, since growing it was a one-line edit in the
+  same file.
+
+- **A declaration outside the two governed directories is also a failure.** `professor-reviews/`,
+  `wasm-investigations/` and any future archive category sit outside the shipped-side/dormant-side
+  split, so a disposition declared there is a claim the gate cannot check. Reading it and saying
+  nothing is how an opt-in field quietly stops covering anything: the author believes the file is
+  gated and it is not. Found by walking into it, when the archived professor review of the proposal
+  that specified this gate declared `superseded` from `professor-reviews/`.
+
+- **[`scripts/doc-archive-fixtures/`](scripts/doc-archive-fixtures/) self-test, 8 files.** The gate
+  runs `pass/` (4 files, one per vocabulary value, expect 0 violations and 4 *gated*) and `fail/`
+  (4 files: mis-filed shipped-side, mis-filed dormant-side, value outside the vocabulary,
+  declaration outside the governed directories, expect exactly 4) before scanning `docs/archive/`.
+  Every count is asserted, so `fail/` returning 3 is a regression just as much as `pass/` returning
+  1. Unlike DRIFT-CT-2, whose corpus is expected to contain failures, this gate's corpus is
+  expected to be conformant, so its failure branch would otherwise never execute in CI. A
+  zero-file guard exists for the same reason: the first draft scanned nothing and reported PASS,
+  because the scan function ran under command substitution and its counters were discarded in the
+  subshell.
+
+### Fixed, a third mis-filed archive doc, and why two sweeps missed it
+
+- **`contract-clause-refactor.md` moved to `dormant-explorations/` with
+  `archive-disposition: deferred`.** Titled "Deferred Design", status "Deferred, captured for
+  future reference", Option B documented and never chosen, zero `CHANGELOG.md` and zero roadmap
+  citations. The 2026-07-26 first sweep searched for *abandonment* vocabulary and this document is
+  *deferred*, so it did not match, and the archive-organization proposal's Rev 1 claim that the
+  shipped/dropped split "already landed" was wrong.
+
+- **The vocabulary is four-valued for that reason.** Collapsing `deferred` into `dropped` would
+  assert an abandonment the document denies, which is the same category error the split exists to
+  prevent. Measured: 55 of 57 archived files carry a status marker, but only **21 of 57** decide
+  the shipped-side question by keyword, because most state lifecycle ("Approved", "BUILT",
+  "CLOSED") rather than disposition. That measurement is why the gate reads a declared field
+  instead of scanning prose, and it converges with the over-fire direction: "superseded" appears in
+  body prose describing a superseded characterization, triage row, construct, and adjudication in
+  four different files.
+
+### Added, DRIFT-CT-2: the `open`-ordering claim, 11 → 14 fixtures
+
+- **The order-sensitive half of the "must appear before defs" cluster is now guarded.**
+  `import-after-def.llmll` and `decl-order-independent.llmll` guard the position-*independent*
+  half; `getting-started.md` §4.8/§4.9 assert that `(open …)` placed *after* a `def` using its bare
+  names leaves the call unresolved, and nothing checked it.
+
+- **One claim, two fixtures, because the documented behaviour is a disagreement.**
+  `open-after-def-typecheck.llmll` (`@cmd: typecheck`) asserts exit **0** with only
+  `warning: call to unknown function`; `open-after-def-verify.llmll` (`@cmd: verify`) asserts exit
+  **1** with `error:` on the same program. Neither arm alone guards "a green typecheck is not
+  evidence the ordering is right". `build` behaves identically to `verify` and is unguarded, since
+  it would pull GHC into the fast path for no additional discrimination. `open-aux-lib.llmll` is
+  the support module and carries its own claim, so a failure localizes to it rather than to the
+  claim under test.
+
+- **Multi-module DRIFT-CT-2 fixtures need no gate machinery.** `(import foo)` resolves
+  `foo.llmll` relative to the importing file, not the process CWD, verified from a different
+  working directory (the CI condition). The `doc-claims/README.md` "known gaps" note that implied
+  otherwise is corrected; the remaining gap is multi-*format* fixtures (`patch`), where the extra
+  input is not a `.llmll` the gate can glob.
+
+### Documentation, the version-bucket policy is retired, by decision
+
+- **`docs/UPDATE-PROTOCOL.md` Archive policy rewritten.** The `v0.6/`…`v0.14/` sub-categorization
+  line, carried as "well overdue" since DOC-CONSOLIDATE settled 2026-05-24, is retired.
+  `shipped-design-specs/` is flat **by decision, not by neglect**; version lineage is queried from
+  `CHANGELOG.md` and the roadmap's `## Shipped Releases`, which P1 already names authoritative.
+  Adjudicated by the user 2026-07-26 on
+  [`docs/design/archive-organization-proposal.md`](docs/design/archive-organization-proposal.md)
+  Rev 2, with a professor review at
+  [`archive-organization-review.md`](docs/design/archive-organization-review.md).
+
+- **Two named criteria replace taste for the next filing question.** *Criterion R* (retrieval): does
+  the partition narrow a scan a reader performs, measured by **effective** class count rather than
+  nominal. The document-kind axis scored 2.5 effective classes against a nominal 9, with the modal
+  class holding 61%, and the filename already carries the same information for 46 of 57 files;
+  the feature-line axis scores roughly 40 classes over 57 files. Both declined. *Criterion I*
+  (inference guard): does misplacement make a reader conclude something false. The shipped/dormant
+  split scores near zero on R and is kept on I alone. Version buckets fail both, and for the 11
+  files with no version signal at any source a bucket would *induce* a false claim rather than
+  prevent one.
+
+- **The general rule is now stated: encode only what is immutable in a path.** Rust keeps
+  `rust-lang/rfcs` `text/` flat and GHC keeps `proposals/` flat for the same reason, both carrying
+  status in document metadata. Link cost was never the deciding argument but is not close either:
+  roughly 158 links point into the directory, **38 in append-only `CHANGELOG.md` sections**, so any
+  bucketing requires breaking the append-only invariant or accepting permanently broken links.
+
+- **`docs/archive/dormant-explorations/README.md`** gains the four-valued vocabulary and the side
+  mapping, and its opening framing widens from "explored and dropped" to "did not ship", which was
+  narrower than both the directory's name and its contents. **`docs/design/INDEX.md`** archive
+  table reconciled: the `shipped-design-specs/` cell no longer carries version prose the retired
+  policy contradicts, and rows are added for the proposal and its review.
+
+**Gates:** DRIFT-CI-1 pass, DRIFT-CT-2 pass (14 doc-claims, up from 11), DRIFT-DOC-3 pass
+(self-test 4 pass / 3 fail, 1 declared disposition, 58 ungated at bound), harness pytest 65 passed
+(unchanged: measured on this tree and on `v0.14.67` HEAD). Haskell test count unchanged from
+v0.14.67, since no `compiler/` source or test file was touched.
+
+---
+
 ## v0.14.67 — fix: FQ-CTOR-COLLIDE-1, a binder named like a constructor crashed the solver (2026-07-25)
 
 ### Fixed — constraint-file namespace collision

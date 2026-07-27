@@ -5,15 +5,19 @@
 # docs/design/critique-2026-05-23-triage.md:111.
 #
 # Two jobs:
-#   version-gate    — fast (<1 min). C1-C4 + pytest harness tests. No Stack.
+#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + pytest harness tests.
+#                     No Stack: neither gate in this job has a compiler dependency.
 #   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2. Builds
 #                     llmll, runs scripts/doc_claims_gate.sh (doc restriction-
 #                     claims vs compiler behaviour) and scripts/spec_roundtrip.py
 #                     against opt-in spec blocks.
 #
-# Scope discipline: this workflow enforces the two drift gates — DRIFT-CI-1
-# (banner/schema equality) and DRIFT-CT-2 (doc restriction-claims vs actual
-# compiler behaviour). It does not run `stack test` or the Python harness suites
+# Scope discipline: this workflow enforces the three drift gates — DRIFT-CI-1
+# (banner/schema equality), DRIFT-CT-2 (doc restriction-claims vs actual
+# compiler behaviour), and DRIFT-DOC-3 (archive disposition vs directory).
+# DRIFT-CI-1 and DRIFT-DOC-3 are consistency gates over in-repo records;
+# DRIFT-CT-2 is the only one with an oracle outside the repository, because it
+# executes the compiler. It does not run `stack test` or the Python harness suites
 # at tools/llmll-orchestra/ and experiments/. Build/test CI is a separate ticket;
 # the workflow file is deliberately named `version-gate.yml`, not `ci.yml`, to
 # avoid implying a broader signal.
@@ -33,7 +37,7 @@ on:
 
 jobs:
   version-gate:
-    name: C1-C4 banner / schema equality
+    name: C1-C4 banner / schema equality + DRIFT-DOC-3
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +48,12 @@ jobs:
 
       - name: Run version_gate.sh
         run: bash scripts/version_gate.sh
+
+      # DRIFT-DOC-3. No compiler dependency, so it belongs in the fast job and
+      # fails closed rather than skipping. Self-tests against
+      # scripts/doc-archive-fixtures/ before scanning docs/archive/.
+      - name: Run archive-disposition drift gate (DRIFT-DOC-3)
+        run: bash scripts/doc_archive_gate.sh
 
       - name: Set up Python
         uses: actions/setup-python@v5
