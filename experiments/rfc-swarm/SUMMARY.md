@@ -150,7 +150,7 @@ completeness claim.
 ## Running it
 
 ```bash
-scripts/rfc_to_implementation.py --rfc-url <url> --workdir <dir outside this repo> \
+scripts/rfc_to_implementation.py --rfc-url <url> --workdir ~/rfc-swarm-runs/<name> \
   --agent-cmd 'claude -p "$(cat {prompt})" --allowedTools "Read,Write,Bash" --permission-mode acceptEdits'
 
 scripts/rfc_to_implementation.py --status          --workdir <dir>   # alive? advancing? how far?
@@ -161,6 +161,11 @@ scripts/rfc_to_implementation.py --self-test                         # mechanica
 The workdir must be outside this repository and agents must not have access to it. Both runs
 are committed here, inventories and contracts included, so an agent with repo access could
 retrieve rather than derive and the blindness claim would be worthless.
+
+It must also be somewhere the operating system will not reclaim. A reboot destroyed an
+eight-stage RFC 4648 run whose workdir was under `/private/tmp`; the driver now refuses such a
+location outright. The two constraints pull against each other, and `~/rfc-swarm-runs/<name>`
+is the shape that satisfies both.
 
 ## What a third run should test
 

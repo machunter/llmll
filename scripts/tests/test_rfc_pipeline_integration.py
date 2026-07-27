@@ -384,6 +384,10 @@ def test_a_volatile_workdir_is_refused_before_any_stage_runs(tmp_path):
     assert "may clear at any time" in p.stdout
     assert "stage A" not in p.stdout, "it must refuse before running anything"
     assert not wd.exists(), "a refused run must not leave a directory behind"
+    # The alternative it offers has to satisfy BOTH constraints. Durable is not
+    # enough: inside the repo the workdir would sit beside the committed records
+    # of earlier runs, which are worked answers, and section 8 blindness dies.
+    assert "outside this repository" in p.stdout
 
 
 def test_the_volatile_override_warns_but_proceeds(tmp_path):

@@ -162,6 +162,12 @@ Table of Contents
    throwaway, and the driver MUST warn whenever that override is in
    effect.
 
+   A durable location is not sufficient.  The run directory MUST also
+   lie outside any tree holding the records of previous runs, because
+   those records contain worked answers and section 8 forbids an agent
+   access to them.  These two requirements pull in opposite directions,
+   and an alternative offered by the refusal MUST satisfy both.
+
    On resumption the driver decides, for each stage, whether to run it
    or to skip it.
 

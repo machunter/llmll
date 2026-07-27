@@ -138,8 +138,11 @@ def require_durable_workdir(workdir: Path, allow: bool) -> None:
                 f"--workdir {workdir} is under {r}, which the OS may clear at any "
                 "time; a reboot has already destroyed one run this way. The run "
                 "directory IS the experimental record, so put it somewhere "
-                "durable, e.g. experiments/rfc-swarm/runs/<name>-work. Pass "
-                "--allow-volatile-workdir if this run is genuinely throwaway.")
+                "durable AND outside this repository, e.g. ~/rfc-swarm-runs/"
+                "<name>: inside the repo it would sit beside the committed "
+                "records of earlier runs, which are worked answers agents must "
+                "not see. Pass --allow-volatile-workdir if this run really is "
+                "throwaway.")
 
 
 def write_json(p: Path, obj: Any) -> None:
