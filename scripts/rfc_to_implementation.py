@@ -926,6 +926,16 @@ def stage_N_killmatrix(ctx: Ctx) -> None:
                         "mutants.json", "mutants")
     matrix = []
     for m in read_json(out):
+        # An entry with no file is legitimate: the taxonomy keeps a pre-registered
+        # mutant that turned out to be UNWRITABLE (nothing in the frozen surface
+        # instantiates the behaviour it would perturb) rather than dropping it,
+        # so the denominator stays honest. Score it as unwritable, not as a kill.
+        if m.get("unwritable") or not m.get("file"):
+            matrix.append({"name": m.get("name"), "good_twin": bool(m.get("good_twin")),
+                           "verdict": "unwritable", "as_expected": True,
+                           "reason": m.get("reason") or m.get("note")})
+            log(f"  {m.get('name')}: unwritable (kept in the denominator)")
+            continue
         f = wd / m["file"]
         require(f.exists(), f"stage N: mutant file {m['file']} not written")
         v = _verify(ctx, f, strict=True)
@@ -939,7 +949,8 @@ def stage_N_killmatrix(ctx: Ctx) -> None:
             f"{' (good twin)' if expect_safe else ''}"
             f"{'' if matrix[-1]['as_expected'] else '   <-- UNEXPECTED'}")
     write_json(wd / "kill-matrix.json", matrix)
-    survivors = [m["name"] for m in matrix if not m["good_twin"] and not m["killed"]]
+    survivors = [m["name"] for m in matrix
+                 if not m["good_twin"] and m.get("verdict") not in ("refuted", "unwritable")]
     if survivors:
         log(f"  SURVIVORS (reported, not dropped): {survivors}")
 
@@ -1108,11 +1119,33 @@ def show_status(workdir: Path) -> int:
     log_path = workdir / "run.log"
     man_path = workdir / "MANIFEST.json"
 
+    # Liveness by STRUCTURE, not by pattern. Three attempts got this wrong:
+    #   `pgrep -af`     -a is GNU; on BSD it returns bare PIDs, so nothing matched
+    #   substring match the shell wrapper of this very command matched itself
+    #   interpreter regex the real binary is .../MacOS/Python, capital P
+    # A driver is a process whose FIRST token is an executable path and whose
+    # second token is the script. That is true of the driver and of nothing else,
+    # including `claude -p <prompt mentioning the script>` and any grep for it.
     alive = False
     try:
-        out = subprocess.run(["pgrep", "-af", "rfc_to_implementation.py"],
+        out = subprocess.run(["ps", "-axo", "pid=,args="],
                              capture_output=True, text=True, check=False).stdout
-        alive = any(str(workdir) in ln for ln in out.splitlines())
+        me = os.getpid()
+        for ln in out.splitlines():
+            parts = ln.split(None, 1)
+            if len(parts) < 2 or not parts[0].isdigit():
+                continue
+            pid, args = int(parts[0]), parts[1]
+            # Skip THIS process: `--status` is itself the script, run against this
+            # very workdir, so without this it reports itself as a live run and
+            # every query answers RUNNING. Skip other --status queries too.
+            if pid == me or "--status" in args:
+                continue
+            tok = args.split()
+            if len(tok) >= 2 and tok[1].endswith("rfc_to_implementation.py") \
+               and "/" in tok[0] and str(workdir) in args:
+                alive = True
+                break
     except Exception:
         pass
 

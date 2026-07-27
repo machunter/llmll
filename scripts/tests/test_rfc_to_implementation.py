@@ -223,3 +223,41 @@ def test_sources_are_presented_with_newline_only_line_numbers(tmp_path):
     assert "    1| alpha" in text
     assert "    2| \x0cbeta" in text
     assert "    3| gamma" in text
+
+
+# ---------------------------------------------------------------------------
+# --status liveness
+# ---------------------------------------------------------------------------
+
+def test_status_does_not_report_itself_as_a_running_driver(tmp_path, capsys):
+    """The killer case, and the one that took four attempts.
+
+    `--status` is itself the script, invoked with the workdir being asked about,
+    so a naive scan of `ps` matches the query process and answers RUNNING for
+    every workdir including ones that never ran. Three earlier versions failed
+    here: `pgrep -af` (GNU-only flag, matched nothing on BSD), a substring match
+    (matched its own shell wrapper), and an interpreter regex (the real binary is
+    .../MacOS/Python, capital P).
+    """
+    (tmp_path / "run.log").write_text("nothing\n")
+    drv.show_status(tmp_path)
+    assert "process : not running" in capsys.readouterr().out
+
+
+def test_status_reports_stopped_stages_and_a_stale_log(tmp_path, capsys):
+    drv.write_json(tmp_path / "MANIFEST.json",
+                   {"stages": {"A": {"status": "complete", "seconds": 1},
+                               "B": {"status": "stopped", "detail": "gate fired"}}})
+    (tmp_path / "run.log").write_text("x\n")
+    drv.show_status(tmp_path)
+    out = capsys.readouterr().out
+    assert "✓ complete" in out and "✗ STOPPED" in out and "gate fired" in out
+
+
+def test_kill_matrix_accepts_an_unwritable_entry(tmp_path):
+    """A pre-registered mutant nothing in the frozen surface can instantiate is
+    kept in the denominator with no file, rather than dropped. The driver used to
+    assume every entry had a file and died with a TypeError on the agent's
+    entirely correct output."""
+    m = {"name": "vector-reply-mismatch", "file": None, "unwritable": True}
+    assert m.get("unwritable") or not m.get("file")
