@@ -115,13 +115,32 @@ Table of Contents
 
 4.  The Stage Model
 
-   A stage has exactly one status: pending, complete, or stopped.  A
-   status of pending means the stage has not been attempted in this
-   workdir.
+   A stage has exactly one status: pending, complete, stopped, or
+   failed.  A status of pending means the stage has not been attempted
+   in this workdir.
 
    A stage that finishes its work without error MUST be recorded
-   complete.  A stage that halts, for any reason, MUST be recorded
-   stopped, together with a detail string naming the reason.
+   complete.
+
+   A stage that halts because a condition this specification defines was
+   not met MUST be recorded stopped, with a detail string naming the
+   condition.
+
+   A stage that halts for any other reason MUST be recorded failed, with
+   a detail string naming the error.  Such a stage MUST NOT be recorded
+   stopped.
+
+   The distinction is not cosmetic.  A stopped stage is a verdict the
+   method reached, and is a result of the run.  A failed stage is an
+   accident, and is not.  An implementation that reports both as stopped
+   permits a run killed by a network error to be read as a gate that
+   fired, which is the one confusion this pipeline cannot afford.
+
+   A stage that halts MUST NOT halt silently.  The driver MUST report
+   the reason on its output as well as recording it, and for a failure
+   MUST report enough detail to locate the cause.  A halt that reaches
+   the operator as an unhandled error of the host language has reported
+   neither: it is indistinguishable from a crash of the driver itself.
 
    A stage MUST NOT be recorded complete unless it finished its work.
    In particular, a stage that wrote some of its artifacts and then
@@ -131,6 +150,17 @@ Table of Contents
    that a run interrupted between stages leaves an accurate record.
 
 5.  Completion and Resumption
+
+   Resumption presupposes that the run directory still exists.  The run
+   directory is the record of the experiment, and no part of it can be
+   reconstructed once it is gone.
+
+   The driver MUST refuse a run directory placed where the operating
+   system may reclaim it without notice, and MUST refuse it before
+   attempting any stage.  The refusal MUST name a durable alternative.
+   An operator MAY override the refusal for a run that is genuinely
+   throwaway, and the driver MUST warn whenever that override is in
+   effect.
 
    On resumption the driver decides, for each stage, whether to run it
    or to skip it.
@@ -154,8 +184,8 @@ Table of Contents
    absent or is not complete MUST be run.  The driver SHOULD report that
    it is re-running such a stage and why.
 
-   A stage recorded stopped MUST be run, however many artifacts a
-   previous attempt left behind.
+   A stage recorded stopped or failed MUST be run, however many
+   artifacts a previous attempt left behind.
 
    When the operator requests a forced re-run, the driver MUST run the
    stage regardless of its record.
@@ -332,6 +362,18 @@ Table of Contents
    report MUST distinguish a live run from one whose process has exited,
    and MUST distinguish a live run whose output is advancing from one
    that is not.
+
+   Advancement MUST be judged from change to any artifact under the
+   workdir, and MUST NOT be judged from the driver's own log alone.  The
+   driver cannot write its log while a delegated stage is in progress,
+   and delegated stages are most of a run, so a log that has not moved
+   is the ordinary condition of a healthy run and is evidence of
+   nothing.  A report that calls such a run stalled is worse than one
+   that says nothing, because an operator who learns to disbelieve it
+   will also disbelieve it when it is right.
+
+   The report MUST distinguish the four stage statuses of section 4 from
+   one another.
 
 13. Reporting
 

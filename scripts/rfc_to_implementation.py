@@ -58,7 +58,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import traceback
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,6 +109,37 @@ def sha256_file(p: Path) -> str:
 
 def log(msg: str) -> None:
     print(f"[rfc-swarm] {msg}", flush=True)
+
+
+# Directories the operating system may reclaim without asking. A run is a
+# multi-hour experimental record, so losing one to a reboot is data loss, not an
+# inconvenience: an RFC 4648 run died exactly this way, with the whole
+# /private/tmp/<session> tree recreated at boot and eight stages of agent work
+# gone with it. Nothing about the run is recoverable afterwards, so the check has
+# to happen before the first stage rather than as advice in the docstring.
+#
+# /var/tmp is deliberately absent. The FHS requires it to survive reboots, which
+# makes it a legitimate home for a long run. Only roots that are actually cleared
+# belong here; listing more would train the operator to pass the override.
+VOLATILE_ROOTS = ("/tmp", "/private/tmp", "/var/folders", "/private/var/folders")
+
+
+def require_durable_workdir(workdir: Path, allow: bool) -> None:
+    """STOP if the run directory sits somewhere the OS may wipe."""
+    roots = {Path(r).resolve() for r in VOLATILE_ROOTS}
+    roots.add(Path(tempfile.gettempdir()).resolve())
+    for r in sorted(roots):
+        if workdir == r or r in workdir.parents:
+            if allow:
+                log(f"WARNING: {workdir} is under {r}; this run may not survive a "
+                    "reboot (--allow-volatile-workdir was passed)")
+                return
+            raise StopCondition(
+                f"--workdir {workdir} is under {r}, which the OS may clear at any "
+                "time; a reboot has already destroyed one run this way. The run "
+                "directory IS the experimental record, so put it somewhere "
+                "durable, e.g. experiments/rfc-swarm/runs/<name>-work. Pass "
+                "--allow-volatile-workdir if this run is genuinely throwaway.")
 
 
 def write_json(p: Path, obj: Any) -> None:
@@ -1120,19 +1153,54 @@ def self_test() -> int:
 # Driver
 # ---------------------------------------------------------------------------
 
+# How long a live driver may write NOTHING anywhere in the workdir before the
+# quiet is worth reporting. Generous on purpose: an agent can think for minutes
+# between tokens, and a false alarm here is what the previous heuristic produced.
+STALL_SECONDS = 1800
+
+
+def newest_activity(workdir: Path) -> tuple[float, Path | None]:
+    """Most recent mtime anywhere under the workdir, and the file carrying it.
+
+    run.log is the WRONG liveness signal and reporting it as one flagged a
+    perfectly healthy run as stale. The driver writes run.log between stages;
+    during an agent stage it is blocked inside subprocess.run and cannot write
+    anything at all. Most stages are agent stages, so a frozen log is the NORMAL
+    condition of a working run, and with --timeout 7200 it is normal for hours.
+
+    What does move is the agent's own output: subprocess.run hands the child's
+    stdout and stderr straight to agent.stdout.log and agent.stderr.log, so those
+    files tick as the agent produces text. The newest mtime over the whole tree
+    therefore watches the agent work, which is the question being asked.
+    """
+    newest, where = 0.0, None
+    for root, _dirs, files in os.walk(workdir, onerror=lambda _e: None):
+        for fn in files:
+            p = Path(root) / fn
+            try:
+                m = p.stat().st_mtime
+            except OSError:
+                continue
+            if m > newest:
+                newest, where = m, p
+    return newest, where
+
+
 def show_status(workdir: Path) -> int:
-    """Report what a run is ACTUALLY doing, from three independent signals.
+    """Report what a run is ACTUALLY doing, from four independent signals.
 
     Exists because "I launched it" is not evidence it is running, and inferring
     liveness from a launch is how this reported a dead pipeline as live twice.
     The signals:
 
       process   is a driver bound to THIS workdir alive right now
-      log       when did run.log last advance (a live process with a stale log
-                is stuck, which looks identical to progress from the outside)
+      log       when did run.log last advance (between stages only, see below)
+      activity  when did ANY file under the workdir last change; a live process
+                writing nothing for STALL_SECONDS is stuck, and that looks
+                identical to progress from the outside
       manifest  which stages actually completed, and which one stopped
 
-    None of the three alone is sufficient, which is why all three are printed.
+    None alone is sufficient, which is why all four are printed.
     """
     log_path = workdir / "run.log"
     man_path = workdir / "MANIFEST.json"
@@ -1170,14 +1238,25 @@ def show_status(workdir: Path) -> int:
     print(f"workdir : {workdir}")
     print(f"process : {'RUNNING' if alive else 'not running'}")
 
+    def ago(sec: float) -> str:
+        return f"{sec:.0f}s" if sec < 120 else f"{sec / 60:.0f}m"
+
+    now = time.time()
     if log_path.exists():
-        age = time.time() - log_path.stat().st_mtime
-        units = f"{age:.0f}s" if age < 120 else f"{age/60:.0f}m"
-        stale = alive and age > 900
-        print(f"log     : last advanced {units} ago"
-              + ("   <-- STALE: process alive but log frozen" if stale else ""))
+        print(f"log     : last advanced {ago(now - log_path.stat().st_mtime)} ago"
+              "   (frozen during an agent stage is NORMAL)")
     else:
         print("log     : (none)")
+
+    newest, where = newest_activity(workdir)
+    if where is None:
+        print("activity: (nothing written yet)")
+    else:
+        idle = now - newest
+        stalled = alive and idle > STALL_SECONDS
+        print(f"activity: {where.relative_to(workdir)} written {ago(idle)} ago"
+              + ("   <-- STALLED: process alive, workdir untouched"
+                 if stalled else ""))
 
     if man_path.exists():
         man = read_json(man_path)
@@ -1189,8 +1268,15 @@ def show_status(workdir: Path) -> int:
                 mark, extra = "· pending", ""
             elif rec.get("status") == "complete":
                 mark, extra = "✓ complete", f"  {rec.get('seconds','?')}s"
+            elif rec.get("status") == "failed":
+                # Distinct from STOPPED on purpose. A stop is a verdict the
+                # method reached and is a result; a failure is an accident and
+                # is not. Printing both as "STOPPED" would let a crashed run be
+                # read as a fired gate, which is the one confusion this whole
+                # experiment cannot afford.
+                mark, extra = "! FAILED", f"  {str(rec.get('detail', ''))[:90]}"
             else:
-                mark, extra = "✗ STOPPED", f"  {str(rec.get('detail',''))[:90]}"
+                mark, extra = "✗ STOPPED", f"  {str(rec.get('detail', ''))[:90]}"
             print(f"   {st.key} [{st.kind:10}] {st.name:<34} {mark}{extra}")
     else:
         print("stages  : (no manifest yet)")
@@ -1262,6 +1348,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="re-check that stage D's extractors were isolated")
     ap.add_argument("--status", action="store_true",
                     help="report whether a run is alive, advancing, and how far it got")
+    ap.add_argument("--allow-volatile-workdir", action="store_true",
+                    help="permit a workdir under /tmp; such a run may be lost at reboot")
     a = ap.parse_args(argv)
 
     if a.self_test:
@@ -1277,6 +1365,8 @@ def main(argv: list[str] | None = None) -> int:
                               ("--agent-cmd", a.agent_cmd)) if not v]
     if missing:
         ap.error(f"missing required argument(s): {', '.join(missing)}")
+
+    require_durable_workdir(a.workdir.resolve(), a.allow_volatile_workdir)
 
     selected = [s.key for s in STAGES]
     if a.only:
@@ -1344,6 +1434,22 @@ def main(argv: list[str] | None = None) -> int:
             manifest["stages"][stage.key] = {"status": "stopped", "detail": str(e)}
             write_json(manifest_path, manifest)
             return 2
+        except Exception as e:  # noqa: BLE001 — see below
+            # Anything that is NOT a deliberate stop: a fetch that failed, a
+            # malformed JSON file, a bug in this script. Previously these escaped
+            # as a bare traceback, which left NOTHING in the manifest, so a
+            # resume could not tell "stage crashed" from "stage never ran" and
+            # the operator could not tell a decision from an accident. Both facts
+            # are worth keeping, so record the failure AND print the traceback:
+            # the manifest entry serves resume, the traceback serves debugging.
+            log(f"FAILED at stage {stage.key}: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            manifest["stages"][stage.key] = {
+                "status": "failed",
+                "detail": f"{type(e).__name__}: {e}",
+            }
+            write_json(manifest_path, manifest)
+            return 3
         manifest["stages"][stage.key] = {
             "status": "complete",
             "kind": stage.kind,
@@ -1358,4 +1464,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # A StopCondition raised OUTSIDE a stage (argument validation, the workdir
+    # check) has no per-stage handler to catch it and would print a traceback.
+    # A stop is a decision the driver made, and it should read like one; twice
+    # now a deliberate halt has been indistinguishable from a crash.
+    try:
+        sys.exit(main())
+    except StopCondition as exc:
+        log(f"STOP: {exc}")
+        sys.exit(2)

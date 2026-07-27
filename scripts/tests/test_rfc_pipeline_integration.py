@@ -146,6 +146,10 @@ def rig(tmp_path):
                "--workdir", str(wd),
                "--agent-cmd", f"{sys.executable} {agent}",
                "--llmll-cmd", str(llmll),   # a single executable: the driver uses it as argv[0]
+               # pytest's tmp_path lives under /var/folders, which the driver
+               # refuses as a run directory. These runs really are throwaway,
+               # which is precisely the case the override exists for.
+               "--allow-volatile-workdir",
                "--only", stages]
         if extra:
             cmd += extra
@@ -225,6 +229,16 @@ def test_gate_J_halts_on_a_bad_barrier_it_is_handed_directly(rig, tmp_path):
 
 def test_coverage_gap_halts_at_L_and_M_is_never_attempted(rig):
     p, wd = rig(mode="coverage-gap", stages="A,B,C,D,E,F,G,H,I,J,K,L,M")
+
+    # Check the PREMISE before the conclusion. This test once failed on a
+    # thrashing machine in a way that read exactly like "gate L is broken", when
+    # gate L was provably firing when driven by hand. The two halves are worth
+    # telling apart: if the stub never produced a gap there was nothing for the
+    # gate to catch, and that is a rig fault, not a gate fault.
+    assert "Encoded rows cited : 1/2" in p.stdout, (
+        "the coverage-gap scenario did not produce a gap, so this says nothing "
+        "about gate L:\n" + p.stdout)
+
     assert p.returncode != 0
     assert "RFC-COV-1 failed at freeze strength" in p.stdout
     m = manifest(wd)
@@ -340,3 +354,62 @@ def test_every_stage_declares_the_artifact_that_carries_its_result(rig):
     assert "12-wave/roots.ast.json" in outs["M"], "the implementation must be declared"
     assert "11-freeze/ROOTS.txt" in outs["L"], "the monopoly list must be declared"
     assert "10-roots/roots.llmll" in outs["K"], "the frozen surface must be declared"
+
+
+# ---------------------------------------------------------------------------
+# Losing a run to the operating system is a bug in the driver, not bad luck
+# ---------------------------------------------------------------------------
+
+def _bare(tmp_path, workdir, url=None, extra=None):
+    """Drive the driver WITHOUT the rig's --allow-volatile-workdir, which is the
+    whole point of these two tests."""
+    spec = tmp_path / "spec.txt"
+    spec.write_text(SPEC)
+    cmd = [sys.executable, str(DRIVER),
+           "--rfc-url", url or spec.resolve().as_uri(),
+           "--workdir", str(workdir),
+           "--agent-cmd", "true",
+           "--only", "A"]
+    return subprocess.run(cmd + (extra or []), capture_output=True, text=True, cwd=REPO)
+
+
+def test_a_volatile_workdir_is_refused_before_any_stage_runs(tmp_path):
+    """A reboot destroyed an eight-stage RFC 4648 run whose workdir was under
+    /private/tmp: the whole tree was recreated at boot. The run directory IS the
+    experimental record, so the driver must refuse a location the OS may reclaim,
+    and must refuse it BEFORE spending a stage on it."""
+    wd = pathlib.Path("/tmp/rfc-swarm-volatile-guard-test")
+    p = _bare(tmp_path, wd)
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "may clear at any time" in p.stdout
+    assert "stage A" not in p.stdout, "it must refuse before running anything"
+    assert not wd.exists(), "a refused run must not leave a directory behind"
+
+
+def test_the_volatile_override_warns_but_proceeds(tmp_path):
+    """The escape hatch has to exist (pytest's own tmp_path is volatile) and it has
+    to be loud, or the guard just teaches people to pass the flag silently."""
+    p = _bare(tmp_path, tmp_path / "vol", extra=["--allow-volatile-workdir"])
+    assert "WARNING" in p.stdout and "may not survive a reboot" in p.stdout
+    assert "stage A" in p.stdout
+
+
+# ---------------------------------------------------------------------------
+# A crash is not a stop, and neither may be silent
+# ---------------------------------------------------------------------------
+
+def test_a_crashing_stage_is_recorded_rather_than_escaping_as_a_traceback(rig, tmp_path):
+    """An unhandled exception used to leave NOTHING in the manifest, so a resume
+    could not tell `crashed` from `never ran`. It is also reported as FAILED, not
+    STOPPED: a stop is a verdict the method reached and is a result, a crash is an
+    accident and is not. Conflating them would let a dead run read as a fired gate."""
+    wd = tmp_path / "crash"
+    p, _ = rig(workdir=wd, stages="A", extra=["--rfc-url", "http://127.0.0.1:9/x.txt"])
+    assert p.returncode == 3, p.stdout + p.stderr
+    assert manifest(wd)["A"]["status"] == "failed"
+    assert "URLError" in manifest(wd)["A"]["detail"]
+    assert "Traceback" in p.stderr, "the traceback still has to reach the operator"
+
+    st = subprocess.run([sys.executable, str(DRIVER), "--status", "--workdir", str(wd)],
+                        capture_output=True, text=True, cwd=REPO)
+    assert "! FAILED" in st.stdout and "STOPPED" not in st.stdout
