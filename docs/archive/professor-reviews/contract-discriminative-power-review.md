@@ -1,7 +1,7 @@
 # Professor Review: LT-CDP — Contract Discriminative Power as First-Class Evidence Axis
 
 **Reviewer:** Lead Consultant for Formal Language Design
-**Document under review:** [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) (Rev 1)
+**Document under review:** [`contract-discriminative-power-proposal.md`](../shipped-design-specs/contract-discriminative-power-proposal.md) (Rev 1)
 **Date:** 2026-05-25
 **Status:** Review (Rev 1) — pending language-team adjudication
 

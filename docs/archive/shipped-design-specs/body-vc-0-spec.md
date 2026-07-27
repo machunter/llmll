@@ -30,7 +30,7 @@
 
 Body-VCs are only emitted when a postcondition exists. Functions with only preconditions (or no contracts) produce no body constraints — there is nothing to prove.
 
-**Operational Semantics Anchor:** Per [verification-debate-action-items.md:47](../../docs/design/verification-debate-action-items.md#L47): LLMLL's operational semantics are defined by the generated Haskell program.
+**Operational Semantics Anchor:** Per [verification-debate-action-items.md:47](verification-debate-action-items.md#L47): LLMLL's operational semantics are defined by the generated Haskell program.
 
 ---
 

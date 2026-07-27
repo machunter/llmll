@@ -3,7 +3,7 @@
 > **Version:** Rev 2 — professor review folded (M4 UF-emission discipline; M2↔erasability identity; stacked-alias α-discipline; recursive-function admission gate; two-sub-class labeling). Rev 1 (2026-06-12) drafted the four-condition WF judgment and the measure discipline M1–M3.
 > **Date:** 2026-06-12 (Rev 1; Rev 2)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.12 post-freeze lane, REF-META-3; [`docs/design/v0.12-direction.md §1`](v0.12-direction.md) (REF-META-2..5 sequencing, REF-META-3 row).
-> **Prerequisites:** REF-META-1 (Settled Rev 2, promoted to [`LLMLL.md §3.4`](../../LLMLL.md) — checking-mode rule §3.4.1, non-goals §3.4.2, soundness of record §3.4.3). This proposal fills the predicate well-formedness slot REF-META-1 §4.2 (closure-scope clarification) and §5.5 (Gap #5) explicitly deferred here.
+> **Prerequisites:** REF-META-1 (Settled Rev 2, promoted to [`LLMLL.md §3.4`](../../../LLMLL.md) — checking-mode rule §3.4.1, non-goals §3.4.2, soundness of record §3.4.3). This proposal fills the predicate well-formedness slot REF-META-1 §4.2 (closure-scope clarification) and §5.5 (Gap #5) explicitly deferred here.
 > **Origin:** v0.12 kickoff (highest-leverage critical-path start — unblocks REF-META-4 and the §2 non-int refinement widening). The WF rule formalizes REF-META-1 non-goal #3 (the `factorial` exclusion) and enumerates the refinement-predicate-binding shapes admitted (REF-META-1 §4.2: "currently only `(where [x: T] p)` with a single free binding").
 > **Reviewed:** Professor review (2026-06-12, in-conversation) — recommendation `affirm-with-additive-folds`. Five findings folded into this Rev 2 (see `## Appendix — Professor review log`); the architecture (four WF conditions, WF-legality ⊥ fragment-discharge orthogonality) was affirmed, not contested. No standalone `-review.md` file was produced; the review is folded directly per the REF-META-1 appendix pattern.
 > **Status:** Settled (Rev 2) — professor review folded; spec-track only (no compiler work implied by the WF rule itself; the path-(a) measure-emission precondition named in §6 is owned by the downstream non-int widening engineer build). Pending documentation-lead promotion to `LLMLL.md §3.4.4`.
@@ -12,7 +12,7 @@
 
 ## 1. Motivation
 
-LLMLL's refinement surface `(where [x: τ] p)` ([`LLMLL.md §3.4`](../../LLMLL.md)) gives a binding `x : τ` and a predicate `p`, but `LLMLL.md` does not state **when `p` is a legal predicate at all**. REF-META-1 shipped the checking-mode inference rule (§3.4.1), the non-goals (§3.4.2), and the soundness statement of record (§3.4.3), and at two sites explicitly deferred the well-formedness question to this proposal:
+LLMLL's refinement surface `(where [x: τ] p)` ([`LLMLL.md §3.4`](../../../LLMLL.md)) gives a binding `x : τ` and a predicate `p`, but `LLMLL.md` does not state **when `p` is a legal predicate at all**. REF-META-1 shipped the checking-mode inference rule (§3.4.1), the non-goals (§3.4.2), and the soundness statement of record (§3.4.3), and at two sites explicitly deferred the well-formedness question to this proposal:
 
 - §4.2 closure-scope clarification: refinement-polymorphic functions and termination-via-refinement "are *consequences* of non-goal #1 and non-goal #3 respectively, deferred to **REF-META-3 — predicate well-formedness rule** for explicit treatment of refinement-variable binding shapes … the natural place to enumerate the refinement-predicate-binding shapes admitted (currently only `(where [x: T] p)` with a single free binding)."
 - §5.5 Gap #5: "REF-META-1 does not enumerate the well-formedness conditions on such predicates; the formal treatment is **REF-META-3 territory**."
@@ -75,7 +75,7 @@ The judgment is **decidable** and runs at alias-definition / type-check time (th
 | **Measure class** | `string-length`, `list-length` | `τ → int` | **runtime today; QF-LIA auto once M4 / path-(a) lands** | *becomes* auto-dischargeable |
 | **Boolean-builtin class** | `regex-match` (+ any builtin with a declared `bool` refinement signature) | `… → bool` | **runtime / `?proof-required`; never auto in v0.12** | needs SMT Str/regex theory (path (b), deferred v0.13+) |
 
-The two non-core sub-classes are **not** interchangeable. A `Word` / `Letter` refinement (measure class) reaches `verified`-tier the moment M4 lands; a `BlockID` refinement (`regex-match`, boolean-builtin class — [`LLMLL.md §3.4:251`](../../LLMLL.md)) stays **`asserted`-tier** until the deferred Str theory. Labeling the split here prevents REF-META-2 from rediscovering it.
+The two non-core sub-classes are **not** interchangeable. A `Word` / `Letter` refinement (measure class) reaches `verified`-tier the moment M4 lands; a `BlockID` refinement (`regex-match`, boolean-builtin class — [`LLMLL.md §3.4:251`](../../../LLMLL.md)) stays **`asserted`-tier** until the deferred Str theory. Labeling the split here prevents REF-META-2 from rediscovering it.
 
 The v0.12 measure catalog is **closed** at `{string-length, list-length}`. Extension requires team consensus with a written totality+range argument, mirroring the non-goals-closure discipline (`LLMLL.md §3.4.2`, roadmap freeze-exception clause).
 
@@ -93,7 +93,7 @@ A function `m` is admissible into `Σ_ref`'s measure class iff:
 **Recursive / user-function exclusion and the future admission gate.** User-defined functions are excluded from `Σ_ref` for two principled reasons, not by fiat:
 
 - **(a) Totality is unverifiable.** M1 demands totality, but LLMLL has no termination certificate for `def-shell` recursion (the descent checker is research-track R7); a recursive user function cannot satisfy M1 by construction.
-- **(b) Trust-tier laundering.** Admitting `f` with its contract as a refinement axiom injects `f`'s contract into the predicate; an `asserted`-tier contract so injected launders unverified facts into the verified core — a soundness leak across the [`LLMLL.md §4.4`](../../LLMLL.md) trust lattice.
+- **(b) Trust-tier laundering.** Admitting `f` with its contract as a refinement axiom injects `f`'s contract into the predicate; an `asserted`-tier contract so injected launders unverified facts into the verified core — a soundness leak across the [`LLMLL.md §4.4`](../../../LLMLL.md) trust lattice.
 
 **Future admission gate:** a user function becomes `Σ_ref`-admissible only when it carries **both a totality certificate and a verified-tier contract**, at which point it may enter as an uninterpreted symbol axiomatized by its *verified* post-condition. This is the same coin as the M2↔erasability identity (§4.4): only verified, total content may be reflected.
 
@@ -121,7 +121,7 @@ Well-formedness (legality, decidable, type-channel) is held strictly orthogonal 
 **Input.** `(type NonEmptyWord (where [s: Word] (> (string-length s) 1)))`, `Word ≜ (where [s: string] (> (string-length s) 0))`.
 **Behavior.** WF: `τ = Word` expands structurally to `string` (`expandAlias` recurses the base type only, [`TypeCheck.hs:1566`](../../compiler/src/LLMLL/TypeCheck.hs)). **Conjunction-at-introduction is the Liquid Haskell-standard treatment** (LH unfolds nested aliases to conjoined refinements); framing it as *definitional unfolding* rather than `P ⇒ Q` entailment keeps it clear of non-goal #1 (no user-visible subtyping). **Binder-identification discipline:** the inner and outer binders are α-identified to a **single common witness** `e`; the introduction site emits `pred_Word[e/s] ∧ pred_NonEmptyWord[e/s]` — both predicates over the *same* raw value. Obligation duplication (overlapping conjuncts) is harmless: QF-LIA absorbs redundancy.
 **Channel.** Contract; QF-LIA over the measure image (post-M4).
-**Cite.** §4.1 W-Closed admits multiplicity; `expandAlias` base-only recursion; non-goal #1 ([`LLMLL.md §3.4.2`](../../LLMLL.md)).
+**Cite.** §4.1 W-Closed admits multiplicity; `expandAlias` base-only recursion; non-goal #1 ([`LLMLL.md §3.4.2`](../../../LLMLL.md)).
 
 ### 5.3 Empty / trivial-true predicate
 
@@ -142,7 +142,7 @@ Well-formedness (legality, decidable, type-channel) is held strictly orthogonal 
 **Input.** `(where [x: int] (p x))` with `p` unbound; or `(where [n: int] (> (factorial n) 0))`.
 **Behavior.** Both **ill-formed**: the former by W-FirstOrder (refinement variable / unsaturated symbol) and W-Closed (`p ∈ FV`); the latter by W-Catalog (`factorial ∉ Σ_ref`). The decidable formalization of REF-META-1 non-goals #1 and #3.
 **Channel.** Type.
-**Cite.** W-FirstOrder, W-Catalog (§4.1–4.2); non-goals #1, #3 ([`LLMLL.md §3.4.2`](../../LLMLL.md)).
+**Cite.** W-FirstOrder, W-Catalog (§4.1–4.2); non-goals #1, #3 ([`LLMLL.md §3.4.2`](../../../LLMLL.md)).
 
 ---
 
@@ -150,11 +150,11 @@ Well-formedness (legality, decidable, type-channel) is held strictly orthogonal 
 
 | Obligation | Channel | Fragment | Cite |
 |---|---|---|---|
-| The WF check itself (`Σ_ref ⊢ (where …) wf`) | **type** | Decidable, non-SMT — runs at alias-definition / type-check time, analog to the `?proof-required` bool-check | [`TypeCheck.hs:1207-1210`](../../compiler/src/LLMLL/TypeCheck.hs); [`LLMLL.md §3.4.1`](../../LLMLL.md) |
-| Introduction obligation `p[e/x]`, QF-LIA-core predicate | contract | **QF-LIA, auto** | [`FixpointEmit.hs:661-681`](../../compiler/src/LLMLL/FixpointEmit.hs); [`LLMLL.md §5.3.3`](../../LLMLL.md) |
+| The WF check itself (`Σ_ref ⊢ (where …) wf`) | **type** | Decidable, non-SMT — runs at alias-definition / type-check time, analog to the `?proof-required` bool-check | [`TypeCheck.hs:1207-1210`](../../compiler/src/LLMLL/TypeCheck.hs); [`LLMLL.md §3.4.1`](../../../LLMLL.md) |
+| Introduction obligation `p[e/x]`, QF-LIA-core predicate | contract | **QF-LIA, auto** | [`FixpointEmit.hs:661-681`](../../compiler/src/LLMLL/FixpointEmit.hs); [`LLMLL.md §5.3.3`](../../../LLMLL.md) |
 | `p[e/x]` with measure-class symbol (`string-length` / `list-length`) | contract | **QF-LIA auto *after* M4 / path-(a) axiomatization; runtime today** (`exprToPred → Nothing`) | [`FixpointEmit.hs:682`](../../compiler/src/LLMLL/FixpointEmit.hs); [`v0.12-direction.md §2`](v0.12-direction.md) |
 | `p[e/x]` with non-linear arithmetic (`* / mod rem ^ **`) | contract | **nonlinear → not auto-discharged** (`Nothing`); needs restriction or `?proof-required` | [`FixpointEmit.hs:676`](../../compiler/src/LLMLL/FixpointEmit.hs) |
-| `p[e/x]` with boolean-builtin symbol (`regex-match`) | trust | **outside QF-LIA → runtime / `?proof-required`** (never auto in v0.12) | [`LLMLL.md §5.3.5`](../../LLMLL.md) |
+| `p[e/x]` with boolean-builtin symbol (`regex-match`) | trust | **outside QF-LIA → runtime / `?proof-required`** (never auto in v0.12) | [`LLMLL.md §5.3.5`](../../../LLMLL.md) |
 | **Measure-application emission (path-a precondition)** | — | **Requires a `FixpointIR` function-sort + `FQApp` term extension — absent today** (`FQSort`, [`FixpointIR.hs:49-52`](../../compiler/src/LLMLL/FixpointIR.hs), has no function sort; `exprToPred`, [`FixpointEmit.hs:662-682`](../../compiler/src/LLMLL/FixpointEmit.hs), has no application node). M4 congruence is unobtainable until this lands. | spec-ahead-of-IR seam; owned by the non-int-widening engineer build |
 
 The WF rule introduces **no new SMT obligation** — it is a decidable structural check that *partitions* the predicates reaching the existing channels; it adds no channel. This is what keeps REF-META-3 spec-track-only. The final row is REF-META-3 doing its job: naming the IR seam where the spec runs ahead of the compiler, so the downstream engineer build inherits an explicit, checkable precondition rather than an implicit congruence assumption.
@@ -177,7 +177,7 @@ The WF rule introduces **no new SMT obligation** — it is a decidable structura
 1. **M2 range-axiom-only too weak for inter-term predicates.** *Classify:* verification-ergonomics. *Cite:* M2 (§4.3), [`FixpointEmit.hs:682`](../../compiler/src/LLMLL/FixpointEmit.hs). *Bite:* complicates — a predicate like `(= (string-length (concat s t)) (+ (string-length s) (string-length t)))` needs a structural equation `string-length` does not carry under M2; such predicates are WF but never auto-discharge. Intentional for v0.12 (path (b) deferred); REF-META-2 states the boundary.
 2. **`Σ_ref` catalog closure vs agent expectation.** *Classify:* scope. *Cite:* W-Catalog (§4.2). *Bite:* only at scale — agents reach for `substring`, `to-upper`, length arithmetic; each ill-formed predicate is a clear type-channel error, but the catalog's smallness may surface as authoring friction. The closed-catalog-with-consensus-extension discipline is deliberate.
 3. **Stacked-refinement conjunction is a new spec commitment.** *Classify:* spec-drift (spec currently silent). *Cite:* `expandAlias` base-only recursion, [`TypeCheck.hs:1566`](../../compiler/src/LLMLL/TypeCheck.hs). *Bite:* complicates — the compiler expands the base, but it is unverified whether it currently *emits* the inherited inner obligation at a `NonEmptyWord` introduction site. **Flag for the engineer:** confirm conjunction-at-introduction (§5.2) is emitted, or it is a spec-ahead-of-code gap.
-4. **`Σ_ref` recursive-function exclusion reads as arbitrary if the gate is unstated.** *Classify:* scope / soundness. *Cite:* M1 (§4.3), [`LLMLL.md §4.4`](../../LLMLL.md) lattice. *Bite:* only at scale — without the stated future gate (totality certificate ∧ verified-tier contract), a later LT proposal might re-admit recursive functions ad hoc and reintroduce the laundering leak. The gate makes the door principled.
+4. **`Σ_ref` recursive-function exclusion reads as arbitrary if the gate is unstated.** *Classify:* scope / soundness. *Cite:* M1 (§4.3), [`LLMLL.md §4.4`](../../../LLMLL.md) lattice. *Bite:* only at scale — without the stated future gate (totality certificate ∧ verified-tier contract), a later LT proposal might re-admit recursive functions ad hoc and reintroduce the laundering leak. The gate makes the door principled.
 
 ---
 

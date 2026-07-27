@@ -150,7 +150,7 @@ the guarded fill verifies `SAFE`. Separately observed (n = 1, stochastic): the f
 *prompted toward* the bug ("MAC already checked, drop the redundant check"), still wrote the
 guarded form. The compiler is the guarantee; the agent behavior is a bonus.
 
-Full write-up: [`examples/heartbleed/secure-channel/README.md`](../../examples/heartbleed/secure-channel/README.md).
+Full write-up: [`examples/heartbleed/secure-channel/README.md`](../../../examples/heartbleed/secure-channel/README.md).
 
 ## 11. Next
 

@@ -4,9 +4,9 @@
 > **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-27 (Rev 3); 2026-05-31 (Rev 4)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 1 (LT-INV); the v0.11 spine
 > **Prerequisites:** Feature freeze lifted for v0.11 (`docs/compiler-team-roadmap.md` Feature Freeze Policy, lifted 2026-05-23 with the inversion's freeze-exception soundness argument as the rationale)
-> **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
+> **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
 > **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction; cross-proposal settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) specifies LT-CDP / LT-PPR shipping conditions under §8 gate outcomes
-> **Reviewed:** Professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
+> **Reviewed:** Professor review at [`core-shell-inversion-review.md`](../professor-reviews/core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
 > **Status:** Settled (Rev 4) — def-logic removed in v0.12 (parse error under all modes; no auto-rewrite; 17 pending .llmll files must migrate first); Rev 3: builtinEnv clause added; §8 gate PASS definitive (EL-5, PM-006, 2026-05-30); CE-3 (commit `63b9bb3`) ships GrammarCoreInversion as default; schema `0.6.0`; F-EL5-3 adjudicated: `asserted` unconditionally for `def + hole-delegate` pre-resolution (2026-05-30)
 
 ---
@@ -20,7 +20,7 @@
 > the routing of LT-CDP (§2), LT-PPR (§3), Bundle B effect-rows (§4), the
 > Path-A-holds argument (§5), and the §8 empirical-validation-gate axes (§8.1)
 > and rollback paths (§8.3) — is archived at
-> [`docs/archive/shipped-design-specs/core-shell-inversion-direction.md`](../archive/shipped-design-specs/core-shell-inversion-direction.md);
+> [`docs/archive/shipped-design-specs/core-shell-inversion-direction.md`](core-shell-inversion-direction.md);
 > cite that copy for the §8.1 axes and §8.3 rollback paths.
 
 **Thesis (memo §Thesis).** LLMLL should become a verified-core language
@@ -49,7 +49,7 @@ Policy.
 
 ## 1. Motivation
 
-The verification matrix at [`LLMLL.md §5.3.5:736-756`](../../LLMLL.md) partitions every syntactic construct into *body-faithful SMT*, *contract-only*, and *runtime assertion* verification regimes. The partition is correct. What is wrong is that **all three regimes are reachable from the same `def-logic` keyword** — a reader looking at one `def-logic` does not know, without inspecting the trust report or running `llmll verify`, which regime the function inhabits. The diamond lattice at [`LLMLL.md §4.4.1:325-344`](../../LLMLL.md) prevents silent coalescence in the *trust label*, but the *source surface* does not encode which lattice point a function reaches.
+The verification matrix at [`LLMLL.md §5.3.5:736-756`](../../../LLMLL.md) partitions every syntactic construct into *body-faithful SMT*, *contract-only*, and *runtime assertion* verification regimes. The partition is correct. What is wrong is that **all three regimes are reachable from the same `def-logic` keyword** — a reader looking at one `def-logic` does not know, without inspecting the trust report or running `llmll verify`, which regime the function inhabits. The diamond lattice at [`LLMLL.md §4.4.1:325-344`](../../../LLMLL.md) prevents silent coalescence in the *trust label*, but the *source surface* does not encode which lattice point a function reaches.
 
 `--strict-verified-core` at [`compiler/app/Main.hs:246`](../../compiler/app/Main.hs) / [`:1119-1124`](../../compiler/app/Main.hs) is the existing mitigation: hard-error if any function falls back from body-faithful verification. The flag works, but it is a *verifier mode*, not a *source-level constraint*. A function whose body uses non-core constructs can be authored, parsed, and type-checked under the current grammar; the failure surfaces only at `llmll verify --strict-verified-core`. The polarity is wrong: the permissive form is the syntactic default, and the strict reading is a flag.
 
@@ -125,13 +125,13 @@ core-expr  ::= ELit-int | ELit-bool | EVar-int | EVar-refined-int
 shell-body ::= any expr per LLMLL.md §12 (current grammar unchanged)
 ```
 
-`EVar-refined-int` covers refinement-aliased base-int types (`PositiveInt`, `NonNegInt`) per [`LLMLL.md §3.4:229-241`](../../LLMLL.md). Non-int `EVar`s are excluded from the core form in the v0.11 ship; relaxation to non-int refinement-aliased values is a v0.12+ widening decision (per §2 deferred-scope).
+`EVar-refined-int` covers refinement-aliased base-int types (`PositiveInt`, `NonNegInt`) per [`LLMLL.md §3.4:229-241`](../../../LLMLL.md). Non-int `EVar`s are excluded from the core form in the v0.11 ship; relaxation to non-int refinement-aliased values is a v0.12+ widening decision (per §2 deferred-scope).
 
 ### 3.3 `letrec` routing — **adopt route (i): outside the core as shell form**
 
-`letrec` lives in `def-shell` only in v0.11. Migrating recursion into the core requires strict call-site descent verification, which is research-track per [`LLMLL.md §5.3.3:684-691`](../../LLMLL.md) and not on the v0.11 docket.
+`letrec` lives in `def-shell` only in v0.11. Migrating recursion into the core requires strict call-site descent verification, which is research-track per [`LLMLL.md §5.3.3:684-691`](../../../LLMLL.md) and not on the v0.11 docket.
 
-**Rationale.** The inversion's value proposition is *syntactic guarantee of body-faithful reachability*. Admitting `letrec` into the core today (which verifies measure-well-formedness `measure ≥ 0` per [`LLMLL.md §4.2:272-296`](../../LLMLL.md) but not strict descent) means a `def` body containing a recursive helper still satisfies `verified` *trivially under non-termination*, which is exactly the non-negativity-≠-termination defect TERM-1 flags (and which Pass 5 of the catch-up just strengthened in the spec via the partial-correctness disclaimer). Better to keep `letrec` honest in `def-shell` and revisit when descent verification lands.
+**Rationale.** The inversion's value proposition is *syntactic guarantee of body-faithful reachability*. Admitting `letrec` into the core today (which verifies measure-well-formedness `measure ≥ 0` per [`LLMLL.md §4.2:272-296`](../../../LLMLL.md) but not strict descent) means a `def` body containing a recursive helper still satisfies `verified` *trivially under non-termination*, which is exactly the non-negativity-≠-termination defect TERM-1 flags (and which Pass 5 of the catch-up just strengthened in the spec via the partial-correctness disclaimer). Better to keep `letrec` honest in `def-shell` and revisit when descent verification lands.
 
 **Migration consequence.** The interactive game examples (`hangman_sexp`, `tictactoe_sexp`, `life_sexp`) lose core-form status for any recursive helper; the verifier-form examples (`*_verifier`) likely stay in core because their verified contracts are non-recursive QF-LIA per memo §1.5. This is the expected migration cost.
 
@@ -139,7 +139,7 @@ shell-body ::= any expr per LLMLL.md §12 (current grammar unchanged)
 
 ### 3.4 `EApp` callee restriction — **adopt the trusted-prelude-closed reading** (Rev 2)
 
-**Rev 2 revision (per the professor review's Gap #1 / Q-PROF-1).** Rev 1 specified the *strict* reading — `EApp` inside `def` admits only callees whose own bodies are body-faithfully verified, transitive closure required. The professor review surfaced that this reading is **unprecedented among production refinement-typed languages**. Liquid Haskell (`{-@ assume @-}` per Vazou et al. POPL 2014), F\* (`assume val` per Swamy et al. 2013–present), Why3 (curated prelude per Filliâtre & Paskevich ESOP 2013 §4.3), and Dafny (trusted built-ins per Leino LPAR 2010) all maintain a *curated trusted-prelude set* admitted into the verified call closure. No production system requires every callee in a verified function's call graph to be body-faithfully proven. Rev 2 adopts the *trusted-prelude-closed* reading: callees admitted in `def` are those whose `erBodyFaithful = True` *or* which are in a configured trusted-builtin whitelist hosted in [`LLMLL.md §13`](../../LLMLL.md).
+**Rev 2 revision (per the professor review's Gap #1 / Q-PROF-1).** Rev 1 specified the *strict* reading — `EApp` inside `def` admits only callees whose own bodies are body-faithfully verified, transitive closure required. The professor review surfaced that this reading is **unprecedented among production refinement-typed languages**. Liquid Haskell (`{-@ assume @-}` per Vazou et al. POPL 2014), F\* (`assume val` per Swamy et al. 2013–present), Why3 (curated prelude per Filliâtre & Paskevich ESOP 2013 §4.3), and Dafny (trusted built-ins per Leino LPAR 2010) all maintain a *curated trusted-prelude set* admitted into the verified call closure. No production system requires every callee in a verified function's call graph to be body-faithfully proven. Rev 2 adopts the *trusted-prelude-closed* reading: callees admitted in `def` are those whose `erBodyFaithful = True` *or* which are in a configured trusted-builtin whitelist hosted in [`LLMLL.md §13`](../../../LLMLL.md).
 
 **Operational rule (revised).** At the call site `(f x y)` inside a `def` body, the typechecker queries the callee's admissibility via two predicates:
 
@@ -148,7 +148,7 @@ shell-body ::= any expr per LLMLL.md §12 (current grammar unchanged)
 
 If neither predicate holds, the typechecker emits a *core-membership-violation* diagnostic.
 
-**Trusted-prelude curation.** The trusted-prelude whitelist is a separately-curated artifact at [`LLMLL.md §13`](../../LLMLL.md), populated by doc-lead promotion post-LT-INV-settlement. Initial population candidates (subject to engineer-audit confirmation):
+**Trusted-prelude curation.** The trusted-prelude whitelist is a separately-curated artifact at [`LLMLL.md §13`](../../../LLMLL.md), populated by doc-lead promotion post-LT-INV-settlement. Initial population candidates (subject to engineer-audit confirmation):
 
 | Builtin class | Body-faithful? | Trusted-prelude admission |
 |---|---|---|
@@ -186,7 +186,7 @@ Per LT-PPR §6.2, the predicate-carrying form of `?proof-required` (proposed in 
 
 ## 4. Illustrative grammar boundary
 
-The table below is **illustrative**, derived from the verification matrix at [`LLMLL.md §5.3.5:736-756`](../../LLMLL.md). The language-team formalizes the grammar production at `LLMLL.md §12` post-settlement.
+The table below is **illustrative**, derived from the verification matrix at [`LLMLL.md §5.3.5:736-756`](../../../LLMLL.md). The language-team formalizes the grammar production at `LLMLL.md §12` post-settlement.
 
 | Admitted in core (`def`) | Excluded from core (allowed in `def-shell`) |
 |---|---|
@@ -194,17 +194,17 @@ The table below is **illustrative**, derived from the verification matrix at [`L
 | `EVar` (int-typed; refinement-aliased base-int via §3.2 `EVar-refined-int`) | `EVar` non-int (Option-A scope; relaxable per §2 deferred) |
 | `EOp` over QF-LIA: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`; boolean connectives `and`, `or`, `not` | `EOp` non-linear: `*`, `/`, `mod`, `rem` |
 | `ELet` (single `PVar`, int RHS) | `ELet` (pattern / non-int RHS) |
-| `EIf` under the 4096-path limit per [`LLMLL.md §5.3.4`](../../LLMLL.md) | `EIf` exceeding the path limit |
+| `EIf` under the 4096-path limit per [`LLMLL.md §5.3.4`](../../../LLMLL.md) | `EIf` exceeding the path limit |
 | `EApp` to a contracted callee with body-faithful verified evidence (per §3.4 strict-callee rule) | `EApp` to uncontracted / recursive-self / opaque callees |
-| `EMatch` on `Result` (two-arm Success/Error) per [`LLMLL.md §5.3.4`](../../LLMLL.md) | `EMatch` general ADT; `EPair`; `ELambda`; `EDo`; `Command` construction |
-| Refinement-aliased base-int types per [`LLMLL.md §3.4:229-241`](../../LLMLL.md) | `?proof-required` (leaf or predicate-carrying); opaque crypto; untrusted FFI calls; `letrec` (per §3.3) |
+| `EMatch` on `Result` (two-arm Success/Error) per [`LLMLL.md §5.3.4`](../../../LLMLL.md) | `EMatch` general ADT; `EPair`; `ELambda`; `EDo`; `Command` construction |
+| Refinement-aliased base-int types per [`LLMLL.md §3.4:229-241`](../../../LLMLL.md) | `?proof-required` (leaf or predicate-carrying); opaque crypto; untrusted FFI calls; `letrec` (per §3.3) |
 | `?hole`, `?name`, `?choose`, `?request-cap`, `?scaffold`, `?delegate`, `?delegate-async` (authoring intermediates per §3.5) | — |
 
 The three callee-admission classes inside `def` that the language-team explicitly decided:
 
 - **`EApp` to contracted callees** (§3.4 above): strict reading. Transitive body-faithful closure required.
 - **`letrec`** (§3.3 above): route (i). Outside the core as shell form in v0.11.
-- **builtinEnv callees**: builtins are the third callee-admission class inside `def`; their trust tier propagates into the caller via the lattice meet per [`LLMLL.md §4.4.1`](../../LLMLL.md).
+- **builtinEnv callees**: builtins are the third callee-admission class inside `def`; their trust tier propagates into the caller via the lattice meet per [`LLMLL.md §4.4.1`](../../../LLMLL.md).
 
 ---
 
@@ -247,7 +247,7 @@ new:
         (def-shell f ... body)        ;; permissive form
 ```
 
-This is exercise material, not legacy. There is no API-stability obligation; v0.10.6 just shipped a `schemaVersion` bump in a patch release (per the v0.10.6 CHANGELOG entry at [`CHANGELOG.md:5`](../../CHANGELOG.md)).
+This is exercise material, not legacy. There is no API-stability obligation; v0.10.6 just shipped a `schemaVersion` bump in a patch release (per the v0.10.6 CHANGELOG entry at [`CHANGELOG.md:5`](../../../CHANGELOG.md)).
 
 **Conservative-mode flag.** Per Risk #3 below, the classifier ships with a `--migration-conservative` flag that defaults all to `def-shell` if any single function in the file falls back; promotion to `def` requires human confirmation per-file. This protects against misclassifying intentionally-permissive bodies whose author wanted shell semantics but whose body happens to be core-syntactic.
 
@@ -319,13 +319,13 @@ The C-2 settlement specifies the cross-proposal shipping conditions in full; thi
    ```lisp
    (def f [n: int] (post (> result 0)) (g n))
    ```
-   where `g`'s `post` contains `?proof-required` and `g` is `DLAsserted` per [`LLMLL.md §4.4.1`](../../LLMLL.md). **Expected behavior** under §3.4 strict-callee rule: core-membership-violation diagnostic at the call site `(g n)`; the agent must either migrate `f` to `def-shell` or `g` must be lifted out of `asserted`. **Channel:** type (the core grammar admits this construct *structurally* but the callee-restriction predicate rejects it). **Citation:** [`LLMLL.md §5.3.5`](../../LLMLL.md) verification matrix for `EApp` row; new core-grammar production per §3.2.
+   where `g`'s `post` contains `?proof-required` and `g` is `DLAsserted` per [`LLMLL.md §4.4.1`](../../../LLMLL.md). **Expected behavior** under §3.4 strict-callee rule: core-membership-violation diagnostic at the call site `(g n)`; the agent must either migrate `f` to `def-shell` or `g` must be lifted out of `asserted`. **Channel:** type (the core grammar admits this construct *structurally* but the callee-restriction predicate rejects it). **Citation:** [`LLMLL.md §5.3.5`](../../../LLMLL.md) verification matrix for `EApp` row; new core-grammar production per §3.2.
 
 2. **A `def`-form body using `*` (non-linear arithmetic).** Input shape:
    ```lisp
    (def square [n: int] (post (>= result 0)) (* n n))
    ```
-   **Expected behavior:** parse-error inside `def` (the §3.2 whitelist excludes `*`, `/`, `mod`, `rem`); the migration tooling rewrites to `def-shell square` automatically. **Channel:** type (parse-time rejection inside core grammar). **Citation:** [`LLMLL.md §5.3.5`](../../LLMLL.md) "`EOp`/`EApp` (*, /, mod, rem)" row marks SMT-body-faithful as ❌; the inversion makes this syntactic.
+   **Expected behavior:** parse-error inside `def` (the §3.2 whitelist excludes `*`, `/`, `mod`, `rem`); the migration tooling rewrites to `def-shell square` automatically. **Channel:** type (parse-time rejection inside core grammar). **Citation:** [`LLMLL.md §5.3.5`](../../../LLMLL.md) "`EOp`/`EApp` (*, /, mod, rem)" row marks SMT-body-faithful as ❌; the inversion makes this syntactic.
 
 3. **A `def`-form body using `?proof-required` directly.** Input shape:
    ```lisp
@@ -337,19 +337,19 @@ The C-2 settlement specifies the cross-proposal shipping conditions in full; thi
    ```lisp
    (def f [n: int] (sum-to-n n))
    ```
-   where `sum-to-n` is a `letrec` with body-faithful `:decreases`. **Expected behavior** under §3.3 and §3.4: `sum-to-n` is `def-shell`-only because of §3.3 (`letrec` excluded from core); therefore `sum-to-n`'s `erBodyFaithful = False` for transitive purposes; therefore §3.4 rejects the call. The recursion exclusion in §3.3 cascades through §3.4. **Channel:** type. **Citation:** new core-grammar production §3.2; v0.9.0 assume-guarantee at [`LLMLL.md §5.3.4`](../../LLMLL.md).
+   where `sum-to-n` is a `letrec` with body-faithful `:decreases`. **Expected behavior** under §3.3 and §3.4: `sum-to-n` is `def-shell`-only because of §3.3 (`letrec` excluded from core); therefore `sum-to-n`'s `erBodyFaithful = False` for transitive purposes; therefore §3.4 rejects the call. The recursion exclusion in §3.3 cascades through §3.4. **Channel:** type. **Citation:** new core-grammar production §3.2; v0.9.0 assume-guarantee at [`LLMLL.md §5.3.4`](../../../LLMLL.md).
 
 5. **An `EMatch` on `Result`.** Input shape:
    ```lisp
    (def f [r: Result] (match r ((Success v) v) ((Error e) 0)))
    ```
-   **Expected behavior:** admitted in core per the `EMatch-Result-twoarm` clause in the production. **Channel:** type. **Citation:** [`LLMLL.md §5.3.5`](../../LLMLL.md) "`EMatch` on `Result` (2-arm Success/Error)" row.
+   **Expected behavior:** admitted in core per the `EMatch-Result-twoarm` clause in the production. **Channel:** type. **Citation:** [`LLMLL.md §5.3.5`](../../../LLMLL.md) "`EMatch` on `Result` (2-arm Success/Error)" row.
 
 6. **A `def`-form body containing `?hole`.** Input shape:
    ```lisp
    (def f [n: PositiveInt] (post (> result 0)) ?hole)
    ```
-   **Expected behavior:** parses and typechecks; the hole's expected type is reported via the obligation report; the function does not verify-complete until the hole is filled. No core-membership violation. **Channel:** type (authoring intermediate). **Citation:** §3.5 above; [`LLMLL.md §6`](../../LLMLL.md).
+   **Expected behavior:** parses and typechecks; the hole's expected type is reported via the obligation report; the function does not verify-complete until the hole is filled. No core-membership violation. **Channel:** type (authoring intermediate). **Citation:** §3.5 above; [`LLMLL.md §6`](../../../LLMLL.md).
 
 7. **A `def-shell` function calling a `def` function.** Input shape:
    ```lisp
@@ -362,9 +362,9 @@ The C-2 settlement specifies the cross-proposal shipping conditions in full; thi
 
 ## 10. Verification mapping
 
-- **Channel:** type (core-membership-violation diagnostics are typechecker-emitted at parse-and-typecheck time). Trust channel unchanged (the diamond lattice at [`LLMLL.md §4.4.1`](../../LLMLL.md) is unaltered).
+- **Channel:** type (core-membership-violation diagnostics are typechecker-emitted at parse-and-typecheck time). Trust channel unchanged (the diamond lattice at [`LLMLL.md §4.4.1`](../../../LLMLL.md) is unaltered).
 - **Fragment:** structural (parse-time predicate over the AST shape); no SMT obligation added. The inversion *reduces* SMT-fragment surface inside `def` to QF-LIA per the whitelist, which is what the inversion's value proposition rests on.
-- **Cite:** [`LLMLL.md §5.3.3, §5.3.5`](../../LLMLL.md) for the QF-LIA boundary that the whitelist enforces; [`compiler/src/LLMLL/HoleAnalysis.hs`](../../compiler/src/LLMLL/HoleAnalysis.hs) (extends with core-vs-shell hole-form distinction); [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) (extends with core-callee-restriction lookup at `EApp`).
+- **Cite:** [`LLMLL.md §5.3.3, §5.3.5`](../../../LLMLL.md) for the QF-LIA boundary that the whitelist enforces; [`compiler/src/LLMLL/HoleAnalysis.hs`](../../compiler/src/LLMLL/HoleAnalysis.hs) (extends with core-vs-shell hole-form distinction); [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) (extends with core-callee-restriction lookup at `EApp`).
 
 The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expanded — every `def` body verifies under a strict subset of the v0.10 surface. The new obligations are structural (parse-time / typecheck-time predicates over AST shape), not logical.
 
@@ -372,7 +372,7 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 
 ## 11. Affected surface
 
-- [`LLMLL.md`](../../LLMLL.md) — §3 (no change to types), §4 (renames `def-logic` → `def` + adds `def-shell` definition forms), §5.3.4–5.3.5 (verification matrix gains a "core-admissible" column or annotation), §6 (hole table adds core-vs-shell distinction; cross-references LT-PPR), §12 (grammar productions rewritten per §3.2 whitelist)
+- [`LLMLL.md`](../../../LLMLL.md) — §3 (no change to types), §4 (renames `def-logic` → `def` + adds `def-shell` definition forms), §5.3.4–5.3.5 (verification matrix gains a "core-admissible" column or annotation), §6 (hole table adds core-vs-shell distinction; cross-references LT-PPR), §12 (grammar productions rewritten per §3.2 whitelist)
 - [`compiler/src/LLMLL/Syntax.hs`](../../compiler/src/LLMLL/Syntax.hs) — `Statement` constructor split: `SDef` strict + `SDefShell` permissive, replacing `SDefLogic`; `HoleKind` unchanged at AST level (core-vs-shell is enforced at parse, not at AST shape)
 - [`compiler/src/LLMLL/Parser.hs`](../../compiler/src/LLMLL/Parser.hs), [`compiler/src/LLMLL/ParserJSON.hs`](../../compiler/src/LLMLL/ParserJSON.hs) — core-grammar whitelist production at the body level; deprecation diagnostic on `def-logic`
 - [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) — core-callee-restriction at `EApp`; needs `EvidenceRecord` read access (via MOD-1's `meContracts`)
@@ -381,8 +381,8 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 - New flag `--grammar=core-inversion` for v0.11 opt-in shipping per §8 sequencing; flag retired when default flips on gate pass
 - [`docs/llmll-ast.schema.json`](../llmll-ast.schema.json) — `schemaVersion 0.5.0 → 0.6.0`; node-kind enumeration extension; bundled with LT-PPR's `predicate` field addition
 - [`examples/`](../../examples/) — 12 directories migrated mechanically per §6; classifier provided by compiler-engineer with `--migration-conservative` opt-in for ambiguous cases
-- [`docs/compiler-team-roadmap.md`](../compiler-team-roadmap.md) — Feature freeze policy lifted for v0.11 (already landed in Pass 1 of the 2026-05-23 catch-up); this proposal is the v0.11 spine
-- [`docs/design/critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) — STRICT-CORE-1 row supersedes-and-replace: the admissibility rule set is no longer codified by spec text alone but enforced by grammar
+- [`docs/compiler-team-roadmap.md`](../../compiler-team-roadmap.md) — Feature freeze policy lifted for v0.11 (already landed in Pass 1 of the 2026-05-23 catch-up); this proposal is the v0.11 spine
+- [`docs/design/critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) — STRICT-CORE-1 row supersedes-and-replace: the admissibility rule set is no longer codified by spec text alone but enforced by grammar
 
 ---
 
@@ -406,7 +406,7 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 
 ## 13. Open questions for the professor review
 
-**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §3.4 (Q-PROF-1: trusted-prelude-closed reading, citing LH/F*/Why3/Dafny convergence) and §6 (Q-PROF-2: Rust-edition precedent confirms human-confirm is inherent; confidence-tier reporting is the load-bearing improvement). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
+**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`core-shell-inversion-review.md`](../professor-reviews/core-shell-inversion-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §3.4 (Q-PROF-1: trusted-prelude-closed reading, citing LH/F*/Why3/Dafny convergence) and §6 (Q-PROF-2: Rust-edition precedent confirms human-confirm is inherent; confidence-tier reporting is the load-bearing improvement). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
 
 1. **Is the transitive body-faithful closure (§3.4) the right closure shape, or should the inversion instead require the closure under a *weaker* invariant** (e.g., "all callees are at minimum `contract-checked`")? The strict-reading rationale is principled: a `def`-form function asserting `verified` cannot rest on `asserted` callees without leaking that asserted-ness. But the principle has a cost — most useful programs have *some* opaque builtin in the transitive closure (`string-length`, `random-int`, `wasi.*`). The relaxed closure ("contract-checked or better") would let builtins-with-contracts pass while still excluding `asserted` and `tested`-only callees. Is there an established treatment in the Liquid Haskell / F\* literature of this "closure-under-evidence-tier" question, and does the established treatment match §3.4 strict or a relaxed variant? — *Rev 2 answer: the LH / F\* / Why3 / Dafny convergence is the trusted-prelude-closed reading; the strict reading is unprecedented. §3.4 adopts the trusted-prelude-closed reading with the `LLMLL.md §13` whitelist as the curation surface.*
 
@@ -416,9 +416,9 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 
 ## 14. Companion review
 
-Professor review landed at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§3.1 corpus-continuity; §3.3 cascade quantification; §3.4 trusted-prelude-closed reading + `meContracts` extension commitment; §3.5 post-resolution re-typecheck; §6 Rust-edition precedent + confidence-tier reporting; §8 tightened pass criteria + Outcome enumeration). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §8 above.
+Professor review landed at [`core-shell-inversion-review.md`](../professor-reviews/core-shell-inversion-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§3.1 corpus-continuity; §3.3 cascade quantification; §3.4 trusted-prelude-closed reading + `meContracts` extension commitment; §3.5 post-resolution re-typecheck; §6 Rust-edition precedent + confidence-tier reporting; §8 tightened pass criteria + Outcome enumeration). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §8 above.
 
-The standalone `core-shell-inversion-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/core-shell-inversion-review.md`](../archive/professor-reviews/core-shell-inversion-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
+The standalone `core-shell-inversion-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/core-shell-inversion-review.md`](../professor-reviews/core-shell-inversion-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
 
 This proposal is the v0.11 architectural spine and is sequenced ahead of LT-CDP and LT-PPR per §8 — both gate-independent of LT-INV per the rollback paths specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md).
 
@@ -457,7 +457,7 @@ The review recommended `approve with revisions` on seven gaps and two author-que
 
 ## §8 Gate Outcome
 
-**Gate runs:** baseline `20260528T012230Z` (GrammarLegacy, n=6); post-arm `20260528T145727Z` ([PM-004](../../experiments/minimal-agent/findings/postmortem-004-s8-gate-post-arm-rerun.md), GrammarCoreInversion, n=6); redesigned `20260528T204620Z` ([PM-005](../../experiments/minimal-agent/findings/postmortem-005-s8-gate-redesigned-run.md), EL-1+EL-2+E3 evaluator, n=8, 2 excluded). Excluded invalid: `20260528T014158Z` (enforcement absent). Full evidence: PM-004 and PM-005.
+**Gate runs:** baseline `20260528T012230Z` (GrammarLegacy, n=6); post-arm `20260528T145727Z` ([PM-004](../../../experiments/minimal-agent/findings/postmortem-004-s8-gate-post-arm-rerun.md), GrammarCoreInversion, n=6); redesigned `20260528T204620Z` ([PM-005](../../../experiments/minimal-agent/findings/postmortem-005-s8-gate-redesigned-run.md), EL-1+EL-2+E3 evaluator, n=8, 2 excluded). Excluded invalid: `20260528T014158Z` (enforcement absent). Full evidence: PM-004 and PM-005.
 
 | Axis | Pre-arm (n=6) | Post-arm (n=6, PM-005 valid) | Result |
 |------|--------------|------------------------------|--------|
@@ -466,4 +466,4 @@ The review recommended `approve with revisions` on seven gaps and two author-que
 | (c) `?proof-required` emission | 0/6 (0%) | 3/6 (50%) | **Improves — conjunctive gate criterion met** |
 | (d) Boundary-form distribution | 0% `def`/`def-shell`; 12/12 `def-logic` | 100% `def`/`def-shell`; 0/10 `def-logic` | Enforcement confirmed; ≥25% `def` threshold met |
 
-§8 Rev 2 conjunctive pass criterion was satisfied on PM-005 data (axis (c) improves; axis (d) ≥25%; no material regression); the PM-005 adjudication (rollback path 1, 2026-05-29) is superseded — F-GATE-7 evaluator and F-GATE-8 compiler contamination sources remained present in that dataset. EL-5 ([PM-006](../../experiments/minimal-agent/findings/postmortem-006-el5-clean-gate.md), run `20260530T052351Z`, GrammarCoreInversion, n=8, 0 exclusions) is the clean reference dataset: axis (c) `?proof-required` emission 8/8 (100%) versus 0/6 pre-arm (+100 pp); axis (a) grade A 7/8 (87.5%) versus 0/6 pre-arm; axis (d) 0/8 `def-logic`, 100% `def`/`def-shell`; no material regression on any axis. **Gate adjudication: PASS definitively (EL-5, PM-006, 2026-05-30).** Grammar default flips to `GrammarCoreInversion` per §8 sequencing step (4); CE-3 (commit `63b9bb3`) ships the default flip and schema bump `0.5.0 → 0.6.0`. `GrammarLegacy` remains accessible via `--grammar=legacy`. F-EL5-3 (`def + hole-delegate` pre-clause-dependent trust; non-blocking): adjudicated `asserted` unconditionally pre-resolution, matching `def-shell` treatment; F-GATE-8 extension to `SDef + EHole(HDelegate _)` / `EHole(HDelegateAsync _)` required in `PBT.hs:guardDelegate`; recorded 2026-05-30.
+§8 Rev 2 conjunctive pass criterion was satisfied on PM-005 data (axis (c) improves; axis (d) ≥25%; no material regression); the PM-005 adjudication (rollback path 1, 2026-05-29) is superseded — F-GATE-7 evaluator and F-GATE-8 compiler contamination sources remained present in that dataset. EL-5 ([PM-006](../../../experiments/minimal-agent/findings/postmortem-006-el5-clean-gate.md), run `20260530T052351Z`, GrammarCoreInversion, n=8, 0 exclusions) is the clean reference dataset: axis (c) `?proof-required` emission 8/8 (100%) versus 0/6 pre-arm (+100 pp); axis (a) grade A 7/8 (87.5%) versus 0/6 pre-arm; axis (d) 0/8 `def-logic`, 100% `def`/`def-shell`; no material regression on any axis. **Gate adjudication: PASS definitively (EL-5, PM-006, 2026-05-30).** Grammar default flips to `GrammarCoreInversion` per §8 sequencing step (4); CE-3 (commit `63b9bb3`) ships the default flip and schema bump `0.5.0 → 0.6.0`. `GrammarLegacy` remains accessible via `--grammar=legacy`. F-EL5-3 (`def + hole-delegate` pre-clause-dependent trust; non-blocking): adjudicated `asserted` unconditionally pre-resolution, matching `def-shell` treatment; F-GATE-8 extension to `SDef + EHole(HDelegate _)` / `EHole(HDelegateAsync _)` required in `PBT.hs:guardDelegate`; recorded 2026-05-30.

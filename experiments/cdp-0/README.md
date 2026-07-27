@@ -4,7 +4,7 @@
 > **Last updated:** 2026-05-26
 > **Owner:** experiment-lead
 > **Gate consumer:** `docs/design/core-shell-inversion-proposal.md` §8 empirical-validation gate; LT-INV-engineer post-gate measurement loads `runs/<timestamp>-baseline/baseline.json` as the comparison anchor for the *spec-strength distribution* axis.
-> **Design ref:** [`docs/design/contract-discriminative-power-proposal.md`](../../docs/design/contract-discriminative-power-proposal.md) Rev 2 §2 (baseline-first sequencing).
+> **Design ref:** [`docs/design/contract-discriminative-power-proposal.md`](../../docs/archive/shipped-design-specs/contract-discriminative-power-proposal.md) Rev 2 §2 (baseline-first sequencing).
 
 ## 1. Purpose
 

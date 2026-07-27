@@ -1,6 +1,6 @@
 # Professor Review — Data-Scope Lever A: The SMT Theory of Arrays (Rev 0)
 
-> **Reviewing:** [`data-scope-lever-a-arrays-proposal.md`](data-scope-lever-a-arrays-proposal.md) (Rev 0, 2026-07-11)
+> **Reviewing:** [`data-scope-lever-a-arrays-proposal.md`](../shipped-design-specs/data-scope-lever-a-arrays-proposal.md) (Rev 0, 2026-07-11)
 > **Reviewer:** professor · 2026-07-11
 > **Verdict:** proceed-with-revisions — gating findings F1, F2, F3 (F4 gates stage A2, not the design). See the final line.
 

@@ -1,6 +1,6 @@
 # Technical Items from Verification Debate (April 2026)
 
-> **Source:** [`verification-debate.md`](verification-debate.md)  
+> **Source:** [`verification-debate.md`](../../design/verification-debate.md)  
 > **Context:** External formal methods review of LLMLL's verification claims. The review surfaced concrete engineering obligations that the compiler and language teams should track.
 
 ---

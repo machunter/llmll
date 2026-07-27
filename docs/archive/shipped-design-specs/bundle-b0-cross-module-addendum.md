@@ -4,7 +4,7 @@
 > **Date:** 2026-06-15
 > **Status:** Settled (Rev 1) — **SHIPPED** `85d2a7d` (build, 851→855 tests) / `6215add` (docs: CHANGELOG `## Unreleased` + `LLMLL.md` §11.2 effect-summary note).
 > **Extends:** [`bundle-b0-effect-summary-proposal.md`](bundle-b0-effect-summary-proposal.md) (Rev 2, shipped `b2d9c1a`). This addendum does **not** reopen that proposal; it records the cross-module extension and supersedes the B0-experiment-gates-B1 framing in that proposal's frontmatter (lines 7, 9) and in [`v0.12-direction.md §3`](v0.12-direction.md) (B1 row, "B0 empirical instrument" paragraph).
-> **Origin:** experiment-lead finding **F-B0-3** ([`experiments/minimal-agent/findings/postmortem-007-b0-pilot.md`](../../experiments/minimal-agent/findings/postmortem-007-b0-pilot.md)) — the shipped single-file B0 summary under-reports across module imports, and is informationally redundant where capabilities are syntactically evident.
+> **Origin:** experiment-lead finding **F-B0-3** ([`experiments/minimal-agent/findings/postmortem-007-b0-pilot.md`](../../../experiments/minimal-agent/findings/postmortem-007-b0-pilot.md)) — the shipped single-file B0 summary under-reports across module imports, and is informationally redundant where capabilities are syntactically evident.
 > **Reviewed:** Professor (2026-06-15, in-conversation) — soundness verdict on the propagation invariant + the B1 forward-record; convergence named below.
 
 ---

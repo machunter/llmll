@@ -3,7 +3,7 @@
 > **Status:** Approved in design; implementation planned for v0.3.5–v0.4  
 > **Date:** 2026-04-19  
 > **Participants:** External reviewer (critique originator), Professor (Lead Consultant for Formal Language Design)  
-> **Source documents:** [`invariant-discovery-review.md`](invariant-discovery-review.md), [`invariant-discovery-proposal.md`](invariant-discovery-proposal.md), [`specification-sources.md`](specification-sources.md), [`lead-agent.md`](lead-agent.md), [`strategic-positioning.md`](strategic-positioning.md)
+> **Source documents:** [`invariant-discovery-review.md`](../professor-reviews/invariant-discovery-review.md), [`invariant-discovery-proposal.md`](../../design/invariant-discovery-proposal.md), [`specification-sources.md`](../../design/specification-sources.md), [`lead-agent.md`](lead-agent.md), [`strategic-positioning.md`](../../design/strategic-positioning.md)
 
 ### Review History
 
@@ -26,7 +26,7 @@ Three specific claims:
 
 | Claim | Assessment |
 |-------|-----------|
-| **The biggest gap is spec generation and validation, not compiler surface area.** The project can prove "implementation matches contract" but not "contract matches intent." | Correct — and acknowledged by the project's own docs ([`one-pager.md`](../one-pager.md), [`strategic-positioning.md`](strategic-positioning.md), [`specification-sources.md`](specification-sources.md)) |
+| **The biggest gap is spec generation and validation, not compiler surface area.** The project can prove "implementation matches contract" but not "contract matches intent." | Correct — and acknowledged by the project's own docs ([`one-pager.md`](../../one-pager.md), [`strategic-positioning.md`](../../design/strategic-positioning.md), [`specification-sources.md`](../../design/specification-sources.md)) |
 | **The examples are toy programs**, not benchmarked workloads from target domains. | Correct. Hangman, Tic-Tac-Toe, Conway's Life are pedagogically appropriate but have thin specification surfaces. |
 | **Orchestration hardening is a second-tier gap** — some acceptance criteria remain unchecked. | Partially correct but overstated. The compiler primitives are shipped; the orchestrator integration is scheduled next-sprint work (v0.3.5 Track A). |
 
@@ -44,7 +44,7 @@ The critique is **substantially correct in its primary observation, partially co
 
 ### What the critique underestimates
 
-- The project has **explicitly identified this gap** as its central research question. The [`strategic-positioning.md`](strategic-positioning.md) lists "Agents can write good specs" under "What Is Overestimated." The [`specification-sources.md`](specification-sources.md) rates LLM specification-generation ability as "Weak."
+- The project has **explicitly identified this gap** as its central research question. The [`strategic-positioning.md`](../../design/strategic-positioning.md) lists "Agents can write good specs" under "What Is Overestimated." The [`specification-sources.md`](../../design/specification-sources.md) rates LLM specification-generation ability as "Weak."
 - The engineering ordering is **defensible**: you cannot evaluate specification quality without the verification pipeline that measures it. The instruments (`--trust-report`, `.fq` emitter, stratified verification levels) had to be built first.
 - The project has **designed** the countermeasures (weak-spec counter-examples, invariant registry, downstream obligation mining, differential implementation pressure) — they are not yet shipped.
 
@@ -64,7 +64,7 @@ The most productive response is not architectural — it is **evidential**: ship
 
 #### 1a. Weak-Spec Counter-Examples (`--weakness-check`) — ~2–3 days
 
-> Source: [compiler-team-roadmap.md W1–W2](../compiler-team-roadmap.md)
+> Source: [compiler-team-roadmap.md W1–W2](../../compiler-team-roadmap.md)
 
 After `llmll verify` reports SAFE, attempt to construct trivial implementations that also satisfy the contract. Uses a **fixed set of trivial fill candidates**:
 
@@ -109,7 +109,7 @@ Walk `[Statement]`, count `def-logic` nodes with/without `pre`/`post`, cross-ref
 
 #### 1c. Invariant Pattern Registry (seed with ~10 patterns) — ~1 day
 
-> Source: [invariant-discovery-review.md §9](invariant-discovery-review.md)
+> Source: [invariant-discovery-review.md §9](../professor-reviews/invariant-discovery-review.md)
 
 A static lookup table keyed by `(type signature pattern, function name heuristic)`. Powers `--weakness-check` suggestions and `--sketch` contract autocomplete.
 
@@ -128,7 +128,7 @@ New module: `InvariantRegistry.hs`.
 
 #### 1d. Downstream Obligation Mining — ~2 days
 
-> Source: [invariant-discovery-review.md §4](invariant-discovery-review.md)
+> Source: [invariant-discovery-review.md §4](../professor-reviews/invariant-discovery-review.md)
 
 When `llmll verify` reports UNSAFE at a cross-function boundary, perform **abductive blame attribution** — identify whether the unsatisfied constraint is a plausible missing postcondition on a callee.
 
@@ -160,7 +160,7 @@ Reuses: `ConstraintOrigin` from `DiagnosticFQ.hs`, `extractCalls` from `TrustRep
 
 #### 1e. Intentional Permissiveness Suppression (`weakness-ok`) — ~0.5 day
 
-> Source: [invariant-discovery-review.md §4.1](invariant-discovery-review.md)
+> Source: [invariant-discovery-review.md §4.1](../professor-reviews/invariant-discovery-review.md)
 
 Without a suppression mechanism, `--weakness-check` will produce false positives on every accessor, projection, and deliberately non-deterministic function.
 
@@ -192,7 +192,7 @@ Syntax and placement rules follow `(trust ...)` — per-function, before `def-lo
 - **External spec exists.** [ERC-20](https://eips.ethereum.org/EIPS/eip-20) defines `transfer`, `approve`, `transferFrom`, `balanceOf`, `totalSupply` with explicit semantic requirements.
 - **Specifications are non-trivial.** Balance conservation, authorization constraints, and edge cases exercise the verification pipeline meaningfully.
 - **Weak specs have consequences.** A `transfer` without the conservation invariant allows money creation — exactly the bug the spec-adequacy tools should catch.
-- **Domain relevance.** Financial contracts are a stated target domain ([`strategic-positioning.md §Target Domains`](strategic-positioning.md)).
+- **Domain relevance.** Financial contracts are a stated target domain ([`strategic-positioning.md §Target Domains`](../../design/strategic-positioning.md)).
 
 #### Verification scoping (honest labeling)
 
@@ -388,9 +388,9 @@ The design question is answered. The engineering question — can we ship the de
 
 | Document | Relationship |
 |---|---|
-| [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) | Track 1 items should be added to v0.3.5. Track 2 and 3 items added to v0.4. |
-| [`invariant-discovery-review.md`](invariant-discovery-review.md) | This document implements the Professor's Phase A recommendations (invariant registry + obligation explanation). Phase B (differential pressure) and Phase C (adversarial search) are deferred. |
+| [`compiler-team-roadmap.md`](../../compiler-team-roadmap.md) | Track 1 items should be added to v0.3.5. Track 2 and 3 items added to v0.4. |
+| [`invariant-discovery-review.md`](../professor-reviews/invariant-discovery-review.md) | This document implements the Professor's Phase A recommendations (invariant registry + obligation explanation). Phase B (differential pressure) and Phase C (adversarial search) are deferred. |
 | [`lead-agent.md`](lead-agent.md) | Track 3 extends the Lead Agent's Step 4 quality checks. |
-| [`specification-sources.md`](specification-sources.md) | Track 2 demonstrates Source 1 (external standards) on a concrete example. |
-| [`strategic-positioning.md`](strategic-positioning.md) | This work directly addresses the "What Is Overestimated" section. |
-| [`one-pager.md`](../one-pager.md) | Success criteria, if met, substantiate the one-pager's claims about spec quality visibility. |
+| [`specification-sources.md`](../../design/specification-sources.md) | Track 2 demonstrates Source 1 (external standards) on a concrete example. |
+| [`strategic-positioning.md`](../../design/strategic-positioning.md) | This work directly addresses the "What Is Overestimated" section. |
+| [`one-pager.md`](../../one-pager.md) | Success criteria, if met, substantiate the one-pager's claims about spec quality visibility. |

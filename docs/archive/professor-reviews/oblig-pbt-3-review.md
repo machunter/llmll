@@ -1,7 +1,7 @@
 # Professor Review: OBLIG-PBT-3 — PBT-to-Trust-Report Write-Back
 
 **Reviewer:** Lead Consultant for Formal Language Design
-**Document under review:** [`oblig-pbt-3-proposal.md`](oblig-pbt-3-proposal.md) (Rev 1, since revised to Rev 2 incorporating these findings)
+**Document under review:** [`oblig-pbt-3-proposal.md`](../shipped-design-specs/oblig-pbt-3-proposal.md) (Rev 1, since revised to Rev 2 incorporating these findings)
 **Date:** 2026-05-13
 
 ---

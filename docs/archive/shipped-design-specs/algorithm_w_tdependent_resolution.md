@@ -89,7 +89,7 @@ The unifier distinguishes the direction: a refined type can flow into its base t
 
 #### 1. Architectural alignment — the Two-Layer Design is intentional
 
-LLMLL's type system is explicitly two-layered ([type-driven-development.md](../docs/design/type-driven-development.md)):
+LLMLL's type system is explicitly two-layered ([type-driven-development.md](../../design/type-driven-development.md)):
 
 | Layer | Mechanism | Verified by |
 |-------|-----------|-------------|
@@ -131,7 +131,7 @@ Adding refinement propagation to unification would create a redundant path that 
 
 #### 4. Agent compatibility — agents don't reason about refinement propagation
 
-The agent prompt semantics gap analysis ([agent-prompt-semantics-gap.md](../docs/design/agent-prompt-semantics-gap.md)) already documents that agents struggle with the type system. Option B or C would make hole-filling harder: the agent would need to understand that passing an `int` where a `PositiveInt` is expected requires implicit proof, and the error messages would involve constraint propagation failures that are hard to act on.
+The agent prompt semantics gap analysis ([agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md)) already documents that agents struggle with the type system. Option B or C would make hole-filling harder: the agent would need to understand that passing an `int` where a `PositiveInt` is expected requires implicit proof, and the error messages would involve constraint propagation failures that are hard to act on.
 
 With Option A, the boundary is simple: **types check structure, contracts check behavior.** The agent fills a hole structurally, and `llmll verify` checks the behavioral properties.
 
@@ -200,7 +200,7 @@ All of these are structurally independent of `TDependent`. The refinement layer 
 
 ## Future Considerations
 
-If LLMLL eventually moves toward indexed dependent types (tracked in [research-track.md](../docs/research-track.md) §1), this decision may need revisiting. Specifically:
+If LLMLL eventually moves toward indexed dependent types (tracked in [research-track.md](../research-track.md) §1), this decision may need revisiting. Specifically:
 
 - **Option C (refinement-subtyping)** would become relevant if LLMLL adds subtype coercions and wants the type checker to generate proof obligations automatically.
 - **Option B (propagate-refinement)** would become relevant if LLMLL adds type-level computation and wants the type checker to evaluate constraint expressions.

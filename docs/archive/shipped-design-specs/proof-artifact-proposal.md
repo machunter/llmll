@@ -1,11 +1,11 @@
 # PROOF-ARTIFACT — Unified, Reproducible Verification Artifact
 
-> **Version:** Rev 2 — professor review folded ([`proof-artifact-review.md`](proof-artifact-review.md), 2026-06-20, `revise-and-resubmit`). Six findings incorporated: (1) the two replay "modes" are recast as **two distinct properties with two trusted bases** — *replay reproducibility* vs. *independent checkability* — not two price points on one axis (§4.4); (2) the §1 motivation is restated to what the design actually delivers (hermetic, version-pinned re-verification), dropping "not a compiler run"; (3) the artifact ships the **unsat core**, not the raw `.fq` alone (formerly "Mode 1.5"), at F*-`.hints` granularity (§4.2/§4.4); (4) `unknown`/timeout is a distinct fail-closed outcome and the determinism inputs beyond `solver_version` are pinned (§4.3); (5) faithfulness is promoted from a risk to a **schema well-formedness invariant** enforced LCF-style by a smart constructor (§4.1); (6) the genuine certificate path is the **Lean tier**, not Z3 proof-object serialization (§4.4/§7). Rev 1 (2026-06-20) was the initial consolidation proposal.
+> **Version:** Rev 2 — professor review folded ([`proof-artifact-review.md`](../professor-reviews/proof-artifact-review.md), 2026-06-20, `revise-and-resubmit`). Six findings incorporated: (1) the two replay "modes" are recast as **two distinct properties with two trusted bases** — *replay reproducibility* vs. *independent checkability* — not two price points on one axis (§4.4); (2) the §1 motivation is restated to what the design actually delivers (hermetic, version-pinned re-verification), dropping "not a compiler run"; (3) the artifact ships the **unsat core**, not the raw `.fq` alone (formerly "Mode 1.5"), at F*-`.hints` granularity (§4.2/§4.4); (4) `unknown`/timeout is a distinct fail-closed outcome and the determinism inputs beyond `solver_version` are pinned (§4.3); (5) faithfulness is promoted from a risk to a **schema well-formedness invariant** enforced LCF-style by a smart constructor (§4.1); (6) the genuine certificate path is the **Lean tier**, not Z3 proof-object serialization (§4.4/§7). Rev 1 (2026-06-20) was the initial consolidation proposal.
 > **Date:** 2026-06-20 (Rev 1; Rev 2)
 > **Implements:** Active-Items row `PROOF-ARTIFACT` (`docs/compiler-team-roadmap.md`, doc-lead pass 2026-06-20). Originates from the two-round external critique adjudication.
 > **Prerequisites:** None new. Consolidates the existing verification-output surface — `verify --fq-out` (`.fq`), `--trust-report`, `--obligation-report`, the `.verified.json` sidecar (`erVerifiedHash`), `consumed_guarantees`, `caller_obligations`. Leans on the VERIFY-RPT-1 sidecar hash-guard discipline ([`VerifiedCache.hs:201-228`](../../compiler/src/LLMLL/VerifiedCache.hs)) and the INT-3 `codegen_semantics_version` stamp requirement (`LLMLL.md §5.3.5:1051`).
 > **Origin:** External critique rounds 1 and 2 (convergent recommendation, identical field list both rounds) — paraphrased "a verified claim should be reproducible from an artifact." Language-team adjudication confirmed the recommendation is untracked and in-scope.
-> **Reviewed:** Professor review at [`proof-artifact-review.md`](proof-artifact-review.md) (2026-06-20), recommendation `revise-and-resubmit`; six findings folded into this Rev 2 (see Version line). Standalone review awaits doc-lead M2 fold-and-archive on settlement.
+> **Reviewed:** Professor review at [`proof-artifact-review.md`](../professor-reviews/proof-artifact-review.md) (2026-06-20), recommendation `revise-and-resubmit`; six findings folded into this Rev 2 (see Version line). Standalone review awaits doc-lead M2 fold-and-archive on settlement.
 > **Status:** Proposed (Rev 2) — professor review incorporated; awaiting user adjudication and settlement.
 
 ---
@@ -147,7 +147,7 @@ Not an implementation plan (engineer's slot) — the seam at which the engineer 
 
 ## 10. Open questions for the professor — resolved (Rev 2)
 
-The Rev 1 §10 question (is "reproducible proof artifact" a known notion; is re-run adequate or is a Z3 proof object required) was answered in [`proof-artifact-review.md`](proof-artifact-review.md): the notion bifurcates into the **R-property** (replay; trusted solver; F\*-`.hints` precedent) and the **C-property** (independent checkability; small checker; PCC/SMTCoq/Alethe/Lean), with different trusted bases. The two open questions the professor handed back to the language-team are resolved in this revision:
+The Rev 1 §10 question (is "reproducible proof artifact" a known notion; is re-run adequate or is a Z3 proof object required) was answered in [`proof-artifact-review.md`](../professor-reviews/proof-artifact-review.md): the notion bifurcates into the **R-property** (replay; trusted solver; F\*-`.hints` precedent) and the **C-property** (independent checkability; small checker; PCC/SMTCoq/Alethe/Lean), with different trusted bases. The two open questions the professor handed back to the language-team are resolved in this revision:
 
 1. *Full `.fq` vs unsat core* → **adopt the unsat core** as the primary proof-trace field at F\*-hint granularity (§4.2), with the full `vc` retained as a fallback pending the §8 extraction-feasibility check.
 2. *`unknown`/timeout and determinism inputs* → **`unknown`/timeout fails closed as a distinct outcome** (§4.3, §5 edge case 2), and the artifact pins `solver_version` + `solver_options` + `resource_limits` (+ `codegen_semantics_version`), not the version alone.
@@ -158,7 +158,7 @@ No open professor questions remain for Rev 2.
 
 ## Appendix — Professor review log
 
-> Folded on settlement (M2). The standalone review is archived at [`docs/archive/professor-reviews/proof-artifact-review.md`](../archive/professor-reviews/proof-artifact-review.md). Shipped as v0.14.0 (staged MVP).
+> Folded on settlement (M2). The standalone review is archived at [`docs/archive/professor-reviews/proof-artifact-review.md`](../professor-reviews/proof-artifact-review.md). Shipped as v0.14.0 (staged MVP).
 
 **Review of Rev 1** (professor, 2026-06-20) — recommendation **revise-and-resubmit**. The proposal was sound and in-scope; the central framing conflated two distinct properties, the §1 motivation overclaimed, and the closest external precedent (F\* hints) was omitted. Six gaps, all folded into Rev 2:
 

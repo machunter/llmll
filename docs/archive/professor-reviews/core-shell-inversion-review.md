@@ -1,7 +1,7 @@
 # Professor Review: LT-INV — Core/Shell Grammar Inversion
 
 **Reviewer:** Lead Consultant for Formal Language Design
-**Document under review:** [`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) (Rev 1)
+**Document under review:** [`core-shell-inversion-proposal.md`](../shipped-design-specs/core-shell-inversion-proposal.md) (Rev 1)
 **Date:** 2026-05-25
 **Status:** Review (Rev 1) — pending language-team adjudication
 

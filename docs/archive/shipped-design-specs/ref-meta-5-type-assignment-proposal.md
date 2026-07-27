@@ -3,7 +3,7 @@
 > **Version:** Rev 2 — professor review folded (framing recast: the checker is *local type inference* + one genuine checking rule, not a "complete bidirectional system"; D–K §3.1 cited to justify the relabel; Pierce–Turner / Damas–Milner re-anchored; subsumption-replacement spine dropped; Pfenning intro/elim sentence deleted). Rev 1 (2026-06-14) drafted the judgment as a "full bidirectional system" with a `≡`-for-`<:` subsumption replacement.
 > **Date:** 2026-06-14 (Rev 1; Rev 2)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.12 post-freeze lane, REF-META-5 (last item on the REF-META-2..5 chain); [`docs/design/v0.12-direction.md §1`](v0.12-direction.md).
-> **Prerequisites:** REF-META-1 (checking-mode rule [`LLMLL.md §3.4.1`](../../LLMLL.md), non-goals §3.4.2, soundness §3.4.3); REF-META-2 (Σ_auto solver-completeness §5.3.3); REF-META-3 (predicate well-formedness §3.4.4); REF-META-4 (erasure theorem §3.4.5, commits `70bdcb3`/`22c5778`/`639d01e`). The judgment cites and embeds each.
+> **Prerequisites:** REF-META-1 (checking-mode rule [`LLMLL.md §3.4.1`](../../../LLMLL.md), non-goals §3.4.2, soundness §3.4.3); REF-META-2 (Σ_auto solver-completeness §5.3.3); REF-META-3 (predicate well-formedness §3.4.4); REF-META-4 (erasure theorem §3.4.5, commits `70bdcb3`/`22c5778`/`639d01e`). The judgment cites and embeds each.
 > **Origin:** v0.12 full-memo scope; completes the refinement metatheory of record. REF-META-5 was the only item blocked on REF-META-4 (the full judgment must cite each sub-rule).
 > **Reviewed:** Professor review (2026-06-14, in-conversation) — recommendation `revise-and-resubmit` (framing recast; technical content affirmed). Four findings folded into this Rev 2 (see `## Appendix — Professor review log`); the rules, the §3.4.1 embedding, the WF/erasure bracketing, the no-new-obligation / spec-track classification were affirmed, not contested. No standalone `-review.md` file was produced; the review is folded directly per the REF-META-1/3/4 appendix pattern.
 > **Status:** Settled (Rev 2) — professor review folded; spec-track only (no compiler work — documents `TypeCheck.hs` as shipped). Pending documentation-lead promotion to `LLMLL.md §3.4.6` (+ a roadmap-row reconciliation).
@@ -127,12 +127,12 @@ The Pfenning intro-checks/elim-synthesizes discipline is **not** asserted: the c
 
 ## 6. Verification mapping
 
-REF-META-5 introduces **no new proof obligation** and **no new channel**. The judgment is the **type channel** — decidable, structural (`unify` + `expandAlias`), non-SMT, the same status as the §3.4.4 WF check. The only refinement obligation it routes is the existing §3.4.1 `p[e/x]` at `⇐-Refine` sites, already classified per [`LLMLL.md §5.3.3`](../../LLMLL.md): QF-LIA core auto / measure-class auto (Σ_auto) / non-Σ_auto → `erBodyFallback` (the §3.4.5 firewall). The judgment reorganizes the presentation of obligations the compiler already emits; it adds none. This is what keeps REF-META-5 spec-track-only — the same pattern as REF-META-2/3/4.
+REF-META-5 introduces **no new proof obligation** and **no new channel**. The judgment is the **type channel** — decidable, structural (`unify` + `expandAlias`), non-SMT, the same status as the §3.4.4 WF check. The only refinement obligation it routes is the existing §3.4.1 `p[e/x]` at `⇐-Refine` sites, already classified per [`LLMLL.md §5.3.3`](../../../LLMLL.md): QF-LIA core auto / measure-class auto (Σ_auto) / non-Σ_auto → `erBodyFallback` (the §3.4.5 firewall). The judgment reorganizes the presentation of obligations the compiler already emits; it adds none. This is what keeps REF-META-5 spec-track-only — the same pattern as REF-META-2/3/4.
 
 | Obligation | Channel | Fragment | Cite |
 |---|---|---|---|
 | Type-assignment / `≡` checks (the judgment itself) | type | Decidable, non-SMT (`unify` + `expandAlias`) | [`TypeCheck.hs:896,1083-1085`](../../compiler/src/LLMLL/TypeCheck.hs) |
-| `⇐-Refine` introduction obligation `p[e/x]` (reused, not new) | contract | QF-LIA core auto / measure-class auto / non-Σ_auto → `erBodyFallback` | §3.4.1; [`§5.3.3`](../../LLMLL.md); §3.4.5 |
+| `⇐-Refine` introduction obligation `p[e/x]` (reused, not new) | contract | QF-LIA core auto / measure-class auto / non-Σ_auto → `erBodyFallback` | §3.4.1; [`§5.3.3`](../../../LLMLL.md); §3.4.5 |
 
 ## 7. Affected surface
 

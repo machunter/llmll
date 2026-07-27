@@ -1,9 +1,9 @@
 # Data-Scope Lever A — The SMT Theory of Arrays for `bytes[n]` and `map[k,v]`
 
 > **Status:** Rev 1.1 — professor-reviewed + review folded (Rev 1) + feasibility read folded (Rev 1.1: int-0/1 presence array, §5) — **A0 GO · A1 GO · A2 GO-WITH-CHANGES** per [`data-scope-lever-a-feasibility.md`](data-scope-lever-a-feasibility.md); ready to build
-> **Review:** [`data-scope-lever-a-arrays-review.md`](data-scope-lever-a-arrays-review.md) (2026-07-11); dispositions in the Review-fold appendix
-> **Track:** Data Scope Extension, Lever A ([`compiler-team-roadmap.md`](../compiler-team-roadmap.md) → *Future — Data Scope Extension*, row A — this document is that row's design record)
-> **Didactic companion:** [`data-scope-extension.md`](data-scope-extension.md) Posts 6–8 (rationale); this document is the normative design.
+> **Review:** [`data-scope-lever-a-arrays-review.md`](../professor-reviews/data-scope-lever-a-arrays-review.md) (2026-07-11); dispositions in the Review-fold appendix
+> **Track:** Data Scope Extension, Lever A ([`compiler-team-roadmap.md`](../../compiler-team-roadmap.md) → *Future — Data Scope Extension*, row A — this document is that row's design record)
+> **Didactic companion:** [`data-scope-extension.md`](../../design/data-scope-extension.md) Posts 6–8 (rationale); this document is the normative design.
 > **Author:** language-team · 2026-07-11 (Rev 0), review fold 2026-07-11 (Rev 1), feasibility amendment 2026-07-11 (Rev 1.1)
 
 ---
@@ -27,7 +27,7 @@ This proposal **anticipates** the tracked Lever A roadmap row (it is that row's 
 9. `compiler/src/LLMLL/ObligationMining.hs:171` — `isQfLia`, the single central classifier seam (post-CLASSIFY-EOP, v0.14.30).
 10. `docs/design/data-scope-extension.md` Posts 6–8 — bug-class inventory, Lever A rationale, the checkout-brief evaluation-integrity rule (Post 8).
 11. `docs/compiler-team-roadmap.md` → "What's NOT on this Roadmap" postscript — the feature freeze was lifted at v0.11; a new builtin lands through design → professor → engineer **with a written soundness argument**. This document is that argument.
-12. [`data-scope-lever-a-arrays-review.md`](data-scope-lever-a-arrays-review.md) — professor review of Rev 0; F1–F10, all folded here.
+12. [`data-scope-lever-a-arrays-review.md`](../professor-reviews/data-scope-lever-a-arrays-review.md) — professor review of Rev 0; F1–F10, all folded here.
 
 **Spec-drift findings surfaced during Rev 0 reading** (status as of v0.14.32):
 
@@ -267,7 +267,7 @@ Reflection: `result$has = store(m$has,k,true) ∧ result$val = store(m$val,k,v)`
 
 ## Review-fold appendix (Rev 1)
 
-Professor review: [`data-scope-lever-a-arrays-review.md`](data-scope-lever-a-arrays-review.md), verdict **proceed-with-revisions**. Dispositions:
+Professor review: [`data-scope-lever-a-arrays-review.md`](../professor-reviews/data-scope-lever-a-arrays-review.md), verdict **proceed-with-revisions**. Dispositions:
 
 | Finding | Disposition in Rev 1 |
 |---|---|

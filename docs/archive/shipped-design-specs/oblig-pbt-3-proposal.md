@@ -4,7 +4,7 @@
 > **Date:** 2026-05-13
 > **Implements:** `docs/compiler-team-roadmap.md` row 165 (v0.10.5 — Future Module System Codegen / OBLIG-PBT-3)
 > **Prerequisites:** OBLIG-PBT-2 (v0.10.5-pre) shipped, R6d trust-report aggregate (v0.10.4) shipped
-> **Reviewed:** Professor — Rev 1 (7 gaps + 2 open questions, all resolved in Rev 2). See [`oblig-pbt-3-review.md`](../archive/professor-reviews/oblig-pbt-3-review.md).
+> **Reviewed:** Professor — Rev 1 (7 gaps + 2 open questions, all resolved in Rev 2). See [`oblig-pbt-3-review.md`](../professor-reviews/oblig-pbt-3-review.md).
 > **Status:** Settled — awaiting compiler-engineer hand-off
 
 ---
@@ -311,7 +311,7 @@ Soundness, decidability, strict-immutability, and freeze-policy risks all close 
 
 - **Postmortem trail:** `experiments/repair-loop/findings/postmortem-001-apparatus-validation.md` Addendum 16 (F-033 surface; LT-B re-probe routing)
 - **Roadmap row:** `docs/compiler-team-roadmap.md` row 165
-- **Professor review:** [`oblig-pbt-3-review.md`](../archive/professor-reviews/oblig-pbt-3-review.md)
+- **Professor review:** [`oblig-pbt-3-review.md`](../professor-reviews/oblig-pbt-3-review.md)
 - **Prior PBT roadmap rows:** OBLIG-PBT-2 (row 164, shipped), MOD-PBT-1 (row 163, shipped)
 - **Phase-3 framework:** `docs/design/language-comparison-experiments.md` §Soundness Assessment (R6d operationalization at line 37)
 - **Sibling design constraints:** v0.8.1b evidence model (`docs/archive/shipped-design-specs/`), R6d trust-report tier profile (v0.10.4 CHANGELOG)

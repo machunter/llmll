@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!--
+  Tombstone, not a page.
+
+  The published site lives in site/ and is deployed by .github/workflows/pages.yml
+  with the repository Pages source set to "GitHub Actions". Nothing in docs/ is
+  published today, so this file is inert.
+
+  It exists because the Pages API will not let the stored branch source be
+  cleared: the repo's config still reads {branch: main, path: /docs} even with
+  build_type: workflow, and a PUT that omits it is accepted (204) without
+  removing it. If anyone ever flips the Pages source back to a branch, GitHub
+  will serve /docs, which has no index, and the site 404s. This file turns that
+  failure into a redirect.
+
+  If docs/ ever legitimately becomes a published site, delete this file.
+-->
+<meta charset="utf-8">
+<title>Moved</title>
+<link rel="canonical" href="https://machunter.github.io/llmll/">
+<meta http-equiv="refresh" content="0; url=https://machunter.github.io/llmll/">
+<p>The LLMLL blog has moved to
+<a href="https://machunter.github.io/llmll/">machunter.github.io/llmll</a>.</p>

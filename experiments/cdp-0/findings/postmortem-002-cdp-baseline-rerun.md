@@ -15,7 +15,7 @@ CDP-0 baseline at compiler SHA `cc712aa` (HEAD of `fix/diagnosticfq-partial-reco
 - **Contracted functions across the 28 verify-clean fixtures:** 37.
 - **Compiler SHA:** `cc712aa` (working-tree HEAD of `fix/diagnosticfq-partial-record`). Manifest pins `121815a` per [`manifest.json:compiler_ref`](../manifest.json).
 - **`llmll version`:** `llmll 0.10.8`.
-- **`CDPScope`:** `CDPScopeAllDefLogic` (pre-LT-INV default per [`docs/design/v0.11-cross-proposal-rollback-discipline.md`](../../../docs/design/v0.11-cross-proposal-rollback-discipline.md) §2).
+- **`CDPScope`:** `CDPScopeAllDefLogic` (pre-LT-INV default per [`docs/design/v0.11-cross-proposal-rollback-discipline.md`](../../../docs/archive/shipped-design-specs/v0.11-cross-proposal-rollback-discipline.md) §2).
 - **Harness git SHA:** uncommitted — F-003 patch at [`experiments/cdp-0/scripts/cdp_baseline.py:83-100`](../scripts/cdp_baseline.py) is the working-tree delta from the prior session.
 - **Run directory:** [`experiments/cdp-0/runs/20260526T233504Z-baseline/`](../runs/20260526T233504Z-baseline/) — contains `baseline.json` (full per-function axes + aggregate), `summary.md` (one-page human-readable), and `per-fixture/*.json` (raw trust-report JSON per fixture).
 
@@ -47,7 +47,7 @@ The deeper observation: across the canonical Tier-1 corpus (`b1`, `b3`, `b5`, `t
 
 #### Implication
 
-For **language-team** (informational): the v0.11 candidate-set enumeration produces a degenerate score distribution on the canonical example corpus. No function in the corpus produces a midrange `(0.0, 1.0)` score; every measurable function is 0.0 (spec admits trivial body). Proposal §10 Risk #2 (small enumeration) is empirically the binding constraint. The four-cell matrix in proposal §1 (verified-strong / verified-weak / tested-strong / asserted-strong) cannot be populated from this baseline because no function reaches "strong" via DP > 0. The v0.12+ widening to LLM-generated candidates per [`docs/design/invariant-discovery-review.md §5`](../../../docs/design/invariant-discovery-review.md) is the proposal-side stated mitigation; this finding is empirical evidence that the widening is load-bearing for CDP's utility as a measurement axis, not just a future nicety.
+For **language-team** (informational): the v0.11 candidate-set enumeration produces a degenerate score distribution on the canonical example corpus. No function in the corpus produces a midrange `(0.0, 1.0)` score; every measurable function is 0.0 (spec admits trivial body). Proposal §10 Risk #2 (small enumeration) is empirically the binding constraint. The four-cell matrix in proposal §1 (verified-strong / verified-weak / tested-strong / asserted-strong) cannot be populated from this baseline because no function reaches "strong" via DP > 0. The v0.12+ widening to LLM-generated candidates per [`docs/design/invariant-discovery-review.md §5`](../../../docs/archive/professor-reviews/invariant-discovery-review.md) is the proposal-side stated mitigation; this finding is empirical evidence that the widening is load-bearing for CDP's utility as a measurement axis, not just a future nicety.
 
 For **user**: the CDP-0 adjudication label `cdp-discriminating-weak` is mechanically correct per the driver's intermediate-slice fall-through but is materially misleading on this data. Treat the adjudication as `cdp-null` for downstream consumer guidance. See F-008 for the driver-rule refinement candidate.
 
@@ -249,7 +249,7 @@ The pre-stated null ("≥ 90% return `score: null` with `enumeration-too-narrow`
 
 CDP-0 baseline at `runs/20260526T233504Z-baseline/baseline.json` is on disk and citable. The data tells the LT-INV §8 gate that CDP is **currently not usable as a continuous-shift discriminating axis on the canonical corpus**: defined-fraction 10.8%, midrange-fraction 0% of defined, all defined scores at 0.0. Gate planning should either:
 
-- (a) Run with CDP gated only on coarse pass/fail (any non-null score-distribution shift counts as signal) per [LT-INV §8 rollback paths](../../../docs/design/core-shell-inversion-direction.md);
+- (a) Run with CDP gated only on coarse pass/fail (any non-null score-distribution shift counts as signal) per [LT-INV §8 rollback paths](../../../docs/archive/shipped-design-specs/core-shell-inversion-direction.md);
 - (b) Wait for F-006 fix + a re-run to determine whether CDP becomes usable as a continuous axis after the candidate-typecheck gap is closed.
 
 Routing call belongs to language-team adjudicating against the §8 gate criteria.

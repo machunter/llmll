@@ -87,6 +87,6 @@ Consider migrating to Option B when **any** of these triggers occur:
 
 ## Related
 
-- [Language Team v0.6.0 review](../../LLMLL.md) §1.3
+- [Language Team v0.6.0 review](../../../LLMLL.md) §1.3
 - `Syntax.hs` — current `Contract` definition (L234–L238)
 - `compiler-team-roadmap.md` — v0.6 PROV-1..4 (clause-level provenance)

@@ -11,9 +11,9 @@
 
 ## 1. Motivation
 
-LT-INT / INT-2 ships the spec move `int` = "mathematical integer (unbounded)" at [`LLMLL.md §3.1:153`](../../LLMLL.md), aligning the surface type definition with the existing semantic-foundation clause at [`LLMLL.md §0.1:49`](../../LLMLL.md): *"verification … under mathematical-integer (unbounded) semantics — modulo the `Int64` overflow gap documented in §5.3.5."* The gap has been documented since v0.8.1a; INT-2 closes it.
+LT-INT / INT-2 ships the spec move `int` = "mathematical integer (unbounded)" at [`LLMLL.md §3.1:153`](../../../LLMLL.md), aligning the surface type definition with the existing semantic-foundation clause at [`LLMLL.md §0.1:49`](../../../LLMLL.md): *"verification … under mathematical-integer (unbounded) semantics — modulo the `Int64` overflow gap documented in §5.3.5."* The gap has been documented since v0.8.1a; INT-2 closes it.
 
-The roadmap entry at [`docs/compiler-team-roadmap.md:157, 313`](../compiler-team-roadmap.md) describes INT-2 as "one-line [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs) change (`Int → Integer`) plus preamble-signature ripple at `:232-360` audit (indexing primitives may stay `Int` and use `fromIntegral` at boundary)." The "one-line at `:441`" framing understates the codegen change. There are **three sites**, not one:
+The roadmap entry at [`docs/compiler-team-roadmap.md:157, 313`](../../compiler-team-roadmap.md) describes INT-2 as "one-line [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs) change (`Int → Integer`) plus preamble-signature ripple at `:232-360` audit (indexing primitives may stay `Int` and use `fromIntegral` at boundary)." The "one-line at `:441`" framing understates the codegen change. There are **three sites**, not one:
 
 1. **Primary AST-emission site** — [`CodegenHs.hs:723`](../../compiler/src/LLMLL/CodegenHs.hs), `toHsType TInt = "Int"` (per F-E1 from the INT-PRE Variant B prototype, commit 03d5722). This is the dominant seam; nearly every `int`-typed AST position surfaces here.
 2. **Secondary `TCustom`-payload site** — [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs), `mapLlmllPrimType "int" = "Int"` (per F-E1). This is the constructor-payload helper reached when a sum-type constructor carries an `int` payload.
@@ -32,7 +32,7 @@ This proposal authors the catalog. It classifies each preamble primitive at [`Co
 **In scope:**
 - Enumeration and per-primitive classification of preamble entries at `CodegenHs.hs:232-360`
 - Ratification of the `range` overload decision (split into `range` for value-shape and `range-idx` for index-iteration, or single signature with documented dual-use)
-- Statement of the `fromIntegral` boundary trust closure as a documented suppression consistent with the FFI-builtin trust model at [`LLMLL.md §7:814`](../../LLMLL.md)
+- Statement of the `fromIntegral` boundary trust closure as a documented suppression consistent with the FFI-builtin trust model at [`LLMLL.md §7:814`](../../../LLMLL.md)
 - The interaction clause between INT-1 (`overflow_tainted` propagation) and INT-2 (unbounded `int`): on `int`-typed values, `overflow_tainted` becomes unreachable; the machinery remains armed for the eventual `machine-int` opt-in tracked at INT-3
 - Affected-surface enumeration for the engineer's eventual realization patch
 
@@ -126,7 +126,7 @@ Post-INT-2, **`overflow_tainted` is unreachable on `int`-typed values.** The LLM
 
 The machinery remains armed for the eventual `machine-int` opt-in tracked at INT-3 (`docs/design/int-3-machine-int-sketch.md`). On `machine-int` arithmetic, INT-1's `overflow_tainted` tag fires per its v0.10.7 semantics; the strict-core refusal blocks the `verified` tier accordingly. INT-1 is therefore neither dead code post-INT-2 nor active-on-`int` post-INT-2 — it is dormant on `int`, armed for `machine-int`.
 
-The boundary `fromIntegral` conversion at the LLMLL/Haskell seam (Class A primitives) does *not* produce `overflow_tainted` because LLMLL's verification layer sees only `int` types at the seam, and `int` is unbounded. The Haskell-level `Int` arithmetic *inside* a Class A primitive is FFI-sealed at the builtin boundary and outside INT-1's verification scope by construction (per the FFI-builtin trust model at [`LLMLL.md §7:814`](../../LLMLL.md)).
+The boundary `fromIntegral` conversion at the LLMLL/Haskell seam (Class A primitives) does *not* produce `overflow_tainted` because LLMLL's verification layer sees only `int` types at the seam, and `int` is unbounded. The Haskell-level `Int` arithmetic *inside* a Class A primitive is FFI-sealed at the builtin boundary and outside INT-1's verification scope by construction (per the FFI-builtin trust model at [`LLMLL.md §7:814`](../../../LLMLL.md)).
 
 This clause is the catalog's full statement on the INT-1 / INT-2 interaction. No new INT-1 sub-design is required for INT-2 to ship; the interaction is by-construction-correct given each piece's separately-ratified semantics.
 
@@ -138,7 +138,7 @@ This clause is the catalog's full statement on the INT-1 / INT-2 interaction. No
 
 Class A's `fromIntegral` conversions assume the underlying Haskell `Int` is a faithful representation of the value being lifted to `Integer`. This is true for any list or string whose size fits in `maxBound :: Int = 2^63 - 1` on a 64-bit host. For lists or strings exceeding that size, `length` and `(!!)` return wrapped or undefined values, which `fromIntegral` then promotes silently.
 
-The closure is consistent with — and a sub-case of — the existing FFI-builtin trust closure at [`LLMLL.md §7:814`](../../LLMLL.md) and the "sound modulo trust" framing at [`docs/design/verification-debate.md`](verification-debate.md). LLMLL's verification claims do not extend across the FFI seam; the builtin's correctness on its declared input domain is a trust closure, not a verification obligation. The Class A primitives' input domain is "lists and strings constructible within `Int64` capacity," which is the entire constructible-Haskell-value domain in practice.
+The closure is consistent with — and a sub-case of — the existing FFI-builtin trust closure at [`LLMLL.md §7:814`](../../../LLMLL.md) and the "sound modulo trust" framing at [`docs/design/verification-debate.md`](../../design/verification-debate.md). LLMLL's verification claims do not extend across the FFI seam; the builtin's correctness on its declared input domain is a trust closure, not a verification obligation. The Class A primitives' input domain is "lists and strings constructible within `Int64` capacity," which is the entire constructible-Haskell-value domain in practice.
 
 The closure is documentable as a §13 builtin pre-condition rather than a §7 FFI capability, since the affected primitives are pure-Haskell-internal, not externally-bound. The post-INT-2 spec text at `LLMLL.md §13` should carry the explicit clause:
 
@@ -171,7 +171,7 @@ INT-2 introduces no new proof obligations and removes implicit ones. The pre-exi
 | Lean translation of integer literals | trust | `?proof-required` | `T.pack (show n)` at `LeanTranslate.hs:60` | Unchanged; Lean `Int` is unbounded |
 | `tier_profile` 6-`Int` aggregate at `LLMLL.md §4.4.4:420` | n/a (counter, not verification) | n/a | `Int` counter | `Int` counter (unchanged) |
 
-No constraint emitter changes in `FixpointEmit.hs`. No new builtins. No JSON-AST schema bump. The verification surface *simplifies*. Citation for the QF-LIA boundary: [`LLMLL.md §5.3.5:740-770`](../../LLMLL.md).
+No constraint emitter changes in `FixpointEmit.hs`. No new builtins. No JSON-AST schema bump. The verification surface *simplifies*. Citation for the QF-LIA boundary: [`LLMLL.md §5.3.5:740-770`](../../../LLMLL.md).
 
 ---
 
@@ -220,12 +220,12 @@ A latent outside-PL question on `machine-int` primitive-vs-refinement-aliased tr
 
 ## 11. Cross-references
 
-- INT-2 row at [`docs/compiler-team-roadmap.md:157, 313`](../compiler-team-roadmap.md) — empirically-gated v0.11 milestone item
-- INT-PRE row at [`docs/compiler-team-roadmap.md:158, 314`](../compiler-team-roadmap.md) — empirical gate; consumes this catalog as Variant B input
-- INT-1 row at [`docs/compiler-team-roadmap.md:303`](../compiler-team-roadmap.md) — v0.10.7 patch-lane interaction documented in §4
-- INT-3 sketch at [`int-3-machine-int-sketch.md`](int-3-machine-int-sketch.md) — contingency proposal if INT-PRE escalates
+- INT-2 row at [`docs/compiler-team-roadmap.md:157, 313`](../../compiler-team-roadmap.md) — empirically-gated v0.11 milestone item
+- INT-PRE row at [`docs/compiler-team-roadmap.md:158, 314`](../../compiler-team-roadmap.md) — empirical gate; consumes this catalog as Variant B input
+- INT-1 row at [`docs/compiler-team-roadmap.md:303`](../../compiler-team-roadmap.md) — v0.10.7 patch-lane interaction documented in §4
+- INT-3 sketch at [`int-3-machine-int-sketch.md`](../../design/int-3-machine-int-sketch.md) — contingency proposal if INT-PRE escalates
 - LT-PPR proposal at [`proof-required-predicate-carrier-proposal.md`](proof-required-predicate-carrier-proposal.md) — sibling v0.11 LT-* proposal; no direct interaction
 - LT-INV proposal at [`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) — sibling v0.11 LT-* proposal; no direct interaction
-- Semantic foundation at [`LLMLL.md §0.1:49`](../../LLMLL.md) — pre-existing mathematical-integer claim INT-2 makes faithful
-- QF-LIA boundary at [`LLMLL.md §5.3.3, §5.3.5`](../../LLMLL.md) — constraint vocabulary unchanged
-- Verification debate at [`verification-debate.md`](verification-debate.md) — "sound modulo trust" framing the boundary trust closure in §5 inherits from
+- Semantic foundation at [`LLMLL.md §0.1:49`](../../../LLMLL.md) — pre-existing mathematical-integer claim INT-2 makes faithful
+- QF-LIA boundary at [`LLMLL.md §5.3.3, §5.3.5`](../../../LLMLL.md) — constraint vocabulary unchanged
+- Verification debate at [`verification-debate.md`](../../design/verification-debate.md) — "sound modulo trust" framing the boundary trust closure in §5 inherits from

@@ -7,7 +7,7 @@
 > **Origin:** User reported friction from accumulated documents outside source code (language doc, design docs, experiment docs, findings docs); language-team scan of the active doc surface (2026-05-24) confirmed 4× per-experiment role-file fan-out, three-source status drift for settled proposals, and pillar-doc version drift (README v0.10.8 vs roadmap v0.10.7)
 > **Companion:** None — this is a self-contained doc-architecture move with no upstream design memo
 > **Reviewed:** Adjudicated and approved by user in conversation (2026-05-24); no professor review required (inward-only doc-architecture proposal, no PL-literature reach load-bearing)
-> **Status:** Settled (Rev 1) — **shipped at commit `1a8733f`** (2026-05-25, single-sweep PR per §11). Two follow-ups closed: **M6 INDEX demote** landed by language-team subsequently (INDEX entries demoted to one-liners; archived files removed); **R1–R7 overlap audit** settled at `e6eb4b6` (no subsumption; **four** cross-references applied to roadmap research-track section — R1↔[`type-driven-development.md`](type-driven-development.md), R2↔[`agent-orchestration.md`](agent-orchestration.md), R5↔[`experiments/repair-loop/`](../../experiments/repair-loop/) as sibling-not-overlap, R7↔TERM-1 as complementary-not-overlapping; R3 partial-criterion flagged with TOTP-as-worked-example cite). **DOC-CONSOLIDATE fully closed.**
+> **Status:** Settled (Rev 1) — **shipped at commit `1a8733f`** (2026-05-25, single-sweep PR per §11). Two follow-ups closed: **M6 INDEX demote** landed by language-team subsequently (INDEX entries demoted to one-liners; archived files removed); **R1–R7 overlap audit** settled at `e6eb4b6` (no subsumption; **four** cross-references applied to roadmap research-track section — R1↔[`type-driven-development.md`](../../design/type-driven-development.md), R2↔[`agent-orchestration.md`](../../design/agent-orchestration.md), R5↔[`experiments/repair-loop/`](../../experiments/repair-loop/) as sibling-not-overlap, R7↔TERM-1 as complementary-not-overlapping; R3 partial-criterion flagged with TOTP-as-worked-example cite). **DOC-CONSOLIDATE fully closed.**
 
 ---
 
@@ -15,24 +15,24 @@
 
 The active documentation surface outside `compiler/src/` has grown to 60+ files across `docs/`, `docs/design/`, `experiments/<harness>/`, and the project pillars (`README.md`, `LLMLL.md`, `CHANGELOG.md`). The growth pattern is not random; it follows three structural fan-outs that compound:
 
-1. **Proposal-then-review pairs that never collapse.** Every settled design proposal carries a standalone `<proposal>-review.md` alongside it forever, even after the review's findings have been folded into the proposal's revised text. Active examples: [`oblig-pbt-3-proposal.md`](oblig-pbt-3-proposal.md) + [`oblig-pbt-3-review.md`](../archive/professor-reviews/oblig-pbt-3-review.md); [`invariant-discovery-proposal.md`](invariant-discovery-proposal.md) + [`invariant-discovery-review.md`](../archive/professor-reviews/invariant-discovery-review.md). The standalone review's value at settlement is provenance, not active reading.
+1. **Proposal-then-review pairs that never collapse.** Every settled design proposal carries a standalone `<proposal>-review.md` alongside it forever, even after the review's findings have been folded into the proposal's revised text. Active examples: [`oblig-pbt-3-proposal.md`](oblig-pbt-3-proposal.md) + [`oblig-pbt-3-review.md`](../professor-reviews/oblig-pbt-3-review.md); [`invariant-discovery-proposal.md`](../../design/invariant-discovery-proposal.md) + [`invariant-discovery-review.md`](../professor-reviews/invariant-discovery-review.md). The standalone review's value at settlement is provenance, not active reading.
 
 2. **Per-role per-experiment findings fan-out.** Each experiment harness (`minimal-agent/`, `int-pre/`, `repair-loop/`) carries 4 role-files in `findings/` — `compiler-engineer.md`, `language-team.md`, `experiment-lead.md`, `documentation-lead.md` — for a 4 × 3 = 12-file surface across three harnesses. Cross-cutting reads (e.g., "what did all three harnesses find about the obligation channel?") force fanned-out reading; experiment closure forces a 4× update.
 
-3. **Multi-authoritative-source status claims.** A single piece of state — e.g., "OBLIG-PBT-3 is settled at Rev 2, awaiting engineer hand-off" — currently lives in three places: the proposal's own frontmatter, the [`docs/design/INDEX.md:21`](INDEX.md) paraphrased entry, and the Active Items routing in [`compiler-team-roadmap.md`](../compiler-team-roadmap.md). When the engineer ships it, three locations must move; in practice they drift.
+3. **Multi-authoritative-source status claims.** A single piece of state — e.g., "OBLIG-PBT-3 is settled at Rev 2, awaiting engineer hand-off" — currently lives in three places: the proposal's own frontmatter, the [`docs/design/INDEX.md:21`](../../design/INDEX.md) paraphrased entry, and the Active Items routing in [`compiler-team-roadmap.md`](../../compiler-team-roadmap.md). When the engineer ships it, three locations must move; in practice they drift.
 
 The cost is bidirectional: cost-of-reading on re-orientation (too many files to scan), and cost-of-writing on update (too many files to keep in sync). The user-reported friction is the surface of both.
 
 Observed drift, surfaced during the inventory scan (2026-05-24):
 
-- [`README.md:7`](../../README.md) announces v0.10.8 shipped; [`compiler-team-roadmap.md:3`](../compiler-team-roadmap.md) header still says "v0.10.7 shipped." Two pillar docs disagree on the current version. README also embeds a ~2KB CHANGELOG-shaped release-notes paragraph for v0.10.8 — verbatim duplication of CHANGELOG content.
-- [`README.md:188-194`](../../README.md) describes the docs/ layout with stale callouts (e.g., `agent-prompt-semantics-gap.md` listed under `docs/design/` but actually archived under `docs/archive/shipped-design-specs/`); `LLMLL.md` line-1 annotated "v0.10.1" against an actual v0.10.8 spec.
-- [`docs/research-track.md`](../archive/research-track.md) (216 lines) overlaps with the roadmap's research-track entries; [`contract-discriminative-power-proposal.md:26`](../archive/shipped-design-specs/contract-discriminative-power-proposal.md) already manually papers over a case-by-case drift ("supersedes [research-track.md] §6 (already retired in catch-up Pass 3 with cross-reference)").
-- [`docs/design/proof-required-predicate-carrier.md`](../archive/shipped-design-specs/proof-required-predicate-carrier.md) (deferred-exploration seed) has been content-superseded by [`proof-required-predicate-carrier-proposal.md`](../archive/shipped-design-specs/proof-required-predicate-carrier-proposal.md) per [`INDEX.md:27`](INDEX.md) but the seed file still sits in `docs/design/`, not in `docs/archive/`.
-- [`docs/design/INDEX.md`](INDEX.md) entries (lines 21, 23–29) have grown from one-line summaries into multi-paragraph status reports — the index is duplicating proposal frontmatter content, which guarantees lockstep-update failure.
-- [`docs/effectful-wasm-spike.md`](../archive/wasm-investigations/effectful-wasm-spike.md) (Apr 20, 81 lines) and [`docs/wasm-poc-report.md`](../archive/wasm-investigations/wasm-poc-report.md) (Apr 16, 157 lines) are pre-roadmap-reorganization spike notes; their conclusions have landed in the roadmap.
+- [`README.md:7`](../../../README.md) announces v0.10.8 shipped; [`compiler-team-roadmap.md:3`](../../compiler-team-roadmap.md) header still says "v0.10.7 shipped." Two pillar docs disagree on the current version. README also embeds a ~2KB CHANGELOG-shaped release-notes paragraph for v0.10.8 — verbatim duplication of CHANGELOG content.
+- [`README.md:188-194`](../../../README.md) describes the docs/ layout with stale callouts (e.g., `agent-prompt-semantics-gap.md` listed under `docs/design/` but actually archived under `docs/archive/shipped-design-specs/`); `LLMLL.md` line-1 annotated "v0.10.1" against an actual v0.10.8 spec.
+- [`docs/research-track.md`](../research-track.md) (216 lines) overlaps with the roadmap's research-track entries; [`contract-discriminative-power-proposal.md:26`](contract-discriminative-power-proposal.md) already manually papers over a case-by-case drift ("supersedes [research-track.md] §6 (already retired in catch-up Pass 3 with cross-reference)").
+- [`docs/design/proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) (deferred-exploration seed) has been content-superseded by [`proof-required-predicate-carrier-proposal.md`](proof-required-predicate-carrier-proposal.md) per [`INDEX.md:27`](../../design/INDEX.md) but the seed file still sits in `docs/design/`, not in `docs/archive/`.
+- [`docs/design/INDEX.md`](../../design/INDEX.md) entries (lines 21, 23–29) have grown from one-line summaries into multi-paragraph status reports — the index is duplicating proposal frontmatter content, which guarantees lockstep-update failure.
+- [`docs/effectful-wasm-spike.md`](../wasm-investigations/effectful-wasm-spike.md) (Apr 20, 81 lines) and [`docs/wasm-poc-report.md`](../wasm-investigations/wasm-poc-report.md) (Apr 16, 157 lines) are pre-roadmap-reorganization spike notes; their conclusions have landed in the roadmap.
 
-The project already practices local consolidation moves: [`docs/archive/shipped-design-specs/`](../archive/shipped-design-specs/) exists; [`INDEX.md`](INDEX.md) tracks supersession; [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) is itself a consolidation pattern collapsing four conversation turns into one durable artifact. This proposal systematizes those local moves into a documented protocol with per-role obligations, rather than inventing new mechanisms.
+The project already practices local consolidation moves: [`docs/archive/shipped-design-specs/`](../archive/shipped-design-specs/) exists; [`INDEX.md`](../../design/INDEX.md) tracks supersession; [`critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) is itself a consolidation pattern collapsing four conversation turns into one durable artifact. This proposal systematizes those local moves into a documented protocol with per-role obligations, rather than inventing new mechanisms.
 
 ---
 
@@ -44,9 +44,9 @@ Six consolidation moves (**M1**–**M6**), one structural principle (**P1**), on
 
 The structural cause of "lots to update" is multi-authoritative-source claims. Under P1, every claim-class has a single canonical location; all other mentions are 1-line *pointers*, not paraphrased copies. Three canonical-location bindings:
 
-- **Current shipped version:** [`CHANGELOG.md`](../../CHANGELOG.md) `## Latest` is canonical. [`README.md:1`](../../README.md) cites it; [`LLMLL.md`](../../LLMLL.md) does not version-stamp; [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) header does not version-stamp. Eliminates the v0.10.7-vs-v0.10.8 drift class.
-- **Design-doc status (settled / draft / dormant / superseded):** the design doc's own frontmatter is canonical. [`INDEX.md`](INDEX.md) carries title + status label + 8–12-word hook only, no paraphrased summary.
-- **Implementation routing (owner, ticket tag, status):** [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) Active Items table is canonical. Design docs cite back to roadmap tickets by tag (`OBLIG-PBT-3`, `INT-2`, `DRIFT-CI-1`, …); roadmap is the only place a routing status moves on ticket completion.
+- **Current shipped version:** [`CHANGELOG.md`](../../../CHANGELOG.md) `## Latest` is canonical. [`README.md:1`](../../../README.md) cites it; [`LLMLL.md`](../../../LLMLL.md) does not version-stamp; [`compiler-team-roadmap.md`](../../compiler-team-roadmap.md) header does not version-stamp. Eliminates the v0.10.7-vs-v0.10.8 drift class.
+- **Design-doc status (settled / draft / dormant / superseded):** the design doc's own frontmatter is canonical. [`INDEX.md`](../../design/INDEX.md) carries title + status label + 8–12-word hook only, no paraphrased summary.
+- **Implementation routing (owner, ticket tag, status):** [`compiler-team-roadmap.md`](../../compiler-team-roadmap.md) Active Items table is canonical. Design docs cite back to roadmap tickets by tag (`OBLIG-PBT-3`, `INT-2`, `DRIFT-CI-1`, …); roadmap is the only place a routing status moves on ticket completion.
 
 ### M1 — Collapse per-role experiment findings into single `findings.md` per experiment
 
@@ -58,25 +58,25 @@ Per experiment, collapse the 4 role-files into one `experiments/<harness>/findin
 
 Three sub-patterns generate near-duplicate doc pairs and accumulate without consolidation:
 
-1. **Proposal-then-review pair after settlement.** Once a proposal reaches Rev N "settled" with the professor's review folded in, the standalone review is provenance, not active reading. Move: when a proposal settles, fold the review's findings list into an `## Appendix — Professor review log` section of the proposal (one line per finding, with cite to the original review hash), then move the standalone review to `docs/archive/professor-reviews/`. Loss of content: zero. Loss of discovery: zero (INDEX still links the proposal). Active-reading surface: −1 file per settled pair. Worked example: [`oblig-pbt-3-proposal.md`](oblig-pbt-3-proposal.md) + [`oblig-pbt-3-review.md`](../archive/professor-reviews/oblig-pbt-3-review.md).
+1. **Proposal-then-review pair after settlement.** Once a proposal reaches Rev N "settled" with the professor's review folded in, the standalone review is provenance, not active reading. Move: when a proposal settles, fold the review's findings list into an `## Appendix — Professor review log` section of the proposal (one line per finding, with cite to the original review hash), then move the standalone review to `docs/archive/professor-reviews/`. Loss of content: zero. Loss of discovery: zero (INDEX still links the proposal). Active-reading surface: −1 file per settled pair. Worked example: [`oblig-pbt-3-proposal.md`](oblig-pbt-3-proposal.md) + [`oblig-pbt-3-review.md`](../professor-reviews/oblig-pbt-3-review.md).
 
-2. **Seed exploration superseded by full proposal.** Example: [`proof-required-predicate-carrier.md`](../archive/shipped-design-specs/proof-required-predicate-carrier.md) (deferred-exploration seed) superseded by [`proof-required-predicate-carrier-proposal.md`](../archive/shipped-design-specs/proof-required-predicate-carrier-proposal.md) (Rev 1 settled). The seed has been promoted; the seed file is stale. Move: archive the seed to `docs/archive/shipped-design-specs/` with a one-line redirect note.
+2. **Seed exploration superseded by full proposal.** Example: [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) (deferred-exploration seed) superseded by [`proof-required-predicate-carrier-proposal.md`](proof-required-predicate-carrier-proposal.md) (Rev 1 settled). The seed has been promoted; the seed file is stale. Move: archive the seed to `docs/archive/shipped-design-specs/` with a one-line redirect note.
 
-3. **Direction memo + LT proposal(s) that implement it.** Example: [`core-shell-inversion-direction.md`](../archive/shipped-design-specs/core-shell-inversion-direction.md) (Rev 2 direction memo) + [`core-shell-inversion-proposal.md`](../archive/shipped-design-specs/core-shell-inversion-proposal.md) (Rev 1 settled LT-INV) + future `core-shell-inversion-review.md`. When all spawned proposals settle, fold the direction memo into the lead proposal's `## Background` section and archive the memo. Direction memos are scaffolding for the LT-proposal turn; they age out once the proposals settle.
+3. **Direction memo + LT proposal(s) that implement it.** Example: [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) (Rev 2 direction memo) + [`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) (Rev 1 settled LT-INV) + future `core-shell-inversion-review.md`. When all spawned proposals settle, fold the direction memo into the lead proposal's `## Background` section and archive the memo. Direction memos are scaffolding for the LT-proposal turn; they age out once the proposals settle.
 
 ### M3 — Strip CHANGELOG-shaped content from README; README cites CHANGELOG
 
-[`README.md:5-7`](../../README.md) currently carries a ~70-line v0.10.8 release-notes paragraph that duplicates CHANGELOG.md verbatim or near-verbatim. Move: replace lines 5–7 with the existing one-line "See CHANGELOG.md for full release notes" plus a 1-sentence "current version: see CHANGELOG `## Latest`" pointer. The README's "Repository layout," "Documentation," "Examples," and "Verification Boundary" tables stay — those are README-canonical content. Cuts ~70 lines and eliminates the README-vs-CHANGELOG drift class entirely.
+[`README.md:5-7`](../../../README.md) currently carries a ~70-line v0.10.8 release-notes paragraph that duplicates CHANGELOG.md verbatim or near-verbatim. Move: replace lines 5–7 with the existing one-line "See CHANGELOG.md for full release notes" plus a 1-sentence "current version: see CHANGELOG `## Latest`" pointer. The README's "Repository layout," "Documentation," "Examples," and "Verification Boundary" tables stay — those are README-canonical content. Cuts ~70 lines and eliminates the README-vs-CHANGELOG drift class entirely.
 
-Also: refresh [`README.md:128, 184, 188-194, 211`](../../README.md) stale callouts (archived design docs listed under `docs/design/`, stale spec-version annotation, stale schema-version annotation).
+Also: refresh [`README.md:128, 184, 188-194, 211`](../../../README.md) stale callouts (archived design docs listed under `docs/design/`, stale spec-version annotation, stale schema-version annotation).
 
 ### M4 — Archive standalone docs/ files that are pre-reorganization or single-purpose-and-shipped
 
 Three candidates inside `docs/`:
 
-- [`effectful-wasm-spike.md`](../archive/wasm-investigations/effectful-wasm-spike.md) (Apr 20, 81 lines) — pre-roadmap-reorganization spike note → `docs/archive/wasm-investigations/`.
-- [`wasm-poc-report.md`](../archive/wasm-investigations/wasm-poc-report.md) (Apr 16, 157 lines) — README cites it as "feasibility confirmed"; conclusion has landed in the roadmap → `docs/archive/wasm-investigations/`.
-- [`docs/research-track.md`](../archive/research-track.md) (216 lines) — overlaps with the roadmap's research-track entries. P1 says pick one canonical location. Recommend keeping the roadmap canonical (Active Items table already lives there) and deleting `docs/research-track.md` after migrating remaining unique entries into the roadmap's research-track section.
+- [`effectful-wasm-spike.md`](../wasm-investigations/effectful-wasm-spike.md) (Apr 20, 81 lines) — pre-roadmap-reorganization spike note → `docs/archive/wasm-investigations/`.
+- [`wasm-poc-report.md`](../wasm-investigations/wasm-poc-report.md) (Apr 16, 157 lines) — README cites it as "feasibility confirmed"; conclusion has landed in the roadmap → `docs/archive/wasm-investigations/`.
+- [`docs/research-track.md`](../research-track.md) (216 lines) — overlaps with the roadmap's research-track entries. P1 says pick one canonical location. Recommend keeping the roadmap canonical (Active Items table already lives there) and deleting `docs/research-track.md` after migrating remaining unique entries into the roadmap's research-track section.
 
 ### M5 — Decompose `compiler-team-roadmap.md` (1656 lines) along its conflated concerns
 
@@ -94,7 +94,7 @@ Larger cut (deferred to a future iteration): move "Shipped (historical)" into `d
 
 ### M6 — Demote `docs/design/INDEX.md` entries from prose summaries to one-liners
 
-Current state: [`INDEX.md`](INDEX.md) entries (lines 21, 23–29) are multi-paragraph status reports duplicating the proposals' own frontmatter. As proposals settle and revise, INDEX entries must be updated in lockstep — and they are not.
+Current state: [`INDEX.md`](../../design/INDEX.md) entries (lines 21, 23–29) are multi-paragraph status reports duplicating the proposals' own frontmatter. As proposals settle and revise, INDEX entries must be updated in lockstep — and they are not.
 
 Move: enforce one-line-per-entry. Format:
 
@@ -164,7 +164,7 @@ Each block is the verbatim insertion text for the corresponding `.claude/skills/
 >
 > **On spec drift discovered** (`LLMLL.md` and the compiler disagree on something your patch touches): flag it explicitly in the hand-off — do not silently fix one side.
 >
-> See [`docs/UPDATE-PROTOCOL.md`](../../docs/UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
+> See [`docs/UPDATE-PROTOCOL.md`](../../UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
 
 ### 4.2 `language-team`
 
@@ -176,7 +176,7 @@ Each block is the verbatim insertion text for the corresponding `.claude/skills/
 >
 > **INDEX.md entries for your proposals are one-liners** — title, 8–12-word hook, status label. The full description lives in the proposal. If you want to write more in INDEX, that content belongs in the proposal's own `## Background` or `## Summary` section.
 >
-> See [`docs/UPDATE-PROTOCOL.md`](../../docs/UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
+> See [`docs/UPDATE-PROTOCOL.md`](../../UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
 
 ### 4.3 `experiment-lead`
 
@@ -192,7 +192,7 @@ Each block is the verbatim insertion text for the corresponding `.claude/skills/
 >
 > **When a finding's claim about a target doc's state is the basis for a hand-off**, open the target doc at HEAD and verify before handing off — findings drift faster than the docs they describe.
 >
-> See [`docs/UPDATE-PROTOCOL.md`](../../docs/UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
+> See [`docs/UPDATE-PROTOCOL.md`](../../UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
 
 ### 4.4 `documentation-lead`
 
@@ -216,7 +216,7 @@ Each block is the verbatim insertion text for the corresponding `.claude/skills/
 >
 > **Never edits:** `compiler/src/LLMLL/`; design-doc bodies (only INDEX labels and review-fold appendices); experiment findings (only the `## Documentation-lead` content via experiment-lead hand-off).
 >
-> Per-change-type matrix at [`docs/UPDATE-PROTOCOL.md`](../../docs/UPDATE-PROTOCOL.md) is your working tool.
+> Per-change-type matrix at [`docs/UPDATE-PROTOCOL.md`](../../UPDATE-PROTOCOL.md) is your working tool.
 
 ### 4.5 `professor`
 
@@ -228,7 +228,7 @@ Each block is the verbatim insertion text for the corresponding `.claude/skills/
 >
 > **Once a proposal settles and your standalone review gets folded** into `## Appendix — Professor review log` by doc-lead, your review file is archived to `docs/archive/professor-reviews/`. You do not initiate the fold or the archive — that is the after-settlement protocol owned by doc-lead.
 >
-> See [`docs/UPDATE-PROTOCOL.md`](../../docs/UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
+> See [`docs/UPDATE-PROTOCOL.md`](../../UPDATE-PROTOCOL.md) for the canonical-sources table and per-change matrix.
 
 ---
 

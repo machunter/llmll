@@ -4,15 +4,15 @@
 > **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-28 (Rev 3)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 3 (LT-PPR)
 > **Prerequisites:** LT-INV grammar inversion (sequenced after — predicate-carrying form is `def-shell`-only per memo §1.4). Cross-proposal shipping under LT-INV gate outcomes specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) §2 and §6.3 below.
-> **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §3); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §6 routing; supersedes [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) deferred-exploration seed material (status flipped to "Superseded by LT-PPR" 2026-05-23)
-> **Reviewed:** Professor review at [`proof-required-predicate-carrier-review.md`](proof-required-predicate-carrier-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Six gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
+> **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §3); language-team triage at [`critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) §6 routing; supersedes [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) deferred-exploration seed material (status flipped to "Superseded by LT-PPR" 2026-05-23)
+> **Reviewed:** Professor review at [`proof-required-predicate-carrier-review.md`](../professor-reviews/proof-required-predicate-carrier-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Six gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
 > **Status:** Settled (Rev 2) — professor review folded; pending compiler-engineer hand-off, contingent on LT-INV gate per §6.3
 
 ---
 
 ## 1. Motivation
 
-`?proof-required` at [`LLMLL.md §6:780-789`](../../LLMLL.md) is currently a **leaf hole**. The constructor [`HoleKind.HProofRequired Text`](../../compiler/src/LLMLL/Syntax.hs) at `compiler/src/LLMLL/Syntax.hs:243` carries only a reason tag (one of `"manual"`, `"non-linear-contract"`, `"complex-decreases"`), not an expression payload. The marker stands in for an unverifiable predicate, but the intended predicate is documented adjacent to the marker in prose, function docstrings, or trust-report annotations — not in the AST.
+`?proof-required` at [`LLMLL.md §6:780-789`](../../../LLMLL.md) is currently a **leaf hole**. The constructor [`HoleKind.HProofRequired Text`](../../compiler/src/LLMLL/Syntax.hs) at `compiler/src/LLMLL/Syntax.hs:243` carries only a reason tag (one of `"manual"`, `"non-linear-contract"`, `"complex-decreases"`), not an expression payload. The marker stands in for an unverifiable predicate, but the intended predicate is documented adjacent to the marker in prose, function docstrings, or trust-report annotations — not in the AST.
 
 This leaf-form design has held since v0.2. Two pressures now converge to motivate its expansion:
 
@@ -27,7 +27,7 @@ The previously-tracked deferral conditions at [`proof-required-predicate-carrier
 
 Condition (1) is met by LT-INV's v0.11 freeze-exception (`docs/compiler-team-roadmap.md` Feature Freeze Policy, lifted 2026-05-23). Condition (2)(b) is met by the LT-INV core/shell distinction itself — the predicate-carrying form is the natural escape hatch from core into shell with retained semantic content, exactly the downstream-consumer benefit the deferral doc anticipated. Condition (2)(a) is not formally satisfied (no post-DL-B experiment batch has been run), but (2)(b) alone is sufficient under the doc's disjunctive criterion.
 
-LT-PPR ships the predicate-carrying form as a v0.11 spec move: surface, AST, parsers, typechecker, trust report, codegen runtime-assertion fallback. The verifier is **unchanged** — the predicate is not lifted to liquid-fixpoint; the clause continues to route to `asserted` per [`LLMLL.md §5.3.5`](../../LLMLL.md). The proposal is informational, not soundness-relevant; it makes an *existing* escape hatch carry more information *without* widening the verification surface.
+LT-PPR ships the predicate-carrying form as a v0.11 spec move: surface, AST, parsers, typechecker, trust report, codegen runtime-assertion fallback. The verifier is **unchanged** — the predicate is not lifted to liquid-fixpoint; the clause continues to route to `asserted` per [`LLMLL.md §5.3.5`](../../../LLMLL.md). The proposal is informational, not soundness-relevant; it makes an *existing* escape hatch carry more information *without* widening the verification surface.
 
 **Positioning in the precedent literature (Rev 2, per the professor review's Gap #6).** LT-PPR lands as the **novel combination** of three adjacent traditions, not as a derivative of any one of them:
 
@@ -35,7 +35,7 @@ LT-PPR ships the predicate-carrying form as a v0.11 spec move: surface, AST, par
 - **Coq `Admitted` / Lean `sorry`** (Coq Reference Manual §1.5; Leanprover/Lean4 `core.lean`) carry only a type, not a predicate. The proof obligation is recorded in `Print Assumptions` / `#print axioms`. LT-PPR carries the predicate explicitly, surfacing what the gap stands in for.
 - **Runtime-assertion emission** — no production refinement-typed system ships this. Liquid Haskell `{-@ assume @-}` emits no runtime check; Coq / Lean axioms are erased at compile time; Why3 `assume P` (Filliâtre & Paskevich ESOP 2013 §4.3) carries the predicate but emits no runtime check. LT-PPR emits a runtime assertion over the carried predicate at codegen per §4.2, providing *additional asserted-tier confidence* without promoting the trust tier.
 
-The combination — predicate carried (LH), no verifier-hypothesis admission (Coq/Lean), runtime-assertion emitted (no precedent) — is novel. The novelty is not a defect; it reflects LLMLL's specific Path A stance (per [`docs/design/verification-debate.md`](verification-debate.md)) and the agent-authoring context's preference for explicit gap-signalling with operational reinforcement over either fully-trusted assumes (LH) or fully-erased axioms (Coq/Lean). Downstream consumers reading this proposal default to neither LH's framing nor Coq's framing; the trust-report `predicate_form` and `runtime_check_emitted` fields per §5 carry the LLMLL-specific semantics.
+The combination — predicate carried (LH), no verifier-hypothesis admission (Coq/Lean), runtime-assertion emitted (no precedent) — is novel. The novelty is not a defect; it reflects LLMLL's specific Path A stance (per [`docs/design/verification-debate.md`](../../design/verification-debate.md)) and the agent-authoring context's preference for explicit gap-signalling with operational reinforcement over either fully-trusted assumes (LH) or fully-erased axioms (Coq/Lean). Downstream consumers reading this proposal default to neither LH's framing nor Coq's framing; the trust-report `predicate_form` and `runtime_check_emitted` fields per §5 carry the LLMLL-specific semantics.
 
 ---
 
@@ -52,8 +52,8 @@ The combination — predicate carried (LH), no verifier-hypothesis admission (Co
 
 **Out of scope (deferred):**
 - Verifier-side discharge of QF-LIA-tractable predicates in `?proof-required` clauses. The marker's purpose is explicit gap-signalling regardless of decidability; auto-discharge would erode the deliberate "this is a gap" semantics. If a predicate is QF-LIA-tractable, the agent should write a regular `(post pred)` clause instead.
-- A new trust tier `asserted-with-runtime-check`. The diamond lattice at [`LLMLL.md §4.4.1:325-344`](../../LLMLL.md) stays unchanged; the runtime-assertion fallback is a *runtime artifact* (per the erasure framing), not a trust-tier promotion. See §6 below for the detailed adjudication.
-- Lean-discharge ingestion of carried predicates. Lean integration is parking-lotted at [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) LEAN-GA; LT-PPR makes the predicate machine-readable so a future Lean-integration ingest path can consume it directly, but ships no Lean wiring itself.
+- A new trust tier `asserted-with-runtime-check`. The diamond lattice at [`LLMLL.md §4.4.1:325-344`](../../../LLMLL.md) stays unchanged; the runtime-assertion fallback is a *runtime artifact* (per the erasure framing), not a trust-tier promotion. See §6 below for the detailed adjudication.
+- Lean-discharge ingestion of carried predicates. Lean integration is parking-lotted at [`compiler-team-roadmap.md`](../../compiler-team-roadmap.md) LEAN-GA; LT-PPR makes the predicate machine-readable so a future Lean-integration ingest path can consume it directly, but ships no Lean wiring itself.
 
 **Out of scope under v0.11 surface — sequencing:**
 - LT-PPR ships **after** LT-INV (`def`/`def-shell` grammar split). The core-grammar-interaction clause at §6 below depends on LT-INV's whitelist production being in place.
@@ -77,7 +77,7 @@ Both forms are accepted; the predicate slot is optional:
                        (>= (total-balance ledger') (total-balance ledger))))
 ```
 
-The predicate is a `bool`-typed expression in the contract context; `result` is in scope per [`LLMLL.md §13.10`](../../LLMLL.md) when the clause is in post-position. The optional `:reason` keyword preserves the v0.10 reason-tag mechanism; reason and predicate may coexist or appear independently.
+The predicate is a `bool`-typed expression in the contract context; `result` is in scope per [`LLMLL.md §13.10`](../../../LLMLL.md) when the clause is in post-position. The optional `:reason` keyword preserves the v0.10 reason-tag mechanism; reason and predicate may coexist or appear independently.
 
 ### 3.2 JSON-AST
 
@@ -121,11 +121,11 @@ The predicate is parsed and typechecked but **not** sent to liquid-fixpoint. The
 
 The clause type is `asserted-contract-clause` — distinct from the regular contract-clause type because the trust-tier degradation is structurally encoded. This mirrors the v0.10 leaf form's behavior; only the predicate slot is new.
 
-When the clause appears in `pre`-position, `result` is not in scope per [`LLMLL.md §13.10`](../../LLMLL.md); the predicate must not reference it. When in `post`-position, `result` is bound to the function's declared return type. This matches the existing pre/post binding rules and requires no new binding semantics.
+When the clause appears in `pre`-position, `result` is not in scope per [`LLMLL.md §13.10`](../../../LLMLL.md); the predicate must not reference it. When in `post`-position, `result` is bound to the function's declared return type. This matches the existing pre/post binding rules and requires no new binding semantics.
 
 ### 4.2 Evaluation behavior
 
-The verifier does not attempt discharge. The clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../LLMLL.md). The carried predicate is:
+The verifier does not attempt discharge. The clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../../LLMLL.md). The carried predicate is:
 
 - **Recorded in the trust report** as a structured field on the per-clause `EvidenceRecord` (see §5 below)
 - **Emitted at codegen as a runtime assertion** (`Control.Exception.assert` or equivalent) so the unverified property is checked at execution time even though static verification declined
@@ -143,7 +143,7 @@ The three classes are distinct; the assertion-failure handler should distinguish
 
 ### 4.3 Interaction with the trust closure
 
-Functions whose `pre` or `post` contains a `?proof-required` clause continue to be capped at `asserted` for trust-closure purposes per [`LLMLL.md §4.4.1`](../../LLMLL.md). The predicate's presence does not promote the clause; it enriches what `asserted` means at this site (from "gap with reason tag" to "gap with explicit predicate plus reason tag plus runtime assertion").
+Functions whose `pre` or `post` contains a `?proof-required` clause continue to be capped at `asserted` for trust-closure purposes per [`LLMLL.md §4.4.1`](../../../LLMLL.md). The predicate's presence does not promote the clause; it enriches what `asserted` means at this site (from "gap with reason tag" to "gap with explicit predicate plus reason tag plus runtime assertion").
 
 ---
 
@@ -182,9 +182,9 @@ The deferred-exploration doc flagged two open clauses; both are settled here.
 
 ### 6.1 Trust-level effect — **adopt option 2 ("trust label unchanged")**
 
-The trust label stays `asserted`; no new `asserted-with-runtime-check` tier is introduced. The diamond lattice at [`LLMLL.md §4.4.1`](../../LLMLL.md) is unaltered.
+The trust label stays `asserted`; no new `asserted-with-runtime-check` tier is introduced. The diamond lattice at [`LLMLL.md §4.4.1`](../../../LLMLL.md) is unaltered.
 
-**Rationale.** The diamond lattice is load-bearing for downstream tooling (the `tier_profile` six-Int aggregate at [`LLMLL.md:412`](../../LLMLL.md); the `DisplayLevel` enumeration consumers in `compiler/src/LLMLL/TrustReport.hs`). Adding a fifth tier would force a `trust_report_version` bump and downstream-consumer migration for a *runtime-assertion enhancement* that does not change the epistemic status of the clause. The runtime assertion is a *runtime artifact*, not a trust-tier promotion. The predicate's presence shows up as a *field* on the `EvidenceRecord` (`predicate_form`, `predicate_text`, `runtime_check_emitted`), not as a *tier* shift.
+**Rationale.** The diamond lattice is load-bearing for downstream tooling (the `tier_profile` six-Int aggregate at [`LLMLL.md:412`](../../../LLMLL.md); the `DisplayLevel` enumeration consumers in `compiler/src/LLMLL/TrustReport.hs`). Adding a fifth tier would force a `trust_report_version` bump and downstream-consumer migration for a *runtime-assertion enhancement* that does not change the epistemic status of the clause. The runtime assertion is a *runtime artifact*, not a trust-tier promotion. The predicate's presence shows up as a *field* on the `EvidenceRecord` (`predicate_form`, `predicate_text`, `runtime_check_emitted`), not as a *tier* shift.
 
 Distinguishing the two cases in the trust report is the `predicate_form` field's job, not the tier system's. Consumers wanting to count "asserted with runtime check" as a stronger signal than "asserted without runtime check" can derive that locally from the field; the diamond lattice continues to express the *epistemic* status, not the *operational* enhancement.
 
@@ -234,13 +234,13 @@ JSON-AST node-shape change for `hole-proof-required`:
 
 1. **A `?proof-required` clause inside `def`.** Input shape: `(def f [n: int] (post (?proof-required (> result 0))) ...)`. **Expected behavior:** parse-error per LT-INV (b) whitelist; the agent must migrate `f` to `def-shell` or eliminate the proof-required clause. **Channel:** type (the core grammar admits this construct *structurally* in v0.10 but the v0.11 LT-INV-tightened whitelist production rejects it at parse time). **Citation:** [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1.4; LT-INV grammar production at the LT-INV-proposal §3.
 
-2. **A predicate referencing `result` in pre-position.** Input shape: `(pre (?proof-required (> result 0)))`. **Expected behavior:** typecheck error — `result` is not bound in `pre`-position per [`LLMLL.md §13.10`](../../LLMLL.md). The predicate-carrying form inherits the same binding rules as regular pre/post clauses; the typecheck error is identical to the one a non-`?proof-required` `(pre (> result 0))` would produce. **Channel:** type. **Citation:** [`LLMLL.md §13.10`](../../LLMLL.md).
+2. **A predicate referencing `result` in pre-position.** Input shape: `(pre (?proof-required (> result 0)))`. **Expected behavior:** typecheck error — `result` is not bound in `pre`-position per [`LLMLL.md §13.10`](../../../LLMLL.md). The predicate-carrying form inherits the same binding rules as regular pre/post clauses; the typecheck error is identical to the one a non-`?proof-required` `(pre (> result 0))` would produce. **Channel:** type. **Citation:** [`LLMLL.md §13.10`](../../../LLMLL.md).
 
 3. **A QF-LIA-tractable predicate.** Input shape: `(post (?proof-required (> result 0)))` where `(> result 0)` is QF-LIA. **Expected behavior:** the verifier *does not* attempt discharge — the marker is the agent's explicit declaration that this is a gap, regardless of the predicate's decidability. The clause routes to `asserted` and the trust report records `predicate_form: "predicate-carrying"`. The alternative (auto-discharge QF-LIA-tractable predicates and downgrade the marker) is rejected explicitly: the marker's purpose is explicit gap-signalling, not decidability-routing. If the agent wants the verifier to attempt discharge, they should write `(post (> result 0))` directly. **Channel:** trust (the marker's semantics is intentional non-discharge). **Citation:** §4.2 above; the explicit-marker-over-decidability-routing reading.
 
 4. **A predicate using `?proof-required` recursively.** Input shape: `(post (?proof-required (?proof-required (> result 0))))`. **Expected behavior:** parse-error — `?proof-required` cannot appear inside its own predicate. The predicate slot's grammar is the regular `Expr` non-terminal restricted to non-hole expressions. **Channel:** type (parse-time rejection). **Citation:** §3.1 grammar above.
 
-5. **A `?proof-required` clause with a predicate that fails typecheck.** Input shape: `(post (?proof-required (+ "x" 1)))`. **Expected behavior:** typecheck error per the predicate's expected type `bool` plus TC-EOP-1's arity/type-check fix (which makes `(+ "x" 1)` reject as type-incorrect rather than silently passing). The predicate-carrying form inherits the standard typecheck regime. **Channel:** type. **Citation:** §4.1 typing rule; TC-EOP-1 closes the EOp escape per [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4.
+5. **A `?proof-required` clause with a predicate that fails typecheck.** Input shape: `(post (?proof-required (+ "x" 1)))`. **Expected behavior:** typecheck error per the predicate's expected type `bool` plus TC-EOP-1's arity/type-check fix (which makes `(+ "x" 1)` reject as type-incorrect rather than silently passing). The predicate-carrying form inherits the standard typecheck regime. **Channel:** type. **Citation:** §4.1 typing rule; TC-EOP-1 closes the EOp escape per [`critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) §4.
 
 6. **A predicate referencing a function whose body is not in scope.** Input shape: `(post (?proof-required (well-formed? state)))` where `well-formed?` is not imported. **Expected behavior:** typecheck error per standard `EVar`/`EApp` name-resolution. No special handling for `?proof-required` predicates; they are typechecked under the same `tcEnv` as any other contract-clause expression. **Channel:** type. **Citation:** standard typechecker name-resolution at [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs).
 
@@ -249,8 +249,8 @@ JSON-AST node-shape change for `hole-proof-required`:
 ## 9. Verification mapping
 
 - **Channel:** trust (the predicate is informational; the verifier does not consume it). Type-channel side-effect only: the predicate itself must typecheck as `bool`.
-- **Fragment:** unchanged — the predicate is *not* lifted to liquid-fixpoint; the verifier sees the marker as a gap-signal and the clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../LLMLL.md). The predicate is a *trust-report annotation* and a *runtime-assertion artifact*, not a verification obligation.
-- **Cite:** [`LLMLL.md §6:780`](../../LLMLL.md) (gap-signal callout — text updated per §10 below); [`LLMLL.md §5.3.5`](../../LLMLL.md) (verification matrix `?proof-required` row, unchanged).
+- **Fragment:** unchanged — the predicate is *not* lifted to liquid-fixpoint; the verifier sees the marker as a gap-signal and the clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../../LLMLL.md). The predicate is a *trust-report annotation* and a *runtime-assertion artifact*, not a verification obligation.
+- **Cite:** [`LLMLL.md §6:780`](../../../LLMLL.md) (gap-signal callout — text updated per §10 below); [`LLMLL.md §5.3.5`](../../../LLMLL.md) (verification matrix `?proof-required` row, unchanged).
 
 No new SMT obligations are emitted. No new fragment expansion. No new Lean ingest path is established (Lean integration is parking-lotted).
 
@@ -258,7 +258,7 @@ No new SMT obligations are emitted. No new fragment expansion. No new Lean inges
 
 ## 10. Affected surface
 
-- [`LLMLL.md`](../../LLMLL.md) — §6 (replace the v0.10 "gap signal, not a predicate carrier" callout with the v0.11 dual-form documentation: leaf form unchanged behavior; predicate-carrying form gains the predicate slot and runtime-assertion fallback; both routed to `asserted`), §13.8 (canonical example update if needed — LT-B.1 corrective evidently already applied; verify no predicate-carrying example survives in `LLMLL.md`), §12 grammar (hole form gains optional predicate slot in the EBNF)
+- [`LLMLL.md`](../../../LLMLL.md) — §6 (replace the v0.10 "gap signal, not a predicate carrier" callout with the v0.11 dual-form documentation: leaf form unchanged behavior; predicate-carrying form gains the predicate slot and runtime-assertion fallback; both routed to `asserted`), §13.8 (canonical example update if needed — LT-B.1 corrective evidently already applied; verify no predicate-carrying example survives in `LLMLL.md`), §12 grammar (hole form gains optional predicate slot in the EBNF)
 - [`compiler/src/LLMLL/Syntax.hs:243`](../../compiler/src/LLMLL/Syntax.hs) — `HProofRequired Text` extends to `HProofRequired Text (Maybe Expr)`; round-trip through `AstEmit.hs` for both forms
 - [`compiler/src/LLMLL/Parser.hs`](../../compiler/src/LLMLL/Parser.hs), [`compiler/src/LLMLL/ParserJSON.hs`](../../compiler/src/LLMLL/ParserJSON.hs) — optional-predicate parsing in both frontends; both must produce identical AST shape from equivalent input
 - [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) — typecheck the predicate as `bool` in the surrounding pre/post context with `result` bound where applicable
@@ -268,7 +268,7 @@ No new SMT obligations are emitted. No new fragment expansion. No new Lean inges
 - [`docs/llmll-ast.schema.json`](../llmll-ast.schema.json) — extends `hole-proof-required` shape with optional `predicate` field; bundled with LT-INV `schemaVersion 0.5.0 → 0.6.0` bump
 - [`docs/llmll-trust-report.schema.json`](../llmll-trust-report.schema.json) — `EvidenceRecord` shape gains `predicate_form`, `predicate_text`, `runtime_check_emitted` fields; `trust_report_version` bump only if these are not purely additive on the existing v1.1.0 shape (assessment: additive, no bump required for LT-PPR alone)
 - [`docs/design/proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) — supersession marker already landed in Pass 4 of the 2026-05-23 catch-up branch
-- [`docs/design/critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) — triage row §6 "deferred, no move" is superseded by this proposal
+- [`docs/design/critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) — triage row §6 "deferred, no move" is superseded by this proposal
 
 ---
 
@@ -276,7 +276,7 @@ No new SMT obligations are emitted. No new fragment expansion. No new Lean inges
 
 1. **Predicate-text in the trust report is unbounded.** Severity: low (accepted). Classification: spec-drift (mitigation dropped — Rev 3). Cite: `TrustReport.hs:321` emits the full `exprToJson pred` without truncation; `Syntax.hs:386` `erPredicateText :: Maybe Text`. **Disposition (Rev 3):** Truncation mitigation dropped. The proposed safety valve — recovery from the `.verified.json` sidecar — does not exist: the sidecar stores `Map Name ContractStatus` with the same `erPredicateText :: Maybe Text`, not a richer predicate-AST representation. Truncation without a recovery path would be information-destroying. The predicate vocabulary in v0.11 scope (simple boolean expressions over builtins per §4.1) is compact in practice; the risk is accepted. A non-truncating size advisory (high-watermark warning, no information loss) is a v0.12+ direction if empirical evidence from the experiment harness warrants it.
 
-2. **Runtime-assertion fallback over the predicate may diverge from the verifier's symbolic interpretation.** Severity: medium. Classification: soundness. Cite: erasure-theorem framing in [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.1 — runtime checks are *separate* from verifier checks. Bite: a predicate using a builtin whose runtime behavior differs from its symbolic interpretation (e.g., a partial function) may runtime-fail in cases the spec did not consider. **Mitigation:** runtime-assertion fallback is opt-in via a codegen flag (default: emit assertion). The trust report records emit/skip explicitly via `runtime_check_emitted`. Functions in `def-shell` with predicate-carrying `?proof-required` get the assertion automatically; pathological cases can opt out per-function.
+2. **Runtime-assertion fallback over the predicate may diverge from the verifier's symbolic interpretation.** Severity: medium. Classification: soundness. Cite: erasure-theorem framing in [`critique-2026-05-23-triage.md`](../../design/critique-2026-05-23-triage.md) §3.1 — runtime checks are *separate* from verifier checks. Bite: a predicate using a builtin whose runtime behavior differs from its symbolic interpretation (e.g., a partial function) may runtime-fail in cases the spec did not consider. **Mitigation:** runtime-assertion fallback is opt-in via a codegen flag (default: emit assertion). The trust report records emit/skip explicitly via `runtime_check_emitted`. Functions in `def-shell` with predicate-carrying `?proof-required` get the assertion automatically; pathological cases can opt out per-function.
 
 3. **Agents may regress to the leaf form for terseness.** Severity: low. Classification: verification-ergonomics. Cite: empirical findings on agent verbosity bias. Bite: the predicate-carrying form's intent is to capture intent; if agents default to leaf form, the downstream-consumer value is unrealized. **Mitigation:** the `--obligation-report` repair-suggestion machinery (`compiler/src/LLMLL/ObligationMining.hs`) can prompt for the predicate-carrying form when an `asserted` clause has an obvious predicate inferable from the surrounding context. Promote this in a future iteration.
 
@@ -311,7 +311,7 @@ The QuickCheck-shrinking precedent suggests the captured counter-example can als
 
 ## 12. Open questions for the professor review
 
-**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`proof-required-predicate-carrier-review.md`](proof-required-predicate-carrier-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §11.1 (Q-PROF-1: no production system extracts witnesses from runtime-failed assertions; QuickCheck shrinking is the closest precedent; witness-extraction deferred to v0.12+) and §4.2 (Q-PROF-2: gradual-typing literature favors opportunistic; LLMLL's honor-the-gap choice is principled but unusual under coercion-semantics framing; verifier-side informational diagnostic ships as the minimal-disruption improvement). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
+**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`proof-required-predicate-carrier-review.md`](../professor-reviews/proof-required-predicate-carrier-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §11.1 (Q-PROF-1: no production system extracts witnesses from runtime-failed assertions; QuickCheck shrinking is the closest precedent; witness-extraction deferred to v0.12+) and §4.2 (Q-PROF-2: gradual-typing literature favors opportunistic; LLMLL's honor-the-gap choice is principled but unusual under coercion-semantics framing; verifier-side informational diagnostic ships as the minimal-disruption improvement). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
 
 1. **The predicate-carrying form straddles two adjacent traditions: Liquid Haskell's `{-@ assume @-}` (which carries the assumed predicate inline) and Coq/Lean's `sorry`/`Axiom` (which carry only a type, not a predicate).** LT-PPR lands closer to Liquid Haskell — predicate present, runtime-assertion fallback emitted, trust label `asserted`. Is there a third tradition — perhaps Idris's `?hole` with elaborator-driven refinement, or Dafny's `assume` with witness extraction — that LT-PPR should be benchmarked against for completeness? Specifically: do any of those traditions have a treatment of *witness extraction* from a runtime-failed assertion that could be used to upgrade the predicate-carrying form into structured evidence (e.g., a counter-example AST node attached to the trust report)? — *Rev 2 answer: no production system extracts witnesses from runtime-failed assertions. Idris `?hole` is interactive-time, not runtime. Dafny `assume` is static, no witness extraction. QuickCheck shrinking is the closest external precedent — runtime-failed property minimized to a small counter-example. §11.1 documents the v0.12+ direction.*
 
@@ -321,9 +321,9 @@ The QuickCheck-shrinking precedent suggests the captured counter-example can als
 
 ## 13. Companion review
 
-Professor review landed at [`proof-required-predicate-carrier-review.md`](proof-required-predicate-carrier-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on six gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§1 positioning paragraph; §4.2 divergence-class enumeration + verifier-side informational diagnostic; §5 fragmentation note; §6.3 contingent shipping rule under LT-INV gate outcomes; §11.1 witness-extraction v0.12+ direction). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §6.3 above.
+Professor review landed at [`proof-required-predicate-carrier-review.md`](../professor-reviews/proof-required-predicate-carrier-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on six gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§1 positioning paragraph; §4.2 divergence-class enumeration + verifier-side informational diagnostic; §5 fragmentation note; §6.3 contingent shipping rule under LT-INV gate outcomes; §11.1 witness-extraction v0.12+ direction). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §6.3 above.
 
-The standalone `proof-required-predicate-carrier-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/proof-required-predicate-carrier-review.md`](../archive/professor-reviews/proof-required-predicate-carrier-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
+The standalone `proof-required-predicate-carrier-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/proof-required-predicate-carrier-review.md`](../professor-reviews/proof-required-predicate-carrier-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
 
 This proposal supersedes the deferred-exploration seed material at [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) (status flipped 2026-05-23 in Pass 4 of the catch-up branch).
 

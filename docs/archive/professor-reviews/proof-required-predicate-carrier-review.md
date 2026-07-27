@@ -1,7 +1,7 @@
 # Professor Review: LT-PPR — Predicate-Carrying `?proof-required`
 
 **Reviewer:** Lead Consultant for Formal Language Design
-**Document under review:** [`proof-required-predicate-carrier-proposal.md`](proof-required-predicate-carrier-proposal.md) (Rev 1)
+**Document under review:** [`proof-required-predicate-carrier-proposal.md`](../shipped-design-specs/proof-required-predicate-carrier-proposal.md) (Rev 1)
 **Date:** 2026-05-25
 **Status:** Review (Rev 1) — pending language-team adjudication
 
@@ -9,7 +9,7 @@
 
 ## Restatement
 
-LT-PPR extends `HoleKind.HProofRequired Text` to `HProofRequired Text (Maybe Expr)`: the marker continues to carry the reason tag and now optionally carries the predicate it stands in for. The predicate typechecks as `bool` in the surrounding `pre`/`post` context; the verifier does not consume it (the clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../LLMLL.md)); codegen emits a runtime-assertion fallback over the predicate; the trust report records `predicate_form` ∈ {`leaf`, `predicate-carrying`}, `predicate_text` (length-bounded), and `runtime_check_emitted` per clause. The predicate-carrying form is `def-shell`-only per LT-INV §1.4; admission inside `def` parse-rejects. The proposal supersedes the deferred-exploration seed at `proof-required-predicate-carrier.md`.
+LT-PPR extends `HoleKind.HProofRequired Text` to `HProofRequired Text (Maybe Expr)`: the marker continues to carry the reason tag and now optionally carries the predicate it stands in for. The predicate typechecks as `bool` in the surrounding `pre`/`post` context; the verifier does not consume it (the clause routes to `asserted` per [`LLMLL.md §5.3.5`](../../../LLMLL.md)); codegen emits a runtime-assertion fallback over the predicate; the trust report records `predicate_form` ∈ {`leaf`, `predicate-carrying`}, `predicate_text` (length-bounded), and `runtime_check_emitted` per clause. The predicate-carrying form is `def-shell`-only per LT-INV §1.4; admission inside `def` parse-rejects. The proposal supersedes the deferred-exploration seed at `proof-required-predicate-carrier.md`.
 
 §6 settles two open clauses: trust label stays `asserted` (no fifth tier); core-grammar interaction adopts LT-INV §1.4 verbatim.
 

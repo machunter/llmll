@@ -126,7 +126,7 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 5. Differential Implementation Pressure
 
-> **Source:** [invariant-discovery-proposal.md §3](../design/invariant-discovery-proposal.md) + [invariant-discovery-review.md §3](../professor-reviews/invariant-discovery-review.md)  
+> **Source:** [invariant-discovery-proposal.md §3](../design/invariant-discovery-proposal.md) + [invariant-discovery-review.md §3](professor-reviews/invariant-discovery-review.md)  
 > **Professor's assessment:** "Highest-value, most architecturally aligned idea"
 
 **Goal:** `llmll checkout --multi` allows N agents to independently fill the same `?delegate` hole. After all fills arrive, divergence analysis generates distinguishing inputs and flags underspecification.
@@ -141,7 +141,7 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 > **Status:** Retired from research-track on 2026-05-23. Promoted to v0.11 implementation as **CDP-0** under language-team proposal **LT-CDP**. See [`docs/compiler-team-roadmap.md`](../compiler-team-roadmap.md) v0.11 milestone for current routing and acceptance criteria; [`docs/design/critique-2026-05-23-triage.md`](../design/critique-2026-05-23-triage.md) §3.2 for the lattice-valuation framing adopted; [`docs/design/core-shell-inversion-direction.md`](shipped-design-specs/core-shell-inversion-direction.md) §2 for the professor-channel argument.
 >
-> **Source:** [invariant-discovery-review.md §6](../professor-reviews/invariant-discovery-review.md)
+> **Source:** [invariant-discovery-review.md §6](professor-reviews/invariant-discovery-review.md)
 > **Originally proposed by:** Professor (Lead Consultant for Formal Language Design)
 > **Promotion driver:** External critique (2026-05-23) consolidated through professor channel; CDP fills a measurable v0.10 blind spot the evidence-lattice cannot — `verified` weak-spec vs `verified` strong-spec receive the same label without it.
 
@@ -159,7 +159,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 **Operational predecessors** (shipped): `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts via the `TrivialBody` enumeration at [`compiler/src/LLMLL/WeaknessCheck.hs:40-90`](../../compiler/src/LLMLL/WeaknessCheck.hs). LT-CDP extends the enumeration from binary-flag to counted divergence metric.
 
-**v0.11 implementation surface** (per LT-CDP): two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar; optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](../professor-reviews/invariant-discovery-review.md); `trust_report_version` bump 1.1.0 → 1.2.0 (additive). The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence).
+**v0.11 implementation surface** (per LT-CDP): two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar; optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](professor-reviews/invariant-discovery-review.md); `trust_report_version` bump 1.1.0 → 1.2.0 (additive). The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence).
 
 ---
 
@@ -212,7 +212,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 |----------|-------------|
 | [compiler-team-roadmap.md](../compiler-team-roadmap.md) | Engineering backlog. Research items are promoted there when accepted. |
 | [design/INDEX.md](../design/INDEX.md) | Reading guide for all design documents, including source docs for research items. |
-| [design/invariant-discovery-review.md](../professor-reviews/invariant-discovery-review.md) | Professor's review of invariant discovery mechanisms — source for items 5 and 6. |
+| [design/invariant-discovery-review.md](professor-reviews/invariant-discovery-review.md) | Professor's review of invariant discovery mechanisms — source for items 5 and 6. |
 | [design/invariant-discovery-proposal.md](../design/invariant-discovery-proposal.md) | External team's full proposal with 9 mechanisms. |
 | [design/spec-adequacy-closure.md](shipped-design-specs/spec-adequacy-closure.md) | Implementation plan for spec gap closure (Tracks 1–3, all shipped). |
 | [design/strategic-positioning.md](../design/strategic-positioning.md) | What to overclaim and what not to. Item 4 (synthetic corpus) directly addresses the "agents can write good specs" overclaim. |

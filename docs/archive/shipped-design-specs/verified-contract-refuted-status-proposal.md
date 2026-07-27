@@ -12,7 +12,7 @@
 
 ## 1. Motivation
 
-The verification matrix at [`LLMLL.md §5.3.5`](../../LLMLL.md) and the body-faithful definition at [`LLMLL.md §5.3.4:848`](../../LLMLL.md) state that `DLVerified "liquid-fixpoint"` with `erBodyFaithful = True` means "the implementation satisfies the contract for all well-typed inputs." That sentence names one precondition — both contract and body in QF-LIA — and **elides the solver verdict entirely**. The strict-core definition at [`LLMLL.md §5.3.4:863`](../../LLMLL.md) compounds the omission: it defines `--strict-verified-core` purely as "hard-errors if any function falls back from body-faithful verification (`erBodyFallback`)," and promises this "enforce[s] that all functions in a module are fully verified."
+The verification matrix at [`LLMLL.md §5.3.5`](../../../LLMLL.md) and the body-faithful definition at [`LLMLL.md §5.3.4:848`](../../../LLMLL.md) state that `DLVerified "liquid-fixpoint"` with `erBodyFaithful = True` means "the implementation satisfies the contract for all well-typed inputs." That sentence names one precondition — both contract and body in QF-LIA — and **elides the solver verdict entirely**. The strict-core definition at [`LLMLL.md §5.3.4:863`](../../../LLMLL.md) compounds the omission: it defines `--strict-verified-core` purely as "hard-errors if any function falls back from body-faithful verification (`erBodyFallback`)," and promises this "enforce[s] that all functions in a module are fully verified."
 
 Both statements conflate *body VC emitted* with *body VC discharged SAFE*. A function can be body-faithful (its VC was generated, so it is not in `erBodyFallback`), have its postcondition **disproved** by liquid-fixpoint, and still satisfy the spec's stated strict-core admission criterion. The compiler exhibits the same gap: the strict-core gate at [`compiler/app/Main.hs:1149-1178`](../../compiler/app/Main.hs) runs *before* the solver (invoked at `:1208`) and refuses only on `erBodyFallback ∪ erOverflowTaintedFns` — never on a solver-UNSAFE verdict. This is the spec-level twin of `VERIFY-RPT-1` Defect 3.
 
@@ -24,11 +24,11 @@ This proposal pins two things into the spec: (1) the solver-SAFE verdict as an e
 
 | Site | Current text (paraphrase) | Defect |
 |---|---|---|
-| [`§5.3.4:848`](../../LLMLL.md) | `DLVerified` + `erBodyFaithful` ⇒ "satisfies the contract"; only precondition named is "both in QF-LIA" | solver verdict elided |
-| [`§5.3.4:863`](../../LLMLL.md) | `--strict-verified-core` refuses `erBodyFallback`; "enforce … fully verified" | refusal set omits solver-UNSAFE |
-| [`§3.4.3:313`](../../LLMLL.md) | operational closure fails on `erBodyFallback ∨ erOverflowTainted ∨ asserted-dep` | no solver-verdict conjunct |
+| [`§5.3.4:848`](../../../LLMLL.md) | `DLVerified` + `erBodyFaithful` ⇒ "satisfies the contract"; only precondition named is "both in QF-LIA" | solver verdict elided |
+| [`§5.3.4:863`](../../../LLMLL.md) | `--strict-verified-core` refuses `erBodyFallback`; "enforce … fully verified" | refusal set omits solver-UNSAFE |
+| [`§3.4.3:313`](../../../LLMLL.md) | operational closure fails on `erBodyFallback ∨ erOverflowTainted ∨ asserted-dep` | no solver-verdict conjunct |
 
-The soundness statement of record at [`§3.4.3:308`](../../LLMLL.md) (precondition 1: "evidence record is `verified`") is *correct* — the compiler assigns `DLVerified` only in the `FQSafe` branch ([`Main.hs:1254-1287`](../../compiler/app/Main.hs); `provenCS = Map.empty` on `FQUnsafe`). The gap is that the *operational* definitions at §5.3.4:863 and §3.4.3:313 decoupled "evidence = verified" from "VC discharged SAFE" by stating admission over `erBodyFallback` alone. The three sites must move together or the spec retains an internally inconsistent definition of `verified`.
+The soundness statement of record at [`§3.4.3:308`](../../../LLMLL.md) (precondition 1: "evidence record is `verified`") is *correct* — the compiler assigns `DLVerified` only in the `FQSafe` branch ([`Main.hs:1254-1287`](../../compiler/app/Main.hs); `provenCS = Map.empty` on `FQUnsafe`). The gap is that the *operational* definitions at §5.3.4:863 and §3.4.3:313 decoupled "evidence = verified" from "VC discharged SAFE" by stating admission over `erBodyFallback` alone. The three sites must move together or the spec retains an internally inconsistent definition of `verified`.
 
 ## 3. Proposal
 
@@ -50,17 +50,17 @@ A body-faithful function whose body VC the solver reports UNSAFE is *disproved*,
 
 A solver-less trust-report render (the pre-solver path at [`Main.hs:1097-1104`](../../compiler/app/Main.hs)) shows the function as `asserted` (no sidecar entry) — honest "not verified," with the stronger refuted information available only when the solver runs. Persisting negative evidence is deliberately out of scope: a since-fixed function would carry a stale `refuted` tag.
 
-**Transitive treatment reuses the drift channel.** A caller whose transitive callee is refuted has an unsound assume-guarantee proof — it *assumes* a postcondition the solver disproved. It is flagged `depends-on-refuted` via the existing `computeDrifts` / `teDrifts` mechanism ([`TrustReport.hs:448, 466`](../../compiler/src/LLMLL/TrustReport.hs)), at the strongest drift severity — not via `evidenceMeet`. This mirrors how asserted-dependencies already produce epistemic-drift warnings ([`§5.3.5`](../../LLMLL.md) item 4), strengthened because the dependency is *known-false*, not merely unknown.
+**Transitive treatment reuses the drift channel.** A caller whose transitive callee is refuted has an unsound assume-guarantee proof — it *assumes* a postcondition the solver disproved. It is flagged `depends-on-refuted` via the existing `computeDrifts` / `teDrifts` mechanism ([`TrustReport.hs:448, 466`](../../compiler/src/LLMLL/TrustReport.hs)), at the strongest drift severity — not via `evidenceMeet`. This mirrors how asserted-dependencies already produce epistemic-drift warnings ([`§5.3.5`](../../../LLMLL.md) item 4), strengthened because the dependency is *known-false*, not merely unknown.
 
 ### 3.3 `--strict-verified-core` as a four-way refusal (§5.3.4:863)
 
-Refuse if any function in the transitive call graph has: (a) `erBodyFallback = True`, (b) `erOverflowTainted = True`, (c) **a body VC the solver reports UNSAFE (refuted)**, or (d) an `asserted`-tier dependency. Conjunct (c) is transitive *because* of assume-guarantee composition: [`§0.1:52`](../../LLMLL.md) already conditions soundness on "both functions independently verified," which a refuted callee violates — a caller of a refuted function cannot be admitted even if its own VC is SAFE, since that SAFE rests on a disproved assumption.
+Refuse if any function in the transitive call graph has: (a) `erBodyFallback = True`, (b) `erOverflowTainted = True`, (c) **a body VC the solver reports UNSAFE (refuted)**, or (d) an `asserted`-tier dependency. Conjunct (c) is transitive *because* of assume-guarantee composition: [`§0.1:52`](../../../LLMLL.md) already conditions soundness on "both functions independently verified," which a refuted callee violates — a caller of a refuted function cannot be admitted even if its own VC is SAFE, since that SAFE rests on a disproved assumption.
 
 ### 3.4 Operational closure + QF-LIA antecedent (§3.4.3:313)
 
 The admissibility-failure set becomes `erBodyFallback ∨ erOverflowTainted ∨ refuted ∨ asserted-dep`. The solver-verdict conjunct sits as a *side condition*, not a quantifier over solver runs, **precisely because body-faithful VCs are confined to QF-LIA**, for which liquid-fixpoint/Z3 is a sound-and-complete decision procedure — so "SAFE" is a decidable predicate on the fixed VC, a total function of it. This antecedent must be stated explicitly: the clean formulation degrades to run-dependence if a non-QF-LIA VC were ever admitted to the body-faithful tier (REF-META-2 widening, [`v0.12-direction.md §1`](v0.12-direction.md)).
 
-The REF-META-4 erasure statement should carry "all body VCs valid (SAFE)" as its hypothesis in the **VCgen/Hoare** sense (the discharged-VC-set as the standing antecedent, as in Dafny/Boogie VCgen soundness), not as a Liquid-Haskell application-site subtyping premise: LLMLL's body-faithful mode `P ∧ (result = ⟦B⟧) ⟹ Q` ([`§5.3.4:842-845`](../../LLMLL.md)) is verification-condition generation, not subtyping. This proposal *anticipates* REF-META-4 ([`v0.12-direction.md §1`](v0.12-direction.md)).
+The REF-META-4 erasure statement should carry "all body VCs valid (SAFE)" as its hypothesis in the **VCgen/Hoare** sense (the discharged-VC-set as the standing antecedent, as in Dafny/Boogie VCgen soundness), not as a Liquid-Haskell application-site subtyping premise: LLMLL's body-faithful mode `P ∧ (result = ⟦B⟧) ⟹ Q` ([`§5.3.4:842-845`](../../../LLMLL.md)) is verification-condition generation, not subtyping. This proposal *anticipates* REF-META-4 ([`v0.12-direction.md §1`](v0.12-direction.md)).
 
 ### 3.5 Sidecar `codegen_semantics_version` stamp — deferred
 
@@ -69,17 +69,17 @@ The professor's Finding 1 (in-conversation) recommends an additive `§4.4` invar
 ## 4. Edge cases and degenerate inputs
 
 1. **Body-faithful, solver UNSAFE** (`withdraw` `(+)` fill). No `DLVerified`; `refuted` in trust + obligation reports with counterexample pointer; `--strict-verified-core` exits non-zero. Channel: **contract** (body VC, QF-LIA) → **trust** (refuted). Cite: §5.3.4:848/863 post-edit; [`Main.hs:1254-1287`](../../compiler/app/Main.hs).
-2. **Caller of a refuted callee.** Own VC may be SAFE, but flagged `depends-on-refuted` (strongest drift) and refused from strict core. Channel: **trust** (drift). Cite: [`§0.1:52`](../../LLMLL.md); [`TrustReport.hs:448`](../../compiler/src/LLMLL/TrustReport.hs).
+2. **Caller of a refuted callee.** Own VC may be SAFE, but flagged `depends-on-refuted` (strongest drift) and refused from strict core. Channel: **trust** (drift). Cite: [`§0.1:52`](../../../LLMLL.md); [`TrustReport.hs:448`](../../compiler/src/LLMLL/TrustReport.hs).
 3. **Solver-less `--trust-report` on a refuted function.** Shows `asserted` (no sidecar entry) — honest "not verified"; refuted detail unavailable without the solver. Channel: **trust** (spec silent on persisting negative evidence — intentional). Cite: [`Main.hs:1097-1104, 1287`](../../compiler/app/Main.hs).
 4. **Body-faithful, solver SAFE.** `DLVerified`, `erBodyFaithful = True`, no refuted flag, strict-core admits. Channel: **contract**. Cite: §5.3.4:848.
-5. **Contract-only fallback** (general `EMatch`, `letrec` own body). `erBodyFallback = True`, refused by conjunct (a); **not** `refuted` (no body VC attempted) — correctly distinct. Channel: **trust**. Cite: [`§5.3.4:850, 863`](../../LLMLL.md).
+5. **Contract-only fallback** (general `EMatch`, `letrec` own body). `erBodyFallback = True`, refused by conjunct (a); **not** `refuted` (no body VC attempted) — correctly distinct. Channel: **trust**. Cite: [`§5.3.4:850, 863`](../../../LLMLL.md).
 
 ## 5. Verification mapping
 
 No new proof obligation. The proposal makes the *discharge verdict* of the existing QF-LIA body VC load-bearing and adds a report-time status derived from it.
 
 - **Channel:** contract (body VC) → trust (refuted status + depends-on-refuted drift). `refuted` is a trust-channel projection of a contract-channel verdict.
-- **Fragment:** QF-LIA, auto-discharged by liquid-fixpoint ([`§5.3.5`](../../LLMLL.md); `FQInt` = unbounded SMT `Int`). No obligation moves to nonlinear or Lean. QF-LIA confinement is now an explicit antecedent of the soundness side-condition (§3.4), not merely an ergonomic boundary.
+- **Fragment:** QF-LIA, auto-discharged by liquid-fixpoint ([`§5.3.5`](../../../LLMLL.md); `FQInt` = unbounded SMT `Int`). No obligation moves to nonlinear or Lean. QF-LIA confinement is now an explicit antecedent of the soundness side-condition (§3.4), not merely an ergonomic boundary.
 - **Boundary:** §5.3.3 / §5.3.5; [`FixpointEmit.hs`](../../compiler/src/LLMLL/FixpointEmit.hs) body-VC emission; [`DiagnosticFQ.hs`](../../compiler/src/LLMLL/DiagnosticFQ.hs) `FQUnsafe` → refuted derivation.
 
 ## 6. Affected surface

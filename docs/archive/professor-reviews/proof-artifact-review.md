@@ -1,7 +1,7 @@
 # Professor Review — PROOF-ARTIFACT (proof-artifact-proposal.md Rev 1)
 
 > **Reviewer:** professor (outside-PL consultant)
-> **Reviewing:** [`proof-artifact-proposal.md`](proof-artifact-proposal.md) Rev 1 (2026-06-20)
+> **Reviewing:** [`proof-artifact-proposal.md`](../shipped-design-specs/proof-artifact-proposal.md) Rev 1 (2026-06-20)
 > **Date:** 2026-06-20
 > **Recommendation:** **Revise and resubmit.** The proposal is sound and in-scope, but its central §10 framing conflates two distinct properties with two distinct trusted bases, its §1 motivation does not match what the recommended mode delivers, and it omits the closest external precedent (F* hints). Four concrete revisions below; none requires abandoning the design.
 
@@ -13,7 +13,7 @@ The proposal unifies LLMLL's scattered verification outputs (`.fq`, trust report
 
 ## Context located
 
-1. [`proof-artifact-proposal.md`](proof-artifact-proposal.md) §1, §4.1–4.4, §6, §7, §9, §10 — the artifact fields, the two replay modes, the faithfulness framing, the deferral of Mode 2.
+1. [`proof-artifact-proposal.md`](../shipped-design-specs/proof-artifact-proposal.md) §1, §4.1–4.4, §6, §7, §9, §10 — the artifact fields, the two replay modes, the faithfulness framing, the deferral of Mode 2.
 2. `LLMLL.md §3.4.3:307-322` — "Path B declined": codegen faithfulness is a *commitment*, not a mechanized theorem. Bears directly on the `erased_core` field's trusted base.
 3. `LLMLL.md §5.3.3:961,982` — QF-LIA SAFE is a decidable side-condition; liquid-fixpoint/Z3 sound-and-complete on the fragment. Grounds Mode 1's adequacy *and* its limits.
 4. `README.md:160` — `ProofCache.hs` SHA-256 sidecar; the §7 hook for the genuine (Lean-tier) Mode 2.

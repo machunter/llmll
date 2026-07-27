@@ -1,7 +1,7 @@
 # Professor Review: REF-META-1 — Refinement Metatheory of Record
 
 **Reviewer:** Lead Consultant for Formal Language Design
-**Document under review:** [`refinement-metatheory-of-record-proposal.md`](refinement-metatheory-of-record-proposal.md) (Rev 1)
+**Document under review:** [`refinement-metatheory-of-record-proposal.md`](../shipped-design-specs/refinement-metatheory-of-record-proposal.md) (Rev 1)
 **Date:** 2026-05-25
 **Status:** Review (Rev 1) — pending language-team adjudication
 
@@ -11,7 +11,7 @@ This review carries the cross-proposal consistency observations for the v0.11 LT
 
 ## Restatement
 
-REF-META-1 ships three settled artifacts from the [`critique-2026-05-23-triage.md §3.1`](critique-2026-05-23-triage.md) adjudication: (1) the checking-mode inference rule for refinement-aliased types (intro `Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }` and elim "hypothesis-in-context"), (2) the closed six-item non-goals list (no `<:`, no dep pattern match, no type-level computation, no proof terms, no sigma types, no boolean-as-equality), (3) the tier-aware soundness statement of record under four preconditions (obligations discharged at solver-backed evidence, faithful codegen, no trusted FFI, no `erBodyFallback` / `erOverflowTainted`). The two-phase implementation correspondence (type checker handles structural typing; verifier handles refinement-predicate emission) is documented as consistent with the existing flow. No surface change, no schema bump, no compiler-source change implied.
+REF-META-1 ships three settled artifacts from the [`critique-2026-05-23-triage.md §3.1`](../../design/critique-2026-05-23-triage.md) adjudication: (1) the checking-mode inference rule for refinement-aliased types (intro `Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }` and elim "hypothesis-in-context"), (2) the closed six-item non-goals list (no `<:`, no dep pattern match, no type-level computation, no proof terms, no sigma types, no boolean-as-equality), (3) the tier-aware soundness statement of record under four preconditions (obligations discharged at solver-backed evidence, faithful codegen, no trusted FFI, no `erBodyFallback` / `erOverflowTainted`). The two-phase implementation correspondence (type checker handles structural typing; verifier handles refinement-predicate emission) is documented as consistent with the existing flow. No surface change, no schema bump, no compiler-source change implied.
 
 REF-META-2..5 (solver-completeness, predicate WF, erasure theorem, full typing judgment) are sequenced as separate language-team turns post-v0.11.
 

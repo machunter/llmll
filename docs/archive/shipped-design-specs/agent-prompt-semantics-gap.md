@@ -503,7 +503,7 @@ in context.
   2. `runtimePreamble` in CodegenHs.hs: `string_empty' s = null s`
   3. §13.6 in LLMLL.md
 
-- **Agent mistakes doc:** [`getting-started.md §4.8`](../getting-started.md#L478)
+- **Agent mistakes doc:** [`getting-started.md §4.8`](../../getting-started.md#L478)
   lists common agent errors. This content should be promoted into the system
   prompt once Option A is implemented.
 
