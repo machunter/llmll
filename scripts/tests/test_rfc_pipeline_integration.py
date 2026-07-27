@@ -20,6 +20,7 @@ assert on things a unit test cannot see:
 Hermetic: no network (the source is a file:// URL), no model (a stub agent), and no
 compiler (a stub `--llmll-cmd`). Runs in seconds.
 """
+import importlib.util
 import json
 import os
 import pathlib
@@ -31,6 +32,14 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 DRIVER = REPO / "scripts" / "rfc_to_implementation.py"
+
+# import once, at module level: re-executing the module inside a test breaks the
+# dataclass decorators it defines
+_spec = importlib.util.spec_from_file_location("rfc_driver_itest", DRIVER)
+assert _spec and _spec.loader
+drv = importlib.util.module_from_spec(_spec)
+sys.modules["rfc_driver_itest"] = drv
+_spec.loader.exec_module(drv)
 
 # Two normative-looking lines are enough: reconciliation matches on line spans, and
 # the stub extractors below cite these.
@@ -270,3 +279,64 @@ def test_artifacts_without_a_completion_record_force_a_rerun(rig, tmp_path):
     p2, _ = rig(workdir=wd)
     assert "artifacts present but no completion record" in p2.stdout
     assert manifest(wd)["G"]["status"] == "complete"
+
+
+# ---------------------------------------------------------------------------
+# Spec §5: presence is not integrity
+# ---------------------------------------------------------------------------
+
+def test_a_modified_artifact_forces_a_rerun(rig, tmp_path):
+    """The driver recorded a digest of every artifact from the start and checked
+    only .exists(), so a stage whose output had been edited since it completed was
+    skipped and a later stage consumed something no stage of that run produced.
+
+    This is not hypothetical: it happened twice in one day, hand-editing a body
+    into the ARP tree and hand-editing an inventory in a test.
+    """
+    wd = tmp_path / "tamper"
+    p1, _ = rig(workdir=wd)
+    assert p1.returncode == 0
+
+    inv = wd / "06-disposition" / "inventory-dispositioned.json"
+    doc = json.loads(inv.read_text())
+    doc["rows"][1]["reason"] = "edited outside the protocol"
+    inv.write_text(json.dumps(doc))
+
+    p2, _ = rig(workdir=wd)
+    assert "artifact(s) changed since this stage recorded completion" in p2.stdout
+    assert "06-disposition/inventory-dispositioned.json" in p2.stdout
+    assert "stage G (disposition pass): already complete, skipping" not in p2.stdout
+
+
+def test_an_untouched_run_still_skips_everything(rig, tmp_path):
+    """The integrity check must not make every resume a full re-run."""
+    wd = tmp_path / "intact"
+    p1, _ = rig(workdir=wd)
+    assert p1.returncode == 0
+    p2, _ = rig(workdir=wd)
+    assert p2.returncode == 0
+    assert "artifact(s) changed" not in p2.stdout
+    assert p2.stdout.count("already complete, skipping") >= 10
+
+
+def test_a_manifest_without_digests_is_not_trusted(rig, tmp_path):
+    """An artifact whose integrity was never recorded is not evidence."""
+    wd = tmp_path / "nodigest"
+    p1, _ = rig(workdir=wd)
+    assert p1.returncode == 0
+    man = json.loads((wd / "MANIFEST.json").read_text())
+    man["stages"]["G"].pop("outputs", None)
+    (wd / "MANIFEST.json").write_text(json.dumps(man))
+
+    p2, _ = rig(workdir=wd)
+    assert "artifact(s) changed since this stage recorded completion" in p2.stdout
+
+
+def test_every_stage_declares_the_artifact_that_carries_its_result(rig):
+    """The §5 check protects only DECLARED outputs. Stage M declared its report and
+    not the tree it built, so the implementation itself was uncovered, which is how
+    a hand-edited body entered the ARP tree unnoticed."""
+    outs = {st.key: set(st.outputs) for st in drv.STAGES}
+    assert "12-wave/roots.ast.json" in outs["M"], "the implementation must be declared"
+    assert "11-freeze/ROOTS.txt" in outs["L"], "the monopoly list must be declared"
+    assert "10-roots/roots.llmll" in outs["K"], "the frozen surface must be declared"

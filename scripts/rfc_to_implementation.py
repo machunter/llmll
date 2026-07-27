@@ -1010,9 +1010,16 @@ STAGES: list[Stage] = [
     Stage("J", "the gate", "gate", stage_J_gate, ("09-gate/gate.json",)),
     Stage("K", "root contract authoring", "agent", stage_K_contracts,
           ("10-roots/roots.llmll",)),
+    # ROOTS.txt is declared, not just the lint report: it is the provenance
+    # monopoly list and an INPUT to the lint, so it must be covered by the §5
+    # integrity check like any other output of this stage.
     Stage("L", "coverage lint and freeze", "gate", stage_L_coverage,
-          ("11-freeze/rfc-cov-1.txt",)),
-    Stage("M", "the swarm", "agent", stage_M_wave, ("12-wave/wave.json",)),
+          ("11-freeze/rfc-cov-1.txt", "11-freeze/ROOTS.txt")),
+    # roots.ast.json is THE implementation. Declaring only wave.json left the
+    # artifact that matters uncovered by the §5 integrity check, which is how a
+    # hand-edited body entered the ARP tree unnoticed.
+    Stage("M", "the swarm", "agent", stage_M_wave,
+          ("12-wave/wave.json", "12-wave/roots.ast.json")),
     Stage("N", "kill matrix", "agent", stage_N_killmatrix,
           ("13-kill-matrix/kill-matrix.json",)),
     Stage("O", "writeup", "agent", stage_O_writeup, ("REPORT.md",)),
@@ -1282,20 +1289,39 @@ def main(argv: list[str] | None = None) -> int:
     for stage in STAGES:
         if stage.key not in selected:
             continue
-        # A stage is skipped ONLY when the manifest records it complete AND its
-        # artifacts are present. Artifacts alone are not evidence of success:
-        # a stage that fails AFTER writing output would then be skipped on the
-        # next run, which is precisely how a failing RFC-COV-1 freeze gate got
-        # bypassed and the wave ran on against an unfrozen surface. Gates are
-        # the stages most likely to write before failing, so "the file exists"
-        # is the worst possible completion test for them.
+        # Spec §5. Three conditions, not two.
+        #
+        # (a) the manifest RECORDS the stage complete. Artifacts alone are not
+        #     evidence of success: a stage that fails AFTER writing output would
+        #     otherwise be skipped next run, which is exactly how a failing
+        #     RFC-COV-1 freeze gate got bypassed and the wave ran on against an
+        #     unfrozen surface.
+        # (b) every declared artifact is PRESENT.
+        # (c) every artifact still MATCHES the digest recorded at completion.
+        #     Presence is not integrity. An artifact edited after its stage
+        #     recorded completion is not that stage's output, and a later stage
+        #     consuming it consumes something no stage of this run produced.
+        #     The digests were already being recorded and never read.
         rec = manifest["stages"].get(stage.key)
         recorded = bool(rec) and rec.get("status") == "complete"
         artifacts = all((ctx.workdir / o).exists() for o in stage.outputs)
-        if recorded and artifacts and not a.force:
+        recorded_digests = (rec or {}).get("outputs", {})
+        mismatched: list[str] = []
+        if recorded and artifacts:
+            for o in stage.outputs:
+                want = recorded_digests.get(o)
+                # a missing digest cannot match, and is treated as a mismatch:
+                # an artifact whose integrity was never recorded is not evidence
+                if want is None or want != sha256_file(ctx.workdir / o):
+                    mismatched.append(o)
+        if recorded and artifacts and not mismatched and not a.force:
             log(f"stage {stage.key} ({stage.name}): already complete, skipping")
             continue
-        if artifacts and not recorded:
+        if mismatched:
+            log(f"stage {stage.key}: artifact(s) changed since this stage recorded "
+                f"completion ({', '.join(mismatched)}) — re-running. An artifact "
+                "modified outside the protocol is not that stage's output.")
+        elif artifacts and not recorded:
             log(f"stage {stage.key}: artifacts present but no completion record "
                 "(interrupted, or a previous attempt failed) — re-running")
         log(f"stage {stage.key} [{stage.kind}] {stage.name}")
