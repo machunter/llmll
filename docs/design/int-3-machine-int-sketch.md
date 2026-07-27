@@ -11,13 +11,13 @@
 
 ## 1. Trigger condition
 
-This sketch is dormant unless INT-PRE's TOTP wall-clock regression factor under Variant B (per `docs/design/int-2-boundary-shims.md`) meets or exceeds 5×. The gate criterion is recorded at [`docs/compiler-team-roadmap.md:158, 314`](../compiler-team-roadmap.md):
+This sketch is dormant unless INT-PRE's TOTP wall-clock regression factor under Variant B (per `docs/archive/shipped-design-specs/int-2-boundary-shims.md`) meets or exceeds 5×. The gate criterion is recorded at [`docs/compiler-team-roadmap.md:158, 314`](../compiler-team-roadmap.md):
 
 > If TOTP regresses >5×, escalate INT-3 to freeze-exception; otherwise INT-2 proceeds as planned for v0.11.
 
 The escalation requires a written proposal at proposal-granularity. A one-phrase roadmap entry — "`MachineInt` QF-BV alias" — does not meet the promotion bar; a Rev 1 settled proposal goes through the normal design → review → ship pipeline. This sketch is the seed the language-team revises into that proposal *only if* the gate fires.
 
-If INT-PRE clears the gate, this sketch remains on the research track at P3 (`:321`) and is revisited only when a future codegen-perf gate or external user demand re-surfaces the need for opt-in bounded integers. The Class C entry on `random_int` at `docs/design/int-2-boundary-shims.md` §3.3 is the lowest-noise candidate trigger for a future revisit.
+If INT-PRE clears the gate, this sketch remains on the research track at P3 (`:321`) and is revisited only when a future codegen-perf gate or external user demand re-surfaces the need for opt-in bounded integers. The Class C entry on `random_int` at `docs/archive/shipped-design-specs/int-2-boundary-shims.md` §3.3 is the lowest-noise candidate trigger for a future revisit.
 
 The sketch is **not exhaustive**. It records the settled design-axis positions language-team holds today, the open questions that the actual Rev 1 proposal must close before engineer hand-off, and the minimum content the freeze-exception decision requires. Promotion to Rev 1 is roughly two pages of additional content and one professor review turn; the engineering surface beyond what is sketched here is left to the eventual Rev 1.
 
@@ -47,7 +47,7 @@ The literal `42` in `machine-int` context lowers to `(42 :: Int)` in Haskell; th
 
 ### 2.2 JSON-AST
 
-A new primitive-type spelling `"machine-int"` is admitted at any position where `"int"` is admitted today. The JSON-AST schema bump is required: **`schemaVersion` 0.6.0 → 0.7.0** (additive, following the LT-INV bump 0.5.0 → 0.6.0 documented at `docs/design/core-shell-inversion-proposal.md`). If INT-3 ships in v0.11 as freeze-exception alongside LT-INV, the bump consolidates to 0.5.0 → 0.6.0 (single bump for all v0.11 schema changes); if INT-3 ships in v0.12+ standalone, it carries its own 0.7.0 bump. The Rev 1 proposal commits to one ordering.
+A new primitive-type spelling `"machine-int"` is admitted at any position where `"int"` is admitted today. The JSON-AST schema bump is required: **`schemaVersion` 0.6.0 → 0.7.0** (additive, following the LT-INV bump 0.5.0 → 0.6.0 documented at `docs/archive/shipped-design-specs/core-shell-inversion-proposal.md`). If INT-3 ships in v0.11 as freeze-exception alongside LT-INV, the bump consolidates to 0.5.0 → 0.6.0 (single bump for all v0.11 schema changes); if INT-3 ships in v0.12+ standalone, it carries its own 0.7.0 bump. The Rev 1 proposal commits to one ordering.
 
 ---
 

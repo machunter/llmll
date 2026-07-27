@@ -6,7 +6,7 @@
 helper-composing hole; a stale binary false-nulls `transfer_helper`).
 **Solver:** `liquid-fixpoint` / `fixpoint` + `z3` on PATH (every verified/refuted status is
 solver-decided, not asserted).
-**Harness:** `scripts/run_multi.py` — for each single-hole scaffold, opens `checkout --multi N`,
+**Harness:** `experiments/minimal-agent/scripts/run_multi.py` — for each single-hole scaffold, opens `checkout --multi N`,
 N forced-diverse agents each fill the ONE hole into an isolated scratch, fills are injected and
 `diverge-report` classifies observational divergence over Ω. Corpus + manifest under
 `r5-campaign/`.

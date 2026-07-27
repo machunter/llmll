@@ -3,7 +3,7 @@
 The spec-from-RFC pipeline's S0 fragment-scoping + S1 clause-inventory artifact
 (`docs/design/spec-from-rfc-pipeline.md` discipline, second instance after
 `examples/rfc1982_serial/`), for the A4 flagship
-(`docs/design/a4-flagship-token-revocation-plan.md`). Root contracts only —
+(`docs/archive/shipped-design-specs/a4-flagship-token-revocation-plan.md`). Root contracts only —
 bodies are agent-authored under the emergent-cascade discipline.
 
 ## S0 — data model and fragment scoping (decided before authoring)

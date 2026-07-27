@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.68)
+# LLMLL: Large Language Model Logical Language (v0.14.69)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.68.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.69.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -81,7 +81,7 @@ so nothing in the decidable fragment (§5.3.3) changes. Both are first-class in 
 the JSON-AST (op values `"=>"` / `"<=>"`, retained through round-trip); the schema op enum was
 extended additively, with `schemaVersion` unchanged.
 
-**What is NOT allowed:** Unicode-encoded variable names, function names, type names, or module names. Identifiers must be ASCII. This restriction prevents homoglyph attacks and invisible-character exploits in multi-agent AST merging (see `analysis/unicode_decision.md` for full rationale).
+**What is NOT allowed:** Unicode-encoded variable names, function names, type names, or module names. Identifiers must be ASCII. This restriction prevents homoglyph attacks and invisible-character exploits in multi-agent AST merging (see `docs/archive/older_discussions_and_plans/unicode_decision.md` for full rationale).
 
 **Mixed-form example** — both lines are semantically identical:
 

@@ -5,19 +5,21 @@
 # docs/design/critique-2026-05-23-triage.md:111.
 #
 # Two jobs:
-#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + pytest harness tests.
-#                     No Stack: neither gate in this job has a compiler dependency.
+#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + DRIFT-DOC-4 + pytest
+#                     harness tests. No Stack: no gate in this job has a compiler
+#                     dependency.
 #   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2. Builds
 #                     llmll, runs scripts/doc_claims_gate.sh (doc restriction-
 #                     claims vs compiler behaviour) and scripts/spec_roundtrip.py
 #                     against opt-in spec blocks.
 #
-# Scope discipline: this workflow enforces the three drift gates — DRIFT-CI-1
-# (banner/schema equality), DRIFT-CT-2 (doc restriction-claims vs actual
-# compiler behaviour), and DRIFT-DOC-3 (archive disposition vs directory).
-# DRIFT-CI-1 and DRIFT-DOC-3 are consistency gates over in-repo records;
-# DRIFT-CT-2 is the only one with an oracle outside the repository, because it
-# executes the compiler. It does not run `stack test` or the Python harness suites
+# Scope discipline: this workflow enforces the four drift gates. DRIFT-CI-1
+# (banner/schema equality) and DRIFT-DOC-3 (archive disposition vs directory) are
+# consistency gates over in-repo records. DRIFT-CT-2 (doc restriction-claims vs
+# actual compiler behaviour) is the only one with an oracle outside the
+# repository, because it executes the compiler. DRIFT-DOC-4 (prose path
+# citations) is ADVISORY and never fails, for the reason in its module
+# docstring. It does not run `stack test` or the Python harness suites
 # at tools/llmll-orchestra/ and experiments/. Build/test CI is a separate ticket;
 # the workflow file is deliberately named `version-gate.yml`, not `ci.yml`, to
 # avoid implying a broader signal.
@@ -37,7 +39,7 @@ on:
 
 jobs:
   version-gate:
-    name: C1-C4 banner / schema equality + DRIFT-DOC-3
+    name: C1-C4 banner / schema + DRIFT-DOC-3 / DOC-4
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +61,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      # DRIFT-DOC-4 is ADVISORY and exits 0 by design. It cannot decide the
+      # counterfactual class (prose that names a path precisely because it does
+      # not exist), so a fail-closed version would demand correct prose be
+      # mangled. Its value is the printed report in the job log and the
+      # test_clean_on_live_repo regression test below, not a merge block.
+      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
+        run: python3 scripts/doc_path_lint.py
 
       - name: Install pytest
         run: pip install pytest

@@ -12,7 +12,7 @@ consumers: [professor, compiler-engineer]
 ## Restatement
 
 Today a scaffold's decomposition is authored up front: a human writes the full solution, holes it
-out, and agents fill a *fixed, flat* set of leaf holes (`examples/heartbleed/scaffold_holeout.py`;
+out, and agents fill a *fixed, flat* set of leaf holes (`examples/heartbleed/secure-channel/scaffold_holeout.py`;
 the flat-list model of `agent-orchestration.md:220`). The design problem is to make the decomposition
 itself **emergent**: start from a few top-level contracted holes, and let an agent *refine* a hole
 into a body that calls **newly-introduced** contracted sub-functions (each a fresh `?body` hole),

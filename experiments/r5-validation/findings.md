@@ -6,7 +6,7 @@
 **Solver:** `fixpoint` (`~/.local/bin/fixpoint`) + `z3` (`/opt/homebrew/bin/z3`) on PATH.
 `liquid-fixpoint` is not installed; `classifyFillStatus` resolves `liquid-fixpoint` then
 falls back to `fixpoint` (`app/Main.hs:1978-1980`), so the fallback binary carried every run.
-**Spec under test:** `docs/design/differential-implementation-pressure-proposal.md` Rev 2 §3–§4.
+**Spec under test:** `docs/archive/shipped-design-specs/differential-implementation-pressure-proposal.md` Rev 2 §3–§4.
 **Code under test:** `compiler/src/LLMLL/DivergenceCheck.hs` (stages 1–2 pure core),
 `compiler/src/LLMLL/Checkout.hs` (`checkoutHoleMulti`, `promoteDivergenceWinner`,
 `.llmll-diverge.json` sidecar), `compiler/app/Main.hs` (`doDivergeReport`, `classifyFillStatus`).
@@ -183,7 +183,7 @@ Standalone fill checks: `stack exec llmll -- verify <fill>.llmll`.
 
 The Case-5 / §Common-mode channel (2) false-negative — *any* sibling-calling fill silently
 reclassified `type-error` and dropped before bucketing — is **fixed**. `classifyFillStatus`
-(`app/Main.hs`) no longer classifies fills via isolated synthetic emission; it verifies each
+(`compiler/app/Main.hs`) no longer classifies fills via isolated synthetic emission; it verifies each
 fill in the **shared program's context** — the hole-fn's body is substituted by the fill,
 sibling defs are kept and pinned to the trusted shared definitions (a fill cannot weaken a
 helper it calls), and property `check`s are dropped. A `def-shell` fill then verifies its post

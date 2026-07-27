@@ -3,7 +3,7 @@
 > **Version:** Rev 0 — captures the two-audit spike (translator faithfulness + MCP transport) run 2026-07-04.
 > **Status:** Scoping note — **not a commitment to build.** Records what the spike found so LEAN-GA can be re-scoped in the parking lot with real evidence rather than the stale "blocked only on `lean-lsp-mcp` availability" framing.
 > **Date:** 2026-07-04
-> **Relates to:** roadmap `LEAN-GA` (externally-blocked parking lot, `docs/compiler-team-roadmap.md:97`); `TRUST-2b` (`prover: "lean"` evidence, parked); PROOF-ARTIFACT C-property (reserved for the Lean tier, `docs/design/proof-artifact-proposal.md`); `LLMLL.md §5.3.3:912` ("Inductive properties — designed, not shipped").
+> **Relates to:** roadmap `LEAN-GA` (externally-blocked parking lot, `docs/compiler-team-roadmap.md:97`); `TRUST-2b` (`prover: "lean"` evidence, parked); PROOF-ARTIFACT C-property (reserved for the Lean tier, `docs/archive/shipped-design-specs/proof-artifact-proposal.md`); `LLMLL.md §5.3.3:912` ("Inductive properties — designed, not shipped").
 > **Trigger:** Mistral's Leanstral 1.5 release (open weights `mistralai/Leanstral-1.5-119B-A6B`, Apache-2.0; free `leanstral-1-5` API; Lean LSP MCP support) — which prompted the question "should real Leanstral integration be next?"
 
 ---

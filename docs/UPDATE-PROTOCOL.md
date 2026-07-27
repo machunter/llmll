@@ -1,6 +1,6 @@
 # Documentation Update Protocol
 
-> **Source:** `docs/design/doc-consolidation-2026-05-24-proposal.md` §3 (DOC-CONSOLIDATE, settled 2026-05-24). This file is the working contract for every documentation change in the project. Lifted verbatim from §3.1–3.3.
+> **Source:** `docs/archive/shipped-design-specs/doc-consolidation-2026-05-24-proposal.md` §3 (DOC-CONSOLIDATE, settled 2026-05-24). This file is the working contract for every documentation change in the project. Lifted verbatim from §3.1–3.3.
 
 ## Canonical sources (P1)
 
@@ -106,7 +106,7 @@ The following docs are on a natural-archive trajectory. The trigger column state
 | `docs/design/core-shell-inversion-direction.md` | All of LT-INV + LT-CDP + LT-PPR ship | ~~Fold into lead proposal's `## Background` (per M2 case 3), then archive~~ **DONE (2026-06-12)** — folded into [`core-shell-inversion-proposal.md`](archive/shipped-design-specs/core-shell-inversion-proposal.md) `## Background`; archived to `shipped-design-specs/` |
 | `docs/design/int-3-machine-int-sketch.md` | INT-PRE escalates → promote; or INT-PRE no-regression → resolve | `shipped-design-specs/` (promotion path) or `dormant-explorations/` (resolution path; see §3.3 sub-categorization note) — **not yet triggered**: INT-3 remains roadmap status "P3 — open" (dormant-but-still-open, not resolved) |
 | `docs/design/critique-2026-05-23-triage.md` | All 17 routing items closed | `docs/archive/triages/` (new subdir on first triage archive) — **not yet triggered**: OBLIG-PBT-5b (one of the 17 routed items) is still open per the roadmap's Active Items table |
-| `docs/design/doc-consolidation-2026-05-24-proposal.md` | Next release sweep (shipped at `1a8733f`; audit close-out at `e6eb4b6`; fully closed) | **DONE** — moved to [`shipped-design-specs/`](archive/shipped-design-specs/doc-consolidation-2026-05-24-proposal.md) |
+| `docs/archive/shipped-design-specs/doc-consolidation-2026-05-24-proposal.md` | Next release sweep (shipped at `1a8733f`; audit close-out at `e6eb4b6`; fully closed) | **DONE** — moved to [`shipped-design-specs/`](archive/shipped-design-specs/doc-consolidation-2026-05-24-proposal.md) |
 
 Updates to this list happen alongside any milestone-rename or scope-change commit. If a row's trigger becomes ambiguous, route to language-team to re-adjudicate before archiving.
 
@@ -121,3 +121,13 @@ Updates to this list happen alongside any milestone-rename or scope-change commi
 > **Stub-expiry sweep (2026-07-26):** deleted all **22** expired redirect stubs remaining in `docs/design/` (the 2026-07-09, -07-11, and -07-18 batches, created at v0.14.21 / v0.14.29 / v0.14.51 against a one-release-cycle grace period; v0.14.67 is current). `docs/design/` goes 51 → 29 live files. Nine markdown link *targets* were repointed to archive paths first, as link-target-only edits per the 2026-07-09 precedent: `CHANGELOG.md` ×5 (rec-body-vc ×3, data-scope-lever-a-arrays ×2), `examples/heartbleed/README.md`, `examples/heartbleed/secure-channel/README.md`, `examples/bytes-bounds/README.md`, `examples/token-revocation-emergent/README.md` — closing the out-of-scope inbound links the 2026-07-09 sweep recorded as owed. Plain-text (non-link) mentions of old `docs/design/` paths in shipped CHANGELOG prose were left as written; they are historical narrative, not navigation. `docs/design/INDEX.md` gained rows for five live docs it had never listed (`critique-2026-07-19-triage`, `spec-agreement-proposal`, `spec-agreement-review`, `incremental-reverify-r8-proposal`, `examples-audit-2026-07-20-compiler-followups`). **Not done, and owed:** `shipped-design-specs/` sub-categorization by version — see the deferral note under Archive policy.
 >
 > **Batch sweep (2026-07-18):** archived to `shipped-design-specs/` with fresh stubs the shipped Data-Scope Lever A line — `data-scope-lever-a-arrays-proposal` (A0–A4 + string keys, v0.14.33–51), `data-scope-lever-a-feasibility`, `string-literal-distinctness-proposal` (STRLIT, v0.14.44–48), `string-valued-maps-proposal` (A2.2-string, v0.14.46–47), `a4-flagship-token-revocation-plan` (complete, v0.14.47); moved `data-scope-lever-a-arrays-review` to `professor-reviews/` (F1–F10 already folded inline into the proposal, not as an `## Appendix`). Roadmap + INDEX + `LLMLL.md` links repointed to archive paths; shipped CHANGELOG sections left on the stubs (append-only). **Removed `docs/archive/roadmap-shipped-history.md`** — frozen at v0.11, CHANGELOG-redundant since v0.12.0 (the compact rows had linked here for detail only through v0.11; v0.12+ already cite `CHANGELOG.md` directly). Its 23 pre-v0.12 roadmap deep-links converted to `CHANGELOG.md §vX.Y.Z` text references, matching the v0.12+ convention.
+
+## Prose path citations (DRIFT-DOC-4)
+
+A path written as a bare backtick span in running text, `docs/design/foo.md`, is followed by no tool and rots silently when the file moves. [`scripts/doc_path_lint.py`](../scripts/doc_path_lint.py) reports the ones that no longer resolve.
+
+**It is advisory and exits 0 by design.** The other three gates assert something with a definite truth value; this one cannot, because a rationale legitimately names a location that does not exist and whose non-existence is the point of the sentence. Making it fail-closed would demand that correct prose be mangled to appease it, and it would be the first gate here that can be wrong about correct input. Its value is the report in the CI log and the `test_clean_on_live_repo` regression test, not a merge block.
+
+Four classes are excluded, and they are what make the signal usable: **historical files** (postmortems, frozen run records, append-only `CHANGELOG.md`, archived docs, all of which describe the tree as it was), **historical lines** (a living doc holding a past-tense sentence, as in the pre-planned-archive-moves table above), **placeholders** (`postmortem-NNN.md`, elided paths), and **link labels** whose target already resolves. `ALLOW` in the script records the individually-verified exceptions, one reason per entry.
+
+When a doc-lead sweep archives or renames a file, the prose that names it moves in the same change. The lint tells you which prose that is.

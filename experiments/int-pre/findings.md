@@ -6,7 +6,7 @@
 
 
 > **Status:** Template; populated as INT-PRE runs surface engineering-track patterns.
-> **Format reference:** `experiments/minimal-agent/findings/compiler-team.md`
+> **Format reference:** `experiments/minimal-agent/findings.md` `## Compiler-engineer`
 > **Routing rule:** Findings here imply a compiler bug, codegen issue, or harness defect that requires a code change. State the implication; do not author the fix.
 
 ### Active fragments
@@ -19,7 +19,7 @@
 
 ### Cross-references
 
-- INT-2 boundary-shim catalog: `docs/design/int-2-boundary-shims.md`
+- INT-2 boundary-shim catalog: `docs/archive/shipped-design-specs/int-2-boundary-shims.md`
 - INT-3 contingency sketch: `docs/design/int-3-machine-int-sketch.md`
 - Variant B implementation commit: `03d5722` on `int-pre/variant-b`
 - Variant A baseline commit: `009a6f0` on `release/v0.10.7`
@@ -30,7 +30,7 @@
 
 
 > **Status:** Template; populated as INT-PRE runs surface spec-track patterns.
-> **Format reference:** `experiments/minimal-agent/findings/language-team.md`
+> **Format reference:** `experiments/minimal-agent/findings.md` `## Language-team`
 > **Routing rule:** Findings here imply a spec move — catalog correction, refinement-predicate vocabulary adjustment, INT-3 promotion, etc. State the implication; do not author the spec.
 
 ### Active fragments
@@ -43,7 +43,7 @@
 
 ### Cross-references
 
-- INT-2 boundary-shim catalog: `docs/design/int-2-boundary-shims.md`
+- INT-2 boundary-shim catalog: `docs/archive/shipped-design-specs/int-2-boundary-shims.md`
 - INT-3 contingency sketch: `docs/design/int-3-machine-int-sketch.md`
 - Catalog SHA pinned in `experiments/int-pre/manifest.json` `catalog_ref.sha` field
 
@@ -59,7 +59,7 @@
 
 
 > **Status:** Template; populated only via the loop after engineer / language-team have actioned upstream findings.
-> **Format reference:** `experiments/minimal-agent/findings/documentation-team.md`
+> **Format reference:** `experiments/minimal-agent/findings.md` `## Documentation-lead`
 > **Routing rule:** Experiment-lead does not hand documentation patches to doc-lead directly. Doc-lead is invoked downstream after the engineer ships and the spec move is settled. Fragments here surface for doc-lead consumption only when the upstream consumer (engineer or language-team) routes them.
 
 ### Active fragments

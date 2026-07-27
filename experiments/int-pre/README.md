@@ -29,7 +29,7 @@ Two compiler variants, both pinned to git SHAs in `manifest.json`:
 | label | SHA | branch/tag | description |
 |---|---|---|---|
 | `variant-a-baseline` | `009a6f0` | `release/v0.10.7` | Pre-INT-2 baseline. INT-1 not included (deferred to v0.10.8 per CHANGELOG v0.10.7 "What this does NOT close"); orthogonal to codegen-comparison dimension. |
-| `variant-b-prototype` | `03d5722` | `int-pre/variant-b` | Realizes `docs/design/int-2-boundary-shims.md` §3. Polymorphic `Integral i =>` Class A boundary with `SPECIALIZE` pragmas; Class B `Integer` signatures; one-line `toHsType TInt = "Integer"` + `mapLlmllPrimType "int" = "Integer"`. |
+| `variant-b-prototype` | `03d5722` | `int-pre/variant-b` | Realizes `docs/archive/shipped-design-specs/int-2-boundary-shims.md` §3. Polymorphic `Integral i =>` Class A boundary with `SPECIALIZE` pragmas; Class B `Integer` signatures; one-line `toHsType TInt = "Integer"` + `mapLlmllPrimType "int" = "Integer"`. |
 
 Variant B is a throwaway measurement artifact. It graduates to the INT-2 PR for v0.11 only if INT-PRE returns `int-2-clear`.
 
@@ -143,9 +143,9 @@ Per `experiments/<harness>/findings/` convention (matched from `minimal-agent/fi
 | File | Consumer | When written |
 |---|---|---|
 | `findings/postmortem-NNN.md` | user (skims) | After each adjudicated run; carries the full integrated narrative |
-| `findings/language-team.md` | language-team | When a pattern implies a spec move (e.g., catalog-correction finding, contingency promotion) |
-| `findings/compiler-team.md` | compiler-engineer | When a pattern implies a compiler bug (e.g., the harness uncovers a real codegen regression in Variant B not anticipated by the catalog) |
-| `findings/documentation-team.md` | doc-lead | Only via the loop after engineer / language-team have actioned; doc-lead is not invoked directly by experiment-lead |
+| `findings.md` `## Language-team` | language-team | When a pattern implies a spec move (e.g., catalog-correction finding, contingency promotion) |
+| `findings.md` `## Compiler-engineer` | compiler-engineer | When a pattern implies a compiler bug (e.g., the harness uncovers a real codegen regression in Variant B not anticipated by the catalog) |
+| `findings.md` `## Documentation-lead` | doc-lead | Only via the loop after engineer / language-team have actioned; doc-lead is not invoked directly by experiment-lead |
 
 The harness does not write findings automatically. Findings are surfaced for user review post-run; the user authorizes any disk write.
 
@@ -171,7 +171,7 @@ Estimated cost:
 ## 9. References
 
 - Run plan (Rev 2): experiment-lead conversation, 2026-05-23 turn
-- INT-2 boundary-shim catalog: `docs/design/int-2-boundary-shims.md` (commit `32a796e`)
+- INT-2 boundary-shim catalog: `docs/archive/shipped-design-specs/int-2-boundary-shims.md` (commit `32a796e`)
 - INT-3 contingency sketch: `docs/design/int-3-machine-int-sketch.md` (commit `32a796e`)
 - Variant B implementation: `int-pre/variant-b` branch, commit `03d5722`
 - Variant A baseline: `release/v0.10.7` HEAD, commit `009a6f0`

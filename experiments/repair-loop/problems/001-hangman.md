@@ -2,7 +2,7 @@
 
 > **Source:** Adapted from `docs/design/language-comparison-experiments.md:253-301`.
 > **Class:** Pure-state game logic. QF-LIA-shallow.
-> **H3 expectation:** No specific LLMLL advantage predicted. QF-LIA contracts on the integer attempt counter auto-discharge, but the problem lacks a strong conservation invariant comparable to `002-bank-ledger`'s `total_balance`; LLMLL's verification surface and Python type hints / Go's type system are expected to produce roughly comparable assurance signals. Predicted in detail at `docs/design/phase3-problem-shape-audit.md` §"001 — Hangman".
+> **H3 expectation:** No specific LLMLL advantage predicted. QF-LIA contracts on the integer attempt counter auto-discharge, but the problem lacks a strong conservation invariant comparable to `002-bank-ledger`'s `total_balance`; LLMLL's verification surface and Python type hints / Go's type system are expected to produce roughly comparable assurance signals. Predicted in detail at `experiments/repair-loop/findings/phase3-problem-shape-audit.md` §"001 — Hangman".
 
 ## Specification
 
@@ -58,4 +58,4 @@ Black-box tests should enforce:
 - **Inside QF-LIA:** integer attempt-counter arithmetic; remaining-attempts monotonicity; lower-bound on remaining; counter bounds. These auto-discharge under liquid-fixpoint per `LLMLL.md §5.3.5`.
 - **Outside QF-LIA / string reasoning:** letter-in-secret membership; letter-in-guessed-set membership; set-equality between guessed-set and secret-letter-set (the "won" predicate). These should be expressed as `(check ...)` blocks (where the trust ladder routes them to `tested` via the PBT-Lift rule at `LLMLL.md §4.4.5`) or marked `?proof-required` per `LLMLL.md §13.8`.
 
-H1 / H2 / H3 expectations: LLMLL is expected to expose remaining-attempts-monotonicity as verified evidence while Python (with `pyright`) and Go (with type checker + tests) catch the same regressions through type signatures and behavioral tests. H1-Assurance differential predicted to be small or absent on this problem; the audit's per-cell predictions are at `docs/design/phase3-problem-shape-audit.md` §"001 — Hangman".
+H1 / H2 / H3 expectations: LLMLL is expected to expose remaining-attempts-monotonicity as verified evidence while Python (with `pyright`) and Go (with type checker + tests) catch the same regressions through type signatures and behavioral tests. H1-Assurance differential predicted to be small or absent on this problem; the audit's per-cell predictions are at `experiments/repair-loop/findings/phase3-problem-shape-audit.md` §"001 — Hangman".

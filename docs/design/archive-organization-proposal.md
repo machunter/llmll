@@ -263,7 +263,7 @@ written at release, the schema const at schema change).
 Required by [`../UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) D2. **Rev 2 upgrades this from a
 historical witness to a current one.**
 
-- **Input shape.** `docs/archive/shipped-design-specs/contract-clause-refactor.md`, today: titled
+- **Input shape.** `docs/archive/dormant-explorations/contract-clause-refactor.md`, today: titled
   "Deferred Design", status `Deferred — captured for future reference`, zero `CHANGELOG.md` hits,
   zero roadmap hits. Option B was documented and not chosen.
 - **Expected behavior.** Once the file declares `archive-disposition: deferred`, the value's side
@@ -397,7 +397,7 @@ its own terms.
 | `docs/UPDATE-PROTOCOL.md` Archive policy | Retire the version sentence; state the shipped-side invariant keyed on `archive-disposition`; record criteria R and I; name DRIFT-DOC-3 | documentation-lead |
 | `docs/design/INDEX.md` archive table | The `shipped-design-specs/` cell carries version prose the retired policy contradicts; add this proposal's one-liner row and the review's | documentation-lead |
 | `docs/archive/dormant-explorations/README.md` | Widen "explored and dropped" to cover `deferred`; state the four-valued vocabulary and the side mapping | documentation-lead |
-| `docs/archive/shipped-design-specs/contract-clause-refactor.md` | Mis-filed (edge case 1). Move to `dormant-explorations/` with `archive-disposition: deferred` | documentation-lead |
+| `docs/archive/dormant-explorations/contract-clause-refactor.md` | Mis-filed (edge case 1). Move to `dormant-explorations/` with `archive-disposition: deferred` | documentation-lead |
 | `scripts/` | New gate, sibling naming DRIFT-DOC-3 | compiler-engineer |
 | `scripts/doc-archive-fixtures/` (new) | Two-file fixture tree so both gate branches run (edge case 2) | compiler-engineer |
 | `.github/workflows/version-gate.yml` | Gate invocation | compiler-engineer |

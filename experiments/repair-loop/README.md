@@ -14,7 +14,7 @@ The two harnesses answer different questions:
 
 Both regimes are legitimate under the project's governing design criterion
 (`docs/compiler-team-roadmap.md:6`, disambiguated 2026-05-11; rationale in
-`docs/design/empirical-methodology.md`).
+`experiments/methodology.md`).
 
 ## Phases
 
@@ -46,7 +46,7 @@ rationale.)
 inside LLMLL's QF-LIA fragment (`LLMLL.md §5.3.3 / §5.3.5`), LLMLL converges in
 fewer turns than Python.
 
-**H2 status (2026-05-21, post-Phase-3 launch) — empirically refuted; formally withdrawn (R-H2-W).** On the QF-LIA-dominant `002-bank-ledger` problem (`findings/postmortem-004-phase3-launch.md:84-97`), Claude × LLMLL mean turns-to-terminal was 3.0 (n=4) and Codex × LLMLL 3.2 (n=6); Python on the same problem terminated at turn 1 on every try (Claude 9/9, Gemini-2-exp 9/9) — LLMLL converged in *more* turns, not fewer. The within-Claude deepening at n=18 (`findings/postmortem-005-claude-deepening.md:79-90`, F-V3) tightens the refutation: the LLMLL turn-count distribution is bimodal at k=5 (turn ≤2 success or turn-5 budget-exhaust; no intermediate turns sampled). Structural cause is predicate-bar mismatch — Python's `all-pass` terminates on testkit pass; LLMLL's R6d `Cred(R)` requires per-obligation verification — which is the experiment's intended design, not a defect, but H2's "convergence" framing implicitly assumed comparable predicate difficulty across targets. Successor hypotheses R-H2-A (matched-difficulty) and R-H2-B (per-tier-of-trust) are candidates for a Phase-4 pre-registration with their own pinned commits per `docs/design/language-comparison-experiments.md:247-249`, **not** silent successors to H2; the bimodality finding attaches as a shape constraint on any successor (mean turns-to-terminal at k=5 is the wrong measurable; per-cell strategy choice, turns-to-first-success-mode, or k sized to expose intermediate terminals are the candidates). Audit-side record at `docs/design/phase3-problem-shape-audit.md` Addendum 1 (2026-05-21).
+**H2 status (2026-05-21, post-Phase-3 launch) — empirically refuted; formally withdrawn (R-H2-W).** On the QF-LIA-dominant `002-bank-ledger` problem (`findings/postmortem-004-phase3-launch.md:84-97`), Claude × LLMLL mean turns-to-terminal was 3.0 (n=4) and Codex × LLMLL 3.2 (n=6); Python on the same problem terminated at turn 1 on every try (Claude 9/9, Gemini-2-exp 9/9) — LLMLL converged in *more* turns, not fewer. The within-Claude deepening at n=18 (`findings/postmortem-005-claude-deepening.md:79-90`, F-V3) tightens the refutation: the LLMLL turn-count distribution is bimodal at k=5 (turn ≤2 success or turn-5 budget-exhaust; no intermediate turns sampled). Structural cause is predicate-bar mismatch — Python's `all-pass` terminates on testkit pass; LLMLL's R6d `Cred(R)` requires per-obligation verification — which is the experiment's intended design, not a defect, but H2's "convergence" framing implicitly assumed comparable predicate difficulty across targets. Successor hypotheses R-H2-A (matched-difficulty) and R-H2-B (per-tier-of-trust) are candidates for a Phase-4 pre-registration with their own pinned commits per `docs/design/language-comparison-experiments.md:247-249`, **not** silent successors to H2; the bimodality finding attaches as a shape constraint on any successor (mean turns-to-terminal at k=5 is the wrong measurable; per-cell strategy choice, turns-to-first-success-mode, or k sized to expose intermediate terminals are the candidates). Audit-side record at `experiments/repair-loop/findings/phase3-problem-shape-audit.md` Addendum 1 (2026-05-21).
 
 **H3 (boundary-of-value, null-watcher).** On tasks whose dominant invariant
 class is outside QF-LIA, LLMLL produces no measurable advantage. Confirmation
@@ -276,7 +276,7 @@ but they answer different questions.
 (n_asserted(R) = 0) ∧ (n_no_contract(R) = 0)`. Universal lattice-meet
 reading: every obligation must clear above-`asserted` for the cell to
 count as target-reached. The pre-R6d predicate accepted `asserted` as
-terminal; the R6d adjudication (`findings/language-team.md` §LT-A,
+terminal; the R6d adjudication (`findings.md` `## Language-team` §LT-A,
 settled 2026-05-12 after a professor pass) tightens that to the meet
 over the diamond at-or-above the asserted threshold. The reading is
 universal, not existential — a single `asserted` or `no_contract` entry
@@ -325,7 +325,7 @@ invariant under re-tune.
   Assurance separation; single-winner-score prohibition
 - `docs/llmll-trust-report.schema.json:5` — trust-report versioning is
   independent of the AST schema
-- `findings/language-team.md` §LT-A — R6a / R6b / R6c framing; R6d
+- `findings.md` `## Language-team` §LT-A — R6a / R6b / R6c framing; R6d
   resolution
 - `findings/postmortem-001-apparatus-validation.md` F-026 / F-027 — the
   empirical batch that surfaced the predicate-vocabulary question

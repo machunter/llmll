@@ -409,7 +409,7 @@ and show them on one nontrivial example, like sorting, parser round-tripping, or
 
 Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/invariant-discovery-review.md`. One line per finding, with cite to the original review hash.
 
-**Source:** `docs/design/invariant-discovery-review.md` at commit `0c9057b99684167a65f2f4b8c3438b9e20288e5f` (review dated 2026-04-12; reviewer: Lead Consultant for Formal Language Design).
+**Source:** `docs/archive/professor-reviews/invariant-discovery-review.md` at commit `0c9057b99684167a65f2f4b8c3438b9e20288e5f` (review dated 2026-04-12; reviewer: Lead Consultant for Formal Language Design).
 
 ### Mechanism-by-mechanism dispositions (§2 of review)
 

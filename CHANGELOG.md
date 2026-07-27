@@ -4,6 +4,67 @@
 
 <a id="Latest"></a>
 
+## v0.14.69: DRIFT-DOC-4, prose path citations swept and linted (2026-07-26)
+
+Documentation and CI only. No compiler source, no schema change, no Haskell test added or
+removed.
+
+### Fixed, 58 stale prose path citations across 22 files
+
+- **Markdown links have always been checkable; bare-backtick prose citations were not.**
+  `docs/design/foo.md` written in running text is followed by no tool, so it rots silently when
+  the file moves. 22 files carried citations into `docs/design/` for documents that had been
+  archived, plus one rename basename matching cannot follow
+  (`docs/design/empirical-methodology.md` moved to `experiments/methodology.md` on 2026-05-25
+  under DOC-CONSOLIDATE Phase 2; the redirect stub was correctly deleted a cycle later).
+
+- **The `findings/<role>.md` cluster, 18 occurrences, rewritten to `findings.md` plus the H2
+  section.** Per-role findings files were consolidated into H2-per-role sections inside
+  `findings.md`; the citations were never updated.
+
+- **Verified target-only.** All 57 changed lines are a path token swap or an inserted
+  `` `## <Role>` ``, checked token by token against `HEAD`, with balanced line counts in every
+  file. No prose was reworded.
+
+### Added, DRIFT-DOC-4 as an ADVISORY lint
+
+- **[`scripts/doc_path_lint.py`](scripts/doc_path_lint.py) reports unresolved prose path
+  citations and always exits 0.** Wired into the fast `version-gate` job. `STRICT=1` opts in to
+  a nonzero exit for local use; CI deliberately does not set it.
+
+- **It is advisory because one class cannot be decided, and never will be.** A rationale
+  legitimately names a location that does not exist, where the non-existence *is* the point.
+  From `experiments/language-comparison-backlog.md`: the backlog "lives at the root rather than
+  inside `experiments/repair-loop/` ... **It can later move into
+  `experiments/repair-loop/BACKLOG.md`** via `git mv` if cross-cutting visibility ceases to
+  matter." That citation is correct, and a fail-closed gate would demand it be mangled. This
+  would have been the first gate in the repo that can be wrong about correct input, so it
+  reports instead. The module docstring says so, and a test pins the exit contract.
+
+- **The exclusions are what make it usable, and they are tested.** Without them the same scan
+  reports roughly 450 findings, nearly all correct prose. Four classes: **historical files**
+  (postmortems, frozen run records, append-only CHANGELOG, archived docs, all of which describe
+  the tree as it was); **historical lines** (a living doc holding a past-tense sentence, as in
+  `UPDATE-PROTOCOL.md`'s archive table, where rewriting the cited path would turn "X moved to Y"
+  into "Y moved to Y"); **placeholders** (`postmortem-NNN.md`, `text/NNNN-name.md`,
+  `turn_NN/verifier.json`, elided paths); and **link labels**, where the backticked text sits
+  inside `[label](target)` and the target already resolves.
+
+- **`ALLOW` carries a reason per entry**, since an unexplained entry is indistinguishable from a
+  stale citation someone gave up on. Nine entries: one counterfactual, and paths that are not
+  repo paths at all (`src/Lib.hs` is `llmll build` output, `.llmll/templates/…` is created at
+  runtime, `scratchpad/…` is never committed).
+
+- **18 tests** in `scripts/tests/test_doc_path_lint.py`, covering each exclusion predicate plus
+  a `test_clean_on_live_repo` regression guard: move a file without updating the prose naming
+  it, and the suite goes red even though the lint itself passes.
+
+**Gates:** DRIFT-CI-1 pass, DRIFT-CT-2 pass (14 doc-claims), DRIFT-DOC-3 pass, DRIFT-DOC-4 clean
+(492 prose citations across 130 living files, all resolve), harness pytest 87 passed (69 to 87,
++18). Haskell test count unchanged.
+
+---
+
 ## v0.14.68: DRIFT-DOC-3: the archive invariant is gated; `open`-ordering claim guarded (2026-07-26)
 
 Documentation and CI only. No compiler source changed, no schema change, no Haskell test added or

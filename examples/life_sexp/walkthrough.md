@@ -84,7 +84,7 @@ Glider evolution confirmed correct (matches reference pattern).
 ### Qualified names
 
 Same flat-namespace behavior as the JSON-AST version — see
-`life_json/walkthrough.md`.
+`examples/life_json/walkthrough.md`.
 
 ### Parenthesis counting in deeply nested forms
 

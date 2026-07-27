@@ -22,7 +22,7 @@ Three sub-items, all harness-side, all experiment-lead-owned:
 
 1. **Per-cell field emission.** `evaluation.json` schema (per `docs/design/language-comparison-experiments.md` §"Reporting Output") gains `prediction_match: enum["match", "divergence", "unaudited"]`, default `"unaudited"` on every cell. Emitted unconditionally by the evaluator, regardless of target.
 2. **Aggregator-side separation.** Cross-language `matrix_report.json` / `matrix_summary.md` generation logic excludes cells with `prediction_match == "divergence"` from the primary H1-Assurance aggregation and routes them to a separately-labelled report section. Cells with `prediction_match == "match"` or `"unaudited"` flow into the primary aggregation per the launch matrix's standard logic.
-3. **Comparison logic discipline.** The `match` / `divergence` / `unaudited` value is assigned by **human post-hoc judgment** against the pinned-commit-hash audit at `docs/design/phase3-problem-shape-audit.md` (per `docs/design/language-comparison-experiments.md` §"Experimental Controls" #7a immutability extension). The harness does not parse the audit content or automate the comparison in B-1's scope. Automation of the comparison is registered as a separate, deferred sub-item below.
+3. **Comparison logic discipline.** The `match` / `divergence` / `unaudited` value is assigned by **human post-hoc judgment** against the pinned-commit-hash audit at `experiments/repair-loop/findings/phase3-problem-shape-audit.md` (per `docs/design/language-comparison-experiments.md` §"Experimental Controls" #7a immutability extension). The harness does not parse the audit content or automate the comparison in B-1's scope. Automation of the comparison is registered as a separate, deferred sub-item below.
 
 ### Acceptance
 
@@ -30,7 +30,7 @@ A reviewer reading a Phase-3 `matrix_report.json` can locate the `prediction_mat
 
 ### Out of scope
 
-- **Per-problem prediction content.** The audit's substantive content (which verification paths each problem is expected to engage) is the language-team's S7 obligation at `docs/design/phase3-problem-shape-audit.md`, distinct from B-1.
+- **Per-problem prediction content.** The audit's substantive content (which verification paths each problem is expected to engage) is the language-team's S7 obligation at `experiments/repair-loop/findings/phase3-problem-shape-audit.md`, distinct from B-1.
 - **Automated audit-vs-observed comparison.** A future sub-item; not in B-1's deliverable. Registered here so future planning is on notice that the field-emission and the comparison-automation are separable.
 - **Per-language toolchain pins** (Python / Node / Go / rustc versions) needed for cross-language reproducibility. Lands when the cross-language harness is bootstrapped; not bundled into B-1.
 
@@ -74,7 +74,7 @@ A side-arm postmortem produces a per-target signal comparable in shape to the la
 
 ## What is not in this backlog
 
-- **S7 audit substantive content** (`docs/design/phase3-problem-shape-audit.md` per-problem predicted verification-path engagement) — language-team-owned; the upstream artifact B-1's comparison logic binds to.
+- **S7 audit substantive content** (`experiments/repair-loop/findings/phase3-problem-shape-audit.md` per-problem predicted verification-path engagement) — language-team-owned; the upstream artifact B-1's comparison logic binds to.
 - **`manifest.phase3.json` authoring** — blocked on user adjudication of S1–S8 from the 2026-05-15 language-team Phase-3 scope-decision turn (S1 per-target predicate shape, S2 `:subjects` discipline, S3 cross-paradigm Assurance tuple, S4 `--strict-verified-core` policy, S5 spec-coverage role in `Cred`, S6 R5a doc-lead hand-off, S7 audit, S8 documentation depth at run-prep). Manifest authoring is experiment-lead-owned downstream of those adjudications.
 - **R5a match-arm canonical-form patch** (`LLMLL.md §3.3` informal examples) — documentation-lead-owned via the S6 hand-off.
 - **In-place Phase-3 extension of `experiments/repair-loop/`** — authoring the `001-hangman` and `003-rate-limiter` problem statements and Python + Go testkits, plus `manifest.phase3.json`, plus toolchain pins (Python / Go versions in the manifest preamble). This is the experiment-lead's substantive pre-launch work and is not a backlog item — it is a same-session bootstrap directly downstream of S1–S5 / S8 adjudication. Once it lands, B-1's "harness emits the field" precondition is unblocked.

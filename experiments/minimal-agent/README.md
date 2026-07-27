@@ -258,6 +258,6 @@ can create three independent prepared runs per agent/experiment cell by default.
 This keeps the measurement focused on **first-round effectiveness** — one
 empirical regime under the project's governing design criterion
 (`docs/compiler-team-roadmap.md:6`, disambiguated 2026-05-11; rationale in
-`docs/design/empirical-methodology.md`). Repair-loop effectiveness is a
+`experiments/methodology.md`). Repair-loop effectiveness is a
 sibling regime measured by a separate harness (`experiments/repair-loop/`,
 in design); it is not measured here by design.
