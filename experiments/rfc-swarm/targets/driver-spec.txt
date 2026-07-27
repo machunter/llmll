@@ -135,9 +135,20 @@ Table of Contents
    On resumption the driver decides, for each stage, whether to run it
    or to skip it.
 
-   A stage MAY be skipped only when both conditions hold: the manifest
-   records that stage complete, and every artifact the stage declares is
-   present.
+   A stage MAY be skipped only when three conditions hold: the manifest
+   records that stage complete, every artifact the stage declares is
+   present, and every such artifact matches the digest recorded when
+   that stage completed.
+
+   The driver MUST record a cryptographic digest of every artifact at
+   the moment it records a stage complete.
+
+   An artifact whose digest differs from the recorded value MUST cause
+   its stage to be run, and the driver MUST report the mismatch.
+   Presence is not integrity.  An artifact modified after the stage that
+   produced it recorded completion is not that stage's output, whatever
+   it now contains, and a later stage consuming it is consuming
+   something no stage of this run produced.
 
    A stage whose artifacts are present but whose manifest record is
    absent or is not complete MUST be run.  The driver SHOULD report that
@@ -187,6 +198,14 @@ Table of Contents
    cited by at least one contract clause, every citation MUST resolve to
    a real clause, no citation may name an excluded clause, and only root
    contracts may carry citations.
+
+   The barrier condition and the output validation of section 7 overlap
+   deliberately, and an implementation MUST provide both.  Validation
+   rejects a malformed disposition where it is produced; the gate
+   re-checks the same condition over whatever inventory it is given.
+   Validation alone leaves a resumed run unprotected, because a gate may
+   be handed an inventory this run did not produce.  The gate alone lets
+   a malformed artifact travel further before the run halts.
 
 7.  Delegated Stages
 
@@ -350,6 +369,11 @@ Table of Contents
    chain of custody for the affected clause even when the content is
    unchanged.  Such a modification MUST be recorded and MUST NOT be
    presented as though it arrived through the protocol.
+
+   The digest check of section 5 is the mechanism by which such a
+   modification is detected.  An implementation that records digests and
+   does not verify them has gathered the evidence and declined to read
+   it, and cannot claim conformance with this section.
 
    The source document MUST be pinned by cryptographic digest before
    extraction, and every later stage MUST read the pinned bytes.
