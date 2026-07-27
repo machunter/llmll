@@ -162,10 +162,21 @@ class AgentRunner:
         log(f"  agent[{label}] -> {out_path.relative_to(workdir.parent.parent) if workdir.parent.parent in out_path.parents else out_path.name}")
         with (workdir / "agent.stdout.log").open("w") as so, \
              (workdir / "agent.stderr.log").open("w") as se:
-            rc = subprocess.run(cmd, cwd=workdir, shell=True,
-                                stdin=subprocess.DEVNULL, stdout=so, stderr=se,
-                                env=env, timeout=self.timeout,
-                                check=False).returncode
+            try:
+                rc = subprocess.run(cmd, cwd=workdir, shell=True,
+                                    stdin=subprocess.DEVNULL, stdout=so, stderr=se,
+                                    env=env, timeout=self.timeout,
+                                    check=False).returncode
+            except subprocess.TimeoutExpired:
+                # A budget overrun is a stage FAILURE, not a crash. Left
+                # unhandled it propagated out of main() as a traceback, so the
+                # stage recorded nothing, the manifest was left mid-run, and the
+                # partial work in the agent's directory looked like debris rather
+                # than a resumable state.
+                raise StopCondition(
+                    f"agent[{label}] exceeded its {self.timeout}s budget. Its "
+                    f"partial work is in {workdir}. Re-run this stage with a "
+                    "larger --timeout, or treat the overrun as a finding.")
         dur = round(time.monotonic() - started, 1)
         if rc != 0:
             raise StopCondition(

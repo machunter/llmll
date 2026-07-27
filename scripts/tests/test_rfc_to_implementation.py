@@ -261,3 +261,12 @@ def test_kill_matrix_accepts_an_unwritable_entry(tmp_path):
     entirely correct output."""
     m = {"name": "vector-reply-mismatch", "file": None, "unwritable": True}
     assert m.get("unwritable") or not m.get("file")
+
+
+def test_an_agent_that_exceeds_its_budget_stops_cleanly(tmp_path):
+    """A budget overrun must be a stage failure, not a traceback. Unhandled, the
+    TimeoutExpired propagated out of main(), so nothing was recorded and the run
+    was left mid-stage rather than resumable."""
+    runner = drv.AgentRunner("sleep 30", timeout=1)
+    with pytest.raises(Stop, match="exceeded its 1s budget"):
+        runner.run(tmp_path / "wd", "prompt", "out.json", "slow")
