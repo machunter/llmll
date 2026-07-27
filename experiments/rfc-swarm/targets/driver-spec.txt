@@ -1,0 +1,368 @@
+
+
+
+
+
+
+Internet Engineering Note                                    B. Sahinoglu
+Request for Comments: XXXX                                     LLMLL
+Category: Experimental                                         July 2026
+
+
+          Stage Discipline for a Specification-to-Implementation
+                          Pipeline Driver
+
+Status of This Memo
+
+   This document specifies the normative behaviour of the stage driver
+   that carries a specification document through extraction,
+   disposition, contract authoring, implementation, and reporting.  It
+   is written in the style of an Internet standard so that it can be
+   consumed by the same pipeline it describes.  Distribution is
+   unlimited.
+
+Abstract
+
+   A pipeline driver executes a fixed sequence of stages over a source
+   specification.  Some stages are deterministic; others delegate a
+   judgement to an external agent.  Between them sit gates, whose
+   purpose is to halt a run that has failed a condition the run itself
+   cannot be trusted to notice.
+
+   This document defines the stage model, the conditions under which a
+   completed stage may be skipped on resumption, the obligations of a
+   gate, the acceptance criterion for delegated work, the lifetime of an
+   exclusive-edit token, and the isolation required of agents whose
+   independence is the basis of a later statistic.
+
+   The behaviour specified here is drawn from an implementation whose
+   defects motivated the specification.  Where a rule reads as
+   unnecessarily explicit, it is because its absence was observed to
+   produce a silent failure.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Requirements Language
+   3.  Terminology
+   4.  The Stage Model
+   5.  Completion and Resumption
+   6.  Gates
+   7.  Delegated Stages
+   8.  Isolation of Independent Agents
+   9.  The Fill Protocol
+   10. Exclusive-Edit Tokens
+   11. Provenance and Coverage
+   12. Run Status
+   13. Reporting
+   14. Integrity Considerations
+   15. Outside the Verified Core
+
+
+1.  Introduction
+
+   The driver's task is unglamorous: run fifteen stages in order, do not
+   lose work, and stop when a gate says stop.  Its failures are
+   correspondingly unglamorous, and every one observed in practice was
+   invisible to code review and visible immediately on execution.
+
+   Two properties make the driver worth specifying rather than merely
+   writing.  First, a gate that can be bypassed is worse than no gate,
+   because a run that skipped its gate is indistinguishable, in its
+   output, from a run that passed it.  Second, a statistic computed over
+   agents that were supposed to be independent is worthless if the
+   isolation silently lapsed, and nothing downstream can detect that.
+
+   Both are properties of sequencing and state, not of arithmetic, and
+   both are checkable before the driver runs.
+
+2.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "MAY", and "OPTIONAL" in this document are to
+   be interpreted as described in RFC 2119.
+
+3.  Terminology
+
+   Stage
+      One step of the pipeline, identified by a letter.  A stage is of
+      exactly one kind: mechanical, delegated, or gate.
+
+   Mechanical stage
+      A stage computed entirely by the driver, with no external agent.
+      Re-running a mechanical stage on unchanged inputs MUST produce
+      identical outputs.
+
+   Delegated stage
+      A stage whose work is performed by an external agent under a
+      written contract.  The driver supplies inputs and validates
+      outputs; it does not perform the judgement.
+
+   Gate
+      A stage that evaluates a condition and halts the run when the
+      condition fails.  A gate performs no judgement of its own.
+
+   Artifact
+      A file a stage writes.  Artifacts are evidence of activity, not
+      evidence of success.
+
+   Manifest
+      The driver's record of stage outcomes.  The manifest is the sole
+      authority on whether a stage completed.
+
+   Run
+      One execution of the driver against one workdir.
+
+4.  The Stage Model
+
+   A stage has exactly one status: pending, complete, or stopped.  A
+   status of pending means the stage has not been attempted in this
+   workdir.
+
+   A stage that finishes its work without error MUST be recorded
+   complete.  A stage that halts, for any reason, MUST be recorded
+   stopped, together with a detail string naming the reason.
+
+   A stage MUST NOT be recorded complete unless it finished its work.
+   In particular, a stage that wrote some of its artifacts and then
+   halted MUST be recorded stopped.
+
+   The driver MUST write the manifest after every stage transition, so
+   that a run interrupted between stages leaves an accurate record.
+
+5.  Completion and Resumption
+
+   On resumption the driver decides, for each stage, whether to run it
+   or to skip it.
+
+   A stage MAY be skipped only when both conditions hold: the manifest
+   records that stage complete, and every artifact the stage declares is
+   present.
+
+   A stage whose artifacts are present but whose manifest record is
+   absent or is not complete MUST be run.  The driver SHOULD report that
+   it is re-running such a stage and why.
+
+   A stage recorded stopped MUST be run, however many artifacts a
+   previous attempt left behind.
+
+   When the operator requests a forced re-run, the driver MUST run the
+   stage regardless of its record.
+
+   The presence of an artifact MUST NOT, on its own, cause a stage to be
+   skipped.  A stage that fails after writing output would otherwise
+   disable itself on the next run, and a gate that fails after writing
+   its report is exactly such a stage.
+
+6.  Gates
+
+   A gate evaluates conditions fixed before the run and halts on
+   failure.  A gate MUST NOT weigh, average, or otherwise trade off its
+   conditions.
+
+   A failing gate MUST halt the run with a non-zero status, and MUST NOT
+   record itself complete.  No stage after a halted gate may be
+   attempted in that invocation.
+
+   A gate MUST distinguish measurements it reports from conditions it
+   enforces.  A reported measurement MUST NOT halt a run, however
+   unfavourable, and an enforced condition MUST halt a run whenever it
+   fails.
+
+   Coverage of the verifiable subject matter is a reported measurement.
+   It MUST NOT be thresholded.  A ratio of excluded to total clauses
+   measures the genre composition of the source document rather than the
+   reach of the verifier, and MUST NOT be used as a gate condition.
+
+   The characteristic-core condition is enforced: if any clause named as
+   characteristic of the subject matter is excluded, the gate MUST halt.
+   The set of characteristic clauses MUST be fixed before any
+   disposition is assigned.
+
+   The barrier condition is enforced: every excluded clause MUST cite
+   exactly one reason drawn from a list closed before the run.  A clause
+   excluded for a reason outside that list MUST halt the gate.
+
+   The coverage gate is enforced: every clause marked as carried MUST be
+   cited by at least one contract clause, every citation MUST resolve to
+   a real clause, no citation may name an excluded clause, and only root
+   contracts may carry citations.
+
+7.  Delegated Stages
+
+   The driver supplies a delegated stage with a written contract and a
+   set of inputs, and receives a named output.
+
+   A delegated stage that terminates without producing its declared
+   output MUST be treated as failed, regardless of the exit status it
+   reported.  Silence is not success.
+
+   The driver MUST validate a delegated output against its declared
+   shape before any later stage consumes it.  Output that fails
+   validation MUST fail the stage.  A validation failure MUST NOT be
+   downgraded to a warning, and the stage MUST NOT be skipped.
+
+   Validation MUST NOT depend on conventions particular to one source
+   document.  Identifiers, tags, and source names vary between subjects;
+   a validator that hardcodes the values seen in one run will silently
+   report emptiness on the next.
+
+   Where a delegated stage produces a catalogue of items for the driver
+   to evaluate, the agent MUST NOT perform that evaluation itself.  The
+   catalogue is the deliverable.
+
+   A catalogue entry MAY declare itself unrealisable, in which case it
+   carries no artifact.  The driver MUST accept such an entry, MUST
+   retain it in the denominator, and MUST NOT count it as a success or a
+   failure.
+
+8.  Isolation of Independent Agents
+
+   Where a statistic rests on the independence of two or more agents,
+   that independence MUST be structural rather than instructed.
+
+   Each such agent MUST be given a directory containing only its
+   declared inputs, and MUST NOT be given access to any other agent's
+   directory, to any other agent's output, or to a worked answer.
+
+   The driver MUST be able to re-check isolation after a run and report
+   any file in an agent's directory that was not among its declared
+   inputs.
+
+   An agent that is to be evaluated on work it produces independently
+   MUST NOT be given the accumulated work of its peers.  Where such an
+   agent needs a copy of the subject in order to check its own work, the
+   copy MUST be the original, unmodified subject.
+
+9.  The Fill Protocol
+
+   A fill is the completion of one hole by one agent.
+
+   A fill MUST be accepted only when all of the following hold: the
+   agent's body was applied to the subject; the subject verifies; the
+   filled function is proved against its own body rather than assumed;
+   and the function carries no unproven termination obligation.
+
+   The acceptance criterion MUST be evaluated for the function being
+   filled.  A criterion evaluated over the whole subject would reject a
+   correct fill whose sibling holes are merely unfinished, and would
+   make acceptance depend on the order in which holes happen to be
+   filled.
+
+   A body that fails the criterion MUST be removed from the subject
+   before the next attempt, so that no later agent reads a rejected
+   fill.
+
+   Two retry budgets MUST be counted separately: attempts spent because
+   the work was wrong, and attempts spent because another agent modified
+   the subject first.  Contention MUST NOT consume the budget for
+   error.
+
+   Only an exhausted error budget yields a finding.  A hole that failed
+   for any other reason MUST NOT be reported as a finding, and the
+   driver MUST name the actual failure.
+
+10. Exclusive-Edit Tokens
+
+   An agent obtains a token to edit a hole exclusively.
+
+   A token MUST NOT be held while an agent is working.  The driver MUST
+   release the token once the agent has been given what it needs, and
+   MUST obtain a fresh token at the moment of submission.
+
+   Where the subject is validated as a whole on modification, a
+   submission prepared against an earlier state of the subject MUST be
+   rejected.  Such a rejection is contention, not error: the driver MUST
+   re-prepare the submission against the current state and retry,
+   without consulting the agent again.
+
+   A token that cannot be released MUST NOT leave the hole permanently
+   unavailable.
+
+11. Provenance and Coverage
+
+   Every clause of the source that is carried MUST be traceable to the
+   contract clause that carries it, and every contract clause that
+   claims provenance MUST name a real clause of the source.
+
+   A citation MUST begin with the identifier of the clause it cites.
+   Free prose alone is insufficient, because a completeness claim cannot
+   rest on approximate matching.
+
+   Only root contracts may carry provenance.  Contracts introduced by
+   decomposition during implementation are additive and MUST NOT claim
+   provenance of their own.
+
+   A clause that the model cannot exercise MUST NOT be counted as
+   carried.  If no perturbation of the implementation can violate a
+   clause, that clause has no evidence behind it and MUST be excluded
+   with a reason, however plainly the model appears to satisfy it.
+
+12. Run Status
+
+   The driver MUST be able to report, for a given workdir, whether a run
+   is in progress, whether its output is advancing, and what each stage
+   has recorded.
+
+   A process counts as a run in progress only if it is an execution of
+   the driver against that workdir.  A process that merely names the
+   driver or the workdir MUST NOT be counted, and a status query MUST
+   NOT count itself.
+
+   Having started a run is not evidence that it is still running.  The
+   report MUST distinguish a live run from one whose process has exited,
+   and MUST distinguish a live run whose output is advancing from one
+   that is not.
+
+13. Reporting
+
+   A report MUST lead with the coverage of the verifiable subject matter
+   and the count of characteristic clauses, and MUST NOT lead with the
+   raw ratio of carried to total clauses.
+
+   A report MUST state what is not claimed.
+
+   A report MUST disclose every step whose correctness is assumed rather
+   than proved, including any inference from a per-step property to a
+   property of all executions.
+
+   A report MUST include the full result of the perturbation exercise,
+   including perturbations that were not detected.  An undetected
+   perturbation indicates a weak contract or a misclassified clause and
+   MUST be resolved rather than omitted.
+
+   A report MUST NOT characterise a perturbation exercise as validating
+   the contracts.  Detecting a perturbation shows only that a contract
+   excludes one specific behaviour.
+
+   A report MUST NOT claim that verification prevented an error the
+   agents would otherwise have made, unless a comparison capable of
+   showing that was performed.
+
+14. Integrity Considerations
+
+   The isolation of section 8 is the basis of every independence
+   statistic this pipeline reports, and nothing downstream can detect
+   its absence.  A run whose isolation lapsed produces the same
+   artifacts as one whose isolation held.
+
+   Modification of the subject outside the recorded protocol breaks the
+   chain of custody for the affected clause even when the content is
+   unchanged.  Such a modification MUST be recorded and MUST NOT be
+   presented as though it arrived through the protocol.
+
+   The source document MUST be pinned by cryptographic digest before
+   extraction, and every later stage MUST read the pinned bytes.
+
+15. Outside the Verified Core
+
+   The following are outside the behaviour specified here, and a claim
+   of conformance says nothing about them: the transport used to fetch a
+   source document; the creation, scheduling, and termination of
+   operating-system processes; concurrency primitives; filesystem
+   durability; the content of any prompt; and the internal behaviour of
+   any delegated agent.
+
+   These are carried by an unverified shell around the specified core.
+   The division is deliberate: the properties above are properties of
+   sequencing and state, and the excluded matter is effectful.
