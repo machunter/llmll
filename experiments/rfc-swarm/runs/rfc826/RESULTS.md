@@ -50,11 +50,18 @@ because one side of that question is English prose and has no formal answer.
 ## Where this run is weaker than TFTP, stated plainly
 
 **Coverage of verifiable subject matter fell from 95.4% to 55.3%.** The gate passes because
-coverage is reported and never thresholded, which is the correct design, but a swing that large
-is the honest bound on what "repeatable" currently means. Either ARP genuinely fits the shipped
-fragment worse than TFTP, or this disposition agent was more conservative than the human pass
-that dispositioned TFTP. The 48 exclusions each carry a barrier and a reason, so it is
-answerable by reading them, and it has **not** been answered here.
+coverage is reported and never thresholded, which is the correct design, but the swing is the
+honest bound on what "repeatable" currently means.
+
+**This has since been answered by reading all 48 exclusions, and the answer corrects TFTP, not
+ARP.** TFTP counted 14 format rows as carried under `Deployment-modeled` whose own model notes
+say the content is "not represented" / "dropped" / "stays in the decoder"; by the playbook's own
+rule such a row carries no verification evidence and must be excluded. ARP's agent classified
+the identical row shape as excluded under B5, applying the rule more faithfully than the human
+pass did. Corrected, TFTP is **51/65 = 78.5%**, so the real gap is 19-23 points, and the
+residual is structural: TFTP's wire fields are fixed-length while ARP's are length-driven
+(`8 + 2*ar$hln + ar$pln`), which accounts for 22 of ARP's 34 excluded C1-C3 rows. Full working:
+[`../../SUMMARY.md`](../../SUMMARY.md).
 
 **Rule agreement was lower** (kappa 0.824 against 0.938). The two extractors agreed less about
 which rubric rule applies. Line coverage, which is the statistic that speaks to the
