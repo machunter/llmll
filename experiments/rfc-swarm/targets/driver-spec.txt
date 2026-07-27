@@ -4,7 +4,7 @@
 
 
 
-Internet Engineering Note                                    B. Sahinoglu
+Internet Engineering Note                              B. Sahinoglu
 Request for Comments: XXXX                                     LLMLL
 Category: Experimental                                         July 2026
 
@@ -56,7 +56,7 @@ Table of Contents
    12. Run Status
    13. Reporting
    14. Integrity Considerations
-   15. Outside the Verified Core
+   15. Trust Tiers and the Boundary of Proof
 
 
 1.  Introduction
@@ -354,15 +354,60 @@ Table of Contents
    The source document MUST be pinned by cryptographic digest before
    extraction, and every later stage MUST read the pinned bytes.
 
-15. Outside the Verified Core
+15. Trust Tiers and the Boundary of Proof
 
-   The following are outside the behaviour specified here, and a claim
-   of conformance says nothing about them: the transport used to fetch a
-   source document; the creation, scheduling, and termination of
-   operating-system processes; concurrency primitives; filesystem
-   durability; the content of any prompt; and the internal behaviour of
-   any delegated agent.
+   Not every obligation in this document can be discharged by proof, but
+   the ones that cannot are still part of the program.  An
+   implementation MUST place every obligation in exactly one of three
+   tiers, and MUST be able to report which.
 
-   These are carried by an unverified shell around the specified core.
-   The division is deliberate: the properties above are properties of
-   sequencing and state, and the excluded matter is effectful.
+15.1.  Proved
+
+   The obligations of sections 4 through 13 are properties of sequencing
+   and state over enumerated statuses and bounded counters.  An
+   implementation MUST discharge them by proof over all inputs, not by
+   testing.  This tier covers the stage model, the skip decision, gate
+   outcomes, the fill acceptance criterion, token lifetime, the
+   separation of retry budgets, and the liveness predicate of section
+   12.
+
+15.2.  Asserted
+
+   Effectful operations cannot be proved, but they MUST NOT be exiled
+   from the program in order to say so.  Reading and writing files,
+   fetching a source document, emitting diagnostics, reading a clock,
+   creating and awaiting processes, and concurrency MUST be reached only
+   through a declared capability or a named interface declared in the
+   program itself.
+
+   An implementation MUST enforce the contracts of this tier at runtime
+   where it cannot prove them, and MUST NOT present a runtime-enforced
+   obligation as a proved one.
+
+   An implementation MUST be able to report, for any function, an
+   over-approximation of the capabilities reachable through its call
+   graph.  A function's authority is thereby a declaration rather than a
+   matter of inspection.
+
+   The distinction from the proved tier is one of evidence, not of
+   membership: this tier is type-checked, its obligations are enforced,
+   and its authority is bounded.
+
+15.3.  Outside any claim
+
+   Three things carry no obligation and no claim: the content of any
+   prompt given to a delegated agent; the internal behaviour of that
+   agent; and the guarantees of the underlying operating system.
+
+15.4.  Reporting the tiers
+
+   A conformance claim MUST state the tier of each obligation it claims
+   to meet.  A claim that does not distinguish proved obligations from
+   asserted ones is not a conformance claim, because the reader cannot
+   tell which of them rests on evidence.
+
+   An implementation whose effectful surface is written in a different
+   language, outside the program, cannot satisfy section 15.2, since
+   nothing then bounds its authority or enforces its contracts.  The
+   division of labour that this section forbids is exactly the one that
+   makes a boundary a matter of the author's word.

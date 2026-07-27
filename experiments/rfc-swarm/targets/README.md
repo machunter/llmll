@@ -61,7 +61,22 @@ that maintains the tool, so it has none of the blindness that made the ARP run m
 demonstrates the fragment's reach on a program actually needed, and it is not another data point
 on repeatability.
 
-Expect a low carried fraction. Section 15 excludes transport, process management, concurrency,
-filesystem durability, and prompt content by construction, and those are most of the driver's
-line count. The verified core is the stage discipline; the shell around it stays unverified and
-is declared as such.
+Expect a carried fraction well below TFTP's. The effectful surface cannot be proved, and it is
+most of the driver's line count.
+
+But §15 does **not** put it outside the program. It defines three tiers: **proved** (the stage
+discipline of §§4-13), **asserted** (filesystem, fetch, diagnostics, clock, process creation and
+concurrency, reached only through a declared capability or a named interface **in the program
+itself**, contracts runtime-enforced, authority reportable per function), and **outside any
+claim** (prompt content, agent internals, OS guarantees).
+
+§15.4 rules out writing the effectful half in another language: nothing would then bound its
+authority or enforce its contracts, and the boundary would rest on the author's word. That is
+precisely the complaint against the current Python driver, so an implementation that repeated it
+would not have fixed anything.
+
+Measured, not assumed: a probe with a proved decision function and a `wasi.io` effect in one
+module reports `verified: 1` for the decision and an `effect_summary` of `["stdout"]` for the
+effect. The module block and the capability import demote nothing. The one genuine gap is
+process spawning, for which there is no capability; that needs a single `def-interface` with an
+FFI stub, which codegen already emits.
