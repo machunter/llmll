@@ -230,6 +230,33 @@ Table of Contents
    exactly one reason drawn from a list closed before the run.  A clause
    excluded for a reason outside that list MUST halt the gate.
 
+   Every reason on that list MUST be defined by a test an implementer
+   can apply to a clause.  A reason defined by the absence of something
+   unbounded, such as the non-existence of any perturbation that could
+   violate the clause, states no test: it cannot be applied where it
+   holds, and it can be asserted where it does not.  The first reason of
+   that form to be used in earnest was false of the clause it was used
+   on, and the gate halted on it correctly by accident.
+
+   Every reason on that list MUST also carry a class, fixed before the
+   run, declaring whether the exclusion is a property of the verifier's
+   reach or of the model chosen for the subject.  When the
+   characteristic-core condition halts a run, the gate MUST report the
+   remedy that class implies.  One remedy for every reason misdirects in
+   both directions: re-scoping cannot recover a clause the verifier
+   cannot reach, and choosing a different subject is not the remedy for
+   a clause that this model merely failed to carry.  The two look
+   identical in the ledger and differ in what the operator should do
+   next.
+
+   Where an exclusion asserts that nothing the implementation could do
+   would violate a clause, that assertion MUST carry evidence, and the
+   gate MUST NOT accept an unevidenced assertion as satisfying its
+   condition.  A gate that evaluates its condition faithfully over an
+   input nobody checked has reported the run's verdict on someone's
+   say-so, and reports it in the same words it would use for a verdict
+   that was earned.
+
    The coverage gate is enforced: every clause marked as carried MUST be
    cited by at least one contract clause, every citation MUST resolve to
    a real clause, no citation may name an excluded clause, and only root
