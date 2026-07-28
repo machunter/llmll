@@ -1443,7 +1443,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- to the post-solver gate instead.
             unless strictCore (exitWith (fqExitCode fqResult))
 
-          let report = fqResultToReport fp table fqResult
+          -- EMIT-DIAG-JSON: fold the EMITTER's diagnostics into the report.
+          -- 'fqResultToReport' builds the payload from the solver result alone, so
+          -- every warning raised during constraint emission (the >4096-path fallback,
+          -- W-DECREASES-UNUSED, W-DECREASES-LEX, ...) was printed to stdout at the
+          -- human-output site above and then dropped from '--json'. Agents read the
+          -- JSON, and LLMLL's stated primary consumer is an agent, so those warnings
+          -- were invisible to the audience they matter most to. Emitter diagnostics are
+          -- warnings, never errors, so prepending them cannot flip 'reportSuccess':
+          -- the verdict still routes through the 'FQVerifyResult' constructor.
+          let report0 = fqResultToReport fp table fqResult
+              report  = report0
+                { reportDiagnostics = erDiagnostics emitR ++ reportDiagnostics report0 }
 
           -- PROOF-ARTIFACT: emit the unified, replayable record (additive, informational).
           case mProofArtifact of

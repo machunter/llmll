@@ -7863,6 +7863,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erA <- emitRet "(def-shell w [b: int a: int] -> int (pre (>= b a)) (post (= result (- b a))) (- b a))"
         erFQText erU `shouldBe` erFQText erA
 
+      -- EMIT-DIAG-JSON: emitter warnings reached stdout but were dropped from the
+      -- '--json' payload, because 'fqResultToReport' builds it from the solver result
+      -- alone. Agents read the JSON, so every emission-time warning was invisible to
+      -- LLMLL's stated primary consumer. Asserted at the emitter boundary here (the
+      -- Main-side fold is what carries them into the report).
+      it "EMITDIAG-1: an emitter warning is carried on EmitResult, not only printed" $ do
+        -- W-DECREASES-UNUSED: a def-shell with a measure that is not self-recursive.
+        er <- emitRet (T.concat
+          [ "(def-shell f [n: int] -> int (pre (> n 0)) (post (>= result 0))"
+          , " (decreases n) n)" ])
+        let msgs = map diagMessage (erDiagnostics er)
+        msgs `shouldSatisfy` any (T.isInfixOf "W-DECREASES-UNUSED")
+        -- and it is a WARNING, so folding it into the report cannot flip success
+        map diagSeverity (erDiagnostics er) `shouldSatisfy` all (== SevWarning)
+
       it "FQRS-8: a forward reference to an unannotated callee still type-checks (guard)" $ do
         -- T1: 'collectTopLevel' is a pre-pass and must stay independent of body
         -- types. Routing tau_ret into the TYPE environment would break this.
