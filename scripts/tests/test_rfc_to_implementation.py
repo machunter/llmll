@@ -470,3 +470,20 @@ def test_audit_catalogue_rejects_a_duplicate_and_an_unknown_subject():
 def test_audit_catalogue_requires_evidence_on_a_flag():
     with pytest.raises(Stop, match="carries no quote_phrase"):
         drv.check_audit({"audited": [{"cid": "A1", "verdict": "misreads"}]}, ["A1"])
+
+
+# ---------------------------------------------------------------------------
+# The self-test itself
+# ---------------------------------------------------------------------------
+
+def test_self_test_runs_green_against_the_committed_tftp_data(capsys):
+    """Nothing ran --self-test automatically, so the figures it pins to the first
+    real run were only ever checked by hand. The RFC-COV-1 section skips itself
+    when llmll is off PATH, which is the case in the fast CI job."""
+    assert drv.self_test() == 0
+    out = capsys.readouterr().out
+    assert "FAIL" not in out
+    # The two coverage gaps must be stated, not merely absent. A self-test that
+    # drops a condition in silence reports the absence of a check as a pass.
+    assert "NOT EXERCISED: gate J's third condition" in out
+    assert "self-test: the artifact audit (stage G2)" in out

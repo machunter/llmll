@@ -400,6 +400,16 @@ STOPs rather than reporting them. Three properties are worth knowing before rely
   0.9378, 124 rows, 46 Encoded, 15/15 core, 62/65 carried, RFC-COV-1 green). A green run of the
   driver therefore means something beyond internal consistency.
 
+  **What it does not cover, and now says so.** Gate J's third condition, an exclusion outside the
+  closed barrier list, is not evaluable on this artifact: the closed list postdates the TFTP run,
+  so none of its 53 exclusions carries a `barrier` field and the per-barrier tally lives as prose
+  in `VERIFICATION_SCOPE.md` rather than as data. Replayed against the shipped driver that ledger
+  would fail the disposition schema check and then STOP at the gate. The self-test asserts the
+  zero and prints the gap, because a condition skipped in silence is a gate kept green by its own
+  blind spot, which is the defect that let a failed freeze gate be bypassed by its own report.
+  Stage G2 is pinned only in the half that needs no source bytes; the pinned RFCs are deliberately
+  outside this repository, so the citation checks cannot be replayed here.
+
 Prompts carrying each stage's contract live in `experiments/rfc-swarm/prompts/`. Driver tests:
 `scripts/tests/test_rfc_to_implementation.py`, which drives every STOP into firing on purpose,
 because a gate that never fires is decorative.

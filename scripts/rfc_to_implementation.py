@@ -48,6 +48,12 @@ SELF-TEST
     kappa 0.938, 124 rows, 46 Encoded, 15/15 core). That is what makes a green
     run of this script mean something: the mechanical spine is pinned to a real
     execution, not just to itself.
+
+    It also prints what it cannot pin. Gate J's third condition is not evaluable
+    on that artifact, whose 53 exclusions predate the barrier field, and stage G2
+    is pinned only in the half needing no source bytes, since the pinned RFCs are
+    deliberately not in this repository. A self-test that skipped either in
+    silence would be reporting the absence of a check as the success of one.
 """
 from __future__ import annotations
 
@@ -1404,6 +1410,44 @@ def self_test() -> int:
     verifiable = [r for r in rows if r["class"] in VERIFIABLE_CLASSES]
     carried = [r for r in verifiable if r["disposition"] in CARRIED]
     check("verifiable subject matter carried", f"{len(carried)}/{len(verifiable)}", "62/65")
+
+    # Gate J has THREE conditions and this artifact can only exercise two.
+    #
+    # The closed barrier list postdates the TFTP run, so none of its 53
+    # exclusions carries a `barrier` field: the per-barrier tally exists as prose
+    # in examples/tftp_rfc1350/VERIFICATION_SCOPE.md and never as data. Replayed
+    # against the shipped driver this artifact would fail check_dispositioned and
+    # then STOP at gate J's third condition.
+    #
+    # Asserting the zero is the point. Skipping the condition let the self-test
+    # report a green mechanical spine while the one condition that would fire on
+    # its own pinned data went unevaluated, which is the shape of a gate kept
+    # green by its own blind spot. If the TFTP ledger ever gains barriers this
+    # assertion fails and forces the pin to be re-taken.
+    excluded = [r for r in rows if r["disposition"] == "Dispositioned out"]
+    check("excluded rows", len(excluded), 53)
+    check("excluded rows carrying a barrier from the closed list",
+          sum(1 for r in excluded if r.get("barrier") in BARRIERS), 0)
+    print("     NOT EXERCISED: gate J's third condition (exclusions outside the")
+    print("     closed barrier list). This artifact predates the barrier field,")
+    print("     so a green self-test says nothing about that condition.")
+
+    print("self-test: the artifact audit (stage G2) against the committed census")
+    # Only the half that needs no source bytes. The pinned RFCs are deliberately
+    # not in this repository, so the citation checks cannot be replayed here; the
+    # strength check reads the census row alone and can.
+    canon = read_json(data / "inventory-merged.json")["canonical"]
+    absent = [c["cid"] for c in canon
+              if (s := str(c.get("strength", "")).strip().lower())
+              and s != "declarative"
+              and not any(w in " ".join(str(c["quote"]).lower().split())
+                          for w in _STRENGTH_FAMILY.get(s, (s,)))]
+    check("canonical rows", len(canon), 124)
+    check("declared strength absent from its own quote", absent,
+          ["T117", "T118", "T119"])
+    print("     Those three cite RFC 1123's requirements-summary table, where the")
+    print("     strength is a column position rather than a word. They are why")
+    print("     this check reports and never halts.")
 
     print("self-test: RFC-COV-1 (stage L) against the frozen TFTP clause surface")
     roots = REPO / "examples" / "tftp_rfc1350" / "roots"
