@@ -1,7 +1,7 @@
 ---
 name: finding-fq-result-sort-default
 title: "FQ-RESULT-SORT-1: the `result` binder's sort defaults to `int` when the return type is unannotated"
-status: "OPEN; Rev 2 settled 2026-07-28; found 2026-07-27 against compiler/src/ at b689340, unchanged through v0.14.71 (routed as FQ-BOOL-SORT-1)"
+status: "FIXED (stages a+b) 2026-07-28; Rev 3 withdraws HOLE-RET and accepts the recursive-then residual; found 2026-07-27 against compiler/src/ at b689340 (routed as FQ-BOOL-SORT-1)"
 severity: "fail-closed crash, never a false SAFE; one scoped trust-boundary item"
 found_by: main-agent, while probing RFC 4648 row A1
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -192,20 +192,40 @@ It is a documented wildcard convention, not an accident. Eleven sites use it;
 `compatibleWith` mechanism; `:1396` and `:1611` use it to stop error cascades. Its function
 in `collectTopLevel` is to decouple the two passes. Under-documented, not junk.
 
-### HOLE-RET (side condition on Eff-Ret)
+### HOLE-RET: proposed in Rev 2, WITHDRAWN in Rev 3
 
-`τ_ret` is total into `Type` but not into *sortable* types. When `isHoleVar τ_ret`
-(`TypeCheck.hs:316-318`), the emitter routes to `addBodyFallback` and emits the
-`unsortable-synthesized-return` warning. It does **not** emit at `FQInt`.
+Rev 2 specified a side condition on Eff-Ret: when `isHoleVar τ_ret`
+(`TypeCheck.hs:316-318`), route to `addBodyFallback` and emit an
+`unsortable-synthesized-return` warning instead of emitting at `FQInt`. It was implemented
+and **refuted by the corpus**. It is withdrawn, along with the diagnostic, which has no
+correct trigger without it.
 
-The guard must fire *before* the sort is computed. `sortA1 (TVar "?")` has a defined answer
-today: `typeToSortA` falls through at `FixpointEmit.hs:2419` to `typeToSort _ = FQInt`
-(`:2393`, commented "conservative default"). That answer is the original defect. A guard
-placed downstream of `sortA1` sees a legitimate int and does nothing.
+**Why the trigger was wrong.** `TVar "?"` at the `τ_ret` position conflates two cases whose
+correct treatments are opposite:
 
-Three inputs reach HOLE-RET: a `?hole` body (which has no synthesizable type, and is why
-the DEF-RET annotation exists), a recovered inference failure (`TypeCheck.hs:1396, 1509,
-1544`), and the recursive residual described below.
+- **The true type is int-compatible.** `withdraw` in `examples/banking_ledger/banking.llmll`
+  has body `(safe-subtract balance amount)`, a call to another *unannotated* function. Since
+  `collectTopLevel` registers that callee's return as `TVar "?"` (deliberately, per the
+  withdrawn Rev 1 row), `inferExpr` on the call yields a wildcard and the **caller** inherits
+  it. The true type is `int`, `FQInt` is correct, and emitting normally yields `verified`.
+- **The true type is not int.** The residual below. `FQInt` is wrong and liquid-fixpoint
+  refuses the constraint.
+
+Nothing at the guard site distinguishes them. Rev 2 assumed the second case universally.
+Measured population: **104 unannotated definition heads corpus-wide, 72 of them in files
+containing another unannotated callee.** The implemented guard demoted **12 functions from
+`verified` to `asserted`** and changed 10 `.fq` files.
+
+Assuming the first case is correct on both frequency and failure-mode grounds. It is 72
+functions against one synthetic witness, and misclassifying it silently demotes proven
+functions, whereas misclassifying the second produces a hard crash that cannot become a
+false SAFE.
+
+**A narrowed trigger is tempting and does not work.** The obvious narrowing is "wildcard
+`τ_ret` **and** the body is syntactically boolean," reusing `bodyIsBoolean`
+(`FixpointEmit.hs:283-287`). It does not fire on the residual: `bodyIsBoolean` of an `EIf` is
+the conjunction over both branches (`:284`), and the then-branch there is a bare call, which
+`exprToPred` does not classify as bool-headed. Test the witness before assuming otherwise.
 
 ### GUARD-EFFECTIVE
 
@@ -213,26 +233,27 @@ the DEF-RET annotation exists), a recovered inference failure (`TypeCheck.hs:139
 rather than `mRet`, so a guard whose purpose is to force a fallback stops being disabled by
 the absence it should react to.
 
-### FALLBACK-VISIBLE
+### FALLBACK-VISIBLE: withdrawn with HOLE-RET
 
-When the emitter routes to `addBodyFallback` because the return was *synthesized* and
-unsortable, it emits a non-blocking warning with `diagKind = "unsortable-synthesized-return"`.
+Rev 2 paired HOLE-RET with a non-blocking `unsortable-synthesized-return` diagnostic, on the
+reasoning that converting a loud exit-1 into a green `✅ SAFE` with a silently unproven post
+is an assurance regression even when the verdict lattice stays correct. That reasoning is
+sound and it is why the fixture bar was set at "assert the tier **and** the warning, not
+merely the absence of a crash." It is moot here: with HOLE-RET withdrawn the emitter no
+longer creates that fallback, so the diagnostic has no trigger. Both are withdrawn together.
 
-A declared unsortable return is an author's choice and legible in the source; a synthesized
-one is invisible. Without the warning this change replaces a loud exit-1 with a green
-`✅ SAFE` and a silently unproven post, because plain `llmll verify` prints SAFE on the
-fallback path today. Fail-closed is a property of the verdict lattice; whether the operator
-learns that something was not checked is a separate property, and only the second one is at
-risk here. `--strict-verified-core` already rejects the fallback and needs nothing.
+The general principle survives for future use: fail-closed is a property of the verdict
+lattice; whether the operator learns something was not checked is a separate property, and a
+change can preserve the first while breaking the second.
 
-## What the rule does not fix
+## The accepted residual
 
-RESULT-SORT does not cover every member of the measured trigger set. A recursive
-unannotated definition with the recursive call in **then** position synthesizes to
-`TVar "?"`:
+RESULT-SORT does not cover every member of the measured trigger set, and Rev 3 accepts that
+rather than fixing it. A recursive unannotated definition whose recursive call sits in
+**then** position synthesizes to `TVar "?"` and still crashes the solver:
 
 ```lisp
-;; T4a: crashes today; still would, without HOLE-RET
+;; T4a: crashes. Deliberately not fixed; see HOLE-RET's withdrawal above.
 (def-shell countdown [n: int] (pre (>= n 0)) (post (not (= n 99)))
   (if (> n 0) (countdown (- n 1)) true))
 ```
@@ -242,14 +263,39 @@ that wildcard; `inferExpr (EIf …)` returns `thenType` on branch agreement
 (`TypeCheck.hs:1270-1271`); `compatibleWith` accepts the `TBool` else-branch. So
 `τ_body = TVar "?"` and `sortA1` yields `FQInt`.
 
-The sibling with the branches swapped (`(if (= n 0) true (countdown (- n 1)))`) has
-`thenType = TBool`, so `τ_ret = bool` and it *is* fixed. Both crash today. Coverage of the
-recursive class therefore depends on which branch holds the recursive call.
+Properties of the residual, which are why it is acceptable:
 
-Under HOLE-RET, T4a becomes a visible non-verification (`asserted` post, warning, exit 0)
-rather than a crash. That is the intended outcome and it should be stated in the spec
-rather than left as an implementation detail, because it is the same absence-of-information
-case that produced the original defect.
+- **Zero corpus instances.** None of the 104 unannotated definition heads has this shape.
+- **Fails closed.** Exit 1, a crash, never a false SAFE. No verdict is affected.
+- **One-token workaround**, already documented: annotate the return.
+- **Branch-order dependent.** The branch-swapped sibling
+  (`(if (= n 0) true (countdown (- n 1)))`) has `thenType = TBool`, so `τ_ret = bool`, and it
+  **is** fixed by stages (a) and (b). Both crashed before the fix.
+
+This is a deliberate scope exclusion, recorded so a later reader does not re-derive HOLE-RET
+from the same premise that the corpus already refuted.
+
+### Follow-on: RET-BRANCH-PREF, adjudicate separately
+
+The principled route to the residual is one rule in the *type* channel: when
+`inferExpr (EIf …)` reconciles branches and exactly one synthesizes a hole var, return the
+other branch's type.
+
+```
+    Γ ⊢ e₁ ⇒ τ₁    Γ ⊢ e₂ ⇒ τ₂    isHoleVar τ₁    ¬ isHoleVar τ₂
+    ──────────────────────────────────────────────────────────────  (If-Prefer-Concrete)
+    Γ ⊢ (if c e₁ e₂) ⇒ τ₂
+```
+
+It is local, has no pass-ordering implication, and so does not re-open the two-pass
+circularity that forced the Rev 1 type-environment row to be withdrawn.
+
+It is **not** folded into this finding for one reason: it changes what the type channel
+*rejects*. Today `(if c (g x) 1)` with unannotated `g` synthesizes to a wildcard, so a wrong
+`-> bool` on the enclosing function unifies trivially; afterwards the mismatch is caught.
+That is a better diagnostic and a stricter checker, and stricter checkers reject programs
+that previously passed. It is the same hazard class raised against changing `toExport`, and
+it needs its own corpus run and its own adjudication rather than riding on a bug fix.
 
 ## Regression witnesses that must keep passing
 
@@ -273,7 +319,7 @@ configurations it fixes emit no constraints today (they crash).
 | post over a `bool`-sorted `result` | contract | QF-LIA + Bool, auto-discharged | [`LLMLL.md §5.3.3`](../../LLMLL.md) names Bool as decidable in combination |
 | post over a `Str`-sorted `result` | contract | QF-LIA + QF-EUF via interned constants and ground distinctness (STRLIT) | `LLMLL.md §5.3.3` |
 | post over a `Pair2`-sorted `result` | contract | QF-LIA + acyclic datatype theory (Barrett–Shikanian–Tinelli, polite combination) | `LLMLL.md §5.3.3` |
-| `isHoleVar τ_ret` (HOLE-RET) | trust | neither; fallback, post floors at `asserted`, warning emitted | `LLMLL.md §5.3.3` firewall |
+| the accepted residual (non-int true type under a wildcard `τ_ret`) | neither | emission is attempted and liquid-fixpoint refuses it; fails closed, no verdict recorded | `LLMLL.md §5.3.3` |
 
 Nothing escapes to Lean. Nothing becomes nonlinear.
 
@@ -337,15 +383,17 @@ requiring declaration-group inference.
    sites at `:806-807` and `:1220`. Not on the crash path.
 7. `FixpointEmit.hs:2453-2458, 2467-2479`: guards take `τ_ret`.
 8. `FixpointEmit.hs:265-287`: `synthRet` / `bodyIsBoolean` retired.
-9. New HOLE-RET route plus the `unsortable-synthesized-return` diagnostic.
+9. ~~New HOLE-RET route plus the `unsortable-synthesized-return` diagnostic.~~ **Withdrawn in
+   Rev 3.** Implemented, refuted by the corpus, reverted before commit. Stages (a) and (b)
+   as committed are the whole implementation.
 10. **Not touched:** `TypeCheck.hs:838-850` and every other `TVar "?"` site.
 
 **Schema.** JSON-AST unchanged (`mRet` stays optional, no version bump). `.verified.json`
 unchanged. The only shape change is the in-memory `meContracts` third slot.
 
-**Docs (documentation-lead).** `LLMLL.md` §4.1 (state RESULT-SORT and HOLE-RET; say nothing
-about retiring `TVar "?"`), §5.3.3 (fragment boundary over `τ_ret`; HOLE-RET as a fallback
-trigger), §12 Key Rule 1 (D1). `LLMLL.md` §9 is **not** touched.
+**Docs (documentation-lead).** `LLMLL.md` §4.1 (state RESULT-SORT **without** HOLE-RET, which
+Rev 3 withdrew; say nothing about retiring `TVar "?"`), §5.3.3 (fragment boundary over
+`τ_ret`), §12 Key Rule 1 (D1). `LLMLL.md` §9 is **not** touched.
 `docs/compiler-team-roadmap.md` row: retag **FQ-RESULT-SORT-1**, keep `FQ-BOOL-SORT-1` as an
 alias, and correct the scope, the site attribution, and the control set.
 
@@ -359,14 +407,38 @@ The crash set with an annotated control for each: literal `true`, literal `false
 in a branch tail, boolean-eliminating posts (`and` / `or` / `not` over `result`), a string
 literal, and a pair return.
 
-The HOLE-RET pair: T4a (recursive call in then position; must reach `addBodyFallback` with
-the warning and an `asserted` post, **not** merely avoid a crash) and T4b (recursive call in
-else position; must reach a verdict).
+The branch-position pair: T4b (recursive call in else position) must reach a verdict; T4a
+(then position) is the accepted residual and still crashes. Shipped as FQRS-6 and the
+cross-module FQRS-9.
 
 The re-widening guards: T1, T2, T3.
 
 A corpus byte-diff over the existing `.fq` output. All 29 unannotated contracted definitions
 in tree return `int`, so `τ_ret = int` and every emitted `.fq` should be unchanged.
+
+**This byte-diff is a required acceptance criterion, not an optional check.** The stage (c)
+attempt passed a 1427-example suite *with* 12 functions demoted from `verified` to
+`asserted`, because no test asserts body-faithfulness on `examples/`. The only gate that
+caught it was the `.fq` byte-diff against a rebuilt pre-change compiler. Any future change
+to the sort-derivation path needs it.
+
+## As shipped
+
+Stages (a) and (b) are merged. Stage (c) was implemented, refuted, and reverted before
+commit.
+
+| Stage | Outcome |
+|---|---|
+| (a) contract-channel sort sites, `effRet` at the `emitFnConstraints` boundary, `cenv` override | shipped |
+| (b) `meRetTypes` on `ModuleEnv`, cross-module `seedImportedContracts`, `meContracts` third slot, `emitSynthetic` for the three synthetic paths | shipped |
+| (c) HOLE-RET + `unsortable-synthesized-return` | **withdrawn**, Rev 3 |
+
+Gates at merge: 1424 examples / 0 failures; all 128 corpus `.fq` files byte-identical against
+a rebuilt pre-change compiler; CDP invariance across 11 axis rows. Tests FQRS-1..9.
+
+Two things `synthRet` and `toExport` were **deliberately not** changed, each for a stated
+reason (the checkout-brief path has no `τ_ret`; `meExports` seeds the importer's `TypeEnv`
+and narrowing its wildcard would make the importer's checker strictly stronger).
 
 ## Review log
 
@@ -376,3 +448,10 @@ the qualifier second-symptom claim, the `TVar "?"` root, and the FALLBACK-VISIBL
 diagnostic. Rev 1 to Rev 2 withdrew the type-environment row after the two-pass circularity
 was demonstrated, restored `TVar "?"`, retracted the "one line" feasibility claim, and added
 HOLE-RET.
+
+Rev 2 to Rev 3 withdrew HOLE-RET and its diagnostic, accepted the recursive-then residual,
+and routed RET-BRANCH-PREF as a separate proposal. The driver was implementation, not
+review: the guard demoted 12 corpus functions, and the measured population behind that is
+**104 unannotated definition heads corpus-wide, 72 of them in files containing another
+unannotated callee**. A wildcard `τ_ret` is idiomatic, not exceptional, which is the premise
+Rev 2 had backwards.
