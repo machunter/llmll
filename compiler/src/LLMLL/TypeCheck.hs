@@ -19,6 +19,9 @@ module LLMLL.TypeCheck
   , typeCheckStrict
   , typeCheckStrictWithCache
   , typeCheckStrictWithCacheAndStatus  -- ADMIT-VERIFIED (Option 2, seam 6)
+    -- FQ-RESULT-SORT-1: report + tau_ret (effective return type per definition)
+  , typeCheckStrictWithCacheAndStatusRet
+  , typeCheckWithCacheRet
   , runSketch
     -- * Environment
   , TypeEnv
@@ -272,9 +275,31 @@ data TCState = TCState
                                        -- hypotheses on the current path, innermost
                                        -- first (pushed by 'withHyp' at match-arm
                                        -- entry; snapshot reversed at 'recordHole').
+  -- FQ-RESULT-SORT-1: the VERIFICATION-FACING effective return type per definition,
+  -- tau_ret(f) = mRet |> bodyType. The type channel already binds 'result' at this
+  -- type (the 'fromMaybe bodyType mRet' sites below); the contract channel used to
+  -- re-derive it from the annotation alone and default to FQInt, which mis-sorted the
+  -- 'result' binder for every unannotated non-int return. Recorded here so the emitter
+  -- consumes the checker's answer instead of guessing. Appended at the END of the
+  -- record on purpose: the three positional 'TCState' constructions below gain one
+  -- trailing argument, which cannot silently swap with an adjacent same-typed field.
+  -- NOT read by 'collectTopLevel' or 'Module.toExport' — routing it into the type
+  -- environment would make pass 1 of 'checkStatements' depend on pass 2
+  -- (docs/design/finding-fq-result-sort-default.md, the withdrawn Rev 1 row 1).
+  , tcRetTypes       :: Map Name Type
   } deriving (Show)
 
 type TC a = State TCState a
+
+-- | FQ-RESULT-SORT-1: record a definition's effective return type
+-- tau_ret(f) = mRet |> bodyType, for the contract channel to consume instead of
+-- re-deriving the sort from the optional annotation. Called once per definition arm,
+-- immediately after 'bodyType' is bound, so it fires whether or not a contract is
+-- present. Safe under the scope helpers: 'withEnv' / 'withTaggedEnv' /
+-- 'withFunctionContext' / 'withSegment' each restore only their own named fields,
+-- never the whole state, so this write survives block exit.
+recordRetType :: Name -> Type -> TC ()
+recordRetType n t = modify $ \s -> s { tcRetTypes = Map.insert n t (tcRetTypes s) }
 
 -- | Emit a type error.
 tcError :: Text -> TC ()
@@ -571,13 +596,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTC gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [])
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [] Map.empty)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode.
 runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
 runTCSketch gm env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [])
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [] Map.empty)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -686,7 +711,7 @@ typeCheckStrict gm env stmts =
 
 runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty [])
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty [] Map.empty)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -705,6 +730,18 @@ typeCheckStrictWithCacheAndStatus
   :: GrammarMode -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement] -> DiagnosticReport
 typeCheckStrictWithCacheAndStatus gm = typeCheckWithCacheMode' gm True
 
+-- | FQ-RESULT-SORT-1: 'typeCheckStrictWithCacheAndStatus' plus tau_ret. Used by the
+-- entry verify path, where the report and the emitter call sit in the same scope.
+typeCheckStrictWithCacheAndStatusRet
+  :: GrammarMode -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
+  -> (DiagnosticReport, Map Name Type)
+typeCheckStrictWithCacheAndStatusRet gm = typeCheckWithCacheModeRet' gm True
+
+-- | FQ-RESULT-SORT-1: 'typeCheckWithCache' plus tau_ret, for the module import path.
+typeCheckWithCacheRet
+  :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement] -> (DiagnosticReport, Map Name Type)
+typeCheckWithCacheRet gm cache = typeCheckWithCacheModeRet' gm False cache Map.empty
+
 -- | Internal: shared implementation for typeCheckWith(Strict)Cache(WithMode).
 typeCheckWithCacheMode :: GrammarMode -> Bool -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
 typeCheckWithCacheMode gm strict cache = typeCheckWithCacheMode' gm strict cache Map.empty
@@ -714,6 +751,19 @@ typeCheckWithCacheMode gm strict cache = typeCheckWithCacheMode' gm strict cache
 typeCheckWithCacheMode'
   :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement] -> DiagnosticReport
 typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
+  fst (typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts)
+
+-- | FQ-RESULT-SORT-1: 'typeCheckWithCacheMode'' plus the recorded effective return
+-- types (tau_ret per definition). This is the single shared implementation; the
+-- report-only wrapper above discards the map, so all pre-existing callers keep their
+-- signatures. Both consumers that need tau_ret route through here: the entry verify
+-- path (via 'typeCheckStrictWithCacheAndStatusRet') and the module import path
+-- (via 'typeCheckWithCacheRet', called at Module.hs:189 one line before the
+-- ModuleEnv is built).
+typeCheckWithCacheModeRet'
+  :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
+  -> (DiagnosticReport, Map Name Type)
+typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
   let -- Inject qualified names from all cached modules
       seededEnv = Map.foldlWithKey' seedModule baseEnv cache
       -- v0.3: merge contract status from all cached modules (qualified names)
@@ -731,14 +781,16 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       -- shadow these in 'checkStatements' (local wins; same direction as 'open').
       seededAliases = Map.foldl seedAliases Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [])
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
-  in DiagnosticReport
-    { reportPhase       = "typecheck"
-    , reportDiagnostics = diags
-    , reportSuccess     = not hasErrors
-    }
+  in ( DiagnosticReport
+         { reportPhase       = "typecheck"
+         , reportDiagnostics = diags
+         , reportSuccess     = not hasErrors
+         }
+     , tcRetTypes st
+     )
   where
     seedModule acc path menv =
       let prefix = T.intercalate "." path <> "."
@@ -891,6 +943,7 @@ checkStatement (SDefLogic name params mRet contract body) = do
     withTaggedEnv SrcParam paramBindings $ do
       -- Infer body type: push "body" segment for pointer precision
       bodyType <- withSegment "body" (inferExpr body)
+      recordRetType name (fromMaybe bodyType mRet)   -- FQ-RESULT-SORT-1
       -- Check return type annotation if present
       case mRet of
         Nothing -> pure ()
@@ -926,6 +979,7 @@ checkStatement (SLetrec name params mRet contract dec body) = do
         tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
       -- Infer body type: push "body" segment for pointer precision
       bodyType <- withSegment "body" (inferExpr body)
+      recordRetType name (fromMaybe bodyType mRet)   -- FQ-RESULT-SORT-1
       case mRet of
         Nothing -> pure ()
         Just retTy -> unify name retTy bodyType
@@ -977,6 +1031,7 @@ checkStatement (SDef name params mRet contract body) = do
           unify name retTy t
           pure t
         (Nothing, _)                   -> withSegment "body" (inferExpr body)
+      recordRetType name (fromMaybe bodyType mRet)   -- FQ-RESULT-SORT-1
       case contractPre contract of
         Nothing -> pure ()
         Just pre -> do
@@ -1010,6 +1065,7 @@ checkStatement (SDefShell name params mRet contract body decreases) = do
           unify name retTy t
           pure t
         (Nothing, _)                   -> withSegment "body" (inferExpr body)
+      recordRetType name (fromMaybe bodyType mRet)   -- FQ-RESULT-SORT-1
       case contractPre contract of
         Nothing -> pure ()
         Just pre -> do

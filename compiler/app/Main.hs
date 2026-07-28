@@ -43,7 +43,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -1194,7 +1194,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       entrySidecarRaw <- loadVerified fp
       let (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecar stmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrictWithCacheAndStatus gm _cache entrySidecar emptyEnv stmts
+      -- FQ-RESULT-SORT-1: the same typecheck now also yields tau_ret per definition,
+      -- consumed by the emit calls below so the 'result' binder is sorted from the
+      -- checker's answer rather than defaulted to FQInt when '-> RetType' is absent.
+      let (tcReport, retTypes) =
+            typeCheckStrictWithCacheAndStatusRet gm _cache entrySidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -1216,7 +1220,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- the report. In JSON mode 'runLeanstralPipeline' stays quiet (all its
         -- prints are 'unless isJson'-gated), so the trust-report JSON is uncorrupted.
         when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
-          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache stmts
+          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache retTypes stmts
           runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
         -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
         -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
@@ -1271,7 +1275,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         exitSuccess
       -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-      emitR <- emitFixpointWithCache emitOpts fp _cache stmts
+      emitR <- emitFixpointWithCache emitOpts fp _cache retTypes stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR
           skipped = erSkipped emitR

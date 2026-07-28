@@ -583,8 +583,12 @@ moduleSpec = describe "Module System" $ do
           case result of
             Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
             Right (cache, _ord, env) ->
+              -- FQ-RESULT-SORT-1: empty tau_ret map keeps this xmod-ag harness on the
+              -- pre-change sort derivation (every fixture here declares its returns),
+              -- so the assertions below are unaffected by the result-sort fix.
               emitFixpointWithCache (EmitOptions True Nothing)
-                (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache (meStatements env)
+                (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache Map.empty
+                (meStatements env)
 
     it "XMOD-AG-OPEN: opened-import caller (double) is body-faithful, not a fallback" $ do
       er <- emitWithCacheOf "use_double"

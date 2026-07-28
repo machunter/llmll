@@ -14,7 +14,7 @@ import qualified Data.Text.Encoding as TE
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
@@ -26,7 +26,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -7791,6 +7791,79 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fqCtorSym "Denied"    `shouldBe` "ctor_denied"
         fqCtorSym "DataPkt"   `shouldBe` "ctor_datapkt"
         fqCtorSym "Not-Ready" `shouldBe` "ctor_not_ready"
+
+    -- FQ-RESULT-SORT-1 (stage a): the contract channel used to derive the sort of
+    -- the 'result' binder from the OPTIONAL '-> RetType' annotation and fall back to
+    -- FQInt, while the type channel derived it from the synthesized body type
+    -- ('fromMaybe bodyType mRet'). Where the two disagreed the emitted .fq was
+    -- ill-sorted and liquid-fixpoint refused it. These assert on the emitted sort
+    -- token, so they need no solver. Design: docs/design/finding-fq-result-sort-default.md
+    describe "FQ-RESULT-SORT-1: result binder sorts from the effective return type" $ do
+      -- mirrors the verify path: typecheck first, feed tau_ret to the emitter.
+      -- 'emitFixpointWith' deliberately passes an EMPTY map, so it would NOT
+      -- exercise this at all.
+      let emitRet src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts ->
+              let (_, retTypes) =
+                    typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+              in emitFixpointWithCache (EmitOptions True Nothing) "test.llmll"
+                   Map.empty retTypes stmts
+
+      it "FQRS-1: an unannotated bool-literal body sorts result at bool, not int" $ do
+        er <- emitRet "(def f [n: int] (pre (> n 0)) (post (not (= n 10))) true)"
+        let fq = erFQText er
+        fq `shouldSatisfy`    T.isInfixOf "result : { v : bool | true }"
+        fq `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "FQRS-2: the annotated control emits the same sort (annotation is now inert)" $ do
+        erU <- emitRet "(def f [n: int] (pre (> n 0)) (post (not (= n 10))) true)"
+        erA <- emitRet "(def f [n: int] -> bool (pre (> n 0)) (post (not (= n 10))) true)"
+        erFQText erU `shouldBe` erFQText erA
+
+      it "FQRS-3: an unannotated string body sorts result at Str" $ do
+        er <- emitRet "(def g [n: int] (pre (> n 0)) (post (= result \"x\")) \"x\")"
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : Str | true }"
+
+      it "FQRS-4: an unannotated pair body reaches the guard with the real type" $ do
+        -- pre-change 'sigPairUnsafe' computed 'maybe False ... mRet' and so failed
+        -- OPEN on the absent annotation, emitting a crashing constraint instead of
+        -- falling back (GUARD-EFFECTIVE).
+        er <- emitRet "(def p [n: int] (pre (> n 0)) (post (= (first result) n)) (pair n n))"
+        erFQText er `shouldSatisfy` T.isInfixOf "Pair2"
+
+      it "FQRS-5: a boolean-ELIMINATING post over a computed body is body-faithful" $ do
+        -- the shape the original roadmap row mis-classified as a quiet control:
+        -- 'result' under 'and'/'or'/'not' is ill-sorted at int independently of
+        -- how the body reflects.
+        er <- emitRet "(def f [n: int] (pre (> n 6)) (post (and result (> n 0))) (> n 5))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "FQRS-6: a self-recursive call-result binder sorts from the callee's tau_ret" $ do
+        -- the definition-site binder alone is not enough: the ContractEnv third slot
+        -- sorts '_bv_call_<f>_N', and left at FQInt it equated a bool result with an
+        -- int call result.
+        er <- emitRet (T.concat
+          [ "(def-shell countdown [n: int] (pre (>= n 0)) (post (not (= n 99)))"
+          , " (if (= n 0) true (countdown (- n 1))))" ])
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "_bv_call_countdown_0 : { v : int"
+
+      it "FQRS-7: an int-returning unannotated def is byte-unchanged (corpus stability)" $ do
+        -- every unannotated contracted def in tree returns int, so tau_ret = int =
+        -- the old default and the whole corpus must emit byte-identically.
+        erU <- emitRet "(def-shell w [b: int a: int] (pre (>= b a)) (post (= result (- b a))) (- b a))"
+        erA <- emitRet "(def-shell w [b: int a: int] -> int (pre (>= b a)) (post (= result (- b a))) (- b a))"
+        erFQText erU `shouldBe` erFQText erA
+
+      it "FQRS-8: a forward reference to an unannotated callee still type-checks (guard)" $ do
+        -- T1: 'collectTopLevel' is a pre-pass and must stay independent of body
+        -- types. Routing tau_ret into the TYPE environment would break this.
+        er <- emitRet (T.concat
+          [ "(def-shell caller [n: int] -> int (pre (> n 0)) (post (>= result 0))"
+          , " (if (is-big n) 1 0))\n(def is-big [n: int] (> n 5))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "caller"
 
     -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
     -- (alias-aware emitParamBind) and their predicate folded into the effective
