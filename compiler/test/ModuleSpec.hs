@@ -40,8 +40,9 @@ import Data.Aeson (Value(..))
 import qualified Data.Aeson.KeyMap as KM
 import LLMLL.VerifiedCache (verifiedPath, saveVerified)
 import Control.Exception (finally)
+import Control.Monad (when)
 import Data.List (find)
-import System.Directory (removeFile)
+import System.Directory (removeFile, doesFileExist)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -638,7 +639,26 @@ moduleSpec = describe "Module System" $ do
         -- Main's checkout loader (loadStatementsMulti) caches the entry's
         -- IMPORTS only, not the entry module itself — drop the entry from
         -- loadModule's cache so the construction mirrors the shipped path.
+        -- The callee_tier assertions below are about the NO-EVIDENCE path, but
+        -- 'loadModule' merges any ambient '<fixture>.llmll.verified.json' into
+        -- meContractStatus (Module.hs, 'loadVerified'). Those sidecars are
+        -- gitignored build cruft: a plain 'llmll verify' anywhere over
+        -- test/fixtures/ drops them, and they then flip callee_tier from
+        -- "asserted" to "verified" here. The failure message ("expected
+        -- asserted, but got verified") reads like a trust-model regression
+        -- rather than a stale file, so clear them before loading instead of
+        -- depending on ambient filesystem state. Same discipline the XMOD-TIER
+        -- block above already uses via 'finally (removeFile coreSidecarFp)'.
+        clearAmbientSidecars =
+          mapM_ rmIfPresent
+            ["lib", "lib_gate", "use_double", "use_double_qual", "use_gate"]
+          where
+            rmIfPresent n = do
+              let fp = verifiedPath (srcRoot ++ "/" ++ n ++ ".llmll")
+              present <- doesFileExist fp
+              when present (removeFile fp)
         loadEntry entry = do
+          clearAmbientSidecars
           result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] [entry]
           case result of
             Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
