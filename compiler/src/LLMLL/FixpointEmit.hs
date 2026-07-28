@@ -322,10 +322,20 @@ buildMeasureMap stmts = Map.fromList
 -- Supersedes the dead v0.10 'buildContractEnvWithImports', which unioned RAW,
 -- bare-only 'meContracts' (never desugared, never qualified) and was never
 -- called.
+-- FQ-RESULT-SORT-1 stage (b): this path REBUILDS the imported ContractEnv from
+-- 'meStatements' rather than reading 'meContracts', so the raw optional annotation
+-- used to be the only return-type signal available cross-module: a call to an
+-- imported unannotated non-int-returning callee sorted its call-result binder at
+-- FQInt. Override the third slot from the imported module's own recorded tau_ret
+-- ('meRetTypes', populated by the loader's typecheck) before dual-keying, so both
+-- the bare and qualified entries carry it.
 seedImportedContracts :: AliasMap -> ModuleCache -> ContractEnv
 seedImportedContracts am cache =
   Map.unions
-    [ let bare      = buildContractEnvWith am (meStatements menv)
+    [ let bare0     = buildContractEnvWith am (meStatements menv)
+          bare      = Map.mapWithKey
+                        (\n (ps, c, mr) -> (ps, c, effRet (meRetTypes menv) n mr))
+                        bare0
           prefix    = T.intercalate "." (mePath menv) <> "."
           qualified = Map.mapKeys (prefix <>) bare
       in Map.union bare qualified

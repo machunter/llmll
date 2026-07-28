@@ -3318,6 +3318,7 @@ main = hspec $ do
           , meContractStatus = DM.fromList
               [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
           , meContracts = DM.empty
+          , meRetTypes = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -3366,6 +3367,7 @@ main = hspec $ do
                , mePath           = T.splitOn "." name
                , meContractStatus = DM.fromList [(name, contractStatus)]
                , meContracts      = DM.empty
+               , meRetTypes      = DM.empty
                }
 
         -- Module A: "auth.verify" with configurable contract status
@@ -3450,6 +3452,7 @@ main = hspec $ do
             , meContractStatus = DM.fromList
                 [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
             , meContracts      = DM.empty
+            , meRetTypes      = DM.empty
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -3460,6 +3463,7 @@ main = hspec $ do
             , meContractStatus = DM.fromList
                 [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])]
             , meContracts      = DM.empty
+            , meRetTypes      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -3497,6 +3501,7 @@ main = hspec $ do
             , mePath           = path
             , meContractStatus = DM.fromList [(name, cs)]
             , meContracts      = DM.empty
+            , meRetTypes      = DM.empty
             }
 
     -- Test 1: Report includes entry function with its contract levels
@@ -5263,6 +5268,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , mePath = ["helpers"]
             , meContractStatus = DM.empty
             , meContracts = DM.empty
+            , meRetTypes = DM.empty
             }
           cache = DM.fromList [( ["helpers"], modAEnv)]
           -- Module B imports helpers, calls wasi.io.stdout directly without own import
@@ -9822,7 +9828,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         mkEnv ss = ModuleEnv
           { meExports = Map.empty, meStatements = ss, meInterfaces = Map.empty
           , meAliasMap = Map.empty, mePath = ["lib"]
-          , meContractStatus = Map.empty, meContracts = Map.empty }
+          , meContractStatus = Map.empty, meContracts = Map.empty
+          , meRetTypes = Map.empty }
         cacheWith ss = Map.fromList [(["lib"], mkEnv ss)]
         effOfC cache stmts nm = lookup nm (computeEffectSummary cache stmts)
 
@@ -9870,6 +9877,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , mePath           = ["core"]
           , meContractStatus = Map.empty
           , meContracts      = Map.empty
+          , meRetTypes      = Map.empty
           }
         coreCache = Map.fromList [(["core"], coreEnv)]
         -- The importer body, parsed so '>='/'-' are exercised against the imported
@@ -9919,6 +9927,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , mePath           = ["core"]
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
+            , meRetTypes      = Map.empty
             }
           strCache = Map.fromList [(["core"], strEnv)]
           badSrc = T.unlines
@@ -10631,6 +10640,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        , mePath           = ["lib"]
                        , meContractStatus = Map.empty
                        , meContracts      = Map.empty
+                       , meRetTypes      = Map.empty
                        }
             cache  = Map.singleton ["lib"] libEnv
             -- Local file: (open lib) + (check ...) covering f. No local
@@ -12639,6 +12649,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , mePath           = ["core"]
             , meContractStatus = DM.fromList [("double", cs)]
             , meContracts      = DM.empty
+            , meRetTypes      = DM.empty
             }
           importerStmts =
             [ SOpen ["core"] Nothing

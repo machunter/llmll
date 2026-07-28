@@ -1,0 +1,6 @@
+;; Consumes the unannotated imported callee in a body-VC position. Pre-fix the
+;; call-result binder sorted at FQInt while 'result' sorted at bool, so the body
+;; VC equated bool with int and liquid-fixpoint refused the file.
+(import pred)
+(open pred)
+(def-shell g [n: int] -> bool (pre (> n 0)) (post (not (= n 7))) (is-big n))

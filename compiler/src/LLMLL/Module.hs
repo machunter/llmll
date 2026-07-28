@@ -36,7 +36,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, TypeEnv)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, emptyEnv, TypeEnv)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
 import LLMLL.VerifiedCache (loadVerified)
@@ -186,8 +186,11 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
               -- on a value of that type; the plain 'typeCheck gm baseEnv' path
               -- (entry-only before) would reject it. 'typeCheckWithCache' seeds
               -- the same qualified value names as 'baseEnv' plus the alias map.
-              report  = typeCheckWithCache gm cache1 emptyEnv stmts
-              env0    = buildModuleEnv modPath stmts baseEnv
+              -- FQ-RESULT-SORT-1 stage (b): the SAME typecheck now also yields
+              -- tau_ret, which was previously discarded one line before the
+              -- ModuleEnv was built from 'stmts' alone.
+              (report, retTypes) = typeCheckWithCacheRet gm cache1 emptyEnv stmts
+              env0    = buildModuleEnv modPath stmts retTypes baseEnv
           -- v0.3: merge sidecar .verified.json to upgrade contract statuses
           sidecar <- loadVerified fp
           let env = if Map.null sidecar
@@ -239,8 +242,16 @@ parseFile gm fp
 -- | Build a ModuleEnv from a parsed statement list.
 -- Applies export filtering if an SExport declaration is present.
 -- check and def-invariant blocks are never exported.
-buildModuleEnv :: ModulePath -> [Statement] -> TypeEnv -> ModuleEnv
-buildModuleEnv path stmts _env =
+-- FQ-RESULT-SORT-1 stage (b): the 'Map Name Type' is this module's effective
+-- return types from the type checker (tau_ret). It populates 'meRetTypes' and the
+-- 'meContracts' third slot. 'toExport' deliberately does NOT consume it: 'meExports'
+-- seeds the IMPORTING module's TypeEnv, and because 'compatibleWith (TVar _) _ =
+-- True' every use of an imported unannotated function is currently accepted, so
+-- narrowing that wildcard to a concrete type would make the importer's checker
+-- strictly stronger and could reject programs that type-check today. The verifier
+-- reads 'meContracts' / 'meRetTypes', never 'meExports', so the fix does not need it.
+buildModuleEnv :: ModulePath -> [Statement] -> Map Name Type -> TypeEnv -> ModuleEnv
+buildModuleEnv path stmts retTypes _env =
   let aliasMap'  = Map.fromList [(n, b) | STypeDef n b <- stmts]
       allExports = Map.fromList $ mapMaybe toExport stmts
       ifaceMap   = Map.fromList
@@ -262,6 +273,7 @@ buildModuleEnv path stmts _env =
        , mePath           = path
        , meContractStatus = contractStats
        , meContracts      = contractsMap
+       , meRetTypes       = retTypes
        }
   where
     toExport (SDefLogic name params mRet _ _) =
@@ -304,18 +316,20 @@ buildModuleEnv path stmts _env =
       | otherwise = Nothing
 
     -- v0.10 MOD-1: extract contract expressions for cross-module ContractEnv
+    -- FQ-RESULT-SORT-1: the third slot carries tau_ret, not the raw annotation.
+    effR name mRet = maybe (Map.lookup name retTypes) Just mRet
     extractContracts (SDefLogic name params mRet contract _) =
-      Just (name, (params, contract, mRet))
+      Just (name, (params, contract, effR name mRet))
     extractContracts (SLetrec name params mRet contract _ _) =
-      Just (name, (params, contract, mRet))
+      Just (name, (params, contract, effR name mRet))
     -- LT-INV (v0.11)
     extractContracts (SDef      name params mRet contract _) =
-      Just (name, (params, contract, mRet))
+      Just (name, (params, contract, effR name mRet))
     extractContracts (SDefShell name params mRet contract _ _) =
-      Just (name, (params, contract, mRet))
+      Just (name, (params, contract, effR name mRet))
     -- v0.12.1
     extractContracts (SDefInvariant name params mRet contract _) =
-      Just (name, (params, contract, mRet))
+      Just (name, (params, contract, effR name mRet))
     extractContracts _ = Nothing
 
 -- | Merge sidecar contract status: take the higher-evidence record for each clause.
