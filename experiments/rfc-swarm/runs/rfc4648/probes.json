@@ -1,0 +1,62 @@
+[
+  {
+    "name": "base64-tail",
+    "file": "base64-tail.llmll",
+    "mutant_file": "base64-tail-mutant.llmll",
+    "bug": "transposes the two non-empty final-quantum cases, giving a one-octet remainder three significant characters and one pad and a two-octet remainder two significant characters and two pads, so the encoder emits BASE64(\"f\") = \"Zg=\" and BASE64(\"fo\") = \"Zm8==\" instead of the RFC's own test vectors at L654-655",
+    "shape": "main transition function: the final-quantum case analysis at L323-349 (A21, A23, A24, A25). Residue class of the octet count in, significant-character count and pad-character count out.",
+    "contract_shape": "the contract states the ceiling law the RFC's three-case table is an instance of -- 6*chars is the least multiple of six covering 8*rem-octets -- rather than restating the table, so it pins the value uniquely at every residue and refutes a transposed or off-by-one table. A23 (no padding on a 24-bit boundary) is kept as its own clause because the RFC states it separately.",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base64-tail-chars, base64-tail-pads)"
+  },
+  {
+    "name": "base64-fill",
+    "file": "base64-fill.llmll",
+    "mutant_file": "base64-fill-mutant.llmll",
+    "bug": "checks the zero-fill region only on the two-pad final quantum and accepts the one-pad quantum whatever its fill bits are -- the non-canonical-encoding bug in its usual partial form, so 32 distinct encoded strings decode to each two-octet-remainder input and any receiver comparing encoded forms is defeated (L253-256, L765-768)",
+    "shape": "product invariant plus the strongest clause in the RFC. base64-fill-bits carries the joint invariant across the three fields of a final-quantum descriptor (residue class, significant-character count, fill-bit width) as bit conservation 8*rem + fill = 6*chars. base64-tail-verdict carries L257-258 (A9) under the decoder profile flag from scope-decision section 4(c).",
+    "contract_shape": "the fill-bit body is the RFC's case table and its contract is the conservation equation plus the derived bound 0 <= fill < 6, written independently so a wrong table entry is refuted rather than restated. The verdict contract carries the fill-bit VALUE, not only its width, per scope-decision section 4(b), and states the clause in both directions (accept implies zero fill; non-zero fill implies reject) so it determines the verdict rather than bounding it. Every conclusion is stated relative to PadMode.",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base64-tail-verdict)"
+  },
+  {
+    "name": "base64-symbol",
+    "file": "base64-symbol.llmll",
+    "mutant_file": "base64-symbol-mutant.llmll",
+    "bug": "silently drops every character outside the base alphabet regardless of the leniency profile -- the liberal decoder RFC 4648 was written to override (L200-206, A4), and the behaviour its own Security Considerations name as a covert channel usable to leak information, to avoid a string equality comparison, or to trigger implementation bugs (L754-760)",
+    "shape": "the three-way symbol classification required by scope-decision section 4(a) (in-alphabet / pad / neither, not a two-way flag), and the joint (profile x class) decision that is the product invariant the decoder architecture needs.",
+    "contract_shape": "classification is stated as a flat biconditional over US-ASCII codes against Table 1 while the body walks the ranges, so a character added to or dropped from the alphabet is refuted. The decision contract confines silent dropping to the single cell (IgnoreNonAlphabet, NonAlphabet) by stating the converse -- result = Skip implies both that the profile is lenient and that the symbol is outside the alphabet -- which is what closes every other route into the covert channel. This is the SPLIT row of the scope matrix: only the per-symbol half is claimed; the existential over an unbounded encoded string that L200-203 quantifies, and the whole-message rejection it triggers, are not stated.",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base64-decode-decision)"
+  },
+  {
+    "name": "base32hex-order",
+    "file": "base32hex-order.llmll",
+    "mutant_file": "base32hex-order-mutant.llmll",
+    "bug": "uses Table 3, the standard base32 alphabet (L460-471), where Table 4, base32hex (L526-537), is required. Since base32hex differs from base32 in nothing but that table (A50), the substitution is the whole variant, and it destroys the sort-order property at the seam where value 25 encodes as 'Z' (0x5A) and value 26 as '2' (0x32) -- the property NSEC3 relies on at L517.",
+    "shape": "finite alphabet table plus the per-symbol half of the sort-order claim at L519-521, proved symbolically over the whole 32x32 domain rather than by enumerating 496 pairs.",
+    "contract_shape": "the order contract says the comparison of two encoded US-ASCII codes agrees with the comparison of the underlying values, for every pair in the domain. Per scope-decision section 3(b) and decision 3 the string-level lexicographic lifting is NOT stated: it quantifies over an unbounded encoded string, and its unrestricted form is false (base32hex of one zero octet is \"00======\" and of two is \"0000====\", which sort the opposite way from the octet sequences).",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base32hex-code and base32hex-order-preserved? independently -- the order property refutes the substitution on its own, without relying on the table clause)"
+  },
+  {
+    "name": "base32-bitorder",
+    "file": "base32-bitorder.llmll",
+    "mutant_file": "base32-bitorder-mutant.llmll",
+    "bug": "packs the quantum least-significant-bit first, placing symbol 0 in the low five bits of octet 0 so that octet0 = 32*s1-high + s0. This is the bit-order transposition L438-442 states at MUST strength precisely because implementations get it wrong; it yields a completely different character sequence for every input while still producing well-formed base32 (A34).",
+    "shape": "the positional weights of the 40-to-8 split at L429-442 and the bit-layout figure at L595-607, taken at the first octet of the quantum, plus the per-quantum injectivity lemma.",
+    "contract_shape": "the body shifts the way an implementation writes it and the contract states the weight equation flat, so a transposition is refuted by the equation. Injectivity is a SEPARATE clause and deliberately so: it is a lemma toward stream-level injectivity, not that statement, and the remaining segmentation-and-concatenation step is an induction over an unbounded list that is not attempted and not axiomatized.",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base32-octet0 only). This is the load-bearing negative result of the stage: base32-octet0-injective? verifies SAFE against the mutant, because an LSB-first packing is exactly as injective as an MSB-first one, and the octet range clause survives too since 31 + 32*7 is still 255. A contract stating ranges and injectivity alone would pass this mutant. Only the positional weight equation refutes it."
+  },
+  {
+    "name": "base64url-alphabet",
+    "file": "base64url-alphabet.llmll",
+    "mutant_file": "base64url-alphabet-mutant.llmll",
+    "bug": "encodes values 62 and 63 as '+' (0x2B) and '/' (0x2F) from Table 1 where Table 2 requires '-' (0x2D) and '_' (0x5F). Since base64url is defined by nothing except that substitution (A29), getting those two entries wrong is getting the entire variant wrong, and the output stops being safe to place in a URL or a filename.",
+    "shape": "the 64-entry encoder table of L399-418 as a total function with a contract that pins every range.",
+    "contract_shape": "each of the four ranges is pinned against Table 2 independently of the body's range walk, and the contract adds the derived property the variant exists for -- the output is never '+' or '/'. That derived clause is what makes the table clause defend something rather than restate itself. A 64-entry table is the cheapest kind of clause in this fragment (scope-decision section 1); it is probed for shape, not for difficulty.",
+    "probe_verdict": "SAFE, body-faithful, 0 fallbacks",
+    "mutant_verdict": "refuted (base64url-code)"
+  }
+]

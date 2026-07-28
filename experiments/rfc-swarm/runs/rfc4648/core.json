@@ -1,0 +1,28 @@
+{
+  "core_ids": [
+    "A1",
+    "A2",
+    "A4",
+    "A9",
+    "A16",
+    "A18",
+    "A21",
+    "A23",
+    "A24",
+    "A25",
+    "A29",
+    "A33",
+    "A34",
+    "A36",
+    "A39",
+    "A41",
+    "A42",
+    "A43",
+    "A44",
+    "A45",
+    "A50",
+    "A54",
+    "A56"
+  ],
+  "rationale": "A1: An encoder that wraps its output in line feeds is producing MIME's base64 Content-Transfer-Encoding rather than the base encoding this document defines, and line-wrapping is one of the two discrepancies section 1 says the RFC exists to settle. A2: An encoder that drops the trailing pad characters emits a different string than the RFC's own test vectors require, so it has implemented some other encoding that happens to share an alphabet. A4: Silently skipping characters outside the alphabet is exactly the liberal-decoder behavior this document was written to override, so a decoder that does it by default has not implemented the RFC's error behavior. A9: Non-zero pad bits destroy the canonical-encoding guarantee the document is built to deliver, allowing multiple encoded strings to decode to the same octets. A16: If the 24-bit group is not split into four consecutive 6-bit groups each translated to one character, the output bears no relation to base64. A18: A base64 encoder using any other value-to-character mapping emits strings that no base64 decoder can read. A21: Zero fill bits placed anywhere but on the right of a short final group change the final data characters, so every input whose length is not a multiple of three encodes wrongly. A23: Emitting padding for an input that ends on an exact 24-bit boundary contradicts BASE64(\"foo\") = \"Zm9v\" and makes the encoding non-canonical. A24: Any count other than exactly two \"=\" for an 8-bit final quantum contradicts BASE64(\"f\") = \"Zg==\" and misinforms the decoder about the decoded length. A25: Any count other than exactly one \"=\" for a 16-bit final quantum contradicts BASE64(\"fo\") = \"Zm8=\" and misinforms the decoder about the decoded length. A29: base64url is defined by nothing except its substitution at values 62 and 63, so getting Table 2 wrong is getting the entire variant wrong. A33: If the 40-bit group is not split into eight consecutive 5-bit groups each translated to one character, the output is not base32. A34: Traversing each octet least-significant-bit first yields a completely different character sequence for every input, and this is the only bit-ordering rule the document states at MUST strength. A36: A base32 encoder using any other value-to-character mapping emits strings that no base32 decoder can read. A39: Zero fill bits placed anywhere but on the right of a short final group change the final data characters for every input whose length is not a multiple of five. A41: Emitting padding for an input that ends on an exact 40-bit boundary contradicts BASE32(\"fooba\") = \"MZXW6YTB\". A42: Any count other than exactly six \"=\" for an 8-bit final quantum contradicts BASE32(\"f\") = \"MY======\". A43: Any count other than exactly four \"=\" for a 16-bit final quantum contradicts BASE32(\"fo\") = \"MZXQ====\". A44: Any count other than exactly three \"=\" for a 24-bit final quantum contradicts BASE32(\"foo\") = \"MZXW6===\". A45: Any count other than exactly one \"=\" for a 32-bit final quantum contradicts BASE32(\"foob\") = \"MZXW6YQ=\". A50: base32hex differs from base32 in nothing but Table 4, and that alphabet was added by this revision specifically to preserve sort order, so getting it wrong loses both the variant and the fix it was introduced to make. A54: If the octet is not split into two consecutive 4-bit groups each translated to one character, the output is not base16. A56: A base16 encoder using any other value-to-character mapping emits strings that no hex decoder can read."
+}

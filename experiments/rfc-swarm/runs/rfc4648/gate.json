@@ -1,0 +1,21 @@
+{
+ "verifiable_subject_matter": {
+  "carried": 44,
+  "total": 52,
+  "ratio": 0.8462,
+  "note": "reported, NOT thresholded"
+ },
+ "characteristic_core": {
+  "total": 23,
+  "dispositioned_out": [
+   "A1"
+  ]
+ },
+ "exclusions_outside_barrier_list": [],
+ "raw_ledger": {
+  "Encoded": 39,
+  "Deployment-modeled": 5,
+  "Vectored": 0,
+  "Dispositioned out": 20
+ }
+}

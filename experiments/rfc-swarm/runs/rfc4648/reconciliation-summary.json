@@ -1,0 +1,21 @@
+{
+ "a_only": 0,
+ "b_only": 1,
+ "line_coverage": {
+  "RFC4648": {
+   "A_lines": 222,
+   "B_lines": 220,
+   "both": 218,
+   "union": 224,
+   "jaccard": 0.9732,
+   "A_only_lines": 4,
+   "B_only_lines": 2
+  }
+ },
+ "rule_agreement": {
+  "compared": 33,
+  "identical": 28,
+  "raw_agreement": 0.8485,
+  "cohens_kappa": 0.8057
+ }
+}

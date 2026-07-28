@@ -1,0 +1,472 @@
+{
+ "rows": [
+  {
+   "cid": "A1",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": true,
+   "reason": "STOP. This is a characteristic-core row and it cannot be covered, so it is reported as an exclusion rather than re-classified to make the gate pass. The clause forbids inserting line feeds into base-encoded data after a specific number of characters. That form needs the output as a positioned character sequence, which scope.md section 3 refuses to import and section 7 item 3 names in advance as scope creep. The only surviving form, the flat one recorded in scope.md section 4 ('LF is not in the encoder's output alphabet'), is true by construction: every position of a quantum's output tuple is filled by TABLE[v] or by the pad constant 0x3D, so the model admits no constructor that places 0x0A anywhere and no mutant can exercise the row. Under rule 2 that is B7 and not coverage. The target gets re-scoped, not re-graded."
+  },
+  {
+   "cid": "A2",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract postcondition on the final-quantum emission step, under the padding=required profile of scope.md Decision 2 (the RFC's own default): for residue r of N mod 3 (base64) or N mod 5 (base32), the trailing padcount(r) positions of the final tuple hold the constant 0x3D, and padcount(r) > 0 whenever r != 0. padcount is a computed field of the model rather than part of the tuple type, so the unpadded mutant that sets padcount identically to 0 is constructible and is killed. The conclusion holds under that profile and is not stated unconditionally."
+  },
+  {
+   "cid": "A3",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "The base64 and base32 half restates sections 4 and 6 and adds no obligation. The base16 half, that base16 does not need padding, has nothing that could violate it: Table 5 carries no pad entry (unlike Tables 1 to 4, each of which lists a '(pad) =' row) and the base16 quantum is one octet, so the model cannot build a base16 quantum that is partial or that holds a pad position. No mutant exercises the row, so it carries no verification evidence."
+  },
+  {
+   "cid": "A4",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the decoder's symbol-consumption step, under the strict profile of scope.md Decision 2: classify(c) in {InAlphabet, Pad, NonAlphabet} is a total finite map over US-ASCII discharged by enumeration against the 65, 33 or 16 entry table, and classify(c) = NonAlphabet implies the post-state is Reject. The lenient mutant that maps NonAlphabet to Skip is constructible, being the alternative mode of scope.md section 4(c), and is killed. Reported as a split: the per-symbol classification and rejection transition is carried; the other half of the clause, that one offending symbol anywhere in an unbounded encoded string rejects the whole message, needs the string and is not carried."
+  },
+  {
+   "cid": "A5",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded model at scope.md section 4(c): decoder leniency is an explicit state variable, lenient_nonalphabet, defaulting to strict per Decision 2. The permission this row grants a referring specification is that flag's second setting, under which the NonAlphabet transition is Skip rather than Reject, and both settings are reachable. The clause is a permission and has nothing to falsify; what the model realizes is the mode it names, which is why every A4 and A6 conclusion is stated relative to that mode."
+  },
+  {
+   "cid": "A6",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the decoder's symbol-consumption step: classify(0x0D) = classify(0x0A) = NonAlphabet, discharged by enumeration over the 65, 33 and 16 entry tables (neither code appears in any of the five), so CR and LF take exactly the transition A4 and A5 assign any non-alphabet symbol and no line-structure branch exists. Kills the common mutant that strips CRLF unconditionally, including under the strict profile where the clause requires rejection instead."
+  },
+  {
+   "cid": "A7",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B5",
+   "core": false,
+   "reason": "'if it is present before the end of the encoded data' is a positional predicate over an unbounded character sequence. scope.md section 3 declines to import stream position and section 2 lists this clause by name as part of what that refusal costs. The three-way classifier can say a symbol is the pad symbol; it cannot say where in the stream that symbol sits."
+  },
+  {
+   "cid": "A8",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B5",
+   "core": false,
+   "reason": "'more than the allowed number of pad characters is found at the end of the string' requires counting trailing symbols of the output stream and comparing that count against the allowed one. The model carries padcount as a field of a single quantum, not as a count over a stream tail, so the excess this row permits ignoring cannot be constructed."
+  },
+  {
+   "cid": "A9",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract postcondition on the final-quantum emission step: the fill subfield of the last data symbol has value zero. That subfield is a named fixed-width region carried by scope.md section 4(b), of width 4 for base64 residue 1 and 2 for residue 2, and of widths 2, 4, 1 and 3 for base32 residues 1 to 4. Its value is model state, so the mutant that emits 'Zh==' rather than 'Zg==' for input 'f' is constructible and is killed."
+  },
+  {
+   "cid": "A10",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the final-quantum step in two enumerable parts. With the fill subfield pinned to zero, the map from a partial group's data bits to its symbol tuple is injective within each residue class, 2^k patterns to 2^k tuples, discharged by enumeration over the alphabet table. With scope.md section 4(c)'s reject_nonzero_padbits flag clear, each decoded value acquires a collision family of size 2^w over the fill subfield, 16 for base64 residue 1 and 4 for residue 2, which is the per-quantum form of 'multiple base-encoded strings can be decoded to the same binary data'. Reported as a split: the stream-level half, that a whole input has exactly one encoding, needs an induction over the segmentation of an unbounded output and is not carried."
+  },
+  {
+   "cid": "A11",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded model at scope.md section 4(c): reject_nonzero_padbits is an explicit state variable with a strict default. Set, the decode step's post-state on a quantum whose fill subfield is non-zero is Reject; clear, A10's collision family is reachable. The clause is a permission with nothing to falsify, so what is realized is the mode it names, and every pad-bit conclusion is stated relative to that mode."
+  },
+  {
+   "cid": "A12",
+   "class": "C1",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by scope.md Decision 2: the two leniency flags of section 4(c) are profile parameters rather than free runtime choices, defaulting to strict, and a referring specification fixing one is exactly the profile being pinned before any conclusion is stated. The model has no notion of a referring document, so what it realizes is the removal of the decoder's discretion, not the act of mandating it."
+  },
+  {
+   "cid": "A13",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the base64 alphabet table: the 64 data entries are pairwise distinct US-ASCII code points within 0x2B to 0x7A, and 0x3D is not among them, so no data value can ever produce the pad character. Discharged by enumeration over 65 constants; the mutant Table1[62] = '=', which would make a pad position ambiguous, is constructible and is killed. The 'six bits per printable character' half is the width of the symbol type and carries no evidence of its own."
+  },
+  {
+   "cid": "A14",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "'4 encoded characters per 24-bit group' is the arity of the model's output tuple, fixed by the type of the quantum step in scope.md section 2, where a quantum is a bit group paired with a 4, 8 or 2 element symbol tuple. The model admits no constructor for a 3 or 5 element base64 tuple, so no mutant exercises the row. The neighbouring content that is not vacuous, which of the four positions hold data and which hold pad, is carried by A2 and A23 to A25."
+  },
+  {
+   "cid": "A15",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on quantum formation: group = o0 * 2^16 + o1 * 2^8 + o2 over the three octets of one quantum, so the byte-reversed mutant that builds o2 * 2^16 + o1 * 2^8 + o0 is constructible and is killed. Only the intra-quantum order is carried; which three octets of an unbounded input form the next group is segmentation and is not."
+  },
+  {
+   "cid": "A16",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the encode-quantum step: s0 = bits[23:18], s1 = bits[17:12], s2 = bits[11:6], s3 = bits[5:0], four consecutive non-overlapping 6-bit slices covering all 24 bits in order, each then passed to the table lookup. The slice indices are model data rather than part of the tuple type, so the reversed-group, rotated and overlapping-slice mutants are all constructible and are killed."
+  },
+  {
+   "cid": "A17",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the symbol-emission step: out = Table1[v] with the 6-bit value v used directly as the index, and range(Table1) contained in printable US-ASCII. The off-by-one index mutant and the non-printable entry mutant are both constructible over the table data and are killed by enumeration over 64 constants."
+  },
+  {
+   "cid": "A18",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the symbol-emission step: for all v in 0..63, emit(v) = Table1[v] as written (A-Z at 0..25, a-z at 26..51, 0-9 at 52..61, '+' at 62, '/' at 63), the entries pairwise distinct, with 0x3D reserved for pad positions. Discharged by enumeration; any single-entry mutation, for instance v = 62 mapped to '-', is killed. This is a universally quantified contract over a finite domain, so its discharge is exhaustive; it is not a set of ground instances and is not counted as one."
+  },
+  {
+   "cid": "A19",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the encoder's end-of-data step: N mod 3 != 0 implies the final-quantum branch is taken and its output tuple carries the partial group's data bits in 2 or 3 data symbols according to the residue. The silent-truncation mutant, which discards the tail and returns an all-pad final unit, is constructible and is killed."
+  },
+  {
+   "cid": "A20",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "'A full encoding quantum is always completed' is the arity of the model's final output tuple, four positions by type. No mutant can return a shorter final tuple, and the unpadded variant is a rendering of the same tuple with trailing pads dropped, which is a stream operation the model does not carry. The content here that is not vacuous, how many of those positions hold 0x3D, belongs to A2 and A23 to A25 and is counted there."
+  },
+  {
+   "cid": "A21",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum emission step: for a partial group of k bits, the k data bits occupy the high-order positions of the padded 6*ceil(k/6)-bit group and the fill occupies the low-order 6*ceil(k/6) - k bits. Placement is model data, so the left-fill mutant, which right-aligns the data and changes every final data symbol (input 'f' becoming 'Bm==' rather than 'Zg=='), is constructible and is killed. This row fixes where the fill sits; A9 fixes its value."
+  },
+  {
+   "cid": "A22",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the final-quantum emission step: a pad position renders as the constant 0x3D and nothing else, the '(pad) =' entry of Table 1. That constant is table data, so the mutant that pads with '.' or with a space is constructible and is killed."
+  },
+  {
+   "cid": "A23",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step: N mod 3 = 0 implies padcount = 0 and all four positions of the final tuple hold data symbols, hence an output length that is an integral multiple of 4. Presburger on N over an unbounded input length; the mutant that appends '=' to a full quantum is constructible and is killed."
+  },
+  {
+   "cid": "A24",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 3 = 1 implies exactly 2 data symbols followed by exactly 2 pad positions. padcount is a computed field, so the mutants emitting one '=' or three are constructible and are killed by the residue-indexed postcondition."
+  },
+  {
+   "cid": "A25",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 3 = 2 implies exactly 3 data symbols followed by exactly 1 pad position. The residue-indexed postcondition kills any other pad count, and the case split on N mod 3 is total over unbounded N."
+  },
+  {
+   "cid": "A26",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "The constrained artifact is a judgment a producer or reader makes about two encodings being the same, expressed in documentation or an API surface rather than in any encoded quantum, symbol or length. No contract, model or check block in this fragment ranges over what an implementation considers its own output to be, and no state that could be added would change that, since nothing about the label is ever emitted into the encoded data."
+  },
+  {
+   "cid": "A27",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "The constrained artifact is a name a producer attaches to its output. It is out of reach for the same reason as A26 and for a reason no amount of extra state repairs: the label lives outside the encoded data entirely, so there is no tool in this pipeline whose domain contains it."
+  },
+  {
+   "cid": "A28",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract relating the two codec instances: for all v in 0..63 other than 62 and 63, Table2[v] = Table1[v], with Table2[62] = 0x2D and Table2[63] = 0x5F, and base64url's quantum width, symbol width and padcount function equal base64's. Discharged by enumeration over the two 65-entry tables plus three parameter equalities. The mutant that keeps '+' at value 62 in Table 2, and the mutant that gives base64url a different padcount function, are both constructible and are killed."
+  },
+  {
+   "cid": "A29",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the base64url symbol-emission step: for all v in 0..63, emit(v) = Table2[v] as written, identical to Table 1 except 62 mapped to '-' (0x2D) and 63 to '_' (0x5F), entries pairwise distinct, 0x3D reserved for pad positions. Discharged by enumeration over 65 constants; the mutant that emits '+' or '/' at 62 or 63, which is the exact confusion section 5 exists to prevent, is killed."
+  },
+  {
+   "cid": "A30",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the base32 alphabet table: the 32 data entries are pairwise distinct US-ASCII code points and 0x3D is not among them, so no data value can produce the pad character. Discharged by enumeration over 33 constants; the mutant Table3[31] = '=' is constructible and is killed. The 'five bits per printable character' half is the width of the symbol type and carries no evidence of its own."
+  },
+  {
+   "cid": "A31",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "'8 encoded characters per 40-bit group' is the arity of the model's base32 output tuple, fixed by the type of the quantum step in scope.md section 2. The model admits no constructor for a 7 or 9 element base32 tuple, so no mutant exercises the row. Which of the eight positions hold data and which hold pad is A2 and A41 to A45, and is counted there."
+  },
+  {
+   "cid": "A32",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on quantum formation: group = o0 * 2^32 + o1 * 2^24 + o2 * 2^16 + o3 * 2^8 + o4 over the five octets of one quantum, so any permutation mutant, byte-reversal included, is constructible and is killed. Only the intra-quantum order is carried; which five octets of an unbounded input form the next group is segmentation and is not."
+  },
+  {
+   "cid": "A33",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the encode-quantum step: for i in 0..7, s_i = bits[39-5i : 35-5i], eight consecutive non-overlapping 5-bit slices covering all 40 bits in order, each then passed to the table lookup. The slice indices are model data, so the reversed-order and misaligned-slice mutants are constructible and are killed."
+  },
+  {
+   "cid": "A34",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the octet-to-bit-group correspondence inside one quantum: the first bit of the stream is the high-order bit of the first octet and the eighth is its low-order bit, which is the identity group = sum over i of o_i * 2^(32-8i). scope.md section 3(a) admits this because the RFC is defining its own bit indexing and the indexing is internal to a fixed-width quantum, not an order imported from outside. The LSB-first mutant, which reverses each octet before slicing, is constructible and changes the symbol tuple for every asymmetric input."
+  },
+  {
+   "cid": "A35",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the symbol-emission step: out = Table3[v] with the 5-bit value v used directly as the index, and range(Table3) contained in {0x32..0x37} union {0x41..0x5A}, the US-ASCII digits 2 to 7 and uppercase letters the sentence names. Discharged by enumeration over 32 constants, which kills the lowercase-encoder-table mutant. Decoder acceptance of lowercase remains the case_fold flag of scope.md Decision 1, default off, and this conclusion is stated under that case discipline."
+  },
+  {
+   "cid": "A36",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the base32 symbol-emission step: for all v in 0..31, emit(v) = Table3[v] as written (A-Z at 0..25, '2'-'7' at 26..31), entries pairwise distinct, 0x3D reserved for pad positions. Discharged by enumeration over 33 constants; any single-entry mutation, including the tempting one that inserts '0' or '1' into the alphabet, is killed."
+  },
+  {
+   "cid": "A37",
+   "class": "C1",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the encoder's end-of-data step: N mod 5 != 0 implies the final-quantum branch is taken and its output tuple carries the partial group's data bits in 2, 4, 5 or 7 data symbols according to the residue. The silent-truncation mutant, which drops the tail, is constructible and is killed."
+  },
+  {
+   "cid": "A38",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "'A full encoding quantum is always completed' is the arity of the model's final base32 tuple, eight positions by type. No mutant returns a shorter final tuple, and the unpadded variant is a rendering of the same tuple with trailing pads dropped, a stream operation the model does not carry. The pad count itself is A2 and A41 to A45."
+  },
+  {
+   "cid": "A39",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum emission step: for a partial group of k bits, the k data bits occupy the high-order positions of the padded 5*ceil(k/5)-bit group and the fill occupies the low-order 5*ceil(k/5) - k bits. Placement is model data, so the left-fill mutant, which changes the final data symbols for every input whose length is not a multiple of five, is constructible and is killed. This row fixes where the fill sits; A9 fixes its value."
+  },
+  {
+   "cid": "A40",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the base32 final-quantum emission step: a pad position renders as the constant 0x3D and nothing else, the '(pad) =' entry of Table 3. That constant is table data, so a mutant padding with any other character is constructible and is killed."
+  },
+  {
+   "cid": "A41",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step: N mod 5 = 0 implies padcount = 0 and all eight positions of the final tuple hold data symbols, hence an output length that is an integral multiple of 8. Presburger on N; the mutant that appends '=' to a full 40-bit quantum is constructible and is killed."
+  },
+  {
+   "cid": "A42",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 5 = 1 implies exactly 2 data symbols followed by exactly 6 pad positions. padcount is a residue-indexed computed field, so every other pad count is a constructible mutant and is killed."
+  },
+  {
+   "cid": "A43",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 5 = 2 implies exactly 4 data symbols followed by exactly 4 pad positions. The residue-indexed postcondition kills any other count, including the base64-shaped confusion of two pads."
+  },
+  {
+   "cid": "A44",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 5 = 3 implies exactly 5 data symbols followed by exactly 3 pad positions. The five cases partition the residue classes of N mod 5 totally, so no input escapes the case analysis."
+  },
+  {
+   "cid": "A45",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the final-quantum step, padding=required profile of Decision 2: N mod 5 = 4 implies exactly 7 data symbols followed by exactly 1 pad position. The residue-indexed postcondition kills any other count."
+  },
+  {
+   "cid": "A46",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "Same shape as A26. The row constrains whether a reader regards base32hex as base32, which is a judgment about naming held outside the encoded data. Nothing in this fragment has that judgment in its domain, and adding state would not put it there."
+  },
+  {
+   "cid": "A47",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "Same shape as A27. The row constrains a label a producer attaches to its output, which is emitted into documentation rather than into encoded data, so no tool in this pipeline can reach it."
+  },
+  {
+   "cid": "A48",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the base32hex table: for all v < w in 0..31, Table4[v] < Table4[w] as US-ASCII code points, 496 ordered pairs discharged by enumeration (0..9 to 0x30..0x39 and 10..31 to 0x41..0x56, both strictly increasing, with 0x39 < 0x41). The contrast the sentence draws is checkable the same way, base32 breaking at value 25 ('Z', 0x5A) to 26 ('2', 0x32) and base64 at 51 ('z', 0x7A) to 52 ('0', 0x30). Reported as a split: the string-level lifting is not carried, and under scope.md Decision 3 the claim is scoped to equal-length inputs because the unrestricted form is false, since base32hex(0x00) = '00======' sorts above base32hex(0x00 0x00) = '0000====' (0x3D > 0x30) while [0x00] sorts below [0x00, 0x00]."
+  },
+  {
+   "cid": "A49",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract relating the two codec instances: base32hex and base32 share quantum width 40, symbol width 5, and the same padcount function of the residue class N mod 5, and differ only in the table, which is pointwise distinct at all 32 values. Discharged by three parameter equalities plus enumeration over 33 constants; the mutant that gives base32hex a base64-shaped pad count, and the mutant that reuses Table 3 under the base32hex name, are both constructible and are killed."
+  },
+  {
+   "cid": "A50",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the base32hex symbol-emission step: for all v in 0..31, emit(v) = Table4[v] as written ('0'-'9' at 0..9, A-V at 10..31), entries pairwise distinct, 0x3D reserved for pad positions. Discharged by enumeration over 33 constants. Any single-entry mutation is killed, and A48 shows what such a mutation destroys, since this alphabet was added by this revision precisely to make the ordering hold."
+  },
+  {
+   "cid": "A51",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the base16 alphabet table: all 16 entries are printable US-ASCII code points and pairwise distinct, discharged by enumeration; the out-of-range entry mutant and the duplicate-entry mutant are constructible and are killed. The 'four bits per character' half is the width of the symbol type and carries no evidence of its own. Base16 has no pad entry, which is why A3 and A57 exclude rather than restate this."
+  },
+  {
+   "cid": "A52",
+   "class": "C3",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "'2 encoded characters per octet' is the arity of the model's base16 output tuple, fixed by the type of the quantum step. The model admits no constructor for a 1 or 3 element base16 tuple, so no mutant exercises the row. The bit correspondence between the octet and those two positions is A54 and is counted there."
+  },
+  {
+   "cid": "A53",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B5",
+   "core": false,
+   "reason": "With a one-octet quantum there is no intra-quantum ordering left for this sentence to fix, so all of its content is the order in which octets are drawn from an unbounded input sequence, which is segmentation. scope.md section 2 places segmentation outside the boundary and section 3 declines to import sequence position. Contrast A15 and A32, whose three and five octet quanta leave a real intra-quantum concatenation order to contract on."
+  },
+  {
+   "cid": "A54",
+   "class": "C2",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the encode-quantum step: s0 = bits[7:4] and s1 = bits[3:0], two consecutive non-overlapping 4-bit slices covering the octet in order, each passed to the table lookup. The slice indices are model data, so the nibble-swap mutant, which encodes 0x14 as '41' rather than '14', is constructible and is killed."
+  },
+  {
+   "cid": "A55",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": false,
+   "reason": "Contract on the symbol-emission step: out = Table5[v] with the 4-bit value v used directly as the index, and range(Table5) contained in printable US-ASCII 0x30 to 0x46. The off-by-one index mutant and the non-printable entry mutant are constructible over the table data and are killed by enumeration over 16 constants."
+  },
+  {
+   "cid": "A56",
+   "class": "C3",
+   "disposition": "Encoded",
+   "core": true,
+   "reason": "Contract on the base16 symbol-emission step: for all v in 0..15, emit(v) = Table5[v] as written ('0'-'9' at 0..9, A-F at 10..15), entries pairwise distinct. Discharged by enumeration over 16 constants; any single-entry mutation, lowercase output included, is killed. Stated under scope.md Decision 1: the encoder table is uppercase as the RFC writes it, and decoder case folding is the case_fold flag, default off."
+  },
+  {
+   "cid": "A57",
+   "class": "C2",
+   "disposition": "Dispositioned out",
+   "barrier": "B7",
+   "core": false,
+   "reason": "The arithmetic content is that N mod 1 = 0 for every N, so a base16 quantum is never partial. The model has no constructor for a partial base16 quantum, the quantum being one octet and the input an integral number of octets, and Table 5 carries no pad entry, so nothing can violate 'no special padding is necessary'. Excluded under rule 2 rather than counted, even though scope.md section 6 predicted it IN."
+  },
+  {
+   "cid": "A58",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "The predicate is over an implementation's memory behavior during execution, not over any quantum, symbol, length or residue class. scope.md section 4 declines buffer sizes and allocation as properties of an implementation rather than of the encoding, and nothing in this fragment has a heap to reason about. A memory-safety checker is a different tool applied to a different artifact, namely the C code section 11 declares non-normative."
+  },
+  {
+   "cid": "A59",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B5",
+   "core": false,
+   "reason": "Two halves, both out. 'Should not break' is a robustness property of a running implementation with no predicate over encoded data. The NUL half is a statement about a character sitting inside an unbounded input sequence; the classifier settles classify(0x00) = NonAlphabet by enumeration, but that is A4's contract, and this row's own content is what happens when such a character appears anywhere in the input, which is string structure. scope.md section 2 lists this line by name on those grounds."
+  },
+  {
+   "cid": "A60",
+   "class": "C6",
+   "disposition": "Dispositioned out",
+   "barrier": "B3",
+   "core": false,
+   "reason": "'A covert channel is made possible' relates two decoder runs whose ignored characters differ and whose decoded octets agree, an information-flow property over pairs of traces rather than a predicate on any single transition or run. Its carrier is characters inserted at arbitrary positions of an unbounded stream, so unlike A61 and A62 the channel has no bounded width the model could compute, and admitting a skipped symbol into a quantum would require re-segmenting the stream. scope.md section 4(a) records this passage as the reason the three-way classifier is carried; the classifier discharges A4, not this row."
+  },
+  {
+   "cid": "A61",
+   "class": "C3",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded model at scope.md Decision 1: case folding is a decoder profile flag, default off, admitted under the section 4 attacker test citing these exact lines. Set, the decoder's symbol map becomes 2-to-1 on the 26 letters of Table 3, the 22 of Table 4 and the 6 of Table 5, an enumerable collision family that is the channel this row warns about, bounded per symbol inside a quantum. Clear, the map is injective and no channel exists. The leak claim itself, that the variation carries information across runs, is a two-trace property and is not carried. This row is dispositioned more generously than scope.md's section 6 matrix line for L754-768 predicted; the departure is recorded here rather than smoothed over, and what is realized is the modeled carrier, not the advisory clause."
+  },
+  {
+   "cid": "A62",
+   "class": "C2",
+   "disposition": "Deployment-modeled",
+   "core": false,
+   "reason": "Realized by the recorded model at scope.md section 4(b): the fill region of a final quantum is carried as a valued fixed-width subfield rather than only as a width, admitted under the section 4 attacker test citing these exact lines. The model therefore exhibits the channel and its exact capacity, 4 free bits for a base64 residue-1 quantum and 2 for residue 2, and 2, 4, 1 and 3 bits for base32 residues 1 to 4, reachable only with section 4(c)'s reject_nonzero_padbits flag clear. What is not carried is the leak claim itself, a relation between two runs. As with A61 this is more generous than scope.md's section 6 matrix line for L754-768, and the departure is recorded rather than absorbed: the clause stays out, the state it motivates is what the model realizes."
+  },
+  {
+   "cid": "A63",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "The predicate is computational confidentiality, a statement about what an adversary with bounded resources can recover, which belongs to a game-based cryptographic framework. This fragment holds finite enumerated domains, bitvectors of at most 40 bits and Presburger arithmetic on length, and none of them expresses an adversary, a distribution or a security parameter. B4 was considered and rejected: the transform is not opaque here, since all five tables are enumerated in full. What is out of reach is the predicate, not the primitive."
+  },
+  {
+   "cid": "A64",
+   "class": "C4",
+   "disposition": "Dispositioned out",
+   "barrier": "B8",
+   "core": false,
+   "reason": "Entropy, the volume of available plaintext and 'a characteristic probability distribution' are properties of a distribution over inputs, not of any quantum, symbol, length or residue class. Nothing in this fragment quantifies over distributions, and adding state would not help, because the missing object is a probability space rather than a field of the model. As with A63, B4 does not apply: the transform is fully enumerated and the obstruction is the predicate."
+  }
+ ]
+}
