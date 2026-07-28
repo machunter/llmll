@@ -2141,7 +2141,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 
 ### Grammar Key Rules
 
-1. **No return-type annotation.** There is no `: ReturnType` after `[params]` in `def` / `def-shell`. Return types are always inferred.
+1. **Return-type annotation is optional, and its form is the arrow.** There is no `: ReturnType` after `[params]`; the form is `-> RetType`, placed immediately after the parameter brackets and before the contract clauses (the `[ ARROW type ]` element in the `def` and `def-shell` productions above). Omit it and the return type is inferred; declare it and the body is checked against it. See §4.1 for the checking semantics, the bare-hole-body case, and the refinement-aliased return.
 2. **`check` requires exactly one `for-all`.** A bare boolean expression is not valid inside `check`.
 3. **`check` block labels must be valid identifiers.** Labels become Haskell `prop_*` function names. Any character outside `[a-zA-Z0-9]` is automatically replaced with `_` by the compiler. Write labels like `"game-over-false-at-start"` rather than `"game over (initial state)"` — both are accepted but special chars are silently normalized.
 4. **List literals** (`[]`, `[a b c]`) are valid in both S-expression and JSON-AST. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)` — **not** a parameter list. In JSON-AST use `{ "kind": "lit-list", "items": [...] }`.
