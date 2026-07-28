@@ -4,6 +4,115 @@
 
 <a id="Latest"></a>
 
+## v0.14.71: stage G2, the artifact audit; and three checks that were never run (2026-07-28)
+
+Pipeline tooling and CI. No compiler source changed, no schema change, no Haskell test added or
+removed.
+
+### Added, stage G2, the artifact audit against the pinned bytes
+
+- **Nothing checked that a citation resolves.** Driver-spec section 7 makes the driver validate a
+  delegated output against its declared *shape*, which a reason misreading its own quote satisfies
+  perfectly. Section 14 pins the source and requires every later stage to read it, and no check
+  confirmed that any of them did. On RFC 4648 one disposition reason in twenty moved a positional
+  qualifier out of an `unless` exception and into the prohibition, and a person caught it by
+  reading three lines of the file stage A exists to pin, after the run had already halted.
+
+- **The stage runs between the disposition pass and the probes**, not after the gate. A citation
+  that resolves to nothing should not cost forty-five minutes of feasibility probes, and stage J
+  rules on exactly the rows this audit reads.
+
+- **Split by what a machine can decide.** *STOP, mechanical:* the cited document is one that was
+  pinned, the span lies inside it, and the quote's words come from that span. *Reported and never
+  thresholded, mechanical:* a span one line short of its own sentence, and a declared strength
+  absent from the quote. Both of those fire on correct rows, so failing closed on either would
+  demand that a correct row be mangled to pass, which is the reasoning
+  [`scripts/doc_path_lint.py`](scripts/doc_path_lint.py) records for staying advisory.
+  *Delegated:* whether a stated reason describes the clause it cites, which is a reading. The
+  agent returns a catalogue and the driver evaluates it, per section 7.
+
+- **A flag must carry the words it rests on, from both sides, and the driver checks they occur.**
+  A finding it cannot locate in the artifacts is an assertion, and section 6 forbids a gate to
+  rest on one. A misread reason on a **characteristic-core** row is a STOP, because that is
+  precisely the unevidenced input stage J would otherwise rule on.
+
+- **The mechanical test is token coverage, and the threshold is measured rather than chosen.**
+  Building this corrected an assumption in the RFC 4648 write-up, which reported "quote appears
+  verbatim within its cited line span, 64/64" as though a substring test would reproduce it. It
+  does not: against the committed TFTP census and the real RFC 1350 bytes a substring test fails
+  **22 of 113 correct rows**, because a census abbreviates a long clause with an ellipsis and
+  flattens a multi-line packet diagram onto one line. Token coverage separates instead: every true
+  citation scores **≥ 0.875**, and the same quotes against 6655 same-width wrong spans reach
+  **0.500** at the 99th percentile, mean 0.086, with the band [0.833, 0.875] empty. 1.02% of wrong
+  spans still clear the floor, so this catches a citation that plainly does not resolve and is not
+  a detector of subtle misplacement; the docstring says so rather than leaving the miss rate to be
+  discovered.
+
+- **Replayed over the committed TFTP census and the real RFC 1350 bytes**, it resolves 109/109
+  citations, reports the 6 spans that are one line short, and passes. Sections 7 and 14 carry the
+  requirement, playbook stage G2 carries the procedure, and both forward-looking lists are updated.
+  **Not established:** it has never seen a live run.
+
+### Fixed, the self-test skipped the one gate condition its own data fails
+
+- **Gate J has three conditions and `--self-test` evaluated two.** The third, an exclusion citing
+  no barrier from the closed list, is not evaluable on the TFTP artifact: the closed list postdates
+  that run, so none of its **53 exclusions carries a `barrier` field**. The per-barrier tally
+  exists as prose in `VERIFICATION_SCOPE.md` and never as data, so "zero exclusions outside the
+  closed barrier list" was tallied by hand and cannot be checked from the artifact. Replayed
+  through the shipped driver, that ledger fails `check_dispositioned` and then STOPs at the gate.
+
+- **A skipped condition let a green self-test report a pinned mechanical spine** while the one
+  condition that would fire on its own data went unevaluated. That is a gate kept green by its own
+  blind spot, the same shape as the stage that was skipped whenever its outputs existed. The zero
+  is now asserted, so the ledger gaining barriers fails the pin and forces it to be re-taken, and
+  the gap is printed rather than absent.
+
+- **`--self-test` was in no CI job and no test invoked it**, so figures it pins to the first real
+  run were only ever checked by hand. A pytest now runs it and asserts both coverage gaps are
+  stated, which puts it in the fast `version-gate` job through the existing pytest step. Stage G2
+  is pinned in the half needing no source bytes: three canonical rows declare a strength their own
+  quote does not contain (T117-T119, all citing RFC 1123's requirements-summary table), which pins
+  the reason that check reports instead of halting.
+
+### Fixed, the refute-crux gate had no verdict kind for a capability violation
+
+- **A program the type checker rejected counted as one the solver disproved.** The script knew
+  `safe` and `refuted` only, and filed a capability violation as `refuted` because the branch
+  greps for `error:`. Both kinds print `error:` and exit 1, so the suite would have gone on
+  reporting a green refutation after the solver stopped being reached at all.
+
+- **`capability` matches the missing-capability diagnostic** rather than a bare error, and
+  optionally the capability it names; `refuted` now rejects that diagnostic explicitly, so the two
+  cannot drift back together. `crux-shell-undeclared-authority` moves to the new kind. Checked
+  rather than assumed: relabelling it `refuted` turns the gate red, and no existing case emits a
+  capability diagnostic, so the eleven `examples/` families are unaffected.
+
+### Fixed, the retired `B7` test, annotated where it still governs
+
+- Amendment 1 replaced `B7`'s test on 2026-07-27 and updated the driver, the stage-G prompt and the
+  playbook. Two frozen records still carry the retired form, and each gets a **dated note rather
+  than a rewrite**. `VERIFICATION_SCOPE.md`'s barrier table stays as written because it records the
+  list in force for that run; its single `B7` row clears the corrected criterion anyway.
+
+- **ARP's four retired-phrasing `B7` rows, re-read: three clear the corrected criterion and `A63`
+  does not.** It rests on `MD2`, a decision that run made about what to model, where the
+  replacement admits only the declared types or named sibling rows. No disposition moves and the
+  exclusion may well stand under `B2`; deciding that is a re-disposition, which a later reading
+  does not do to a frozen ledger.
+
+- **That answers half of an open question without a fourth run**, and sharpens the rest. Six of
+  eight on RFC 4648 and three of four on ARP named what entails them unprompted. `A63`'s failure
+  mode is not "named no entailment" but "named one, from the wrong kind of thing", which a prompt
+  demanding an entailment gets either way. Both forward-looking lists say so.
+
+**Gates:** DRIFT-CI-1 pass, DRIFT-DOC-3 pass, DRIFT-DOC-4 clean (508 prose citations across 132
+living files, all resolve), refute-crux gate 58 passed / 0 failed, driver `--self-test` pass,
+harness pytest 106 passed (91 to 106, +15). Haskell test count unchanged; no compiler source in
+this cut.
+
+---
+
 ## v0.14.70: the driver's own spec verified in LLMLL; gate J halts a run for the first time (2026-07-28)
 
 Tooling, experiment records and CI. No compiler source changed, no schema change, no Haskell test
