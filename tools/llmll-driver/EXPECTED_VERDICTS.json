@@ -2,40 +2,160 @@
   "family": "llmll-driver",
   "frozen_at": "v0.14.69",
   "frozen_date": "2026-07-27",
-  "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). The proved tier of experiments/rfc-swarm/targets/driver-spec.txt section 15.1: the stage model, the skip decision, gate outcomes, the fill acceptance criterion, token lifetime, the separation of retry budgets, and the liveness predicate of section 12. Five of the eight cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. NOTE: scripts/refute-crux-gate.sh currently discovers suites under examples/ only, so this suite is not yet wired into `make refute-crux-gate`.",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). driver-spec.txt section 15.1 (proved tier) and section 15.2 (asserted tier). Five of the cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. TWO REASONS THIS SUITE IS NOT YET WIRED INTO `make refute-crux-gate`: (1) scripts/refute-crux-gate.sh discovers suites under examples/ only; (2) it copies ONE file per case into a temp dir, which breaks shell.llmll and crux-shell-undeclared-authority.llmll, both of which import sibling modules. Wiring needs a whole-directory copy. A third gap is vocabulary: the script knows `safe` and `refuted` only, and a capability violation is neither, so crux-shell-undeclared-authority is recorded as `refuted` because the script greps for `error:`, though it fails at type-check rather than at the solver.",
   "cases": [
-    { "file": "stage.llmll",    "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-    { "file": "skip.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-    { "file": "gate.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-    { "file": "fill.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-    { "file": "liveness.llmll", "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-    { "file": "token.llmll",    "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
-
-    { "file": "twin-skip-reassociated.llmll", "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe",
-      "why": "good twin: the same skip decision with the conjunction reassociated, guarding against an over-strong contract" },
-
-    { "file": "crux-stage-error-as-stopped.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "record-outcome",
-      "why": "section 4: an error recorded as stopped lets a run killed by a network fault read as a gate that fired, which the spec calls the one confusion this pipeline cannot afford" },
-
-    { "file": "crux-skip-presence-only.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "may-skip",
-      "why": "SHIPPED DEFECT: a stage was skipped whenever its outputs existed, so a failed freeze gate was bypassed by its own report (SUMMARY.md, second-run defect 5)" },
-
-    { "file": "crux-gate-coverage-threshold.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "gate-halts",
-      "why": "SHIPPED INSTRUMENT: the exclusion-ratio ceiling retired by rfc-swarm-coverage-review.md F-1, which measured the target document's genre composition rather than the verifier's reach" },
-
-    { "file": "crux-gate-single-remedy.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "remedy-for",
-      "why": "CURRENT BEHAVIOUR: scripts/rfc_to_implementation.py emits 'the target is re-scoped, not re-graded' for every barrier class. Refuting this is the spec being ahead of the code, per driver-spec section 6 as rewritten from the RFC 4648 STOP" },
-
-    { "file": "crux-fill-contention-eats-budget.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "next-error-budget",
-      "why": "section 9: contention consuming the error budget makes a hole's finding depend on how many peers happened to patch first" },
-
-    { "file": "crux-fill-accepts-assumed.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "fill-accepted",
-      "why": "section 9: accepting a fill whose post was assumed rather than proved from its own body" },
-
-    { "file": "crux-liveness-log-only.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "advancing",
-      "why": "SHIPPED DEFECT: --status judged advancement from run.log, which cannot move while a delegated stage is in progress, so a healthy run read as stalled (fixed 0e131a1)" },
-
-    { "file": "crux-token-held-across-call.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "token-during",
-      "why": "SHIPPED DEFECT: the checkout token held across the whole agent call wedged fourteen holes and lost one fill on the first wave (SUMMARY.md, second-run defect 4)" }
+    {
+      "file": "stage.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "skip.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "gate.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "fill.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "liveness.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "token.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe"
+    },
+    {
+      "file": "twin-skip-reassociated.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 0,
+      "expect": "safe",
+      "why": "good twin: the same skip decision with the conjunction reassociated, guarding against an over-strong contract"
+    },
+    {
+      "file": "crux-stage-error-as-stopped.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "record-outcome",
+      "why": "section 4: an error recorded as stopped lets a run killed by a network fault read as a gate that fired, which the spec calls the one confusion this pipeline cannot afford"
+    },
+    {
+      "file": "crux-skip-presence-only.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "may-skip",
+      "why": "SHIPPED DEFECT: a stage was skipped whenever its outputs existed, so a failed freeze gate was bypassed by its own report (SUMMARY.md, second-run defect 5)"
+    },
+    {
+      "file": "crux-gate-coverage-threshold.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "gate-halts",
+      "why": "SHIPPED INSTRUMENT: the exclusion-ratio ceiling retired by rfc-swarm-coverage-review.md F-1, which measured the target document's genre composition rather than the verifier's reach"
+    },
+    {
+      "file": "crux-gate-single-remedy.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "remedy-for",
+      "why": "CURRENT BEHAVIOUR: scripts/rfc_to_implementation.py emits 'the target is re-scoped, not re-graded' for every barrier class. Refuting this is the spec being ahead of the code, per driver-spec section 6 as rewritten from the RFC 4648 STOP"
+    },
+    {
+      "file": "crux-fill-contention-eats-budget.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "next-error-budget",
+      "why": "section 9: contention consuming the error budget makes a hole's finding depend on how many peers happened to patch first"
+    },
+    {
+      "file": "crux-fill-accepts-assumed.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "fill-accepted",
+      "why": "section 9: accepting a fill whose post was assumed rather than proved from its own body"
+    },
+    {
+      "file": "crux-liveness-log-only.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "advancing",
+      "why": "SHIPPED DEFECT: --status judged advancement from run.log, which cannot move while a delegated stage is in progress, so a healthy run read as stalled (fixed 0e131a1)"
+    },
+    {
+      "file": "crux-token-held-across-call.llmll",
+      "flags": [
+        "--strict-verified-core"
+      ],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "localized": "token-during",
+      "why": "SHIPPED DEFECT: the checkout token held across the whole agent call wedged fourteen holes and lost one fill on the first wave (SUMMARY.md, second-run defect 4)"
+    },
+    {
+      "file": "shell.llmll",
+      "flags": [],
+      "expect_exit": 0,
+      "expect": "safe",
+      "cross_module": true,
+      "why": "section 15.2 asserted tier: every effect reached through a declared capability or the Host interface; each function's authority is minimal and finish-stage inherits the union of its callees"
+    },
+    {
+      "file": "crux-shell-undeclared-authority.llmll",
+      "flags": [],
+      "expect_exit": 1,
+      "expect": "refuted",
+      "cross_module": true,
+      "why": "section 15.2: writes the filesystem while importing only wasi.io. Fails at TYPE-CHECK, not at the solver, which is the point: authority is enforced rather than declared"
+    }
   ]
 }

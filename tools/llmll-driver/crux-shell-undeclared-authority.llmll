@@ -1,0 +1,19 @@
+(module crux-shell-undeclared-authority
+  ;; Section 15.2: effects MUST be reached only through a DECLARED
+  ;; capability. This module writes to the filesystem while importing only
+  ;; wasi.io, so its authority exceeds its declaration. If the capability
+  ;; were advisory rather than enforced this would compile.
+  (import wasi.io (capability stdout :deterministic false))
+  (import stage)
+  (open stage)
+
+  (def status-line [s: Status] -> string
+    (match s
+      ((Complete) "complete")
+      ((Stopped) "stopped")
+      ((Failed) "failed")
+      ((Pending) "pending")))
+
+  (def-shell record-transition [o: Outcome path: string]
+    (pair (record-outcome o)
+          (wasi.fs.write path (status-line (record-outcome o))))))

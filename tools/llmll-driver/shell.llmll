@@ -1,0 +1,59 @@
+(module shell
+  ;; driver-spec.txt section 15.2, the asserted tier.
+  ;;
+  ;; Effects are reached only through a declared capability or through the
+  ;; Host interface declared below. Nothing here is proved: the tier is
+  ;; type-checked, its authority is bounded, and every function in it falls
+  ;; back from body-faithful verification, which is what keeps a
+  ;; runtime-enforced obligation from being reported as a proved one.
+
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.fs (capability read-write "/rfc-swarm-runs"))
+
+  (import stage)    (open stage)
+  (import skip)     (open skip)
+  (import liveness) (open liveness)
+
+  ;; Section 15.2 names six effectful operations. Two have shipped
+  ;; capabilities (files, diagnostics). The rest have none, so they enter
+  ;; as a named interface declared in the program, which the section
+  ;; permits explicitly.
+  (def-interface Host
+    [fetch-source (fn [url: string] -> string)]
+    [now-seconds  (fn [] -> int)]
+    [spawn-agent  (fn [command: string] -> int)]
+    [await-agent  (fn [pid: int] -> int)])
+
+  (def status-line [s: Status] -> string
+    (match s
+      ((Complete) "complete")
+      ((Stopped) "stopped")
+      ((Failed) "failed")
+      ((Pending) "pending")))
+
+  ;; Section 4: the manifest is written after every stage transition.
+  (def-shell record-transition [o: Outcome path: string]
+    (pair (record-outcome o)
+          (wasi.fs.write path (status-line (record-outcome o)))))
+
+  ;; Section 4: a halt MUST NOT be silent.
+  (def-shell announce-halt [o: Outcome]
+    (pair (record-outcome o)
+          (wasi.io.stdout (status-line (record-outcome o)))))
+
+  ;; Section 5: the skip decision is pure; only the artifact read is not.
+  (def-shell load-artifact [path: string]
+    (wasi.fs.read path))
+
+  ;; Section 12: the liveness predicate is pure. Reporting it is not.
+  (def-shell report-liveness [newest: int log-age: int threshold: int]
+    (pair (advancing newest log-age threshold)
+          (wasi.io.stdout "status")))
+
+  ;; Section 15.2 requires the report to be an over-approximation of the
+  ;; capabilities reachable THROUGH THE CALL GRAPH, not of a function's own
+  ;; direct effects. This one performs no effect itself; its authority is
+  ;; entirely inherited from the two shells it calls.
+  (def-shell finish-stage [o: Outcome path: string]
+    (pair (record-transition o path)
+          (announce-halt o))))
