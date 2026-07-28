@@ -50,8 +50,11 @@ import System.Directory (removeFile, doesFileExist)
 
 -- | Build a simple ModuleEnv from a module path and statements, with no
 -- imported modules (empty base env).
+-- FQ-RESULT-SORT-1: empty tau_ret map. Every fixture built through this helper
+-- declares its returns explicitly, so tau_ret falls back to the annotation and
+-- these envs are unchanged by the result-sort fix.
 mkEnv :: ModulePath -> [Statement] -> ModuleEnv
-mkEnv path stmts = buildModuleEnv path stmts emptyEnv
+mkEnv path stmts = buildModuleEnv path stmts Map.empty emptyEnv
 
 -- | A simple def-logic that returns its parameter.
 defLogic :: T.Text -> [(T.Text, Type)] -> Maybe Type -> Expr -> Statement
@@ -584,8 +587,12 @@ moduleSpec = describe "Module System" $ do
           case result of
             Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
             Right (cache, _ord, env) ->
+              -- FQ-RESULT-SORT-1: empty tau_ret map keeps this xmod-ag harness on the
+              -- pre-change sort derivation (every fixture here declares its returns),
+              -- so the assertions below are unaffected by the result-sort fix.
               emitFixpointWithCache (EmitOptions True Nothing)
-                (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache (meStatements env)
+                (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache Map.empty
+                (meStatements env)
 
     it "XMOD-AG-OPEN: opened-import caller (double) is body-faithful, not a fallback" $ do
       er <- emitWithCacheOf "use_double"
@@ -677,6 +684,24 @@ moduleSpec = describe "Module System" $ do
           _               -> Nothing
         objStr _ _          = Nothing
 
+    it "FQRS-9: an imported UNANNOTATED bool callee sorts its call-result binder at bool" $ do
+      -- FQ-RESULT-SORT-1 stage (b). 'seedImportedContracts' rebuilds an imported
+      -- ContractEnv from 'meStatements', not from 'meContracts', so before the fix
+      -- the raw (absent) annotation was the only cross-module return-type signal
+      -- and '_bv_call_is_big_0' was emitted at FQInt against a bool 'result'.
+      -- tau_ret now rides across on 'meRetTypes', populated by the loader typecheck.
+      let fxRoot = "test/fixtures/fq-result-sort"
+      result <- loadModule GrammarCoreInversion False fxRoot [] Map.empty [] ["consumer"]
+      case result of
+        Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+        Right (cache, _ord, env) -> do
+          er <- emitFixpointWithCache (EmitOptions True Nothing)
+                  (fxRoot ++ "/consumer.llmll") cache Map.empty (meStatements env)
+          let fq = erFQText er
+          fq `shouldSatisfy`    T.isInfixOf "_bv_call_is_big_0 : { v : bool"
+          fq `shouldNotSatisfy` T.isInfixOf "_bv_call_is_big_0 : { v : int"
+          erBodyFaithfulFns er `shouldSatisfy` elem "g"
+
     it "XMOD-CG-OPEN: opened-import callee (double) reaches the brief with a real tier" $ do
       (cache, stmts) <- loadEntry "use_double"
       let guars = consumedOf cache stmts "use-double"
@@ -729,7 +754,7 @@ moduleSpec = describe "Module System" $ do
             [ "(def double [x: int] -> int"
             , "  (pre (>= x 0))"
             , "  (post (= result (+ x x)))"
-            , "  (+ x x))" ])) emptyEnv
+            , "  (+ x x))" ])) Map.empty emptyEnv
         names = map (\(n, _, _, _) -> n)
 
     it "XMOD-SCOPE-OPEN: an opened import is listed under its bare name" $ do
@@ -754,7 +779,7 @@ moduleSpec = describe "Module System" $ do
             buildModuleEnv ["lib"] (parseSrc (T.unlines
               [ "(export pub)"
               , "(def pub [x: int] -> int (post (>= result 0)) x)"
-              , "(def priv [x: int] -> int (post (>= result 0)) x)" ])) emptyEnv
+              , "(def priv [x: int] -> int (post (>= result 0)) x)" ])) Map.empty emptyEnv
           entry = parseSrc "(import lib)\n(open lib)"
       names (importedContractedFns entry cache') `shouldBe` ["pub"]
 
@@ -762,7 +787,7 @@ moduleSpec = describe "Module System" $ do
       let cache' = Map.singleton ["lib"] $
             buildModuleEnv ["lib"] (parseSrc (T.unlines
               [ "(def f [x: int] -> int (post (>= result 0)) x)"
-              , "(def g [x: int] -> int (post (>= result 0)) x)" ])) emptyEnv
+              , "(def g [x: int] -> int (post (>= result 0)) x)" ])) Map.empty emptyEnv
           entry = parseSrc "(import lib)\n(open lib (f))"
       names (importedContractedFns entry cache') `shouldMatchList` ["f", "lib.g"]
 

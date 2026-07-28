@@ -322,10 +322,20 @@ buildMeasureMap stmts = Map.fromList
 -- Supersedes the dead v0.10 'buildContractEnvWithImports', which unioned RAW,
 -- bare-only 'meContracts' (never desugared, never qualified) and was never
 -- called.
+-- FQ-RESULT-SORT-1 stage (b): this path REBUILDS the imported ContractEnv from
+-- 'meStatements' rather than reading 'meContracts', so the raw optional annotation
+-- used to be the only return-type signal available cross-module: a call to an
+-- imported unannotated non-int-returning callee sorted its call-result binder at
+-- FQInt. Override the third slot from the imported module's own recorded tau_ret
+-- ('meRetTypes', populated by the loader's typecheck) before dual-keying, so both
+-- the bare and qualified entries carry it.
 seedImportedContracts :: AliasMap -> ModuleCache -> ContractEnv
 seedImportedContracts am cache =
   Map.unions
-    [ let bare      = buildContractEnvWith am (meStatements menv)
+    [ let bare0     = buildContractEnvWith am (meStatements menv)
+          bare      = Map.mapWithKey
+                        (\n (ps, c, mr) -> (ps, c, effRet (meRetTypes menv) n mr))
+                        bare0
           prefix    = T.intercalate "." (mePath menv) <> "."
           qualified = Map.mapKeys (prefix <>) bare
       in Map.union bare qualified
@@ -377,16 +387,39 @@ emitFixpoint :: FilePath -> [Statement] -> IO EmitResult
 emitFixpoint = emitFixpointWith defaultEmitOptions
 
 -- | Emit constraints with explicit options (single-file: empty module cache).
+-- FQ-RESULT-SORT-1: the no-cache wrapper passes an EMPTY tau_ret map, so every
+-- unannotated definition reaching it keeps the pre-change FQInt default. That is
+-- today's behavior, not a regression, but it is also not the fix: the three synthetic
+-- callers (weakness-check, CDP candidate, diverge-fill) run their own typecheck and
+-- must supply their own map. Wiring those is stage (b); see
+-- docs/design/finding-fq-result-sort-default.md "Affected surface".
 emitFixpointWith :: EmitOptions -> FilePath -> [Statement] -> IO EmitResult
-emitFixpointWith opts srcFile = emitFixpointWithCache opts srcFile Map.empty
+emitFixpointWith opts srcFile = emitFixpointWithCache opts srcFile Map.empty Map.empty
 
 -- | xmod-ag: emit constraints with an explicit module cache, so a caller of an
 -- IMPORTED contracted function verifies body-faithful (assume-guarantee against
 -- the imported contract) instead of falling back to contract-only. Empty cache
 -- ⇒ identical to the single-file path ⇒ byte-identical .fq (every union below
 -- degenerates to the identity).
-emitFixpointWithCache :: EmitOptions -> FilePath -> ModuleCache -> [Statement] -> IO EmitResult
-emitFixpointWithCache opts srcFile cache stmts = do
+-- | FQ-RESULT-SORT-1: the effective return type tau_ret(f) = mRet |> tau_body.
+-- A declared annotation always wins; absent one, the checker's synthesized body type
+-- is used. Substituting at the 'emitFnConstraints' boundary (rather than editing each
+-- of the five 'maybe FQInt sortA1 mRet' sites and the two admissibility guards
+-- separately) is deliberate: every consumer inside reads the same 'mRet', so one
+-- substitution fixes the sort derivation AND makes 'sigPairUnsafe' /
+-- 'resultReturnUnsafe' evaluate against the real return type instead of failing open
+-- on 'Nothing' (GUARD-EFFECTIVE). Sound for the two non-sort consumers as well:
+-- 'augmentContractPost' folds only refinement ALIASES, which are annotation-only and
+-- never synthesized, and 'bytesLenOf' can only match a declared 'bytes[n]' since
+-- 'bytes-zero' already requires a declared return (LEVER-A0).
+-- A synthesized 'TVar "?"' still lowers to FQInt here, i.e. today's behavior; the
+-- HOLE-RET guard that routes it to a fallback is stage (c), not this change.
+effRet :: Map Name Type -> Name -> Maybe Type -> Maybe Type
+effRet _        _    r@(Just _) = r
+effRet retTypes name Nothing    = Map.lookup name retTypes
+
+emitFixpointWithCache :: EmitOptions -> FilePath -> ModuleCache -> Map Name Type -> [Statement] -> IO EmitResult
+emitFixpointWithCache opts srcFile cache retTypes stmts = do
   let aliases = cacheAwareAliasMap stmts cache
   -- xmod-ag: the DATATYPE-DECL scan (only) widens to imported statements, so an
   -- assumed imported post mentioning a Pair2/Result constructor has its decl in
@@ -395,7 +428,22 @@ emitFixpointWithCache opts srcFile cache stmts = do
   let dataScanStmts = stmts ++ concatMap meStatements (Map.elems cache)
   -- xmod-ag: seed the body-VC ContractEnv with imported contracts (dual-keyed,
   -- desugared against the merged alias map). Entry contracts shadow imports.
-  let cenv = cacheAwareContractEnv aliases stmts cache
+  -- FQ-RESULT-SORT-1: the ContractEnv's third slot is the callee return type that
+  -- 'calleeRetSort' uses to sort a call-result binder (_bv_call_<f>_N). Fixing only
+  -- the definition-site 'result' binder is not enough: a call to an unannotated
+  -- non-int-returning callee (including a SELF-recursive call) still emitted that
+  -- binder at FQInt, so the body VC equated a bool 'result' with an int call result
+  -- and liquid-fixpoint refused it. Override the slot with tau_ret here rather than
+  -- threading a parameter through 'buildContractEnvWith', which is also consumed by
+  -- the checkout-brief path (xmod-cg-brief) and must keep its signature.
+  -- 'retTypes' is ENTRY-module only, so an imported callee keeps its declared mRet
+  -- and today's behavior; carrying tau_ret across 'meContracts' is stage (b).
+  -- 'synthRet' is deliberately left in place: it is the fallback for ContractEnv
+  -- builders that receive no tau_ret, and retiring it here would regress the R1
+  -- bool-ret-synth fix (v0.14.14) on those paths.
+  let cenv = Map.mapWithKey
+               (\n (ps, c, mr) -> (ps, c, effRet retTypes n mr))
+               (cacheAwareContractEnv aliases stmts cache)
       measureMap = buildMeasureMap stmts   -- REC-DESCENT: name → (params, k=1 measure)
       callGraph = buildCallGraph stmts
       sccs = stronglyConnComp
@@ -478,20 +526,20 @@ emitFixpointWithCache opts srcFile cache stmts = do
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
-          name params mRet contract (Just body) Nothing idx
+          name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
-          name params mRet contract Nothing (Just dec) idx
+          name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
-          name params mRet contract (Just body) Nothing idx
+          name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
       -- for well-foundedness (e ≥ 0), reusing the letrec constraint path; the
@@ -508,14 +556,14 @@ emitFixpointWithCache opts srcFile cache stmts = do
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
-          name params mRet contract (Just body) Nothing idx
+          name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
-          name params mRet contract (Just body) Nothing idx
+          name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
 

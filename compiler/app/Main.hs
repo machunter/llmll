@@ -43,7 +43,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -1194,7 +1194,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       entrySidecarRaw <- loadVerified fp
       let (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecar stmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrictWithCacheAndStatus gm _cache entrySidecar emptyEnv stmts
+      -- FQ-RESULT-SORT-1: the same typecheck now also yields tau_ret per definition,
+      -- consumed by the emit calls below so the 'result' binder is sorted from the
+      -- checker's answer rather than defaulted to FQInt when '-> RetType' is absent.
+      let (tcReport, retTypes) =
+            typeCheckStrictWithCacheAndStatusRet gm _cache entrySidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -1216,7 +1220,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- the report. In JSON mode 'runLeanstralPipeline' stays quiet (all its
         -- prints are 'unless isJson'-gated), so the trust-report JSON is uncorrupted.
         when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
-          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache stmts
+          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache retTypes stmts
           runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
         -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
         -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
@@ -1271,7 +1275,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         exitSuccess
       -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-      emitR <- emitFixpointWithCache emitOpts fp _cache stmts
+      emitR <- emitFixpointWithCache emitOpts fp _cache retTypes stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR
           skipped = erSkipped emitR
@@ -1549,7 +1553,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               unless json $ TIO.putStrLn "   Running weakness check ..."
               let candidates = generateWeaknessCandidates gm stmts
                   typeDefs   = [s | s@STypeDef{} <- stmts]
-              weakDiags <- fmap concat $ mapM (checkWeaknessCandidate lfBin json typeDefs) candidates
+              weakDiags <- fmap concat $ mapM (checkWeaknessCandidate gm lfBin json typeDefs) candidates
               if null weakDiags
                 then unless json $ TIO.putStrLn "   No spec weaknesses detected."
                 else do
@@ -1581,7 +1585,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             (FQSafe, True) -> do
               unless json $ TIO.putStrLn "   Running CDP measurement (LT-CDP v0.11) ..."
               let cdpTypeDefs = [s | s@STypeDef{} <- stmts]
-                  runOneCandidate wc = checkCDPCandidate lfBin cdpTypeDefs wc
+                  runOneCandidate wc = checkCDPCandidate gm lfBin cdpTypeDefs wc
                   verifMap = if trustReport
                         then Map.map (\cs ->
                                 case csPost cs of
@@ -1773,11 +1777,27 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
 -- synthetic body fell outside the QF-LIA-translatable fragment
 -- ('erBodyFallback') — a solver verdict on that emission is not evidence the
 -- candidate satisfies the contract, so the solver is never invoked for it.
-checkCDPCandidate :: FilePath -> [Statement] -> WeaknessCandidate -> IO (Maybe Bool)
-checkCDPCandidate lfBin typeDefs wc = do
+-- | FQ-RESULT-SORT-1 stage (b): emit a SYNTHETIC program (a weakness/CDP trivial
+-- candidate, or a divergence-fill competitor). These are assembled in-process and
+-- never pass through the entry typecheck, so they carry no tau_ret and every
+-- unannotated definition in them would fall back to the FQInt default. Run the same
+-- typecheck the emitter's real caller does and feed it the result.
+--
+-- This matters because 'WeaknessCheck.tryCandidate' propagates the ORIGINAL
+-- function's 'mRet' into the synthetic statement, so an unannotated non-int callee
+-- reaches here with 'Nothing' exactly as it does on the real path. The candidate's
+-- own trivial body may synthesize a different type than the original's body, which
+-- is correct: the constraint is about the body actually being emitted.
+emitSynthetic :: GrammarMode -> EmitOptions -> FilePath -> [Statement] -> IO EmitResult
+emitSynthetic gm opts label stmts =
+  let (_, retTypes) = typeCheckWithCacheRet gm Map.empty builtinEnv stmts
+  in emitFixpointWithCache opts label Map.empty retTypes stmts
+
+checkCDPCandidate :: GrammarMode -> FilePath -> [Statement] -> WeaknessCandidate -> IO (Maybe Bool)
+checkCDPCandidate gm lfBin typeDefs wc = do
   let weakOpts = defaultEmitOptions { emitBodyVCs = True }
       syntheticName = wcSyntheticName wc
-  emitR <- emitFixpointWith weakOpts "<cdp-candidate>" (typeDefs ++ [wcSyntheticStmt wc])
+  emitR <- emitSynthetic gm weakOpts "<cdp-candidate>" (typeDefs ++ [wcSyntheticStmt wc])
   if syntheticName `elem` erBodyFallback emitR
     then pure Nothing
     else do
@@ -1790,12 +1810,12 @@ checkCDPCandidate lfBin typeDefs wc = do
         _      -> pure (Just False)
 
 -- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
-checkWeaknessCandidate :: FilePath -> Bool -> [Statement] -> WeaknessCandidate -> IO [Diagnostic]
-checkWeaknessCandidate lfBin _json typeDefs wc = do
+checkWeaknessCandidate :: GrammarMode -> FilePath -> Bool -> [Statement] -> WeaknessCandidate -> IO [Diagnostic]
+checkWeaknessCandidate gm lfBin _json typeDefs wc = do
   -- Emit .fq for the synthetic trivial statement (v0.8.0: body-aware)
   let weakOpts = defaultEmitOptions { emitBodyVCs = True }
       syntheticName = wcSyntheticName wc
-  emitR <- emitFixpointWith weakOpts "<weakness-check>" (typeDefs ++ [wcSyntheticStmt wc])
+  emitR <- emitSynthetic gm weakOpts "<weakness-check>" (typeDefs ++ [wcSyntheticStmt wc])
   -- CDP deep-dive Rev 5 (item 5): if the candidate's own body fell outside
   -- the QF-LIA-translatable fragment, a solver verdict on it would be
   -- meaningless. Do not run the solver, and do not silently return [] either
@@ -2283,7 +2303,7 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
       Nothing    -> pure FSTypeError  -- no solver: verified status is undetermined
       Just lfBin -> do
         let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-        emitR <- emitFixpointWith emitOpts "<diverge-fill>" program
+        emitR <- emitSynthetic gm emitOpts "<diverge-fill>" program
         if fname `elem` erBodyFallback emitR
           then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
           else do
@@ -2459,7 +2479,7 @@ refineGate gm fp pr = do
                       Nothing    -> pure (Right ())   -- no solver → skip (graceful)
                       Just lfBin -> do
                         results <- computeCDPFor gm CDPScopeAllDefLogic
-                                     (checkCDPCandidate lfBin [ s | s <- gateStmts, isTypeDefS s ])
+                                     (checkCDPCandidate gm lfBin [ s | s <- gateStmts, isTypeDefS s ])
                                      Map.empty gateStmts
                         -- Vacuity signal: a TRIVIAL (identity/constant) body satisfies the
                         -- invented contract → it discriminates no real implementation. This is

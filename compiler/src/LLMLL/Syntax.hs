@@ -913,6 +913,16 @@ data ModuleEnv = ModuleEnv
     -- compositional verification. Carries (params, contract, returnType)
     -- matching ContractEnv's shape so imported contracts can be merged
     -- directly into the local ContractEnv.
+  , meRetTypes       :: Map Name Type
+    -- ^ FQ-RESULT-SORT-1 stage (b): this module's effective return types,
+    -- tau_ret(f) = mRet |> tau_body, as recorded by the type checker when the
+    -- module was loaded. Needed because 'seedImportedContracts' rebuilds an
+    -- imported module's ContractEnv from 'meStatements' rather than reading
+    -- 'meContracts', so the raw optional annotation was the only return-type
+    -- signal available cross-module and an unannotated non-int callee sorted
+    -- its call-result binder at FQInt. Kept as a separate field rather than
+    -- folded into 'meContracts' precisely because that rebuild path bypasses
+    -- 'meContracts' entirely.
   } deriving (Show)
 
 -- | In-memory module cache: populated by post-order DFS load, read by

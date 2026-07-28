@@ -1,0 +1,5 @@
+;; FQ-RESULT-SORT-1 stage (b) fixture: an UNANNOTATED bool-returning contracted
+;; def. Its effective return type is only available from the type checker
+;; (tau_ret), because 'seedImportedContracts' rebuilds an imported ContractEnv
+;; from statements and the raw '-> RetType' annotation is absent here.
+(def is-big [n: int] (pre (> n 0)) (post (not (= n 7))) (> n 5))
