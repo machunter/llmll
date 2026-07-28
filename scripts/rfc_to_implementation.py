@@ -82,7 +82,7 @@ BARRIERS = {
     "B4": "opaque transform",
     "B5": "string structure",
     "B6": "superseded / deprecated",
-    "B7": "true by construction",
+    "B7": "entailed by the model or by a named sibling row",
     "B8": "outside any tool",
 }
 

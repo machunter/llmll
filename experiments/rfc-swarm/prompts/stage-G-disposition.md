@@ -23,10 +23,19 @@ primitive, `C5` test vector, `C6` timing / liveness / transport / trace-level.
    Write that shape into `reason`. "This is verifiable" is not a shape. "Contract on the
    receive step: `len < 512` implies the post-state is Terminating" is a shape.
 
-2. **A row that is true by construction is NOT covered.** If the model admits no constructor
-   for the forbidden thing, no mutant can exercise the row, so it carries no verification
-   evidence at all. Exclude it under barrier `B7` rather than counting it. This rule costs you
-   coverage on purpose.
+2. **A row that is already entailed is NOT covered.** If the row's obligation follows from the
+   declared types alone, or from the clauses carrying other inventory rows, it carries no
+   verification evidence of its own. Exclude it under barrier `B7` and **name what entails it**
+   in `reason`. This rule costs you coverage on purpose.
+
+   Two limits on `B7`, both learned from a run where it was misapplied to the row that halted
+   the gate. **Do not write "no mutant can exercise this row" unless you can say why**: whether a
+   mutant exists is undecidable in general, and on RFC 4648 the claim was false for the one row
+   that mattered. And **`B7` is for rows whose obligation you can express**. A row whose
+   obligation cannot be stated in the model at all is not `B7`; it exits under the barrier naming
+   why it cannot be stated, and the existence of some weaker form you *can* state does not change
+   that. Excluding a clause because a weakened surrogate for it is vacuous is the one move this
+   rule must never license.
 
 ## The closed barrier list
 

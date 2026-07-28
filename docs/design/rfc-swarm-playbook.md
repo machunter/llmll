@@ -157,9 +157,18 @@ C5 test vector, C6 timing, liveness, transport, or trace-level.
 Two rules keep this defensible:
 
 - **A row may be Encoded only if you can name the shape of the contract that carries it.**
-- **A row that is true by construction is not covered.** If the model admits no constructor for
-  the forbidden thing, no mutant can exercise the row, so it carries no verification evidence.
-  Exclude it rather than counting it.
+- **A row that is already entailed is not covered.** If the row's obligation follows from the
+  declared types alone, or from the clauses carrying other inventory rows, it carries no
+  verification evidence of its own. Exclude it under `B7` and name what entails it.
+
+  This rule was rewritten after RFC 4648 (Amendment 1, 2026-07-27). Its earlier form asked
+  whether "no mutant can exercise the row," which is undecidable in general and was shown false
+  by probe on the very row that fired the gate. Two limits now bound it. `B7` requires an
+  entailment you can name, not an absence you could not think past. And `B7` applies only to rows
+  whose obligation the model can express: a row that cannot be stated at all exits under the
+  barrier naming why, and the existence of a weaker surrogate that *is* statable and vacuous does
+  not convert it. That last move, weakening a clause until it is vacuous and then excluding it
+  for vacuity, is the failure this rule exists to prevent.
 
 *TFTP:* 46 Encoded, 20 Deployment-modeled, 5 Vectored, 53 excluded.
 
