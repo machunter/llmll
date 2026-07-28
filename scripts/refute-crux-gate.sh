@@ -28,18 +28,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LLMLL="stack exec llmll --"
 
+# Repo-relative suite directories. Not bare names under examples/: the
+# driver suite lives in tools/, so a suite is addressed by its path.
 FAMILIES=(
-  "tcp_rfc793"
-  "session-pay"
-  "gotofail"
-  "outcome-totality"
-  "total-recursion"
-  "bytes-bounds"
-  "rfc1982_serial"
-  "token-revocation-emergent"
-  "nested-result"
-  "niw-measure"
-  "banking_ledger"
+  "examples/tcp_rfc793"
+  "examples/session-pay"
+  "examples/gotofail"
+  "examples/outcome-totality"
+  "examples/total-recursion"
+  "examples/bytes-bounds"
+  "examples/rfc1982_serial"
+  "examples/token-revocation-emergent"
+  "examples/nested-result"
+  "examples/niw-measure"
+  "examples/banking_ledger"
+  "tools/llmll-driver"
 )
 
 if ! command -v jq &> /dev/null; then
@@ -66,7 +69,7 @@ echo " Refute-Crux Verdict Gate (frozen verify verdicts)"
 echo "═══════════════════════════════════════════════════════════"
 
 for FAMILY in "${FAMILIES[@]}"; do
-  EXPECTED="$REPO_ROOT/examples/$FAMILY/EXPECTED_VERDICTS.json"
+  EXPECTED="$REPO_ROOT/$FAMILY/EXPECTED_VERDICTS.json"
   if [ ! -f "$EXPECTED" ]; then
     echo "  ❌ $FAMILY: $EXPECTED not found"
     FAIL=$((FAIL + 1))
@@ -84,17 +87,20 @@ for FAMILY in "${FAMILIES[@]}"; do
     LOCALIZED=$(jq -r ".cases[$i].localized // empty" "$EXPECTED")
     FLAGS=$(jq -r ".cases[$i].flags | join(\" \")" "$EXPECTED")
 
-    SRC="$REPO_ROOT/examples/$FAMILY/$FILE"
+    SRC="$REPO_ROOT/$FAMILY/$FILE"
     if [ ! -f "$SRC" ]; then
       echo "  ❌ $FILE: fixture missing"
       FAIL=$((FAIL + 1))
       continue
     fi
 
-    # Verify a copy so no sidecar lands in the example dir.
-    CASE_DIR="$WORKDIR/$FAMILY-$i"
+    # Verify a copy so no sidecar lands in the suite dir. The whole suite is
+    # copied, not just the case file: a case that imports a sibling module
+    # cannot resolve it otherwise, and `verify` still checks only the named
+    # file, so the extra siblings change no verdict.
+    CASE_DIR="$WORKDIR/${FAMILY//\//-}-$i"
     mkdir -p "$CASE_DIR"
-    cp "$SRC" "$CASE_DIR/"
+    cp "$REPO_ROOT/$FAMILY"/*.llmll "$CASE_DIR/"
 
     set +e
     OUTPUT=$(cd "$REPO_ROOT/compiler" && $LLMLL verify "$CASE_DIR/$FILE" $FLAGS 2>&1)
