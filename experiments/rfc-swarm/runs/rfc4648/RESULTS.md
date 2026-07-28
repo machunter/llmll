@@ -319,10 +319,17 @@ method does poorly, since RFC 4648 was selected as bad-fit and carried the most 
    **pass** gate J, the opposite of this run's heuristic.
 2. **The gate's inputs, not its logic.** The one firing on record was triggered by an exclusion
    whose stated reasoning did not survive a probe. A person checked that, not the pipeline.
-   **Stage G2 now does**, as of 2026-07-28: it resolves every citation against the pinned bytes
-   mechanically, delegates the reading of each stated reason, and halts on a core row whose
-   reason misreads its clause. It has never run live, so what is settled is that the check is
-   buildable and what it costs, not that it catches anything a person would not.
+   **Stage G2 now does, and it was run against this run's own workdir on 2026-07-28.** It
+   resolved 64/64 citations against the pinned bytes with no near-miss, returned 42 verdicts, and
+   **halted on A1**, deriving the misreading independently: *"'after a specific number of
+   characters' belongs to the unless-exception describing what a referring specification may
+   direct, but the reason attaches it to the main prohibition, so the reason states as forbidden
+   exactly the case the clause carves out."* That is Amendment 1's finding, reached without a
+   person. The agent ran prompt-only with every filesystem tool disabled, since A1's answer is
+   committed in this repository. Neither the row nor its error class appears in the prompt: the
+   worked example teaches a quantifier error, and two earlier attempts that leaked the row and
+   then its class are recorded in [`../../SUMMARY.md`](../../SUMMARY.md). Unmeasured: the 41
+   `matches` verdicts have no oracle, so nothing here bounds what the audit misses.
 3. **A `B7` row under the corrected criterion.** Six of this run's eight `B7` rows named what
    entails them unprompted. Whether that holds when the rule requires it is untested. ARP
    supplied a second unprompted sample on 2026-07-28 without a run: **3 of its 4** retired-phrasing

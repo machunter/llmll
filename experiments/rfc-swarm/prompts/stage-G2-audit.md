@@ -22,20 +22,35 @@ says.
 
 ## What a real finding looks like
 
-The case this stage exists for. The pinned clause read:
+**The example below is invented.** It is not from this document or from any inventory, because a
+worked example drawn from a row you are about to audit tells you that row's answer and this stage
+would then be measuring the example rather than the ledger.
 
-> "Implementations MUST NOT add line feeds to base-encoded data **unless** the specification
-> referring to this document explicitly directs base encoders to add line feeds after a specific
-> number of characters."
+Suppose a pinned clause read:
 
-and the reason opened:
+> "A responder MUST verify **at least one** signature before accepting a bundle."
 
-> "The clause forbids inserting line feeds into base-encoded data **after a specific number of
-> characters**."
+and its recorded reason opened:
 
-The positional qualifier belongs to the `unless` exception. The reason moved it into the
-prohibition, which narrows an unconditional obligation into a conditional one. That is a
-`misreads`.
+> "The clause requires the responder to verify **every** signature on the bundle."
+
+The obligation is existential and the reason made it universal. Nothing downstream reasons about
+the clause any more; it reasons about a stronger rule the document never stated. That is a
+`misreads`, and it would be one just as much in the other direction.
+
+The general shape is that the clause attaches something to one part of the sentence and the
+reason attaches it somewhere else, or drops it, or strengthens it. Classes worth checking
+deliberately, since each has produced a real defect somewhere:
+
+- **quantifier**: every / at least one / any / exactly one, swapped or inverted.
+- **exception attachment**: a qualifier that belongs to an `unless`, `except`, `other than`,
+  `only if` or `provided that` clause, restated as part of the main obligation, or the reverse.
+- **modality**: a prohibition read as a permission, a requirement read as a default, `MUST NOT`
+  read as `NOT REQUIRED`.
+- **actor or direction**: the obligation moved from sender to receiver, or from the responder to
+  whoever referred to the document.
+- **dropped condition**: a precondition present in the clause and absent from the reason, so an
+  obligation that applies sometimes is restated as applying always.
 
 Things that are **not** findings: a reason that paraphrases loosely but faithfully; a reason
 that quotes a different sentence of the same clause; a reason that adds analysis beyond the
@@ -59,17 +74,23 @@ Every subject gets exactly one verdict. Omitting a subject is not an abstention 
 the stage: an audit that may quietly drop its hardest row reports the same thing as one that
 found nothing.
 
+Shown with the invented row above, for shape only. Your `cid` values are the ones in the subject
+list.
+
 ```json
 {"audited": [
-  {"cid": "A14", "verdict": "matches"},
-  {"cid": "A1", "verdict": "misreads",
-   "quote_phrase": "unless the specification referring to this document",
-   "reason_phrase": "after a specific number of characters",
-   "note": "the positional qualifier belongs to the exception, not the prohibition; the obligation as written is unconditional"}
+  {"cid": "X41", "verdict": "matches"},
+  {"cid": "X42", "verdict": "misreads",
+   "quote_phrase": "at least one signature",
+   "reason_phrase": "verify every signature",
+   "note": "the clause is existential and the reason states it universally"}
 ]}
 ```
 
 `note` is one sentence, and only on a `misreads`.
+
+Emit the JSON object as your reply. If a file-writing tool is available, also write it to
+`audit.json`.
 
 ## The subjects
 

@@ -254,11 +254,31 @@ What a fourth run should test:
   declared types or a sibling row, which the corrected criterion does not admit. So a prompt that
   merely demands an entailment would not catch it, and the fourth run should test the *kind* of
   ground a `B7` row rests on, not whether it names one.
-- **The artifact audit, now stage G2, on a run it did not come from.** It exists as of
-  2026-07-28, between the disposition pass and the probes, and it has never seen a live run.
-  Building it settled the design empirically rather than by argument: a substring test for
-  "the quote appears in its cited span" fires on **22 of the 113 real RFC 1350 rows**, because a
-  census abbreviates long clauses and flattens packet diagrams. Token coverage separates cleanly
-  instead: every true citation scores ≥ 0.875, and the same quotes against 6655 wrong spans reach
-  0.500 at the 99th percentile. Replayed over the committed TFTP census and the real RFC 1350
-  bytes it resolves 109/109 citations and reports the 6 spans that are one line short.
+- **The artifact audit, now stage G2, and it found the misreading on its own.** It exists as of
+  2026-07-28, between the disposition pass and the probes. Building it settled the design
+  empirically rather than by argument: a substring test for "the quote appears in its cited span"
+  fires on **22 of the 113 real RFC 1350 rows**, because a census abbreviates long clauses and
+  flattens packet diagrams. Token coverage separates cleanly instead: every true citation scores
+  ≥ 0.875, and the same quotes against 6655 wrong spans reach 0.500 at the 99th percentile.
+
+  **Run against the surviving RFC 4648 workdir it halts on A1**, the row a person needed a manual
+  pass to catch. The mechanical half resolves 64/64 citations with no near-miss; the delegated
+  half returns 42 verdicts, one per subject, and flags exactly one. Its stated ground matches
+  Amendment 1's independent human analysis: *"'after a specific number of characters' belongs to
+  the unless-exception ... so the reason states as forbidden exactly the case the clause carves
+  out."* The agent ran **prompt-only, with every filesystem tool disabled**, because A1's answer
+  is committed in this repository and an agent that could read it would retrieve rather than
+  derive.
+
+  **This took three attempts and the first two are why the result is worth anything.** Attempt
+  one used a worked example in the prompt drawn from A1 itself, handing the agent the clause, the
+  reason, the verdict and both evidence strings; it returned them verbatim, which measured the
+  example and not the ledger. That is the same defect as the fill prompt whose worked example
+  carried the wrong AST keys. Attempt two replaced it with an invented example of the same error
+  class. Attempt three teaches a **quantifier** error instead, so neither the row nor its failure
+  mode is exemplified, and A1 is still the only row flagged.
+
+  **What is not established.** One target and one model. The 41 `matches` verdicts have no oracle,
+  so the false-negative rate is unmeasured and this says nothing about whether the ledger holds
+  other misreadings. The prompt still names exception-attachment as one of five classes worth
+  checking, so the class is named even though it is not exemplified.
