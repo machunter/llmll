@@ -4,6 +4,197 @@
 
 <a id="Latest"></a>
 
+## v0.14.70: the driver's own spec verified in LLMLL; gate J halts a run for the first time (2026-07-28)
+
+Tooling, experiment records and CI. No compiler source changed, no schema change, no Haskell test
+added or removed.
+
+### Added, `tools/llmll-driver/`, the pipeline driver's specification verified in LLMLL
+
+- **The driver is specified as an Internet-Draft** at
+  [`experiments/rfc-swarm/targets/driver-spec.txt`](experiments/rfc-swarm/targets/driver-spec.txt),
+  deliberately, so that it can be read by the same pipeline it describes. Its section 15 splits
+  its own obligations into three tiers; this directory implements the first two.
+
+- **Section 15.1, the proved tier: all seven obligations discharged "by proof over all inputs, not
+  by testing."** Nine functions across six modules, every one body-faithful and clearing
+  `--strict-verified-core`, which is the acceptance bar section 9 defines for a fill. 26 contract
+  clauses, each carrying a `:source` citation to the section it discharges, which is what section
+  11 requires of a carried clause. [`stage.llmll`](tools/llmll-driver/stage.llmll) (the four
+  statuses, and that an error is never recorded as stopped),
+  [`skip.llmll`](tools/llmll-driver/skip.llmll) (a stage is skipped only on manifest, presence and
+  digest together), [`gate.llmll`](tools/llmll-driver/gate.llmll) (the halt decision, and the
+  remedy a barrier's class implies), [`fill.llmll`](tools/llmll-driver/fill.llmll) (fill
+  acceptance, the separated retry budgets, and what counts as a finding),
+  [`token.llmll`](tools/llmll-driver/token.llmll) (a token is not held while an agent is working),
+  [`liveness.llmll`](tools/llmll-driver/liveness.llmll) (advancement judged from any artifact, not
+  from the log).
+
+- **Two properties are stated in ways worth knowing.** "Coverage MUST NOT be thresholded" is
+  encoded by pinning `gate-halts`'s result entirely to the two enforced conditions, so any body
+  that consulted the coverage counts would have to disagree with the post on some input: a
+  non-interference property becomes an ordinary refinement obligation. And section 10 is proved
+  **per step, not per trace**. The closure to "no token is ever held while any agent works, across
+  a whole wave" is an induction over an unbounded sequence of fills, and is not claimed.
+
+- **Section 15.2, the asserted tier: [`shell.llmll`](tools/llmll-driver/shell.llmll).** The spec
+  holds that effectful operations cannot be proved and "MUST NOT be exiled from the program in
+  order to say so." Every effect is reached through a declared capability (`wasi.io`, `wasi.fs`) or
+  through a `Host` interface for the operations no shipped capability names. The section's hardest
+  requirement is an over-approximation, for any function, of the capabilities reachable through
+  its call graph, and Bundle B0's `effect_summary` is exactly that: `finish-stage` reports
+  `[fs.write, stdout]` while performing no effect of its own, inherited entirely from the two
+  shells it calls, and nothing reaches `unbounded`. Two further clauses hold by construction.
+  Authority is enforced rather than declared: `crux-shell-undeclared-authority` writes the
+  filesystem while importing only `wasi.io`, and fails at **type-check**, not at the solver. And a
+  runtime-enforced obligation is not presented as a proved one: every shell function falls back
+  from body-faithful verification and carries no proved level, while the core functions it calls
+  report `verified (liquid-fixpoint)`.
+
+- **`EXPECTED_VERDICTS.json` freezes 17 cases, and five of the eight refuting cruxes are not
+  invented.** They are defects that shipped in the Python driver, or behaviour it still has: a
+  stage was skipped whenever its outputs existed, so a failed freeze gate was bypassed by its own
+  report; the checkout token was held across a whole agent call, which wedged fourteen holes;
+  `--status` judged advancement from `run.log`, which cannot move while a delegated stage runs; the
+  exclusion-ratio ceiling, retired as a defective instrument by
+  [`rfc-swarm-coverage-review.md`](docs/design/rfc-swarm-coverage-review.md) F-1; and one remedy
+  string for every barrier class, which is what the driver does **today**. That last crux refutes
+  the shipped implementation, which is the spec being ahead of the code.
+
+- **This is not the driver, and the README says so.** Section 15.4 holds that an implementation
+  whose effectful surface lives in another language does not conform, "since nothing then bounds
+  its authority or enforces its contracts," so this is a partial artifact by the spec's own terms.
+  Section 15.2 is satisfied in shape rather than in coverage: the shell demonstrates the tier's
+  discipline over a handful of operations, and the orchestration that would actually run fifteen
+  stages is not written.
+
+### Added, the RFC 4648 run record, the first STOP for a real reason
+
+- **Gate J halted on the characteristic-core condition** after stages A through I, 76 minutes,
+  without reaching the wave. Two prior runs had passed every gate, and gate L's one failure on ARP
+  was a hardcoded tag prefix in our own lint, which the resume bug then bypassed. A method whose
+  stop conditions have never stopped anything has not shown that it has working stop conditions;
+  across three runs that condition has now been observed in both states.
+
+- **Scored against the prediction committed at `c212fc0` before launch: the conclusion is right and
+  the reasoning behind it is wrong.** It expected the bit-regrouping core to hit the same `B5`
+  string-structure wall that took ARP's `8 + 2*ar$hln + ar$pln`. Bit regrouping verified as
+  fixed-width arithmetic within a quantum (6/6 probes SAFE, 6/6 mutants refuted), and **line
+  wrapping** halted the run. Carried C1+C2+C3 was predicted below 20% and the ledger recorded
+  **84.6%**, the highest of the three runs, so RFC 4648 is not the bad-fit target it was chosen to
+  be.
+
+- **The halt is a finding rather than a tautology because stage F is blind.** Its 75KB prompt
+  contains zero occurrences of `scope.md`, "decidable fragment" or `LLMLL`, and instructs the agent
+  "you do not yet know what will verify, and that is deliberate." A fragment-blind agent named the
+  core; a fragment-aware stage excluded a row from it; neither could see the other. The same
+  blindness produced the run's most interesting non-result: 22 of the 23 core rows sit inside the
+  boundary stage B drew.
+
+- **[`AMENDMENT-1.md`](experiments/rfc-swarm/runs/rfc4648/AMENDMENT-1.md) re-barriers A1 from `B7`
+  to `B5` on probe evidence**, dated, with the argument shown, per the playbook's anti-pattern 6.
+  The disposition, the core membership, the STOP and every coverage figure are unchanged.
+
+- **An artifact audit of all 64 rows against the bytes stage A pinned** found citations verbatim
+  64/64, line spans in bounds 64/64, declared RFC 2119 strengths uninflated 64/64, core obligations
+  faithful 23/23, and **one disposition reason in twenty that misreads its own quote**, moving a
+  positional qualifier out of an `unless` exception and into the prohibition. Found by reading
+  three lines of the file stage A exists to pin. Nothing in the pipeline does this today.
+
+### Fixed, the `B7` barrier's test was undecidable, and false in its first use
+
+- `B7` read "true by construction: if the model admits no constructor for the forbidden thing, no
+  mutant can exercise the row." A probe refuted that on A1, the row that fired gate J: a mutant
+  **can** place a line feed, because the constructor is a table entry. Whether a mutant exists is
+  also undecidable in general (Budd and Angluin, *Acta Informatica* 18, 1982), so the test could
+  not be applied even where it holds, and could be asserted where it does not.
+
+- **Replaced by an entailment the disposition must name**: admissible only when the row's own
+  obligation follows from the declared types alone or from the clauses carrying other inventory
+  rows, which must be named. Six of the run's eight `B7` rows already did this unprompted. `B7`
+  now applies only to rows whose obligation the model can express, so weakening a clause until it
+  is vacuous and then excluding it for vacuity is the move the rule forbids. Driver `BARRIERS`
+  label, stage-G prompt rule 2, playbook stage G rule 2. The gate checks barrier keys rather than
+  labels, so `--self-test` is unaffected.
+
+### Fixed, driver-spec section 6, rewritten from the observed STOP
+
+Section 6 was written before any gate had fired, so its content came from reading the driver rather
+than from watching it work. Three requirements it lacked. A reason on the closed barrier list
+**MUST** be defined by a test an implementer can apply, since a reason defined by the absence of
+something unbounded states no test: it cannot be applied where it holds, and it can be asserted
+where it does not. A reason **MUST** carry a class fixed before the run, saying whether the
+exclusion is a property of the verifier's reach or of the chosen model, and the gate **MUST**
+report the remedy that class implies, because one remedy for every reason misdirects in both
+directions. And an exclusion asserting that nothing the implementation could do would violate a
+clause **MUST** carry evidence, which the gate **MUST NOT** accept unevidenced. A fourth lesson,
+that a citation must be checkable against the pinned bytes, belongs in sections 7 and 14 and is
+left for a separate change.
+
+### Fixed, three ways the driver failed unreadably
+
+- **A budget overrun crashed instead of stopping.** `subprocess.TimeoutExpired` was uncaught, so an
+  overrun propagated out of `main()` as a traceback: the stage recorded nothing and the manifest
+  was left mid-run, making the agent's partial work look like debris rather than a resumable state.
+  It is now a `StopCondition` naming the budget, pointing at the partial work, and saying the
+  overrun may itself be treated as a finding.
+
+- **A run could be put where the OS will delete it.** A reboot destroyed an eight-stage RFC 4648
+  run whose workdir was under `/private/tmp`; the prediction survived because it was committed, and
+  nothing else survived at all. The driver now refuses a workdir under a root the OS may reclaim
+  before running any stage, with `--allow-volatile-workdir` as a loud override. It also refuses an
+  in-repo workdir, because the committed records of earlier runs live there and section 8 forbids
+  an agent to see them. Durability and blindness pull against each other, and
+  `~/rfc-swarm-runs/<name>` is the shape that satisfies both.
+
+- **`--status` judged advancement from `run.log`**, which cannot move while the driver is blocked
+  on a delegated stage, and delegated stages are most of a run, so every healthy agent stage read
+  as `STALE`. It now judges from any file under the workdir. Separately, a stage raising anything
+  other than a `StopCondition` is recorded `failed` and reported apart from `stopped`: a stop is a
+  verdict and is a result, a crash is an accident and is not. All three are now normative
+  requirements of the spec (sections 4, 5, 12), so the LLMLL driver does not reinherit them.
+
+### Fixed, the refute-crux gate could not address a suite outside `examples/`
+
+- **Suites are named by repo-relative path** rather than by a bare name under `examples/`. The
+  eleven existing families gain an `examples/` prefix and are otherwise untouched.
+
+- **Each case is verified against a copy of the whole suite directory** rather than of the single
+  case file, because a case that imports a sibling module cannot resolve it from a one-file copy.
+  `verify` still checks only the named file, so the extra siblings change no verdict, and that is
+  measured rather than assumed: the eleven existing families produce 41 passed / 0 failed before
+  and after, and the suite total goes 41 to 58 purely by addition.
+
+- **Known gap, recorded in the suite's `note` rather than papered over.** The script's verdict
+  vocabulary is `safe` and `refuted` only, and a capability violation is neither.
+  `crux-shell-undeclared-authority` is filed as `refuted` because the branch greps for `error:`,
+  though it fails at type-check rather than at the solver. A third expect kind would fix it.
+
+- **Eight generated `.verified.json` sidecars were committed with the suite**, and are now ignored
+  and untracked. `tools/llmll-driver/` matched none of the existing ignore patterns, so a
+  directory-wide `git add` picked them up. No canonical exceptions there.
+
+### Routed, FQ-BOOL-SORT-1, a bool-literal body crashes the solver
+
+A contracted `def` whose body is a boolean literal crashes liquid-fixpoint with a sort-unification
+error. The `result` binder is emitted at sort `int` although the function returns `bool`, and the
+body's reflection then puts `result = true` against it. **Annotating the return type is the
+workaround**: the identical `def` written `-> bool` emits `bind 1 result : { v : bool | true }` and
+returns a normal verdict, so the sort is defaulting rather than being derived from the inferred
+body type. Controls isolate the trigger to the literal body and not the `post` shape. **Fails
+closed throughout** (exit 1, a crash, never a false SAFE), so no prior verdict is affected, and no
+bool-returning contracted `def` exists in the fixtures or examples, which is consistent with this
+never having been hit. Found while probing RFC 4648 row A1; filed on
+[`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) with the two candidate emit sites.
+Not fixed here.
+
+**Gates:** DRIFT-CI-1 pass, DRIFT-CT-2 pass (14 doc-claims), DRIFT-DOC-3 pass, DRIFT-DOC-4 clean
+(504 prose citations across 131 living files, all resolve), refute-crux gate 58 passed / 0 failed
+(41 to 58, +17), driver `--self-test` pass, harness pytest 91 passed. Haskell test count unchanged;
+no compiler source in this cut.
+
+---
+
 ## v0.14.69: DRIFT-DOC-4, prose path citations swept and linted (2026-07-26)
 
 Documentation and CI only. No compiler source, no schema change, no Haskell test added or
