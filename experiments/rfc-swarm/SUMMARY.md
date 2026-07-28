@@ -246,7 +246,14 @@ What a fourth run should test:
   method has now been shown to do poorly, and a target obviously beyond the fragment makes a
   refusal meaningless, so the useful band is narrow and we have missed it once.
 - **A `B7` row under the corrected criterion.** Six of RFC 4648's eight `B7` rows named what
-  entails them unprompted. Whether that holds when the rule requires it is untested.
+  entails them unprompted. Whether that holds when the rule requires it is untested. A second
+  unprompted sample now exists without a fourth run: re-reading ARP's four retired-phrasing `B7`
+  rows on 2026-07-28 gives **3 of 4**, and the one that fails
+  ([`runs/rfc826/RESULTS.md`](runs/rfc826/RESULTS.md), A63) fails in a way the question did not
+  anticipate. It names an entailment, but from a **modeling decision** rather than from the
+  declared types or a sibling row, which the corrected criterion does not admit. So a prompt that
+  merely demands an entailment would not catch it, and the fourth run should test the *kind* of
+  ground a `B7` row rests on, not whether it names one.
 - **The artifact audit, now stage G2, on a run it did not come from.** It exists as of
   2026-07-28, between the disposition pass and the probes, and it has never seen a live run.
   Building it settled the design empirically rather than by argument: a substring test for

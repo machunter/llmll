@@ -324,6 +324,11 @@ method does poorly, since RFC 4648 was selected as bad-fit and carried the most 
    reason misreads its clause. It has never run live, so what is settled is that the check is
    buildable and what it costs, not that it catches anything a person would not.
 3. **A `B7` row under the corrected criterion.** Six of this run's eight `B7` rows named what
-   entails them unprompted. Whether that holds when the rule requires it is untested.
+   entails them unprompted. Whether that holds when the rule requires it is untested. ARP
+   supplied a second unprompted sample on 2026-07-28 without a run: **3 of its 4** retired-phrasing
+   `B7` rows clear the corrected criterion, and A63 fails it by naming a **modeling decision**
+   rather than the declared types or a sibling row ([`../rfc826/RESULTS.md`](../rfc826/RESULTS.md)).
+   So the open question is sharper than it was: test the *kind* of ground a `B7` row rests on,
+   since a prompt demanding an entailment gets one either way.
 4. **No human in the loop at all.** Still not achieved, and this run moved backwards: it needed a
    person to read three lines of the RFC and to write four probes.

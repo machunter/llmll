@@ -168,6 +168,25 @@ Every exclusion cites exactly one barrier below. An exclusion that fits none of 
 | B7 true by construction | 1 | The model admits no constructor for the forbidden thing, so no mutant can exercise the row and it carries no verification evidence. |
 | B8 outside any tool | 4 | Deployment environment and procurement guidance: no protocol transition exists to verify. |
 
+> **Note added 2026-07-28. The `B7` definition in the row above is retired.** Its test, that no
+> mutant can exercise the row, is undecidable in general and was shown false by probe on the RFC
+> 4648 row that fired gate J. The replacement requires an entailment the disposition names, from
+> the declared types or from named sibling rows:
+> [`experiments/rfc-swarm/runs/rfc4648/AMENDMENT-1.md`](../../experiments/rfc-swarm/runs/rfc4648/AMENDMENT-1.md).
+> The table is left as written because it records the list in force for this run.
+>
+> This run's single `B7` row, T002, clears the corrected criterion: it names the entailment
+> ("the request ADT has only RRQ/WRQ constructors"), which is entailment by the declared types.
+> No disposition and no figure on this page moves.
+>
+> **Also recorded: the per-barrier tallies above exist only as this prose.** The committed ledger
+> at [`experiments/rfc-swarm/data/inventory-dispositioned.json`](../../experiments/rfc-swarm/data/inventory-dispositioned.json)
+> carries no `barrier` field on any of its 53 exclusions, because the closed list postdates this
+> run. So "zero exclusions outside the closed barrier list" was tallied by hand and is not
+> checkable from the artifact, and replaying that ledger through the shipped driver would fail its
+> disposition schema check and STOP at gate J. `--self-test` asserts the zero and prints the gap
+> rather than passing over it.
+
 ## 6. The characteristic core
 
 Fixed before the disposition pass, as the clauses that make TFTP what it is: the lock-step transfer discipline, block-number sequencing including the initial block number, the 512-byte short-block termination rule, the error latch, and the RFC 1123 duplicate-ACK rule. **15 rows** carry it. No row here may disposition out at any later phase; if one does, the demonstration is re-scoped rather than re-graded.

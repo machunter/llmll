@@ -86,6 +86,39 @@ The stage-N agent also found rows A90, A40 and A41 are cited by no clause in the
 surface, making one pre-registered mutant unwritable. Recorded as pre-registered rather than
 reinterpreted.
 
+## The `B7` rows, re-read under the corrected criterion (2026-07-28)
+
+`B7` was rewritten after RFC 4648, where its stated test ("no mutant can exercise the row") was
+shown undecidable in general and false on the row that fired gate J
+([`../rfc4648/AMENDMENT-1.md`](../rfc4648/AMENDMENT-1.md)). The replacement admits an exclusion
+only when the row's obligation is entailed by the **declared types** or by **named sibling
+rows**. This run has 8 `B7` rows, and 4 of them use the retired phrasing. Re-read, none of them
+core:
+
+| Row | What its reason rests on | Clears the corrected criterion |
+|---|---|---|
+| A51 | "the two branch effects are carried at A53 and A57" | **yes**, named sibling rows |
+| A71 | "a packet is one field-value tuple with one component per field (MD8)" | **yes**, declared types |
+| A78 | "(MD8) ... the values those fields must carry are A37 and A38, both encoded" | **yes**, declared types and named siblings |
+| A63 | "with a single link (MD2) the reply cannot go out on any other piece of hardware" | **no**, a modeling decision |
+
+**A63 is the one that does not clear it.** `MD2` is a decision this run made about what to
+model, not a type the model declares nor a clause another row carries, and the corrected `B7`
+admits only those two grounds. A grant resting on a modeling decision is contingent on that
+decision in exactly the way Amendment 1 warns about: change the model to two links and the row
+becomes exercisable.
+
+**No disposition moves and no figure on this page moves.** The exclusion may well stand under a
+different barrier, most plausibly `B2`, and this note does not rule on that; deciding it is a
+re-disposition, which is not something a later reading does to a frozen ledger.
+
+Worth recording for what it says about a fourth run. `SUMMARY.md` asks whether `B7` rows name
+what entails them when the rule *requires* it, having observed that 6 of RFC 4648's 8 did so
+unprompted. This is a second unprompted sample from a different target, where an agent authored
+the contracts: **3 of 4**. The failure mode it exhibits is not "no entailment named" but
+"entailment named, from the wrong kind of thing", which a prompt asking for an entailment would
+not by itself catch.
+
 ## What the run cost, and what it found
 
 Five defects in the driver, none of which were visible from reading it:
