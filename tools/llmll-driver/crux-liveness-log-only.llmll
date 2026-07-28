@@ -1,0 +1,8 @@
+(module crux-liveness-log-only)
+;; Judges from the driver's own log, which cannot move while a delegated
+;; stage runs: the report that calls a healthy run stalled.
+(def advancing [newest-artifact-age: int log-age: int threshold: int] -> bool
+  (pre (and (>= newest-artifact-age 0)
+            (and (>= log-age newest-artifact-age) (> threshold 0))))
+  (post (= result (< newest-artifact-age threshold)))
+  (< log-age threshold))

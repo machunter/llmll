@@ -1,0 +1,30 @@
+(module fill)
+
+;; driver-spec.txt section 9, The Fill Protocol.
+
+(def fill-accepted [applied: bool verifies: bool
+                    body-faithful: bool termination-proved: bool] -> bool
+  (post (= result (and applied (and verifies (and body-faithful termination-proved))))
+    :source "[S9-ACCEPT] driver-spec.txt sec 9 - accepted only when all four hold")
+  (post (=> (not body-faithful) (not result))
+    :source "[S9-FAITHFUL] driver-spec.txt sec 9 - proved against its own body rather than assumed")
+  (and applied (and verifies (and body-faithful termination-proved))))
+
+;; "Contention MUST NOT consume the budget for error."
+(def next-error-budget [err: int contention: bool] -> int
+  (pre (>= err 0)
+    :source "[S9-DOM] driver-spec.txt sec 9 - a budget is a count of attempts")
+  (post (=> contention (= result err))
+    :source "[S9-SEPARATE] driver-spec.txt sec 9 - contention MUST NOT consume the error budget")
+  (post (=> (not contention) (= result (- err 1)))
+    :source "[S9-SPEND] driver-spec.txt sec 9 - an attempt spent because the work was wrong")
+  (if contention err (- err 1)))
+
+;; "Only an exhausted error budget yields a finding."
+(def is-finding [err-remaining: int protocol-exhausted: bool] -> bool
+  (pre (>= err-remaining 0))
+  (post (= result (= err-remaining 0))
+    :source "[S9-FINDING] driver-spec.txt sec 9 - only an exhausted error budget yields a finding")
+  (post (=> (and protocol-exhausted (> err-remaining 0)) (not result))
+    :source "[S9-NOT-FINDING] driver-spec.txt sec 9 - a hole that failed otherwise MUST NOT be a finding")
+  (= err-remaining 0))

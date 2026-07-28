@@ -1,0 +1,44 @@
+(module gate)
+
+;; driver-spec.txt section 6, Gates.
+
+(type BarrierClass (| FragmentRelative) (| ModelRelative) (| DocumentRelative))
+(type Remedy (| ChooseDifferentTarget) (| RevisitScope) (| FixExtraction))
+
+;; The halt decision. The post determines `result` entirely from the two
+;; enforced conditions, which is how "coverage MUST NOT be thresholded"
+;; is stated: a body that consulted carried/verifiable would have to
+;; disagree with this post on some input.
+(def gate-halts [core-out: int bad-barrier: int
+                 carried: int verifiable: int] -> bool
+
+  (pre (and (>= core-out 0)
+            (and (>= bad-barrier 0)
+                 (and (>= carried 0) (>= verifiable carried))))
+    :source "[S6-DOM] driver-spec.txt sec 6 - counts over a reconciled inventory")
+
+  (post (= result (or (> core-out 0) (> bad-barrier 0)))
+    :source "[S6-CORE] driver-spec.txt sec 6 - characteristic-core and barrier conditions are enforced")
+
+  (post (=> (and (= core-out 0) (= bad-barrier 0)) (not result))
+    :source "[S6-REPORTED] driver-spec.txt sec 6 - coverage is a reported measurement, MUST NOT be thresholded")
+
+  (or (> core-out 0) (> bad-barrier 0)))
+
+;; Section 6, as rewritten from the observed STOP: the remedy follows
+;; from the class of the reason, not from the fact of the halt.
+(def remedy-for [c: BarrierClass] -> Remedy
+
+  (post (=> (= c FragmentRelative) (= result ChooseDifferentTarget))
+    :source "[S6-REMEDY-F] driver-spec.txt sec 6 - re-scoping cannot recover what the verifier cannot reach")
+
+  (post (=> (= c ModelRelative) (= result RevisitScope))
+    :source "[S6-REMEDY-M] driver-spec.txt sec 6 - a different subject is not the remedy for a model that failed to carry")
+
+  (post (=> (= c DocumentRelative) (= result FixExtraction))
+    :source "[S6-REMEDY-D] driver-spec.txt sec 6 - the row is not live subject matter")
+
+  (match c
+    ((FragmentRelative) ChooseDifferentTarget)
+    ((ModelRelative) RevisitScope)
+    ((DocumentRelative) FixExtraction)))

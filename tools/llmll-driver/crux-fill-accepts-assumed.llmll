@@ -1,0 +1,7 @@
+(module crux-fill-accepts-assumed)
+;; Accepts a fill whose post was assumed rather than proved from its body.
+(def fill-accepted [applied: bool verifies: bool
+                    body-faithful: bool termination-proved: bool] -> bool
+  (post (= result (and applied (and verifies (and body-faithful termination-proved)))))
+  (post (=> (not body-faithful) (not result)))
+  (and applied (and verifies termination-proved)))

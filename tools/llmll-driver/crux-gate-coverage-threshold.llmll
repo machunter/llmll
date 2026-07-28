@@ -1,0 +1,12 @@
+(module crux-gate-coverage-threshold)
+;; The retired instrument: a coverage ratio used as a gate condition.
+;; Halts when carried is under half of verifiable.
+(def gate-halts [core-out: int bad-barrier: int
+                 carried: int verifiable: int] -> bool
+  (pre (and (>= core-out 0)
+            (and (>= bad-barrier 0)
+                 (and (>= carried 0) (>= verifiable carried)))))
+  (post (= result (or (> core-out 0) (> bad-barrier 0))))
+  (post (=> (and (= core-out 0) (= bad-barrier 0)) (not result)))
+  (or (or (> core-out 0) (> bad-barrier 0))
+      (< (* 2 carried) verifiable)))

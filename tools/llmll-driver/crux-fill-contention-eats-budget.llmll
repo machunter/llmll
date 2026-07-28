@@ -1,0 +1,7 @@
+(module crux-fill-contention-eats-budget)
+;; Contention eats the error budget: the defect section 9 forbids.
+(def next-error-budget [err: int contention: bool] -> int
+  (pre (>= err 0))
+  (post (=> contention (= result err)))
+  (post (=> (not contention) (= result (- err 1))))
+  (- err 1))

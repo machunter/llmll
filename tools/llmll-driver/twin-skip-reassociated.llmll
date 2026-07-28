@@ -1,0 +1,10 @@
+(module twin-skip-reassociated)
+;; Good twin: same decision, conjunction reassociated. Expected SAFE.
+(def may-skip [manifest-complete: bool artifacts-present: bool
+               digests-match: bool forced: bool] -> bool
+  (post (=> result (and manifest-complete
+                        (and artifacts-present digests-match))))
+  (post (=> forced (not result)))
+  (post (=> (and artifacts-present (not manifest-complete)) (not result)))
+  (and (and manifest-complete digests-match)
+       (and artifacts-present (not forced))))

@@ -1,0 +1,30 @@
+(module skip)
+
+;; driver-spec.txt section 5, the skip decision.
+;;
+;;   "A stage MAY be skipped only when three conditions hold: the manifest
+;;    records that stage complete, every artifact the stage declares is
+;;    present, and every such artifact matches the digest recorded when
+;;    that stage completed."
+;;
+;;   "The presence of an artifact MUST NOT, on its own, cause a stage to be
+;;    skipped."
+;;
+;;   "When the operator requests a forced re-run, the driver MUST run the
+;;    stage regardless of its record."
+
+(def may-skip [manifest-complete: bool artifacts-present: bool
+               digests-match: bool forced: bool] -> bool
+
+  (post (=> result (and manifest-complete
+                        (and artifacts-present digests-match)))
+    :source "[S5-SKIP] driver-spec.txt sec 5 - skipped only when all three hold")
+
+  (post (=> forced (not result))
+    :source "[S5-FORCE] driver-spec.txt sec 5 - a forced re-run runs regardless")
+
+  (post (=> (and artifacts-present (not manifest-complete)) (not result))
+    :source "[S5-PRESENCE] driver-spec.txt sec 5 - presence alone MUST NOT cause a skip")
+
+  (and (not forced)
+       (and manifest-complete (and artifacts-present digests-match))))

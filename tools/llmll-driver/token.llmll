@@ -1,0 +1,17 @@
+(module token)
+
+;; driver-spec.txt section 10, Exclusive-Edit Tokens. Per-step; the
+;; closure to a whole wave is a trace induction and is not claimed here.
+
+(type Phase (| AgentWorking) (| Briefing) (| Submitting))
+(type TokenState (| Released) (| Held))
+
+(def token-during [p: Phase] -> TokenState
+  (post (=> (= p AgentWorking) (= result Released))
+    :source "[S10-NOTHELD] driver-spec.txt sec 10 - a token MUST NOT be held while an agent is working")
+  (post (=> (= p Submitting) (= result Held))
+    :source "[S10-FRESH] driver-spec.txt sec 10 - obtain a fresh token at the moment of submission")
+  (match p
+    ((AgentWorking) Released)
+    ((Briefing) Held)
+    ((Submitting) Held)))

@@ -1,0 +1,10 @@
+(module crux-skip-presence-only)
+;; The defect that actually shipped: "a stage was skipped whenever its
+;; outputs existed", which let a failed gate be bypassed by its own report.
+(def may-skip [manifest-complete: bool artifacts-present: bool
+               digests-match: bool forced: bool] -> bool
+  (post (=> result (and manifest-complete
+                        (and artifacts-present digests-match))))
+  (post (=> forced (not result)))
+  (post (=> (and artifacts-present (not manifest-complete)) (not result)))
+  (and (not forced) artifacts-present))

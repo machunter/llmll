@@ -1,0 +1,12 @@
+(module crux-token-held-across-call)
+;; The token held across the whole agent call: the defect that wedged
+;; fourteen holes on the first wave.
+(type Phase (| AgentWorking) (| Briefing) (| Submitting))
+(type TokenState (| Released) (| Held))
+(def token-during [p: Phase] -> TokenState
+  (post (=> (= p AgentWorking) (= result Released)))
+  (post (=> (= p Submitting) (= result Held)))
+  (match p
+    ((AgentWorking) Held)
+    ((Briefing) Held)
+    ((Submitting) Held)))

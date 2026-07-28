@@ -1,0 +1,12 @@
+(module liveness)
+
+;; driver-spec.txt section 12, Run Status.
+;; The log is itself an artifact under the workdir, hence newest <= log-age.
+
+(def advancing [newest-artifact-age: int log-age: int threshold: int] -> bool
+  (pre (and (>= newest-artifact-age 0)
+            (and (>= log-age newest-artifact-age) (> threshold 0)))
+    :source "[S12-DOM] driver-spec.txt sec 12 - ages in seconds; the log is one artifact among many")
+  (post (= result (< newest-artifact-age threshold))
+    :source "[S12-ANY] driver-spec.txt sec 12 - advancement judged from change to ANY artifact")
+  (< newest-artifact-age threshold))

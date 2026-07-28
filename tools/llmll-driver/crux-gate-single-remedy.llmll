@@ -1,0 +1,12 @@
+(module crux-gate-single-remedy)
+;; The driver as it stands: one remedy string for every barrier class.
+(type BarrierClass (| FragmentRelative) (| ModelRelative) (| DocumentRelative))
+(type Remedy (| ChooseDifferentTarget) (| RevisitScope) (| FixExtraction))
+(def remedy-for [c: BarrierClass] -> Remedy
+  (post (=> (= c FragmentRelative) (= result ChooseDifferentTarget)))
+  (post (=> (= c ModelRelative) (= result RevisitScope)))
+  (post (=> (= c DocumentRelative) (= result FixExtraction)))
+  (match c
+    ((FragmentRelative) RevisitScope)
+    ((ModelRelative) RevisitScope)
+    ((DocumentRelative) RevisitScope)))

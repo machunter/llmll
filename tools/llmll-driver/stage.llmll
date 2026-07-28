@@ -1,0 +1,35 @@
+(module stage)
+
+;; driver-spec.txt section 4, The Stage Model.
+
+(type Status (| Pending) (| Complete) (| Stopped) (| Failed))
+
+;; Why a stage stopped running. ConditionUnmet is a condition this
+;; specification defines; Error is anything else.
+(type Outcome (| ConditionUnmet) (| Error) (| PartialThenHalt) (| Finished))
+
+(def record-outcome [o: Outcome] -> Status
+
+  (post (=> (= o Finished) (= result Complete))
+    :source "[S4-COMPLETE] driver-spec.txt sec 4 - finishes without error MUST be complete")
+
+  (post (=> (= o ConditionUnmet) (= result Stopped))
+    :source "[S4-STOPPED] driver-spec.txt sec 4 - halts on a defined condition MUST be stopped")
+
+  (post (=> (= o Error) (= result Failed))
+    :source "[S4-FAILED] driver-spec.txt sec 4 - halts for any other reason MUST be failed")
+
+  (post (=> (= o Error) (not (= result Stopped)))
+    :source "[S4-NOT-STOPPED] driver-spec.txt sec 4 - such a stage MUST NOT be recorded stopped")
+
+  (post (=> (= o PartialThenHalt) (= result Stopped))
+    :source "[S4-PARTIAL] driver-spec.txt sec 4 - wrote some artifacts then halted MUST be stopped")
+
+  (post (not (= result Pending))
+    :source "[S4-ATTEMPTED] driver-spec.txt sec 4 - pending means not attempted in this workdir")
+
+  (match o
+    ((ConditionUnmet) Stopped)
+    ((Error) Failed)
+    ((PartialThenHalt) Stopped)
+    ((Finished) Complete)))
