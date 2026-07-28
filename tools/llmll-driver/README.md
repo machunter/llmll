@@ -122,8 +122,10 @@ This suite is wired into `make refute-crux-gate` as `tools/llmll-driver`. Two ch
   still checks only the named file, so the extra siblings change no verdict, and the existing
   eleven families produce the same 41 results before and after.
 
-One gap remains, recorded in the suite's `note`. The script's verdict vocabulary is `safe` and
-`refuted` only, and a capability violation is neither. `crux-shell-undeclared-authority` is
-recorded as `refuted` because the script greps for `error:`, though it fails at type-check rather
-than at the solver. Conflating the two is the sort of category error this pipeline is otherwise
-careful about, and a third expect kind would fix it.
+The verdict vocabulary now has a third kind, `capability`, and
+`crux-shell-undeclared-authority` is graded under it. It was previously filed as `refuted`
+because the script greps for `error:`, though it fails at type-check rather than at the solver:
+both print `error:` and exit 1, so a program the type checker rejected stood in for one the
+solver disproved. `capability` matches the missing-capability diagnostic instead, and `refuted`
+now rejects that diagnostic explicitly, so the two cannot drift back together. Relabelling the
+case `refuted` fails the gate, which is how the distinction was checked rather than assumed.

@@ -4,7 +4,11 @@
 # Runs `llmll verify` on every case listed in each example family's
 # EXPECTED_VERDICTS.json and compares verdict + exit code against the frozen
 # expectation. A "safe" case must exit 0 and print SAFE; a "refuted" case must
-# exit 1 and print an error naming the localized function.
+# exit 1 and print an error naming the localized function; a "capability" case
+# must exit 1 with the missing-capability diagnostic, having been rejected at
+# type-check before the solver was reached. The third kind exists because
+# "refuted" and "capability" both print "error:" and exit 1, so without it a
+# program the type checker rejected counted as one the solver disproved.
 #
 # Scope guard (deliberate): this gate freezes VERIFY verdicts + exit codes
 # ONLY. It does not read obligation reports, trust-report shapes, or
@@ -126,9 +130,30 @@ for FAMILY in "${FAMILIES[@]}"; do
         if ! echo "$OUTPUT" | grep -q "error:"; then
           OK=false
           REASON="${REASON:+$REASON; }no refutation error in output"
+        elif echo "$OUTPUT" | grep -q "requires (import"; then
+          # A capability violation is not a refutation. Both print "error:" and
+          # exit 1, so grepping for "error:" alone let a program rejected at
+          # TYPE-CHECK stand in for one the solver disproved. Those are different
+          # claims about different machinery, and a suite that conflates them
+          # would keep reporting a green refutation after the solver stopped
+          # being reached at all.
+          OK=false
+          REASON="${REASON:+$REASON; }capability violation, not a refutation; expect 'capability'"
         elif [ -n "$LOCALIZED" ] && ! echo "$OUTPUT" | grep -q "'$LOCALIZED'"; then
           OK=false
           REASON="${REASON:+$REASON; }refutation not localized to '$LOCALIZED'"
+        fi
+        ;;
+      capability)
+        # Rejected before the solver: an effect reached without the capability
+        # import that authorizes it. The case must fail for THAT reason, so the
+        # diagnostic is matched rather than the bare exit code.
+        if ! echo "$OUTPUT" | grep -q "requires (import"; then
+          OK=false
+          REASON="${REASON:+$REASON; }no capability diagnostic in output"
+        elif [ -n "$LOCALIZED" ] && ! echo "$OUTPUT" | grep -q "$LOCALIZED"; then
+          OK=false
+          REASON="${REASON:+$REASON; }capability error does not name '$LOCALIZED'"
         fi
         ;;
       *)
