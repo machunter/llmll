@@ -180,6 +180,7 @@ def test_every_shipped_prompt_renders_with_its_documented_placeholders(tmp_path)
         "stage-F-core.md": dict(rfc_text="x", inventory="[]"),
         "stage-G-disposition.md": dict(rfc_text="x", inventory="[]", core_ids="[]",
                                        barriers="{}", scope="s"),
+        "stage-G2-audit.md": dict(rfc_text="x", subjects="[]"),
         "stage-H-feasibility.md": dict(llmll="llmll", scope="s"),
         "stage-I-prereg.md": dict(scope="s", barriers="{}"),
         "stage-K-contracts.md": dict(rfc_text="x", encoded="[]", scope="s",
@@ -270,3 +271,202 @@ def test_an_agent_that_exceeds_its_budget_stops_cleanly(tmp_path):
     runner = drv.AgentRunner("sleep 30", timeout=1)
     with pytest.raises(Stop, match="exceeded its 1s budget"):
         runner.run(tmp_path / "wd", "prompt", "out.json", "slow")
+
+
+# ---------------------------------------------------------------------------
+# Stage G2: the artifact audit
+# ---------------------------------------------------------------------------
+
+PINNED = "\n".join([
+    "RFC 9999                    Example                        July 2026",   # 1
+    "",                                                                       # 2
+    "1.  Encoding",                                                           # 3
+    "",                                                                       # 4
+    "   Implementations MUST NOT add line feeds to encoded data unless the",  # 5
+    "   specification referring to this document explicitly directs encoders",# 6
+    "   to add line feeds after a specific number of characters.",            # 7
+    "",                                                                       # 8
+    "   The block number should be incremented by one for each block sent.",  # 9
+    "",                                                                       # 10
+    "    +--------+--------+",                                                # 11
+    "    | Opcode | Block  |",                                                # 12
+    "    +--------+--------+",                                                # 13
+])
+
+
+def _cite(cid, quote, ls, le, strength="declarative", source="RFC9999"):
+    return {"id": cid, "source": source, "line_start": ls, "line_end": le,
+            "quote": quote, "rule": "N1", "strength": strength,
+            "obligation": "an obligation"}
+
+
+def audit_ctx(tmp_path, cites, rows, catalogue=None, pinned=PINNED):
+    """A workdir carrying pinned bytes, a census and a ledger, plus a stub agent
+    that returns `catalogue` verbatim. The catalogue is copied from a file rather
+    than printf'd: AgentRunner str.format()s its command, and JSON is all braces.
+    """
+    (tmp_path / "00-source").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "00-source" / "rfc9999.txt").write_text(pinned, encoding="utf-8")
+    drv.write_json(tmp_path / "04-reconcile" / "data" / "extraction-a.json",
+                   {"normative": cites, "excluded": []})
+    drv.write_json(tmp_path / "06-disposition" / "inventory-dispositioned.json",
+                   {"rows": rows})
+    if catalogue is None:
+        catalogue = {"audited": [{"cid": r["cid"], "verdict": "matches"}
+                                 for r in rows
+                                 if r.get("core")
+                                 or r["disposition"] == "Dispositioned out"]}
+    fixture = tmp_path / "catalogue.json"
+    drv.write_json(fixture, catalogue)
+    return drv.Ctx(workdir=tmp_path, agent=drv.AgentRunner(f"cp {fixture} " "{out}"),
+                   llmll="llmll", rfc_url="http://example/rfc9999.txt")
+
+
+LF_QUOTE = ("Implementations MUST NOT add line feeds to encoded data unless the "
+            "specification referring to this document explicitly directs encoders "
+            "to add line feeds after a specific number of characters.")
+
+
+def test_span_coverage_survives_an_elision_and_a_flattened_diagram():
+    """The regression that shaped this check. A substring test called both of
+    these a broken citation, and fired on 22 of the 113 real RFC 1350 rows: a
+    census legitimately elides a long clause and legitimately flattens a
+    multi-line packet diagram onto one line."""
+    span = "\n".join(PINNED.split("\n")[10:13])
+    assert drv._span_coverage("| Opcode | Block |", span) == 1.0
+    assert drv._span_coverage("Implementations MUST NOT add line feeds ... "
+                              "after a specific number of characters.",
+                              "\n".join(PINNED.split("\n")[4:7])) == 1.0
+
+
+def test_span_coverage_separates_a_true_citation_from_a_wrong_span():
+    true_span = "\n".join(PINNED.split("\n")[4:7])
+    wrong_span = "\n".join(PINNED.split("\n")[10:13])
+    assert drv._span_coverage(LF_QUOTE, true_span) == 1.0
+    assert drv._span_coverage(LF_QUOTE, wrong_span) < drv.CITATION_RESOLVES_AT
+
+
+def test_audit_passes_a_clean_artifact(tmp_path):
+    cites = [_cite("A1", LF_QUOTE, 5, 7, strength="must"),
+             _cite("A2", "The block number should be incremented by one", 9, 9,
+                   strength="should")]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5",
+                core=True, reason="stream insertion is not per-quantum"),
+            row("A2", cls="C2")]
+    drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+    rep = drv.read_json(tmp_path / "06b-audit" / "audit.json")
+    assert rep["unresolved_citations"] == []
+    assert rep["citations_checked"] == 2
+    assert rep["reasons_audited"] == 1        # only the excluded/core row
+
+
+def test_audit_stops_on_a_span_outside_the_pinned_file(tmp_path):
+    cites = [_cite("A1", LF_QUOTE, 900, 902)]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5")]
+    with pytest.raises(Stop, match="do not resolve to the pinned bytes"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+
+
+def test_audit_stops_when_the_quote_does_not_come_from_its_span(tmp_path):
+    """Section 14 pins the source so every later stage reads it. A quote whose
+    words are not in the span it cites was not read from there."""
+    cites = [_cite("A1", LF_QUOTE, 11, 13)]          # cites the diagram
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5")]
+    with pytest.raises(Stop, match="do not resolve to the pinned bytes"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+
+
+def test_audit_stops_on_a_source_name_matching_no_pinned_file(tmp_path):
+    """Silence is the danger, not noise: the two tools that hardcoded the first
+    run's source names both reported zeros on the second and the run continued."""
+    cites = [_cite("A1", LF_QUOTE, 5, 7, source="RFC1350")]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5")]
+    with pytest.raises(Stop, match="do not resolve to the pinned bytes"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+
+
+def test_audit_stops_on_a_dispositioned_row_that_cites_no_census_row(tmp_path):
+    cites = [_cite("A1", LF_QUOTE, 5, 7)]
+    rows = [row("A1", cls="C3"), row("A99", cls="C1")]
+    with pytest.raises(Stop, match="cite no census row"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+
+
+def test_audit_reports_a_near_miss_span_and_an_absent_strength_without_stopping(tmp_path):
+    """Both fire on correct rows, so both report. Six TFTP rows cite a span one
+    line short of their quote, and three cite RFC 1123's requirements-summary
+    table, where the strength is a column position rather than a word."""
+    cites = [_cite("A1", "encoders to add line feeds after a specific number", 7, 7),
+             _cite("A2", "| Opcode | Block |", 11, 13, strength="must")]
+    rows = [row("A1", cls="C3"), row("A2", cls="C3")]
+    drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows))
+    rep = drv.read_json(tmp_path / "06b-audit" / "audit.json")
+    assert [n["cid"] for n in rep["span_nearly_right"]] == ["A1"]
+    assert [s["cid"] for s in rep["declared_strength_absent_from_quote"]] == ["A2"]
+    assert rep["unresolved_citations"] == []
+
+
+def test_audit_stops_when_a_flags_evidence_is_not_in_the_artifact(tmp_path):
+    """Section 6 forbids a gate condition to rest on an unevidenced input, and
+    that has to bind this stage's own output too."""
+    cites = [_cite("A1", LF_QUOTE, 5, 7)]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5",
+                reason="stream insertion is not per-quantum")]
+    cat = {"audited": [{"cid": "A1", "verdict": "misreads",
+                        "quote_phrase": "a phrase that is not in the clause",
+                        "reason_phrase": "stream insertion"}]}
+    with pytest.raises(Stop, match="not in the pinned quote"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows, cat))
+
+
+def test_audit_stops_when_a_flagged_row_is_characteristic_core(tmp_path):
+    """The RFC 4648 case, mechanised: a core row disposed of on a reason that
+    misreads its own clause is exactly the unevidenced input stage J then rules
+    on."""
+    cites = [_cite("A1", LF_QUOTE, 5, 7)]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5",
+                core=True,
+                reason="the clause forbids line feeds after a specific number "
+                       "of characters")]
+    cat = {"audited": [{"cid": "A1", "verdict": "misreads",
+                        "quote_phrase": "unless the specification referring to",
+                        "reason_phrase": "after a specific number of characters",
+                        "note": "the qualifier belongs to the exception"}]}
+    with pytest.raises(Stop, match="misreads the clause|misread"):
+        drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows, cat))
+
+
+def test_audit_records_a_non_core_flag_without_stopping(tmp_path):
+    cites = [_cite("A1", LF_QUOTE, 5, 7)]
+    rows = [row("A1", cls="C3", disposition="Dispositioned out", barrier="B5",
+                reason="the clause forbids line feeds after a specific number "
+                       "of characters")]
+    cat = {"audited": [{"cid": "A1", "verdict": "misreads",
+                        "quote_phrase": "unless the specification referring to",
+                        "reason_phrase": "after a specific number of characters"}]}
+    drv.stage_G2_audit(audit_ctx(tmp_path, cites, rows, cat))
+    rep = drv.read_json(tmp_path / "06b-audit" / "audit.json")
+    assert [v["cid"] for v in rep["reasons_flagged"]] == ["A1"]
+
+
+def test_audit_catalogue_must_cover_every_subject():
+    """An audit that may quietly omit its hardest row reports the same thing as
+    one that found nothing."""
+    with pytest.raises(Stop, match="no verdict for"):
+        drv.check_audit({"audited": [{"cid": "A1", "verdict": "matches"}]},
+                        ["A1", "A2"])
+
+
+def test_audit_catalogue_rejects_a_duplicate_and_an_unknown_subject():
+    with pytest.raises(Stop, match="two verdicts"):
+        drv.check_audit({"audited": [{"cid": "A1", "verdict": "matches"},
+                                     {"cid": "A1", "verdict": "misreads",
+                                      "quote_phrase": "x", "reason_phrase": "y"}]},
+                        ["A1"])
+    with pytest.raises(Stop, match="not among the subjects"):
+        drv.check_audit({"audited": [{"cid": "ZZ", "verdict": "matches"}]}, ["A1"])
+
+
+def test_audit_catalogue_requires_evidence_on_a_flag():
+    with pytest.raises(Stop, match="carries no quote_phrase"):
+        drv.check_audit({"audited": [{"cid": "A1", "verdict": "misreads"}]}, ["A1"])

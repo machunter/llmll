@@ -247,6 +247,11 @@ What a fourth run should test:
   refusal meaningless, so the useful band is narrow and we have missed it once.
 - **A `B7` row under the corrected criterion.** Six of RFC 4648's eight `B7` rows named what
   entails them unprompted. Whether that holds when the rule requires it is untested.
-- **The artifact audit as a stage rather than an afterthought.** Checking every citation against
-  the pinned bytes found a consequential misreading in one pass, at negligible cost, and nothing
-  in the pipeline does it today.
+- **The artifact audit, now stage G2, on a run it did not come from.** It exists as of
+  2026-07-28, between the disposition pass and the probes, and it has never seen a live run.
+  Building it settled the design empirically rather than by argument: a substring test for
+  "the quote appears in its cited span" fires on **22 of the 113 real RFC 1350 rows**, because a
+  census abbreviates long clauses and flattens packet diagrams. Token coverage separates cleanly
+  instead: every true citation scores ≥ 0.875, and the same quotes against 6655 wrong spans reach
+  0.500 at the 99th percentile. Replayed over the committed TFTP census and the real RFC 1350
+  bytes it resolves 109/109 citations and reports the 6 spans that are one line short.

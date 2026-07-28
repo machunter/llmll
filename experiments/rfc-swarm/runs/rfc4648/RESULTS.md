@@ -295,6 +295,16 @@ delegated output to be validated against its declared shape, which cannot catch 
 misreads its own quote. Section 14 pins the source and requires later stages to read it, but
 nothing verifies that they did. The audit in this document took one pass and found one.
 
+*Written, 2026-07-28.* Both sections now carry it, and the driver runs it as **stage G2** between
+the disposition pass and the probes. Building it corrected one thing this document assumed. The
+audit reported "quote appears verbatim within its cited line span, 64/64", which reads as though
+a substring test would reproduce it; it would not. Run against the committed TFTP census and the
+real RFC 1350 bytes, a substring test fails **22 of 113 correct rows**, because a census
+abbreviates a long clause with an ellipsis and flattens a multi-line packet diagram onto one
+line. The mechanical check is therefore token coverage, whose threshold is measured rather than
+chosen: true citations bottom out at 0.875, and the same quotes against 6655 wrong spans reach
+0.500 at the 99th percentile.
+
 ## What a fourth run should test
 
 **Not another bad-fit target.** Gate J's characteristic-core condition is binary and its truth
@@ -308,8 +318,11 @@ method does poorly, since RFC 4648 was selected as bad-fit and carried the most 
    lint, and this run halted at J without reaching either. The next target should be chosen to
    **pass** gate J, the opposite of this run's heuristic.
 2. **The gate's inputs, not its logic.** The one firing on record was triggered by an exclusion
-   whose stated reasoning did not survive a probe. Nothing in the pipeline checks that a
-   disposition's reasoning matches the clause it cites; a person did.
+   whose stated reasoning did not survive a probe. A person checked that, not the pipeline.
+   **Stage G2 now does**, as of 2026-07-28: it resolves every citation against the pinned bytes
+   mechanically, delegates the reading of each stated reason, and halts on a core row whose
+   reason misreads its clause. It has never run live, so what is settled is that the check is
+   buildable and what it costs, not that it catches anything a person would not.
 3. **A `B7` row under the corrected criterion.** Six of this run's eight `B7` rows named what
    entails them unprompted. Whether that holds when the rule requires it is untested.
 4. **No human in the loop at all.** Still not achieved, and this run moved backwards: it needed a

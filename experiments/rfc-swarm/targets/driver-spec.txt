@@ -289,6 +289,26 @@ Table of Contents
    a validator that hardcodes the values seen in one run will silently
    report emptiness on the next.
 
+   Shape is not the only thing a delegated output can get wrong, and it
+   is the easiest thing for a wrong output to get right.  Where an
+   output cites the source document, the driver MUST check the citation
+   against the pinned bytes: that the cited document is one that was
+   pinned, that the cited span lies within it, and that the quoted words
+   are drawn from that span.  A citation that resolves to nothing was
+   not read from the source, whatever its shape.
+
+   That check MUST NOT require the quoted text to be a contiguous
+   substring of the span.  A census legitimately abbreviates a long
+   clause, and legitimately renders a multi-line diagram on a single
+   line; a test that forbids either reports a defect on a correct entry
+   and will be switched off.
+
+   Where the driver evaluates a delegated judgement about the source, it
+   MUST require that judgement to cite the words it rests on, from each
+   side of the comparison, and MUST check that those words occur in the
+   artifacts.  A finding the driver cannot locate is an assertion, and
+   section 6 forbids a gate to rest on one.
+
    Where a delegated stage produces a catalogue of items for the driver
    to evaluate, the agent MUST NOT perform that evaluation itself.  The
    catalogue is the deliverable.
@@ -452,6 +472,30 @@ Table of Contents
 
    The source document MUST be pinned by cryptographic digest before
    extraction, and every later stage MUST read the pinned bytes.
+
+   That requirement is not self-enforcing.  A stage that answered from
+   recollection leaves the same artifacts as one that read the file, so
+   an implementation stating the rule without checking it has gathered
+   no evidence that it held.  Before the gates of section 6 are
+   evaluated, the driver MUST check every citation the dispositions rest
+   on against the pinned bytes, and MUST halt on one that does not
+   resolve.
+
+   Two further checks over the same bytes MUST be reported and MUST NOT
+   halt the run: a span that supplies the quoted words only in part, and
+   a declared normative strength that does not appear in the quoted
+   text.  Both occur in correct censuses.  The first arises when a span
+   is one line short of the sentence it cites, the second when a
+   document states strength by position in a requirements table rather
+   than by a keyword.  An implementation that halts on either demands
+   that a correct entry be falsified in order to pass.
+
+   Whether a stated reason describes the clause it cites is a reading,
+   not a computation, and MUST be delegated under section 7.  A reason
+   found to misread the clause carrying a characteristic requirement
+   MUST halt the run, because the gate of section 6 decides the target
+   from exactly those rows and would otherwise decide it from a
+   restatement rather than from the source.
 
 15. Trust Tiers and the Boundary of Proof
 

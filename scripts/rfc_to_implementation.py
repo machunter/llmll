@@ -20,7 +20,10 @@ WHAT IS AUTOMATED, AND WHAT IS NOT
                   make these judgments and does not pretend to. (B, C, D, F, G,
                   H, I, K, M, O.)
       gate        a mechanical STOP. A failed gate ends the run non-zero rather
-                  than degrading quietly. (J, L, and the per-fill bar in M.)
+                  than degrading quietly. (G2, J, L, and the per-fill bar in M.)
+
+    G2 is both: it decides mechanically what a machine can decide about a
+    citation and delegates the reading, then evaluates the catalogue itself.
 
     An agent stage that returns malformed output is a hard failure, not a
     silently-skipped step: the pipeline's whole value is that the denominator
@@ -270,6 +273,56 @@ def check_extraction(doc: Any, label: str) -> dict[str, Any]:
     return doc
 
 
+# Words that can carry a declared strength. RFC 2119 pairs several of them as
+# equivalents, and a pre-2119 RFC uses the lowercase forms, so a census may
+# legitimately declare "must" for a clause whose word is "shall" or "required".
+_STRENGTH_FAMILY: dict[str, tuple[str, ...]] = {
+    "must": ("must", "shall", "required"),
+    "must not": ("must not", "shall not"),
+    "shall": ("shall", "must"),
+    "required": ("required", "must"),
+    "should": ("should", "recommended"),
+    "should not": ("should not", "not recommended"),
+    "recommended": ("recommended", "should"),
+    "may": ("may", "optional", "can"),
+    "optional": ("optional", "may"),
+}
+
+
+def check_audit(doc: Any, expected: list[str]) -> list[dict[str, Any]]:
+    """Validate stage G2's catalogue: one verdict per subject, no silent drops.
+
+    Section 7 says a delegated stage producing a catalogue for the driver to
+    evaluate MUST NOT perform that evaluation itself, so the agent returns
+    verdicts and evidence and the driver decides what halts. A missing cid is a
+    hard failure rather than an abstention: an audit that may quietly omit its
+    hardest row reports the same thing as one that found nothing.
+    """
+    items: Any = doc["audited"] if isinstance(doc, dict) and "audited" in doc else doc
+    require(isinstance(items, list), "audit: expected an 'audited' list")
+    seen: dict[str, dict[str, Any]] = {}
+    for i, v in enumerate(items):
+        require(isinstance(v, dict), f"audit: audited[{i}] is not an object")
+        cid = str(v.get("cid", ""))
+        require(cid in expected,
+                f"audit: verdict for {cid!r}, which was not among the subjects")
+        require(cid not in seen, f"audit: {cid} has two verdicts")
+        require(v.get("verdict") in ("matches", "misreads"),
+                f"audit: {cid} has verdict {v.get('verdict')!r}, expected "
+                "'matches' or 'misreads'")
+        if v["verdict"] == "misreads":
+            for k in ("quote_phrase", "reason_phrase"):
+                require(isinstance(v.get(k), str) and v[k].strip(),
+                        f"audit: {cid} is flagged and carries no {k}. A flag has to "
+                        "show the words it rests on, from both sides.")
+        seen[cid] = v
+    missing = [c for c in expected if c not in seen]
+    require(not missing,
+            f"audit: no verdict for {len(missing)} subject(s): {missing[:8]}. "
+            "Every subject gets a verdict; silence is not a pass.")
+    return [seen[c] for c in expected]
+
+
 def check_dispositioned(doc: Any) -> list[dict[str, Any]]:
     rows: Any = doc["rows"] if isinstance(doc, dict) and "rows" in doc else doc
     require(isinstance(rows, list) and rows, "dispositions: expected rows")
@@ -511,8 +564,13 @@ def stage_G_disposition(ctx: Ctx) -> None:
 
     Two rules keep this defensible, and both are checked here rather than
     trusted: an exclusion must cite a barrier from the closed list, and a row
-    that is true by construction is B7 (excluded), never counted as carried,
-    because no mutant can exercise it and it carries no verification evidence.
+    whose obligation is entailed by the declared types or by a named sibling row
+    is B7 (excluded), never counted as carried, because it carries no
+    verification evidence of its own.
+
+    B7 formerly read "no mutant can exercise it". That test is undecidable in
+    general and a probe showed it false on the RFC 4648 row that fired gate J, so
+    it now requires an entailment the disposition names.
     """
     core = read_json(ctx.workdir / "05-core" / "core.json")
     core_ids = set(core["core_ids"] if isinstance(core, dict) else core)
@@ -535,6 +593,224 @@ def stage_G_disposition(ctx: Ctx) -> None:
     write_json(ctx.d("06-disposition", "inventory-dispositioned.json"), {"rows": rows})
     from collections import Counter
     log(f"  dispositions: {dict(Counter(r['disposition'] for r in rows))}")
+
+
+# The floor a citation's token coverage must clear for it to count as resolving
+# to the pinned bytes at all. Measured, not chosen: over the 113 RFC 1350 rows of
+# the committed TFTP census, every true citation scores >= 0.875, and the same
+# quotes scored against 6655 same-width spans elsewhere in the file score <= 0.500
+# at the 99th percentile, mean 0.086. The band [0.833, 0.875] is empty. A wrong
+# span CAN still score high when the quote is short and made of common words
+# (12 of 6655 reached 0.7), so this catches a citation that plainly does not
+# resolve and is not a detector of subtle misplacement; stated because a gate
+# whose miss rate is undisclosed gets trusted for more than it does.
+CITATION_RESOLVES_AT = 0.5
+
+
+def _audit_tokens(s: str) -> list[str]:
+    """Alphanumeric tokens, lowercased. Punctuation and layout are dropped.
+
+    Deliberately coarse. An RFC census legitimately quotes an elision ("A ... B")
+    and legitimately flattens a multi-line packet diagram onto one line, and a
+    substring test calls both of those a broken citation: on the TFTP census it
+    fired on 22 of 113 correct rows. Tokens survive both.
+    """
+    return [t for t in "".join(c if c.isalnum() else " " for c in s.lower()).split()]
+
+
+def _span_coverage(quote: str, span_text: str) -> float:
+    """Fraction of the quote's tokens the cited span actually supplies.
+
+    A bag, not a set: a quote repeating a word needs the span to repeat it too.
+    """
+    q = _audit_tokens(quote)
+    if not q:
+        return 1.0
+    have: dict[str, int] = {}
+    for t in _audit_tokens(span_text):
+        have[t] = have.get(t, 0) + 1
+    hit = 0
+    for t in q:
+        if have.get(t, 0) > 0:
+            have[t] -= 1
+            hit += 1
+    return hit / len(q)
+
+
+def _pinned_sources(ctx: Ctx) -> dict[str, list[str]]:
+    """Map each pinned file's normalised name to its lines, split as stage A read them.
+
+    Split on newline only, matching `_sources_text`: a census cites line numbers
+    produced by that numbering, and splitlines() would treat an RFC's form-feed
+    page breaks as extra line boundaries and shift every span after page one.
+
+    Names are normalised rather than matched literally because a census writes
+    "RFC1350" or "RFC 1350" for a file named `rfc1350.txt`. Spec section 7 forbids
+    validation that depends on one document's conventions, and the two tools that
+    hardcoded the first run's names both went on to report zeros on the second.
+    """
+    out: dict[str, list[str]] = {}
+    for f in sorted((ctx.workdir / "00-source").glob("*.txt")):
+        key = "".join(c for c in f.stem.lower() if c.isalnum())
+        require(key not in out,
+                f"stage G2: two pinned files normalise to {key!r}; the citation "
+                "for either would be ambiguous")
+        out[key] = f.read_text(encoding="utf-8", errors="replace").split("\n")
+    require(out, "stage G2: no pinned RFC text under 00-source; run stage A first")
+    return out
+
+
+def stage_G2_audit(ctx: Ctx) -> None:
+    """Check every citation against the bytes stage A pinned (spec sections 7, 14).
+
+    Section 7 makes the driver validate a delegated output against its declared
+    SHAPE, which a reason that misreads its own quote satisfies perfectly.
+    Section 14 pins the source and requires later stages to read it, and nothing
+    checked that they did. On RFC 4648 one disposition reason moved a positional
+    qualifier out of an `unless` exception and into the prohibition, and it was a
+    person reading three lines of the pinned file who caught it, after the run.
+
+    The stage is split by what a machine can decide.
+
+    MECHANICAL, and a STOP: the cited source resolves to a pinned file, the span
+    lies inside it, and the quote's tokens come from that span. These cannot be
+    wrong about a correct row.
+
+    MECHANICAL, and REPORTED: a span that is nearly right, and a declared
+    normative strength absent from its own quote. Both fire on correct input. Six
+    TFTP rows cite a span one line short of their quote, and three cite RFC 1123's
+    requirements-summary table, where the strength is a column position rather
+    than a word. Failing closed on either would demand a correct row be mangled,
+    which is the reasoning DRIFT-DOC-4 records for staying advisory.
+
+    DELEGATED: whether a stated reason matches the clause it cites. That is a
+    reading, so an agent does it and the driver evaluates the catalogue, per
+    section 7. A flag must carry the phrase it relies on from each side, and the
+    driver checks those phrases occur; a flag whose evidence is not in the
+    artifact is an assertion, and section 6 now forbids a gate to rest on one.
+    """
+    sources = _pinned_sources(ctx)
+    # The same spine stages F and G read. Citations live here; the dispositioned
+    # rows carry only cid, class, disposition, barrier and reason.
+    spine = read_json(ctx.workdir / "04-reconcile" / "data"
+                      / "extraction-a.json")["normative"]
+    cite = {str(r.get("cid") or r["id"]): r for r in spine}
+    rows = read_json(ctx.workdir / "06-disposition"
+                     / "inventory-dispositioned.json")["rows"]
+
+    unresolved: list[dict[str, Any]] = []
+    near_miss: list[dict[str, Any]] = []
+    strength_absent: list[dict[str, Any]] = []
+    uncited = [r["cid"] for r in rows if r["cid"] not in cite]
+
+    for r in rows:
+        c = cite.get(r["cid"])
+        if c is None:
+            continue
+        key = "".join(ch for ch in str(c["source"]).lower() if ch.isalnum())
+        lines = sources.get(key)
+        if lines is None:
+            unresolved.append({"cid": r["cid"], "why": "source",
+                               "detail": f"cites source {c['source']!r}, which is "
+                                         f"none of the pinned files {sorted(sources)}"})
+            continue
+        ls, le = int(c["line_start"]), int(c["line_end"])
+        if not 1 <= ls <= le <= len(lines):
+            unresolved.append({"cid": r["cid"], "why": "span",
+                               "detail": f"cites {c['source']} L{ls}-{le}, and the "
+                                         f"pinned file has {len(lines)} lines"})
+            continue
+        cov = round(_span_coverage(c["quote"], " ".join(lines[ls - 1:le])), 4)
+        if cov < CITATION_RESOLVES_AT:
+            unresolved.append({"cid": r["cid"], "why": "quote", "coverage": cov,
+                               "detail": f"{c['source']} L{ls}-{le} supplies {cov:.0%} "
+                                         "of the quote's tokens"})
+        elif cov < 1.0:
+            near_miss.append({"cid": r["cid"], "coverage": cov,
+                              "cited": f"{c['source']} L{ls}-{le}"})
+        strength = str(c.get("strength", "")).strip().lower()
+        if strength and strength not in ("declarative", "none", "n/a"):
+            q = " ".join(str(c["quote"]).lower().split())
+            if not any(w in q for w in _STRENGTH_FAMILY.get(strength, (strength,))):
+                strength_absent.append({"cid": r["cid"], "strength": strength,
+                                        "quote": str(c["quote"])[:120]})
+
+    log(f"  citations checked against the pinned bytes: {len(rows) - len(uncited)}"
+        f" of {len(rows)} rows")
+    log(f"  unresolved: {len(unresolved)}   span nearly right: {len(near_miss)}"
+        f"   declared strength not in its own quote: {len(strength_absent)}")
+
+    # Judgment half. Exactly the rows the gate reads: a core row, and any row
+    # excluded under a barrier. Those are the inputs to stage J's two conditions.
+    audit_ids = sorted({r["cid"] for r in rows
+                        if r.get("core") or r["disposition"] == "Dispositioned out"}
+                       & set(cite))
+    subjects = [{"cid": i, "quote": cite[i]["quote"],
+                 "cited": f"{cite[i]['source']} L{cite[i]['line_start']}"
+                          f"-{cite[i]['line_end']}",
+                 "obligation": cite[i].get("obligation", ""),
+                 "disposition": next(r["disposition"] for r in rows if r["cid"] == i),
+                 "reason": next(r["reason"] for r in rows if r["cid"] == i)}
+                for i in audit_ids]
+    out = ctx.agent.run(ctx.dir("06b-audit"),
+                        ctx.prompt("stage-G2-audit.md",
+                                   rfc_text=_sources_text(ctx),
+                                   subjects=json.dumps(subjects, indent=1)),
+                        "audit.json", "audit")
+    verdicts = check_audit(read_json(out), audit_ids)
+
+    misread = [v for v in verdicts if v["verdict"] == "misreads"]
+    for v in misread:
+        c, r = cite[v["cid"]], next(x for x in rows if x["cid"] == v["cid"])
+        require(" ".join(v["quote_phrase"].lower().split())
+                in " ".join(str(c["quote"]).lower().split()),
+                f"STOP (stage G2): the flag on {v['cid']} quotes "
+                f"{v['quote_phrase']!r} from the clause, and that phrase is not in "
+                "the pinned quote. A flag whose evidence is not in the artifact is "
+                "an assertion, not a finding.")
+        require(" ".join(v["reason_phrase"].lower().split())
+                in " ".join(str(r["reason"]).lower().split()),
+                f"STOP (stage G2): the flag on {v['cid']} quotes "
+                f"{v['reason_phrase']!r} from the reason, and that phrase is not in "
+                "the recorded reason. A flag whose evidence is not in the artifact "
+                "is an assertion, not a finding.")
+        v["core"] = bool(next(x for x in rows if x["cid"] == v["cid"]).get("core"))
+
+    report = {
+        "rows": len(rows),
+        "citations_checked": len(rows) - len(uncited),
+        "uncited_rows": uncited,
+        "unresolved_citations": unresolved,
+        "span_nearly_right": near_miss,
+        "declared_strength_absent_from_quote": strength_absent,
+        "reasons_audited": len(audit_ids),
+        "reasons_flagged": misread,
+        "note": "unresolved_citations is a STOP. span_nearly_right and "
+                "declared_strength_absent_from_quote are reported and NOT "
+                "thresholded: both fire on correct rows.",
+    }
+    write_json(ctx.d("06b-audit", "audit.json"), report)
+
+    require(not uncited,
+            f"STOP (stage G2): {len(uncited)} dispositioned rows cite no census "
+            f"row: {uncited[:8]}. A disposition with no citation cannot be checked "
+            "against the pinned bytes at all.")
+    require(not unresolved,
+            "STOP (stage G2): citations that do not resolve to the pinned bytes: "
+            + json.dumps(unresolved[:6])
+            + ". Section 14 pins the source so that every later stage reads it; a "
+              "citation that resolves to nothing was not read from it.")
+    flagged_core = [v["cid"] for v in misread if v.get("core")]
+    require(not flagged_core,
+            f"STOP (stage G2): characteristic-core rows whose stated reason "
+            f"misreads the clause it cites: {flagged_core}. Stage J decides the "
+            "target from core membership and disposition, and section 6 forbids a "
+            "gate condition to rest on an input carrying no evidence. Correct the "
+            "reason, then let the gate rule on it.")
+    if misread:
+        log(f"  reasons flagged (none core, recorded not fatal): "
+            f"{[v['cid'] for v in misread]}")
+    log("  artifact audit PASS")
 
 
 def stage_H_feasibility(ctx: Ctx) -> None:
@@ -1050,6 +1326,11 @@ STAGES: list[Stage] = [
     Stage("F", "characteristic core", "agent", stage_F_core, ("05-core/core.json",)),
     Stage("G", "disposition pass", "agent", stage_G_disposition,
           ("06-disposition/inventory-dispositioned.json",)),
+    # Before H, not after J. A citation that does not resolve should stop the run
+    # before it spends forty-five minutes on feasibility probes, and stage J's two
+    # conditions read the dispositions this stage audits.
+    Stage("G2", "artifact audit", "gate", stage_G2_audit,
+          ("06b-audit/audit.json",)),
     Stage("H", "feasibility probes", "agent", stage_H_feasibility,
           ("07-feasibility/feasibility.json",)),
     Stage("I", "pre-registration", "agent", stage_I_prereg,
@@ -1327,7 +1608,7 @@ def main(argv: list[str] | None = None) -> int:
         description="RFC to verified implementation (docs/design/rfc-swarm-playbook.md)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Stages:\n" + "\n".join(
-            f"  {s.key}  [{s.kind:10}] {s.name}" for s in STAGES))
+            f"  {s.key:2}  [{s.kind:10}] {s.name}" for s in STAGES))
     ap.add_argument("--rfc-url", help="URL of the RFC as verbatim text")
     ap.add_argument("--amend-url", action="append", default=[],
                     help="URL of an amending RFC (repeatable)")

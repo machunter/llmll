@@ -172,6 +172,40 @@ Two rules keep this defensible:
 
 *TFTP:* 46 Encoded, 20 Deployment-modeled, 5 Vectored, 53 excluded.
 
+### G2. Audit the artifact against the pinned bytes
+
+Every stage from D onward cites the source. Nothing checked that those citations resolve, so
+run the audit here, **before** the feasibility probes and before the gate: a citation that
+resolves to nothing should not cost forty-five minutes of probes, and stage J rules on exactly
+the rows this audit reads.
+
+Three checks are mechanical and **STOP**: the cited document is one that was pinned, the span
+lies inside it, and the quoted words come from that span. Match on **tokens, not on a
+substring**. A census legitimately abbreviates a long clause with an ellipsis and legitimately
+flattens a multi-line packet diagram onto one line, and the substring test calls both of those
+a broken citation: on the TFTP census it fired on 22 of 113 correct rows.
+
+Two more are mechanical and are **reported, never thresholded**, because both fire on correct
+input. A span one line short of its own sentence (6 real TFTP rows), and a declared strength
+absent from the quote (3 real TFTP rows, all citing RFC 1123's requirements-summary table,
+where strength is a column position rather than a word). Failing closed on either demands that
+a correct row be mangled to pass, which is the reasoning `scripts/doc_path_lint.py` records for
+staying advisory.
+
+The last check is a **reading and cannot be mechanised**: does the stated reason describe the
+clause it cites? Delegate it over the rows the gate reads (core rows, and every excluded row),
+and require the verdict to quote the words it rests on from **both** sides so the driver can
+check they occur. A flag it cannot locate in the artifacts is an assertion. A misread reason on
+a **characteristic-core** row is a STOP, because that is precisely the unevidenced input stage
+J would otherwise rule on.
+
+*RFC 4648:* this is the check that was missing. One disposition reason in twenty moved a
+positional qualifier out of an `unless` exception and into the prohibition, and a person caught
+it by reading three lines of the file stage A exists to pin, after the run had already halted.
+
+*Failure mode:* auditing whether each disposition is **right**. That is a different and much
+larger claim. This stage asks only whether each stated reason matches the clause it cites.
+
 ### H. Feasibility probes, before authoring anything
 
 Before committing to the target, prove the core shapes actually verify. Write a small program
@@ -354,8 +388,10 @@ STOPs rather than reporting them. Three properties are worth knowing before rely
 
 - **It separates what it automates from what it delegates.** Stages are `mechanical` (A, E, J,
   L, and the scoring half of N: deterministic, no model), `agent` (B, C, D, F, G, H, I, K, M, O:
-  a judgment a model makes under a written contract, schema-checked on return), or `gate` (J, L,
-  and the per-fill bar in M). The script makes no judgment it labels mechanical.
+  a judgment a model makes under a written contract, schema-checked on return), or `gate` (G2, J,
+  L, and the per-fill bar in M). The script makes no judgment it labels mechanical. G2 is both
+  kinds at once: it decides mechanically what a machine can decide about a citation, delegates
+  the reading, and evaluates the returned catalogue itself.
 - **Blindness is structural, not requested.** Stage D's two extractors run in directories
   holding the pinned bytes, the rubric, and nothing else. `--audit-blindness` re-checks after
   the fact and fails on any unaccounted-for file.
@@ -385,10 +421,11 @@ because a gate that never fires is decorative.
 A different RFC through this playbook should produce, without re-deciding the method: pinned
 source bytes; a rubric written before extraction; two blind censuses with a reported agreement
 statistic; a reconciled inventory with every adjudication recorded; a named characteristic core
-fixed before dispositions; a four-way disposition ledger with a closed barrier list; feasibility
-probes that verify and refute before authoring; a pre-registration honored or amended in the
-open; tagged root contracts passing the coverage lint; a frozen clause surface; a blind
-concurrent wave; and a kill matrix reported with survivors.
+fixed before dispositions; a four-way disposition ledger with a closed barrier list; an artifact
+audit resolving every citation against the pinned bytes; feasibility probes that verify and
+refute before authoring; a pre-registration honored or amended in the open; tagged root
+contracts passing the coverage lint; a frozen clause surface; a blind concurrent wave; and a
+kill matrix reported with survivors.
 
 If a second run cannot reproduce that shape, the process is not yet the deliverable and this
 document is the thing to fix.
