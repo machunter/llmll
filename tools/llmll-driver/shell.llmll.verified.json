@@ -1,1 +1,0 @@
-{"caller_obligations":[{"fn":"liveness.advancing","requires":"(and (>= newest-artifact-age 0) (and (>= log-age newest-artifact-age) (> threshold 0)))"}]}

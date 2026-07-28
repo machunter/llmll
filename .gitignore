@@ -36,6 +36,10 @@ experiments/**/*.verified.json
 compiler/test/fixtures/**/*.verified.json
 tools/llmll-orchestra/fixtures/**/*.verified.json
 
+# llmll-driver crux suite: `make refute-crux-gate` verifies a copy, but a local
+# `llmll verify` in the suite dir drops sidecars here. No canonical exceptions.
+tools/llmll-driver/**/*.verified.json
+
 # DRIFT-CT-2 fixtures: since v0.14.68 the gate runs `verify` on one of them
 # (open-after-def-verify), so every local gate run drops a sidecar here.
 scripts/doc-claims/*.verified.json
