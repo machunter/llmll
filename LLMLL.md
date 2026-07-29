@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.71)
+# LLMLL: Large Language Model Logical Language (v0.14.72)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.71.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.72.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -396,7 +396,9 @@ Elimination synthesizes the base type and adds the refinement as a lexically-sco
 
 The type channel checks `≡` on the base; the contract channel emits `p[e/x]` (the §3.4.1 two-phase split).
 
-**Mode assignment.** All forms synthesize (⇒) — literals, variables, application/operator elimination, `match`, pairs, lambdas, `let` bodies. Expected types are supplied at parameter / return / annotated-`let` positions (checked via Check-by-Synth; `⇐-Refine` when the annotation is a refinement alias) and at holes (Check-Hole). The intro-checks/elim-synthesizes discipline of textbook bidirectional typing is *not* asserted — the checker is synthesis-primary; `if` reconciles its branches by checking one against the other's synthesized type (itself Check-by-Synth).
+**Mode assignment.** All forms synthesize (⇒) — literals, variables, application/operator elimination, `match`, pairs, lambdas, `let` bodies. Expected types are supplied at parameter / return / annotated-`let` positions (checked via Check-by-Synth; `⇐-Refine` when the annotation is a refinement alias) and at holes (Check-Hole). The intro-checks/elim-synthesizes discipline of textbook bidirectional typing is *not* asserted: the checker is synthesis-primary. `if` reconciles its branches by one of three routes, selected by which branches are holes. With **exactly one hole**, the concrete branch is synthesized, the hole is *checked* against it (Check-by-Synth), and the concrete branch's type is the result. With **both branches concrete**, both are synthesized and compared for compatibility: an incompatible pair is diagnosed, and a compatible pair yields the then-branch's type, except that a branch synthesizing the `?` wildcard yields to a concrete sibling when that wildcard arose from a self-recursive call (RET-BRANCH-PREF). With **both branches holes**, each is synthesized independently and the result is `?`.
+
+**The `?` wildcard.** `TVar "?"` denotes *inference produced no usable type at this position*, not *any type*. It is compatible with every type, which makes the compatibility relation reflexive and symmetric but **not** transitive. Because LLMLL erases and inserts no casts (§3.4.5), that compatibility is an **unchecked** admission rather than a deferred check: a program admitted through `?` carries no runtime guard and no verification obligation recording the gap. Consumers must treat a result derived through `?` as unproven rather than as trusted.
 
 **Verification.** The judgment introduces no new proof obligation and no new channel: the only refinement obligation it routes is the existing §3.4.1 `p[e/x]`, classified per §5.3.3 (QF-LIA core / measure-class auto / non-`Σ_auto` → `erBodyFallback`, §3.4.5).
 

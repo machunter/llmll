@@ -4,6 +4,69 @@
 
 <a id="Latest"></a>
 
+## v0.14.72: the `result` binder's sort comes from the checker, not from the annotation (2026-07-29)
+
+Four compiler changes. The verification channel used to re-derive the sort of the `result`
+binder from the OPTIONAL `-> RetType` annotation, defaulting to `int` when it was absent, while
+the type channel derived it from the synthesized body type. Where the two disagreed the emitted
+`.fq` was ill-sorted and liquid-fixpoint refused the file. Failed closed throughout, so no prior
+verdict was affected.
+
+### Fixed, FQ-RESULT-SORT-1 (was routed as FQ-BOOL-SORT-1)
+
+- **The defect was not bool-specific.** String and pair returns crashed identically, and a
+  *computed* bool body crashed whenever the post eliminated the boolean (`and` / `or` / `not`
+  over `result`). The surviving shape was `(= result e)` alone. Twenty-four configurations
+  measured; ten fired.
+- **Stage (a), the contract channel.** The checker now records `tau_ret = mRet |> tau_body` on
+  `TCState`, and `effRet` substitutes it at the `emitFnConstraints` boundary. One substitution
+  fixes the sort derivation and also makes `sigPairUnsafe` / `resultReturnUnsafe` evaluate
+  against the real return type instead of failing open on `Nothing`.
+- **Stage (b), across module and synthetic paths.** `seedImportedContracts` rebuilds an imported
+  `ContractEnv` from statements rather than from `meContracts`, so a new `meRetTypes` on
+  `ModuleEnv` carries `tau_ret` cross-module; `emitSynthetic` gives the weakness-check, CDP and
+  diverge-fill paths their own map instead of the `FQInt` default.
+- **`toExport` and `synthRet` were deliberately not changed.** `meExports` seeds the *importing*
+  module's `TypeEnv`, and narrowing its wildcard would make the importer's checker strictly
+  stronger; the checkout-brief path has no `tau_ret`, so retiring `synthRet` would regress the
+  v0.14.14 R1 fix there.
+- **A third stage was implemented and withdrawn.** HOLE-RET (fall back visibly when `tau_ret` is
+  the `?` wildcard) demoted 12 corpus functions from `verified` to `asserted`, because a wildcard
+  return is idiomatic rather than a defect signal: 104 unannotated `def` heads corpus-wide, 72
+  alongside another unannotated callee. Reverted before commit.
+
+### Added, RET-BRANCH-PREF Stage 1
+
+- **`preferConcreteOnSelfCall`.** At an `if` join, the concrete branch's type wins over a branch
+  that synthesized the `?` wildcard, but only when that branch is a **self-recursive** call.
+  There the wildcard is the enclosing function's own return type and the concrete branch
+  determines it, so the preference is a least-fixpoint step rather than a guess. Closes the last
+  member of the FQ-RESULT-SORT-1 trigger set. Conservative: only a bare `EApp` headed by the
+  enclosing function matches, so a self-call under `let` or wrapped in an operator declines.
+
+### Fixed, emitter warnings reach `--json`
+
+- **`fqResultToReport` built the verify payload from the solver result alone**, so every
+  emission-time warning (the >4096-path fallback, `W-DECREASES-UNUSED`, `W-DECREASES-LEX`) was
+  printed to stdout and dropped from `--json`. Agents read the JSON, so the warnings were
+  invisible to the primary consumer. Emitter diagnostics are warnings, never errors, so folding
+  them in cannot flip `reportSuccess`.
+
+### Spec
+
+- **`LLMLL.md` §3.4.6 now defines the `?` wildcard**: it denotes *inference produced no usable
+  type at this position*, not *any type*, and because LLMLL erases without casts (§3.4.5) the
+  compatibility it licenses is an **unchecked** admission rather than a deferred check.
+- **§3.4.6's `if`-reconciliation sentence was wrong** and is corrected: it described the
+  hole-branch route and generalized it to every `if`. There are three routes.
+- **§12 Grammar Key Rule 1 was wrong** and is corrected: it asserted "Return types are always
+  inferred" and denied that the annotation exists, contradicting §4.1 and the `[ ARROW type ]`
+  element in the productions above it. Stale from before DEF-RET.
+
+**Tests:** 1428 Haskell examples, 106 Python (+12: FQRS-1..9, RBP-1..3, EMITDIAG-1). Corpus `.fq`
+byte-diff against a rebuilt pre-change compiler: all 128 files byte-identical. CDP invariance
+across 11 axis rows.
+
 ## v0.14.71: stage G2, the artifact audit; and three checks that were never run (2026-07-28)
 
 Pipeline tooling and CI. No compiler source changed, no schema change, no Haskell test added or
