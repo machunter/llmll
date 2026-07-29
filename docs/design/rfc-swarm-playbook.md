@@ -363,6 +363,26 @@ result as verification catching agent error.
 4. **Trusting a green gate without checking the binary.** `stack exec llmll` resolves to a stale
    binary from some working directories. Confirm the version before reporting any gate as
    passing; a green gate against the wrong compiler is worse than a red one.
+
+   **And the version string is not sufficient.** It moves at a release cut, while compiler source
+   moves whenever someone commits. On 2026-07-28 a parallel session shipped `FQ-RESULT-SORT-1`
+   stages (a) and (b), five source files under `compiler/src` and `compiler/app`, with the cut
+   deliberately deferred; `llmll version` reported `0.14.71` before and after. A binary built
+   before that work and one built after are different compilers with the same banner, so the
+   check that exists to catch a stale binary passes on the case it was written for.
+
+   Ask the build tool, which is the thing that actually knows:
+
+       (cd compiler && stack build --dry-run llmll)     # "Nothing to build." == current
+
+   Anything else means the binary predates a source change and every verdict it produced is
+   suspect, whatever version it reports.
+
+   **Do not compare mtimes.** The obvious `find compiler/src -newer <binary>` is wrong about
+   correct input, and this was measured rather than reasoned: a `git checkout`, a branch switch or
+   a stash pop rewrites a file's mtime without changing its content, Stack correctly rebuilds
+   nothing, and the binary stays older than a source file it is perfectly up to date with. The
+   `--dry-run` check compares content and stays silent in exactly that case.
 5. **Editing a pre-registration after seeing the data.** Append an amendment with its reason.
 6. **Silently reinterpreting a fired STOP.** If the instrument turns out to be defective, say so
    in writing, show the argument, and let a human adjudicate the amendment.
