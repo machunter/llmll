@@ -7878,6 +7878,43 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- and it is a WARNING, so folding it into the report cannot flip success
         map diagSeverity (erDiagnostics er) `shouldSatisfy` all (== SevWarning)
 
+      -- RET-BRANCH-PREF Stage 1. At an 'if' join, prefer the concrete branch when the
+      -- other is a SELF-RECURSIVE call that synthesized the '?' wildcard. Closes the
+      -- residual accepted in finding-fq-result-sort-default.md Rev 3.
+      it "RBP-1: a self-recursive then-branch yields to the concrete else-branch" $ do
+        er <- emitRet (T.concat
+          [ "(def-shell countdown [n: int] (pre (>= n 0)) (post (not (= n 99)))"
+          , " (if (> n 0) (countdown (- n 1)) true))" ])
+        -- pre-change this crashed the solver: result sorted int against a bool literal
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+        erBodyFaithfulFns er `shouldSatisfy` elem "countdown"
+
+      it "RBP-2: a FOREIGN unannotated callee does NOT trigger the preference" $ do
+        -- The fixture that pins the narrowing. Dropping the self-recursion side
+        -- condition (proposal Stage 2) would make this synthesize int, which is an
+        -- unchecked assumption about g's return type rather than a fixpoint step.
+        -- Note this case does not crash, so asserting "no crash" would not catch a
+        -- leak; assert the emitted SORT.
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def-shell h [n: int] (pre (> n 0)) (post (>= n 0))"
+          , " (if (> n 0) (g n) 1))" ])
+        erFQText er `shouldSatisfy`    T.isInfixOf "result : { v : int | true }"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "RBP-3: both branches concrete and different is still an error" $ do
+        -- The rule's premises require one branch to be a wildcard, so it must not
+        -- engage here. This case was already diagnosed before the change.
+        let src = T.concat
+              [ "(def-shell k [n: int] -> int (pre (> n 0)) (post (>= result 0))"
+              , " (if (> n 0) true 1))" ]
+        case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> do
+            let rpt = typeCheck GrammarCoreInversion builtinEnv stmts
+            map diagMessage (reportDiagnostics rpt)
+              `shouldSatisfy` any (T.isInfixOf "if branches have different types")
+
       it "FQRS-8: a forward reference to an unannotated callee still type-checks (guard)" $ do
         -- T1: 'collectTopLevel' is a pre-pass and must stay independent of body
         -- types. Routing tau_ret into the TYPE environment would break this.
