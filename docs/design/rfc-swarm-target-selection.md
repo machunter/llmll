@@ -170,6 +170,83 @@ This is worth stating plainly: **the RFC 4648 run was already the screen.** What
 finding out costs, and the only saving available is not paying for the probes before the gate has
 ruled.
 
+## 6. Screening the four candidates for real, 2026-07-28/29
+
+Run with `--only A,B,C,D,E,F,G,G2,J` as section 5 prescribes. **One of four reached a verdict**,
+and the binding constraint turned out to be neither the targets nor the method.
+
+| Candidate | Reached | Outcome |
+|---|---|---|
+| **RFC 6298**, TCP RTO | **gate J** | **REJECT.** 40 rows, 11 core, **one out**: `A27` under `B3` |
+| RFC 2453, RIP v2 | stage D | agent quota exhausted, resumable |
+| RFC 792, ICMP | stage D | agent quota exhausted, resumable |
+| RFC 6455, WebSocket | stage D | driver defect, then agent quota exhausted |
+
+**Screening is quota-bound.** Two usage windows produced one verdict. Measured per-target agent
+time: stage B 545-565s, stage C 408-991s, each stage-D extractor 620-1240s. So a screen is 45-60
+minutes of agent work, not the 30 estimated in section 5, and that estimate was wrong because it
+was derived by subtracting stage H from a single small target. **The fourth run is a multi-window
+project, and its cost is dominated by delegation, not by compute or by design.**
+
+### RFC 6298, the one verdict
+
+`A27` is RFC 6298 L237-239, declared `must`:
+
+> "An implementation MUST manage the retransmission timer(s) in such a way that a segment is never
+> retransmitted too early, i.e., less than one RTO after the previous transmission of that
+> segment."
+
+It quantifies over pairs of transmission events of the same segment within one execution and
+relates them by elapsed real time, which is `B3`, trace-level. Coverage of C1+C2+C3 was 22/30.
+
+The disposition agent refused to launder it, unprompted: *"This is a characteristic-core row and
+it must be dispositioned out; per this stage's instruction it is not re-classified to make the
+gate pass."* That is stage G's anti-laundering rule holding on a target nobody had prepared.
+
+**The section-4 hypothesis was wrong on mechanism for the fourth time running.** It predicted 6298
+would clear the fragment and fail on size. Its core is 11 rows, above the criterion-6 floor, and
+it failed on the fragment. Fit prediction remains something this method does poorly, and section 5
+already recorded why no cheap screen replaces running the stages.
+
+### What the one completed screen bought
+
+**Stage G2 found a misreading it was not built from.** Row `A24`: the clause carries "unless that
+is not possible per Karn's algorithm", and the recorded reason restated the obligation as holding
+of *every* RTT-length window with no exception. A **dropped condition**, which is a different
+error class from A1's exception-attachment. Non-core, so it was recorded rather than fatal, which
+is the designed split working on unseen text. Before this, G2 had exactly one known-positive and
+no evidence it generalised.
+
+**The report-only strength check fired on 9 of 40 rows, and all nine are correct.** Three cite bare
+formulas (`RTTVAR <- R/2`) whose `MUST` sits in the surrounding prose; six cite numbered algorithm
+steps `(5.1)`-`(5.6)` governed by a `SHOULD` ahead of the list. Neither resembles TFTP's
+requirements-table columns, so this is a second independent mechanism by which a declared strength
+legitimately fails to appear in its own quote. A fail-closed version would have halted this run at
+22% of its rows for nothing. That decision is now supported by two targets and two mechanisms.
+
+### A driver defect, the third of its kind
+
+RFC 6455 died at stage D on `row A3 has rule 'N0', expected N1..Nn`. Its stage-C agent had opened
+its rubric with *"N0. The document's own declaration"* and its extractor cited `N0` on 28 of 462
+rows. `check_extraction` hardcoded `^N[1-9]\d*$`, so a complete and valid census was discarded
+after 1143s of work.
+
+Stage C authors the rule set per target; the driver has no standing to dictate where its numbering
+starts. Fixed at `eaf7bc1` and verified against the artifact that died. **This is the third
+instance of one pattern**, after `reconcile.py`'s hardcoded source names and `rfc_coverage.py`'s
+hardcoded tag prefix: a tool written during one run encoding that run's incidental conventions as
+though they were the format, invisible until a second target disagrees.
+
+### State, for whoever resumes
+
+All four workdirs are intact under `~/rfc-swarm-runs/screen-*`, with A-C recorded complete
+everywhere and RFC 6455's 462-row census on disk. A resume re-runs only what is not recorded
+complete. Note that stage D re-runs **both** extractors, so 6455 pays again for a census that is
+already correct; per-artifact reuse is a different granularity from the manifest's per-stage rule
+and is recorded rather than built.
+
+Three candidates remain **unscreened, not rejected**. Nothing here disqualifies them.
+
 ### Consequence for section 2
 
 The criterion stands as a description of what put rows out across three runs, and it is useful for
