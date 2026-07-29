@@ -343,6 +343,40 @@ isHoleVar :: Type -> Bool
 isHoleVar (TVar n) = "?" `T.isPrefixOf` n
 isHoleVar _        = False
 
+-- | RET-BRANCH-PREF Stage 1: at an 'if' join, prefer the CONCRETE branch's type when
+-- the other branch is a SELF-RECURSIVE call that synthesized the '?' wildcard.
+--
+-- 'inferExpr (EIf ...)' otherwise returns 'thenType' unconditionally, so a wildcard
+-- then-branch silently wins over a concrete else-branch. In the self-recursive case the
+-- wildcard IS the enclosing function's own return type (collectTopLevel registers an
+-- unannotated return as 'TVar "?"'), and the concrete branch is DETERMINING it, so
+-- preferring the concrete branch is a least-fixpoint step rather than a guess. That is
+-- the standard treatment of a recursive binding (Milner 1978; Damas-Milner POPL 1982).
+--
+-- The self-recursion side condition is what makes this a derivation, and it is NOT
+-- cosmetic. Dropping it (proposal Stage 2) would also fire when the wildcard comes from
+-- a call to some OTHER unannotated function, where the concrete branch does not
+-- determine the callee's return type and preferring it is an unchecked assumption.
+-- A wildcard return is idiomatic, not exceptional: 104 unannotated def heads corpus-wide,
+-- 72 alongside another unannotated callee. Stage 2 is gated on measurement; see
+-- docs/design/ret-branch-pref-proposal.md.
+--
+-- Conservative by construction: only a bare 'EApp' whose head is the enclosing function
+-- matches, so a self-call reached through 'let' or wrapped in an operator declines and
+-- the pre-existing behaviour stands.
+preferConcreteOnSelfCall
+  :: Maybe Name   -- ^ enclosing definition ('tcCurrentFn')
+  -> Expr -> Type -- ^ then-branch expression and its synthesized type
+  -> Expr -> Type -- ^ else-branch expression and its synthesized type
+  -> Type
+preferConcreteOnSelfCall mFn thenE thenTy elseE elseTy
+  | isSelfCall thenE, isHoleVar thenTy, not (isHoleVar elseTy) = elseTy
+  | isSelfCall elseE, isHoleVar elseTy, not (isHoleVar thenTy) = thenTy
+  | otherwise                                                  = thenTy
+  where
+    isSelfCall (EApp f _) = Just f == mFn
+    isSelfCall _          = False
+
 -- | True if either type is a hole variable — signals that a unification
 -- failure may disappear once the hole resolves (D3).
 isHoleSensitive :: Type -> Type -> Bool
@@ -1324,7 +1358,12 @@ inferExpr (EIf cond thenE elseE) = do
       elseType <- withSegment "else" (inferExpr elseE)
       branchOk <- compatibleExpanded thenType elseType
       if branchOk
-        then pure thenType
+        then do
+          -- RET-BRANCH-PREF Stage 1. Applied ONLY on the compatible path: on the
+          -- mismatch path below the program is already in error and 'thenType' is a
+          -- recovery value, so changing which broken type propagates buys nothing.
+          mFn <- gets tcCurrentFn
+          pure (preferConcreteOnSelfCall mFn thenE thenType elseE elseType)
         else do
           tcWarnOrError $ "if branches have different types: " <> typeLabel thenType
                     <> " vs " <> typeLabel elseType
