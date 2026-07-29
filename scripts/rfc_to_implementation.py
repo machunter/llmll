@@ -271,8 +271,19 @@ def check_extraction(doc: Any, label: str) -> dict[str, Any]:
                 "reconciliation matches by line span, so these must be numbers")
         require(r["line_start"] <= r["line_end"],
                 f"{label}: row {r['id']} has line_start > line_end")
-        require(re.match(r"^N[1-9]\d*$", str(r["rule"])),
-                f"{label}: row {r['id']} has rule {r['rule']!r}, expected N1..Nn")
+        # N0 is admissible. The rule set is authored per target by stage C, and
+        # the driver has no standing to dictate where its numbering starts: this
+        # pattern demanded N1 only because the first run's rubric happened to
+        # begin there. RFC 6455's rubric opens with "N0. The document's own
+        # declaration", its extractor applied N0 to 28 of 462 rows, and the run
+        # died on a complete and valid census after nineteen minutes of work.
+        # Third instance of the same defect, after reconcile.py's source names
+        # and rfc_coverage.py's tag prefix: a tool written during one run
+        # hardcoding that run's incidental conventions as though they were the
+        # format.
+        require(re.match(r"^N\d+$", str(r["rule"])),
+                f"{label}: row {r['id']} has rule {r['rule']!r}, expected N followed "
+                "by digits (N0 included; stage C authors the rule set)")
     doc.setdefault("counts", {})
     doc["counts"] = {"normative": len(doc["normative"]),
                      "excluded": len(doc["excluded"])}

@@ -107,6 +107,19 @@ def test_extraction_requires_integer_line_spans():
         drv.check_extraction(_extraction(line_start=94, line_end=93), "a")
 
 
+def test_extraction_accepts_a_rule_set_numbered_from_zero():
+    """Stage C authors the rule set per target and the driver does not get to say
+    where its numbering starts. Demanding N1 killed the RFC 6455 screen on a
+    complete 462-row census after nineteen minutes, because that rubric opens
+    with "N0. The document's own declaration" and 28 rows cite it."""
+    drv.check_extraction(_extraction(rule="N0"), "a")
+    drv.check_extraction(_extraction(rule="N12"), "a")
+    with pytest.raises(Stop, match="expected N followed by digits"):
+        drv.check_extraction(_extraction(rule="R3"), "a")
+    with pytest.raises(Stop, match="expected N followed by digits"):
+        drv.check_extraction(_extraction(rule="N"), "a")
+
+
 def test_extraction_rejects_a_bare_array():
     """The old, wrong shape. reconcile.py reads {"normative": [...]}."""
     with pytest.raises(Stop, match="not a bare array"):
