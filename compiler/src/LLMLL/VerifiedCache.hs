@@ -11,6 +11,8 @@ module LLMLL.VerifiedCache
   , saveVerified
   , saveVerifiedWith   -- TRUST-PRE: variant persisting a top-level caller_obligations array
   , sidecarNeedsRevalidation
+  , checkerSoundnessVersion      -- SAFE-ARG: checker-soundness epoch stamped into every sidecar
+  , reservedCheckerSoundnessKey
   , dlToJSON           -- DisplayLevel JSON codec (exposed for tests / round-trip)
   , dlFromJSON
   , erToJSON           -- SRC-CONJ-1: EvidenceRecord codec (exposed for tests / round-trip)
@@ -251,6 +253,9 @@ loadVerified fp = do
                 -- not a per-function ContractStatus. LLMLL itself re-derives the
                 -- axis from the live source on every trust-report build.
                 , AK.toText key /= reservedCallerObligationsKey
+                -- SAFE-ARG: the checker-soundness stamp is a sidecar property,
+                -- not a per-function ContractStatus.
+                , AK.toText key /= reservedCheckerSoundnessKey
                 , Just cs <- [csFromJSON val]
                 ]
         _ -> pure Map.empty
@@ -280,8 +285,24 @@ loadVerified fp = do
 -- alone is insufficient. The pre-disarm logic to port: invalidate when a
 -- 'verified' + 'body_faithful=true' entry lacks 'overflow_tainted' AND was
 -- produced under bounded-codegen semantics.
+-- SAFE-ARG (v0.14.73): the INT-1 disarm above is retained for the
+-- 'overflow_tainted' axis; the function is no longer unconditionally False.
+-- A sidecar whose 'checker_soundness_version' is ABSENT or differs from this
+-- binary's 'checkerSoundnessVersion' is discarded. Absence is the affected-range
+-- signal: no sidecar written by v0.14.34..v0.14.72 carries the key, and every
+-- verdict in that range may rest on the WILD-ASSUME false SAFE
+-- (docs/design/finding-arg-position-false-safe.md).
+--
+-- This is sound in exactly the way the INT-1 field-absence trigger was NOT.
+-- That trigger over-invalidated because the writer LEGITIMATELY omitted
+-- 'overflow_tainted' on every verified entry, so absence meant "normal". Here
+-- 'saveVerifiedWith' emits the stamp unconditionally, so absence means "written
+-- by an older binary" and can never be a normal state going forward.
 sidecarNeedsRevalidation :: KM.KeyMap Value -> Bool
-sidecarNeedsRevalidation _top = False
+sidecarNeedsRevalidation top =
+  case KM.lookup (AK.fromText reservedCheckerSoundnessKey) top of
+    Just (String v) -> v /= checkerSoundnessVersion
+    _               -> True
 
 -- | Save verified status to sidecar file.
 saveVerified :: FilePath -> Map Name ContractStatus -> IO ()
@@ -292,6 +313,21 @@ saveVerified fp statuses = saveVerifiedWith fp statuses []
 -- ContractStatus); written by 'saveVerifiedWith'.
 reservedCallerObligationsKey :: Text
 reservedCallerObligationsKey = "caller_obligations"
+
+-- | SAFE-ARG: the CHECKER-soundness epoch, stamped into every sidecar written
+-- by this binary. Deliberately DISTINCT from 'codegen_semantics_version'
+-- ('ProofArtifact.codegenSemanticsVersion', which tracks int-vs-machine-int
+-- CODEGEN semantics and is INT-3's re-arm discriminator): one string cannot say
+-- which of the two axes moved, and spending the codegen stamp here would leave
+-- INT-3 without one (finding-arg-position-false-safe.md Rev 1).
+--
+-- Bumped when a checker defect invalidates verdicts produced by older binaries.
+checkerSoundnessVersion :: Text
+checkerSoundnessVersion = "1"
+
+-- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
+reservedCheckerSoundnessKey :: Text
+reservedCheckerSoundnessKey = "checker_soundness_version"
 
 -- | TRUST-PRE: save verified status PLUS a persisted top-level
 -- 'caller_obligations' array. The obligation objects are pre-rendered 'Value's
@@ -305,4 +341,7 @@ saveVerifiedWith fp statuses obligations = do
   let path = verifiedPath fp
       pairs = [ AK.fromText k .= csToJSON cs | (k, cs) <- Map.toList statuses ]
       obKey = [ AK.fromText reservedCallerObligationsKey .= obligations ]
-  BL.writeFile path (A.encode (object (pairs ++ obKey)))
+      -- SAFE-ARG: stamped UNCONDITIONALLY, which is what makes absence a sound
+      -- "written by an older binary" signal in 'sidecarNeedsRevalidation'.
+      csKey = [ AK.fromText reservedCheckerSoundnessKey .= checkerSoundnessVersion ]
+  BL.writeFile path (A.encode (object (pairs ++ obKey ++ csKey)))
