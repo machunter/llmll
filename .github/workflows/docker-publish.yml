@@ -78,6 +78,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Keep the parentheses. `||` and `&&` associate left at one precedence
+      # level, so dropping them yields (which jq || update) && install, which
+      # installs unconditionally against the image's stale package lists and
+      # 404s once the archive moves. version-gate.yml carried exactly that bug.
       - name: Install jq (version_gate dependency)
         run: which jq || (sudo apt-get update && sudo apt-get install -y jq)
 
