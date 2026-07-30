@@ -1,7 +1,7 @@
 ---
 name: ret-resolve-proposal
 title: "RET-RESOLVE: resolve a wildcard `τ_ret` transitively in a verification-facing pass"
-status: "Rev 2, SETTLED (four professor review rounds folded). Queued THIRD, behind SAFE-ARG and WILD-ASSUME"
+status: "Rev 2, SETTLED (four professor review rounds folded). SAFE-ARG shipped v0.14.73, so this is now queued SECOND, behind WILD-ASSUME-2 (the map arm). Roadmap row: RET-RESOLVE"
 date: 2026-07-29
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]

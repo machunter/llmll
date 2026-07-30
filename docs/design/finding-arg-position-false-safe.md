@@ -1,7 +1,7 @@
 ---
 name: finding-arg-position-false-safe
 title: "SAFE-ARG: a `bytes[n]` length fact is asserted from an unvalidated declaration, and the wildcard launders the declaration"
-status: "Rev 2 — fix IMPLEMENTED on branch fix/safe-arg-wild-assume (not yet released). Rev 1 folded the two-seam measurement, guard direction and sidecar key; Rev 2 corrects the discriminant, which implementation proved dead as specified"
+status: "Rev 2 — FIXED and RELEASED in v0.14.73 (`0e1327a` fix, `cc15e7c` release). Stage 1 is bytes-only; the map[k,bool] arm is roadmap row WILD-ASSUME-2. Rev 2 corrects the discriminant, which implementation proved dead as specified"
 severity: "FALSE SAFE — a `verified` verdict on a memory-safety obligation that does not hold; not fail-closed"
 found_by: professor review of ret-resolve-proposal, 2026-07-29; chain measured jointly with language-team over four review rounds
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -286,10 +286,17 @@ Nothing nonlinear, nothing quantified, nothing escapes to Lean.
    unannotated-int corpus as the scope guard.
 4. Gates: corpus typecheck-acceptance diff (expected empty); corpus `.fq` byte-identity (expected
    empty); a sidecar test showing an affected-stamp sidecar is refused.
-5. **Spec drift, `§3.4.5`.** The erasure section states that LLMLL erases and inserts no casts. The
-   `bytes_get` guard at `CodegenHs.hs:275` is a dynamic check at the bytes boundary, so the claim is
-   inaccurate for the array class. Whether other builtins carry guards is unmeasured; a sweep over
-   `CodegenHs.hs` is owed. Route to documentation-lead.
+5. **Spec drift, narrowed on the doc pass — and it is `§3.4.6`, not `§3.4.5`.** The first statement
+   of this item claimed the erasure section was inaccurate for the array class. That overstates it.
+   `§3.4.5`'s Theorem A quantifies over **refinement-alias predicates** (`A ≜ (where [x: τ] p)`) and
+   says those carry no runtime residue; the `bytes_get` bounds check at `CodegenHs.hs:275` is a
+   builtin's own guard, not an erased predicate's residue, so the theorem stands untouched. What the
+   guard actually complicates is the **unscoped parenthetical at `§3.4.6`**, "Because LLMLL erases and
+   inserts no casts (§3.4.5)", which is used there to justify why `?`-admission carries no runtime
+   guard. **Route to language-team, not documentation-lead**: doc-lead correctly declined it on the
+   v0.14.73 pass, because deciding which side moves is a spec adjudication rather than a doc edit.
+   Whether other builtins carry runtime guards is still unmeasured; a sweep over `CodegenHs.hs` is
+   owed either way.
 6. **Roadmap severity correction.** `docs/compiler-team-roadmap.md:53` carries "Fails closed (exit 1,
    a crash, never a false SAFE), so no prior verdict is affected". That is accurate for
    FQ-RESULT-SORT-1's own shapes and false at HEAD for the array class. The line must be scoped.
