@@ -44,9 +44,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The parentheses are required, not stylistic. `||` and `&&` share a
+      # precedence level and associate left, so an ungrouped
+      #   which jq || sudo apt-get update && sudo apt-get install -y jq
+      # parses as (which jq || update) && install: on a runner image that
+      # already ships jq, the update is skipped and the install still runs,
+      # against package lists baked into the image. Once the archive supersedes
+      # the jq version those lists name, the fetch 404s and the job fails for a
+      # reason unrelated to any gate. Grouped, the install runs only when jq is
+      # genuinely absent, and never without a preceding update.
       - name: Install jq (for schema field extraction)
         run: |
-          which jq || sudo apt-get update && sudo apt-get install -y jq
+          which jq || (sudo apt-get update && sudo apt-get install -y jq)
 
       - name: Run version_gate.sh
         run: bash scripts/version_gate.sh
