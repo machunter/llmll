@@ -4,6 +4,62 @@
 
 <a id="Latest"></a>
 
+## v0.14.73: a length asserted from an unvalidated declaration proved an out-of-bounds read safe (2026-07-30)
+
+A correctness advisory. One compiler change plus a sidecar-invalidation stamp. Unlike every prior
+defect on this line, this one did **not** fail closed: it reported `SAFE`, wrote a `.verified.json`,
+and recorded `verified` with `body_faithful: true` for a program that reads past the end of a buffer.
+
+### Fixed, SAFE-ARG
+
+- **The defect.** The type channel let a `bytes[32]` value satisfy a `bytes[64]` parameter when it
+  passed through one function with no declared return type, because a bare inference wildcard is
+  compatible with everything. The callee's VC then asserted `bytesLen(b) = 64` as a ground fact
+  *from that parameter's declared type* and discharged its index-in-bounds obligation against it.
+  Eight lines reproduce it; `consume` was certified for every `i` in `[0,64)` on a 32-byte buffer.
+- **Affected range: v0.14.34 through v0.14.72.** The ground fact and the obligation it discharges
+  were introduced by the same commit (`c4ad7b6`, LEVER-A1), so the defect is coeval with the array
+  class. Verified SAFE at v0.14.71, v0.14.72, and at `c4ad7b6` itself; `bytesLen` does not occur in
+  `FixpointEmit.hs` at `c4ad7b6^`, so no earlier version has an obligation to discharge falsely.
+- **What was falsely certified, and what was not.** Codegen emits a dynamic bounds check
+  (`CodegenHs.hs:275`), so the generated program traps rather than reading out of bounds. The false
+  claim is the index-in-bounds obligation itself: a runtime failure in a program the verifier
+  certified free of exactly that failure.
+- **The rule, WILD-ASSUME.** A bare inference wildcard no longer satisfies a type that contributes a
+  fact to a VC antecedent that no obligation discharges. Stage 1 is `bytes[n]`-only. Refinement
+  aliases and nullary enums are deliberately excluded and measured REFUTED on a laundered value,
+  because their type-level data is an *obligation on the producer*, not an assumption.
+- **Two seams, because the live path is argument passing.** `structuralUnify`'s wildcard clause
+  covers arguments; `compatibleWith`'s covers returns and `checkExpr`. Actual side only: a wildcard
+  in *expected* position is the absence of a declaration, so there is no asserted fact to falsify.
+- **The discriminant is the bare wildcard and its freshened instances.** Exact equality with
+  `TVar "?"` was specified in the design and endorsed in review, and left the rule completely dead:
+  `freshenFnType` alpha-renames signature TVars per call site, so an unannotated return arrives as
+  `TVar "?$0"`. Named holes and polymorphic builtin variables stay excluded, so sketch mode and
+  `(map-empty)` are unaffected.
+- **`.verified.json` gains `checker_soundness_version`.** Stamped unconditionally, which is what
+  makes *absence* a sound "written by an older binary" signal — unlike the INT-1 field-absence
+  trigger, which over-invalidated because the writer legitimately omitted its field. Every sidecar
+  written in the affected range revalidates once on first run.
+
+### Known residue
+
+- **The `map[k,bool]` arm is deferred.** Its `0 ≤ v ≤ 1` value-range fact is a member of the same
+  class, has no reaching-SAFE witness, and needs the `(map-empty)` over-breadth fixture before it
+  ships. Recorded in [`docs/design/finding-arg-position-false-safe.md`](docs/design/finding-arg-position-false-safe.md), not closed here.
+
+### Spec
+
+- **`LLMLL.md` §3.4.6 states WILD-ASSUME**: a bare `?` does not satisfy a position whose type
+  contributes a fact no obligation discharges, directionally and at every position.
+- **§5.3.3's array class** now records that the `bytesLen(b) = n` binder fact is asserted from the
+  declared type and is sound only where that declaration is validated.
+
+**Tests:** 1439 Haskell examples, 0 failures (+11: SA-1..7, SS-1..4); 107 Python. The Python delta
+against v0.14.72's 106 is `eaf7bc1`, not this change. Corpus sweep over all 151 `.llmll` files:
+zero WILD-ASSUME rejections, so the accepted-program set is unchanged. No `.fq` byte-diff was run;
+the emitter is untouched by this patch.
+
 ## v0.14.72: the `result` binder's sort comes from the checker, not from the annotation (2026-07-29)
 
 Four compiler changes. The verification channel used to re-derive the sort of the `result`
