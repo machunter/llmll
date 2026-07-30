@@ -343,6 +343,70 @@ isHoleVar :: Type -> Bool
 isHoleVar (TVar n) = "?" `T.isPrefixOf` n
 isHoleVar _        = False
 
+-- | SAFE-ARG / WILD-ASSUME (stage 1): types whose DECLARED shape contributes a
+-- ground fact to a VC antecedent that no obligation discharges. A @bytes[n]@
+-- binder has @bytesLen(v) = n@ asserted from its declared type
+-- (@FixpointEmit.bytesLenReft@), and the index-in-bounds obligation is then
+-- discharged against it — so an unvalidated declaration yields a false premise
+-- and a false SAFE (docs/design/finding-arg-position-false-safe.md).
+--
+-- Stage 1 is bytes-only. The map arm (@map[k,bool]@'s ground @0 <= v <= 1@
+-- value-range fact) is a member of the same class but has no reaching-SAFE
+-- witness, and shipping it requires the @(map-empty)@ over-breadth fixture
+-- first (finding Rev 1, edge case 8).
+--
+-- Deliberately NOT a member: refinement aliases and nullary enums, whose
+-- type-level data is an OBLIGATION on the producer (LLMLL.md §3.4.1) rather
+-- than an assumption, both measured REFUTED on a laundered value.
+assumesFact :: Type -> Bool
+assumesFact (TBytes _) = True
+assumesFact _          = False
+
+-- | SAFE-ARG: the bare inference wildcard produced by 'collectTopLevel' for an
+-- unannotated return, as distinct from two other TVar populations that must NOT
+-- be rejected:
+--
+--   * a NAMED hole — 'inferHole' returns @TVar ("?" <> name)@ — sketch mode;
+--   * a POLYMORPHIC builtin variable — @TVar "bs"@ (bytes-set/bytes-zero),
+--     @TVar "k"@ \/ @TVar "v"@ (map-empty) — whose absorption is how the calling
+--     context determines the component types.
+--
+-- 'isHoleVar' would fire on named holes, and a catch-all @TVar _@ pattern would
+-- reject every @(map-empty)@ at a typed map position (finding Rev 1, edge cases
+-- 8 and 9), so neither is usable.
+--
+-- TRAP: exact equality with @"?"@ is ALSO wrong, and looks right.
+-- 'freshenFnType' (BUG-3, v0.14.3, ':1935-1960') alpha-renames every TVar in a
+-- callee's signature at each call site as @v <> "$" <> counter@ (':2117'), so an
+-- unannotated return arrives at the use site as @TVar "?$0"@, never @TVar "?"@.
+-- Measured: with an exact-equality guard the rule was completely dead, and
+-- @bad4@ reported @got ?$0@ once the name check was relaxed. Match the bare
+-- wildcard and its freshened instances, and nothing else.
+isBareWildcard :: Type -> Bool
+isBareWildcard (TVar n) = n == "?" || "?$" `T.isPrefixOf` n
+isBareWildcard _        = False
+
+-- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
+-- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
+-- consumers see a normal type mismatch, plus the remedy in the message: the
+-- fix is always to annotate the callee's return type. 'diagHoleSensitive' is
+-- deliberately left False — this error does not disappear when a hole resolves
+-- (the D3 invariant), because there is no hole involved.
+tcWildAssumeError :: Text -> Type -> TC ()
+tcWildAssumeError ctx expected = modify $ \s -> s
+  { tcErrors = tcErrors s ++
+      [ (mkError Nothing msg)
+          { diagKind     = Just "type-mismatch"
+          , diagExpected = Just (typeLabel expected)
+          , diagGot      = Just "?"
+          } ] }
+  where
+    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
+            <> ", got ? (an unannotated return type). A " <> typeLabel expected
+            <> " value carries a length that the verifier asserts from the"
+            <> " declaration, and inference cannot supply it; annotate the"
+            <> " callee's return type."
+
 -- | RET-BRANCH-PREF Stage 1: at an 'if' join, prefer the CONCRETE branch's type when
 -- the other branch is a SELF-RECURSIVE call that synthesized the '?' wildcard.
 --
@@ -2119,6 +2183,16 @@ structuralUnify func subst expected actual =
     -- inferExpr (EApp ...) does NOT escape the EApp boundary. If we ever move
     -- to global substitution, this line becomes a soundness hole — actual TVars
     -- from return types would need to participate in the global constraint set.
+    -- SAFE-ARG (WILD-ASSUME): the LIVE argument seam. An unannotated callee's
+    -- bare wildcard must not satisfy a fact-asserting parameter type; admitting
+    -- it lets a bytes[32] reach a bytes[64] param, after which the callee's VC
+    -- asserts bytesLen(b) = 64 and discharges index-in-bounds against a false
+    -- premise. Measured false SAFE, v0.14.34..v0.14.72
+    -- (docs/design/finding-arg-position-false-safe.md).
+    (_, TVar _) | isBareWildcard actual, assumesFact expected -> do
+      tcWildAssumeError func expected
+      pure subst
+
     (_, TVar _) -> pure subst
 
     -- Structural recursion for compound types
@@ -2183,6 +2257,12 @@ inferLiteral LitUnit       = TUnit
 -- TDependent is checked by its base type only (constraint not evaluated).
 compatibleWith :: Type -> Type -> Bool
 compatibleWith (TVar _) _            = True  -- type variable matches anything
+-- SAFE-ARG (WILD-ASSUME): the return / checkExpr seam, reached via 'unify'.
+-- ACTUAL side only: a bare wildcard in EXPECTED position is the absence of a
+-- declaration, so there is no asserted fact to falsify and rejecting it would
+-- buy no soundness (finding Rev 1, "Direction: guard the actual side only").
+compatibleWith t a@(TVar _)
+  | isBareWildcard a, assumesFact t  = False
 compatibleWith _ (TVar _)            = True
 compatibleWith (TCustom "_") _       = True  -- untyped param wildcard
 compatibleWith _ (TCustom "_")       = True
@@ -2251,8 +2331,13 @@ unify ctx expected actual = do
   expected' <- expandAlias expected
   actual'   <- expandAlias actual
   unless (compatibleWith expected' actual') $
-    -- Report originals to preserve alias names in diagnostics (Fix 1b).
-    tcTypeMismatch ctx expected actual
+    -- SAFE-ARG: route the WILD-ASSUME rejection to its own diagnostic. Without
+    -- this the message reads "got ?$0", leaking 'freshenFnType''s internal
+    -- alpha-renaming counter into agent-facing output and naming no remedy.
+    if isBareWildcard actual' && assumesFact expected'
+      then tcWildAssumeError ctx expected
+      -- Report originals to preserve alias names in diagnostics (Fix 1b).
+      else tcTypeMismatch ctx expected actual
 
 -- | zipWithM_ with indices.
 zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()

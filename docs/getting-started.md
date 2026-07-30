@@ -1602,6 +1602,26 @@ The array class of `Σ_auto` (`LLMLL.md §5.3.3`) discharges `bytes[n]` memory s
 
 **Construction and keys.** `(map-empty)` is type-directed — the element sort is inferred from the first put value, so `(map-put (map-empty) k "active")` builds a `map[int,string]`; `bytes-zero` takes its length from the declared return type. Keys in `{int, string}` and values in `{int, bool, string}` are in-fragment. **Falls back** (contract-only, whole): non-`{int,string}` key sorts, direct reads on a bare `(map-empty)`, and whole-structure `=` over two maps or two `bytes` values (`LLMLL.md §5.3.5`).
 
+### 4.16 A `bytes[n]` Argument Needs a Declared Return Type Upstream
+
+A value reaching a `bytes[n]` parameter must come from a function that **declares** its return type. An intermediate function with no `-> bytes[n]` annotation is rejected:
+
+```lisp
+(def mk32 [] -> bytes[32] (bytes-zero))
+(def-shell mid []            (mk32))     ;; no declared return
+(def-shell use [b: bytes[64]] -> int (pre (and (>= 0 0) (< 0 64))) (bytes-get b 0))
+;; (use (mid))  →  type mismatch in 'use': expected bytes[64], got ?
+;;                 (an unannotated return type) … annotate the callee's return type.
+```
+
+❌ **Rejected since v0.14.73.** The fix is one token: annotate `mid`.
+
+```lisp
+(def-shell mid [] -> bytes[32] (mk32))   ;; now the length is checkable
+```
+
+The restriction exists because the verifier asserts a `bytes[n]` binder's length as a ground fact taken from its declared type, and discharges index-in-bounds obligations against it. An unannotated hop would let a `bytes[32]` satisfy a `bytes[64]` parameter, after which that false length proves an out-of-bounds read safe (`LLMLL.md §3.4.6`, WILD-ASSUME). Scalars, named holes, and `(map-empty)` are unaffected.
+
 ---
 
 ## Part 5 — Core Language Quick Reference

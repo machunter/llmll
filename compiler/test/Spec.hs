@@ -41,7 +41,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
-import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON, checkerSoundnessVersion)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
@@ -2014,6 +2014,134 @@ main = hspec $ do
           sketchHoles skRes `shouldBe` []
 
   -- -----------------------------------------------------------------------
+  -- SAFE-ARG / WILD-ASSUME: a bare inference wildcard may not satisfy a type
+  -- that asserts an undischarged fact (docs/design/finding-arg-position-false-safe.md)
+  -- -----------------------------------------------------------------------
+  describe "SAFE-ARG (WILD-ASSUME): bytes[n] laundering through an unannotated hop" $ do
+    let launderPrefix =
+          [ "(def mk32 [] -> bytes[32] (bytes-zero))"
+          , "(def-shell mid2 [] (mk32))"
+          ]
+        tcOf srcLines = case parseStatements GrammarCoreInversion "<safe-arg>" (T.pack (unlines srcLines)) of
+          Left err    -> Left (show err)
+          Right stmts -> Right (typeCheck GrammarCoreInversion emptyEnv stmts)
+        wildAssumeFired report =
+          any (T.isInfixOf "unannotated return type" . diagMessage) (reportDiagnostics report)
+
+    -- SA-1: THE LIVE CASE. Before the fix this type-checked, verified SAFE, and
+    -- wrote a `verified` sidecar while reading index 63 of a 32-byte buffer.
+    it "SA-1 rejects a laundered bytes[32] at a bytes[64] ARGUMENT position" $ do
+      case tcOf (launderPrefix ++
+            [ "(def-shell consume [b: bytes[64] i: int] -> int"
+            , "  (pre (and (>= i 0) (< i 64)))"
+            , "  (post (>= result 0))"
+            , "  (bytes-get b i))"
+            , "(def-shell caller [i: int] -> int (pre (and (>= i 0) (< i 64))) (consume (mid2) i))"
+            ]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-2: the return position, reached via unify/compatibleWith rather than
+    -- structuralUnify — the second of the two seams.
+    it "SA-2 rejects a laundered bytes[32] at a bytes[64] RETURN position" $ do
+      case tcOf (launderPrefix ++ ["(def-shell bad [] -> bytes[64] (mid2))"]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-3: ordinary unification must still own the direct mismatch, with its
+    -- original message. If this reports the WILD-ASSUME text the guard has
+    -- displaced the wrong code path.
+    it "SA-3 leaves the direct (no-hop) length mismatch to ordinary unification" $ do
+      case tcOf [ "(def-shell bad3 [b: bytes[32]] -> bytes[64] (bytes-set b 0 1))" ] of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` False
+
+    -- SA-4: over-breadth guard. A refinement alias carries its type-level data
+    -- as an OBLIGATION on the producer (§3.4.1), not an assumption, so it is
+    -- deliberately NOT in assumesFact and must keep type-checking.
+    it "SA-4 does not reject a laundered refinement alias (obligation, not assumption)" $ do
+      case tcOf [ "(type PositiveInt (where [x: int] (> x 0)))"
+                , "(def mkneg [] -> int (- 0 5))"
+                , "(def-shell midp [] (mkneg))"
+                , "(def-shell badp [] -> PositiveInt (midp))"
+                ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+    -- SA-5: over-breadth guard. A nullary enum asserts no tag-range fact for
+    -- the result binder; measured REFUTED downstream, not rejected here.
+    it "SA-5 does not reject a laundered nullary enum" $ do
+      case tcOf [ "(type ColorA (| Red) (| Green) (| Blue))"
+                , "(type ColorB (| A) (| B))"
+                , "(def mkB [] -> ColorB (B))"
+                , "(def-shell midc [] (mkB))"
+                , "(def-shell badc [] -> ColorA (midc))"
+                ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+    -- SA-6: the discriminant must not fire on POLYMORPHIC builtin TVars.
+    -- (map-empty) relies on componentwise absorption to learn k and v from the
+    -- context; a catch-all `TVar _` guard breaks every use of it. This is the
+    -- fixture that must pass before the map arm of assumesFact ships.
+    it "SA-6 does not reject (map-empty) at a typed map position" $ do
+      case tcOf [ "(def-shell m [k: int] -> map[int int] (map-empty))" ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+    -- SA-7: the discriminant must not fire on NAMED holes. A hole is a checking
+    -- target, not a laundering path; rejecting it would break sketch mode.
+    it "SA-7 does not reject a named hole at a bytes[n] position" $ do
+      case tcOf [ "(def-shell f [] -> bytes[64] ?body)" ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
+  -- -----------------------------------------------------------------------
+  describe "SAFE-ARG: checker_soundness_version sidecar invalidation" $ do
+    let entry = KM.fromList
+          [ ("f", Object (KM.fromList
+              [ ("post", Object (KM.fromList
+                  [ ("display_level", object ["level" .= ("verified" :: T.Text)])
+                  , ("body_faithful", Bool True) ])) ])) ]
+
+    -- SS-1: every sidecar written by v0.14.34..v0.14.72 lacks the key, and each
+    -- may rest on the SA-1 false SAFE. Absence must invalidate.
+    it "SS-1 invalidates a sidecar with no checker_soundness_version (the affected range)" $
+      sidecarNeedsRevalidation entry `shouldBe` True
+
+    it "SS-2 accepts a sidecar stamped with the current checker epoch" $
+      sidecarNeedsRevalidation
+        (KM.insert "checker_soundness_version" (String checkerSoundnessVersion) entry)
+        `shouldBe` False
+
+    it "SS-3 invalidates a sidecar stamped with a different checker epoch" $
+      sidecarNeedsRevalidation
+        (KM.insert "checker_soundness_version" (String "0") entry) `shouldBe` True
+
+    -- SS-4: the writer must stamp unconditionally — that is what makes absence
+    -- a sound "written by an older binary" signal rather than a normal state.
+    it "SS-4 saveVerified stamps the epoch, and the round-trip still loads" $ do
+      let path = "/tmp/llmll-safe-arg-stamp.llmll"
+          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False []
+      saveVerified path (Map.singleton "f" (ContractStatus Nothing (Just er) []))
+      raw  <- BL.readFile (verifiedPath path)
+      back <- loadVerified path
+      removeFile (verifiedPath path)
+      case decode raw :: Maybe Value of
+        Just (Object top) ->
+          KM.lookup "checker_soundness_version" top `shouldBe` Just (String checkerSoundnessVersion)
+        _ -> expectationFailure "sidecar did not decode as an object"
+      Map.size back `shouldBe` 1
+
+  -- -----------------------------------------------------------------------
   -- Phase 2c D3: holeSensitive error annotation
   -- -----------------------------------------------------------------------
   describe "Phase 2c D3 holeSensitive error annotation" $ do
@@ -2571,7 +2699,10 @@ main = hspec $ do
       let er  = KM.fromList [ ("display_level", object ["level" .= ("verified" :: T.Text)])
                             , ("body_faithful", Bool True) ]
           cs  = KM.fromList [ ("post", Object er) ]
-          top = KM.fromList [ ("withdraw", Object cs) ]
+          -- SAFE-ARG: the stamp is orthogonal to the INT-1 axis this test
+          -- covers; carry it so the assertion still isolates overflow_tainted.
+          top = KM.fromList [ ("withdraw", Object cs)
+                            , ("checker_soundness_version", String checkerSoundnessVersion) ]
       sidecarNeedsRevalidation top `shouldBe` False
 
     -- VR-6 (Commit 4): refutedClosure includes a directly-refuted function.
@@ -11359,7 +11490,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "T13 v0.11 sidecar with DLVerified body-faithful and no overflow_tainted field loads (VERIFY-RPT-1 disarm)" $ do
       let path = "/tmp/llmll-int1-stale.llmll"
           sidecarPath = verifiedPath path
-          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}}}"
+          -- SAFE-ARG: stamped, so this test still isolates the overflow_tainted
+          -- axis rather than the (orthogonal) checker-soundness epoch.
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}},\"checker_soundness_version\":\"1\"}"
       BL.writeFile sidecarPath stale
       back <- loadVerified path
       removeFile sidecarPath
@@ -11370,7 +11503,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "T14 v0.10.7 sidecar with only DLAsserted entries loads under v0.10.8 reader" $ do
       let path = "/tmp/llmll-int1-asserted-only.llmll"
           sidecarPath = verifiedPath path
-          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"asserted\"}}}}"
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"asserted\"}}},\"checker_soundness_version\":\"1\"}"
       BL.writeFile sidecarPath stale
       back <- loadVerified path
       removeFile sidecarPath
