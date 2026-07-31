@@ -44,18 +44,22 @@ INFO in `.planning/INGEST-CONFLICTS.md` so it stays reversible.
 
 ## Milestone scope
 The 45 requirements span four largely independent tracks. This milestone is the **compiler backlog
-targeting v0.15** and phases only the six requirements carrying precedence-0 authority from
-`docs/compiler-team-roadmap.md`. The other 39 are carried in REQUIREMENTS.md as a deferred backlog
-in 10 track groups, not dropped. Phase completion is defined as a shipped release: a CHANGELOG
+targeting v0.15** and phases only the five requirements carrying precedence-0 authority from
+`docs/compiler-team-roadmap.md`. The other 40 are carried in REQUIREMENTS.md as a deferred backlog
+in 11 track groups, not dropped. Phase completion is defined as a shipped release: a CHANGELOG
 entry, a version bump, and `scripts/version_gate.sh` passing.
 
+(Six requirements were phased at bootstrap; `REQ-int-3` was scoped out on 2026-07-31, see Open
+items below.)
+
 ## Open items
-- **`REQ-int-3` (Phase 5) is dormant by the backlog of record.**
-  `docs/compiler-team-roadmap.md:61` reads "promote to P1 if INT-PRE shows TOTP regression > 5×
-  (cleared at 1.015×, so dormant)". Its promotion condition is not met. It was scoped in by
-  mistake during milestone selection and sequenced last, so it is the drop candidate.
+- ~~**`REQ-int-3` (Phase 5) is dormant by the backlog of record.**~~ **RESOLVED 2026-07-31: scoped
+  out.** `docs/compiler-team-roadmap.md:61` reads "promote to P1 if INT-PRE shows TOTP regression
+  > 5× (cleared at 1.015×, so dormant)". The promotion condition is not met, so the requirement
+  returned to the deferred backlog under the integer-semantics track and the milestone is now four
+  phases cutting v0.15.0 at Phase 4.
 - **`REQ-fact-ag` (Phase 3) has no acceptance clause and unmeasured reach.** Least-defined phase.
-- Three of the six carry `acceptance: (absent)`: `REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
+- Three of the five carry `acceptance: (absent)`: `REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
   `REQ-contract-read-lint-residual`. Criteria in those phases are goal-backward starting points,
   not authority.
 - Two deferred requirements have no backing roadmap row and need confirming before scheduling:

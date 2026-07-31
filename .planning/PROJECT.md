@@ -22,7 +22,7 @@ shorten repair distance for an agent writing LLMLL.
 
 ### Active
 
-This milestone is the **compiler backlog, targeting v0.15**. Six requirements, all carrying
+This milestone is the **compiler backlog, targeting v0.15**. Five requirements, all carrying
 precedence-0 authority from `docs/compiler-team-roadmap.md`:
 
 - [ ] `REQ-wild-assume-2` — extend the WILD-ASSUME restriction to the `map[k,bool]` arm
@@ -30,18 +30,21 @@ precedence-0 authority from `docs/compiler-team-roadmap.md`:
 - [ ] `REQ-fact-ag` — route type-derived VC assumptions through assume-guarantee
 - [ ] `REQ-oblig-1-def-invariant` — `def-invariant` axioms in the obligation report `assumptions` field
 - [ ] `REQ-contract-read-lint-residual` — the two deferred contract-read lint tiers
-- [ ] `REQ-int-3` — `MachineInt` QF-BV alias
 
 Full text, acceptance, and per-requirement provenance: `.planning/REQUIREMENTS.md`.
 Phase mapping: `.planning/ROADMAP.md`.
 
 ### Deferred (not dropped)
 
-Thirty-nine further requirements were extracted from the ingest and carried into
+Forty further requirements were extracted from the ingest and carried into
 `.planning/REQUIREMENTS.md` as a tracked backlog, grouped by track: module-system codegen,
 sandboxing/WASM, data-scope levers, Lean tier (LEAN-GA), obligations and spec text, patch/refine
-slicing, RFC-SWARM phases 1 to 4, SPEC-AGREE-1 build order a to e, research track R1/R2/R4, and
-two items with no backing roadmap row. A future milestone picks one track up.
+slicing, RFC-SWARM phases 1 to 4, SPEC-AGREE-1 build order a to e, integer semantics, research
+track R1/R2/R4, and two items with no backing roadmap row. A future milestone picks one track up.
+
+`REQ-int-3` (`MachineInt` QF-BV alias) joined this list on 2026-07-31, having been scoped in at
+bootstrap. Its stated acceptance is a promotion condition that did not fire: INT-PRE measured a
+1.015x TOTP regression against a 5x threshold.
 
 ### Out of Scope
 
@@ -126,7 +129,7 @@ authority. Full text and per-decision provenance: `.planning/intel/decisions.md`
 | Decision (proposed) | Rationale | Outcome |
 |---|---|---|
 | The if-join wildcard preference ships as RET-RESOLVE SC3', not RET-BRANCH-PREF Stage 2 | Professor review Round 1 finding 1 classifies the unconditioned preference as soundness-adjacent and recommends same-SCC conditioning (Milner 1978; Damas and Milner 1982; Jones 1999 §11) | — Pending (reversible; INFO-2/INFO-3) |
-| Integer semantics option (a); `MachineInt` stays post-freeze | INT-PRE cleared the cost gate at 1.015x against a 5x threshold, so INT-3 is recorded dormant | — Pending (this milestone schedules it anyway) |
+| Integer semantics option (a); `MachineInt` stays post-freeze | INT-PRE cleared the cost gate at 1.015x against a 5x threshold, so INT-3 is recorded dormant | — Pending; the milestone honors the dormancy (scoped out 2026-07-31, deferred backlog) |
 | Contract-position reads are total selects; status quo plus a scoped non-blocking lint | Sound in both directions; heuristic tier and Dafny-style side-obligation deferred | — Pending |
 | Acyclicity policy for `refine` cycle-creating spawns: Option 3 | Admit, detect, degrade cycle members to contract-only with the trust meet floored | — Pending |
 | CDP default-on deferred | All preconditions closed by v0.14.4, cost is 2-3x verify time; `--strict-verify` opt-in preferred | — Pending |

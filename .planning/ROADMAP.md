@@ -3,12 +3,19 @@
 **Milestone:** compiler backlog, targeting v0.15
 **Released version at milestone start:** v0.14.73
 **Granularity:** standard (no `.planning/config.json` present; defaults applied)
-**Coverage:** 6/6 in-scope requirements mapped, no orphans, no duplicates
+**Coverage:** 5/5 in-scope requirements mapped, no orphans, no duplicates
 
-The milestone is a hard boundary. These five phases cover exactly the six requirements the user
-scoped in, all carrying precedence-0 authority from `docs/compiler-team-roadmap.md`. The other 39
+The milestone is a hard boundary. These four phases cover exactly the five requirements the user
+scoped in, all carrying precedence-0 authority from `docs/compiler-team-roadmap.md`. The other 40
 extracted requirements are tracked as a deferred backlog in `.planning/REQUIREMENTS.md` and carry
 no phase.
+
+**`REQ-int-3` was scoped out on 2026-07-31.** An earlier revision of this roadmap carried it as a
+fifth phase. Its own source records it dormant: the stated acceptance is a promotion condition
+(promote P3 to P1 only if INT-PRE shows a TOTP regression > 5x), and INT-PRE cleared at 1.015x, so
+the gate never fired. Scheduling it would have overridden that. It returns to the deferred backlog
+in `.planning/REQUIREMENTS.md` under the integer-semantics track, and the milestone now cuts
+v0.15.0 at Phase 4.
 
 ## Definition of Done (applies to every phase)
 
@@ -34,8 +41,7 @@ is current. `llmll version` is not sufficient and mtime comparison is wrong abou
 - [ ] **Phase 1: Close the map arm of WILD-ASSUME** - Stop `map[k,bool]` value-range facts entering a VC antecedent through a bare inference wildcard
 - [ ] **Phase 2: Resolve wildcard return types at the root (RET-RESOLVE SC3')** - Transitive `tau_ret` resolution in a sandboxed verification-facing pass, with the SCC-conditioned if-join preference
 - [ ] **Phase 3: Route type-derived facts through assume-guarantee (FACT-AG)** - Generalize the WILD-ASSUME approximation to the rule it approximates
-- [ ] **Phase 4: Disclose what the verifier assumed and where it did not check** - `def-invariant` axioms in the obligation report, plus the two deferred contract-read lint tiers
-- [ ] **Phase 5: MachineInt under QF-BV (INT-3)** - A machine-integer type whose obligations are checked at machine width
+- [ ] **Phase 4: Disclose what the verifier assumed and where it did not check** - `def-invariant` axioms in the obligation report, plus the two deferred contract-read lint tiers; cuts v0.15.0
 
 ## Phase Details
 
@@ -150,7 +156,8 @@ including the ones no obligation discharges, and gets warned at the contract-pos
 verifier does not check.
 **Depends on**: Phase 3
 **Requirements**: `REQ-oblig-1-def-invariant`, `REQ-contract-read-lint-residual`
-**Target version**: v0.14.77 (indicative)
+**Target version**: v0.15.0 (the milestone cut; marks the milestone boundary, not the size of this
+item)
 
 These two requirements are grouped because both extend the same surface: what the report and the
 diagnostics disclose about assumptions the verifier did not discharge. The Dafny-style
@@ -175,40 +182,30 @@ acceptance before planning.
    the defect pattern this project already recorded.
 5. The Dafny-style well-formedness side-obligation fires on contract-position reads, and its
    decidable-slice boundary is stated in the diagnostic rather than left implicit.
-6. Shipped per the Definition of Done above.
+6. Shipped per the Definition of Done above, cutting v0.15.0.
 
 **Plans**: TBD
 
 ---
 
-### Phase 5: MachineInt under QF-BV (INT-3)
+### Scoped out: MachineInt under QF-BV (INT-3)
 
-**Goal**: A program can declare a machine-width integer type whose obligations are checked at that
-width, instead of being idealized to unbounded integers by the QF-LIA fragment.
-**Depends on**: Phase 4
-**Requirements**: `REQ-int-3`
-**Target version**: v0.15.0 (the milestone cut; marks the milestone boundary, not the size of this
-item)
+`REQ-int-3` carried a fifth phase in an earlier revision of this roadmap and was scoped out on
+2026-07-31. It is **deferred, not cancelled**: it returns to the backlog in
+`.planning/REQUIREMENTS.md` under the integer-semantics track.
 
-⚠️ **Scheduling flag.** The source records INT-3 as **dormant**: its stated acceptance is a
-promotion condition (promote P3 to P1 only if INT-PRE shows a TOTP regression > 5x), and INT-PRE
-cleared at 1.015x, so the gate never fired. Scheduling INT-3 into this milestone overrides that
-recorded dormancy. It is sequenced last so that if the milestone shortens, this is what is lost
-and the four preceding releases stand on their own.
+**Why it is out.** Its acceptance, as its source states it, is a promotion condition rather than a
+deliverable: promote P3 to P1 only if INT-PRE shows a TOTP regression above 5x. INT-PRE measured
+1.015x. The gate that would have promoted this work did not fire, so scheduling it would have been
+this milestone overriding a measurement the project already took. That is the same failure the rest
+of this roadmap is written against.
 
-**Success Criteria** (what must be TRUE):
-1. `LLMLL.md` defines `MachineInt`: width, wrap semantics, and the boundary against the QF-LIA
-   `int` fragment. This is the language-team design the requirement's acceptance names, and it
-   lands before or alongside the implementation per the `[SPEC]` tagging rule.
-2. A program declaring `MachineInt` emits QF-BV constraints and reaches a verdict.
-3. A refute crux exists and kills: a fixture whose obligation holds over unbounded integers but
-   fails at machine width is **refuted**, not reported SAFE. Without that fixture the phase has
-   shown only that the new path does not crash.
-4. The fragment boundary is a real boundary and not a global switch: `.fq` output is unchanged for
-   corpus sources that do not use `MachineInt`.
-5. Shipped per the Definition of Done above, cutting v0.15.0.
+**What would bring it back.** A new measurement that clears the 5x gate, or a stated reason to
+retire the gate. Either is a decision to record before the item is scheduled, not during planning.
 
-**Plans**: TBD
+The success criteria drafted for it are preserved in git history at `fa4b6b9` if it is ever
+promoted; the design sketch is `docs/design/int-3-machine-int-sketch.md` and the measurement is
+`experiments/int-pre/`.
 
 ## Progress
 
@@ -217,8 +214,7 @@ and the four preceding releases stand on their own.
 | 1. Close the map arm of WILD-ASSUME | 0/0 | Not started | v0.14.74 | - |
 | 2. RET-RESOLVE SC3' | 0/0 | Not started | v0.14.75 | - |
 | 3. FACT-AG | 0/0 | Not started | v0.14.76 | - |
-| 4. Assumption and lint disclosure | 0/0 | Not started | v0.14.77 | - |
-| 5. MachineInt under QF-BV | 0/0 | Not started | v0.15.0 | - |
+| 4. Assumption and lint disclosure | 0/0 | Not started | v0.15.0 | - |
 
 Version targets are indicative. The binding rule is that each phase ships a monotonic bump above
 the prior phase and that v0.15.0 marks milestone completion.
@@ -232,6 +228,6 @@ the prior phase and that v0.15.0 marks milestone completion.
 | `REQ-fact-ag` | 3 |
 | `REQ-oblig-1-def-invariant` | 4 |
 | `REQ-contract-read-lint-residual` | 4 |
-| `REQ-int-3` | 5 |
 
-6/6 mapped. The 39 deferred requirements in `.planning/REQUIREMENTS.md` are intentionally unmapped.
+5/5 mapped. The 40 deferred requirements in `.planning/REQUIREMENTS.md` are intentionally unmapped,
+`REQ-int-3` among them as of 2026-07-31.

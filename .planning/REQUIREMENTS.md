@@ -1,7 +1,7 @@
 # Requirements
 
 **Milestone:** compiler backlog, targeting v0.15
-**Source:** `.planning/intel/requirements.md` (45 extracted), scoped by user directive to six.
+**Source:** `.planning/intel/requirements.md` (45 extracted), scoped by user directive to five.
 **Provenance rule inherited from the ingest:** no PRD-typed document was present. Requirements are
 the **open / unshipped remainder** recorded in SPEC-typed docs. Work a source records as already
 shipped is deliberately not emitted. `docs/compiler-team-roadmap.md` is the backlog of record
@@ -11,7 +11,9 @@ shipped is deliberately not emitted. `docs/compiler-team-roadmap.md` is the back
 
 ## In Scope (v1, this milestone)
 
-All six carry precedence-0 authority from `docs/compiler-team-roadmap.md`.
+All five carry precedence-0 authority from `docs/compiler-team-roadmap.md`. A sixth, `REQ-int-3`,
+was scoped in at bootstrap and removed on 2026-07-31; see the integer-semantics track in the
+deferred backlog below.
 
 ### REQ-wild-assume-2
 
@@ -146,28 +148,9 @@ slice, with the v1 `bytes-zero` context rule blessed.
 
 ---
 
-### REQ-int-3
-
-**Phase:** 5
-**Source:** `docs/compiler-team-roadmap.md` (INT-3 row);
-`docs/design/critique-2026-05-23-triage.md` §4 (INT-3 row)
-
-`MachineInt` QF-BV alias, a post-freeze machine-integer type under QF-BV verification scope.
-
-**Acceptance (from source):** language-team design when scheduled. Promote from P3 to P1 only if
-INT-PRE shows a TOTP regression > 5x; it cleared at 1.015x, so the item is dormant.
-
-**Scope:** integer semantics, QF-BV, `MachineInt`.
-
-⚠️ **Scheduling flag.** The source records INT-3 as **dormant**, and its stated acceptance is a
-promotion condition (a cost gate that did not fire) plus a design deliverable, not an
-implementation criterion. Scheduling it into this milestone overrides that recorded dormancy. If
-the milestone needs to shorten, this is the drop candidate, and it is sequenced last for that
-reason.
-
 ---
 
-## Deferred Backlog (39 requirements, carried forward)
+## Deferred Backlog (40 requirements, carried forward)
 
 Not dropped. A future milestone picks one track up. Full text for each:
 `.planning/intel/requirements.md`.
@@ -246,6 +229,15 @@ Group trigger: a production use case requiring true namespace isolation.
 | `REQ-spec-agree-1-basesorttext-feasibility` | Feasibility read on `baseSortText` widening and the `FixpointEmit` declaration path | open, addressed to the compiler-engineer |
 | `REQ-spec-agree-1-remeasure-comparable-fraction` | Re-derive the comparable fraction through the real classifier | every §0 figure is an upper bound until this runs |
 
+### Integer semantics (1)
+
+| ID | One-line | Note |
+|---|---|---|
+| `REQ-int-3` | `MachineInt` QF-BV alias, a machine-integer type under QF-BV verification scope | **scoped out of this milestone 2026-07-31.** Source records it dormant: acceptance is a promotion condition (P3 to P1 only if INT-PRE shows a TOTP regression > 5x) and INT-PRE cleared at 1.015x, so the gate never fired. Sketch: `docs/design/int-3-machine-int-sketch.md`; measurement: `experiments/int-pre/` |
+
+Group trigger: a new measurement clearing the 5x gate, or a recorded decision retiring the gate.
+Either is a decision to take before scheduling, not during planning.
+
 ### Research track (5)
 
 | ID | One-line | Note |
@@ -274,16 +266,18 @@ Group trigger: a production use case requiring true namespace isolation.
 | `REQ-fact-ag` | Phase 3 | ⚠️ Absent | Pending |
 | `REQ-oblig-1-def-invariant` | Phase 4 | ⚠️ Absent | Pending |
 | `REQ-contract-read-lint-residual` | Phase 4 | ⚠️ Absent | Pending |
-| `REQ-int-3` | Phase 5 | Promotion condition only | Pending |
 
-**Coverage:** 6/6 in-scope requirements mapped to exactly one phase each. No orphans, no
-duplicates. The 39 deferred requirements are intentionally unmapped and carry no phase.
+**Coverage:** 5/5 in-scope requirements mapped to exactly one phase each. No orphans, no
+duplicates. The 40 deferred requirements are intentionally unmapped and carry no phase.
 
-**Acceptance gaps:** three of the six (`REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
+**Acceptance gaps:** three of the five (`REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
 `REQ-contract-read-lint-residual`) carry `acceptance: (absent)` from their sources. Nothing was
 invented. Their phases carry success criteria derived goal-backward from the requirement text, and
-each is marked as needing user-authored acceptance before planning. A fourth (`REQ-int-3`) states a
-promotion condition rather than an acceptance criterion.
+each is marked as needing user-authored acceptance before planning.
+
+**Scope change 2026-07-31:** `REQ-int-3` was removed from the milestone and returned to the
+deferred backlog under the integer-semantics track. It stated a promotion condition rather than an
+acceptance criterion, and the condition did not fire.
 
 ---
 *Generated 2026-07-31 from `.planning/intel/` (18 classified documents, 45 extracted requirements)*

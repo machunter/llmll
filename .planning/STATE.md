@@ -2,7 +2,7 @@
 gsd_state_version: '1.0'
 status: planning
 progress:
-  total_phases: 5
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,7 +21,7 @@ obligation it names the gap rather than absorbing it.
 
 ## Current Position
 
-Phase: 1 of 5 (Close the map arm of WILD-ASSUME)
+Phase: 1 of 4 (Close the map arm of WILD-ASSUME)
 Plan: 0 of 0 in current phase
 Status: Ready to plan
 Last activity: 2026-07-31 — Roadmap created from ingest of 18 design documents (45 requirements
@@ -60,7 +60,8 @@ decisions sit at `status: proposed` (see PROJECT.md Key Decisions and
   RET-BRANCH-PREF Stage 2 type-channel variant is withdrawn. Reversible; INFO-2 / INFO-3.
 - Contract-position reads are total selects; disposition is status quo plus a scoped non-blocking
   lint.
-- Integer semantics option (a); `MachineInt` recorded dormant, scheduled anyway in Phase 5.
+- Integer semantics option (a); `MachineInt` recorded dormant, and the milestone now honors that:
+  `REQ-int-3` was scoped out on 2026-07-31 and returned to the deferred backlog.
 - Stale-binary detection uses `stack build --dry-run`, not the version string and not mtimes.
 
 ### Pending Todos
@@ -69,12 +70,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Acceptance criteria absent for three of six in-scope requirements** (`REQ-fact-ag`,
+- **Acceptance criteria absent for three of five in-scope requirements** (`REQ-fact-ag`,
   `REQ-oblig-1-def-invariant`, `REQ-contract-read-lint-residual`). Their sources state none;
   nothing was invented. Author acceptance before planning Phases 3 and 4.
-- **`REQ-int-3` is recorded dormant** by its own source (INT-PRE cleared the promotion gate at
-  1.015x against a 5x threshold). Phase 5 overrides that; it is sequenced last as the drop
-  candidate.
 - **Phase 1 has a hard prerequisite**: the `(map-empty)` over-breadth fixture `SA-6` must be
   committed before the WILD-ASSUME discriminant widens, or every `(map-empty)` use breaks.
 - **Phase 2 must not land before Phase 1.** The `resultLenFact` assumption-injection channel can
@@ -87,7 +85,8 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Backlog | 39 requirements across 10 tracks | Tracked in REQUIREMENTS.md | 2026-07-31 (milestone scoping) |
+| Backlog | 40 requirements across 11 tracks | Tracked in REQUIREMENTS.md | 2026-07-31 (milestone scoping) |
+| Requirement | `REQ-int-3` (`MachineInt` QF-BV) | Scoped out of milestone; integer-semantics track | 2026-07-31 (promotion gate did not fire) |
 
 ## Session Continuity
 
