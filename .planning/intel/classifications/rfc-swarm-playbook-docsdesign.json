@@ -1,0 +1,18 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/rfc-swarm-playbook.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "RFC to verified implementation: the repeatable process",
+  "summary": "Operational procedure for an orchestrating agent to turn an RFC into a clause-traceable formal specification and a swarm-built verified implementation.",
+  "scope": ["RFC-to-spec pipeline", "orchestrating agent", "blind fill agents", "clause census and disposition", "LLMLL toolchain", "TFTP RFC 1350", "RFC 1123 4.2.3.1", "verification scope boundary"],
+  "cross_refs": [
+    "spec-from-rfc-pipeline.md",
+    "../../examples/tftp_rfc1350/VERIFICATION_SCOPE.md",
+    "../../experiments/rfc-swarm/PRE-REGISTRATION.md",
+    "../../experiments/rfc-swarm/data/"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": ""
+}

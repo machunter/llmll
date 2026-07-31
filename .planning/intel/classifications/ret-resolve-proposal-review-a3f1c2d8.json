@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/ret-resolve-proposal-review.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Professor review of `ret-resolve-proposal.md`, rounds 1-4",
+  "summary": "Four rounds of review findings against ret-resolve-proposal.md, plus two literature answers requested by the language-team.",
+  "scope": ["RET-RESOLVE proposal", "return-type resolution pass", "wildcard/gradual typing", "SCC binding-group typing", "SAFE-ARG", "WILD-ASSUME"],
+  "cross_refs": ["finding-arg-position-false-safe.md", "ret-resolve-proposal.md", "FixpointEmit.hs", "TypeCheck.hs", "Checkout.hs", "LLMLL.md"],
+  "locked": false,
+  "precedence": 2,
+  "notes": "Type set by MANIFEST_TYPE=DOC (authoritative). Content is a prose review record: findings and recommendations, no decision status or requirement list, consistent with DOC."
+}

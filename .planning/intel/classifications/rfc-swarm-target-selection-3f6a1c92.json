@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/rfc-swarm-target-selection.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Choosing the next RFC: a criterion, and a cheap screen that turned out not to exist",
+  "summary": "Admissibility criterion for selecting the next RFC target, plus a two-call pre-flight screen that failed its controls and was retired.",
+  "scope": ["RFC target selection", "gate J characteristic-core condition", "core admissibility criterion", "pre-flight screen", "RFC 4648", "ARP", "TFTP", "stage F", "stage G", "wave roots"],
+  "cross_refs": ["scope.md"],
+  "locked": false,
+  "precedence": 1,
+  "notes": ""
+}

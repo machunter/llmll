@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/leanstral-integration-scope.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "LEAN-GA — Leanstral Integration Scope (Spike Findings, 2026-07-04)",
+  "summary": "Spike findings scoping LEAN-GA as a three-layer rebuild: unfaithful obligation translator, unrouted obligations, and lean-lsp-mcp being a checker not a prover.",
+  "scope": ["LEAN-GA", "Leanstral 1.5", "lean-lsp-mcp", "LeanTranslate.hs", "MCPClient.hs", "obligation translation", "obligation routing", "PROOF-ARTIFACT C-property", "anti-laundering guard"],
+  "cross_refs": ["docs/compiler-team-roadmap.md", "docs/archive/shipped-design-specs/proof-artifact-proposal.md", "LLMLL.md", "examples/proof_required_test/"],
+  "locked": false,
+  "precedence": 1,
+  "notes": "Type taken from MANIFEST_TYPE=SPEC; content is a scoping/findings note with explicit Requirement statements and a recommended architecture (T-B), consistent with SPEC."
+}

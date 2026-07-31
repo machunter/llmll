@@ -1,0 +1,81 @@
+# GSD ingest-docs manifest — llmll
+#
+# Selection rule: a doc is included when docs/design/INDEX.md records its status
+# as open, queued, draft, or parked. Active-reference and dormant docs are
+# excluded, as is everything under docs/archive/ (shipped, superseded, or
+# already folded into a proposal appendix).
+#
+# Precedence: lower wins. compiler-team-roadmap.md is the engineering backlog of
+# record and outranks every proposal; proposals outrank their reviews/findings.
+
+docs:
+  # --- backlog of record -----------------------------------------------------
+  - path: docs/compiler-team-roadmap.md
+    type: SPEC
+    precedence: 0
+
+  # --- open proposals --------------------------------------------------------
+  - path: docs/design/oblig-0-spec.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/spec-agreement-proposal.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/incremental-reverify-r8-proposal.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/ret-resolve-proposal.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/ret-branch-pref-proposal.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/data-scope-extension.md
+    type: SPEC
+    precedence: 1
+
+  # --- RFC-SWARM program (Phase 0 complete, phases 1-4 open) -----------------
+  - path: docs/design/rfc-swarm-roadmap-proposal.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/rfc-swarm-target-selection.md
+    type: SPEC
+    precedence: 1
+
+  # BLOCKER-1: rfc-swarm-playbook.md and spec-from-rfc-pipeline.md cite each
+  # other (playbook:18 -> pipeline, pipeline:7 -> playbook), which the cycle
+  # rule withheld from synthesis. The pair declares its own ordering: both
+  # pipeline:7 and playbook:22 read "Where the two disagree, the playbook is
+  # authoritative, having come from an execution rather than a design."
+  # Split precedence to transcribe that, rather than drop a citation.
+  - path: docs/design/rfc-swarm-playbook.md
+    type: SPEC
+    precedence: 1
+  - path: docs/design/spec-from-rfc-pipeline.md
+    type: SPEC
+    precedence: 2
+
+  # --- parked ----------------------------------------------------------------
+  - path: docs/design/leanstral-integration-scope.md
+    type: SPEC
+    precedence: 1
+
+  # --- companion reviews, findings with open residue, open routing ----------
+  - path: docs/design/spec-agreement-review.md
+    type: DOC
+    precedence: 2
+  - path: docs/design/ret-resolve-proposal-review.md
+    type: DOC
+    precedence: 2
+  - path: docs/design/ret-branch-pref-proposal-review.md
+    type: DOC
+    precedence: 2
+  - path: docs/design/finding-fq-result-sort-default-review.md
+    type: DOC
+    precedence: 2
+  - path: docs/design/finding-arg-position-false-safe.md
+    type: DOC
+    precedence: 2
+  - path: docs/design/critique-2026-05-23-triage.md
+    type: DOC
+    precedence: 2

@@ -1,0 +1,28 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/finding-fq-result-sort-default-review.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Professor review of finding-fq-result-sort-default.md, Rev 0 and Rev 1",
+  "summary": "Two-round standalone review of the FQ-RESULT-SORT-1 proposal, covering result-binder sort derivation mismatch between contract and type channels.",
+  "scope": [
+    "FQ-RESULT-SORT-1",
+    "FQ-BOOL-SORT-1",
+    "result binder sort",
+    "FixpointEmit ContractEnv",
+    "FixpointIR FQFile",
+    "TypeCheck collectTopLevel",
+    "Module extractContracts",
+    "liquid-fixpoint"
+  ],
+  "cross_refs": [
+    "finding-fq-result-sort-default.md",
+    "../../compiler/src/LLMLL/TypeCheck.hs",
+    "../../compiler/src/LLMLL/FixpointIR.hs",
+    "../../compiler/src/LLMLL/FixpointEmit.hs",
+    "../../compiler/src/LLMLL/Module.hs"
+  ],
+  "locked": false,
+  "precedence": 2,
+  "notes": "Type taken from MANIFEST_TYPE=DOC. Content is a review/critique document, consistent with DOC. Filename hash suffix omitted: no shell/exec tool available in this context to compute SHA-256; basename is unique in the corpus."
+}

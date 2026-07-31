@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/ret-branch-pref-proposal-review.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Professor review of `ret-branch-pref-proposal.md` Rev 0",
+  "summary": "Standalone professor review adjudicating the RET-BRANCH-PREF Rev 0 proposal on if-branch type preference in the type checker.",
+  "scope": ["RET-BRANCH-PREF", "inferExpr EIf", "TypeCheck.hs", "FixpointEmit.hs typeToSort", "branch type join"],
+  "cross_refs": ["ret-branch-pref-proposal.md", "finding-fq-result-sort-default.md", "compiler/src/LLMLL/TypeCheck.hs", "compiler/src/LLMLL/FixpointEmit.hs", "LLMLL.md"],
+  "locked": false,
+  "precedence": 2,
+  "notes": ""
+}

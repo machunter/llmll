@@ -1,0 +1,35 @@
+{
+ "source_path": "/Users/burcsahinoglu/Documents/llmll/docs/design/spec-from-rfc-pipeline.md",
+ "type": "SPEC",
+ "confidence": "high",
+ "manifest_override": true,
+ "title": "Spec-from-RFC Pipeline (R3)",
+ "summary": "Operating procedure translating RFC normative clauses into traceable LLMLL contracts via stages S0-S5 with a clause translation taxonomy.",
+ "scope": [
+  "spec-from-RFC pipeline",
+  "pipeline stages S0-S5",
+  "clause extraction and inventory",
+  "clause classification taxonomy C1-C6",
+  ":source provenance binding",
+  "adequacy checking (--spec-coverage, --weakness-check, --cdp)",
+  "verification and CI freeze",
+  "RFC 1982 / RFC 6238 / RFC 793 worked examples"
+ ],
+ "cross_refs": [
+  "specification-sources.md",
+  "rfc-swarm-playbook.md",
+  "../../examples/rfc1982_serial/",
+  "../../experiments/rfc1982-eval/findings.md",
+  "examples/rfc1982_serial/VERIFICATION_SCOPE.md",
+  "examples/tcp_rfc793/DEMO-RUNBOOK.md",
+  "examples/tcp_rfc793/step.llmll",
+  "examples/totp_rfc6238/",
+  "LLMLL.md",
+  "CHANGELOG.md",
+  "EXPECTED_RESULTS.json",
+  "scripts/benchmark-totp.sh"
+ ],
+ "locked": false,
+ "precedence": 2,
+ "notes": "MANIFEST_TYPE=SPEC applied as authoritative; content signals (stage table, clause taxonomy table, binding conventions, mechanized check contracts) independently agree with SPEC. BLOCKER-1 resolution: demoted to precedence 2 behind rfc-swarm-playbook.md (precedence 1). Both docs declare this ordering themselves: spec-from-rfc-pipeline.md:7 and rfc-swarm-playbook.md:22 each state \"Where the two disagree, the playbook is authoritative, having come from an execution rather than a design.\""
+}
