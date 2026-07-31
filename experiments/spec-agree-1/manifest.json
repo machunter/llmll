@@ -1,0 +1,73 @@
+{
+  "experiment": "spec-agree-1",
+  "rev": 1,
+  "manifest_version": "1.0.0",
+  "purpose": "Preserve reproducibility of the comparable-fragment figures published in docs/design/spec-agreement-proposal.md Rev 1 §0.3 and §0.4 M-2.",
+  "gate_ref": {
+    "transcribed_from": "compiler/src/LLMLL/RefineReuse.hs",
+    "qf_contract": "RefineReuse.hs:281-285",
+    "uf_bearing": "RefineReuse.hs:289-299",
+    "arr_op_families": "compiler/src/LLMLL/FixpointEmit.hs:1577,1581",
+    "approximation": "classifyContractFragment approximated as 'at least one clause present'. Generous, so every measured figure is an UPPER BOUND on comparability."
+  },
+  "consumer_ref": {
+    "doc": "docs/design/spec-agreement-proposal.md",
+    "sections": ["§0.3 Result", "§0.4 M-1", "§0.4 M-2", "§0.4 M-3"],
+    "sha": "7921fe3"
+  },
+  "corpus_sha": "fa4b6b9",
+  "row_counting_rule": "EC-4: a row is comparable only when every clause citing it lives in a comparable contract. Rows are matched to clauses by the leading [cid] of the clause :source field; only rows dispositioned Encoded in the run inventory are counted.",
+  "runs": [
+    {
+      "label": "TFTP",
+      "rfc": "RFC 1350",
+      "ast": "examples/tftp_rfc1350/wave/tftp-filled.ast.json",
+      "inventory": "experiments/rfc-swarm/data/inventory-dispositioned.json",
+      "note": "Gate J passed. Authored contracts from the wave, not stage-H probes.",
+      "expected": {
+        "contract_bearing_defs": 12,
+        "comparable_defs": 2,
+        "encoded_rows": 46,
+        "encoded_rows_cited": 35,
+        "comparable_rows": 7
+      }
+    },
+    {
+      "label": "ARP",
+      "rfc": "RFC 826",
+      "ast": "experiments/rfc-swarm/runs/rfc826/implementation.ast.json",
+      "inventory": "experiments/rfc-swarm/runs/rfc826/inventory-dispositioned.json",
+      "note": "Gate J passed. Agent-authored contracts.",
+      "expected": {
+        "contract_bearing_defs": 9,
+        "comparable_defs": 1,
+        "encoded_rows": 39,
+        "encoded_rows_cited": 26,
+        "comparable_rows": 2
+      }
+    }
+  ],
+  "expected_combined": {
+    "contract_bearing_defs": 21,
+    "comparable_defs": 3,
+    "encoded_rows": 85,
+    "encoded_rows_cited": 61,
+    "comparable_rows": 9
+  },
+  "expected_abstention_histogram": {
+    "nullary-ctor": 13,
+    "ctor-app": 5
+  },
+  "excluded_runs": [
+    {
+      "label": "RFC 4648",
+      "path": "experiments/rfc-swarm/runs/rfc4648/",
+      "reason": "Stopped at gate J. Only runs that passed gate J carry authored contracts, so including it would mix authored and unauthored surfaces."
+    },
+    {
+      "label": "RFC 1982 serial",
+      "path": "examples/rfc1982_serial/serial.ast.json",
+      "reason": "Zero contract-bearing defs; contributes no rows to either denominator."
+    }
+  ]
+}

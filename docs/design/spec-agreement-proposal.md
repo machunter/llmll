@@ -71,6 +71,10 @@ with `ufBearing` at `RefineReuse.hs:289-299` and the array-op families at
 present", which is generous, so every figure below is an **upper bound** on comparability. A row
 is counted comparable only when every clause citing it lives in a comparable contract (EC-4).
 
+The measurement is reproducible. `experiments/spec-agree-1/` holds the transcription, the pinned
+inputs, and the figures below; `python3 experiments/spec-agree-1/scripts/sigma_subsume.py` exits
+non-zero if the corpus or the gate moves away from what this section publishes.
+
 ### 0.3 Result
 
 | Unit | TFTP (RFC 1350) | ARP (RFC 826) | Combined |
