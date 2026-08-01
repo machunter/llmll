@@ -42,6 +42,14 @@ module LLMLL.TypeCheck
     -- * v0.5: U-Full internal exports (for direct unit testing)
   , structuralUnify
   , runTC
+    -- ADMIT-SHARED: seeded variant, so a direct 'structuralUnify' test over an
+    -- ALIASED fact-asserting type exercises a LIVE admissibility guard rather
+    -- than one disabled by an empty 'tcAliasMap' (SA-19).
+  , runTCWithAliases
+    -- ADMIT-SHARED: exported so property A2 (@admits am (expandAlias t) ==
+    -- admits am t@) tests the REAL expansion the call sites run, not a
+    -- re-statement of it that could drift.
+  , expandAlias
   , occursIn
   , TC
   ) where
@@ -50,7 +58,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Maybe (mapMaybe, fromMaybe, isJust)
 import Data.List (nub, (\\))
 import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void)
@@ -59,6 +67,12 @@ import Control.Monad.State.Strict
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
+-- ADMIT-SHARED: the type-admissibility predicate the emitter's fact-injection
+-- gates are built from. Importing it here (rather than mirroring it) is what
+-- makes CR-01's defect class — checker guarding a narrower set than the emitter
+-- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
+-- this module does not import.
+import LLMLL.TypeAdmissibility (AliasMap, admits, bytesLenOf, boolValuedMapTy)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -343,59 +357,31 @@ isHoleVar :: Type -> Bool
 isHoleVar (TVar n) = "?" `T.isPrefixOf` n
 isHoleVar _        = False
 
--- | SAFE-ARG / WILD-ASSUME (stage 1 + stage 2): types whose DECLARED shape
--- contributes a ground fact to a VC antecedent that no obligation discharges.
--- A @bytes[n]@ binder has @bytesLen(v) = n@ asserted from its declared type
--- (@FixpointEmit.bytesLenReft@), and the index-in-bounds obligation is then
--- discharged against it — so an unvalidated declaration yields a false premise
--- and a false SAFE (docs/design/finding-arg-position-false-safe.md).
+-- ADMIT-SHARED: the membership predicate this module used to carry
+-- (@assumesFact@ \/ @assumesFactMapKey@ \/ @assumesFactBoolValue@) is gone. It was
+-- a MIRROR of the emitter's fact-injection gates, and CR-01 was the two copies
+-- disagreeing about 'TDependent'. The guard now calls
+-- 'LLMLL.TypeAdmissibility.admits', which is defined over
+-- 'LLMLL.TypeAdmissibility.bytesLenOf' and
+-- 'LLMLL.TypeAdmissibility.boolValuedMapTy' — the very functions
+-- 'LLMLL.FixpointEmit' dispatches on when it decides to assert the fact. Not a
+-- mirror: the same functions.
 --
--- The map arm covers @map[k,bool]@, matching the same key/value admissibility
--- 'FixpointEmit.boolValuedMapTy' already uses to scope its ground
--- @0 \<= select(m$val,k) \<= 1@ value-range fact: an int-or-string key with a
--- bool value. SA-14 ('compiler/test/Spec.hs') is the fixture holding the
--- @(map-empty)@ line this arm puts at risk; SA-6 covers the pre-existing
--- @map[int,int]@ position, which this arm does not touch.
+-- Two consequences worth stating here, because this is where a future arm gets
+-- added:
 --
--- Deliberately NOT a member: refinement aliases and nullary enums, whose
--- type-level data is an OBLIGATION on the producer (LLMLL.md §3.4.1) rather
--- than an assumption, both measured REFUTED on a laundered value. That
--- exclusion is about the PREDICATE a refinement carries, not about the base
--- type it wraps: a @where@-wrapped @bytes[n]@ or @map[k,bool]@ still carries
--- the same undischarged ground fact from its base, and 'FixpointEmit.resolveAliasTy'
--- strips 'TDependent' before deciding to assert it. Matching only the outermost
--- constructor here therefore left the checker guarding a strictly narrower set
--- than the emitter asserts for, and a @(type B (where [m: map[int bool]] true))@
--- return position evaded the restriction entirely, for the bytes arm as well as
--- the map arm (CR-01, phase 01 review). SA-17 is the fixture holding that line.
-assumesFact :: Type -> Bool
-assumesFact (TBytes _)         = True
-assumesFact (TMap kt vt)       = assumesFactMapKey kt && assumesFactBoolValue vt
-assumesFact (TDependent _ b _) = assumesFact b
-assumesFact _                  = False
-
--- | SAFE-ARG / WILD-ASSUME (stage 2): key admissibility for the map arm of
--- 'assumesFact', mirroring 'FixpointEmit.isIntLike' \/ 'isStrLike' minus their
--- 'AliasMap' lookups. Both 'assumesFact' call sites receive already
--- alias-expanded types: 'unify' expands both sides before calling
--- 'compatibleWith', and the 'EApp' inference site expands before calling
--- 'structuralUnify'; 'expandAlias' itself recurses into 'TMap' components, so
--- a residual 'TCustom' alias never reaches here unresolved.
-assumesFactMapKey :: Type -> Bool
-assumesFactMapKey TInt               = True
-assumesFactMapKey TString            = True
-assumesFactMapKey (TDependent _ b _) = assumesFactMapKey b
-assumesFactMapKey (TSumType ctors)   =
-  all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
-assumesFactMapKey _                  = False
-
--- | SAFE-ARG / WILD-ASSUME (stage 2): value admissibility for the map arm of
--- 'assumesFact', mirroring 'FixpointEmit.isBoolLike' minus its 'AliasMap'
--- lookup, for the same already-expanded-input reason as 'assumesFactMapKey'.
-assumesFactBoolValue :: Type -> Bool
-assumesFactBoolValue TBool              = True
-assumesFactBoolValue (TDependent _ b _) = assumesFactBoolValue b
-assumesFactBoolValue _                  = False
+--   * 'admits' is TOTAL on unnormalized input. It does not require its caller to
+--     have run 'expandAlias' first. The call-site expansions below are retained
+--     for the OTHER 'compatibleWith' clauses (nominal @TCustom a@ vs
+--     @TCustom b@, structural recursion), which still need expanded input; they
+--     are no longer what keeps this guard honest.
+--
+--   * 'admits' over-approximates: it ignores the emitter's per-function
+--     activation gate ('FixpointEmit.arrGateActive'), which is a function of the
+--     callee's BODY. That is deliberate (ADMIT-OVER, see the
+--     'LLMLL.TypeAdmissibility' header) — the safe direction is to reject more
+--     than the emitter asserts for, and consulting a body-dependent gate would
+--     make type acceptance depend on a callee's body.
 
 -- | SAFE-ARG: the bare inference wildcard produced by 'collectTopLevel' for an
 -- unannotated return, as distinct from two other TVar populations that must NOT
@@ -422,27 +408,28 @@ isBareWildcard (TVar n) = n == "?" || "?$" `T.isPrefixOf` n
 isBareWildcard _        = False
 
 -- | SAFE-ARG / WILD-ASSUME (stage 3): the noun phrase naming the fact
--- 'assumesFact' would assert for a given type, used by 'tcWildAssumeError' so
--- the rejection describes what it refused instead of a hardcoded bytes-only
--- wording. The noun is per class, not per call site, because the two
--- 'assumesFact' arms assert different facts: a @bytes[n]@ value's fact is
--- @bytesLen(v) = n@ ('FixpointEmit.bytesLenReft'), a length; a @map[k,bool]@
--- value's fact is the @0 \<= select(m$val,k) \<= 1@ range that
--- 'FixpointEmit.injectBoolValRangeFacts' asserts from the declared value
--- type, a per-key value RANGE, not a length -- reusing the bytes wording for
--- the map arm would describe the wrong fact. Total: the fallback clause
--- covers any future 'assumesFact' arm this function has not been taught yet,
--- rather than making the whole diagnostic partial.
+-- 'LLMLL.TypeAdmissibility.admits' refused, used by 'tcWildAssumeError' so the
+-- rejection describes what it refused instead of a hardcoded bytes-only
+-- wording. The noun is per class, not per call site, because the two arms
+-- assert different facts: a @bytes[n]@ value's fact is @bytesLen(v) = n@
+-- ('FixpointEmit.bytesLenReft'), a length; a @map[k,bool]@ value's fact is the
+-- @0 \<= select(m$val,k) \<= 1@ range that
+-- 'FixpointEmit.injectBoolValRangeFacts' asserts from the declared value type,
+-- a per-key value RANGE, not a length -- reusing the bytes wording for the map
+-- arm would describe the wrong fact. Total: the fallback covers any future
+-- 'admits' arm this function has not been taught yet, rather than making the
+-- whole diagnostic partial.
 --
--- The 'TDependent' clause mirrors the one 'assumesFact' carries: a @where@-wrapped
--- base type is admitted by the guard, so the noun must see through the wrapper or
--- every wrapped rejection reports the fallback instead of its actual fact.
-wildAssumeFactNoun :: Type -> Text
-wildAssumeFactNoun (TBytes _) = "a length"
-wildAssumeFactNoun (TMap kt vt)
-  | assumesFactMapKey kt && assumesFactBoolValue vt = "a per-key value range"
-wildAssumeFactNoun (TDependent _ b _) = wildAssumeFactNoun b
-wildAssumeFactNoun _ = "a fact"
+-- ADMIT-SHARED: the arms now dispatch on the same two gates 'admits' is defined
+-- over, so a wrapped or aliased type gets its real noun without a 'TDependent'
+-- clause of its own — the gates strip and resolve. Previously this function
+-- carried a hand-written mirror of that traversal, which is the shape of
+-- duplication CR-01 came from.
+wildAssumeFactNoun :: AliasMap -> Type -> Text
+wildAssumeFactNoun am t
+  | isJust (bytesLenOf am t) = "a length"
+  | boolValuedMapTy am t     = "a per-key value range"
+  | otherwise                = "a fact"
 
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
 -- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
@@ -452,26 +439,29 @@ wildAssumeFactNoun _ = "a fact"
 -- (the D3 invariant), because there is no hole involved.
 -- Two type arguments, deliberately: @labelTy@ is the type as the user wrote it,
 -- so the diagnostic keeps the alias name (Fix 1b), while @resolvedTy@ is the
--- alias-expanded form the admission guard actually ran 'assumesFact' on. The
--- noun must come from the resolved form: naming the fact is the whole point of
--- 'wildAssumeFactNoun', and reading it off an unexpanded 'TCustom' silently
--- degrades every aliased rejection to the generic "a fact" fallback
--- (WR-01, phase 01 review).
+-- form the admission guard actually ran 'LLMLL.TypeAdmissibility.admits' on.
+-- The noun must come from the resolved form: naming the fact is the whole point
+-- of 'wildAssumeFactNoun', and reading it off an unexpanded 'TCustom' used to
+-- degrade every aliased rejection to the generic "a fact" fallback (WR-01,
+-- phase 01 review). ADMIT-SHARED makes that degradation impossible rather than
+-- merely fixed — the noun's gates resolve aliases themselves — but the two
+-- arguments stay, because the LABEL must not be resolved.
 tcWildAssumeError :: Text -> Type -> Type -> TC ()
-tcWildAssumeError ctx labelTy resolvedTy = modify $ \s -> s
-  { tcErrors = tcErrors s ++
-      [ (mkError Nothing msg)
-          { diagKind     = Just "type-mismatch"
-          , diagExpected = Just (typeLabel labelTy)
-          , diagGot      = Just "?"
-          } ] }
-  where
-    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
-            <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
-            <> " value carries " <> wildAssumeFactNoun resolvedTy
-            <> " that the verifier asserts from the"
-            <> " declaration, and inference cannot supply it; annotate the"
-            <> " callee's return type."
+tcWildAssumeError ctx labelTy resolvedTy = do
+  am <- gets tcAliasMap
+  let msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+              <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
+              <> " value carries " <> wildAssumeFactNoun am resolvedTy
+              <> " that the verifier asserts from the"
+              <> " declaration, and inference cannot supply it; annotate the"
+              <> " callee's return type."
+  modify $ \s -> s
+    { tcErrors = tcErrors s ++
+        [ (mkError Nothing msg)
+            { diagKind     = Just "type-mismatch"
+            , diagExpected = Just (typeLabel labelTy)
+            , diagGot      = Just "?"
+            } ] }
 
 -- | RET-BRANCH-PREF Stage 1: at an 'if' join, prefer the CONCRETE branch's type when
 -- the other branch is a SELF-RECURSIVE call that synthesized the '?' wildcard.
@@ -757,16 +747,41 @@ tcEmitNonExhaustive typeName missing covered = do
   modify $ \s -> s
     { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
 
+-- | The initial 'TCState', shared by the three entry points below.
+--
+-- Factored out with ADMIT-SHARED for one reason: the alias map is no longer
+-- inert at the 'structuralUnify' seam. That seam reads 'tcAliasMap' to decide
+-- admissibility, so an entry point that hardcodes 'Map.empty' silently DISABLES
+-- the guard for anything it runs. Three positional 19-field constructions each
+-- pinning that field to empty is how such a hole stays invisible.
+initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
+initialTCState gm env am sketch strict =
+  TCState env [] am Nothing False sketch [] [] Map.empty Map.empty Map.empty []
+          strict gm False 0 Map.empty [] Map.empty
+
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
-runTC gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [] Map.empty)
+runTC gm env = runTCWithAliases gm env Map.empty
+
+-- | Run the type checker monad with a pre-seeded alias environment.
+--
+-- ADMIT-SHARED: 'runTC' seeds an EMPTY 'tcAliasMap', which is correct for its
+-- callers (whole-file entry points populate the map themselves in
+-- 'checkStatements') but wrong for a direct 'structuralUnify' unit test over an
+-- ALIASED fact-asserting type — @admits Map.empty (TCustom "BoolMap")@ is False,
+-- so such a test would exercise a disabled guard and pass vacuously. This
+-- project has shipped a dead WILD-ASSUME guard twice (the exact-@TVar "?"@
+-- equality that made the first implementation completely dead, and CR-01's
+-- narrower-than-the-emitter match); a third variant hiding in the test harness
+-- is cheap to foreclose. SA-19 uses this entry point.
+runTCWithAliases :: GrammarMode -> TypeEnv -> AliasMap -> TC a -> (a, [Diagnostic])
+runTCWithAliases gm env am action =
+  let (result, st) = runState action (initialTCState gm env am False False)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode.
 runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
-runTCSketch gm env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [] Map.empty)
+runTCSketch gm env action = runState action (initialTCState gm env Map.empty True False)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -875,7 +890,7 @@ typeCheckStrict gm env stmts =
 
 runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty [] Map.empty)
+  let (result, st) = runState action (initialTCState gm env Map.empty False True)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -991,6 +1006,15 @@ checkStatements stmts = do
   -- Fix 3: detect type alias cycles and emit diagnostics.
   -- Self-reference inside TSumType payloads is legitimate recursive-ADT structure,
   -- not an alias cycle (e.g. (type Tree (| Leaf unit | Node Tree)) is valid).
+  --
+  -- ADMIT-SHARED: this stays a separate traversal from
+  -- 'LLMLL.TypeAdmissibility.normalizeTy', deliberately. It computes the SET OF
+  -- NAMES participating in a cycle (a normalizer computes no such set), and its
+  -- TSumType policy is the OPPOSITE of the normalizer's: payloads are excluded
+  -- here because a recursive ADT is legitimate, and included there because
+  -- property A1 must hold at component positions. Both policies are right for
+  -- their purpose; merging them would either red-line the recursive-ADT case
+  -- below or open an A1 hole at sum-payload positions.
   let collectCustomNames :: Type -> Set.Set Name
       collectCustomNames ty = case ty of
         TCustom n        -> Set.singleton n
@@ -1914,7 +1938,8 @@ checkPatternExpanded (PVar name) ty = do
   pure [(name, ty)]
 checkPatternExpanded (PLiteral lit) scrutTy = do
   let litTy = inferLiteral lit
-  unless (compatibleWith litTy scrutTy) $
+  am <- gets tcAliasMap
+  unless (compatibleWith am litTy scrutTy) $
     tcWarn $ "literal pattern type " <> typeLabel litTy
               <> " may not match scrutinee type " <> typeLabel scrutTy
   pure []
@@ -2200,9 +2225,12 @@ freshenFnType t =
 -- infinite types. Bound-TVar consistency uses recursive structuralUnify
 -- instead of compatibleWith (Language Team Issue 2, 2026-04-21).
 --
--- PRECONDITION: inputs must be pre-expanded via expandAlias. The production
--- call site (EApp, inferExpr) expands before calling. Direct test usage via
--- runTCPure should expand inputs before calling structuralUnify.
+-- The production call site (EApp, inferExpr) expands aliases before calling,
+-- and the structural clauses below rely on that (nominal TCustom comparison,
+-- component recursion). ADMIT-SHARED removed one thing from that list: the
+-- WILD-ASSUME guard no longer needs it, because 'admits' normalizes its own
+-- argument. A direct test that skips expansion gets a live guard and possibly
+-- imprecise structural comparison, not a silently dead guard.
 structuralUnify :: Name -> Map Name Type -> Type -> Type -> TC (Map Name Type)
 structuralUnify func subst expected actual =
   case (expected, actual) of
@@ -2255,11 +2283,13 @@ structuralUnify func subst expected actual =
     -- asserts bytesLen(b) = 64 and discharges index-in-bounds against a false
     -- premise. Measured false SAFE, v0.14.34..v0.14.72
     -- (docs/design/finding-arg-position-false-safe.md).
-    (_, TVar _) | isBareWildcard actual, assumesFact expected -> do
-      -- This seam receives an already stripped/expanded 'expected' (the EApp and
-      -- EOp call sites apply 'stripDep' before unifying), so label and noun read
-      -- off the same type here.
-      tcWildAssumeError func expected expected
+    (_, TVar _) | isBareWildcard actual -> do
+      -- ADMIT-SHARED: 'admits' is total on unnormalized input, so this seam no
+      -- longer depends on the EApp/EOp call sites having stripped and expanded
+      -- 'expected' first. They still do, and label and noun therefore still read
+      -- off the same type here, but the guard would fire either way.
+      am <- gets tcAliasMap
+      when (admits am expected) $ tcWildAssumeError func expected expected
       pure subst
 
     (_, TVar _) -> pure subst
@@ -2298,8 +2328,9 @@ structuralUnify func subst expected actual =
     (_, TCustom "_") -> pure subst
 
     -- Fallback: structural equality via compatibleWith
-    _ ->
-      if compatibleWith expected actual
+    _ -> do
+      am <- gets tcAliasMap
+      if compatibleWith am expected actual
         then pure subst
         else do
           tcTypeMismatch func expected actual
@@ -2324,34 +2355,41 @@ inferLiteral LitUnit       = TUnit
 
 -- | Check if two types are compatible (structural equality, with TVar wildcard).
 -- TDependent is checked by its base type only (constraint not evaluated).
-compatibleWith :: Type -> Type -> Bool
-compatibleWith (TVar _) _            = True  -- type variable matches anything
+--
+-- ADMIT-SHARED: the 'AliasMap' parameter exists so the WILD-ASSUME clause below
+-- lives INSIDE this predicate rather than at its callers. Hoisting the guard
+-- into 'unify' would have avoided threading, and would have put the guard back
+-- on a call-site-dependent footing — which is the failure mode ADMIT-SHARED
+-- exists to remove. Every caller of 'compatibleWith' inherits the guard whether
+-- or not it remembered to.
+compatibleWith :: AliasMap -> Type -> Type -> Bool
+compatibleWith _  (TVar _) _         = True  -- type variable matches anything
 -- SAFE-ARG (WILD-ASSUME): the return / checkExpr seam, reached via 'unify'.
 -- ACTUAL side only: a bare wildcard in EXPECTED position is the absence of a
 -- declaration, so there is no asserted fact to falsify and rejecting it would
 -- buy no soundness (finding Rev 1, "Direction: guard the actual side only").
-compatibleWith t a@(TVar _)
-  | isBareWildcard a, assumesFact t  = False
-compatibleWith _ (TVar _)            = True
-compatibleWith (TCustom "_") _       = True  -- untyped param wildcard
-compatibleWith _ (TCustom "_")       = True
-compatibleWith (TCustom a) (TCustom b) = a == b
-compatibleWith (TDependent _ a _) b   = compatibleWith a b
-compatibleWith a (TDependent _ b _)   = compatibleWith a b
-compatibleWith (TList a) (TList b)  = compatibleWith a b
-compatibleWith (TMap k1 v1) (TMap k2 v2) = compatibleWith k1 k2 && compatibleWith v1 v2
-compatibleWith (TResult a b) (TResult c d) = compatibleWith a c && compatibleWith b d
+compatibleWith am t a@(TVar _)
+  | isBareWildcard a, admits am t    = False
+compatibleWith _  _ (TVar _)         = True
+compatibleWith _  (TCustom "_") _    = True  -- untyped param wildcard
+compatibleWith _  _ (TCustom "_")    = True
+compatibleWith _  (TCustom a) (TCustom b) = a == b
+compatibleWith am (TDependent _ a _) b   = compatibleWith am a b
+compatibleWith am a (TDependent _ b _)   = compatibleWith am a b
+compatibleWith am (TList a) (TList b)  = compatibleWith am a b
+compatibleWith am (TMap k1 v1) (TMap k2 v2) = compatibleWith am k1 k2 && compatibleWith am v1 v2
+compatibleWith am (TResult a b) (TResult c d) = compatibleWith am a c && compatibleWith am b d
 -- PR 1: TPair structural equality (both components must match)
-compatibleWith (TPair a b) (TPair c d) = compatibleWith a c && compatibleWith b d
-compatibleWith (TPromise a) (TPromise b) = compatibleWith a b
-compatibleWith (TFn as r) (TFn bs s) =
-  length as == length bs && all (uncurry compatibleWith) (zip as bs) && compatibleWith r s
-compatibleWith (TBytes m) (TBytes n) = m == n
+compatibleWith am (TPair a b) (TPair c d) = compatibleWith am a c && compatibleWith am b d
+compatibleWith am (TPromise a) (TPromise b) = compatibleWith am a b
+compatibleWith am (TFn as r) (TFn bs s) =
+  length as == length bs && all (uncurry (compatibleWith am)) (zip as bs) && compatibleWith am r s
+compatibleWith _  (TBytes m) (TBytes n) = m == n
 -- TSumType: compatible with itself and with TCustom of the same registered name
 -- TSumType: structural constructor equality (v0.4 U7-lite)
 -- Before U-lite: any sum ≡ any sum (unsound). Now requires matching constructors.
-compatibleWith (TSumType a) (TSumType b) = map fst a == map fst b
-compatibleWith a b = a == b
+compatibleWith _  (TSumType a) (TSumType b) = map fst a == map fst b
+compatibleWith _  a b = a == b
 
 -- | TC-level compatibility check that expands aliases before comparison.
 -- Use at call sites that receive types from inference (which may
@@ -2360,7 +2398,8 @@ compatibleExpanded :: Type -> Type -> TC Bool
 compatibleExpanded a b = do
   a' <- expandAlias a
   b' <- expandAlias b
-  pure (compatibleWith a' b')
+  am <- gets tcAliasMap
+  pure (compatibleWith am a' b')
 
 -- | Unify two types, emitting an error if they are incompatible.
 -- | Fully expand type aliases: traverses composite type structure and
@@ -2399,11 +2438,12 @@ unify :: Name -> Type -> Type -> TC ()
 unify ctx expected actual = do
   expected' <- expandAlias expected
   actual'   <- expandAlias actual
-  unless (compatibleWith expected' actual') $
+  am        <- gets tcAliasMap
+  unless (compatibleWith am expected' actual') $
     -- SAFE-ARG: route the WILD-ASSUME rejection to its own diagnostic. Without
     -- this the message reads "got ?$0", leaking 'freshenFnType''s internal
     -- alpha-renaming counter into agent-facing output and naming no remedy.
-    if isBareWildcard actual' && assumesFact expected'
+    if isBareWildcard actual' && admits am expected'
       -- Label from the original (alias name preserved, Fix 1b); noun from the
       -- expanded form the guard above actually tested (WR-01).
       then tcWildAssumeError ctx expected expected'

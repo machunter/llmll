@@ -60,6 +60,10 @@ library:
     - LLMLL.Parser
     - LLMLL.ParserJSON
     - LLMLL.AstEmit
+    # ADMIT-SHARED: leaf module over LLMLL.Syntax, imported by both the type
+    # checker and the emitter. Must stay leaf — a dependency on either would
+    # reintroduce the split it exists to remove.
+    - LLMLL.TypeAdmissibility
     - LLMLL.TypeCheck
     - LLMLL.HoleAnalysis
     - LLMLL.Contracts

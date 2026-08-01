@@ -20,6 +20,7 @@ library
       LLMLL.Parser
       LLMLL.ParserJSON
       LLMLL.AstEmit
+      LLMLL.TypeAdmissibility
       LLMLL.TypeCheck
       LLMLL.HoleAnalysis
       LLMLL.Contracts

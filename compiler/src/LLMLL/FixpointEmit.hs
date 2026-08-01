@@ -118,6 +118,10 @@ import Numeric (showHex)
 import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
+-- ADMIT-SHARED: the shared alias normalization + type-admissibility predicates.
+-- Re-exported below (AliasMap, buildAliasMap, isIntLike, resolveAliasTy) so this
+-- module's existing consumers are source-compatible.
+import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic, mkWarning)
@@ -1471,13 +1475,6 @@ emitParamBind aliases freshBid addBind (n, t) = do
   addBind b
   return b
 
--- | Resolve TCustom aliases (and strip the refinement of a TDependent) down to
--- the underlying carrier type, for sort selection.
-resolveAliasTy :: AliasMap -> Type -> Type
-resolveAliasTy am (TCustom n)        = maybe (TCustom n) (resolveAliasTy am) (Map.lookup n am)
-resolveAliasTy am (TDependent _ b _) = resolveAliasTy am b
-resolveAliasTy _  t                  = t
-
 -- MATCH-WIDEN (v0.14.12): does a contract clause reference a sum-typed PARAMETER by
 -- its bare name? An opaque sum has no value sort in the current encoding (only its arm
 -- payloads are seeded via the "<v>$<Ctor>" keys), so a clause like a post
@@ -1517,50 +1514,18 @@ exprMentionsVar target = go
 -- Helpers
 -- ---------------------------------------------------------------------------
 
--- | v0.8.0: Type alias map, built from STypeDef statements.
--- Maps alias names to their structural bodies for isIntLike resolution.
-type AliasMap = Map Name Type
-
--- | Build an alias map from top-level type definitions.
-buildAliasMap :: [Statement] -> AliasMap
-buildAliasMap stmts = Map.fromList [(n, body) | STypeDef n body <- stmts]
-
--- | Check if a type is int-like after resolving aliases.
--- Handles TDependent refinements and TCustom aliases.
--- Unresolved TCustom falls back to False (sound: rejects unknown types).
-isIntLike :: AliasMap -> Type -> Bool
-isIntLike _  TInt                  = True
-isIntLike am (TDependent _ base _) = isIntLike am base
-isIntLike am (TCustom n)           = case Map.lookup n am of
-                                        Just t  -> isIntLike am t
-                                        Nothing -> False  -- unresolved: reject
--- COMP-3b-general (Phase 1): a nullary enum is int-tag-encodable (each
--- constructor → its declaration index), so its values live in the QF-LIA sort
--- env as FQInt. Payload-bearing sum types stay non-int (→ asserted fallback).
-isIntLike _  (TSumType ctors)      = all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
-isIntLike _  _                     = False
-
--- | Is a type a bool after resolving aliases? (BOOL-FRAG: bool is a native SMT sort.)
-isBoolLike :: AliasMap -> Type -> Bool
-isBoolLike _  TBool                 = True
-isBoolLike am (TDependent _ base _) = isBoolLike am base
-isBoolLike am (TCustom n)           = maybe False (isBoolLike am) (Map.lookup n am)
-isBoolLike _  _                     = False
-
--- | A2.2-string: is the (alias-resolved) type the built-in string? Mirrors
--- 'isBoolLike'. Drives string-valued map admission + the Str $val array sort.
-isStrLike :: AliasMap -> Type -> Bool
-isStrLike _  TString                = True
-isStrLike am (TDependent _ base _)  = isStrLike am base
-isStrLike am (TCustom n)            = maybe False (isStrLike am) (Map.lookup n am)
-isStrLike _  _                      = False
-
--- | Translatable SCALAR types in the body-faithful fragment (Σ_auto): int-like OR bool.
--- BOOL-FRAG: a bool param/binder gets FQBool via typeToSort and is reasoned about
--- natively (QF-LIA + Bool, decidable). Used only at the sort-env sites; isIntLike stays
--- pure for the int-only decisions (measure carriers, etc.).
-isScalarLike :: AliasMap -> Type -> Bool
-isScalarLike am t = isIntLike am t || isBoolLike am t
+-- ADMIT-SHARED: 'AliasMap', 'buildAliasMap', 'resolveAliasTy', 'isIntLike',
+-- 'isBoolLike', 'isStrLike', 'isScalarLike', 'bytesLenOf' and 'boolValuedMapTy'
+-- now live in 'LLMLL.TypeAdmissibility', a leaf module the type checker imports
+-- too, so the checker's admission guard and this module's fact-injection gates
+-- are the SAME functions rather than mirrored ones (CR-01 was their
+-- disagreement). They are re-exported from here, so existing consumers
+-- (RefineReuse, ObligationAssembly, ObligationMining) are unchanged.
+--
+-- The moved definitions gained a per-traversal cycle guard. This module's
+-- previous 'resolveAliasTy' would diverge on a non-contractive alias and was
+-- shielded only by 'check' failing before 'verify' ran; the checker now calls
+-- the same function, so the guard is required rather than defensive.
 
 -- ---------------------------------------------------------------------------
 -- LEVER-A1/A2: bytes[n] + map[int,int] static discharge
@@ -1584,12 +1549,6 @@ mapOpNames = ["map-has", "map-get", "map-put", "map-empty"]
 -- byte values 0–255; the range is a ground fact per read, injectRangeFacts).
 byteArraySort :: FQSort
 byteArraySort = FQArr FQInt FQInt
-
--- | Alias-resolved bytes[n] detection; yields the type-level length.
-bytesLenOf :: AliasMap -> Type -> Maybe Int
-bytesLenOf am t = case resolveAliasTy am t of
-  TBytes n -> Just n
-  _        -> Nothing
 
 -- | Family-1 ground fact as a binder refinement: @bytesLen(v) = n@ — the
 -- type-level length becomes a solver fact on the binder itself, in scope of
@@ -1774,15 +1733,6 @@ mapHasArraySort :: AliasMap -> Type -> FQSort
 mapHasArraySort am t
   | mapStrKeyedTy am t = FQArr FQStr FQInt
   | otherwise          = mapArraySort
-
--- | LEVER-A2.2: a map whose keys are int and values are bool (the 0/1-bridged
--- value class). Drives the value-range-fact scoping ('boolValArrs').
-boolValuedMapTy :: AliasMap -> Type -> Bool
-boolValuedMapTy am t = case resolveAliasTy am t of
-  -- A2.2-string (keys): key-agnostic — string-keyed bool maps get the same
-  -- int-0/1 value bridge + range facts.
-  TMap kt vt -> (isIntLike am kt || isStrLike am kt) && isBoolLike am vt
-  _          -> False
 
 -- | A2.2-string: a map whose keys are int and values are string. Unlike the
 -- bool 0/1 bridge, a string value needs a GENUINE Str element sort — the $val

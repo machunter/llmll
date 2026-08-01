@@ -84,7 +84,9 @@ import LLMLL.CDP
   , cdpWarningLabel
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
-import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
+import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC)
+import LLMLL.TypeAdmissibility (admits, normalizeTy)
+import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
@@ -2275,6 +2277,195 @@ main = hspec $ do
           wildAssumeFired report `shouldBe` True
           any (T.isInfixOf "a length" . diagMessage) (reportDiagnostics report)
             `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- ADMIT-SHARED: one admissibility predicate, total on unnormalized input
+  -- (docs/design/finding-arg-position-false-safe.md, Rev 4)
+  --
+  -- The checker used to carry 'assumesFact', a hand-written MIRROR of the
+  -- emitter's fact-injection gates; CR-01 was the two copies disagreeing about
+  -- TDependent. 'admits' is now defined over 'bytesLenOf' and
+  -- 'boolValuedMapTy' — the emitter's own gates — so agreement is definitional.
+  -- These tests cover the two things that change as a result: the predicate is
+  -- correct on UNNORMALIZED input (which no end-to-end test can show, because
+  -- both seams pre-expand), and it terminates on a non-contractive alias.
+  -- -----------------------------------------------------------------------
+  describe "ADMIT-SHARED: shared type-admissibility predicate" $ do
+    let trueE = ELit (LitBool True)
+        -- The alias environment the unit and property cases share. It carries
+        -- one of each population Norm-Stuck distinguishes: bound-and-productive,
+        -- unbound, and non-contractive.
+        admitDelta = Map.fromList
+          [ ("BoolAlias", TBool)
+          , ("IntAlias",  TInt)
+          , ("StrAlias",  TString)
+          , ("BoolMap",   TMap TInt TBool)
+          , ("Buf",       TBytes 64)
+          , ("DepBuf",    TDependent "b" (TBytes 32) trueE)
+          , ("Chain1",    TCustom "Chain2")
+          , ("Chain2",    TCustom "BoolAlias")
+          , ("Cyc1",      TCustom "Cyc2")            -- non-contractive
+          , ("Cyc2",      TCustom "Cyc1")
+          , ("SelfList",  TList (TCustom "SelfList")) -- productive, NOT a cycle
+          ]
+        tcOf' srcLines = case parseStatements GrammarCoreInversion "<admit-shared>" (T.pack (unlines srcLines)) of
+          Left err    -> Left (show err)
+          Right stmts -> Right (typeCheck GrammarCoreInversion emptyEnv stmts)
+        fired report =
+          any (T.isInfixOf "unannotated return type" . diagMessage) (reportDiagnostics report)
+        cycleErr report =
+          any (T.isInfixOf "type alias cycle" . diagMessage) (reportDiagnostics report)
+        -- Run the REAL expandAlias through the TC monad, seeded with the same
+        -- alias environment, so property A2 tests the expansion the call sites
+        -- actually perform rather than a re-statement of it.
+        expandWith am t = fst (runTCWithAliases GrammarCoreInversion emptyEnv am (expandAlias t))
+
+    -- ADM-1: head-position alias, UNNORMALIZED. 'assumesFact' had no TCustom
+    -- clause and returned False here; it was only ever right because both call
+    -- sites ran expandAlias first. 'admits' resolves the head itself.
+    it "ADM-1 admits a bool-valued map behind a head alias, with no prior expansion" $
+      admits admitDelta (TCustom "BoolMap") `shouldBe` True
+
+    -- ADM-2: THE DISCRIMINATING CASE. 'assumesFactBoolValue' had no TCustom
+    -- clause (TypeCheck.hs, pre-ADMIT-SHARED), so a bool value behind an alias
+    -- at a COMPONENT position was a non-member as far as the checker was
+    -- concerned while the emitter's isBoolLike resolved it and asserted the
+    -- range fact. This is CR-01's untriggered sibling, and it is quiet
+    -- end-to-end because expandAlias is congruent — it can only be seen at the
+    -- predicate.
+    it "ADM-2 admits a bool-valued map whose VALUE is an alias (component position)" $ do
+      admits admitDelta (TMap TInt (TCustom "BoolAlias")) `shouldBe` True
+      admits admitDelta (TMap (TCustom "IntAlias") (TCustom "BoolAlias")) `shouldBe` True
+      admits admitDelta (TMap (TCustom "StrAlias") (TCustom "BoolAlias")) `shouldBe` True
+
+    -- ADM-3: the CR-01 shape itself, stated at the predicate. A where-wrapped
+    -- base type is a member because membership is a property of the base, not
+    -- of the refinement; the predicate is deliberately vacuous in the fixture,
+    -- since predicate strength is irrelevant to the fact the base asserts.
+    it "ADM-3 admits a where-wrapped bytes and map, and a wrapper over an alias" $ do
+      admits admitDelta (TDependent "b" (TBytes 64) trueE) `shouldBe` True
+      admits admitDelta (TDependent "m" (TMap TInt TBool) trueE) `shouldBe` True
+      admits admitDelta (TCustom "DepBuf") `shouldBe` True
+
+    -- ADM-4: Norm-Stuck, both populations. An unbound name denotes nothing; a
+    -- non-contractive equation denotes nothing either (it has no productive
+    -- unfolding), so neither can assert a fact and the wildcard is admitted.
+    -- Sound because the emitter consults the same Norm-Stuck. A PRODUCTIVE
+    -- self-reference is not in this population and must not be conflated with
+    -- it. If the cycle guard were missing, this test would hang rather than
+    -- fail.
+    it "ADM-4 refuses unbound and non-contractive aliases, and terminates on both" $ do
+      admits admitDelta (TCustom "Nonesuch") `shouldBe` False
+      admits admitDelta (TCustom "Cyc1")     `shouldBe` False
+      admits admitDelta (TCustom "SelfList") `shouldBe` False
+      normalizeTy admitDelta (TCustom "Cyc1") `shouldBe` TCustom "Cyc1"
+      -- Alias chains resolve transitively; a chain is not a cycle.
+      admits admitDelta (TMap TInt (TCustom "Chain1")) `shouldBe` True
+
+    -- SA-18: the non-contractive alias at an asserting RETURN position, end to
+    -- end, both arms. Checking continues past the alias-cycle diagnostic
+    -- (measured), so the seam does evaluate 'admits' under a cyclic alias map.
+    -- The emitter's resolveAliasTy had no cycle guard and was shielded only by
+    -- 'check' failing before 'verify' ran; moving the predicate into the checker
+    -- removes that shield. Without the guard these two hang the suite.
+    it "SA-18 terminates on a non-contractive alias at a bytes-asserting return" $
+      case tcOf' [ "(type A B)"
+                 , "(type B A)"
+                 , "(def mk32 [] -> bytes[32] (bytes-zero))"
+                 , "(def-shell mid2 [] (mk32))"
+                 , "(def-shell bad [] -> A (mid2))"
+                 ] of
+        Left e -> expectationFailure e
+        Right report -> do
+          cycleErr report `shouldBe` True
+          fired report `shouldBe` False
+
+    it "SA-18b terminates on a non-contractive alias at a map-asserting return" $
+      case tcOf' [ "(type MA MB)"
+                 , "(type MB MA)"
+                 , "(def mkint [k: int] -> map[int int] (map-put (map-empty) k 7))"
+                 , "(def-shell midb [k: int] (mkint k))"
+                 , "(def-shell badc [k: int] -> MA (midb k))"
+                 ] of
+        Left e -> expectationFailure e
+        Right report -> do
+          cycleErr report `shouldBe` True
+          fired report `shouldBe` False
+
+    -- SA-19: LIVENESS at the structuralUnify seam. That seam reads tcAliasMap,
+    -- and 'runTC' seeds it EMPTY, so a direct unit test written against 'runTC'
+    -- would exercise a disabled guard and pass vacuously. This project has
+    -- shipped a dead WILD-ASSUME guard twice already (the exact-TVar "?"
+    -- equality that made the first implementation completely dead; CR-01's
+    -- narrower-than-the-emitter match). The second half is not an assertion that
+    -- the guard should be off — it is Norm-Stuck on an unbound name, and it is
+    -- what the first half degrades to if the seeding is ever dropped.
+    it "SA-19 fires at the argument seam for an aliased asserting type, given a live alias map" $ do
+      let run am expected =
+            snd (runTCWithAliases GrammarCoreInversion emptyEnv am
+                   (structuralUnify "f" Map.empty expected (TVar "?$0")))
+          firedIn ds = any (T.isInfixOf "unannotated return type" . diagMessage) ds
+      firedIn (run admitDelta (TCustom "BoolMap")) `shouldBe` True
+      firedIn (run admitDelta (TCustom "Buf"))     `shouldBe` True
+      firedIn (run Map.empty  (TCustom "BoolMap")) `shouldBe` False
+
+    it "SA-19b names the right fact per arm through the alias" $ do
+      let msgs am expected =
+            map diagMessage
+              (snd (runTCWithAliases GrammarCoreInversion emptyEnv am
+                      (structuralUnify "f" Map.empty expected (TVar "?$0"))))
+      any (T.isInfixOf "a per-key value range") (msgs admitDelta (TCustom "BoolMap")) `shouldBe` True
+      any (T.isInfixOf "a length")              (msgs admitDelta (TCustom "Buf"))     `shouldBe` True
+
+    -- The acceptance criterion, as two properties. A1 is the congruence-closure
+    -- test: 'admits' must be invariant under the CONGRUENT normal form, which is
+    -- only non-trivial at component positions, because that is where a component
+    -- predicate can fail to be self-normalizing. A2 is expansion equivalence,
+    -- which is what makes the guard independent of whether its caller expanded
+    -- first. Neither licenses deleting the call-site expandAlias: compatibleWith's
+    -- nominal and structural clauses still need it.
+    let genName' = elements
+          [ "BoolAlias", "IntAlias", "StrAlias", "BoolMap", "Buf", "DepBuf"
+          , "Chain1", "Chain2", "Cyc1", "Cyc2", "SelfList", "Nonesuch" ]
+        genTy :: Int -> Gen Type
+        genTy 0 = oneof
+          [ pure TInt, pure TBool, pure TString, pure TUnit
+          , TBytes <$> elements [1, 8, 32, 64]
+          , TCustom <$> genName' ]
+        genTy n = oneof
+          [ genTy 0
+          -- weighted: a second TCustom arm, so components land on aliases often
+          , TCustom <$> genName'
+          , TMap     <$> genTy (n - 1) <*> genTy (n - 1)
+          , TList    <$> genTy (n - 1)
+          , TPair    <$> genTy (n - 1) <*> genTy (n - 1)
+          , TResult  <$> genTy (n - 1) <*> genTy (n - 1)
+          , TPromise <$> genTy (n - 1)
+          , (\b -> TDependent "v" b trueE) <$> genTy (n - 1)
+          , TSumType <$> listOf1 ((,) <$> elements ["A", "B", "C"]
+                                      <*> oneof [pure Nothing, Just <$> genTy (n - 1)])
+          , TFn <$> vectorOf 2 (genTy (n - 1)) <*> genTy (n - 1)
+          ]
+        -- The NON-VACUITY generator: every sample is a map with alias
+        -- components, so this property cannot pass by generating scalars that
+        -- never exercise the component path. This is the shape that would have
+        -- caught CR-01's sibling.
+        genMapWithAliasComponents :: Gen Type
+        genMapWithAliasComponents =
+          TMap <$> oneof [TCustom <$> genName', pure TInt, pure TString]
+               <*> oneof [TCustom <$> genName', pure TBool, pure TInt]
+
+    it "ADM-PROP-A1 admits is invariant under the congruent normal form" $
+      forAll (genTy 3) $ \t ->
+        admits admitDelta t == admits admitDelta (normalizeTy admitDelta t)
+
+    it "ADM-PROP-A1C A1 holds at component positions specifically (non-vacuity)" $
+      forAll genMapWithAliasComponents $ \t ->
+        admits admitDelta t == admits admitDelta (normalizeTy admitDelta t)
+
+    it "ADM-PROP-A2 admits is invariant under the checker's own expandAlias" $
+      forAll (genTy 3) $ \t ->
+        admits admitDelta t == admits admitDelta (expandWith admitDelta t)
 
   -- -----------------------------------------------------------------------
   -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
