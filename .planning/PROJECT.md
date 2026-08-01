@@ -36,7 +36,7 @@ Phase mapping: `.planning/ROADMAP.md`.
 
 ### Deferred (not dropped)
 
-Forty further requirements were extracted from the ingest and carried into
+Forty-one further requirements are carried into
 `.planning/REQUIREMENTS.md` as a tracked backlog, grouped by track: module-system codegen,
 sandboxing/WASM, data-scope levers, Lean tier (LEAN-GA), obligations and spec text, patch/refine
 slicing, RFC-SWARM phases 1 to 4, SPEC-AGREE-1 build order a to e, integer semantics, research

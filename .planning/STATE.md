@@ -70,9 +70,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Acceptance criteria absent for three of five in-scope requirements** (`REQ-fact-ag`,
-  `REQ-oblig-1-def-invariant`, `REQ-contract-read-lint-residual`). Their sources state none;
-  nothing was invented. Author acceptance before planning Phases 3 and 4.
+- ~~Acceptance criteria absent for three of five in-scope requirements.~~ **RESOLVED 2026-07-31.**
+  `REQ-fact-ag`, `REQ-oblig-1-def-invariant`, and `REQ-contract-read-lint-residual` now carry
+  acceptance authored on 2026-07-31 and ratified by the user; `.planning/REQUIREMENTS.md` is their
+  authority, not `docs/compiler-team-roadmap.md`. Two scope calls came with it: FACT-AG measures the
+  type-derived fact set and closes every class it finds, and the Dafny-style well-formedness
+  side-obligation split out of Phase 4 into the deferred backlog.
 - **Phase 1 has a hard prerequisite**: the `(map-empty)` over-breadth fixture `SA-6` must be
   committed before the WILD-ASSUME discriminant widens, or every `(map-empty)` use breaks.
 - **Phase 2 must not land before Phase 1.** The `resultLenFact` assumption-injection channel can
@@ -85,7 +88,8 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Backlog | 40 requirements across 11 tracks | Tracked in REQUIREMENTS.md | 2026-07-31 (milestone scoping) |
+| Backlog | 41 requirements across 11 tracks | Tracked in REQUIREMENTS.md | 2026-07-31 (milestone scoping) |
+| Requirement | `REQ-contract-read-wf-side-obligation` (Dafny-style WF side-obligation) | Split out of Phase 4; obligations track | 2026-07-31 (acceptance authoring) |
 | Requirement | `REQ-int-3` (`MachineInt` QF-BV) | Scoped out of milestone; integer-semantics track | 2026-07-31 (promotion gate did not fire) |
 
 ## Session Continuity

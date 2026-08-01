@@ -58,10 +58,13 @@ items below.)
   > 5× (cleared at 1.015×, so dormant)". The promotion condition is not met, so the requirement
   returned to the deferred backlog under the integer-semantics track and the milestone is now four
   phases cutting v0.15.0 at Phase 4.
-- **`REQ-fact-ag` (Phase 3) has no acceptance clause and unmeasured reach.** Least-defined phase.
-- Three of the five carry `acceptance: (absent)`: `REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
-  `REQ-contract-read-lint-residual`. Criteria in those phases are goal-backward starting points,
-  not authority.
+- ~~Three of the five carry `acceptance: (absent)`: `REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
+  `REQ-contract-read-lint-residual`.~~ **RESOLVED 2026-07-31: authored and ratified by the user;
+  `.planning/REQUIREMENTS.md` is their authority, not the roadmap.** `REQ-fact-ag`'s unmeasured
+  reach is now folded into its own criterion 1 (derive the fact set from the emitter) rather than
+  left as a precondition, so it is no longer the least-defined phase. Two scope calls landed with
+  the authoring: FACT-AG closes every class it measures, and the Dafny-style well-formedness
+  side-obligation split out of Phase 4 into the deferred backlog.
 - Two deferred requirements have no backing roadmap row and need confirming before scheduling:
   `REQ-do-1-discard-warn-or-error`, `REQ-rfc-swarm-harness-resubmit-protocol`.
 - The 10.6% figure in `REQ-spec-agree-*` approximates `classifyContractFragment`. Re-run it through

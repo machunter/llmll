@@ -123,27 +123,33 @@ an annotation.
 **Requirements**: `REQ-fact-ag`
 **Target version**: v0.14.76 (indicative)
 
-⚠️ **Acceptance criteria are absent in the source.** The roadmap row records FACT-AG as research
-track with no acceptance stated. The criteria below are derived goal-backward from the requirement
-text; they are a starting point for `/gsd-discuss-phase`, not authority. Author acceptance before
-planning this phase.
+**Acceptance was absent in the source and was authored on 2026-07-31**, ratified by the user. The
+roadmap row records FACT-AG as research track with no criteria. `.planning/REQUIREMENTS.md`
+`REQ-fact-ag` is the authority; the criteria below restate it.
 
-**Success Criteria** (what must be TRUE, pending acceptance authoring):
-1. A type-derived fact reaching a VC antecedent is carried on the `consumed_guarantees` / §5.3.4
-   meet channel, with the producer's verification status in the antecedent. Recording the channel
+**Scope call taken at authoring:** the phase measures the type-derived fact set and closes **every
+class it finds**, rather than closing `bytes`/`map` and deferring the rest. Criterion 1 is what
+makes that bounded work instead of open-ended: the set is derived, so it is finite and knowable
+before the closure work is scoped.
+
+**Success Criteria** (what must be TRUE):
+1. The set of type-derived fact classes is **derived from the emitter, not enumerated by hand**, and
+   the derivation is published. Hand enumeration is rejected on evidence: the `tau_ret` consumer
+   count moved 1 → 2 → 4 → 4-plus-parameters across four review rounds, each increment found by
+   someone reading more code.
+2. Every class in that derived set routes through the `consumed_guarantees` / §5.3.4 meet channel,
+   carrying the producing function's verification status in the antecedent. Recording the channel
    alone is insufficient: the fact's truth depends on a producer whose annotation may never have
    been validated.
-2. The criterion "contributes a VC assumption that no obligation discharges" is applied
-   mechanically rather than by enumeration. The set of type-derived facts is re-derived from the
-   emitter, so a fact class added later is caught by construction. (The `tau_ret` consumer count
-   moved 1 → 2 → 4 → 4-plus-parameters across four review rounds, each increment found by reading;
-   that is the argument for deriving the set rather than listing it.)
-3. The reach beyond `bytes` and `map` is **measured and published**, because it is unmeasured
-   today. The phase reports the classes it covered rather than claiming general closure.
+3. **A refute crux exists and kills**: a program relying on a type-derived fact whose producer never
+   discharged the corresponding obligation is refused at the seam, not reported `verified`.
 4. WILD-ASSUME's two seams (`structuralUnify` for arguments, `compatibleWith` for returns and
    `checkExpr`) are reconciled with the general rule, so the approximation and the rule do not
    disagree about the same program.
-5. Shipped per the Definition of Done above.
+5. The measured set and its coverage are published, including any class the phase does not close,
+   named individually. A corpus run with no new failures is a regression check, not evidence the
+   routing works.
+6. Shipped per the Definition of Done above.
 
 **Plans**: TBD
 
@@ -152,37 +158,44 @@ planning this phase.
 ### Phase 4: Disclose what the verifier assumed and where it did not check
 
 **Goal**: A consumer reading the obligation report can see every assumption the verifier relied on,
-including the ones no obligation discharges, and gets warned at the contract-position reads the
-verifier does not check.
+including the ones no obligation discharges, and gets warned at the `map-get`-without-`map-has`
+contract-position reads the verifier does not check.
 **Depends on**: Phase 3
 **Requirements**: `REQ-oblig-1-def-invariant`, `REQ-contract-read-lint-residual`
 **Target version**: v0.15.0 (the milestone cut; marks the milestone boundary, not the size of this
 item)
 
 These two requirements are grouped because both extend the same surface: what the report and the
-diagnostics disclose about assumptions the verifier did not discharge. The Dafny-style
-well-formedness item is itself a side-obligation, so it lands in the obligation machinery this
-phase already touches.
+diagnostics disclose about assumptions the verifier did not discharge.
 
-⚠️ **Acceptance criteria are absent in the source for both requirements.** OBLIG-1-FOLLOWON records
-only that it needs provenance tagging (hence a schema bump) and that an unverified invariant is a
-TCB assumption. CONTRACT-READ-LINT records both tiers as deferred with no criteria. Author
-acceptance before planning.
+**Acceptance was absent in the source for both requirements and was authored on 2026-07-31**,
+ratified by the user. OBLIG-1-FOLLOWON records only that it needs provenance tagging (hence a schema
+bump) and that an unverified invariant is a TCB assumption; CONTRACT-READ-LINT records its tiers as
+deferred with no criteria. `.planning/REQUIREMENTS.md` is the authority.
 
-**Success Criteria** (what must be TRUE, pending acceptance authoring):
+**Scope call taken at authoring:** the Dafny-style well-formedness side-obligation was **split out**
+of this phase into `REQ-contract-read-wf-side-obligation` in the deferred backlog. It is verifier
+work rather than disclosure work, and bundling it made the milestone's final phase its heaviest.
+What remains here is one report province and one report-only lint.
+
+**Success Criteria** (what must be TRUE):
 1. The obligation report's `assumptions` field carries `def-invariant` axioms alongside the shipped
    v1 (refinement predicates of in-scope refinement-typed params), v2a (let-definitional
    equalities), and v2b (match-scrutinee case hypotheses) provinces.
-2. Each assumption carries provenance, and the report `schema_version` is bumped so a consumer can
-   tell the pre-bump and post-bump shapes apart without guessing.
-3. A reader can distinguish an unverified invariant from a discharged one, so a TCB assumption is
-   visible in the artifact rather than implied by its absence.
-4. `lintContractReads` emits `contract-read-oob` on the `map-get`-without-`map-has` shape, and the
+2. Each assumption carries provenance identifying its province, and the report `schema_version` is
+   bumped so a consumer can tell the pre-bump and post-bump shapes apart without guessing.
+3. **A reader can distinguish an unverified invariant from a discharged one**, so a TCB assumption
+   is visible in the artifact rather than implied by its absence. This is the criterion that carries
+   the requirement; 1 and 2 are the mechanism.
+4. A fixture asserts the negative: a `def-invariant` that no obligation discharges appears in the
+   report marked as such, neither silently omitted nor reported as discharged.
+5. `lintContractReads` emits `contract-read-oob` on the `map-get`-without-`map-has` shape, and the
    lint stays **non-blocking and report-only**: a report-only check that acquires blocking power is
    the defect pattern this project already recorded.
-5. The Dafny-style well-formedness side-obligation fires on contract-position reads, and its
-   decidable-slice boundary is stated in the diagnostic rather than left implicit.
-6. Shipped per the Definition of Done above, cutting v0.15.0.
+6. A fixture asserts the lint's true negative: a `map-get` guarded by `map-has` does not warn, so
+   the lint is shown to discriminate rather than merely to fire. The v1 `bytes-zero` context rule
+   keeps its blessed behavior.
+7. Shipped per the Definition of Done above, cutting v0.15.0.
 
 **Plans**: TBD
 
@@ -229,5 +242,5 @@ the prior phase and that v0.15.0 marks milestone completion.
 | `REQ-oblig-1-def-invariant` | 4 |
 | `REQ-contract-read-lint-residual` | 4 |
 
-5/5 mapped. The 40 deferred requirements in `.planning/REQUIREMENTS.md` are intentionally unmapped,
-`REQ-int-3` among them as of 2026-07-31.
+5/5 mapped. The 41 deferred requirements in `.planning/REQUIREMENTS.md` are intentionally unmapped;
+`REQ-int-3` and `REQ-contract-read-wf-side-obligation` joined them on 2026-07-31.

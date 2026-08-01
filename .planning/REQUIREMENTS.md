@@ -100,14 +100,34 @@ existing `consumed_guarantees` / §5.3.4 meet channel rather than asserted from 
 criterion is "contributes a VC assumption that no obligation discharges", which is FACT-AG
 inverted.
 
-**Acceptance:** ⚠️ **ABSENT in source.** Recorded as research track with no acceptance criteria
-stated. This requirement needs acceptance criteria authored before its phase is planned. Nothing
-has been inferred here.
+**Acceptance:** absent in source; **authored 2026-07-31, ratified by the user.** Not from
+`docs/compiler-team-roadmap.md`, which records FACT-AG as research track with no criteria. Cite this
+file, not the roadmap, as its authority.
+
+1. **The set of type-derived fact classes is derived from the emitter, not enumerated by hand,** and
+   the derivation is published. Hand enumeration is rejected on evidence: the `tau_ret` consumer
+   count moved 1 → 2 → 4 → 4-plus-parameters across four review rounds of
+   `ret-resolve-proposal-review.md`, each increment found by someone reading more code. A class
+   added after this phase must be caught by construction.
+2. **Every class in that derived set routes through the `consumed_guarantees` / §5.3.4 meet
+   channel**, carrying the producing function's verification status in the antecedent. Recording the
+   channel alone is insufficient: the fact's truth depends on a producer whose annotation may never
+   have been validated.
+3. **A refute crux exists and kills.** A program that relies on a type-derived fact whose producer
+   never discharged the corresponding obligation is refused at the seam, not reported `verified`.
+   Without this the phase has shown only that the new channel does not crash.
+4. **WILD-ASSUME's two seams are reconciled with the general rule**: `structuralUnify` for
+   arguments, `compatibleWith` for returns and `checkExpr`. The approximation and the rule must not
+   disagree about the same program.
+5. **The measured set and its coverage are published**, including any class the phase does not
+   close, named individually. A corpus run with no new failures is recorded as a regression check,
+   never as evidence the routing works.
 
 **Scope:** VC antecedents, `consumed_guarantees`, §5.3.4 meet channel, type-derived facts.
 
-**Note:** the general form of what WILD-ASSUME approximates. Scope beyond `bytes` / `map` is
-**unmeasured**.
+**Note:** the general form of what WILD-ASSUME approximates. Scope beyond `bytes` / `map` was
+unmeasured at authoring time; criterion 1 makes measuring it part of the phase rather than a
+precondition of it.
 
 ---
 
@@ -120,9 +140,20 @@ Populate the one deferred province of the obligation-report `assumptions` field:
 axioms. v1 (refinement predicates of in-scope refinement-typed params), v2a (let-definitional
 equalities), and v2b (match-scrutinee case hypotheses) have shipped.
 
-**Acceptance:** ⚠️ **ABSENT in source.** Deferred; the source records only that it needs provenance
-tagging, hence a schema bump, and that an unverified invariant is a TCB assumption. Acceptance
-criteria must be authored before planning.
+**Acceptance:** absent in source; **authored 2026-07-31, ratified by the user.** The source records
+only that it needs provenance tagging, hence a schema bump, and that an unverified invariant is a
+TCB assumption. Cite this file as authority.
+
+1. The obligation report's `assumptions` field carries `def-invariant` axioms alongside the shipped
+   v1, v2a, and v2b provinces.
+2. Each assumption carries provenance identifying which province it came from, and the report
+   `schema_version` is bumped so a consumer can distinguish the pre-bump and post-bump shapes
+   without guessing.
+3. **A reader can tell an unverified invariant from a discharged one.** A TCB assumption must be
+   visible in the artifact rather than implied by its absence. This is the criterion that carries
+   the requirement; 1 and 2 are the mechanism.
+4. A fixture asserts the negative: a `def-invariant` that no obligation discharges appears in the
+   report marked as such, and is not silently omitted or reported as discharged.
 
 **Scope:** obligation report, `assumptions` field, `def-invariant` axioms, schema version.
 
@@ -133,12 +164,25 @@ criteria must be authored before planning.
 **Phase:** 4
 **Source:** `docs/compiler-team-roadmap.md` (CONTRACT-READ-LINT row)
 
-Two deferred tiers of the contract-position partial-read lint: (a) the `map-get`-without-`map-has`
-heuristic tier (disposition (c), "may ship later"), and (b) the Dafny-style well-formedness
-side-obligation (disposition (b)).
+The `map-get`-without-`map-has` heuristic tier of the contract-position partial-read lint
+(disposition (c), "may ship later").
 
-**Acceptance:** ⚠️ **ABSENT in source.** Both recorded as deferred, no criteria stated. Acceptance
-criteria must be authored before planning.
+**Scope change 2026-07-31, ratified by the user.** This requirement originally carried two tiers.
+Tier (b), the Dafny-style well-formedness side-obligation (disposition (b)), was **split out** into
+`REQ-contract-read-wf-side-obligation` in the deferred backlog. It is verifier work, not disclosure
+work, and bundling a side-obligation into the phase that ships a report field and a lint made the
+milestone's final phase the heaviest one in it.
+
+**Acceptance:** absent in source; **authored 2026-07-31, ratified by the user.** Cite this file as
+authority.
+
+1. `lintContractReads` emits `contract-read-oob` on the `map-get`-without-`map-has` shape.
+2. **The lint stays non-blocking and report-only.** A report-only check that acquires blocking power
+   is a defect pattern this project has already recorded; the disposition of record is status quo
+   plus a scoped non-blocking lint, and this criterion is what holds that line.
+3. A fixture asserts a true negative: a `map-get` guarded by `map-has` does **not** warn. Without it
+   the lint is only shown to fire, not to discriminate.
+4. The v1 `bytes-zero` context rule keeps its blessed behavior; no existing warning changes shape.
 
 **Scope:** `TypeCheck.lintContractReads`, `contract-read-oob` warning, map reads.
 
@@ -150,7 +194,7 @@ slice, with the v1 `bytes-zero` context rule blessed.
 
 ---
 
-## Deferred Backlog (40 requirements, carried forward)
+## Deferred Backlog (41 requirements, carried forward)
 
 Not dropped. A future milestone picks one track up. Full text for each:
 `.planning/intel/requirements.md`.
@@ -189,12 +233,13 @@ Group trigger: a production use case requiring true namespace isolation.
 | `REQ-lean-ga-layer3-transport` | T-B server-as-checker transport, model search plus kernel check | accept iff zero errors, zero open goals, no `sorry` |
 | `REQ-lean-ga-anti-laundering-guard` | `sanitizeProof` chokepoint rejecting `sorry`/`admit`/empty | recorded BUILT in a worktree, uncommitted, pending review. Non-negotiable prerequisite of layer 1 shipping |
 
-### Obligations and spec text (2)
+### Obligations and spec text (3)
 
 | ID | One-line | Note |
 |---|---|---|
 | `REQ-oblig-2` | OBLIG-2 | gated on OBLIG-0 §4.2.3 / §4.2.4 |
 | `REQ-wildcard-semantics-spec` | `[SPEC]` land what `?` denotes in `LLMLL.md §3.4.6`; fix the `if`-reconciliation drift at `:399` | lands whether or not the if-join preference ships; route the drift independently |
+| `REQ-contract-read-wf-side-obligation` | Dafny-style well-formedness side-obligation on contract-position reads (CONTRACT-READ-LINT disposition (b)) | **split out of `REQ-contract-read-lint-residual` on 2026-07-31**; verifier work, not disclosure work. When scheduled, acceptance must state the decidable-slice boundary **in the diagnostic**, not only in the design doc |
 
 ### Patch / refine slicing (2)
 
@@ -261,19 +306,22 @@ Either is a decision to take before scheduling, not during planning.
 
 | Requirement | Phase | Acceptance in source | Status |
 |---|---|---|---|
-| `REQ-wild-assume-2` | Phase 1 | Yes | Pending |
-| `REQ-ret-resolve` | Phase 2 | Yes | Pending |
-| `REQ-fact-ag` | Phase 3 | ⚠️ Absent | Pending |
-| `REQ-oblig-1-def-invariant` | Phase 4 | ⚠️ Absent | Pending |
-| `REQ-contract-read-lint-residual` | Phase 4 | ⚠️ Absent | Pending |
+| `REQ-wild-assume-2` | Phase 1 | Yes, from source | Pending |
+| `REQ-ret-resolve` | Phase 2 | Yes, from source | Pending |
+| `REQ-fact-ag` | Phase 3 | Authored 2026-07-31 | Pending |
+| `REQ-oblig-1-def-invariant` | Phase 4 | Authored 2026-07-31 | Pending |
+| `REQ-contract-read-lint-residual` | Phase 4 | Authored 2026-07-31 | Pending |
 
 **Coverage:** 5/5 in-scope requirements mapped to exactly one phase each. No orphans, no
-duplicates. The 40 deferred requirements are intentionally unmapped and carry no phase.
+duplicates. The 41 deferred requirements are intentionally unmapped and carry no phase.
 
-**Acceptance gaps:** three of the five (`REQ-fact-ag`, `REQ-oblig-1-def-invariant`,
-`REQ-contract-read-lint-residual`) carry `acceptance: (absent)` from their sources. Nothing was
-invented. Their phases carry success criteria derived goal-backward from the requirement text, and
-each is marked as needing user-authored acceptance before planning.
+**Acceptance provenance.** Two of the five (`REQ-wild-assume-2`, `REQ-ret-resolve`) carry acceptance
+from `docs/compiler-team-roadmap.md`. The other three carried `acceptance: (absent)` at ingest;
+their criteria were **authored on 2026-07-31 and ratified by the user**, and this file is their
+authority, not the roadmap. Two scope calls were taken in the same pass: `REQ-fact-ag` measures the
+type-derived fact set and closes every class it finds (rather than closing `bytes`/`map` only), and
+the Dafny-style well-formedness side-obligation was split out of
+`REQ-contract-read-lint-residual` into the deferred backlog.
 
 **Scope change 2026-07-31:** `REQ-int-3` was removed from the milestone and returned to the
 deferred backlog under the integer-semantics track. It stated a promotion condition rather than an
