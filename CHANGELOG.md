@@ -43,9 +43,28 @@ Both the return shape and the argument shape crash on a sort mismatch before a v
   rule's two bump conditions holds: no corpus verdict flipped, and no cached sidecar reaches a
   consumer without a successful type check gating it first.
 
+### Also fixed, found by this phase's own code review
+
+- **A `where`-wrapped base type evaded the restriction entirely, on both arms.** `assumesFact`
+  matched `TBytes`/`TMap` at the outermost constructor only, so a `TDependent` wrapper fell through
+  to `False`, while `FixpointEmit.resolveAliasTy`, the function that decides whether the emitter
+  asserts the ground fact, does strip that wrapper. The checker therefore guarded a strictly
+  narrower set than the emitter asserts for, and a return position declared as
+  `(type B (where [m: map[int bool]] true))` accepted a laundered wildcard. This was **not**
+  map-specific: the same evasion defeated the `bytes[n]` arm shipped in v0.14.73, so the affected
+  range for the wrapped shape is v0.14.34 through v0.14.73. `assumesFact` now strips `TDependent`
+  before dispatching, matching `resolveAliasTy` and matching what the key/value helpers already did
+  for the inner components. SA-17 is the fixture, asserted on both arms; removing the new clause
+  turns it red with a `reportSuccess` expected-`False`-got-`True` failure, the false-accept symptom.
+- **The rejection wording no longer degrades behind an alias.** `unify` passed the unexpanded type
+  to `tcWildAssumeError`, so `wildAssumeFactNoun` read a `TCustom` and every aliased rejection
+  reported the generic "a fact" fallback. The diagnostic now takes the alias name for its label and
+  the expanded type for its noun, so a wrapped `map[k,bool]` reports "a per-key value range" and a
+  wrapped `bytes[n]` reports "a length". SA-17 asserts both.
+
 ### Measured
 
-- **Suite:** 1448 examples, 0 failures (baseline 1439 + 9: SA-8 through SA-16).
+- **Suite:** 1449 examples, 0 failures (baseline 1439 + 10: SA-8 through SA-17).
 - **Corpus:** `scripts/check-examples.sh` reports `passed=162 failed=1 skipped=0`, identical to the baseline. The one failure (`examples/totp_rfc6238/totp_filled.ast.json`) is the pre-existing bytes-arm rejection from v0.14.73, unrelated to this change.
   The corpus run is recorded as a regression check, not as evidence the fix works.
 
@@ -56,7 +75,7 @@ Both the return shape and the argument shape crash on a sort mismatch before a v
 - **§5.3.5's array-class completeness argument** now records the map arm's
   `0 ≤ select(m$val,k) ≤ 1` fact as shipped rather than deferred.
 
-**Tests:** 1448 Haskell examples, 0 failures (+9). No Python delta. No `.fq` byte change: this is a
+**Tests:** 1449 Haskell examples, 0 failures (+10). No Python delta. No `.fq` byte change: this is a
 type-checker-only widen of what `assumesFact` refuses; the emitter is untouched.
 
 ## v0.14.73: a length asserted from an unvalidated declaration proved an out-of-bounds read safe (2026-07-30)
