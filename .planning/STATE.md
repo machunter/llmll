@@ -1,10 +1,10 @@
 ---
 gsd_state_version: '1.0'
-status: planning
+status: ready-to-execute
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -22,10 +22,11 @@ obligation it names the gap rather than absorbing it.
 ## Current Position
 
 Phase: 1 of 4 (Close the map arm of WILD-ASSUME)
-Plan: 0 of 0 in current phase
-Status: Ready to plan
-Last activity: 2026-07-31 — Roadmap created from ingest of 18 design documents (45 requirements
-extracted, 6 scoped into this milestone)
+Plan: 0 of 4 in current phase
+Status: Ready to execute — `/gsd-execute-phase 1`
+Last activity: 2026-07-31 — Phase 1 planned: 4 plans across 4 sequential waves, researched,
+plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
+`stack build --dry-run` reports "Nothing to build.").
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -76,7 +77,18 @@ None yet.
   authority, not `docs/compiler-team-roadmap.md`. Two scope calls came with it: FACT-AG measures the
   type-derived fact set and closes every class it finds, and the Dafny-style well-formedness
   side-obligation split out of Phase 4 into the deferred backlog.
-- **Phase 1 has a hard prerequisite**: the `(map-empty)` over-breadth fixture `SA-6` must be
+- **Phase 1's criterion 1 was aiming at a hazard its own fixture does not reach.** SA-6 is committed
+  and green, but it asserts `(def-shell m [k: int] -> map[int int] (map-empty))`, whose value
+  component is `int`. `assumesFact` returns False for it both before and after the widen, so SA-6
+  cannot exercise the widened clause. The `(map-empty)` position the widen actually risks is
+  `map[int bool]`, which no committed fixture covered. Plan 01-01 adds SA-14 for it and keeps SA-6
+  for criterion 1 as literally worded. Criterion 1 as written would have passed while leaving the
+  real risk untested.
+- **A wrong diagnostic would have shipped with the widen.** `tcWildAssumeError`
+  (`TypeCheck.hs:405-406`) tells the user the value "carries a length", true for the bytes arm and
+  false for maps. Plan 01-03 adds `wildAssumeFactNoun` and SA-16 to hold both arms to accurate
+  wording.
+- ~~Phase 1 has a hard prerequisite~~ **(superseded by the two items above; retained for context)**: the `(map-empty)` over-breadth fixture `SA-6` must be
   committed before the WILD-ASSUME discriminant widens, or every `(map-empty)` use breaks.
 - **Phase 2 must not land before Phase 1.** The `resultLenFact` assumption-injection channel can
   turn a crash into `verified`.
