@@ -4,6 +4,61 @@
 
 <a id="Latest"></a>
 
+## v0.14.74: the map[k,bool] arm of WILD-ASSUME, with no reaching-SAFE witness (2026-07-31)
+
+Two compiler changes to `assumesFact`'s discriminant and the diagnostic it drives, plus a corpus and suite re-measurement.
+
+This closes a measured member of the SAFE-ARG class with no reaching-SAFE witness.
+The phase closes a class member; it does not refute a demonstrated exploit.
+Both the return shape and the argument shape crash on a sort mismatch before a verdict, so this arm is neither known exploitable nor known safe.
+
+### Fixed, WILD-ASSUME-2
+
+- **The class.** A `map[k,bool]` binder carries the ground fact `0 <= select(m$val,k) <= 1`,
+  asserted from its declared value type the same way the `bytes[n]` arm asserts `bytesLen(v) = n`
+  (v0.14.73). `assumesFact` now covers the map class with the same key/value admissibility
+  `FixpointEmit.boolValuedMapTy` already uses (int-or-string key, bool value), reaching both seams
+  through the same predicate: `structuralUnify` for arguments, `compatibleWith`/`unify` for returns.
+- **Two fixtures prove it live, not one fixture run twice.** SA-8 launders a `map[int,bool]`
+  through an unannotated hop at the argument seam; SA-9 does the same at the return seam. Both
+  launder through the hop deliberately, so the guard is exercised against the `freshenFnType`-
+  produced `?$N` form rather than the bare `TVar "?"`, the exact failure mode that left the first
+  SAFE-ARG implementation dead. SA-8's liveness is proven by revert-and-restore: with the map
+  clause temporarily removed, SA-8 flips to a `reportSuccess` expected-`False`-got-`True` failure;
+  restored, the diff against the committed source is empty.
+- **Four fixtures hold the line against over-breadth.** SA-6 and SA-14 confirm `(map-empty)` still
+  type-checks at every position; SA-10 confirms an annotated hop is unaffected; SA-12 confirms a
+  non-bool value component does not fire; SA-15 confirms the construction path. SA-11 (alias
+  coverage) answers a research open question by measurement: an aliased `map[int,bool]` is already
+  refused with zero code change to `TypeCheck.hs`, because `expandAlias`/`unify` alias-resolve both
+  sides before `assumesFact` ever sees them.
+- **The diagnostic now names the fact per class.** `wildAssumeFactNoun` interpolates into
+  `tcWildAssumeError`'s message: "a length" for the bytes arm, "a per-key value range" for the map
+  arm, a neutral "a fact" fallback elsewhere, keeping the function total. SA-16 asserts both arms
+  in one fixture.
+- **`checker_soundness_version` is NOT bumped.** `doVerify`'s type-check gate runs, and exits on
+  failure, before every sidecar-consuming render branch; `Module.hs`'s per-module sidecar merge is
+  discarded whenever that module's own hard errors are non-empty. A program the widened checker
+  newly rejects can therefore never reach a branch that renders a cached verdict. Neither of the
+  rule's two bump conditions holds: no corpus verdict flipped, and no cached sidecar reaches a
+  consumer without a successful type check gating it first.
+
+### Measured
+
+- **Suite:** 1448 examples, 0 failures (baseline 1439 + 9: SA-8 through SA-16).
+- **Corpus:** `scripts/check-examples.sh` reports `passed=162 failed=1 skipped=0`, identical to the baseline. The one failure (`examples/totp_rfc6238/totp_filled.ast.json`) is the pre-existing bytes-arm rejection from v0.14.73, unrelated to this change.
+  The corpus run is recorded as a regression check, not as evidence the fix works.
+
+### Spec
+
+- **`LLMLL.md` §3.4.6** now states the WILD-ASSUME class as `bytes[n]` and `map[k,bool]` together,
+  with the same evidence-limit language stated inline for the map arm.
+- **§5.3.5's array-class completeness argument** now records the map arm's
+  `0 ≤ select(m$val,k) ≤ 1` fact as shipped rather than deferred.
+
+**Tests:** 1448 Haskell examples, 0 failures (+9). No Python delta. No `.fq` byte change: this is a
+type-checker-only widen of what `assumesFact` refuses; the emitter is untouched.
+
 ## v0.14.73: a length asserted from an unvalidated declaration proved an out-of-bounds read safe (2026-07-30)
 
 A correctness advisory. One compiler change plus a sidecar-invalidation stamp. Unlike every prior
