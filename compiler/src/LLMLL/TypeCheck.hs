@@ -359,11 +359,20 @@ isHoleVar _        = False
 --
 -- Deliberately NOT a member: refinement aliases and nullary enums, whose
 -- type-level data is an OBLIGATION on the producer (LLMLL.md §3.4.1) rather
--- than an assumption, both measured REFUTED on a laundered value.
+-- than an assumption, both measured REFUTED on a laundered value. That
+-- exclusion is about the PREDICATE a refinement carries, not about the base
+-- type it wraps: a @where@-wrapped @bytes[n]@ or @map[k,bool]@ still carries
+-- the same undischarged ground fact from its base, and 'FixpointEmit.resolveAliasTy'
+-- strips 'TDependent' before deciding to assert it. Matching only the outermost
+-- constructor here therefore left the checker guarding a strictly narrower set
+-- than the emitter asserts for, and a @(type B (where [m: map[int bool]] true))@
+-- return position evaded the restriction entirely, for the bytes arm as well as
+-- the map arm (CR-01, phase 01 review). SA-17 is the fixture holding that line.
 assumesFact :: Type -> Bool
-assumesFact (TBytes _)   = True
-assumesFact (TMap kt vt) = assumesFactMapKey kt && assumesFactBoolValue vt
-assumesFact _            = False
+assumesFact (TBytes _)         = True
+assumesFact (TMap kt vt)       = assumesFactMapKey kt && assumesFactBoolValue vt
+assumesFact (TDependent _ b _) = assumesFact b
+assumesFact _                  = False
 
 -- | SAFE-ARG / WILD-ASSUME (stage 2): key admissibility for the map arm of
 -- 'assumesFact', mirroring 'FixpointEmit.isIntLike' \/ 'isStrLike' minus their
@@ -424,10 +433,15 @@ isBareWildcard _        = False
 -- the map arm would describe the wrong fact. Total: the fallback clause
 -- covers any future 'assumesFact' arm this function has not been taught yet,
 -- rather than making the whole diagnostic partial.
+--
+-- The 'TDependent' clause mirrors the one 'assumesFact' carries: a @where@-wrapped
+-- base type is admitted by the guard, so the noun must see through the wrapper or
+-- every wrapped rejection reports the fallback instead of its actual fact.
 wildAssumeFactNoun :: Type -> Text
 wildAssumeFactNoun (TBytes _) = "a length"
 wildAssumeFactNoun (TMap kt vt)
   | assumesFactMapKey kt && assumesFactBoolValue vt = "a per-key value range"
+wildAssumeFactNoun (TDependent _ b _) = wildAssumeFactNoun b
 wildAssumeFactNoun _ = "a fact"
 
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
@@ -436,18 +450,25 @@ wildAssumeFactNoun _ = "a fact"
 -- fix is always to annotate the callee's return type. 'diagHoleSensitive' is
 -- deliberately left False — this error does not disappear when a hole resolves
 -- (the D3 invariant), because there is no hole involved.
-tcWildAssumeError :: Text -> Type -> TC ()
-tcWildAssumeError ctx expected = modify $ \s -> s
+-- Two type arguments, deliberately: @labelTy@ is the type as the user wrote it,
+-- so the diagnostic keeps the alias name (Fix 1b), while @resolvedTy@ is the
+-- alias-expanded form the admission guard actually ran 'assumesFact' on. The
+-- noun must come from the resolved form: naming the fact is the whole point of
+-- 'wildAssumeFactNoun', and reading it off an unexpanded 'TCustom' silently
+-- degrades every aliased rejection to the generic "a fact" fallback
+-- (WR-01, phase 01 review).
+tcWildAssumeError :: Text -> Type -> Type -> TC ()
+tcWildAssumeError ctx labelTy resolvedTy = modify $ \s -> s
   { tcErrors = tcErrors s ++
       [ (mkError Nothing msg)
           { diagKind     = Just "type-mismatch"
-          , diagExpected = Just (typeLabel expected)
+          , diagExpected = Just (typeLabel labelTy)
           , diagGot      = Just "?"
           } ] }
   where
-    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
-            <> ", got ? (an unannotated return type). A " <> typeLabel expected
-            <> " value carries " <> wildAssumeFactNoun expected
+    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+            <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
+            <> " value carries " <> wildAssumeFactNoun resolvedTy
             <> " that the verifier asserts from the"
             <> " declaration, and inference cannot supply it; annotate the"
             <> " callee's return type."
@@ -2235,7 +2256,10 @@ structuralUnify func subst expected actual =
     -- premise. Measured false SAFE, v0.14.34..v0.14.72
     -- (docs/design/finding-arg-position-false-safe.md).
     (_, TVar _) | isBareWildcard actual, assumesFact expected -> do
-      tcWildAssumeError func expected
+      -- This seam receives an already stripped/expanded 'expected' (the EApp and
+      -- EOp call sites apply 'stripDep' before unifying), so label and noun read
+      -- off the same type here.
+      tcWildAssumeError func expected expected
       pure subst
 
     (_, TVar _) -> pure subst
@@ -2380,7 +2404,9 @@ unify ctx expected actual = do
     -- this the message reads "got ?$0", leaking 'freshenFnType''s internal
     -- alpha-renaming counter into agent-facing output and naming no remedy.
     if isBareWildcard actual' && assumesFact expected'
-      then tcWildAssumeError ctx expected
+      -- Label from the original (alias name preserved, Fix 1b); noun from the
+      -- expanded form the guard above actually tested (WR-01).
+      then tcWildAssumeError ctx expected expected'
       -- Report originals to preserve alias names in diagnostics (Fix 1b).
       else tcTypeMismatch ctx expected actual
 

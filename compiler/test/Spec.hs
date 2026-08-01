@@ -2141,7 +2141,7 @@ main = hspec $ do
     -- SA-8: THE LIVE CASE for the argument seam. Before the widen this
     -- type-checks clean and lets a laundered map[int,bool] value satisfy
     -- consumeb's declared parameter, reaching structuralUnify's argument
-    -- clause (TypeCheck.hs:2218) rather than the return-seam clause SA-9
+    -- clause (TypeCheck.hs, structuralUnify) rather than the return-seam clause SA-9
     -- exercises. wildAssumeFired distinguishes this from any other rejection:
     -- the substring it matches is emitted only by tcWildAssumeError.
     it "SA-8 rejects a laundered map[int,bool] at a map[int bool] ARGUMENT position" $ do
@@ -2171,8 +2171,8 @@ main = hspec $ do
         Right report -> reportSuccess report `shouldBe` True
 
     -- SA-11: over-breadth guard, alias coverage (research open question 1).
-    -- expandAlias recurses into TMap components (TypeCheck.hs:2318) and unify
-    -- expands both sides before compatibleWith (TypeCheck.hs:2331-2332), so a
+    -- expandAlias recurses into TMap components and unify expands both sides
+    -- before compatibleWith (TypeCheck.hs, expandAlias / unify), so a
     -- laundered map[int,bool] behind a type alias is expected to be refused
     -- with no assumesFact code change: assumesFact should see the
     -- alias-resolved TMap TInt TBool, not a residual TCustom "BoolMap".
@@ -2240,6 +2240,39 @@ main = hspec $ do
       case tcOf (bytesLaunderPrefix ++ ["(def-shell bad [] -> bytes[64] (mid2))"]) of
         Left e -> expectationFailure e
         Right report ->
+          any (T.isInfixOf "a length" . diagMessage) (reportDiagnostics report)
+            `shouldBe` True
+
+    -- SA-17: a `where`-wrapped base type must not evade the restriction.
+    -- assumesFact used to match TBytes/TMap at the outermost constructor only,
+    -- so a TDependent wrapper made it fall through to False while
+    -- FixpointEmit.resolveAliasTy DID strip the wrapper before asserting the
+    -- ground fact. The checker guarded a strictly narrower set than the emitter
+    -- asserted for, which is the false-SAFE shape this whole line exists to
+    -- close, and it evaded the bytes arm shipped in v0.14.73 as well as the map
+    -- arm. Both arms are asserted here because the defect was never map-specific.
+    -- The wording assertions are the SA-16 property carried onto the wrapped
+    -- form: the noun must survive alias expansion rather than degrading to the
+    -- generic "a fact" fallback (WR-01).
+    it "SA-17 rejects a laundered value behind a where-wrapped map and bytes type" $ do
+      case tcOf ([ "(type BoolMapDep (where [m: map[int bool]] true))" ] ++
+                 mapLaunderPrefix ++
+                 [ "(def-shell badb [k: int] -> BoolMapDep (midb k))" ]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+          any (T.isInfixOf "per-key value range" . diagMessage) (reportDiagnostics report)
+            `shouldBe` True
+      case tcOf [ "(type BufDep (where [b: bytes[64]] true))"
+                , "(def mk32 [] -> bytes[32] (bytes-zero))"
+                , "(def-shell mid2 [] (mk32))"
+                , "(def-shell bad [] -> BufDep (mid2))"
+                ] of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
           any (T.isInfixOf "a length" . diagMessage) (reportDiagnostics report)
             `shouldBe` True
 
