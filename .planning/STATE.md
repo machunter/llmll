@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: close-the-map-arm-of-wild-assume
 status: executing
-stopped_at: Completed 01-02-PLAN.md (version-control step pending, blocked by subagent write hook)
-last_updated: "2026-08-01T02:47:39.825Z"
+stopped_at: Completed 01-03-PLAN.md (version-control step pending, blocked by subagent write hook)
+last_updated: "2026-08-01T03:20:44.603Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -29,13 +29,13 @@ obligation it names the gap rather than absorbing it.
 ## Current Position
 
 Phase: 01 (close-the-map-arm-of-wild-assume) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-31 — Phase 01 execution started
 plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
 `stack build --dry-run` reports "Nothing to build.").
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Milestone
 
@@ -62,6 +62,7 @@ exits 0.
 |------|----------|-------|-------|
 | Phase 01 P01 | 10min | 2 tasks | 2 files |
 | Phase 01 P02 | 25min | 2 tasks | 1 files |
+| Phase 01 P03 | 50min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ decisions sit at `status: proposed` (see PROJECT.md Key Decisions and
 - [Phase ?]: SA-11's contingency did not fire: expandAlias/unify already alias-expand before assumesFact, so a laundered map[k,bool] behind a type alias is refused with zero TypeCheck.hs change; research open question 1 answered by measurement
 - [Phase ?]: Type-alias surface form for a plain (non-where, non-sum) alias body is unparenthesized: (type Name map[k v]), not (type Name (map[k v])) -- the latter misparses via pType's pPairType alternative
 - [Phase ?]: SA-8's liveness on the argument seam was proven by temporarily removing assumesFact's TMap clause (RED: reportSuccess expected False got True), then restoring it (zero net diff), not assumed from a single passing run
+- [Phase ?]: checkerSoundnessVersion is NOT bumped: doVerify's type-check gate (Main.hs:1200-1204) runs before every sidecar-consuming render branch, and loadFromFile (Module.hs:190-205) discards the sidecar-merged env when a module's own type check fails, so a program the widened checker newly rejects can never surface a cached verdict; corroborated by a zero-delta corpus comparison against the 01-01 baseline
+- [Phase ?]: wildAssumeFactNoun makes the WILD-ASSUME rejection message per-class (a length for bytes[n], a per-key value range for map[k,bool]), proven live by reverting the wording function (not the assumesFact clause) and confirming SA-16 goes RED
 
 ### Pending Todos
 
@@ -136,6 +139,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-01T02:47:39.818Z
-Stopped at: Completed 01-02-PLAN.md (version-control step pending, blocked by subagent write hook)
+Last session: 2026-08-01T03:20:44.598Z
+Stopped at: Completed 01-03-PLAN.md (version-control step pending, blocked by subagent write hook)
 Resume file: None
