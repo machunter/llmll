@@ -2138,6 +2138,87 @@ main = hspec $ do
         Left e -> expectationFailure e
         Right report -> reportSuccess report `shouldBe` True
 
+    -- SA-8: THE LIVE CASE for the argument seam. Before the widen this
+    -- type-checks clean and lets a laundered map[int,bool] value satisfy
+    -- consumeb's declared parameter, reaching structuralUnify's argument
+    -- clause (TypeCheck.hs:2218) rather than the return-seam clause SA-9
+    -- exercises. wildAssumeFired distinguishes this from any other rejection:
+    -- the substring it matches is emitted only by tcWildAssumeError.
+    it "SA-8 rejects a laundered map[int,bool] at a map[int bool] ARGUMENT position" $ do
+      case tcOf (mapLaunderPrefix ++
+            [ "(def-shell consumeb [m: map[int bool] k: int] -> bool (map-get m k))"
+            , "(def-shell callerb [k: int] -> bool (consumeb (midb k) k))"
+            ]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-10: control. The same argument position with the hop annotated
+    -- (midbA declares map[int bool] explicitly) must still type-check. This
+    -- isolates the cause of SA-8's rejection to the bare wildcard, not to
+    -- the map type at the parameter position. mapLaunderPrefix is
+    -- deliberately absent from this fixture's source, so nothing
+    -- unannotated is in scope and the control cannot pass for the wrong
+    -- reason.
+    it "SA-10 does not reject the same argument position when the hop is annotated" $ do
+      case tcOf
+            [ "(def midbA [k: int] -> map[int bool] (map-put (map-empty) k true))"
+            , "(def-shell consumeb [m: map[int bool] k: int] -> bool (map-get m k))"
+            , "(def-shell callerbA [k: int] -> bool (consumeb (midbA k) k))"
+            ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+    -- SA-11: over-breadth guard, alias coverage (research open question 1).
+    -- expandAlias recurses into TMap components (TypeCheck.hs:2318) and unify
+    -- expands both sides before compatibleWith (TypeCheck.hs:2331-2332), so a
+    -- laundered map[int,bool] behind a type alias is expected to be refused
+    -- with no assumesFact code change: assumesFact should see the
+    -- alias-resolved TMap TInt TBool, not a residual TCustom "BoolMap".
+    it "SA-11 rejects a laundered map[k,bool] behind a type alias" $ do
+      case tcOf ([ "(type BoolMap map[int bool])" ] ++ mapLaunderPrefix ++
+            [ "(def-shell badalias [k: int] -> BoolMap (midb k))" ]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-12: over-breadth guard, value-type specificity. A laundered
+    -- map[int,int] must NOT be rejected: the value component is not bool,
+    -- so FixpointEmit never asserts a value-range fact for it, and nothing
+    -- may be refused at this seam.
+    it "SA-12 does not reject a laundered map[int,int]" $ do
+      case tcOf (mapLaunderPrefix ++
+            [ "(def-shell okint [k: int] -> map[int int] (midb k))" ]) of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+    -- SA-13: rejection, string-key coverage. Matches boolValuedMapTy's
+    -- key-agnostic admissibility (FixpointEmit.hs:1780-1785): int OR string
+    -- key, bool value. A string-keyed bool map laundered through an
+    -- unannotated hop must be refused exactly as the int-keyed case is.
+    it "SA-13 rejects a laundered map[string,bool] at a string-keyed position" $ do
+      case tcOf
+            [ "(def mkstr [k: string] -> map[string int] (map-put (map-empty) k 7))"
+            , "(def-shell mids [k: string] (mkstr k))"
+            , "(def-shell bads [k: string] -> map[string bool] (mids k))"
+            ] of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-15: over-breadth guard, construction path. The ordinary way to
+    -- build a bool map -- (map-put (map-empty) k true) with an annotated
+    -- return type -- must be unaffected by the widen. No wildcard is
+    -- involved in this fixture at all.
+    it "SA-15 does not reject (map-put (map-empty) k true) at a map[int bool] position" $ do
+      case tcOf
+            [ "(def-shell mb2 [k: int] -> map[int bool] (map-put (map-empty) k true))" ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
   -- -----------------------------------------------------------------------
   -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
   -- -----------------------------------------------------------------------
