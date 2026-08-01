@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: close-the-map-arm-of-wild-assume
 status: executing
-stopped_at: Completed 01-01-PLAN.md (version-control step pending, blocked by subagent write hook)
-last_updated: "2026-08-01T02:18:26.719Z"
+stopped_at: Completed 01-02-PLAN.md (version-control step pending, blocked by subagent write hook)
+last_updated: "2026-08-01T02:47:39.825Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -29,13 +29,13 @@ obligation it names the gap rather than absorbing it.
 ## Current Position
 
 Phase: 01 (close-the-map-arm-of-wild-assume) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-31 — Phase 01 execution started
 plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
 `stack build --dry-run` reports "Nothing to build.").
 
-Progress: [███░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Milestone
 
@@ -61,6 +61,7 @@ exits 0.
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 10min | 2 tasks | 2 files |
+| Phase 01 P02 | 25min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ decisions sit at `status: proposed` (see PROJECT.md Key Decisions and
 - [Phase ?]: SA-6 confirmed pre-existing/green (map[int,int]); SA-14 added as the fixture that actually reaches the map[int,bool] over-breadth hazard SA-6 does not cover
 - [Phase ?]: Map-arm fixtures (SA-9, SA-14) live in a new sibling hspec describe block, not an extension of the bytes-arm block, keeping the bytes-arm block's title accurate
 - [Phase ?]: requirements mark-complete REQ-wild-assume-2 skipped this plan: gsd-tools requirements.ready-ids reports it blocked pending sibling plans 01-02/01-03/01-04 SUMMARYs in the same phase
+- [Phase ?]: SA-11's contingency did not fire: expandAlias/unify already alias-expand before assumesFact, so a laundered map[k,bool] behind a type alias is refused with zero TypeCheck.hs change; research open question 1 answered by measurement
+- [Phase ?]: Type-alias surface form for a plain (non-where, non-sum) alias body is unparenthesized: (type Name map[k v]), not (type Name (map[k v])) -- the latter misparses via pType's pPairType alternative
+- [Phase ?]: SA-8's liveness on the argument seam was proven by temporarily removing assumesFact's TMap clause (RED: reportSuccess expected False got True), then restoring it (zero net diff), not assumed from a single passing run
 
 ### Pending Todos
 
@@ -132,6 +136,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-01T02:18:26.714Z
-Stopped at: Completed 01-01-PLAN.md (version-control step pending, blocked by subagent write hook)
+Last session: 2026-08-01T02:47:39.818Z
+Stopped at: Completed 01-02-PLAN.md (version-control step pending, blocked by subagent write hook)
 Resume file: None
