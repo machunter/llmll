@@ -364,7 +364,7 @@
 
 **Risk:** The compiler is written in Haskell; compiler and generated code both depend on GHC. `ghc-wasm-meta` toolchain (for WASM target) has low bus-factor maintenance.
 
-**Files:** `compiler/package.yaml` (GHC version pin), `scripts/setup-env.sh` (toolchain setup)
+**Files:** `compiler/package.yaml` (GHC version pin), `compiler/stack.yaml` (resolver pin)
 
 **Scaling Limit:** WASM build target (Phase 0–3) deferred on GHC-WASM availability; if `ghc-wasm-meta` falls behind GHC releases, work slips.
 
@@ -380,7 +380,7 @@
 
 **Files:**
 - `scripts/doc_path_lint.py` (linting logic)
-- `docs/RFC-SWARM_PLAYBOOK.md` (stage G2 definition)
+- `docs/design/rfc-swarm-playbook.md` (stage G2 definition)
 - `CHANGELOG.md` v0.14.71 (admission: "Not established: it has never seen a live run")
 
 **Recommendation:** Gate the stage into the next RFC-SWARM run to validate the implementation against real data.

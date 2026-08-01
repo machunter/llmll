@@ -88,6 +88,9 @@ ALLOW = {
      '.llmll/templates/assume-guarantee-order/scaffold.ast.json'),
     # session scratch, deliberately never committed
     ('experiments/r5-validation/findings.md', 'scratchpad/r5drive.sh'),
+    # not a repo path: the user's global Claude Code config lives in $HOME/.claude,
+    # not in this tree. The repo's own .claude/ holds skills and settings only.
+    ('.planning/codebase/STRUCTURE.md', '.claude/CLAUDE.md'),
     # convention, not an instance: every emergent example carries its own
     # audit/runner.py, and the proposal is naming the shape, not one file
     ('docs/design/rfc-swarm-roadmap-proposal.md', 'audit/runner.py'),
@@ -99,7 +102,20 @@ def historical_file(f):
             or '/runs/' in f
             or re.search(r'/postmortem-', f)
             or f.startswith('docs/archive/')
-            or '/findings/' in f)
+            or '/findings/' in f
+            # A phase directory is a frozen run record: SUMMARY/RESEARCH/LEARNINGS
+            # describe what a completed phase saw and did, and their paths are
+            # written relative to wherever that phase's commands ran (`app/Main.hs`
+            # and `src/LLMLL/Module.hs` from inside `compiler/`, `autogen/…` from
+            # inside `.stack-work/`). Rewriting them to repo-root form would falsify
+            # the record. Same class as /runs/ and postmortem-, named separately
+            # because the path shape is unrelated. `.planning/codebase/` is NOT
+            # historical — it describes the tree as it IS, and its stale citations
+            # are real errors to fix.
+            or f.startswith('.planning/phases/')
+            # Frozen record of what an ingest pass found, including paths that
+            # existed only in the ingested documents.
+            or f == '.planning/INGEST-CONFLICTS.md')
 
 
 def main():

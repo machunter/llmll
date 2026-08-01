@@ -50,7 +50,7 @@ llmll/
 │   ├── stack.yaml             # Stack build configuration
 │   └── llmll.cabal            # Cabal descriptor (generated from package.yaml)
 ├── tools/
-│   ├── llmll-driver/          # Compiler test harness (LLMML fixture programs)
+│   ├── llmll-driver/          # Compiler test harness (LLMLL fixture programs)
 │   │   ├── fill.llmml         # Test case: hole filling
 │   │   ├── gate.llmml         # Test case: verification gates
 │   │   ├── *.llmml            # Other test programs
@@ -68,7 +68,7 @@ llmll/
 │       ├── fixtures/           # Example AST files
 │       ├── pyproject.toml      # Python package config
 │       └── README.md           # Orchestrator documentation
-├── examples/                   # Example LLMML programs (41 subdirectories)
+├── examples/                   # Example LLMLL programs (41 subdirectories)
 │   ├── erc20_token/           # ERC20 token contract
 │   ├── tftp_rfc1350/          # TFTP protocol implementation
 │   ├── heartbleed/            # Heartbleed vulnerability demo
@@ -107,7 +107,7 @@ llmll/
 │   └── [other utilities]/
 ├── outreach-workspace/         # Outreach & demo materials
 ├── .gitignore                  # Git ignore rules
-├── LLMML.md                    # Main specification (language reference)
+├── LLMLL.md                    # Main specification (language reference)
 ├── README.md                   # Project readme
 ├── CHANGELOG.md                # Release notes (v0.14.73 current)
 ├── LICENSE                     # Apache 2.0 license
@@ -119,16 +119,16 @@ llmll/
 ## Directory Purposes
 
 **`compiler/`:**
-- Purpose: Main LLMML Haskell compiler implementation
+- Purpose: Main LLMLL Haskell compiler implementation
 - Contains: Parser, type checker, code generator, verifier
-- Key files: `app/Main.hs` (CLI), `src/LLMML/*.hs` (modules)
+- Key files: `compiler/app/Main.hs` (CLI), `compiler/src/LLMLL/*.hs` (modules)
 - Entry: `stack exec llmml` or compiled binary at `src/Main`
 
-**`compiler/src/LLMML/`:**
+**`compiler/src/LLMLL/`:**
 - Purpose: Core compiler module library (flat, no subdirectories)
 - Contains: 40+ .hs modules organized by phase (not by directory)
 - Naming: Each module typically one .hs file (e.g., TypeCheck.hs, Parser.hs)
-- Pattern: No hierarchical subdirectories; imports use qualified names (LLMML.Parser)
+- Pattern: No hierarchical subdirectories; imports use qualified names (LLMLL.Parser)
 
 **`compiler/test/`:**
 - Purpose: Test suite
@@ -142,12 +142,12 @@ llmll/
 - Run: `llmml-orchestra <ast.json> --model claude-opus ...`
 
 **`tools/llmml-driver/`:**
-- Purpose: Test driver and LLMML fixture harness for CI gates
+- Purpose: Test driver and LLMLL fixture harness for CI gates
 - Contains: Small test programs (*.llmml), verdict expectations
-- Pattern: LLMML programs that exercise specific compiler features (gates)
+- Pattern: LLMLL programs that exercise specific compiler features (gates)
 
 **`examples/`:**
-- Purpose: Example LLMML programs demonstrating language features
+- Purpose: Example LLMLL programs demonstrating language features
 - Contains: 41 subdirectories, each a self-contained example
 - Naming: kebab-case directory names (erc20_token, tftp_rfc1350)
 - Pattern: Each example has `*.llmml` source, optional `*.ast.json`, README.md
@@ -164,7 +164,7 @@ llmll/
 
 **`experiments/`:**
 - Purpose: Active research branches (RFC implementation, benchmarks)
-- Contains: Experimental LLMML programs, gate harnesses
+- Contains: Experimental LLMLL programs, gate harnesses
 - Pattern: Organized by RFC or research area (rfc-swarm, pbt-harness)
 
 **`.planning/codebase/`:**
@@ -176,7 +176,7 @@ llmll/
 
 **Entry Points:**
 - `compiler/app/Main.hs` - CLI main function (line 386), subcommand handlers
-- `tools/llmml-orchestra/llmml_orchestra/__main__.py` - Orchestrator CLI
+- `tools/llmll-orchestra/llmll_orchestra/__main__.py` - Orchestrator CLI
 
 **Configuration:**
 - `compiler/package.yaml` - Hpack build descriptor (dependencies, version)
@@ -185,14 +185,14 @@ llmll/
 - `.claude/settings.json` - Claude Code project settings
 
 **Core Logic:**
-- `compiler/src/LLMML/Parser.hs` - S-expression tokenization & parsing
-- `compiler/src/LLMML/ParserJSON.hs` - JSON-AST parsing
-- `compiler/src/LLMML/Syntax.hs` - Core AST (Statement, Expr, Type, Contract)
-- `compiler/src/LLMML/TypeCheck.hs` - Bidirectional type inference
-- `compiler/src/LLMML/Module.hs` - Multi-file import resolution
-- `compiler/src/LLMML/CodegenHs.hs` - Haskell code generator
-- `compiler/src/LLMML/FixpointEmit.hs` - Liquid-fixpoint constraint emitter
-- `compiler/src/LLMML/TrustReport.hs` - Verification evidence aggregation
+- `compiler/src/LLMLL/Parser.hs` - S-expression tokenization & parsing
+- `compiler/src/LLMLL/ParserJSON.hs` - JSON-AST parsing
+- `compiler/src/LLMLL/Syntax.hs` - Core AST (Statement, Expr, Type, Contract)
+- `compiler/src/LLMLL/TypeCheck.hs` - Bidirectional type inference
+- `compiler/src/LLMLL/Module.hs` - Multi-file import resolution
+- `compiler/src/LLMLL/CodegenHs.hs` - Haskell code generator
+- `compiler/src/LLMLL/FixpointEmit.hs` - Liquid-fixpoint constraint emitter
+- `compiler/src/LLMLL/TrustReport.hs` - Verification evidence aggregation
 
 **Testing:**
 - `compiler/test/Spec.hs` - Main test suite
@@ -200,22 +200,22 @@ llmll/
 - `tools/llmml-driver/` - CI gate test programs
 
 **Documentation:**
-- `LLMML.md` - Language specification (226KB)
+- `LLMLL.md` - Language specification (226KB)
 - `README.md` - Project overview
 - `CHANGELOG.md` - Release notes
 - `docs/getting-started.md` - Quick start
 - `docs/compiler-team-roadmap.md` - Feature roadmap
 
 **Specification:**
-- `docs/llmml-ast.schema.json` - AST JSON schema
-- `docs/llmml-trust-report.schema.json` - Trust report schema
+- `docs/llmll-ast.schema.json` - AST JSON schema
+- `docs/llmll-trust-report.schema.json` - Trust report schema
 - `docs/proof-artifact.schema.json` - Proof artifact schema
 
 ## Naming Conventions
 
 **Files:**
 - Haskell modules: `PascalCase.hs` (e.g., TypeCheck.hs, CodegenHs.hs)
-- LLMML programs: `kebab-case.llmml` (e.g., erc20_token.llmml)
+- LLMLL programs: `kebab-case.llmml` (e.g., erc20_token.llmml)
 - JSON schemas: `kebab-case.schema.json` (e.g., llmml-ast.schema.json)
 - Documentation: `kebab-case.md` (e.g., getting-started.md, compiler-team-roadmap.md)
 - Test fixtures: `PascalCase` without extension or `TestName.hs`
@@ -241,22 +241,22 @@ llmll/
 ## Where to Add New Code
 
 **New Compiler Phase:**
-- Primary code: `compiler/src/LLMML/<PhaseName>.hs`
+- Primary code: `compiler/src/LLMLL/<PhaseName>.hs`
 - Integration: Add handler in `compiler/app/Main.hs` (subcommand + doPhase function)
 - Tests: `compiler/test/<PhaseName>Spec.hs`
 - Export types/functions: Add to module header's export list
 
 **New Feature (e.g., new contract type):**
-- Definition: `compiler/src/LLMML/Syntax.hs` (add Type, Contract variant)
-- Type checking: `compiler/src/LLMML/TypeCheck.hs` (add case in checking)
-- Codegen: `compiler/src/LLMML/CodegenHs.hs` (add Haskell emission)
-- Verification: `compiler/src/LLMML/FixpointEmit.hs` (add constraint translation if applicable)
+- Definition: `compiler/src/LLMLL/Syntax.hs` (add Type, Contract variant)
+- Type checking: `compiler/src/LLMLL/TypeCheck.hs` (add case in checking)
+- Codegen: `compiler/src/LLMLL/CodegenHs.hs` (add Haskell emission)
+- Verification: `compiler/src/LLMLL/FixpointEmit.hs` (add constraint translation if applicable)
 - Tests: `compiler/test/fixtures/` (add test program exercising feature)
 
 **New Compiler Utilities:**
-- Shared helpers: `compiler/src/LLMML/Utility*.hs` (e.g., UtilityTypes.hs)
-- Analysis: `compiler/src/LLMML/<Analysis>Analysis.hs` (e.g., HoleAnalysis.hs)
-- Diagnostics: `compiler/src/LLMML/Diagnostic*.hs` (e.g., DiagnosticFQ.hs)
+- Shared helpers: `compiler/src/LLMLL/Utility*.hs` (e.g., UtilityTypes.hs)
+- Analysis: `compiler/src/LLMLL/<Analysis>Analysis.hs` (e.g., HoleAnalysis.hs)
+- Diagnostics: `compiler/src/LLMLL/Diagnostic*.hs` (e.g., DiagnosticFQ.hs)
 
 **New Example:**
 - Location: `examples/<kebab-case-name>/`
@@ -270,7 +270,7 @@ llmll/
 
 **New Experiment:**
 - Location: `experiments/<rfc-name>/ or <topic>/`
-- Contents: LLMML programs, harness scripts, findings document
+- Contents: LLMLL programs, harness scripts, findings document
 - Pattern: Self-contained research branch; document gate criteria
 
 ## Special Directories
@@ -299,9 +299,9 @@ llmll/
 
 ## Import Patterns & Module Organization
 
-**Haskell Imports (compiler/src/LLMML/*.hs):**
+**Haskell Imports (compiler/src/LLMLL/*.hs):**
 - Qualified import style: `import qualified Data.Map.Strict as Map` (to avoid ambiguity)
-- Module imports: `import LLMML.Parser` (qualified for LLMML namespace)
+- Module imports: `import LLMLL.Parser` (qualified for LLMLL namespace)
 - Pattern: All imports at top of file (Haskell requirement)
 
 **Circular dependency avoidance:**
@@ -324,7 +324,7 @@ llmll/
 
 **Version location:** `compiler/package.yaml` (version field)
 - Bumped manually before release
-- Reflected in: CHANGELOG.md, LLMML.md (line 1), README.md (line 5)
+- Reflected in: CHANGELOG.md, LLMLL.md (line 1), README.md (line 5)
 - Gate check: `scripts/version_gate.sh` (enforces consistency)
 
 **Release ceremony:** `scripts/version_gate.sh` runs before push
@@ -343,7 +343,7 @@ llmll/
 ```
 <outDir>/
   src/
-    Lib.hs       — all LLMML definitions translated to Haskell
+    Lib.hs       — all LLMLL definitions translated to Haskell
     Main.hs      — if SDefMain present; orchestrates def-main call
     FFI/         — FFI stubs for c.* imports (auto-generated)
       *.hs       — one per library (generated once, not overwritten)

@@ -187,7 +187,7 @@ agent, not an unsound verdict. It still wants refute cruxes (test plan below).
 
 ## Performance budget
 
-- **GHC fan-out**: `RefineReuse.hs` is imported by `Main.hs` and `test/Spec.hs` only, so
+- **GHC fan-out**: `RefineReuse.hs` is imported by `Main.hs` and `compiler/test/Spec.hs` only, so
   recompilation is shallow. `FixpointEmit.hs` is 4508 lines and imported widely; leaving it
   unedited is worth protecting, and both tiers can.
 - **Solver cost**: `reuseRetrieval` is O(spawned × pool) solver spawns, each a two-constraint `.fq`.
