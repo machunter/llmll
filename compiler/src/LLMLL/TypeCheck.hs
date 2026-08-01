@@ -343,24 +343,50 @@ isHoleVar :: Type -> Bool
 isHoleVar (TVar n) = "?" `T.isPrefixOf` n
 isHoleVar _        = False
 
--- | SAFE-ARG / WILD-ASSUME (stage 1): types whose DECLARED shape contributes a
--- ground fact to a VC antecedent that no obligation discharges. A @bytes[n]@
--- binder has @bytesLen(v) = n@ asserted from its declared type
+-- | SAFE-ARG / WILD-ASSUME (stage 1 + stage 2): types whose DECLARED shape
+-- contributes a ground fact to a VC antecedent that no obligation discharges.
+-- A @bytes[n]@ binder has @bytesLen(v) = n@ asserted from its declared type
 -- (@FixpointEmit.bytesLenReft@), and the index-in-bounds obligation is then
 -- discharged against it — so an unvalidated declaration yields a false premise
 -- and a false SAFE (docs/design/finding-arg-position-false-safe.md).
 --
--- Stage 1 is bytes-only. The map arm (@map[k,bool]@'s ground @0 <= v <= 1@
--- value-range fact) is a member of the same class but has no reaching-SAFE
--- witness, and shipping it requires the @(map-empty)@ over-breadth fixture
--- first (finding Rev 1, edge case 8).
+-- The map arm covers @map[k,bool]@, matching the same key/value admissibility
+-- 'FixpointEmit.boolValuedMapTy' already uses to scope its ground
+-- @0 \<= select(m$val,k) \<= 1@ value-range fact: an int-or-string key with a
+-- bool value. SA-14 ('compiler/test/Spec.hs') is the fixture holding the
+-- @(map-empty)@ line this arm puts at risk; SA-6 covers the pre-existing
+-- @map[int,int]@ position, which this arm does not touch.
 --
 -- Deliberately NOT a member: refinement aliases and nullary enums, whose
 -- type-level data is an OBLIGATION on the producer (LLMLL.md §3.4.1) rather
 -- than an assumption, both measured REFUTED on a laundered value.
 assumesFact :: Type -> Bool
-assumesFact (TBytes _) = True
-assumesFact _          = False
+assumesFact (TBytes _)   = True
+assumesFact (TMap kt vt) = assumesFactMapKey kt && assumesFactBoolValue vt
+assumesFact _            = False
+
+-- | SAFE-ARG / WILD-ASSUME (stage 2): key admissibility for the map arm of
+-- 'assumesFact', mirroring 'FixpointEmit.isIntLike' \/ 'isStrLike' minus their
+-- 'AliasMap' lookups. Both 'assumesFact' call sites receive already
+-- alias-expanded types: 'unify' expands both sides before calling
+-- 'compatibleWith', and the 'EApp' inference site expands before calling
+-- 'structuralUnify'; 'expandAlias' itself recurses into 'TMap' components, so
+-- a residual 'TCustom' alias never reaches here unresolved.
+assumesFactMapKey :: Type -> Bool
+assumesFactMapKey TInt               = True
+assumesFactMapKey TString            = True
+assumesFactMapKey (TDependent _ b _) = assumesFactMapKey b
+assumesFactMapKey (TSumType ctors)   =
+  all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
+assumesFactMapKey _                  = False
+
+-- | SAFE-ARG / WILD-ASSUME (stage 2): value admissibility for the map arm of
+-- 'assumesFact', mirroring 'FixpointEmit.isBoolLike' minus its 'AliasMap'
+-- lookup, for the same already-expanded-input reason as 'assumesFactMapKey'.
+assumesFactBoolValue :: Type -> Bool
+assumesFactBoolValue TBool              = True
+assumesFactBoolValue (TDependent _ b _) = assumesFactBoolValue b
+assumesFactBoolValue _                  = False
 
 -- | SAFE-ARG: the bare inference wildcard produced by 'collectTopLevel' for an
 -- unannotated return, as distinct from two other TVar populations that must NOT
