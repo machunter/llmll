@@ -14,10 +14,24 @@ findings:
   warning: 1
   info: 1
   total: 3
-status: issues_found
+status: resolved
 ---
 
 # Phase 01: Code Review Report
+
+## Resolution (orchestrator, 2026-08-01)
+
+All three findings were reproduced independently and then fixed in commits 4c8a270 and 98a34e6.
+
+| ID | Severity | Reproduced | Resolution |
+|---|---|---|---|
+| CR-01 | Critical | Yes, against the built v0.14.74 binary: a `where`-wrapped `map[int bool]` AND a `where`-wrapped `bytes[64]` return position were both silently accepted, while their bare forms were rejected | `assumesFact` now strips `TDependent` before dispatching. SA-17 covers both arms and is confirmed live (removing the clause yields `reportSuccess` expected `False`, got `True`) |
+| WR-01 | Warning | Yes, the post-CR-01-fix rejection read "carries a fact" instead of naming the value range | `tcWildAssumeError` now takes the label type and the resolved type separately; `wildAssumeFactNoun` also strips `TDependent`. SA-17 asserts the wording on both arms |
+| IN-01 | Info | Yes, the cited line numbers had shifted | Replaced the line-number citations with function names (`structuralUnify`, `expandAlias` / `unify`), which removes the drift at its source rather than re-pinning numbers that go stale on the next edit |
+
+Gates after the fixes: suite **1449 examples, 0 failures** (was 1448, +1 for SA-17); corpus `passed=162 failed=1 skipped=0`, unchanged; `stack build --dry-run llmll` reported `Nothing to build.` at the moment the corpus gate ran; `scripts/version_gate.sh` exit 0.
+
+The CR-01 gap predated this phase: it defeated the `bytes[n]` arm shipped in v0.14.73, so the affected range for the wrapped shape is v0.14.34 through v0.14.73. The v0.14.74 release notes and the roadmap row were updated to record this.
 
 **Reviewed:** 2026-08-01T05:09:32Z
 **Depth:** standard
