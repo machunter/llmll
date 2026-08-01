@@ -5,12 +5,12 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: RET-RESOLVE SC3'
 status: planning
-stopped_at: Completed 01-03-PLAN.md (version-control step pending, blocked by subagent write hook)
+stopped_at: Phase 01 complete and verified (v0.14.74 shipped); Phase 2 not yet planned
 last_updated: "2026-08-01T14:18:10.947Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 01 complete, transitioned to Phase 2
 progress:
-  total_phases: 1
+  total_phases: 4
   completed_phases: 1
   total_plans: 4
   completed_plans: 4
@@ -20,22 +20,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-31)
+See: .planning/PROJECT.md (updated 2026-08-01)
 
 **Core value:** A `verified` verdict means what it says; where the compiler cannot discharge an
 obligation it names the gap rather than absorbing it.
-**Current focus:** Phase 01 — close-the-map-arm-of-wild-assume
+**Current focus:** Phase 2, RET-RESOLVE SC3' (not yet planned)
 
 ## Current Position
 
 Phase: 2 — Resolve wildcard return types at the root (RET-RESOLVE SC3')
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-01 — Phase 01 complete, transitioned to Phase 2
-plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
-`stack build --dry-run` reports "Nothing to build.").
+Last activity: 2026-08-01, Phase 01 complete and verified 5/5, transitioned to Phase 2
 
-Progress: [████████░░] 75%
+Progress: [██░░░░░░░░] 25% (1 of 4 phases)
 
 ## Milestone
 
