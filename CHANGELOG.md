@@ -4,6 +4,73 @@
 
 <a id="Latest"></a>
 
+## v0.14.75: one type-admissibility predicate, so the checker and the emitter cannot disagree (2026-08-01)
+
+A refactor with no user-visible behaviour change on any accepted or rejected program, and one latent
+divergence fixed. Zero acceptance delta across the 151-file corpus; `.fq` byte-identical 145/145.
+
+### Changed, ADMIT-SHARED
+
+- **The class, not the clause.** v0.14.74 fixed CR-01 by teaching `assumesFact` to strip
+  `TDependent`. The defect was not the missing clause: it was that LLMLL carried **two**
+  type-membership algorithms serving one semantic notion with nothing relating them —
+  `TypeCheck.assumesFact` matching at the outermost constructor, and `FixpointEmit.resolveAliasTy`
+  plus the `is*Like` predicates chasing aliases and stripping refinements. The checker guarded a
+  strictly narrower set than the emitter asserted for. A second instance was already queued behind
+  CR-01 at component positions, because `assumesFactBoolValue` had no `TCustom` clause.
+- **One predicate, in a leaf module both channels import.** New `LLMLL.TypeAdmissibility` holds
+  `AliasMap`, `buildAliasMap`, `resolveAliasTy`, `isIntLike` / `isBoolLike` / `isStrLike` /
+  `isScalarLike`, `bytesLenOf`, `boolValuedMapTy`, `normalizeTy`, and `admits`. The predicate is
+  **defined over the emitter's own fact-injection gates** rather than mirroring them —
+  `admits am t = isJust (bytesLenOf am t) || boolValuedMapTy am t` — so agreement is definitional
+  and the disagreement is unrepresentable. `FixpointEmit` re-exports the four names its three
+  consumers use, so `RefineReuse`, `ObligationAssembly` and `ObligationMining` are untouched.
+- **Total on unnormalized input.** `admits` normalizes what it inspects instead of requiring its
+  caller to have done so. A "has been normalized" precondition is inexpressible in `Type`, which
+  carries no normalization index, so nothing in the project could have checked it. `compatibleWith`
+  gains an `AliasMap` parameter so the guard lives **inside** the structural predicate and every
+  caller inherits it; hoisting it to `unify` would have avoided the threading and put the guard back
+  on the call-site-dependent footing this change exists to remove.
+- **ADMIT-OVER, stated rather than left derivable.** `admits` must hold whenever any emitter site can
+  inject a fact derived from a declaration. The containment is one-directional: too wide costs a
+  needless rejection, too narrow is a false SAFE. CR-01 was too narrow. `admits` deliberately ignores
+  `arrGateActive`, which every injection site conjoins, because that gate is a function of the
+  callee's **body** — consulting it would make type acceptance depend on a callee's body and differ
+  between `check` and `verify`. The shipped `assumesFact` over-approximated identically; this
+  documents an existing property rather than widening one.
+
+### Fixed
+
+- **A non-contractive alias no longer diverges.** `FixpointEmit.resolveAliasTy` chased alias chains
+  with no cycle guard and was shielded only by `check` failing on a contractiveness error before
+  `verify` ran. Moving the predicate into the checker removes that shield, so every alias-chasing
+  recursion in the shared module is guarded. Confirmed by mutation: without the guard the ADM-4 run
+  does not terminate. `Norm-Stuck` now covers two documented populations — an unbound name, and a
+  non-contractive alias, which denotes no regular tree and therefore has no fact to assert. That is
+  an intrinsic reason rather than "the checker errors first"; resting on pass ordering is the shape
+  of argument that produced CR-01.
+
+### Tests
+
+**1449 → 1460.** `ADM-1..4` exercise `admits` on **unnormalized** input, which no end-to-end test can
+reach because both seams pre-expand — including the component-position case `assumesFactBoolValue`
+answered `False` for. `SA-18` / `SA-18b` are the non-contractive termination guards on both arms.
+`SA-19` / `SA-19b` are a liveness pair driven through the new `runTCWithAliases`: the `structuralUnify`
+seam reads `tcAliasMap`, and `runTC` seeds it empty, so a direct unit test over an aliased asserting
+type would otherwise have exercised a disabled guard and passed vacuously — a dead WILD-ASSUME guard
+has shipped twice on this line already. Three QuickCheck properties carry the acceptance criterion as
+**two** obligations rather than one equation: A1 (congruence closure, whose bite is entirely at
+component positions) and A2 (expansion equivalence, tested against the real `expandAlias`). A1 ships
+in two forms because measurement showed the general generator **misses** the CR-01 sibling that the
+component-position generator catches.
+
+### Not in this release
+
+`checker_soundness_version` is **not** bumped: acceptance is unchanged by construction and the corpus
+gate measured it. No schema change. `Module.compatibleTy` was left alone — it is reachable only from
+`ModuleSpec.hs`, which closed the open question about a third compatibility relation by measurement
+rather than by argument.
+
 ## v0.14.74: the map[k,bool] arm of WILD-ASSUME, with no reaching-SAFE witness (2026-07-31)
 
 Two compiler changes to `assumesFact`'s discriminant and the diagnostic it drives, plus a corpus and suite re-measurement.
