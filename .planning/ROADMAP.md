@@ -40,7 +40,7 @@ is current. `llmll version` is not sufficient and mtime comparison is wrong abou
 
 ## Phases
 
-- [ ] **Phase 1: Close the map arm of WILD-ASSUME** - Stop `map[k,bool]` value-range facts entering a VC antecedent through a bare inference wildcard
+- [x] **Phase 1: Close the map arm of WILD-ASSUME** - Stop `map[k,bool]` value-range facts entering a VC antecedent through a bare inference wildcard (completed 2026-08-01)
 - [ ] **Phase 2: Resolve wildcard return types at the root (RET-RESOLVE SC3')** - Transitive `tau_ret` resolution in a sandboxed verification-facing pass, with the SCC-conditioned if-join preference
 - [ ] **Phase 3: Route type-derived facts through assume-guarantee (FACT-AG)** - Generalize the WILD-ASSUME approximation to the rule it approximates
 - [ ] **Phase 4: Disclose what the verifier assumed and where it did not check** - `def-invariant` axioms in the obligation report, plus the two deferred contract-read lint tiers; cuts v0.15.0
@@ -263,7 +263,7 @@ promoted; the design sketch is `docs/design/int-3-machine-int-sketch.md` and the
 
 | Phase | Plans Complete | Status | Target Version | Completed |
 |-------|----------------|--------|----------------|-----------|
-| 1. Close the map arm of WILD-ASSUME | 4/4 | In Progress| v0.14.74 |  |
+| 1. Close the map arm of WILD-ASSUME | 4/4 | Complete    | v0.14.74 | 2026-08-01 |
 | 2. RET-RESOLVE SC3' | 0/0 | Not started | v0.14.75 | - |
 | 3. FACT-AG | 0/0 | Not started | v0.14.76 | - |
 | 4. Assumption and lint disclosure | 0/0 | Not started | v0.15.0 | - |

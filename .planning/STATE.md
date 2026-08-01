@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: milestone
-current_phase: 01
-current_phase_name: close-the-map-arm-of-wild-assume
-status: verifying
+current_phase: 2
+current_phase_name: RET-RESOLVE SC3'
+status: planning
 stopped_at: Completed 01-03-PLAN.md (version-control step pending, blocked by subagent write hook)
-last_updated: "2026-08-01T05:00:47.671Z"
-last_activity: 2026-07-31
-last_activity_desc: Phase 01 execution started
+last_updated: "2026-08-01T14:18:10.947Z"
+last_activity: 2026-08-01
+last_activity_desc: Phase 01 complete, transitioned to Phase 2
 progress:
   total_phases: 1
   completed_phases: 1
@@ -28,10 +28,10 @@ obligation it names the gap rather than absorbing it.
 
 ## Current Position
 
-Phase: 01 (close-the-map-arm-of-wild-assume) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-31 — Phase 01 execution started
+Phase: 2 — Resolve wildcard return types at the root (RET-RESOLVE SC3')
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-01 — Phase 01 complete, transitioned to Phase 2
 plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
 `stack build --dry-run` reports "Nothing to build.").
 
@@ -47,7 +47,7 @@ exits 0.
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 4
 - Average duration: n/a
 - Total execution time: 0 hours
 
@@ -55,7 +55,7 @@ exits 0.
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01 | 4 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
