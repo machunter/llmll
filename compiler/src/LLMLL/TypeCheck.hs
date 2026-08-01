@@ -412,6 +412,24 @@ isBareWildcard :: Type -> Bool
 isBareWildcard (TVar n) = n == "?" || "?$" `T.isPrefixOf` n
 isBareWildcard _        = False
 
+-- | SAFE-ARG / WILD-ASSUME (stage 3): the noun phrase naming the fact
+-- 'assumesFact' would assert for a given type, used by 'tcWildAssumeError' so
+-- the rejection describes what it refused instead of a hardcoded bytes-only
+-- wording. The noun is per class, not per call site, because the two
+-- 'assumesFact' arms assert different facts: a @bytes[n]@ value's fact is
+-- @bytesLen(v) = n@ ('FixpointEmit.bytesLenReft'), a length; a @map[k,bool]@
+-- value's fact is the @0 \<= select(m$val,k) \<= 1@ range that
+-- 'FixpointEmit.injectBoolValRangeFacts' asserts from the declared value
+-- type, a per-key value RANGE, not a length -- reusing the bytes wording for
+-- the map arm would describe the wrong fact. Total: the fallback clause
+-- covers any future 'assumesFact' arm this function has not been taught yet,
+-- rather than making the whole diagnostic partial.
+wildAssumeFactNoun :: Type -> Text
+wildAssumeFactNoun (TBytes _) = "a length"
+wildAssumeFactNoun (TMap kt vt)
+  | assumesFactMapKey kt && assumesFactBoolValue vt = "a per-key value range"
+wildAssumeFactNoun _ = "a fact"
+
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
 -- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
 -- consumers see a normal type mismatch, plus the remedy in the message: the
@@ -429,7 +447,8 @@ tcWildAssumeError ctx expected = modify $ \s -> s
   where
     msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
             <> ", got ? (an unannotated return type). A " <> typeLabel expected
-            <> " value carries a length that the verifier asserts from the"
+            <> " value carries " <> wildAssumeFactNoun expected
+            <> " that the verifier asserts from the"
             <> " declaration, and inference cannot supply it; annotate the"
             <> " callee's return type."
 

@@ -2219,6 +2219,30 @@ main = hspec $ do
         Left e -> expectationFailure e
         Right report -> reportSuccess report `shouldBe` True
 
+    -- SA-16: the diagnostic names the fact it refused, per class, not a
+    -- hardcoded bytes-only wording. Asserts on diagMessage for BOTH arms in
+    -- one example so a wording change that makes either arm inaccurate
+    -- again fails: the map arm's fact is a per-key value range (the
+    -- 0 <= select(m$val,k) <= 1 range FixpointEmit.injectBoolValRangeFacts
+    -- asserts from the declared value type), and the bytes arm's fact
+    -- (SA-2's source, unchanged) is still a length.
+    it "SA-16 names the value-range fact for the map arm and the length fact for the bytes arm" $ do
+      case tcOf (mapLaunderPrefix ++
+            [ "(def-shell badb [k: int] -> map[int bool] (midb k))" ]) of
+        Left e -> expectationFailure e
+        Right report ->
+          any (T.isInfixOf "per-key value range" . diagMessage) (reportDiagnostics report)
+            `shouldBe` True
+      let bytesLaunderPrefix =
+            [ "(def mk32 [] -> bytes[32] (bytes-zero))"
+            , "(def-shell mid2 [] (mk32))"
+            ]
+      case tcOf (bytesLaunderPrefix ++ ["(def-shell bad [] -> bytes[64] (mid2))"]) of
+        Left e -> expectationFailure e
+        Right report ->
+          any (T.isInfixOf "a length" . diagMessage) (reportDiagnostics report)
+            `shouldBe` True
+
   -- -----------------------------------------------------------------------
   -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
   -- -----------------------------------------------------------------------
