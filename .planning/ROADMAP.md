@@ -70,7 +70,19 @@ longer contribute a value-range fact that no obligation discharges.
    regression check, not as evidence the fix works.
 5. Shipped per the Definition of Done above.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Baseline measurement, then the map arm end to end at the return seam with its `(map-empty)` over-breadth guard
+- [ ] 01-02-PLAN.md — The argument seam plus the four acceptance controls (annotated hop, alias, non-bool value, string key, construction path)
+- [ ] 01-03-PLAN.md — Diagnostic names the value-range fact, corpus and suite re-measured against the baseline, `checker_soundness_version` decided on evidence
+- [ ] 01-04-PLAN.md — Documentation-lead hand-off and the v0.14.74 release ceremony, with the evidence-limit language as an acceptance criterion
+
+**Note on criterion 1.** SA-6 is already committed and green at `compiler/test/Spec.hs:2093-2096`;
+it was written ahead of need during SAFE-ARG stage 1. Criterion 1 is satisfied by confirming it
+before the widen and re-running it after, not by authoring it. Planning also found that SA-6 tests a
+`map[int int]` position, which the widened clause cannot affect, so plan 01-01 adds SA-14 for the
+`map[int bool]` position the widen actually puts at risk.
 
 ---
 
@@ -224,7 +236,7 @@ promoted; the design sketch is `docs/design/int-3-machine-int-sketch.md` and the
 
 | Phase | Plans Complete | Status | Target Version | Completed |
 |-------|----------------|--------|----------------|-----------|
-| 1. Close the map arm of WILD-ASSUME | 0/0 | Not started | v0.14.74 | - |
+| 1. Close the map arm of WILD-ASSUME | 0/4 | Planned | v0.14.74 | - |
 | 2. RET-RESOLVE SC3' | 0/0 | Not started | v0.14.75 | - |
 | 3. FACT-AG | 0/0 | Not started | v0.14.76 | - |
 | 4. Assumption and lint disclosure | 0/0 | Not started | v0.15.0 | - |
