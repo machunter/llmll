@@ -306,7 +306,7 @@ Either is a decision to take before scheduling, not during planning.
 
 | Requirement | Phase | Acceptance in source | Status |
 |---|---|---|---|
-| `REQ-wild-assume-2` | Phase 1 | Yes, from source | Pending |
+| `REQ-wild-assume-2` | Phase 1 | Yes, from source | Complete (v0.14.74, 2026-08-01) |
 | `REQ-ret-resolve` | Phase 2 | Yes, from source | Pending |
 | `REQ-fact-ag` | Phase 3 | Authored 2026-07-31 | Pending |
 | `REQ-oblig-1-def-invariant` | Phase 4 | Authored 2026-07-31 | Pending |

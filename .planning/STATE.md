@@ -4,16 +4,16 @@ milestone: v0.15
 milestone_name: milestone
 current_phase: 01
 current_phase_name: close-the-map-arm-of-wild-assume
-status: executing
+status: verifying
 stopped_at: Completed 01-03-PLAN.md (version-control step pending, blocked by subagent write hook)
-last_updated: "2026-08-01T03:20:44.603Z"
+last_updated: "2026-08-01T05:00:47.671Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -30,7 +30,7 @@ obligation it names the gap rather than absorbing it.
 
 Phase: 01 (close-the-map-arm-of-wild-assume) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-31 — Phase 01 execution started
 plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
 `stack build --dry-run` reports "Nothing to build.").

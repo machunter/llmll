@@ -77,14 +77,14 @@ longer contribute a value-range fact that no obligation discharges.
 
 5. Shipped per the Definition of Done above.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 
 - [x] 01-01-PLAN.md — Baseline measurement, then the map arm end to end at the return seam with its `(map-empty)` over-breadth guard
 - [x] 01-02-PLAN.md — The argument seam plus the four acceptance controls (annotated hop, alias, non-bool value, string key, construction path)
 - [x] 01-03-PLAN.md — Diagnostic names the value-range fact, corpus and suite re-measured against the baseline, `checker_soundness_version` decided on evidence
-- [ ] 01-04-PLAN.md — Documentation-lead hand-off and the v0.14.74 release ceremony, with the evidence-limit language as an acceptance criterion
+- [x] 01-04-PLAN.md — Documentation-lead hand-off and the v0.14.74 release ceremony, with the evidence-limit language as an acceptance criterion
 
 **Note on criterion 1.** SA-6 is already committed and green at `compiler/test/Spec.hs:2093-2096`;
 it was written ahead of need during SAFE-ARG stage 1. Criterion 1 is satisfied by confirming it
@@ -263,7 +263,7 @@ promoted; the design sketch is `docs/design/int-3-machine-int-sketch.md` and the
 
 | Phase | Plans Complete | Status | Target Version | Completed |
 |-------|----------------|--------|----------------|-----------|
-| 1. Close the map arm of WILD-ASSUME | 3/4 | In Progress| v0.14.74 |  |
+| 1. Close the map arm of WILD-ASSUME | 4/4 | In Progress| v0.14.74 |  |
 | 2. RET-RESOLVE SC3' | 0/0 | Not started | v0.14.75 | - |
 | 3. FACT-AG | 0/0 | Not started | v0.14.76 | - |
 | 4. Assumption and lint disclosure | 0/0 | Not started | v0.15.0 | - |
