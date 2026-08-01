@@ -25,7 +25,7 @@ shorten repair distance for an agent writing LLMLL.
 This milestone is the **compiler backlog, targeting v0.15**. Five requirements, all carrying
 precedence-0 authority from `docs/compiler-team-roadmap.md`:
 
-- [ ] `REQ-wild-assume-2` — extend the WILD-ASSUME restriction to the `map[k,bool]` arm
+- [x] `REQ-wild-assume-2` — extend the WILD-ASSUME restriction to the `map[k,bool]` arm. Validated in Phase 1, shipped v0.14.74 (2026-08-01). The phase also closed a `TDependent`-wrapper evasion that defeated the `bytes[n]` arm shipped in v0.14.73.
 - [ ] `REQ-ret-resolve` — RET-RESOLVE SC3', transitive wildcard return resolution
 - [ ] `REQ-fact-ag` — route type-derived VC assumptions through assume-guarantee
 - [ ] `REQ-oblig-1-def-invariant` — `def-invariant` axioms in the obligation report `assumptions` field
@@ -141,4 +141,4 @@ authority. Full text and per-decision provenance: `.planning/intel/decisions.md`
 | Stale-binary detection: ask the build tool | Version strings and mtimes are both wrong about correct input; measured | — Pending |
 
 ---
-*Last updated: 2026-07-31 after ingest of 18 design documents and codebase mapping*
+*Last updated: 2026-08-01 after Phase 1 completion (v0.14.74)*
