@@ -2103,6 +2103,42 @@ main = hspec $ do
         Right report -> reportSuccess report `shouldBe` True
 
   -- -----------------------------------------------------------------------
+  -- SAFE-ARG (WILD-ASSUME): map[k,bool] laundering through an unannotated hop.
+  -- A sibling block rather than an extension of the bytes-arm block above,
+  -- which keeps that block's title ("bytes[n] laundering") accurate.
+  -- -----------------------------------------------------------------------
+  describe "SAFE-ARG (WILD-ASSUME): map[k,bool] laundering through an unannotated hop" $ do
+    let mapLaunderPrefix =
+          [ "(def mkint [k: int] -> map[int int] (map-put (map-empty) k 7))"
+          , "(def-shell midb [k: int] (mkint k))"
+          ]
+        tcOf srcLines = case parseStatements GrammarCoreInversion "<safe-arg>" (T.pack (unlines srcLines)) of
+          Left err    -> Left (show err)
+          Right stmts -> Right (typeCheck GrammarCoreInversion emptyEnv stmts)
+        wildAssumeFired report =
+          any (T.isInfixOf "unannotated return type" . diagMessage) (reportDiagnostics report)
+
+    -- SA-9: THE LIVE CASE for the return seam. Before the widen this
+    -- type-checks clean and lets a map[int,bool] declaration reach
+    -- FixpointEmit.injectBoolValRangeFacts as an undischarged assumption.
+    it "SA-9 rejects a laundered map[int,bool] at a map[int bool] RETURN position" $ do
+      case tcOf (mapLaunderPrefix ++
+            [ "(def-shell badb [k: int] -> map[int bool] (midb k))" ]) of
+        Left e -> expectationFailure e
+        Right report -> do
+          reportSuccess report `shouldBe` False
+          wildAssumeFired report `shouldBe` True
+
+    -- SA-14: over-breadth guard. (map-empty) at a map[int bool] position is
+    -- the position the widen actually puts at risk -- SA-6 does not reach
+    -- it, because SA-6's declared type is map[int int], not map[int bool].
+    -- This fixture must stay green on both sides of the assumesFact edit.
+    it "SA-14 does not reject (map-empty) at a map[int bool] position" $ do
+      case tcOf [ "(def-shell mb [] -> map[int bool] (map-empty))" ] of
+        Left e -> expectationFailure e
+        Right report -> reportSuccess report `shouldBe` True
+
+  -- -----------------------------------------------------------------------
   -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
   -- -----------------------------------------------------------------------
   describe "SAFE-ARG: checker_soundness_version sidecar invalidation" $ do
