@@ -1,12 +1,19 @@
 ---
-gsd_state_version: '1.0'
-status: ready-to-execute
+gsd_state_version: 1.0
+milestone: v0.15
+milestone_name: milestone
+current_phase: 01
+current_phase_name: close-the-map-arm-of-wild-assume
+status: executing
+stopped_at: Completed 01-01-PLAN.md (version-control step pending, blocked by subagent write hook)
+last_updated: "2026-08-01T02:18:26.719Z"
+last_activity: 2026-07-31
+last_activity_desc: Phase 01 execution started
 progress:
-  total_phases: 4
+  total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -17,18 +24,18 @@ See: .planning/PROJECT.md (updated 2026-07-31)
 
 **Core value:** A `verified` verdict means what it says; where the compiler cannot discharge an
 obligation it names the gap rather than absorbing it.
-**Current focus:** Phase 1, Close the map arm of WILD-ASSUME
+**Current focus:** Phase 01 — close-the-map-arm-of-wild-assume
 
 ## Current Position
 
-Phase: 1 of 4 (Close the map arm of WILD-ASSUME)
-Plan: 0 of 4 in current phase
-Status: Ready to execute — `/gsd-execute-phase 1`
-Last activity: 2026-07-31 — Phase 1 planned: 4 plans across 4 sequential waves, researched,
+Phase: 01 (close-the-map-arm-of-wild-assume) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-31 — Phase 01 execution started
 plan-checked, VALIDATION.md written. Build hygiene verified clean (binary v0.14.73,
 `stack build --dry-run` reports "Nothing to build.").
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Milestone
 
@@ -39,6 +46,7 @@ exits 0.
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: n/a
 - Total execution time: 0 hours
@@ -48,6 +56,11 @@ exits 0.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | - | - | - | - |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -59,11 +72,17 @@ decisions sit at `status: proposed` (see PROJECT.md Key Decisions and
 
 - The if-join wildcard preference ships as RET-RESOLVE SC3' (same-SCC conditioned); the
   RET-BRANCH-PREF Stage 2 type-channel variant is withdrawn. Reversible; INFO-2 / INFO-3.
+
 - Contract-position reads are total selects; disposition is status quo plus a scoped non-blocking
   lint.
+
 - Integer semantics option (a); `MachineInt` recorded dormant, and the milestone now honors that:
   `REQ-int-3` was scoped out on 2026-07-31 and returned to the deferred backlog.
+
 - Stale-binary detection uses `stack build --dry-run`, not the version string and not mtimes.
+- [Phase ?]: SA-6 confirmed pre-existing/green (map[int,int]); SA-14 added as the fixture that actually reaches the map[int,bool] over-breadth hazard SA-6 does not cover
+- [Phase ?]: Map-arm fixtures (SA-9, SA-14) live in a new sibling hspec describe block, not an extension of the bytes-arm block, keeping the bytes-arm block's title accurate
+- [Phase ?]: requirements mark-complete REQ-wild-assume-2 skipped this plan: gsd-tools requirements.ready-ids reports it blocked pending sibling plans 01-02/01-03/01-04 SUMMARYs in the same phase
 
 ### Pending Todos
 
@@ -77,6 +96,7 @@ None yet.
   authority, not `docs/compiler-team-roadmap.md`. Two scope calls came with it: FACT-AG measures the
   type-derived fact set and closes every class it finds, and the Dafny-style well-formedness
   side-obligation split out of Phase 4 into the deferred backlog.
+
 - **Phase 1's criterion 1 was aiming at a hazard its own fixture does not reach.** SA-6 is committed
   and green, but it asserts `(def-shell m [k: int] -> map[int int] (map-empty))`, whose value
   component is `int`. `assumesFact` returns False for it both before and after the widen, so SA-6
@@ -84,17 +104,23 @@ None yet.
   `map[int bool]`, which no committed fixture covered. Plan 01-01 adds SA-14 for it and keeps SA-6
   for criterion 1 as literally worded. Criterion 1 as written would have passed while leaving the
   real risk untested.
+
 - **A wrong diagnostic would have shipped with the widen.** `tcWildAssumeError`
   (`TypeCheck.hs:405-406`) tells the user the value "carries a length", true for the bytes arm and
   false for maps. Plan 01-03 adds `wildAssumeFactNoun` and SA-16 to hold both arms to accurate
   wording.
+
 - ~~Phase 1 has a hard prerequisite~~ **(superseded by the two items above; retained for context)**: the `(map-empty)` over-breadth fixture `SA-6` must be
   committed before the WILD-ASSUME discriminant widens, or every `(map-empty)` use breaks.
+
 - **Phase 2 must not land before Phase 1.** The `resultLenFact` assumption-injection channel can
   turn a crash into `verified`.
+
 - **Two deferred requirements have no backing roadmap row** (`REQ-do-1-discard-warn-or-error`,
   `REQ-rfc-swarm-harness-resubmit-protocol`). Confirm against the backlog of record before any
   future milestone schedules them.
+
+- Repo hook block-git-from-subagent.sh denies git-write subcommands from any Task-tool subagent; 01-01's changes (Spec.hs, TypeCheck.hs, SUMMARY.md, STATE.md) are staged/written on disk but need the calling agent to record them into version control
 
 ## Deferred Items
 
@@ -106,6 +132,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-31
-Stopped at: PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md written from ingest
+Last session: 2026-08-01T02:18:26.714Z
+Stopped at: Completed 01-01-PLAN.md (version-control step pending, blocked by subagent write hook)
 Resume file: None

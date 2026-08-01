@@ -24,8 +24,10 @@ A phase is complete when it **ships**:
 1. The change lands in `CHANGELOG.md` under a new `## vX.Y.Z` heading with a dated title.
 2. The version agrees across `README.md` line 1, `LLMLL.md` lines 1 and 5, the top `## vX.Y.Z`
    heading in `CHANGELOG.md`, `compiler/package.yaml`, and `compiler/llmll.cabal`.
+
 3. `scripts/version_gate.sh` exits 0 (this also checks `docs/llmll-ast.schema.json` schemaVersion
    against `ParserJSON.expectedSchemaVersion`, and the `$id` URL against the derived major.minor).
+
 4. `stack test` is green and the examples gate (`scripts/check-examples.sh`) reports no new
    failures.
 
@@ -54,26 +56,32 @@ longer contribute a value-range fact that no obligation discharges.
 **Target version**: v0.14.74 (indicative; must be a monotonic bump)
 
 **Success Criteria** (what must be TRUE):
+
 1. The `(map-empty)` over-breadth fixture `SA-6` is committed **before** the restriction widens,
    and `(map-empty)` still type-checks at every position it does today. This is the stated
    prerequisite: `map-empty : TFn [] (TMap (TVar "k") (TVar "v"))` relies on componentwise wildcard
    absorption, so a discriminant broader than the bare wildcard breaks every use of it.
+
 2. `assumesFact` covers the map class, and the discriminant recognizes both the bare `TVar "?"` and
    its `freshenFnType` instances `?$N`. A fixture exercises the `?$N` form directly, so the guard
    cannot go dead the way the first SAFE-ARG implementation did.
+
 3. A fixture exhibits the rejection: a `map[k,bool]` value laundered through an unannotated hop is
    refused at the seam instead of injecting `0 <= select(m$val,k) <= 1` into a VC antecedent.
+
 4. The release notes state the evidence limit rather than overclaiming: this arm is a **measured
    member of the SAFE-ARG class with no reaching-SAFE witness**, because both the return and
    argument shapes crash on a sort mismatch before a verdict. The phase closes a class member; it
    does not refute a demonstrated exploit. A corpus run with no new failures is recorded as a
    regression check, not as evidence the fix works.
+
 5. Shipped per the Definition of Done above.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
-- [ ] 01-01-PLAN.md — Baseline measurement, then the map arm end to end at the return seam with its `(map-empty)` over-breadth guard
+
+- [x] 01-01-PLAN.md — Baseline measurement, then the map arm end to end at the return seam with its `(map-empty)` over-breadth guard
 - [ ] 01-02-PLAN.md — The argument seam plus the four acceptance controls (annotated hop, alias, non-bool value, string key, construction path)
 - [ ] 01-03-PLAN.md — Diagnostic names the value-range fact, corpus and suite re-measured against the baseline, `checker_soundness_version` decided on evidence
 - [ ] 01-04-PLAN.md — Documentation-lead hand-off and the v0.14.74 release ceremony, with the evidence-limit language as an acceptance criterion
@@ -105,21 +113,27 @@ not deferred; authority is `ret-resolve-proposal-review.md` Round 1 finding 1, a
 is reversible (INFO-2 / INFO-3 in `.planning/INGEST-CONFLICTS.md`).
 
 **Success Criteria** (what must be TRUE):
+
 1. Kleene iteration of the monotone update over `tcRetTypes` converges, one pass per SCC in reverse
    topological order, and each of the nine measured crash shapes now reaches a verdict instead of a
    sort-mismatch crash. This is stated as a `tau^0`-biased update, not as a lattice join.
+
 2. **SC1 holds**: only bare `TVar "?"` is refined. Named-hole types are retained and a concrete
    `tau^0` is never revised. A component with no concrete anchor stays bare-wildcard and keeps
    today's behavior.
+
 3. **SC2' holds**: the pass is sandboxed and only the return-type map is extracted, so the type
    channel's accept/reject set and the sketch-hole registry are unchanged by construction, not by
    inspection.
+
 4. **SC3' holds**: the if-join concrete-branch preference fires only when the wildcard branch's
    head calls a member of `SCC(f)`. The negative fixture `(if c (g x) 1)`, with `g` a different
    unannotated function, still synthesizes the wildcard.
+
 5. **Gate**: `.fq` is byte-identical across all 128 corpus files with zero demotions, the same gate
    that refuted the withdrawn HOLE-RET. A demotion count above zero stops the phase rather than
    being explained.
+
 6. Shipped per the Definition of Done above.
 
 **Plans**: TBD
@@ -145,22 +159,28 @@ makes that bounded work instead of open-ended: the set is derived, so it is fini
 before the closure work is scoped.
 
 **Success Criteria** (what must be TRUE):
+
 1. The set of type-derived fact classes is **derived from the emitter, not enumerated by hand**, and
    the derivation is published. Hand enumeration is rejected on evidence: the `tau_ret` consumer
    count moved 1 → 2 → 4 → 4-plus-parameters across four review rounds, each increment found by
    someone reading more code.
+
 2. Every class in that derived set routes through the `consumed_guarantees` / §5.3.4 meet channel,
    carrying the producing function's verification status in the antecedent. Recording the channel
    alone is insufficient: the fact's truth depends on a producer whose annotation may never have
    been validated.
+
 3. **A refute crux exists and kills**: a program relying on a type-derived fact whose producer never
    discharged the corresponding obligation is refused at the seam, not reported `verified`.
+
 4. WILD-ASSUME's two seams (`structuralUnify` for arguments, `compatibleWith` for returns and
    `checkExpr`) are reconciled with the general rule, so the approximation and the rule do not
    disagree about the same program.
+
 5. The measured set and its coverage are published, including any class the phase does not close,
    named individually. A corpus run with no new failures is a regression check, not evidence the
    routing works.
+
 6. Shipped per the Definition of Done above.
 
 **Plans**: TBD
@@ -191,22 +211,29 @@ work rather than disclosure work, and bundling it made the milestone's final pha
 What remains here is one report province and one report-only lint.
 
 **Success Criteria** (what must be TRUE):
+
 1. The obligation report's `assumptions` field carries `def-invariant` axioms alongside the shipped
    v1 (refinement predicates of in-scope refinement-typed params), v2a (let-definitional
    equalities), and v2b (match-scrutinee case hypotheses) provinces.
+
 2. Each assumption carries provenance identifying its province, and the report `schema_version` is
    bumped so a consumer can tell the pre-bump and post-bump shapes apart without guessing.
+
 3. **A reader can distinguish an unverified invariant from a discharged one**, so a TCB assumption
    is visible in the artifact rather than implied by its absence. This is the criterion that carries
    the requirement; 1 and 2 are the mechanism.
+
 4. A fixture asserts the negative: a `def-invariant` that no obligation discharges appears in the
    report marked as such, neither silently omitted nor reported as discharged.
+
 5. `lintContractReads` emits `contract-read-oob` on the `map-get`-without-`map-has` shape, and the
    lint stays **non-blocking and report-only**: a report-only check that acquires blocking power is
    the defect pattern this project already recorded.
+
 6. A fixture asserts the lint's true negative: a `map-get` guarded by `map-has` does not warn, so
    the lint is shown to discriminate rather than merely to fire. The v1 `bytes-zero` context rule
    keeps its blessed behavior.
+
 7. Shipped per the Definition of Done above, cutting v0.15.0.
 
 **Plans**: TBD
@@ -236,7 +263,7 @@ promoted; the design sketch is `docs/design/int-3-machine-int-sketch.md` and the
 
 | Phase | Plans Complete | Status | Target Version | Completed |
 |-------|----------------|--------|----------------|-----------|
-| 1. Close the map arm of WILD-ASSUME | 0/4 | Planned | v0.14.74 | - |
+| 1. Close the map arm of WILD-ASSUME | 1/4 | In Progress| v0.14.74 |  |
 | 2. RET-RESOLVE SC3' | 0/0 | Not started | v0.14.75 | - |
 | 3. FACT-AG | 0/0 | Not started | v0.14.76 | - |
 | 4. Assumption and lint disclosure | 0/0 | Not started | v0.15.0 | - |
