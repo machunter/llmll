@@ -4,6 +4,78 @@
 
 <a id="Latest"></a>
 
+## v0.14.76: the bytes[n] length is earned at the call site, not asserted from the declaration (2026-08-01)
+
+FACT-AG-LEN **Stage 1 of 3**, the parameter position. One emitter change plus test surface. No
+schema change, no evidence-hash change, no `checker_soundness_version` bump.
+
+### Changed, FACT-AG-LEN Stage 1
+
+- **The fact moves off the binder and into the precondition.** A `bytes[n]` parameter carried
+  `bytesLen(v) = n` as its binder refinement (`bytesLenReft` at `emitParamBind`), so the equality
+  entered every VC antecedent with nothing discharging it. That is the SAFE-ARG class: WILD-ASSUME
+  (v0.14.73, v0.14.74) polices the one type-compatibility path by which an unvalidated declaration
+  reaches the site, but it does not make the fact earned. New `bytesLenParamPre` contributes
+  `(= (bytes-length n) len)` per bytes-typed parameter, conjoined at `paramRefinementPre`, so
+  §5.3.4's call rule proves it at each call site under PROVE polarity and assumes it inside the
+  callee, exactly as for a hand-written `pre`. `buildContractEnvWith` already augments the stored
+  `ContractEnv`, so one edit supplies both the definition-site assume and the call-site prove.
+- **The gate self-activates, and `typeToSort` is untouched.** `bytes-length` is in `bytesOpNames`
+  and `arrGateActive` reads the **augmented** contract, so a bytes-typed function turns the LEVER-A1
+  gate on for itself and its parameters bind at `byteArraySort`. The alternative raised in review,
+  widening `typeToSort` for `TBytes`, would have array-sorted `Result` and ADT components where no
+  `bytesLen` machinery is in scope; it was rejected on that measurement, not on preference.
+- **`emitParamBind` keeps the sort and drops only the predicate.** That clause supplied
+  `byteArraySort` as well as the fact, so deleting it outright falls through to `typeToSort`'s
+  conservative `FQInt` default and emits ill-sorted `bytesLen` applications. The design document
+  said to delete it and was wrong.
+- **The elaboration is deliberately not folded into `resolveAllRefinements`.** Four other consumers
+  must not see it. One is `returnRefinementPost`, which is Stage 3, and Stage 3 without Stage 2
+  refutes every `bytes-zero` body; another is `payloadRefinement`, which would defeat the
+  component-position exclusion.
+
+### Not in this release
+
+**Stages 2 and 3 are open, and the stage ordering is a correctness constraint, not a preference.**
+Stage 2 is the `bytes-zero` constructor axiom: `(bytes-zero)` translates to `Map_default(0)` and
+carries no length, so landing Stage 3 first makes the body VC for a `-> bytes[n]` function UNSAT and
+refutes every bytes-constructing function in the corpus. Stage 3 is the return position, and it will
+change the evidence hash of every bytes-returning function.
+
+**The return position is still shielded rather than discharged.** `resultLenFact` remains on the
+constraint LHS, so a declared return's length is assumed about the body rather than proved of it.
+Ten shapes were attempted against it and **no witness was constructed**; that is a measured absence,
+not a proof. One result narrows the claim rather than closing it: an `if` whose arms carry different
+declared lengths passes `llmll check` with only a warning, and `llmll verify` promotes it to a hard
+error, so the shield is `verify`, not the type checker.
+
+**SAFE-ARG is not closed by this release.** Stage 1 retires the unearned antecedent at the parameter
+position only.
+
+### Gates
+
+Corpus sweep **251 files, zero verdict delta**, with the baseline taken by revert-and-rebuild.
+Evidence hashes unchanged, which confirms Stage 1 moves no hash.
+
+Three delta populations were declared before the sweep ran, and only one has an in-tree witness:
+functions carrying a `bytes[n]` (8 `.llmll` across 8 files, 11 JSON-AST across 7 files), of which
+1 `.llmll` and 7 JSON-AST move from off-gate to gated. The other two, a function carrying `bytes[n]`
+and `map[int,int]` together and a non-bytes direct caller of a bytes-typed function, have **zero**
+in-tree instances. The sweep validates the bytes population and is **silent** on the other two: they
+are unmeasurable by this corpus, not passing against it.
+
+### Tests
+
+**1460 → 1461.** `A1-1`, `A1-7` and `A1-8` are re-pointed, each gaining a `shouldNotSatisfy` that
+pins the binder fact as gone; `A1-8` additionally pins the callee's length as a discharged caller
+obligation. `A1-7` previously encoded byte-inertness for op-free bytes parameters, a property Stage 1
+retires by design; what it holds now is that an op-free function still gains no op machinery, no
+exact pinning and no family-2 range facts. New `A1-10` covers an aliased `bytes[n]` parameter, the
+CR-01 shape at the head position.
+
+Design: [`docs/design/fact-ag-proposal.md`](docs/design/fact-ag-proposal.md) (Rev 2), with the
+standalone [`docs/design/fact-ag-proposal-review.md`](docs/design/fact-ag-proposal-review.md).
+
 ## v0.14.75: one type-admissibility predicate, so the checker and the emitter cannot disagree (2026-08-01)
 
 A refactor with no user-visible behaviour change on any accepted or rejected program, and one latent
