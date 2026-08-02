@@ -1,6 +1,8 @@
 # Do-Notation + Pair Destructuring: Implementation Plan
 
-> **Design authority:** `docs/do-notation-design.md` r9 (Approved)
+> **SUPERSEDED (2026-08-02) in part, inherited from its design authority.** This plan's authority, [`do-notation-design.md`](do-notation-design.md), had **§2.4 ("Command Accumulation") retracted** on 2026-08-02: [`LLMLL.md`](../../../LLMLL.md) §9.6 is the shipped normative text and specifies the discard rather than automatic `seq-commands` composition. Anything in this plan that implements §2.4's accumulation is retracted with it. The live work is **DISCARD-1** (a `:discard` step marker gating a hard error), specified in [`../../design/effect-response-channel-proposal.md`](../../design/effect-response-channel-proposal.md) (Rev 3, SETTLED) §DISCARD-1 and tracked as the **DO-ACCUM-1** row in [`../../compiler-team-roadmap.md`](../../compiler-team-roadmap.md). The rest of the four-PR sequence shipped at v0.3 and is retained as the historical record. Do not treat this plan as current implementation guidance.
+
+> **Design authority:** `docs/do-notation-design.md` r9 (**Superseded on §2.4**, 2026-08-02; was "Approved")
 > **Target version:** LLMLL v0.3
 > **Compiler source root:** `compiler/src/LLMLL/`
 

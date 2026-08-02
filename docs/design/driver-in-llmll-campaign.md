@@ -1,7 +1,7 @@
 ---
 name: driver-in-llmll-campaign
 title: "DRIVER-LL: a fully functional RFC-SWARM driver written in LLMLL, and the language work it requires"
-status: "Rev 0, READY FOR ENGINEER. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 2, SETTLED)."
+status: "Rev 1, READY FOR ENGINEER. Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Phases 1-5 unchanged. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 3, SETTLED)."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -50,6 +50,7 @@ Counted against `scripts/rfc_to_implementation.py` (1814 lines), by call site.
 | Driver need | Python sites | LLMLL surface today | Row |
 |---|---|---|---|
 | Consume any effect result | pervasive | **impossible**: `wasi.fs.read : string -> Command`, opaque | EFFECT-RESP |
+| Perform a filesystem or outbound-HTTP effect at all | pervasive | **`wasi.fs.read` / `write` / `delete` and `wasi.http.post` are declared in `builtinEnv` (`TypeCheck.hs:154-161`) but absent from the codegen preamble (`CodegenHs.hs:394-409`), which defines only `stdout` / `stderr` / `http.response`. Measured: `(wasi.fs.read p)` gives `check` OK and `build` `[GHC-88464] Variable not in scope: wasi_fs_read`.** | **WASI-RT** (new; prerequisite of EFFECT-RESP) |
 | Spawn and await a subprocess | 19 `subprocess.` | none; `haskell.process` FFI works but yields ⊤ authority | CAP-PROC |
 | JSON read, write, parse | 18 `json.` | none; no dynamic type | JSON-1 |
 | Regex and tokenizing | 15 `re.` | `regex-match` (bool), `string-split`, `string-concat-many`, `string-trim` | covered |
@@ -67,9 +68,9 @@ driver-spec §15.2's letter (⊤ is an over-approximation) while making the repo
 **FFI signature seam is unchecked**: a declared `(fn [cmd: string] -> int)` against
 `callCommand :: String -> IO ()` typechecks, codegens, and builds, failing only at GHC and only when
 a use forces the type. It cannot reach the proved tier (a `def` refuses an FFI callee at strict-core
-admission), so it is an asserted-tier disclosure gap, not a soundness defect. `IFACE-CONFORM`
-(`docs/compiler-team-roadmap.md:53`) already names the FFI split as "stated in no spec section"; this
-campaign supplies the measured witness.
+admission), so it is an asserted-tier disclosure gap, not a soundness defect. The **IFACE-CONFORM**
+row in `docs/compiler-team-roadmap.md` already names the FFI split as "stated in no spec section";
+this campaign supplies the measured witness.
 
 **Standing rule for this campaign, pre-registered.** Every `haskell.*` or `c.*` declaration written
 in driver code is a **filed gap with a named missing capability**, and the FFI declaration count is a
@@ -83,29 +84,98 @@ papered over at the moment it is found, and the result is a program that runs an
 
 Each phase has standalone value; the sequence degrades gracefully if it stops early.
 
-### Phase 0 — DO-ACCUM-1 `[CT]` (S)
+### Phase 0: DO-ACCUM-1 `[CT][SPEC]` (M), **RE-SCOPED as P0-marker, Rev 1**
 
-Fix `emitDo` to compose intermediate commands via `seq-commands` per
-`docs/archive/do_notation/do-notation-design.md` §2.4; delete `checkDiscardedCommand`; land the
-verbatim §9 text the settled design mandated.
+Rev 0 scoped this as: fix `emitDo` to compose intermediate commands via `seq-commands` per
+`docs/archive/do_notation/do-notation-design.md` §2.4, delete `checkDiscardedCommand`, and land §9
+text that does not exist. Re-measurement refutes the premises of all three. See
+`effect-response-channel-proposal.md` (Rev 3), §DO-ACCUM-1, for the evidence; in summary:
 
-- **Acceptance:** the two-step do-block witness in `effect-response-channel-proposal.md` emits both
-  commands; no warning remains; `LLMLL.md §9` contains a `do` semantics subsection.
-- **Why first:** it is a shipped codegen defect with a settled design to conform to and **zero
-  in-tree witnesses** (`(do ` occurs twice in the tree, both in walkthrough markdown), so its verdict
-  is attributable in isolation and cannot be confounded by Phase 1.
-- **STOP:** if any existing program's behaviour changes, the blast-radius measurement was wrong and
-  the phase pauses for re-measurement.
+- `LLMLL.md:1588` **is** a `do` semantics subsection (§9.6). The zero-hit grep missed it because the
+  heading writes `` `do` ``-notation with the backticks inside the term.
+- §9.6 does not merely fail to mandate composition; at `:1604` and `:1606` it specifies the current
+  discard behaviour as intended and names the future direction as tightening to a **warn-or-error**.
+  `do-notation-design.md` carries `Status: Approved — Pending Implementation` for v0.3 and was never
+  implemented. Two normative texts, opposite directions.
+- Blast radius is **two artifacts, not zero**: the JSON-AST fixture
+  `compiler/test/fixtures/pair_type_test/do_emit_ac.ast.json` (no test consumer), and
+  `scripts/doc-claims/do-notation-discard-warn.llmll`, which is run on every CI job by
+  `scripts/doc_claims_gate.sh` (`.github/workflows/version-gate.yml:118`) and whose `@expect` pins
+  the discard warning. Confirmed against the v0.14.78 binary. Deleting the warning fails DRIFT-CT-2.
 
-### Phase 1 — EFFECT-RESP `[CT][SPEC]` (M)
+**STOP condition already met, and discharged.** Rev 0's STOP read "if any existing program's
+behaviour changes, the blast-radius measurement was wrong and the phase pauses for re-measurement."
+The measurement was wrong; the phase paused here rather than after a red CI run, and the
+re-measurement above discharges it.
 
-Implement the response channel per `effect-response-channel-proposal.md` Rev 2: RC-1..RC-4, the
+**Settled scope (user adjudication, 2026-08-02, re-put once): P0-marker.** `LLMLL.md` §9.6 stands;
+`do-notation-design.md` §2.4 is superseded.
+
+A first adjudication chose plain P0-error, on my description that the agent would "write
+`seq-commands` explicitly." **That description was wrong and the choice was re-put.** Measured,
+`DoStep` binds only the state component (`Syntax.hs:237`, `TypeCheck.hs:1852-1854`), so no step can
+reference an earlier step's `Command`, and §9.6:1606's "unless explicitly wrapped in `seq-commands`"
+escape hatch is unreachable. Plain P0-error would therefore have made every multi-step `do` illegal
+with no workaround. The settled variant gates the error on the `(discard …)` marker that the in-code
+v0.8 note always intended ("Hard error deferred to v0.8 **when (discard expr) provides an explicit
+opt-out**", `TypeCheck.hs:1858-1859`). Full spec: `effect-response-channel-proposal.md` §DISCARD-1.
+
+The work is:
+
+1. **DISCARD-1, a new surface construct.** `[s1 <- (step-a s0) :discard]` in S-expressions; an
+   optional `"discard": true` on the `do-step` JSON-AST node, defaulting to `false`. Schema bump
+   **0.9.0 to 0.10.0** recommended (the shipped schema is 0.9.0: `docs/llmll-ast.schema.json:18`,
+   `ParserJSON.hs:47`), engineer to confirm against prior additive-field precedent. Freeze
+   lifted at v0.11 (the lifted-exclusions note under `docs/compiler-team-roadmap.md` §"What's NOT on this Roadmap (and why)"); the required soundness argument is written
+   in §DISCARD-1 and rests on the marker being erasable with no runtime denotation.
+2. `checkDiscardedCommand` (`TypeCheck.hs:1860-1865`) is **promoted from warning to error**, gated on
+   the marker, plus a second rule rejecting the marker on the final step. The deferral note at
+   `:1858-1859` is removed. `emitDo` is **not touched** and generated Haskell is bit-identical.
+3. `LLMLL.md:1606` becomes the shipped rule: the `(discard cmd)` marker moves from "future" to
+   present tense, and the unreachable `seq-commands` escape-hatch clause is struck as measured-false.
+   `:1604` stands. Doc-lead's slot.
+4. `scripts/doc-claims/do-notation-discard-warn.llmll`: `@expect` flips `warn:` to `check-error:`
+   with the same pinned substring; `@claim` re-worded from "emits a discard warning" to "is
+   rejected". Same commit as (2).
+5. `compiler/test/fixtures/pair_type_test/do_emit_ac.ast.json` re-shaped by adding
+   `"discard": true` to its step 0, which is better than removing it: it then exercises the new
+   field. No test consumer, so nothing asserts against it either way.
+6. `docs/archive/do_notation/do-notation-design.md` marked superseded-by-§9.6 so the next reader
+   does not re-derive DO-ACCUM-1 from it. Doc-lead's slot.
+
+- **Why the error family rather than P0-compose:** under RC-2 an auto-composing `do` discards every
+  non-final step's response and so could never consume an intermediate effect result: the exact
+  shape stages E and G2 need. See `effect-response-channel-proposal.md` Rev 3, §DO-ACCUM-1.
+- **Acceptance:** a two-step do-block with an **unmarked** non-final `Command` is a `check` error;
+  DRIFT-CT-2 green at 14 doc-claims; `LLMLL.md §9.6` states one rule rather than two.
+- **Cost, stated up front:** `do` still cannot sequence effects; it threads state and now requires
+  every dropped command to be marked. The agent cannot recover a dropped command by writing
+  `seq-commands` inside the block, because no step binds an earlier step's `Command`. Code that
+  genuinely needs sequenced effects must leave `do` and use nested `let` with explicit pair
+  destructuring. The marker makes that boundary visible instead of silent.
+- **Does not block Phases 1-5.** EFFECT-RESP's RC-1..RC-4 are independent of this choice; `do` is
+  sugar over the pair-thread model and the driver spine can be written without it. Phase 0 is
+  sequenced first for attributability, not because anything depends on it.
+
+### Phase 1 — EFFECT-RESP `[CT][SPEC]` (M), with **WASI-RT as step zero**
+
+Implement the response channel per `effect-response-channel-proposal.md` Rev 3: RC-1..RC-4, the
 compiler-supplied `Response` sum, the `:step` arity change, the console-harness restructure.
 
-- **Acceptance:** a program reads a file and branches on its contents; the five in-tree console
-  programs are migrated and behave identically; `Σ_auto` unchanged (corpus `.fq` byte-identical for
-  every file not using the channel); the RC-1 bijection is exercised by a fixture that counts
-  performed commands against delivered responses.
+**Step zero, WASI-RT.** Four of the seven declared `wasi.*` builtins have no codegen definition, so
+`wasi.fs.read` cannot be performed at all: `check` passes, `build` dies at GHC with
+`Variable not in scope: wasi_fs_read`. RC-1 delivers one response per *performed* command, so the
+channel has nothing to attach to until this lands. See §2 and the proposal's prerequisite section.
+
+- **Acceptance:** a program reads a file and branches on its contents; the **twelve** in-tree console
+  programs are migrated and behave identically (six `.llmll`, six `.ast.json`; an earlier count of
+  five was low); `Σ_auto` unchanged (corpus `.fq` byte-identical for every file not using the
+  channel); the RC-1 bijection is exercised by a fixture that counts performed commands against
+  delivered responses.
+- **The migration has no `check`-time diagnostic until it is built.** `checkStatement (SDefMain{..})`
+  (`TypeCheck.hs:1405-1414`) discards the `:step` inferred type, so every unmigrated console program
+  stays green at `check` and dies at GHC. The new arity check must land in the same commit; it is the
+  migration's only warning.
 - **STOP:** if the corpus `.fq` is not byte-identical for non-participating files, the change reached
   the verification surface, which the design says it must not.
 
@@ -121,7 +191,7 @@ is the check that the arm set chosen in Phase 1 was right.
 `wasi.proc.spawn` is the first capability that can leave the sandbox by construction, so its grant
 must name the executable, mirroring `(capability read-write "/rfc-swarm-runs")` rather than granting
 spawn in general. That soundness argument belongs in the CAP-PROC design record, per the lifted-freeze
-policy at `docs/compiler-team-roadmap.md:242`.
+policy: the lifted-exclusions note under `docs/compiler-team-roadmap.md` §"What's NOT on this Roadmap (and why)".
 
 **JSON-1** adds a **sealed `Json` builtin ADT**, `def-shell`-only: `json-parse : string ->
 Result[Json, string]`, `json-serialize : Json -> string`, and typed accessors returning `Result`.
@@ -183,21 +253,58 @@ its phase, and whether it was closed or deferred.
 
 ---
 
+## 3a. The campaign is the first thing in this repository that has to build
+
+Measured while planning Phase 1, and it reframes the risk profile of everything above.
+
+No in-tree path invokes `llmll build`. `grep -rn 'llmll build'` across `scripts/`, `.github/`,
+`compiler/test/`, `tools/`, and `Makefile` returns three hits, all comments or doc-claim prose, and
+`compiler/test/Spec.hs:13974` records that `llmll build`'s own `stack build` self-check never ran.
+`check-examples.sh` typechecks. The corpus is a **check-only** corpus.
+
+**Three defects already sit in the resulting `check`-passes / `build`-fails seam**, and all three
+were found in the last day:
+
+1. **WASI-RT.** Four declared `wasi.*` builtins have no runtime; `(wasi.fs.read p)` typechecks and
+   fails at GHC.
+2. **The `:step` arity change** Phase 1 requires. `checkStatement (SDefMain{..})`
+   (`TypeCheck.hs:1405-1414`) discards the `:step` inferred type, so a breaking arity change is
+   invisible to `check` on every program.
+3. **`IFACE-CONFORM`** (row of that name in `docs/compiler-team-roadmap.md`), which already names the FFI signature
+   split as "stated in no spec section". WASI-RT reaches the same seam with no FFI in sight.
+
+DRIVER-LL's goal is a *fully functional* driver, which means a **running binary**, which makes this
+campaign the first artifact in the repository that must clear GHC end to end. Everything the campaign
+touches will be exercised through a code path that has never had a gate on it.
+
+**Consequence for the phase plan, stated up front rather than discovered at Phase 3.** Expect
+build-tier defects at a rate the `check`-tier history does not predict, and do not read a green
+`check` as evidence a phase is done. A minimal build gate over one effectful program is routed as its
+own roadmap row; until it exists, every phase's acceptance should include building at least the
+artifact that phase produces.
+
+---
+
 ## 4. Dependency order
 
 ```
-Phase 0 (DO-ACCUM-1)
-   └─> Phase 1 (EFFECT-RESP)          ← the wall; nothing reads a file before this
-          ├─> Phase 2a (CAP-PROC)
-          └─> Phase 2b (JSON-1)
-                 └─> Phase 3 (mechanical spine: A, E, G2, J, L)
-                        └─> Phase 4 (agent stages + serial wave)
-                               └─> Phase 5 (conformance claim)
+Phase 0 (DO-ACCUM-1)   [independent; sequenced first for attributability only]
+
+Phase 1 (EFFECT-RESP)             ← the wall; nothing reads a file before this
+   ├─> Phase 2a (CAP-PROC)
+   └─> Phase 2b (JSON-1)
+          └─> Phase 3 (mechanical spine: A, E, G2, J, L)
+                 └─> Phase 4 (agent stages + serial wave)
+                        └─> Phase 5 (conformance claim)
 ```
 
-Phase 0 and Phase 1 are strictly ordered because RC-2 gives `seq-commands` the meaning DO-ACCUM-1's
-composition depends on, and because landing them together makes an unexpected diff unattributable.
-Phases 2a and 2b are independent of each other.
+**Corrected in Rev 1.** Rev 0 drew Phase 0 as a strict predecessor of Phase 1, on the rationale that
+"RC-2 gives `seq-commands` the meaning DO-ACCUM-1's composition depends on." That rationale holds
+only under P0-compose, which Rev 1 retracts: under the settled P0-marker there is no composition, so
+nothing in Phase 1 depends on Phase 0. The two are independent and may land in either order or
+concurrently. Phase 0 is still listed first, for one reason that survives the re-scoping: it is small
+and self-contained, so landing it alone keeps an unexpected diff attributable. Phases 2a and 2b are
+independent of each other.
 
 ---
 
@@ -237,13 +344,32 @@ demonstration that the dogfood pays. Experiment-lead owns it.
 
 ## 7. Roadmap delta, staged for documentation-lead
 
-The roadmap is doc-lead's slot; the text below is staged, not applied. Insert into the **Open work
-(v0.12+ lane)** table at `docs/compiler-team-roadmap.md:48-67`.
+The roadmap is doc-lead's slot. **Rev 1 note:** this delta was applied by doc-lead at `cb90c3b`, so
+the table below is now a record of what was staged, not a pending request, with one exception. The
+**DO-ACCUM-1** row needs a further doc-lead pass: the applied version at
+`docs/compiler-team-roadmap.md:50` corrected the blast radius to one JSON-AST fixture, which is
+closer than "zero" but still incomplete, and it repeats two claims that Rev 1 refutes: that no
+`.llmll` source contains a do-block, and that `LLMLL.md §9` has no do-notation text. The corrected
+row text is given below. Everything else in the applied delta stands.
+
+Original staging target: the **Open work (v0.12+ lane)** table at `docs/compiler-team-roadmap.md:48-67`.
+
+> **Rev 1 closing note. This table is now a historical record, not a live delta.** Doc-lead has
+> since applied every correction and more: the roadmap's DO-ACCUM-1 row at
+> `docs/compiler-team-roadmap.md:50` carries P0-marker, DISCARD-1, the two-artifact blast radius,
+> and the corrected schema pair. The rows below still read **P0-error**, still cite
+> `TypeCheck.hs:1857-1866` (the measured range is `:1860-1865`, note at `:1858-1859`), and do not
+> mention DISCARD-1. **The roadmap is the live surface and is correct; read it, not this table.**
+> Preserved unedited so the staging step stays auditable.
+>
+> One row is missing from both this table and the roadmap: **WASI-RT**, the four declared `wasi.*`
+> builtins with no codegen definition (see §2 above). It is held pending the engineer's scope read
+> so it gets written once rather than written and then amended.
 
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
-| **EFFECT-RESP** (a response channel, so a program can consume the result of its own effects) `[CT][SPEC]` | **OPEN** — design SETTLED (Rev 2, two professor rounds folded) | `wasi.fs.read : string -> Command` and `Command` is opaque, so no program can read a file and branch on it; measured, `(string-length (wasi.fs.read p))` is a type error. The effect type is a **monoid**, not an applicative: `Command` is nullary (`TypeCheck.hs:158`, `CodegenHs.hs:830`) and `seq-commands` is its `<>` (`TypeCheck.hs:161`), so the effect structure cannot depend on any value. Fix is a Mealy response channel in the `def-main` harness, not a result-returning read builtin (Rev 0's proposal, withdrawn: it performs IO during pure evaluation, abandoning `LLMLL.md:415`, and leaves effect order dependent on an evaluation order §12 never pins). Four invariants: one response per performed command, `seq-commands` yields the right component's response, `:init`'s command supplies the first response, and the terminating step's command is not performed. `Response` is **compiler-supplied**, not program-declared, because the command alphabet is sealed. `Σ_auto` unchanged; no schema bump. The command-to-response pairing is unchecked and is a **trust-channel disclosure** closed by CMD-A, **not** by R1. Design: [`design/effect-response-channel-proposal.md`](design/effect-response-channel-proposal.md) (Rev 2). |
-| **DO-ACCUM-1** (a `do` block performs only its last command) `[CT]` | **OPEN** — shipped codegen defect, blast radius measured **zero** | `emitDo` (`CodegenHs.hs:741-757`) returns `(finalState, _cmdN)` and drops every earlier command, while the settled design ([`archive/do_notation/do-notation-design.md`](archive/do_notation/do-notation-design.md) §2.4) requires codegen to compose them via `seq-commands`. `checkDiscardedCommand` (`TypeCheck.hs:1857-1866`) warns instead, with an in-code note deferring a hard error to **v0.8**; shipped is 0.14.78. Witness: a two-step do-block emits `(let { (x, _cmd0) = …; (y, _cmd1) = … } in (y, _cmd1))`, so the first command never runs. Measured zero in-tree uses (`(do ` appears twice, both in walkthrough markdown), which is why it survived; it fires on the first sequencing code written. Fix conforms the emitter to the design and **deletes** the warning. Third drift on the same construct: the design mandated its non-monadic framing appear verbatim in `LLMLL.md §9` and **no such text exists** (zero hits for "not a monad", "pair-thread", "do-notation"); `do` appears only in the keyword list, the grammar, and one diagnostic note. |
+| **EFFECT-RESP** (a response channel, so a program can consume the result of its own effects) `[CT][SPEC]` | **OPEN**: design SETTLED (Rev 3; two professor rounds folded at Rev 2) | `wasi.fs.read : string -> Command` and `Command` is opaque, so no program can read a file and branch on it; measured, `(string-length (wasi.fs.read p))` is a type error. The effect type is a **monoid**, not an applicative: `Command` is nullary (`TypeCheck.hs:158`, `CodegenHs.hs:830`) and `seq-commands` is its `<>` (`TypeCheck.hs:161`), so the effect structure cannot depend on any value. Fix is a Mealy response channel in the `def-main` harness, not a result-returning read builtin (Rev 0's proposal, withdrawn: it performs IO during pure evaluation, abandoning `LLMLL.md:415`, and leaves effect order dependent on an evaluation order §12 never pins). Four invariants: one response per performed command, `seq-commands` yields the right component's response, `:init`'s command supplies the first response, and the terminating step's command is not performed. `Response` is **compiler-supplied**, not program-declared, because the command alphabet is sealed. `Σ_auto` unchanged; no schema bump. The command-to-response pairing is unchecked and is a **trust-channel disclosure** closed by CMD-A, **not** by R1. Design: [`design/effect-response-channel-proposal.md`](design/effect-response-channel-proposal.md) (Rev 3). |
+| **DO-ACCUM-1** (a non-final `do` step's `Command` is silently discarded) `[CT][SPEC]` | **OPEN**: re-scoped **P0-error** by user adjudication 2026-08-02; **not** a plain codegen defect | **Corrected in Rev 1; supersedes the row applied at `docs/compiler-team-roadmap.md:50`, including its title.** `emitDo` ([`CodegenHs.hs:741`](../../compiler/src/LLMLL/CodegenHs.hs)) returns `(finalState, _cmdN)` and drops every earlier command. That matches `LLMLL.md:1604` ("the final result is `(lastState, lastCommand)`") and `LLMLL.md:1606`, which documents the discard as **intended** ("effects are values, not statements; sequencing them is the agent's explicit responsibility") and names the future direction as tightening "to a warn-or-error." It contradicts [`archive/do_notation/do-notation-design.md`](archive/do_notation/do-notation-design.md) §2.4, which mandates `seq-commands` composition but carries `Status: Approved — Pending Implementation` for **v0.3** and was never implemented. Two normative texts in conflict, not a regression. **Settled P0-error:** `emitDo` untouched; `checkDiscardedCommand` (`TypeCheck.hs:1860-1865`) promoted warning → **error** with its v0.8 deferral note removed; `LLMLL.md:1606`'s closing sentence becomes the shipped rule and `:1604` stands; §2.4 marked superseded. Chosen over P0-compose because under EFFECT-RESP RC-2 an auto-composing `do` discards every non-final step's response and could never consume an intermediate effect result: stages E and G2's shape. **Blast radius: two artifacts, not zero and not one.** (a) `compiler/test/fixtures/pair_type_test/do_emit_ac.ast.json`, a two-step JSON-AST block whose step-0 command the emitter drops; no test consumer, so it pins nothing. (b) `scripts/doc-claims/do-notation-discard-warn.llmll`, a two-step **S-expression** block shipped at v0.14.57 (`3e29beb`) and run on every CI job by `scripts/doc_claims_gate.sh` (`.github/workflows/version-gate.yml:118`); `@expect: warn:discards this intermediate command`, confirmed emitted by the v0.14.78 binary, so **any change to the warning moves DRIFT-CT-2**: under P0-marker the fixture's `@expect` flips to `check-error:` in the same commit; under the retracted P0-compose scoping, deleting the warning would simply have failed the gate. Two prior claims are retracted: "zero do-blocks in `.llmll` sources" (this fixture is one) and "`LLMLL.md §9` has no do-notation text" (`LLMLL.md:1588` is section 9.6, "`do`-notation State Threading"; the zero-hit grep missed it because the heading writes the backticks inside the term). Reproduce with `grep -rn --include='*.llmll' -E '\(do($\|[[:space:]])'` **and** `grep -rl --include='*.json' '"kind"[[:space:]]*:[[:space:]]*"do"'`; either grep alone under-reports. Design: [`design/effect-response-channel-proposal.md`](effect-response-channel-proposal.md) (Rev 3). |
 | **CAP-PROC** (the capability surface the driver's effects need) `[CT][SPEC]` | **OPEN** — depends on EFFECT-RESP | `wasi.proc.spawn` / `wasi.proc.await`, `wasi.clock.monotonic`, `wasi.fs.list` / `wasi.fs.mkdir`, `wasi.http.get`, `sha256`. Each is one `EffectLabel`, one `primEffect` clause (`ObligationAssembly.hs:419-431`), one `builtinEnv` signature, one codegen case. The point is **bounded authority**: `primEffect` maps every `haskell.*`, `c.*` and unrecognized `wasi.*` name to ⊤ and `joinEff` makes ⊤ absorbing (`:408`), so routing these through FFI makes every function above them report `unbounded`, satisfying driver-spec §15.2's letter while making the report vacuous. `wasi.clock.monotonic` is **drift, not a new feature**: documented at `LLMLL.md:1125` and `:1661`, measured as an unknown function that only warns. `wasi.proc.spawn` is the first capability that can leave the sandbox by construction, so the grant must name the executable; that soundness argument is required by the lifted-freeze policy (`:242`). |
 | **JSON-1** (a sealed `Json` builtin, `def-shell`-only) `[CT][SPEC]` | **OPEN** — depends on EFFECT-RESP | The driver has 18 JSON call sites and LLMLL has no JSON and no dynamic type. `json-parse : string -> Result[Json, string]`, `json-serialize`, typed `Result`-returning accessors. `Json` is recursive, which is Lever C for verification and irrelevant here because it is **sealed and opaque**: it never enters a body-faithful VC, exactly as `list[a]` does not today. Rejected alternative: `haskell.aeson` through the FFI tier, which collapses authority to ⊤ and carries an unchecked signature. |
 | **DRIVER-LL** (a fully functional RFC-SWARM driver in LLMLL) `[EXP][CT]` | **OPEN** — Phase 0 ready; scope authorized 2026-08-02 | Five phases: DO-ACCUM-1, EFFECT-RESP, CAP-PROC + JSON-1, the mechanical spine (stages A/E/G2/J/L over the proved cores in `tools/llmll-driver/`), then the agent stages with a **serial** wave, then the §15.4 conformance claim. Standing rule: every `haskell.*` declaration is a filed gap and the FFI count is a reported metric; the bar from Phase 3 is **zero**. Supersedes [`design/rfc-swarm-roadmap-proposal.md`](design/rfc-swarm-roadmap-proposal.md) §5.2 ("do not activate R2") for this campaign only; §5.2 stands for the demo. Design: [`design/driver-in-llmll-campaign.md`](design/driver-in-llmll-campaign.md). |

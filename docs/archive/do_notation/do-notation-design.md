@@ -1,5 +1,7 @@
 # `do`-Notation Design: Pair-Thread Model
 
+> **SUPERSEDED (2026-08-02) on the command-accumulation question by [`LLMLL.md`](../../../LLMLL.md) §9.6 (`do`-notation State Threading, `LLMLL.md:1588-1609`).** §9.6 is the shipped normative text: it specifies the discard as intended (`:1604`, `:1606`) and names the future direction as tightening to a warn-or-error. **§2.4 ("Command Accumulation") is retracted.** Its clause "All intermediate Commands are automatically composed via `seq-commands`. The programmer never writes `seq-commands` inside a `do`-block" was never implemented and is not the language's rule. Adjudicated by the user on 2026-08-02 as **P0-marker**, specified as DISCARD-1: `emitDo` stays as shipped, and `checkDiscardedCommand` becomes an error gated on a new `:discard` step marker rather than an unconditional one. See the **DO-ACCUM-1** row in [`../../compiler-team-roadmap.md`](../../compiler-team-roadmap.md) and [`../../design/effect-response-channel-proposal.md`](../../design/effect-response-channel-proposal.md) (Rev 3, SETTLED) §DISCARD-1. Everything outside §2.4 (the pair-thread model, the Option A/B decision record, the BNF, the state-loss hazard) stands as the historical design record and is retained for lineage. Do not re-derive DO-ACCUM-1 from §2.4.
+
 > **Prepared by:** Professor Team (Lead Consultant, Formal Language Design)
 > **Date:** 2026-04-05
 > **Revision:** 2026-04-05 r2 — Language team review: PR 1 blast radius, three explicit acceptance criteria
@@ -10,7 +12,7 @@
 > **Revision:** 2026-04-05 r7 — Concern 2: §5a Note block clarifies why `seq-commands` appears in desugar but not in source
 > **Revision:** 2026-04-05 r8 — Compiler team clarification: Option A chosen for `ELet` ADT (`Name → Pattern`); PR 4 blast radius fully specified
 > **Revision:** 2026-04-05 r9 — Duplicate `Examples` block in §5b removed (compiler team review)
-> **Status:** Approved — Pending Implementation
+> **Status:** Superseded (2026-08-02). §2.4 is retracted by `LLMLL.md` §9.6; the rest is historical record. Was: "Approved — Pending Implementation".
 > **Audience:** Language Team + Compiler Team
 > **Governs:** LLMLL v0.3 `do`-notation feature (`compiler-team-roadmap.md §v0.3`)
 
@@ -90,6 +92,8 @@ The type rule applies per step, distinguishing named and anonymous binding:
 - The whole `do`-block returns `(S, Command)` where the final `S` is the last step's state component (named or `_s_k`) and the final `Command` is the `seq-commands`-composition of all steps' Commands.
 
 ### 2.4 Command Accumulation
+
+> **RETRACTED (2026-08-02).** This section was never implemented and is **not** the language's rule. `LLMLL.md` §9.6 (`:1604`, `:1606`) is the shipped normative text and specifies the opposite: a non-final step's `Command` is discarded rather than composed. Adjudicated as **P0-marker**, specified as DISCARD-1 (roadmap row DO-ACCUM-1): the discard stays, and `checkDiscardedCommand` becomes an error gated on an explicit `:discard` step marker. Note that §9.6's "wrap it in `seq-commands`" escape hatch is measured unreachable, because `DoStep` binds only the state component (`Syntax.hs:237`), which is why the marker exists. The paragraph below is retained as the historical proposal only.
 
 All intermediate Commands are automatically composed via `seq-commands`. The programmer never writes `seq-commands` inside a `do`-block. Codegen handles the accumulation.
 

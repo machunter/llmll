@@ -48,7 +48,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [examples-audit-2026-07-20-compiler-followups.md](examples-audit-2026-07-20-compiler-followups.md) | Two compiler/CI defects from the full `examples/` audit (R1 sort synthesis, R2 benchmark ordering) | **BOTH RESOLVED** (R1 v0.14.62, R2 2026-07-21) — archive-eligible |
 | [archive-organization-proposal.md](archive-organization-proposal.md) | DRIFT-DOC-3: retire version buckets, gate the archive invariant that is groundable | **Rev 2, SETTLED**: FLAT adjudicated 2026-07-26; professor review folded; P1/P2 applied, P3 gate shipped |
 | [archive-organization-review.md](archive-organization-review.md) | Professor: the gate is consistency-class, not correctness-class; both routed questions answered | **Rev 1**: standalone, folded into Rev 2, ready for M2 archive |
-| [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, so a program can consume its own effect results | **Rev 2, SETTLED** — two professor rounds folded in-proposal; `Σ_auto` unchanged; DO-ACCUM-1 and CMD-A routed |
+| [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, plus DISCARD-1, the `do`-step discard marker | **Rev 3, SETTLED**: two professor rounds folded; `Σ_auto` unchanged; DO-ACCUM-1 re-settled as P0-marker 2026-08-02 |
 
 ---
 
@@ -65,7 +65,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
-| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 0, READY FOR ENGINEER** — supersedes rfc-swarm §5.2 for this campaign |
+| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 1, READY FOR ENGINEER**: Phase 0 re-scoped P0-marker (DISCARD-1) 2026-08-02; supersedes rfc-swarm §5.2 for this campaign |
+| [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **Plan, unreviewed** — implementation order A/C/B, risk order B/A/C |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
@@ -82,7 +83,7 @@ Historical design documents from shipped or superseded sources are in [`../archi
 | `dormant-explorations/` | Docs whose feature did **not** ship, whether `dropped` or `deferred`, as distinct from shipped-and-archived; admission test and the four-valued vocabulary in the directory's `README.md`. The F-002 terminal pair (`expiring-intentional-proposal`, `spec-entropy-reason-string-proposal`) plus `contract-clause-refactor` (deferred) | 2026-07-26 |
 | `professor-reviews/` | Standalone reviews folded into proposal appendices: `oblig-pbt-3-review`, `invariant-discovery-review`, `contract-discriminative-power-review`, `core-shell-inversion-review`, `positioning-constraint-decay-review`, `refinement-metatheory-of-record-review`, `proof-required-predicate-carrier-review`, `def-ret-staleness-hash-review`, `proof-artifact-review`, `refine-reuse-gate-review`, `rec-body-vc-review`, `data-scope-lever-a-arrays-review` | Post-DOC-CONSOLIDATE M2 |
 | `wasm-investigations/` | `effectful-wasm-spike.md`, `wasm-poc-report.md` | Pre-roadmap-reorganization |
-| `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |
+| `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped); design §2.4 (command accumulation) **superseded 2026-08-02** by `LLMLL.md` §9.6 |
 | `older_discussions_and_plans/` | `SMT_Lean_Analysis.md`, `unicode_decision.md` | Pre-v0.2 |
 | `sketch/` | Compiler handoff sketch, implementation guide | Pre-v0.2 |
 | `research-track.md` (file) | Original research-track doc, **frozen-historical**; live items are R1–R7 in `compiler-team-roadmap.md` | Post-DOC-CONSOLIDATE M4 |
