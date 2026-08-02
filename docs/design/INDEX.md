@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-07-26  
+> **Last updated:** 2026-08-02  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -48,6 +48,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [examples-audit-2026-07-20-compiler-followups.md](examples-audit-2026-07-20-compiler-followups.md) | Two compiler/CI defects from the full `examples/` audit (R1 sort synthesis, R2 benchmark ordering) | **BOTH RESOLVED** (R1 v0.14.62, R2 2026-07-21) — archive-eligible |
 | [archive-organization-proposal.md](archive-organization-proposal.md) | DRIFT-DOC-3: retire version buckets, gate the archive invariant that is groundable | **Rev 2, SETTLED**: FLAT adjudicated 2026-07-26; professor review folded; P1/P2 applied, P3 gate shipped |
 | [archive-organization-review.md](archive-organization-review.md) | Professor: the gate is consistency-class, not correctness-class; both routed questions answered | **Rev 1**: standalone, folded into Rev 2, ready for M2 archive |
+| [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, so a program can consume its own effect results | **Rev 2, SETTLED** — two professor rounds folded in-proposal; `Σ_auto` unchanged; DO-ACCUM-1 and CMD-A routed |
 
 ---
 
@@ -64,6 +65,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
+| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 0, READY FOR ENGINEER** — supersedes rfc-swarm §5.2 for this campaign |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
