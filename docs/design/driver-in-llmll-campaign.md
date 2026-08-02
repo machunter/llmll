@@ -1,7 +1,7 @@
 ---
 name: driver-in-llmll-campaign
 title: "DRIVER-LL: a fully functional RFC-SWARM driver written in LLMLL, and the language work it requires"
-status: "Rev 2, READY FOR ENGINEER. §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
+status: "Rev 3, READY FOR ENGINEER, commit A cleared to start. Rev 3 settles one decision the engineer routed back and adds it as §8.3: BUILD-GATE-1 lands INSIDE commit A rather than as its own follow-on row, overriding the A.6 recommendation, because the gate is the only observer of the defect commit A fixes and the row it would otherwise wait on is UNSCHEDULED. Acceptance is a positive witness (red on the merge base, green after), which is the part that fails quietly. Rev 2: §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -445,6 +445,14 @@ Also: `docs/design/INDEX.md` gains one-liners for both new proposals, and
 `rfc-swarm-roadmap-proposal.md` is currently referenced from **nowhere** in
 `docs/compiler-team-roadmap.md` despite constraining R2; a pointer beside the R2 row would close that.
 
+**One live delta, added at Rev 3.** The **BUILD-GATE-1** row at `docs/compiler-team-roadmap.md:55`
+closes with "Cost and placement are the engineer's call; this row records the gap and the three
+witnesses." Placement is no longer the engineer's call: §8.3 settles it inside commit A by user
+adjudication. That sentence should be replaced with the §8.3 outcome, and the row's status should
+move from a standalone **OPEN** to **OPEN, riding commit A (WASI-RT)** so that no reader schedules it
+separately. Cost remains the engineer's call in the sense §8.3 leaves open, namely which program the
+gate compiles. This is a doc-lead edit; the roadmap row reads stale until it is made.
+
 ---
 
 ## 8. Settled decisions (Rev 2)
@@ -485,3 +493,44 @@ README currently says "what is here is not the driver," which goes stale on comp
 doc-lead fix at Phase 3, not a reason to split the tree. §5.4's warning against diluting the proved
 tier's claim (`tools/llmll-driver/README.md:74-76`) is a reporting discipline and is not discharged
 by directory layout either way.
+
+### 8.3 BUILD-GATE-1 lands **inside commit A**, not as a follow-on (Rev 3)
+
+**Settled by user adjudication 2026-08-02: the build smoke gate ships in the same commit as the four
+WASI-RT preamble bodies.** This overrides the engineer's A.6 recommendation
+(`driver-ll-phase01-implementation-plan.md` §A.6), which proposed the gate as its own row on the
+grounds that a multi-minute CI step should not ride into an unrelated patch. The recommendation was
+reasonable about CI hygiene and wrong about which patch is unrelated: the gate is the only thing that
+observes what commit A fixes, so shipping them apart ships the fix and its blind spot together and
+leaves closing the blind spot to a row that is currently **UNSCHEDULED**
+(`docs/compiler-team-roadmap.md:55`).
+
+**The argument that decides it is the witness count, not the cost.** Three independent defects of the
+form "passes `llmll check`, fails at GHC" were found in this seam within one release: WASI-RT's four
+undefined builtins, the `:step` arity change that `checkStatement (SDefMain {..})` cannot report
+because it discards `inferExpr stepE`'s result (`TypeCheck.hs:1405-1414`), and `IFACE-CONFORM`,
+reached with no FFI declaration in sight. Three witnesses by three unrelated routes is a systemic
+absence of a gate, not three oversights, and §3a already commits the campaign to being the first
+artifact in this repository that must clear GHC end to end.
+
+**Scope, unchanged from the roadmap row: one effectful program built in CI, not a build sweep.**
+`scripts/build_smoke.sh` runs `llmll build` on a single program whose source calls all four of the
+newly defined builtins, invoked from `.github/workflows/version-gate.yml` alongside the existing
+`scripts/doc_claims_gate.sh` step. Candidate program is
+[`../tools/llmll-driver/shell.llmll`](../../tools/llmll-driver/shell.llmll), which already calls
+`wasi.fs.read` (`:46`) and `wasi.fs.write` (`:37`); if it carries unrelated blockers, a purpose-built
+fixture is acceptable, and the only binding requirement is that every one of the four bodies is
+exercised. Choosing the program is the engineer's call; whether the gate exists is not.
+
+**Acceptance is a positive witness, and this is the part that can go wrong quietly.** The gate must
+be demonstrated **red on the merge base and green after the four bodies land**, with the failing GHC
+output recorded in the commit message. A build gate that passes both before and after the patch has
+not been shown to observe anything, which is precisely how the four missing definitions survived from
+whenever `builtinEnv` last grew: the absence is invisible unless something forces the compile. The
+same discipline applies to A.6's `forM_` over the `builtinEnv` `wasi.` prefix list, whose stated
+purpose is that an eighth builtin without a preamble definition fails the suite; that test is the
+`check`-tier guard and the smoke gate is the `build`-tier one, and neither substitutes for the other.
+
+**Cost, stated rather than elided.** Minutes of CI on every job, paid from the first commit of the
+campaign onward. That is the price of the seam having no observer at all today, and it is not
+recovered by deferring it, because the four bodies are exactly what the gate would be added to guard.

@@ -49,6 +49,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [archive-organization-proposal.md](archive-organization-proposal.md) | DRIFT-DOC-3: retire version buckets, gate the archive invariant that is groundable | **Rev 2, SETTLED**: FLAT adjudicated 2026-07-26; professor review folded; P1/P2 applied, P3 gate shipped |
 | [archive-organization-review.md](archive-organization-review.md) | Professor: the gate is consistency-class, not correctness-class; both routed questions answered | **Rev 1**: standalone, folded into Rev 2, ready for M2 archive |
 | [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, plus DISCARD-1, the `do`-step discard marker | **Rev 4, SETTLED**: `:deterministic` closed against `LLMLL.md §10a`; `:read` retirement moved to the DISCARD-1 commit |
+| [event-log-scope-proposal.md](event-log-scope-proposal.md) | The event log is an I/O-trace divergence oracle; `§10a` specifies a different mechanism | **Rev 0, PROPOSED**: §10a narrows (EVENT-LOG-2); injection preserved as REPLAY-INJECT |
 
 ---
 
