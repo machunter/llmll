@@ -1,7 +1,7 @@
 ---
 name: effect-response-channel-proposal
 title: "EFFECT-RESP: a response channel, so an LLMLL program can consume the result of its own effects"
-status: "Rev 3, SETTLED. EFFECT-RESP (RC-1..RC-4) unchanged from Rev 2. DO-ACCUM-1 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-settled as P0-marker by user adjudication 2026-08-02, adding the DISCARD-1 step marker: LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error. Rev 2: two professor rounds folded; Rev 0's Result-returning read withdrawn; RESUME-1 promoted to the design; CMD-A recorded as target."
+status: "Rev 4, SETTLED. EFFECT-RESP (RC-1..RC-4) unchanged from Rev 2. Rev 4 closes the one item Rev 3 deferred: :deterministic true is NOT rejected on wasi.fs.* / wasi.http.*, because LLMLL.md §10a:1652 and §10:1122 define the flag as an opt-in to event-log capture rather than a claim that the effect is a function of its arguments, and §10a:1669-1672 makes it the condition for a replayable module. The flag is instead filed as a third instance of declared-surface-with-no-runtime (with WASI-RT and :read): capDeterministic is parsed and re-emitted, no event log is emitted, and ReplayStatus is never constructed. Rev 4 also moves the :read retirement from commit B to commit C, because removing the read property from DefMain is a JSON-AST schema delta and C already carries the 0.9.0 to 0.10.0 bump. Rev 3: EFFECT-RESP unchanged from Rev 2. DO-ACCUM-1 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-settled as P0-marker by user adjudication 2026-08-02, adding the DISCARD-1 step marker: LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error. Rev 2: two professor rounds folded; Rev 0's Result-returning read withdrawn; RESUME-1 promoted to the design; CMD-A recorded as target."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -593,10 +593,18 @@ strongest property this design has.
 
 ---
 
-## Engineer findings folded, Rev 3
+## Engineer findings folded, Rev 3 and Rev 4
 
 Four items the compiler engineer routed back after planning against Rev 3, each verified here
 against the tree before folding.
+
+> **Rev 4 note on reading this section.** The engineer's own hand-off
+> (`driver-ll-phase01-implementation-plan.md`, §"Findings routed back to language-team") re-routes
+> four items, three of which are **already answered below** and one of which (`:mode console` count)
+> reads Rev 2's figure rather than Rev 3's. That plan was written against Rev 3 while this section
+> was being added, so the overlap is expected and is not a disagreement. The genuinely open item was
+> `:deterministic`, settled at Rev 4 at the end of this section. Anyone reconciling the two documents
+> should treat this section as the answer and the plan's routing list as its trigger.
 
 **1. `defMainRead` is dead surface in exactly the slot this proposal fills. Retire it.**
 `Syntax.hs:694` declares `defMainRead :: Maybe Expr -- ^ :read (console/cli only)` and it is the
@@ -607,6 +615,24 @@ Unimplemented surface an agent can write and have silently ignored is the worst 
 agent-authored language; shipping a second, working input channel beside it guarantees confusion;
 and every console program is being migrated anyway, so retiring it is free at the margin. If a
 `:read` shorthand is wanted later, re-derive it from the shipped response channel.
+
+**Rev 4 refinement: the retirement belongs in commit C, not commit B.** Rev 3 said "the same
+breaking change as the `:step` arity move," which is the engineer's commit B, and the engineer's
+documentation hand-off records B as carrying "no JSON-AST schema delta." That is wrong for this
+item: `read` is a declared property of `DefMain` in `docs/llmll-ast.schema.json:1028`, under
+`"required": ["kind", "mode", "step"]` and `"additionalProperties": false` (`:1001-1002`), so
+removing it **is** a schema delta and a breaking one for any document carrying the property. Commit C
+already opens the schema for the `discard` node and already takes the `0.9.0` to `0.10.0` bump with
+the `$id` co-commit the version gate requires, so putting `:read` there costs one bump instead of
+two. Measured population at `f3f3091`: **zero** `.llmll` sources use `:read`, and **zero** of the six
+in-tree `def-main` JSON-AST documents carry a `read` property, so the removal breaks nothing in the
+corpus and the window between C and B is inert (the field has no emitter, so removing it early
+changes no generated program). The retirement is also stronger than "dead": `:read` is parsed
+(`Parser.hs:475`), round-tripped (`AstEmit.hs:172`), deliberately skipped in hole analysis
+(`HoleAnalysis.hs:224` binds it `_mRead`), and **never type-checked**, since
+`checkStatement (SDefMain{..})` (`TypeCheck.hs:1405`) destructures only `defMainStep` and
+`defMainDone`. An agent may write `:read` with an ill-typed expression today and `check` says
+nothing.
 
 **2. Reject the stdout-capture route for the response payload, explicitly.** The current harness
 does `output <- captureStdout cmd` (`CodegenHs.hs:944-950`). If the response payload were sourced
@@ -630,15 +656,40 @@ independent route in one release, which is the argument for the build gate named
 documents declare `:mode console`; no `cli` or `http` entry point exists in-tree. Risk 1 below is
 corrected accordingly.
 
-**Deferred, not decided: should `:deterministic true` be rejected on `wasi.fs.*` / `wasi.http.*`?**
-`:deterministic` is recorded and never enforced, so a program can assert it today and nothing
-checks. I am **not** settling this here, because the answer turns on a reading of §10a I have not
-done. Two defensible readings: (a) the flag claims the *capability* is replayable, and since replay
-feeds recorded responses from the event log rather than re-reading the file, a read is
-replay-deterministic and the flag is fine; (b) the flag claims the *effect* is a function of its
-arguments, which a file read is not, making it false at the source. These differ in what a replay
-artifact warrants. Routed as its own question with §10a as the required input; independent of the
-response channel and must not expand this proposal's scope.
+**Settled at Rev 4: should `:deterministic true` be rejected on `wasi.fs.*` / `wasi.http.*`? No.**
+Rev 3 deferred this pending a reading of §10a and gave two candidate readings. The reading is done
+and the spec is explicit, so reading (a) holds and reading (b) is refuted by the spec's own text.
+
+`LLMLL.md §10a:1652`: "When `:deterministic true` is set, the runtime **captures the return value**
+of every call and appends it to the Event Log. On replay, these calls **read from the log** instead
+of invoking the real system call." `§10:1122` says the same in one line: the flag exists "to opt into
+event-log capture for replay." The flag therefore makes **no claim about the world**. It does not say
+a file read returns the same bytes twice; it requests that the bytes be logged so that replay injects
+them rather than re-reading. `§10a:1669-1672`'s Replayability Status table closes it: a module is
+`replayable` exactly when **all non-deterministic capabilities** carry `:deterministic true`. The
+flag is the opt-in applied to the non-deterministic ones by design.
+
+**Consequence: `(import wasi.fs (capability read :deterministic true))` is well-formed and is what
+DRIVER-LL wants.** An auditable campaign run is precisely a run whose file reads and HTTP responses
+are captured. A check rejecting the flag on those namespaces would make replayability unreachable for
+every effectful program, which inverts §10a. Any such proposal is withdrawn.
+
+**The real gap, reclassified.** The engineer's worry ("a module can declare `:deterministic true` and
+assert something false, with nothing to contradict it") is misdiagnosed only in its object. Nothing
+false is asserted, but nothing is delivered either: `capDeterministic` is parsed
+(`Parser.hs:516`, `ParserJSON.hs:404`) and re-emitted (`AstEmit.hs:433`), and that is its whole life.
+`grep 'capability' CodegenHs.hs` returns **zero** hits (engineer plan, Context located), no event log
+is emitted, and `ReplayStatus` (`Syntax.hs:871-873`, exported at `:74`) is **never constructed
+anywhere in `compiler/src/` or `compiler/app/`**. So `:deterministic true` is declared surface with
+no runtime: the same class as WASI-RT's four builtins and the `:read` field retired above, and the
+third instance of that class found in this campaign.
+
+**Scope decision: file it, do not fix it here.** The event log is §10a's format, the capture path,
+and the replay-injection path, which is a larger surface than the response channel and does not
+belong inside EFFECT-RESP. What Phase 1 owes is disclosure, not implementation: a module declaring
+`:deterministic true` today receives no capture, and no surface should imply otherwise. Nothing
+currently does imply otherwise, because `ReplayStatus` is never computed, so this is a silence rather
+than a false claim, and no soundness defect follows. Routed as its own roadmap row.
 
 **Two named test obligations, folded into DISCARD-1's affected surface.** `DoStep` has no derived
 JSON instances (both directions hand-written), so `doStepToJson` must **omit** `discard` when false
@@ -651,6 +702,11 @@ the canonical form, or every do-containing `.verified.json` invalidates on the r
 
 ## Affected surface
 
+0. `docs/llmll-ast.schema.json:1028` (Rev 4): the `read` property is **removed** from `DefMain`, and
+   `compiler/src/LLMLL/Syntax.hs:694`, `Parser.hs:475`, `ParserJSON.hs:471`, `AstEmit.hs:172`, and
+   `HoleAnalysis.hs:224` drop the corresponding field. This rides **commit C** with the `0.9.0` to
+   `0.10.0` bump, not commit B. Numbered 0 because it is the one affected-surface item that moves
+   between commits relative to Rev 3.
 1. `compiler/src/LLMLL/CodegenHs.hs:741-757`: `emitDo` **untouched** under the settled P0-marker.
    Listed so the engineer does not open it expecting DO-ACCUM-1 work.
 2. `compiler/src/LLMLL/CodegenHs.hs:917-975` — the console harness loop, restructured per RC-1..RC-4.

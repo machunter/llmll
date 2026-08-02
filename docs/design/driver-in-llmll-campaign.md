@@ -1,7 +1,7 @@
 ---
 name: driver-in-llmll-campaign
 title: "DRIVER-LL: a fully functional RFC-SWARM driver written in LLMLL, and the language work it requires"
-status: "Rev 1, READY FOR ENGINEER. Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Phases 1-5 unchanged. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 3, SETTLED)."
+status: "Rev 2, READY FOR ENGINEER. §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -171,7 +171,10 @@ channel has nothing to attach to until this lands. See §2 and the proposal's pr
   programs are migrated and behave identically (six `.llmll`, six `.ast.json`; an earlier count of
   five was low); `Σ_auto` unchanged (corpus `.fq` byte-identical for every file not using the
   channel); the RC-1 bijection is exercised by a fixture that counts performed commands against
-  delivered responses.
+  delivered responses; **and the build-acceptance clause (§3a): the reading program is emitted by
+  `llmll build`, compiles under GHC, and is executed on at least one input.** For this phase the
+  clause is not ceremonial. It is the only criterion that distinguishes a working `wasi.fs.read`
+  from the lazy no-op the engineer plan's risk 8 describes.
 - **The migration has no `check`-time diagnostic until it is built.** `checkStatement (SDefMain{..})`
   (`TypeCheck.hs:1405-1414`) discards the `:step` inferred type, so every unmigrated console program
   stays green at `check` and dies at GHC. The new arity check must land in the same commit; it is the
@@ -205,6 +208,9 @@ collapse.
 - **Acceptance (JSON-1):** a round trip `json-serialize (json-parse s)` over the committed
   `EXPECTED_VERDICTS.json` and one `manifest.json`; `Json` rejected in a `def` body at strict-core
   admission.
+- **Acceptance (both):** the build-acceptance clause (§3a). The spawning `def-shell` and the JSON
+  round trip are each built and run, not only checked; a new `builtinEnv` signature with no codegen
+  case is the WASI-RT defect repeated, and this phase adds seven of them.
 - **STOP (either):** a needed operation has no `Response` arm. That is a Phase 1 design error and
   routes back to language-team rather than being patched with a new arm ad hoc.
 
@@ -217,7 +223,9 @@ adds the program around a proved centre rather than duplicating it.
 
 - **Acceptance:** the five stages run end to end against the committed TFTP execution and reproduce
   `self_test()`'s pinned results (`rfc_to_implementation.py:1378`); **zero FFI declarations**; every
-  ported function's authority is bounded; the proved cores are called, not reimplemented.
+  ported function's authority is bounded; the proved cores are called, not reimplemented; the
+  build-acceptance clause (§3a). Clearing this phase is what licenses running a campaign off the
+  LLMLL driver; it does **not** license retiring the Python one, which is Phase 4's gate (§8.1).
 - **STOP:** any stage requiring an unavailable effect halts the phase and files the gap; it does not
   get an FFI workaround.
 
@@ -236,7 +244,11 @@ anticipation.
 
 - **Acceptance:** a complete run reproduces a committed campaign's artifacts; zero FFI declarations;
   the driver's own authority report is bounded end to end; §15.1's seven obligations are discharged
-  by the proved cores the program calls.
+  by the proved cores the program calls; the build-acceptance clause (§3a).
+- **This acceptance list is the Python driver's retirement gate (§8.1).** It is the first criterion
+  in the campaign that exercises all fifteen stages, which is why the retirement rides here rather
+  than on `self_test()`. Retirement does not follow automatically from the phase closing: the
+  plumbing lifted from §5.3 is ported first, and the claim is worded per §5.4.
 - **STOP:** if serial wall-clock makes a campaign impractical, stop and file the concurrency
   requirement with the measurement attached. Do not add a concurrency surface mid-campaign.
 
@@ -249,7 +261,12 @@ its phase, and whether it was closed or deferred.
 
 - **Acceptance:** the claim distinguishes tiers per obligation; the gap inventory is complete; no
   claim is made about the §10 token property beyond the per-step form already disclosed at
-  `tools/llmll-driver/README.md:39-41`.
+  `tools/llmll-driver/README.md:39-41`; and, per §8.1, the retirement of the Python driver is stated
+  as a language-expressiveness result and **not** as an assurance result. The orchestration is
+  `def-shell` throughout and adds no proved obligation, so "the verified driver replaced the
+  unverified one" is the one sentence this campaign must not produce.
+- **The build-acceptance clause (§3a) is vacuous here.** This phase emits documents. Stated so a
+  reader does not have to decide whether a document counts.
 
 ---
 
@@ -258,9 +275,12 @@ its phase, and whether it was closed or deferred.
 Measured while planning Phase 1, and it reframes the risk profile of everything above.
 
 No in-tree path invokes `llmll build`. `grep -rn 'llmll build'` across `scripts/`, `.github/`,
-`compiler/test/`, `tools/`, and `Makefile` returns three hits, all comments or doc-claim prose, and
+`compiler/test/`, `tools/`, and `Makefile` returns five hits, all comments or doc-claim prose
+(`scripts/doc_path_lint.py:46` and `:76`, `scripts/doc-claims/checkout-requires-astjson.llmll:4`,
+`scripts/doc-claims/open-after-def-verify.llmll:4`, `compiler/test/Spec.hs:13974`), and
 `compiler/test/Spec.hs:13974` records that `llmll build`'s own `stack build` self-check never ran.
-`check-examples.sh` typechecks. The corpus is a **check-only** corpus.
+`check-examples.sh` typechecks. The corpus is a **check-only** corpus. (Rev 1 said three; re-measured
+at `f3f3091`. The BUILD-GATE-1 roadmap row already said five.)
 
 **Three defects already sit in the resulting `check`-passes / `build`-fails seam**, and all three
 were found in the last day:
@@ -282,6 +302,23 @@ build-tier defects at a rate the `check`-tier history does not predict, and do n
 `check` as evidence a phase is done. A minimal build gate over one effectful program is routed as its
 own roadmap row; until it exists, every phase's acceptance should include building at least the
 artifact that phase produces.
+
+**The build-acceptance clause (Rev 2).** Rev 1 stated that intent without specifying it, and a phase
+whose other criteria are all `check`-tier can satisfy them while the binary is broken. Every phase
+from 1 through 4 carries this conjunct, written into its acceptance list rather than left as a note:
+
+> The artifact this phase produces is emitted by `llmll build`, compiled by GHC, and the resulting
+> binary is executed on at least one input.
+
+Three conditions, not one, because this campaign has already produced a defect at each seam. WASI-RT
+passes `check` and dies at GHC, so emitting is not compiling. And per the engineer plan's risk 8, a
+`wasi_fs_read` body written as `readFile path >> return ()` performs no read under lazy IO while
+compiling clean and satisfying every test that checks the command's shape, so compiling is not
+running. Phase 5 produces documents and the clause is vacuous there; that is stated so a reader does
+not have to decide whether a document counts.
+
+This is not BUILD-GATE-1. That row is a CI gate over one program, filed separately, and this clause
+does not wait on it existing.
 
 ---
 
@@ -320,12 +357,25 @@ independent of each other.
    Roughly 300 of the 1814 lines carry the marginal teaching: the stage sequencer, the fill protocol
    and its separated retry budgets, the token discipline, and the wave scheduler. The rest establishes
    that LLMLL lacks utilities everyone already knows it lacks.
+   **Rev 2 qualification, forced by the replacement decision (§8.1).** Under "runs beside," a driver
+   that ports the 300 teaching lines and skips the plumbing is a complete artifact. Under
+   "replaces," the skipped lines include the operator's whole CLI surface (`--agent-cmd`,
+   `--workdir`, `--self-test`, `--audit-blindness`) and the run layout, which a replacement cannot
+   do without. The exclusion therefore holds **through Phase 4** and is **lifted at the retirement
+   step only**, where the plumbing is ported as utility work with no teaching claimed for it and no
+   phase acceptance riding on it. Anything ported under this lifted exclusion is reported as
+   utility, not as a language result.
 4. **Do not report this campaign as assurance progress.** Every orchestration function is `def-shell`
    and produces no new proved obligation. The proved tier is already done and its claim is sharp
    (`tools/llmll-driver/README.md:74-76`); a larger shell dilutes it. The deliverable is a running
    program and a gap inventory.
 5. **Do not let the Python driver diverge silently.** It runs real campaigns. `self_test()` is the
    oracle for the port; do not run a campaign off the LLMLL driver until that oracle passes.
+   **Rev 2 correction.** `self_test()` is the oracle for **Phase 3**, not for the port as a whole:
+   `--self-test` replays the committed TFTP Phase 0 data through the **mechanical** stages
+   (`scripts/rfc_to_implementation.py:46`, `:49`), which is A, E, G2, J, L. The ten agent-delegated
+   stages are not exercised by it. It gates "may run a campaign"; it does not gate "may retire the
+   Python driver." See §8.1.
 6. **Do not fix `:mode http` or `:mode cli` as part of this.** Both are broken
    (`CodegenHs.hs:980-994` errors out; `:970-975` executes no command) and both are out of scope.
    File them; they are the next thing after the driver, not part of it.
@@ -397,12 +447,41 @@ Also: `docs/design/INDEX.md` gains one-liners for both new proposals, and
 
 ---
 
-## 8. Open decisions, for the user
+## 8. Settled decisions (Rev 2)
 
-1. **Does the driver replace the Python one, or run beside it?** The plan assumes beside, with
-   `self_test()` as the oracle and no campaign run off the LLMLL driver until it passes. Replacing it
-   is a separate decision and should not be made implicitly by the port finishing.
-2. **Is `tools/llmll-driver/` the home, or a new tree?** The proved cores live there and the
-   orchestration would join them, which makes the directory's README claim ("what is here is not the
-   driver") stale on completion. Doc-lead's slot once Phase 3 lands, but the location is the user's
-   call now, because it determines where the engineer writes.
+Both were put to the user on 2026-08-02 and both are answered. Rev 1 held them open.
+
+### 8.1 The LLMLL driver **replaces** the Python one
+
+**Settled: replaces.** The Python driver is retired once the LLMLL driver clears the gate below. This
+is a change from Rev 1's working assumption ("beside") and it has three consequences, all recorded
+here rather than discovered during Phase 4.
+
+**The gate is Phase 4 acceptance, not `self_test()`.** The decision was put with `self_test()` named
+as its trigger, and that trigger is insufficient for it: `--self-test` replays the committed TFTP
+Phase 0 data through the **mechanical** stages only (`scripts/rfc_to_implementation.py:46`, `:49`),
+so it covers A, E, G2, J, L and leaves B, C, D, F, H, I, K, M, N, O unexercised. Retiring the driver
+that runs real campaigns on a test covering five of fifteen stages would retire the tested artifact
+on the strength of a partial test. **Phase 4's acceptance already states the sufficient criterion**
+(a complete run reproduces a committed campaign's artifacts, with zero FFI declarations and bounded
+authority end to end), so the retirement rides on that. `self_test()` keeps its Rev 1 role unchanged:
+it gates whether a campaign may be run off the LLMLL driver at all, which is the Phase 3 boundary.
+
+**§5.3's porting exclusion is lifted at the retirement step.** A replacement needs the CLI surface
+and the run layout that §5.3 excludes as teaching-free. The exclusion holds through Phase 4 and the
+plumbing is ported afterward as utility work. See the Rev 2 qualification on §5.3.
+
+**Retirement is not an assurance result, and §5.4 governs how it is reported.** Every orchestration
+function is `def-shell` and produces no new proved obligation. "The verified driver replaced the
+unverified one" would be false in the way that matters: what was demonstrated is that the language
+can express the program, not that the program carries more proof than its predecessor. Phase 5's
+claim states this explicitly, alongside the tier split it already owes driver-spec §15.4.
+
+### 8.2 `tools/llmll-driver/` is the home
+
+**Settled: `tools/llmll-driver/`.** The nine proved cores are already there and the orchestration
+calls them, so co-location avoids a cross-tree import for no gain. The cost is that the directory's
+README currently says "what is here is not the driver," which goes stale on completion; that is a
+doc-lead fix at Phase 3, not a reason to split the tree. §5.4's warning against diluting the proved
+tier's claim (`tools/llmll-driver/README.md:74-76`) is a reporting discipline and is not discharged
+by directory layout either way.
