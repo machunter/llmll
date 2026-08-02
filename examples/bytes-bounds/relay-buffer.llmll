@@ -1,0 +1,45 @@
+;; bytes-bounds — the composition witness: a length that crosses a call.
+;;
+;; zero-buffer.llmll shows a constructor knowing its own length. That is
+;; intraprocedural: the axiom and the goal are inside one body. This fixture is
+;; the interprocedural half, and it is the reason FACT-AG-LEN has a third stage.
+;;
+;; `fresh32` is deliberately CONTRACT-FREE. Its declared `-> bytes[32]` return is
+;; the only place the length is written down, and the emitter folds it into the
+;; effective postcondition, so:
+;;
+;;   * `fresh32`'s own body VC PROVES the length (from the bytes-zero axiom),
+;;     rather than assuming it about its own result; and
+;;   * every caller ASSUMES it through the ordinary assume-guarantee step.
+;;
+;; `relay` re-exports the length it received. `head-of-relay` consumes it: the
+;; index-in-bounds obligation on `(bytes-get (fresh32) 0)` is discharged against
+;; a length the caller learned from the callee's post and nowhere else.
+;;
+;; Before the return position moved into the post, none of this was available. A
+;; caller of a contract-free bytes-returning function did not merely fail to
+;; learn the length; the call result bound at the integer sort while `bytesLen`
+;; is declared over the array sort, and liquid-fixpoint reported a sort error
+;; instead of a verdict.
+;;
+;; The refute crux for this shape is `relay-overflow.llmll`: the same relayed
+;; buffer read at index 40, which must be REFUTED. Together they show the
+;; assumed length is usable and not decorative.
+;;
+;; The two callers are `def-shell` rather than `def` because strict-core refuses
+;; a same-file sibling that has no `.verified.json` yet, which is the open
+;; STRICT-SIBLING row and is unrelated to what this fixture measures. All three
+;; functions are body-faithful and all three posts read `verified`.
+;;
+;; Verifies SAFE, including under --strict-verified-core.
+
+(def fresh32 [] -> bytes[32]
+  (bytes-zero))
+
+(def-shell relay [] -> bytes[32]
+  (post (= (bytes-length result) 32))
+  (fresh32))
+
+(def-shell head-of-relay [] -> int
+  (post (and (>= result 0) (<= result 255)))
+  (bytes-get (fresh32) 0))

@@ -34,6 +34,17 @@
 -- So the question for a new arm is never "do the two sides agree" but "is
 -- 'admits' still a superset".
 --
+-- FACT-AG-LEN Stage 3 narrowed 'admits' by removing the @bytes[n]@ arm, and the
+-- asymmetry above INVERTS for a class removed this way. The bytes length is no
+-- longer injected anywhere: a param contributes it to the effective pre
+-- ('LLMLL.FixpointEmit.bytesLenParamPre', proved at each call site), a return to
+-- the effective post ('LLMLL.FixpointEmit.bytesLenRetPost', proved by the body
+-- VC), and @(bytes-zero)@ to a sealed-builtin axiom. So for @bytes[n]@ the
+-- narrow direction now costs a worse DIAGNOSTIC, not a false SAFE: a laundered
+-- length that 'admits' stops rejecting becomes a refuted obligation instead of a
+-- localized type error. That is why the WILD-ASSUME seams keep rejecting it via
+-- 'wildAssumeRejects' below rather than going dead with the arm.
+--
 -- == Side condition: declared type only
 --
 -- 'admits' is a predicate on the declared type ALONE. It deliberately does not
@@ -139,14 +150,41 @@
 --     their purpose; forcing one on the other breaks a recursive-ADT test or
 --     opens an A1 hole at sum-payload positions.
 --
--- == Relation to FACT-AG
+-- == Relation to FACT-AG-LEN
 --
 -- 'admits' is a denial list over declared types, and ADMIT-SHARED makes it
--- coherent and cheap to extend. Its principled terminal state is the EMPTY
--- predicate, reached by FACT-AG (docs\/compiler-team-roadmap.md) routing
--- type-derived facts through the assume-guarantee channel so the fact is earned
--- at the call site rather than asserted from an annotation. This module
--- approximates FACT-AG; it is provisional against it, not settled architecture.
+-- coherent and cheap to extend. This header used to say its principled terminal
+-- state was the EMPTY predicate, reached by FACT-AG routing every type-derived
+-- fact through the assume-guarantee channel. That was wrong, and
+-- docs\/design\/fact-ag-proposal.md corrects it: __the terminal state is
+-- 'boolValuedMapTy'__, and FACT-AG-LEN reached it at Stage 3.
+--
+-- The two arms differ on Hoare's two-sided discipline (/Proof of Correctness of
+-- Data Representations/, Acta Informatica 1(4), 1972), which the proposal states
+-- as a two-clause criterion:
+--
+--   [Establishment] a fact derived from a declared type may be assumed in a VC
+--   antecedent only if the type's sealed introduction forms establish it;
+--
+--   [Modularity] an established fact that is /parametric in a type index/ must
+--   additionally be re-exported as a guarantee to cross a call boundary, because
+--   the caller cannot see the callee's introduction forms; one that is /uniform
+--   over the type constructor's inhabitants/ needs no export channel.
+--
+--   * @bytes[n]@ length: the sole introduction form @(bytes-zero)@ established
+--     nothing until FACT-AG-LEN Stage 2 gave it a length axiom, and the length is
+--     parametric in @n@, so Stage 3 had to export it through the post as well.
+--     Earned at both ends now, so the arm is __gone from 'admits'__.
+--   * @map[k,bool]@ value range: @map-empty@ and @map-put@ are sealed builtins
+--     that establish it by construction, and the range holds of every inhabitant
+--     of @map[k,bool]@ with no index to carry, so there is nothing to earn and
+--     nothing to export. The arm __stays__, and it is closed rather than
+--     deferred. There is deliberately no @FACT-AG-RANGE@ row.
+--
+-- So this module is no longer provisional against FACT-AG. 'boolValuedMapTy' is
+-- where it lands. The remaining hole on that arm is ARR-RANGE-NAME
+-- (docs\/compiler-team-roadmap.md), which is about threading the declared type,
+-- not about earning the fact.
 module LLMLL.TypeAdmissibility
   ( -- * Alias environment
     AliasMap
@@ -164,6 +202,7 @@ module LLMLL.TypeAdmissibility
   , boolValuedMapTy
     -- * The shared admissibility predicate
   , admits
+  , wildAssumeRejects
   ) where
 
 import Data.Map.Strict (Map)
@@ -307,8 +346,13 @@ isScalarLike am t = isIntLike am t || isBoolLike am t
 -- ---------------------------------------------------------------------------
 
 -- | Alias-resolved bytes[n] detection; yields the type-level length.
--- Gates 'LLMLL.FixpointEmit.bytesLenReft' (the @bytesLen(v) = n@ binder fact)
--- and @resultLenFact@ (the same fact on a declared return).
+--
+-- After FACT-AG-LEN this no longer gates an INJECTION. Both injection sites it
+-- used to gate are gone (a @bytesLenReft@ binder fact at Stage 1, a
+-- @resultLenFact@ constraint-LHS fact at Stage 3). It now gates the two sites
+-- that EARN the length instead — 'LLMLL.FixpointEmit.bytesLenParamPre' and
+-- 'LLMLL.FixpointEmit.bytesLenRetPost' — plus the array-sort selection
+-- (@sortA1@, @arrParams@) and the 'wildAssumeRejects' diagnostic below.
 bytesLenOf :: AliasMap -> Type -> Maybe Int
 bytesLenOf am t = case resolveAliasTy am t of
   TBytes n -> Just n
@@ -331,23 +375,51 @@ boolValuedMapTy am t = case resolveAliasTy am t of
 -- | SAFE-ARG \/ WILD-ASSUME: does a DECLARED type of this shape contribute a
 -- ground fact to a VC antecedent that no obligation discharges?
 --
--- A @bytes[n]@ binder has @bytesLen(v) = n@ asserted from its declared type, and
--- the index-in-bounds obligation is then discharged against it — so an
--- unvalidated declaration yields a false premise and a false SAFE. A
--- @map[k,bool]@ binder has the per-key value range asserted the same way.
+-- A @map[k,bool]@ binder has the per-key value range asserted from its declared
+-- type ('LLMLL.FixpointEmit.injectBoolValRangeFacts'), and an obligation over
+-- that map is then discharged against it — so an unvalidated declaration yields
+-- a false premise and a false SAFE.
+--
+-- __@bytes[n]@ is no longer a member__, as of FACT-AG-LEN Stage 3. Its length is
+-- earned rather than asserted: proved at each call site from the effective pre,
+-- proved by the body VC from the effective post, and established at
+-- @(bytes-zero)@ by a sealed-builtin axiom. Nothing injects it, so ADMIT-OVER no
+-- longer requires it here. The DIAGNOSTIC value of rejecting a laundered length
+-- survives separately, in 'wildAssumeRejects'.
 --
 -- Deliberately NOT members: refinement aliases and nullary enums, whose
 -- type-level data is an OBLIGATION on the producer (LLMLL.md §3.4.1) rather than
 -- an assumption, both measured REFUTED on a laundered value. That exclusion is
 -- about the PREDICATE a refinement carries, not about the base type it wraps: a
--- @where@-wrapped @bytes[n]@ or @map[k,bool]@ still carries the same
--- undischarged ground fact from its base, and 'resolveAliasTy' strips
--- 'TDependent' before the emitter decides to assert it. That is CR-01, and it is
--- unrepresentable here: this predicate and the emitter's gates are the same
--- functions, not mirrored ones.
+-- @where@-wrapped @map[k,bool]@ still carries the same undischarged ground fact
+-- from its base, and 'resolveAliasTy' strips 'TDependent' before the emitter
+-- decides to assert it. That is CR-01, and it is unrepresentable here: this
+-- predicate and the emitter's gates are the same functions, not mirrored ones.
 --
 -- TOTAL on unnormalized input: 'admits' normalizes what it inspects. Callers do
 -- not have to have expanded aliases first, and the guard cannot go dead because
 -- one of them forgot (property A2).
 admits :: AliasMap -> Type -> Bool
-admits am t = isJust (bytesLenOf am t) || boolValuedMapTy am t
+admits am t = boolValuedMapTy am t
+
+-- | SAFE-ARG \/ WILD-ASSUME, diagnostic half: which declared types reject a bare
+-- inference wildcard at the two 'LLMLL.TypeCheck' laundering seams.
+--
+-- This is 'admits' plus the @bytes[n]@ arm, and the two predicates are separate
+-- because after FACT-AG-LEN Stage 3 they answer different questions:
+--
+--   * 'admits' answers /does an unearned fact enter a VC antecedent/ — a
+--     SOUNDNESS question, governed by ADMIT-OVER, and the emitter's injection set
+--     is what it must over-approximate.
+--   * 'wildAssumeRejects' answers /should the checker reject this laundering
+--     hop/ — a DIAGNOSTIC question. For @bytes[n]@ the hop is now caught either
+--     way (the call-site or body-VC length obligation is undischargeable against
+--     an unannotated callee, so the program is REFUTED), but a type error at the
+--     seam names the remedy (annotate the callee's return) where a refuted
+--     obligation does not. Keeping the arm here costs nothing: every program it
+--     rejects would have been refuted downstream.
+--
+-- @'admits' am t ==> 'wildAssumeRejects' am t@ by construction, so the seams
+-- cannot become narrower than the soundness gate by accident.
+wildAssumeRejects :: AliasMap -> Type -> Bool
+wildAssumeRejects am t = admits am t || isJust (bytesLenOf am t)

@@ -1211,17 +1211,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let paths = flattenBodyVC bvc
                         provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
                         retSort = maybe FQInt sortA1 mRet
-                        -- LEVER-A1: the family-1 fact for a gated bytes[n] RETURN
-                        -- (type-level truth: every bytes[n] value has length n). It
-                        -- must ride the constraint LHS, not the result binder's
-                        -- refinement — the constraint reft var `result` SHADOWS the
-                        -- env binder of the same name, so a binder-level fact is
-                        -- invisible exactly where it is needed (param binders are
-                        -- not shadowed; theirs stay on the binder).
-                        resultLenFact = case (if arrGate then mRet >>= bytesLenOf aliases else Nothing) of
-                          Just blen -> [FQBinPred FQEq (FQApp "bytesLen" [FQVar "result"])
-                                                       (FQLit (fromIntegral blen))]
-                          Nothing   -> []
+                        -- FACT-AG-LEN (Stage 3): the family-1 fact for a gated
+                        -- bytes[n] RETURN used to ride this constraint's LHS
+                        -- (@resultLenFact@), i.e. as an ASSUMPTION about the body's
+                        -- own result, with nothing discharging it. It is now
+                        -- contributed to the effective POSTCONDITION by
+                        -- 'bytesLenRetPost', so it lands in 'rhs' below as a proof
+                        -- GOAL and callers assume it via assume-guarantee.
+                        --
+                        -- The shadowing note the old comment carried does not apply
+                        -- to the post: 'rhs' is @FQReft "result" retSort postPred@,
+                        -- whose bound variable IS @result@, which is where every
+                        -- hand-written post already lives. Only a BINDER-level fact
+                        -- was invisible under the shadow.
                     -- COMP-3b-general: declare every match-introduced binder across
                     -- the WHOLE VC tree (synthetic guard + arm payloads, at their
                     -- ok/err sort) so the per-arm body-VC constraints have no free
@@ -1272,7 +1274,6 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             _ -> [FQBinPred FQEq (FQVar "result") resultPred]
                           lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
                                                 ++ maybe [] (:[]) mPre
-                                                ++ resultLenFact
                                                 ++ resultEqs
                           lhs = FQReft "result" retSort lhsPred
                           rhs = FQReft "result" retSort postPred
@@ -1474,10 +1475,11 @@ emitParamBind aliases freshBid addBind (n, t) = do
   -- never sends one here) binds at the array sort.
   --
   -- FACT-AG-LEN (Stage 1): the binder carries NO length fact. `bytesLen(v) = n`
-  -- used to ride here ('bytesLenReft'), which put it in every VC antecedent with
-  -- nothing discharging it (SAFE-ARG). It is now contributed to the effective
-  -- PRECONDITION by 'bytesLenParamPre', so callers prove it and the body assumes
-  -- it, exactly as for a hand-written `pre`. The SORT stays 'byteArraySort':
+  -- used to ride here (in a @bytesLenReft@ helper, deleted at Stage 3), which put
+  -- it in every VC antecedent with nothing discharging it (SAFE-ARG). It is now
+  -- contributed to the effective PRECONDITION by 'bytesLenParamPre', so callers
+  -- prove it and the body assumes it, exactly as for a hand-written `pre`. The
+  -- SORT stays 'byteArraySort':
   -- dropping the whole clause would fall through to typeToSort's conservative
   -- FQInt default and emit ill-sorted `bytesLen` applications.
   let reft = case bytesLenOf aliases t of
@@ -1562,13 +1564,13 @@ mapOpNames = ["map-has", "map-get", "map-put", "map-empty"]
 byteArraySort :: FQSort
 byteArraySort = FQArr FQInt FQInt
 
--- | Family-1 ground fact as a binder refinement: @bytesLen(v) = n@ — the
--- type-level length becomes a solver fact on the binder itself, in scope of
--- every constraint that uses it (path-(a) discipline: ground per binder, never
--- a quantified axiom).
-bytesLenReft :: Int -> FQReft
-bytesLenReft n = FQReft "v" byteArraySort
-  (FQBinPred FQEq (FQApp "bytesLen" [FQVar "v"]) (FQLit (fromIntegral n)))
+-- FACT-AG-LEN (Stage 3): @bytesLenReft@ lived here — the family-1 length as a
+-- BINDER refinement, @bytesLen(v) = n@ on a @bytes[n]@ param. Stage 1 dropped the
+-- predicate from 'emitParamBind' and kept only the sort, leaving the function
+-- unreferenced; Stage 3 deletes it along with the rest of the family-1 binder
+-- machinery. The length now travels the refinement channel end to end: the pre
+-- for a param ('bytesLenParamPre'), the post for a return ('bytesLenRetPost'),
+-- and the constructor axiom for @(bytes-zero)@ ('reifyBytesZeroLen').
 
 -- | FACT-AG-LEN Stage 2: reify the declared @bytes[n]@ return length into a
 -- whole-body @(bytes-zero)@ before body translation, so the constructor's length
@@ -3137,8 +3139,25 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- LEVER-A1: a callee returning bytes[n] whose contract mentions a
             -- bytes op sorts its result var at the array sort (its post's
             -- reflected terms mention the result). A bytes return WITHOUT
-            -- bytes ops in the contract keeps today's FQInt — byte-inertness
+            -- bytes ops in the contract kept today's FQInt — byte-inertness
             -- for the opaque-carrier corpus (the crypto call chains).
+            --
+            -- FACT-AG-LEN Stage 3: that second population is now EMPTY, and the
+            -- guard on the TBytes arm is dead. 'contract' here is the callee's
+            -- STORED contract out of 'cenv', which 'emitFixpointWithCache''s
+            -- 'aug' (~:259) augments, so every bytes[n] return carries
+            -- @bytes-length@ in its post and 'contractMentionsBytesOp' is
+            -- unconditionally True on that arm. Named rather than removed (D2
+            -- dead-guard discipline, docs/UPDATE-PROTOCOL.md): deleting the
+            -- guard would couple this dispatch to the augmentation staying
+            -- unconditional, which is a stronger assumption than it needs.
+            --
+            -- What the guard used to cost, measured at Stage 2: a gated caller of
+            -- a CONTRACT-FREE bytes-returning callee bound the call result at
+            -- FQInt and then applied @bytesLen@ to it, which CRASHED
+            -- liquid-fixpoint with "The sort (Map_t int int) is not numeric"
+            -- rather than returning a verdict. Stage 3 closes that class as a
+            -- side effect of exporting the length.
             -- LEVER-A2.1: a callee returning a LITERAL map[int,int] whose
             -- contract mentions a map op sorts its result var at the array
             -- sort too — the marker the ELet CallVC case reads to seed the
@@ -4354,12 +4373,15 @@ renameVar from to = go
 -- each call site (PROVE polarity, via the augmented 'ContractEnv' that
 -- 'buildContractEnvWith' already builds) and assumes it inside the callee.
 --
--- Deliberately NOT folded into 'resolveAllRefinements', which has four other
--- consumers that must not see it: 'returnRefinementPost' (that is Stage 3, and
--- the stage ordering is a correctness constraint — Stage 3 without Stage 2
--- refutes every @bytes-zero@ body), 'payloadRefinement' (COMPONENT positions,
--- a deliberate exclusion), "LLMLL.Feasibility" (a separate SMT lowering for the
+-- Deliberately NOT folded into 'resolveAllRefinements', which has three other
+-- consumers that must not see it: 'payloadRefinement' (COMPONENT positions, a
+-- deliberate exclusion), "LLMLL.Feasibility" (a separate SMT lowering for the
 -- no-miracle gate), and 'collectCallArgCarrierVars' (measure-carrier binding).
+-- The fourth, 'returnRefinementPost', now DOES carry a length, but it gets it
+-- from its own 'bytesLenRetPost' at Stage 3, not from 'resolveAllRefinements':
+-- keeping the two halves separate is what let the stages land in order (Stage 3
+-- before Stage 2 refutes every @bytes-zero@ body) and keeps the other three
+-- consumers untouched.
 --
 -- Alias-chasing for free: 'bytesLenOf' resolves through 'resolveAliasTy', so
 -- @(type Key bytes[32])@ elaborates identically to @bytes[32]@ (the A1 property
@@ -4399,6 +4421,37 @@ augmentContractPre am params c =
     andPre Nothing  r = r
     andPre (Just p) r = EApp "and" [p, r]
 
+-- | FACT-AG-LEN (Stage 3): the length equality a @bytes[n]@ RETURN contributes
+-- to its function's effective POSTCONDITION, instantiated at @result@. The
+-- guarantee-side dual of 'bytesLenParamPre', and the last of the three stages.
+--
+-- Before this, the fact @bytesLen(result) = n@ was asserted on the body VC's
+-- constraint LHS (@resultLenFact@), i.e. as an ASSUMPTION about the body's own
+-- result, with nothing discharging it. Moving it into the post makes the body VC
+-- PROVE it (introduction, §3.4.1) and lets callers ASSUME it through the
+-- existing assume-guarantee step (LLMLL.md §5.3.4). That is what makes the bytes
+-- algebra compose across a function boundary: Stage 2's constructor axiom is
+-- intraprocedural, and the length is parametric in @n@, so it needs an export
+-- channel to cross a call (docs/design/fact-ag-proposal.md, criterion clause ii).
+--
+-- Deliberately NOT folded into 'resolveAllRefinements', for the same reason
+-- Stage 1's parameter half is not: see the note on 'bytesLenParamPre' for the
+-- four other consumers that must not see it.
+--
+-- Alias-chasing for free via 'bytesLenOf', as at Stage 1: @(type Key bytes[32])@
+-- at a return position elaborates identically to @bytes[32]@.
+--
+-- Ungated, like 'bytesLenParamPre'. It does not need 'arrGateActive' because it
+-- SELF-ACTIVATES it: @"bytes-length"@ is in 'bytesOpNames', 'arrGateActive' reads
+-- the augmented contract, and the gate's mention test is monotone, so a
+-- @bytes[n]@ return can only turn the gate on. The result binder therefore sorts
+-- at 'byteArraySort' via 'sortA1' and the predicate is well-sorted.
+bytesLenRetPost :: AliasMap -> Type -> [Expr]
+bytesLenRetPost am t = case bytesLenOf am t of
+  Just len -> [ EApp "=" [ EApp "bytes-length" [EVar "result"]
+                         , ELit (LitInt (toInteger len)) ] ]
+  Nothing  -> []
+
 -- | DEF-RET Unit 2: the conjoined refinement predicate contributed by a
 -- refinement-aliased RETURN type, instantiated at @result@ (p[result/x]).
 -- Nothing if the return is unannotated or base-typed. The guarantee-side dual
@@ -4408,10 +4461,15 @@ augmentContractPre am params c =
 -- (elimination). Folds UNCONDITIONALLY (syntactic, pre-verdict, like a hand-
 -- written @post@ clause); verdict-gating (asserted floor / refuted exclusion)
 -- is the existing trust-closure machinery, not this fold.
+--
+-- FACT-AG-LEN (Stage 3): @bytes[n]@ returns contribute their length equality
+-- here too ('bytesLenRetPost'), exactly as params contribute theirs to
+-- 'paramRefinementPre'.
 returnRefinementPost :: AliasMap -> Maybe Type -> Maybe Expr
 returnRefinementPost am mRet = case mRet of
   Nothing -> Nothing
-  Just t  -> case [ renameVar x "result" p | (x, p) <- resolveAllRefinements am t ] of
+  Just t  -> case [ renameVar x "result" p | (x, p) <- resolveAllRefinements am t ]
+                  ++ bytesLenRetPost am t of
                []    -> Nothing
                preds -> Just (foldr1 (\a b -> EApp "and" [a, b]) preds)
 

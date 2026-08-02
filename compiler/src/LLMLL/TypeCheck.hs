@@ -72,7 +72,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, admits, bytesLenOf, boolValuedMapTy)
+import LLMLL.TypeAdmissibility (AliasMap, wildAssumeRejects, bytesLenOf, boolValuedMapTy)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -361,27 +361,34 @@ isHoleVar _        = False
 -- (@assumesFact@ \/ @assumesFactMapKey@ \/ @assumesFactBoolValue@) is gone. It was
 -- a MIRROR of the emitter's fact-injection gates, and CR-01 was the two copies
 -- disagreeing about 'TDependent'. The guard now calls
--- 'LLMLL.TypeAdmissibility.admits', which is defined over
--- 'LLMLL.TypeAdmissibility.bytesLenOf' and
--- 'LLMLL.TypeAdmissibility.boolValuedMapTy' — the very functions
+-- 'LLMLL.TypeAdmissibility.wildAssumeRejects', which is defined over
+-- 'LLMLL.TypeAdmissibility.admits' plus
+-- 'LLMLL.TypeAdmissibility.bytesLenOf' — the very functions
 -- 'LLMLL.FixpointEmit' dispatches on when it decides to assert the fact. Not a
 -- mirror: the same functions.
 --
--- Two consequences worth stating here, because this is where a future arm gets
+-- Three consequences worth stating here, because this is where a future arm gets
 -- added:
 --
---   * 'admits' is TOTAL on unnormalized input. It does not require its caller to
+--   * The guard is TOTAL on unnormalized input. It does not require its caller to
 --     have run 'expandAlias' first. The call-site expansions below are retained
 --     for the OTHER 'compatibleWith' clauses (nominal @TCustom a@ vs
 --     @TCustom b@, structural recursion), which still need expanded input; they
---     are no longer what keeps this guard honest.
+--     are no longer what keeps this guard sound.
 --
---   * 'admits' over-approximates: it ignores the emitter's per-function
+--   * It over-approximates: it ignores the emitter's per-function
 --     activation gate ('FixpointEmit.arrGateActive'), which is a function of the
 --     callee's BODY. That is deliberate (ADMIT-OVER, see the
 --     'LLMLL.TypeAdmissibility' header) — the safe direction is to reject more
 --     than the emitter asserts for, and consulting a body-dependent gate would
 --     make type acceptance depend on a callee's body.
+--
+--   * Since FACT-AG-LEN Stage 3 the seams gate on 'wildAssumeRejects' rather than
+--     on 'admits' itself. 'admits' is the SOUNDNESS set (types whose fact the
+--     emitter injects unearned), now just @map[k,bool]@; 'wildAssumeRejects' adds
+--     back the @bytes[n]@ arm for its DIAGNOSTIC value. A new arm that carries an
+--     unearned fact belongs in 'admits' and reaches the seams for free; an arm
+--     that is only worth a better error message belongs in 'wildAssumeRejects'.
 
 -- | SAFE-ARG: the bare inference wildcard produced by 'collectTopLevel' for an
 -- unannotated return, as distinct from two other TVar populations that must NOT
@@ -408,28 +415,38 @@ isBareWildcard (TVar n) = n == "?" || "?$" `T.isPrefixOf` n
 isBareWildcard _        = False
 
 -- | SAFE-ARG / WILD-ASSUME (stage 3): the noun phrase naming the fact
--- 'LLMLL.TypeAdmissibility.admits' refused, used by 'tcWildAssumeError' so the
--- rejection describes what it refused instead of a hardcoded bytes-only
--- wording. The noun is per class, not per call site, because the two arms
--- assert different facts: a @bytes[n]@ value's fact is @bytesLen(v) = n@
--- ('FixpointEmit.bytesLenReft'), a length; a @map[k,bool]@ value's fact is the
--- @0 \<= select(m$val,k) \<= 1@ range that
--- 'FixpointEmit.injectBoolValRangeFacts' asserts from the declared value type,
--- a per-key value RANGE, not a length -- reusing the bytes wording for the map
--- arm would describe the wrong fact. Total: the fallback covers any future
--- 'admits' arm this function has not been taught yet, rather than making the
--- whole diagnostic partial.
+-- 'LLMLL.TypeAdmissibility.wildAssumeRejects' refused, used by
+-- 'tcWildAssumeError' so the rejection describes what it refused instead of a
+-- hardcoded bytes-only wording. The noun is per class, not per call site,
+-- because the two arms name different facts.
 --
--- ADMIT-SHARED: the arms now dispatch on the same two gates 'admits' is defined
--- over, so a wrapped or aliased type gets its real noun without a 'TDependent'
--- clause of its own — the gates strip and resolve. Previously this function
--- carried a hand-written mirror of that traversal, which is the shape of
--- duplication CR-01 came from.
+-- FACT-AG-LEN Stage 3 reworded the bytes arm. A @bytes[n]@ value's length is no
+-- longer a fact the emitter ASSERTS from the declaration: it is earned, at the
+-- call site from the effective pre ('FixpointEmit.bytesLenParamPre') and in the
+-- body VC from the effective post ('FixpointEmit.bytesLenRetPost'). What the
+-- laundering hop breaks is therefore the PROOF of the length, not a premise, so
+-- the noun says "a length to prove". The @map[k,bool]@ arm is unchanged and is
+-- still an asserted premise: the @0 \<= select(m$val,k) \<= 1@ range that
+-- 'FixpointEmit.injectBoolValRangeFacts' injects from the declared value type, a
+-- per-key value RANGE, not a length -- reusing the bytes wording for it would
+-- describe the wrong fact. Total: the fallback covers any future arm this
+-- function has not been taught yet, rather than making the diagnostic partial.
+--
+-- ADMIT-SHARED: the arms dispatch on the same two gates 'wildAssumeRejects' is
+-- defined over, so a wrapped or aliased type gets its real noun without a
+-- 'TDependent' clause of its own — the gates strip and resolve. Previously this
+-- function carried a hand-written mirror of that traversal, which is the shape
+-- of duplication CR-01 came from.
+-- Each arm carries its own verb, because the two facts now reach the solver by
+-- different routes: the bytes length is PROVED (an obligation on this position),
+-- the map range is ASSERTED (a premise from the declaration). One shared verb
+-- would have to be wrong about one of them.
 wildAssumeFactNoun :: AliasMap -> Type -> Text
 wildAssumeFactNoun am t
-  | isJust (bytesLenOf am t) = "a length"
-  | boolValuedMapTy am t     = "a per-key value range"
-  | otherwise                = "a fact"
+  | isJust (bytesLenOf am t) = "a length the verifier must prove at this position"
+  | boolValuedMapTy am t     = "a per-key value range that the verifier asserts"
+                               <> " from the declaration"
+  | otherwise                = "a fact that the verifier asserts from the declaration"
 
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
 -- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
@@ -439,7 +456,7 @@ wildAssumeFactNoun am t
 -- (the D3 invariant), because there is no hole involved.
 -- Two type arguments, deliberately: @labelTy@ is the type as the user wrote it,
 -- so the diagnostic keeps the alias name (Fix 1b), while @resolvedTy@ is the
--- form the admission guard actually ran 'LLMLL.TypeAdmissibility.admits' on.
+-- form the guard actually ran 'LLMLL.TypeAdmissibility.wildAssumeRejects' on.
 -- The noun must come from the resolved form: naming the fact is the whole point
 -- of 'wildAssumeFactNoun', and reading it off an unexpanded 'TCustom' used to
 -- degrade every aliased rejection to the generic "a fact" fallback (WR-01,
@@ -452,8 +469,7 @@ tcWildAssumeError ctx labelTy resolvedTy = do
   let msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
               <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
               <> " value carries " <> wildAssumeFactNoun am resolvedTy
-              <> " that the verifier asserts from the"
-              <> " declaration, and inference cannot supply it; annotate the"
+              <> ", and inference cannot supply it; annotate the"
               <> " callee's return type."
   modify $ \s -> s
     { tcErrors = tcErrors s ++
@@ -2283,13 +2299,20 @@ structuralUnify func subst expected actual =
     -- asserts bytesLen(b) = 64 and discharges index-in-bounds against a false
     -- premise. Measured false SAFE, v0.14.34..v0.14.72
     -- (docs/design/finding-arg-position-false-safe.md).
+    --
+    -- FACT-AG-LEN Stage 3: for the bytes arm this seam is now a DIAGNOSTIC, not a
+    -- soundness gate. The length is earned (bytesLenParamPre / bytesLenRetPost),
+    -- so the same hop is refuted downstream whether or not the checker stops it.
+    -- The seam is KEPT because a type error here names the remedy (annotate the
+    -- callee's return) and a refuted obligation does not; hence 'wildAssumeRejects'
+    -- rather than 'admits'. The map arm is still a soundness gate.
     (_, TVar _) | isBareWildcard actual -> do
-      -- ADMIT-SHARED: 'admits' is total on unnormalized input, so this seam no
-      -- longer depends on the EApp/EOp call sites having stripped and expanded
-      -- 'expected' first. They still do, and label and noun therefore still read
-      -- off the same type here, but the guard would fire either way.
+      -- ADMIT-SHARED: 'wildAssumeRejects' is total on unnormalized input, so this
+      -- seam no longer depends on the EApp/EOp call sites having stripped and
+      -- expanded 'expected' first. They still do, and label and noun therefore
+      -- still read off the same type here, but the guard would fire either way.
       am <- gets tcAliasMap
-      when (admits am expected) $ tcWildAssumeError func expected expected
+      when (wildAssumeRejects am expected) $ tcWildAssumeError func expected expected
       pure subst
 
     (_, TVar _) -> pure subst
@@ -2368,8 +2391,10 @@ compatibleWith _  (TVar _) _         = True  -- type variable matches anything
 -- ACTUAL side only: a bare wildcard in EXPECTED position is the absence of a
 -- declaration, so there is no asserted fact to falsify and rejecting it would
 -- buy no soundness (finding Rev 1, "Direction: guard the actual side only").
+-- FACT-AG-LEN Stage 3: 'wildAssumeRejects', not 'admits' — see the sibling seam
+-- in 'structuralUnify' for why the bytes arm outlived its soundness role.
 compatibleWith am t a@(TVar _)
-  | isBareWildcard a, admits am t    = False
+  | isBareWildcard a, wildAssumeRejects am t = False
 compatibleWith _  _ (TVar _)         = True
 compatibleWith _  (TCustom "_") _    = True  -- untyped param wildcard
 compatibleWith _  _ (TCustom "_")    = True
@@ -2443,7 +2468,11 @@ unify ctx expected actual = do
     -- SAFE-ARG: route the WILD-ASSUME rejection to its own diagnostic. Without
     -- this the message reads "got ?$0", leaking 'freshenFnType''s internal
     -- alpha-renaming counter into agent-facing output and naming no remedy.
-    if isBareWildcard actual' && admits am expected'
+    -- This is a diagnostic ROUTER, not a third guard: it must test exactly what
+    -- the 'compatibleWith' clause above rejected on, or a rejected program gets
+    -- the generic mismatch message. Hence 'wildAssumeRejects', in step with that
+    -- clause (FACT-AG-LEN Stage 3).
+    if isBareWildcard actual' && wildAssumeRejects am expected'
       -- Label from the original (alias name preserved, Fix 1b); noun from the
       -- expanded form the guard above actually tested (WR-01).
       then tcWildAssumeError ctx expected expected'

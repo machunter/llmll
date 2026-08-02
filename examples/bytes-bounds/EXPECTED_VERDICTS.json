@@ -2,12 +2,16 @@
   "family": "bytes-bounds",
   "frozen_at": "v0.14.34",
   "frozen_date": "2026-07-12",
-  "note": "Frozen VERIFY verdicts + exit codes ONLY. Deliberately does NOT freeze obligation-report classification (bytes-op contracts classify non_qf_lia until arrays-track stage A3 — the classification flip must NOT churn this gate, only a verdict change may). zero-buffer.llmll was added at v0.14.77 (FACT-AG-LEN Stage 2) and is frozen from there; the other three keep the v0.14.34 freeze.",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY. Deliberately does NOT freeze obligation-report classification (bytes-op contracts classify non_qf_lia until arrays-track stage A3 — the classification flip must NOT churn this gate, only a verdict change may). zero-buffer.llmll was added at v0.14.77 (FACT-AG-LEN Stage 2) and is frozen from there; relay-buffer.llmll and relay-overflow.llmll were added at FACT-AG-LEN Stage 3 and are frozen from there; the other three keep the v0.14.34 freeze.",
   "cases": [
     { "file": "read-at.llmll",            "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
     { "file": "read-at-off-by-one.llmll", "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "bytes-get" },
     { "file": "write-overflow.llmll",     "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "bytes-set" },
     { "file": "zero-buffer.llmll",        "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe",
-      "why": "FACT-AG-LEN Stage 2: the bytes-CONSTRUCTION class, which had no fixture under examples/ at all. (bytes-zero) under a declared -> bytes[32] return carries the constructor length axiom bytesLen(r) = 32, so the length post is discharged rather than left uninterpreted." }
+      "why": "FACT-AG-LEN Stage 2: the bytes-CONSTRUCTION class, which had no fixture under examples/ at all. (bytes-zero) under a declared -> bytes[32] return carries the constructor length axiom bytesLen(r) = 32, so the length post is discharged rather than left uninterpreted." },
+    { "file": "relay-buffer.llmll",       "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe",
+      "why": "FACT-AG-LEN Stage 3: the bytes-COMPOSITION class, which had no fixture either. The callee fresh32 is contract-free, so its length reaches its callers only through the effective post the declared -> bytes[32] return now folds in. At Stage 2 this same program did not merely fail to compose: the call-result binder sorted at int while bytesLen is declared over the array sort, and liquid-fixpoint reported a sort error rather than a verdict." },
+    { "file": "relay-overflow.llmll",     "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "bytes-get",
+      "why": "The discriminative negative for relay-buffer.llmll. Reading index 40 of a relayed bytes[32] must refute, or the assumed post is decorative rather than usable." }
   ]
 }

@@ -85,7 +85,7 @@ import LLMLL.CDP
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC)
-import LLMLL.TypeAdmissibility (admits, normalizeTy)
+import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -2342,10 +2342,38 @@ main = hspec $ do
     -- base type is a member because membership is a property of the base, not
     -- of the refinement; the predicate is deliberately vacuous in the fixture,
     -- since predicate strength is irrelevant to the fact the base asserts.
-    it "ADM-3 admits a where-wrapped bytes and map, and a wrapper over an alias" $ do
-      admits admitDelta (TDependent "b" (TBytes 64) trueE) `shouldBe` True
+    --
+    -- FACT-AG-LEN Stage 3 split the two predicates, so the CR-01 property is
+    -- asserted on BOTH: 'admits' (soundness, map arm only now) and
+    -- 'wildAssumeRejects' (the seams, both arms). Asserting it only on 'admits'
+    -- would leave the bytes wrapper untested at the seam it actually governs,
+    -- which is CR-01's own failure mode one predicate over.
+    it "ADM-3 the where-wrapper never evades either predicate" $ do
       admits admitDelta (TDependent "m" (TMap TInt TBool) trueE) `shouldBe` True
-      admits admitDelta (TCustom "DepBuf") `shouldBe` True
+      wildAssumeRejects admitDelta (TDependent "m" (TMap TInt TBool) trueE) `shouldBe` True
+      wildAssumeRejects admitDelta (TDependent "b" (TBytes 64) trueE) `shouldBe` True
+      wildAssumeRejects admitDelta (TCustom "DepBuf") `shouldBe` True
+
+    -- ADM-5: FACT-AG-LEN Stage 3's terminal state, asserted directly. The
+    -- TypeAdmissibility header used to claim 'admits' converged on the EMPTY
+    -- predicate; the proposal corrects that to 'boolValuedMapTy', and this is
+    -- where the correction is checkable rather than only written down.
+    --
+    -- The bytes arm left 'admits' because nothing injects the length any more:
+    -- a param earns it through the effective pre, a return through the effective
+    -- post, and (bytes-zero) through the Stage 2 constructor axiom. It stayed in
+    -- 'wildAssumeRejects' because the seam's rejection is still the better
+    -- diagnostic.
+    it "ADM-5 admits is exactly boolValuedMapTy, and bytes is out of it but not out of the seams" $ do
+      admits admitDelta (TBytes 64)        `shouldBe` False
+      admits admitDelta (TCustom "Buf")    `shouldBe` False
+      admits admitDelta (TCustom "DepBuf") `shouldBe` False
+      wildAssumeRejects admitDelta (TBytes 64)     `shouldBe` True
+      wildAssumeRejects admitDelta (TCustom "Buf") `shouldBe` True
+      -- the map arm is untouched on both
+      admits admitDelta (TMap TInt TBool)            `shouldBe` True
+      wildAssumeRejects admitDelta (TMap TInt TBool) `shouldBe` True
+
 
     -- ADM-4: Norm-Stuck, both populations. An unbound name denotes nothing; a
     -- non-contractive equation denotes nothing either (it has no productive
@@ -2466,6 +2494,29 @@ main = hspec $ do
     it "ADM-PROP-A2 admits is invariant under the checker's own expandAlias" $
       forAll (genTy 3) $ \t ->
         admits admitDelta t == admits admitDelta (expandWith admitDelta t)
+
+    -- FACT-AG-LEN Stage 3: A1 and A2 for the seams' predicate too. The bytes arm
+    -- moved out of 'admits' and into 'wildAssumeRejects'; without these two the
+    -- congruence guarantee would silently stop covering the arm that moved,
+    -- which is the shape ADM-PROP-A1C exists to prevent one predicate over.
+    it "ADM-PROP-A1W wildAssumeRejects is invariant under the congruent normal form" $
+      forAll (genTy 3) $ \t ->
+        wildAssumeRejects admitDelta t
+          == wildAssumeRejects admitDelta (normalizeTy admitDelta t)
+
+    it "ADM-PROP-A2W wildAssumeRejects is invariant under the checker's own expandAlias" $
+      forAll (genTy 3) $ \t ->
+        wildAssumeRejects admitDelta t
+          == wildAssumeRejects admitDelta (expandWith admitDelta t)
+
+    -- ADM-PROP-SUB: the containment that keeps the split safe. 'wildAssumeRejects'
+    -- is the DIAGNOSTIC set and 'admits' the SOUNDNESS set; if the seams ever
+    -- became narrower than 'admits', a type that injects an unearned fact would
+    -- pass the laundering hop unrejected. A property rather than an example,
+    -- because the risk is a future arm added to one and forgotten in the other.
+    it "ADM-PROP-SUB admits implies wildAssumeRejects (the seams are never narrower)" $
+      forAll (genTy 3) $ \t ->
+        not (admits admitDelta t) || wildAssumeRejects admitDelta t
 
   -- -----------------------------------------------------------------------
   -- SAFE-ARG: checker-soundness stamp drives sidecar revalidation
@@ -7072,25 +7123,26 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "(v <= 255)"                    -- value-range in the call-pre
         fq `shouldNotSatisfy` T.isInfixOf "(Map_store b 3 v) >= 0"     -- array-sorted term gets NO range fact
 
-      it "A1-4 bytes-zero: Map_default reflection + the result length fact rides the constraint LHS + the Stage-2 constructor axiom" $ do
+      it "A1-4 bytes-zero: Map_default reflection + the result length as a GOAL + the Stage-2 constructor axiom" $ do
         er <- emitA1 "(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))"
         erBodyFaithfulFns er `shouldSatisfy` elem "zeros8"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "(Map_default 0)"
         fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 8)"
-        -- FACT-AG-LEN Stage 2: the constructor axiom's length conjunct. Stage 2
-        -- lands while 'resultLenFact' is still on the LHS, so the solver sees the
-        -- fact twice (once via `result`, once via the call binder, joined by
-        -- `result = _bv_call_bytes_zero_0`) — logically identical modulo the
-        -- renaming equation, hence no verdict may move. Without this assertion
-        -- Stage 2 would ship unmeasured, since the verdict cannot detect it.
+        -- FACT-AG-LEN Stage 2: the constructor axiom's length conjunct, which is
+        -- what discharges the goal above. At Stage 2 'resultLenFact' still put the
+        -- same fact on the constraint LHS, so the solver saw it twice and the
+        -- staging was verdict-preserving by construction. Stage 3 deleted that
+        -- LHS copy: the axiom is now the ONLY source of the length in this
+        -- program, and the assertion below is what would fail if it regressed.
         --
         -- COUNTERFACTUAL (recorded, not run as a live test): deleting
         -- 'resultLenFact' from 'lhsPred' at v0.14.76 WITHOUT adding the axiom
         -- flips this program SAFE → REFUTED. `Map_default(0)` is a total function
         -- in the array theory carrying no length, so `bytesLen` applied to it is
-        -- uninterpreted. The axiom does real work; it is not a duplicate of an
-        -- antecedent already present. (docs/design/fact-ag-proposal.md edge case 2.)
+        -- uninterpreted. That counterfactual is what Stage 3 actually did minus
+        -- the axiom, and it is why the stage ordering is a correctness constraint.
+        -- (docs/design/fact-ag-proposal.md edge case 2.)
         fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 8"
 
       it "A1-11 FACT-AG-LEN Stage 2: the constructor axiom binds at a FRESH call binder, array-sorted, with no PROVE side" $ do
@@ -7128,6 +7180,156 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case m of
           Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "Unsafe"
+
+      -- ---------------------------------------------------------------
+      -- FACT-AG-LEN Stage 3: the return position, and the line's close.
+      -- ---------------------------------------------------------------
+
+      it "A1-13 Stage 3: a contract-free bytes[n] return gains a PROVED post and becomes body-faithful" $ do
+        -- The clean discriminator for Stage 3, because it needs no hand-written
+        -- post to confuse the two channels. At Stage 2 this program had NO post
+        -- at all: 'resultLenFact' pinned bytesLen(result) = 32 on the constraint
+        -- LHS as an ASSUMPTION about the body's own result, mPostPred was
+        -- Nothing, and the function fell back. At Stage 3 'bytesLenRetPost'
+        -- makes the length the effective post, so the body VC PROVES it and the
+        -- function is body-faithful, which is what lets a caller assume it.
+        er <- emitA1 "(def mk32 [] -> bytes[32] (bytes-zero))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "mk32"
+        erBodyFallback er    `shouldNotSatisfy` elem "mk32"
+        let fq = erFQText er
+        -- the length is the GOAL, discharged from the Stage 2 constructor axiom
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 32)"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 32"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Safe"
+
+      it "A1-14 Stage 3: the length crosses a call boundary — the composition case the line exists for" $ do
+        -- THE PAYOFF, and the one shape that cannot work before Stage 3. The
+        -- callee's length reaches the caller only as an assumed post; at Stage 2
+        -- the callee exported no post, so the caller learned nothing about the
+        -- length of what it received. Both halves are asserted: the caller can
+        -- RE-EXPORT the length (relay), and it can USE it to discharge an
+        -- index-in-bounds obligation (head-of-fresh).
+        --
+        -- MEASURED at Stage 2, and stronger than "does not verify": this exact
+        -- program CRASHED liquid-fixpoint. 'calleeRetSort' (~:3149) sorts a
+        -- bytes-returning callee's result binder at the array sort only when the
+        -- callee's stored contract mentions a bytes op; 'fresh32' is
+        -- CONTRACT-FREE, so the binder fell to FQInt while `bytesLen` is declared
+        -- over (Map_t int int), and the solver reported "The sort (Map_t int int)
+        -- is not numeric" instead of a verdict. Stage 3 closes that class as a
+        -- side effect: every bytes[n] return now carries `bytes-length` in its
+        -- augmented post, so the callee always sorts array-wise.
+        -- 'fresh32' is deliberately left contract-free here for that reason.
+        er <- emitA1 (unlines
+          [ "(def fresh32 [] -> bytes[32] (bytes-zero))"
+          , "(def-shell relay [] -> bytes[32]"
+          , "  (post (= (bytes-length result) 32))"
+          , "  (fresh32))"
+          , "(def-shell head-of-fresh [] -> int"
+          , "  (post (>= result 0))"
+          , "  (bytes-get (fresh32) 0))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "relay"
+        erBodyFaithfulFns er `shouldSatisfy` elem "head-of-fresh"
+        erBodyFallback er    `shouldNotSatisfy` elem "relay"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Safe"
+
+      it "A1-15 Stage 3 refute crux: the composed length is USABLE, so an out-of-range read is refuted" $ do
+        -- The discriminative negative for A1-14. A caller that assumes the
+        -- callee's length must be able to REFUTE with it, or the assumed post is
+        -- decorative. Reading index 40 of a relayed bytes[32] must be Unsafe.
+        er <- emitA1 (unlines
+          [ "(def fresh32 [] -> bytes[32] (bytes-zero))"
+          , "(def-shell oob [] -> int"
+          , "  (post (>= result 0))"
+          , "  (bytes-get (fresh32) 40))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "oob"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Unsafe"
+
+      it "A1-16 Stage 3 residue: a bytes[n] param returned UNCHANGED still falls back — the EVar clause has no array arm" $ do
+        -- MEASURED, and it is not a Stage 3 regression: the same program falls
+        -- back at v0.14.76 for the same reason. 'bodyToPredM's variable clause
+        -- (FixpointEmit.hs, "Variables: look up renamed name, check sort env")
+        -- admits FQInt, FQBool and FQStr only, so a bare ARRAY-sorted variable as
+        -- a whole body yields no BodyVC at all and the function falls back before
+        -- Stage 3's post is ever considered.
+        --
+        -- The consequence is worth naming: the identity function on bytes cannot
+        -- prove its own length, so its post rides the ASSUMPTION channel at tier
+        -- `asserted`. Every other shape in the bytes population (a bytes-zero
+        -- body, a bytes-set body, a call tail) is body-faithful. Widening the
+        -- EVar clause is a body-VC fragment change with its own row, not part of
+        -- FACT-AG-LEN, and this test is the marker that would flip if it lands.
+        er <- emitA1 (unlines
+          [ "(def-shell echo-buf [b: bytes[16]] -> bytes[16]"
+          , "  (post (= (bytes-length result) 16))"
+          , "  b)" ])
+        erBodyFallback er    `shouldSatisfy` elem "echo-buf"
+        erBodyFaithfulFns er `shouldNotSatisfy` elem "echo-buf"
+
+      it "A1-16b Stage 3: the call-tail sibling of A1-16 IS body-faithful, so the residue is the EVar clause and nothing wider" $ do
+        -- The discriminant for A1-16's diagnosis. Same return type, same length,
+        -- same augmented post; the only difference is that the body is a CALL
+        -- rather than a bare variable, and a call gets a CallVC. If the fallback
+        -- in A1-16 were caused by Stage 3's post conjunct rather than by the EVar
+        -- clause, this one would fall back too.
+        er <- emitA1 (unlines
+          [ "(def fresh16 [] -> bytes[16] (bytes-zero))"
+          , "(def-shell relay16 [] -> bytes[16]"
+          , "  (post (= (bytes-length result) 16))"
+          , "  (fresh16))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "relay16"
+        erBodyFallback er    `shouldNotSatisfy` elem "relay16"
+
+      it "A1-17 Stage 3: the mismatched-length negative is still refuted, now from the body rather than the LHS" $ do
+        -- A1-12's sibling after the shield is gone. At Stage 2 this was refuted
+        -- because 'resultLenFact' put bytesLen(result) = 8 on the same LHS as the
+        -- post's 16, making the ANTECEDENT contradictory — a vacuous refutation.
+        -- With 'resultLenFact' deleted the refutation is non-vacuous: the axiom
+        -- gives 8, the goal asks for 16, and the goal genuinely fails.
+        er <- emitA1 "(def bad8 [] -> bytes[8] (post (= (bytes-length result) 16)) (bytes-zero))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "bad8"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Unsafe"
+
+      it "A1-18 Stage 3 (edge case 10): a recursive bytes[n] return stays on the ASSUMPTION channel" $ do
+        -- The scope boundary, asserted rather than only written down. A
+        -- self-recursive function is excluded from body-VC emission for its own
+        -- body (LLMLL.md 5.3.4), so Stage 3's post conjunct has no VC to prove it
+        -- while callers still assume it. FACT-AG-LEN does NOT close the class for
+        -- recursive functions, and this test is what makes that visible if the
+        -- exclusion is ever relaxed without a matching spec change.
+        er <- emitA1 (unlines
+          [ "(def-shell fill [b: bytes[8] i: int] -> bytes[8]"
+          , "  (pre (and (>= i 0) (<= i 8)))"
+          , "  (decreases (- 8 i))"
+          , "  (if (>= i 8) b (fill (bytes-set b i 0) (+ i 1))))" ])
+        erBodyFallback er    `shouldSatisfy` elem "fill"
+        erBodyFaithfulFns er `shouldNotSatisfy` elem "fill"
+
+      it "A1-19 Stage 3: a hole body is INERT — the augmented post creates no undischargeable goal" $ do
+        -- Measured, not assumed. A hole has no VC, so the question was whether
+        -- the augmented post lands as an obligation nothing can discharge. It
+        -- does not: the function falls back and the post rides the assumption
+        -- channel, the same position as any hand-written post on an unfilled
+        -- hole. Sketch mode is unaffected.
+        er <- emitA1 "(def-shell f [] -> bytes[64] ?body)"
+        erBodyFallback er    `shouldSatisfy` elem "f"
+        erBodyFaithfulFns er `shouldNotSatisfy` elem "f"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Safe"
 
       it "A1-5 (expectation flipped at A2): map ops now REFLECT — split binders + presence call-pre, body-faithful" $ do
         -- A1 asserted map ops stay out-of-fragment; A2 ships their reflection.

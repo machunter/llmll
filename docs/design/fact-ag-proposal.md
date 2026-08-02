@@ -1,7 +1,7 @@
 ---
 name: fact-ag-proposal
 title: "FACT-AG-LEN: earn the `bytes[n]` length instead of asserting it from a declaration"
-status: "Rev 3, SETTLED, with compiler-engineer at Stage 2. Rev 3 settles Stage 2's mechanism (reify-then-match at the body' seam, the axiom carried by a pre-free CallVC) and lands three corrections found by reading HEAD and by running the Stage 3 counterfactual: Rev 2's claim that the bytes algebra closes at Stage 2 is false (the two lemmas cannot meet inside one body, so closure is Stage 3's), Rev 2's ordering-argument population is false on both halves (examples/bytes-bounds contains no bytes-zero, and bytes-set-returning functions measurably survive), and the bytes-construction class has no example fixture and no verified artifact anywhere in the tree. Rev 2, SETTLED, shipped Stage 1 as v0.14.76. Rev 0 was a two-half move (parameter + return); professor review round 0 found the return half undischargeable because the language's only bytes constructor carries no length, so Rev 1 made this a THREE-STAGE line with the constructor axiom interposed, withdrew Rev 0's false decidability claim about the map arm, completed the criterion with Hoare's establish-half, re-anchored the rationale to the project's own obligations-not-indices decision, and REJECTED the review's proposed fix for the sort/gate hazard on measured grounds. Professor review round 1 CONCEDED that rejection and returned three findings: a stale line citation on which the whole rejection rested, a third delta population (direct callers, via the augmented ContractEnv), and a contradiction between the criterion and Stage 3. Rev 2 fixes the citation, adds the caller population to the declared delta set, and repairs the criterion with a modularity clause (parametric-in-an-index versus uniform-over-inhabitants) rather than by striking a reason as the review proposed. Roadmap row: FACT-AG, to be renamed FACT-AG-LEN"
+status: "Rev 4, SETTLED and COMPLETE. Stage 3 (the return position) landed and closes the line: bytesLenRetPost conjoins the length into the effective post as the symmetric twin of Stage 1's bytesLenParamPre, resultLenFact and bytesLenReft are deleted, and admits narrows to boolValuedMapTy. Rev 4 records five implementation corrections, of which two matter most: admits and the WILD-ASSUME seams had to split into a soundness predicate and a diagnostic predicate (wildAssumeRejects) because dropping the bytes arm from a shared predicate makes the seams stop firing, and Stage 3 empties a solver-CRASH class nobody predicted (a contract-free bytes-returning callee bound its call result at the int sort). Corpus sweep 252 files, 250 verdict-identical, both changes being the two new fixtures, which were solver crashes at Stage 2. No checker_soundness_version bump; the evidence hash already folds augmentContractPost and identifies the affected population per function. Rev 3, SETTLED, shipped Stage 2. Rev 3 settled Stage 2's mechanism (reify-then-match at the body' seam, the axiom carried by a pre-free CallVC) and lands three corrections found by reading HEAD and by running the Stage 3 counterfactual: Rev 2's claim that the bytes algebra closes at Stage 2 is false (the two lemmas cannot meet inside one body, so closure is Stage 3's), Rev 2's ordering-argument population is false on both halves (examples/bytes-bounds contains no bytes-zero, and bytes-set-returning functions measurably survive), and the bytes-construction class has no example fixture and no verified artifact anywhere in the tree. Rev 2, SETTLED, shipped Stage 1 as v0.14.76. Rev 0 was a two-half move (parameter + return); professor review round 0 found the return half undischargeable because the language's only bytes constructor carries no length, so Rev 1 made this a THREE-STAGE line with the constructor axiom interposed, withdrew Rev 0's false decidability claim about the map arm, completed the criterion with Hoare's establish-half, re-anchored the rationale to the project's own obligations-not-indices decision, and REJECTED the review's proposed fix for the sort/gate hazard on measured grounds. Professor review round 1 CONCEDED that rejection and returned three findings: a stale line citation on which the whole rejection rested, a third delta population (direct callers, via the augmented ContractEnv), and a contradiction between the criterion and Stage 3. Rev 2 fixes the citation, adds the caller population to the declared delta set, and repairs the criterion with a modularity clause (parametric-in-an-index versus uniform-over-inhabitants) rather than by striking a reason as the review proposed. Roadmap row: FACT-AG, to be renamed FACT-AG-LEN"
 date: 2026-08-01
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -233,6 +233,55 @@ through the callee's effective post, which is Stage 3. Stage 2 makes the constru
 effective postcondition; `resultLenFact` moves off `lhsPred` (`:1216-1217`, `:1270`) into the goal,
 so the body VC proves its own result length. Call sites recover it as an assumed post through the
 existing assume-guarantee step 2 (`LLMLL.md §5.3.4`). `admits` loses `bytesLenOf` at this stage.
+
+*Mechanism: the symmetric twin of Stage 1.* A new `bytesLenRetPost` is conjoined into
+`returnRefinementPost` exactly the way `bytesLenParamPre` is conjoined into `paramRefinementPre`,
+and for the same reason it is kept out of `resolveAllRefinements`. `resultLenFact` and the residual
+`bytesLenReft` are deleted. Verified before deletion: `emitParamBind` still binds bytes params at
+`byteArraySort` without `bytesLenReft`, because Stage 1 kept the sort and dropped only the
+predicate, so the deletion is textual.
+
+**Stage 3 implementation, five corrections.** All five were found by reading HEAD or by measuring,
+and each one contradicts something this document or its hand-off said.
+
+1. **`admits` and the WILD-ASSUME seams cannot share one predicate any more.** The two claims
+   "`admits` loses `bytesLenOf`" and "both seams are kept, not deleted" are jointly unsatisfiable
+   while the seams read `admits`, because dropping the arm makes them stop firing on `bytes[n]`
+   and `Spec.hs` SA-1 / SA-2 fail. The split is `admits` = the SOUNDNESS set (what the emitter
+   injects unearned, now exactly `boolValuedMapTy`) and a new `wildAssumeRejects` = the DIAGNOSTIC
+   set (`admits` plus the bytes arm), with the containment asserted as a property. Keeping the
+   bytes rejection costs nothing: every program it rejects is refuted downstream anyway, and a type
+   error naming the remedy is the better diagnostic. This is the sense in which the arm "demotes
+   from soundness to diagnostic".
+
+2. **There is a THIRD `admits` call site**, not two. `unify` (`TypeCheck.hs:2471`) re-tests the
+   predicate to decide which diagnostic to emit after `compatibleWith` has already rejected. It is
+   a router rather than a guard, and it must move in step with the `compatibleWith` clause or a
+   rejected program silently degrades to the generic mismatch message.
+
+3. **`tcWildAssumeError`'s message needed restructuring, not a noun swap.** Its template said the
+   fact is one "that the verifier asserts from the declaration", which is now false for the bytes
+   arm and still true for the map arm. The clause moved into `wildAssumeFactNoun` so each arm
+   carries its own verb.
+
+4. **Stage 3 fixes a solver-crash class, which no revision predicted.** `calleeRetSort`
+   (`FixpointEmit.hs:~3149`) sorts a bytes-returning callee's result binder at `byteArraySort` only
+   when the callee's stored contract mentions a bytes op. A CONTRACT-FREE bytes-returning callee
+   therefore bound at `FQInt`, and a gated caller applying `bytesLen` to it crashed
+   liquid-fixpoint with "The sort (Map_t int int) is not numeric" rather than returning a verdict.
+   Measured on `examples/bytes-bounds/relay-buffer.llmll` and `relay-overflow.llmll`, which are
+   `SOLVER-CRASH` at Stage 2 and SAFE / REFUTED at Stage 3. Stage 3 empties that population as a
+   side effect, because every `bytes[n]` return now carries `bytes-length` in its augmented post,
+   and the `FQInt` fall-through on the `TBytes` arm becomes dead (named in place per the D2
+   dead-guard discipline, not removed).
+
+5. **The identity function on bytes still cannot prove its own length.** `bodyToPredM`'s variable
+   clause admits `FQInt`, `FQBool` and `FQStr` only, so a bare ARRAY-sorted variable as a whole body
+   yields no `BodyVC` and the function falls back before Stage 3's post is considered. Measured
+   identical at Stage 2, so it is a pre-existing fragment boundary rather than a Stage 3 regression,
+   but it is the one shape in the bytes population whose post rides the assumption channel at tier
+   `asserted`. Every other shape (a `bytes-zero` body, a `bytes-set` body, a call tail) is
+   body-faithful. Widening the clause is a body-VC fragment change with its own row.
 
 **Stage 3 must not land before Stage 2, and the population is far smaller than Rev 2 said.** Without
 the constructor axiom, the body VC for `(def mk () -> bytes[64] (bytes-zero))` is
@@ -544,6 +593,56 @@ binder's index. Verdicts are unaffected and the population is zero outside the t
 
 No `checker_soundness_version` bump: the change adds an antecedent that is logically implied by an
 antecedent already present, so no REFUTED can become SAFE.
+
+**Stage 3's gate, and it is not verdict-identity.** Stage 2's gate was verdict-identity because the
+same fact reached the solver twice. Stage 3 removes the LHS copy, so verdicts may legitimately move,
+and the gate is the corpus sweep with a declared delta set plus the per-shape discharge table.
+Measured:
+
+- **Corpus sweep: 252 files, 250 verdict-identical.** The two that changed are the two fixtures
+  Stage 3 adds, and both were `SOLVER-CRASH` at Stage 2 (correction 4 above). No pre-existing file
+  moved, in either direction.
+- **Per shape.** `(bytes-zero)` body: SAFE, body-faithful, discharged from Stage 2's axiom.
+  `(bytes-set b i v)` over a `bytes[n]` param: SAFE, body-faithful, preservation lemma composed with
+  Stage 1's earned pre. A call tail from an annotated bytes-returning callee: SAFE and body-faithful,
+  and REFUTED on an out-of-range read, which is the payoff and the one shape that could not work
+  before Stage 3. A `bytes[n]` param returned unchanged: falls back, pre-existing (correction 5).
+- **Gains, not just preservation.** Two shapes move from `body-fallback` to `body-faithful` because
+  a contract-free `bytes[n]` return now HAS a post to prove: `(def mk32 [] -> bytes[32] (bytes-zero))`
+  and `(def write-at [b: bytes[64] i: int v: int] -> bytes[64] … (bytes-set b i v))`. Their trust
+  tier moves from "no contract" to `verified`.
+- **Hole bodies are inert.** `(def-shell f [] -> bytes[64] ?body)` falls back and its post rides the
+  assumption channel at `asserted`; the augmented post creates no obligation nothing can discharge.
+  The tier moves from "no contract" to `asserted`, which is the same position as a hand-written post
+  on an unfilled hole.
+- **Recursive `bytes[n]` returns stay on the assumption channel**, tier `asserted`, exactly as edge
+  case 10 predicts. The class is NOT closed for them. Separately: `letrec` cannot reach the class at
+  all, because both parsers hardcode `SLetrec`'s return type to `Nothing`
+  (`Parser.hs:200`, `ParserJSON.hs:343`), so the only route is a self-recursive `def` / `def-shell`
+  with a declared return.
+
+**No `checker_soundness_version` bump at Stage 3 either, and the reason is different.** The stamp
+(`VerifiedCache.hs:325`) discards sidecars WHOLESALE, and SAFE-ARG spent it because the affected
+population was not identifiable per function. Here it is, and the identification is already wired:
+`canonicalDefEvidenceHash` folds `augmentContractPost` on both the write side
+(`Main.hs:1531`) and the read side (`TrustReport.hs:586`), so every `bytes[n]`-returning function's
+hash moves and `downgradeStaleVerifiedSidecar` downgrades its stale entry. Measured: `zeros8`'s
+`verified_hash` moves from `sha256:1ec9910e…` to `sha256:afdc70c4…`.
+
+The population whose hash does NOT move is the population with no `bytes[n]` return, and for it a
+stale `verified` can only be conservative, never unjustified. A caller of a bytes-returning function
+gains an ASSUMPTION (the callee's length) and keeps its goal, so a Stage-2 SAFE stays SAFE; a
+Stage-2 REFUTED or CRASH wrote no `verified` sidecar to begin with. A wholesale bump would discard
+every unaffected sidecar in every user environment for no soundness gain.
+
+**Recorded gap, in Stage 1's ceremony rather than Stage 3's.** The hash preimage is
+`(formTag, body, RAW pre, AUGMENTED post, decreases)`: the post is augmented, the pre is not, on
+both sides. So Stage 1's pre augmentation did NOT move any hash. A caller that gained a call-pre
+length obligation at v0.14.76 without a bytes type of its own therefore keeps a `verified` sidecar
+written by v0.14.73–v0.14.75 (which carry stamp `"1"` and so survive `sidecarNeedsRevalidation`),
+and that obligation can turn SAFE into REFUTED. In-tree the population is empty (Rev 3 measured
+D3/D4 = 0), so nothing in the corpus is affected, but the asymmetry should be recorded rather than
+discovered later.
 
 ## Risks
 
