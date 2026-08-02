@@ -1466,10 +1466,17 @@ emitParamBind aliases freshBid addBind (n, t) = do
   bid <- freshBid
   -- LEVER-A1: a bytes[n] param (reachable ONLY via the gated arrParams list —
   -- bytes is neither scalar-like nor a measure sort, so an ungated function
-  -- never sends one here) binds at the array sort carrying the family-1 ground
-  -- fact `bytesLen(v) = n`.
+  -- never sends one here) binds at the array sort.
+  --
+  -- FACT-AG-LEN (Stage 1): the binder carries NO length fact. `bytesLen(v) = n`
+  -- used to ride here ('bytesLenReft'), which put it in every VC antecedent with
+  -- nothing discharging it (SAFE-ARG). It is now contributed to the effective
+  -- PRECONDITION by 'bytesLenParamPre', so callers prove it and the body assumes
+  -- it, exactly as for a hand-written `pre`. The SORT stays 'byteArraySort':
+  -- dropping the whole clause would fall through to typeToSort's conservative
+  -- FQInt default and emit ill-sorted `bytesLen` applications.
   let reft = case bytesLenOf aliases t of
-        Just len -> bytesLenReft len
+        Just _   -> FQReft "v" byteArraySort FQTrue
         Nothing  -> FQReft "v" (typeToSort (resolveAliasTy aliases t)) FQTrue
       b = FQBind bid n reft
   addBind b
@@ -4270,14 +4277,49 @@ renameVar from to = go
     go (EAwait a)      = EAwait (go a)
     go e               = e
 
+-- | FACT-AG-LEN (Stage 1): the length equality a @bytes[n]@ param contributes to
+-- its function's effective PRECONDITION, instantiated at the param name.
+--
+-- Before this, the fact @bytesLen(v) = n@ was asserted unconditionally as the
+-- param BINDER's refinement ('bytesLenReft', 'emitParamBind'), so it entered
+-- every VC antecedent with no obligation discharging it — the SAFE-ARG class
+-- (docs/design/fact-ag-proposal.md; docs/design/finding-arg-position-false-safe.md).
+-- Routing it through the pre makes it EARNED: §5.3.4's call rule proves it at
+-- each call site (PROVE polarity, via the augmented 'ContractEnv' that
+-- 'buildContractEnvWith' already builds) and assumes it inside the callee.
+--
+-- Deliberately NOT folded into 'resolveAllRefinements', which has four other
+-- consumers that must not see it: 'returnRefinementPost' (that is Stage 3, and
+-- the stage ordering is a correctness constraint — Stage 3 without Stage 2
+-- refutes every @bytes-zero@ body), 'payloadRefinement' (COMPONENT positions,
+-- a deliberate exclusion), "LLMLL.Feasibility" (a separate SMT lowering for the
+-- no-miracle gate), and 'collectCallArgCarrierVars' (measure-carrier binding).
+--
+-- Alias-chasing for free: 'bytesLenOf' resolves through 'resolveAliasTy', so
+-- @(type Key bytes[32])@ elaborates identically to @bytes[32]@ (the A1 property
+-- at the head position).
+bytesLenParamPre :: AliasMap -> (Name, Type) -> [Expr]
+bytesLenParamPre am (n, t) = case bytesLenOf am t of
+  Just len -> [ EApp "=" [ EApp "bytes-length" [EVar n]
+                         , ELit (LitInt (toInteger len)) ] ]
+  Nothing  -> []
+
 -- | F-NIW-1: the conjoined refinement predicate contributed by refinement-aliased
 -- params, each instantiated at the param name (p[param/x]). Nothing if no param
 -- is refinement-typed. This becomes part of the function's effective precondition,
 -- so the existing pre machinery discharges it both ways: assumed in the body VC
 -- (elim) and proven at call sites via call-pre obligations (intro).
+--
+-- FACT-AG-LEN (Stage 1): @bytes[n]@ params contribute their length equality here
+-- too ('bytesLenParamPre'). Emitting @bytes-length@ into the pre also
+-- SELF-ACTIVATES the LEVER-A1 gate, because 'arrGateActive' reads the AUGMENTED
+-- contract and @"bytes-length"@ is in 'bytesOpNames' — so the param binds at
+-- 'byteArraySort' and the predicate is well-sorted, with no change to
+-- 'typeToSort' or to the gate.
 paramRefinementPre :: AliasMap -> [(Name, Type)] -> Maybe Expr
 paramRefinementPre am params =
-  case [ renameVar x n p | (n, t) <- params, (x, p) <- resolveAllRefinements am t ] of
+  case [ renameVar x n p | (n, t) <- params, (x, p) <- resolveAllRefinements am t ]
+       ++ concatMap (bytesLenParamPre am) params of
     []    -> Nothing
     preds -> Just (foldr1 (\a b -> EApp "and" [a, b]) preds)
 

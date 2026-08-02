@@ -7029,13 +7029,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
                 pure (Just (T.pack out))
 
-      it "A1-1 the crux emits body-faithful with the array sort, binder length fact, exact pinning, and byte-range facts" $ do
+      it "A1-1 the crux emits body-faithful with the array sort, exact pinning, and byte-range facts; FACT-AG-LEN puts the length in the PRE, not the binder" $ do
         er <- emitA1 (cruxSrc "<")
         erBodyFaithfulFns er `shouldSatisfy` elem "read-at"
         erCallPreFns er      `shouldSatisfy` elem "read-at"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "(Map_t int int)"
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen v) = 64)"          -- family-1 binder fact
+        -- FACT-AG-LEN Stage 1: the length equality is contributed to the effective
+        -- PRECONDITION at the param name ('bytesLenParamPre'), so callers prove it
+        -- and the body assumes it. It is no longer asserted on the binder.
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen b) = 64)"          -- earned via the pre
+        fq `shouldNotSatisfy` T.isInfixOf "((bytesLen v) = 64)"       -- NOT the family-1 binder fact
+        fq `shouldSatisfy` T.isInfixOf "b : { v : (Map_t int int) | true }"
         fq `shouldSatisfy` T.isInfixOf "= (Map_select b i)"           -- exact pinning, never a skolem
         fq `shouldSatisfy` T.isInfixOf "((Map_select b i) <= 255)"    -- family-2 byte range
         fq `shouldSatisfy` T.isInfixOf "(i < (bytesLen b))"           -- the PROVE bound
@@ -7092,15 +7097,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (bytes-get b 0))" ])
         erBodyFallback er `shouldSatisfy` elem "we"
 
-      it "A1-7 byte-inertness: bytes params WITHOUT ops (the crypto shape) keep today's int-only lowering" $ do
+      it "A1-7 (expectation flipped at FACT-AG-LEN): the crypto shape self-activates the gate and carries its length pre, but gains no op machinery" $ do
+        -- A1 asserted byte-inertness: bytes params with no ops kept the int-only
+        -- lowering, so the whole off-gate corpus stayed byte-identical. FACT-AG-LEN
+        -- Stage 1 retires that property for bytes params BY DESIGN: the length
+        -- equality is emitted into the effective pre, `bytes-length` is in
+        -- 'bytesOpNames', and 'arrGateActive' reads the AUGMENTED contract — so the
+        -- gate self-activates and the params bind at the array sort. That is the
+        -- mechanism the proposal relies on to keep `bytesLen` applications
+        -- well-sorted without touching 'typeToSort'
+        -- (docs/design/fact-ag-proposal.md, "The sort/gate hazard").
+        --
+        -- What must NOT change is that an op-free function gains no op machinery:
+        -- no exact pinning, no family-2 byte-range facts.
         er <- emitA1 (unlines
           [ "(def-shell wrap [key: bytes[20] message: bytes[20]] -> int"
           , "  (post (>= result 0))"
           , "  0)" ])
         erBodyFaithfulFns er `shouldSatisfy` elem "wrap"
         let fq = erFQText er
-        fq `shouldNotSatisfy` T.isInfixOf "Map_t"
-        fq `shouldNotSatisfy` T.isInfixOf "bytesLen"
+        fq `shouldSatisfy` T.isInfixOf "key : { v : (Map_t int int) | true }"
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen key) = 20)"
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen message) = 20)"
+        fq `shouldNotSatisfy` T.isInfixOf "((bytesLen v) = 20)"   -- never the binder fact
+        fq `shouldNotSatisfy` T.isInfixOf "Map_select"            -- op-free: no reads reflected
+        fq `shouldNotSatisfy` T.isInfixOf "Map_store"
 
       it "A1-8 gate condition 3: the CALLER of a bytes-op-CONTRACTED callee activates and proves the callee's bound" $ do
         -- The callee's CONTRACT carries the bytes ops (bytes-length in the pre,
@@ -7120,12 +7141,33 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "caller"
         erCallPreFns er      `shouldSatisfy` elem "caller"
         let fq = erFQText er
-        -- caller's bytes param bound at the array sort with its own family-1 fact
-        fq `shouldSatisfy` T.isInfixOf "buf : { v : (Map_t int int) | ((bytesLen v) = 8) }"
+        -- caller's bytes param binds at the array sort; FACT-AG-LEN Stage 1 moves
+        -- its length off the binder and into the caller's own effective pre.
+        fq `shouldSatisfy` T.isInfixOf "buf : { v : (Map_t int int) | true }"
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen buf) = 8)"
         -- the callee's reflected post is assumed over the caller's binder
         fq `shouldSatisfy` T.isInfixOf "= (Map_select buf 3)"
         -- and the callee's bound is a PROVE obligation against the caller's fact
         fq `shouldSatisfy` T.isInfixOf "(3 < (bytesLen buf))"
+        -- FACT-AG-LEN: the callee's LENGTH is now itself a caller obligation. The
+        -- callee's pre carries `(bytesLen b) = 8`, so the call site must discharge
+        -- it rather than inherit it from an unvalidated declaration (SAFE-ARG).
+        -- It discharges here because the caller's own pre supplies the same fact.
+        fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((3 >= 0) && (3 < (bytesLen buf))) && ((bytesLen buf) = 8) }"
+
+      it "A1-10 FACT-AG-LEN: an ALIASED bytes[n] param earns the same length pre (edge case 5, the CR-01 shape)" $ do
+        -- 'bytesLenParamPre' is defined over 'bytesLenOf', which resolves through
+        -- 'resolveAliasTy'. An alias that got no obligation while its expansion
+        -- did would be CR-01 at a new site, so this pins alias-congruence at the
+        -- head position (docs/design/fact-ag-proposal.md, edge case 5).
+        er <- emitA1 (unlines
+          [ "(type Key bytes[32])"
+          , "(def-shell tag [k: Key] -> int"
+          , "  (post (>= result 0))"
+          , "  0)" ])
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen k) = 32)"
+        fq `shouldSatisfy` T.isInfixOf "k : { v : (Map_t int int) | true }"
 
       it "A1-9 (expectation flipped at A2): a mixed bytes+map body now discharges body-faithful" $ do
         -- A1 asserted the mixed body falls back whole (map ops unreflected);
