@@ -4,6 +4,123 @@
 
 <a id="Latest"></a>
 
+## v0.14.77: the bytes constructor establishes its own length instead of borrowing it (2026-08-01)
+
+FACT-AG-LEN **Stage 2 of 3**, the `(bytes-zero)` constructor axiom. Two emitter edits plus test and
+fixture surface. No schema change, no grammar change, no builtin-signature change, no
+`checker_soundness_version` bump.
+
+### Changed, FACT-AG-LEN Stage 2
+
+- **The language's only bytes constructor now establishes its own length.** `(bytes-zero)` translates
+  to `Map_default(0)`, a total function in the array theory that carries no length, so `bytesLen`
+  applied to it is uninterpreted and a constructed buffer's length came entirely from `resultLenFact`
+  on the constraint LHS. A new `bodyToPredM` equation emits it as an axiom instead: a `CallVC` with
+  `cvPreObligation = Nothing` and `cvPostAssumption = Just (r = Map_default(0) and bytesLen(r) = n)`.
+  ASSUME polarity with no PROVE side is what an axiom is, and the data type already separates the two
+  by that `Nothing`. `bytes-set`'s length-preservation fact is the shipped precedent for the shape;
+  `SimpleVC` cannot carry it, since its first field is `[LetBinding]` and yields only `r = rhs` with
+  no seam for a free-standing fact.
+- **Reify, then match, because `bodyToPredM` cannot see the return type.** That function receives
+  neither an `AliasMap` nor an `mRet`, and threading `mRet` through forty-odd clauses to serve one
+  call site is not the shape of this change. New `reifyBytesZeroLen` rewrites a whole-body
+  `(bytes-zero)` to carry its declared length as a literal argument, applied at the `body'` seam where
+  `mRet` is already read. It deliberately mirrors `Contracts.buildFuncEnv`'s `reifyBytesLen`, which
+  performs the same rewrite for the `llmll test` symbolic evaluator: two reifications, one match
+  shape, two consumers, and each site now carries a TWIN comment naming the other.
+- **The match is head-syntactic on `TBytes n`, deliberately not through `bytesLenOf`.** The checker's
+  determining-context rule (`TypeCheck.hs:1216`, `:1250`) and codegen (`CodegenHs.hs:586`) both match
+  that way. Chasing aliases here would let the emitter admit a construct the checker rejects.
+- **The axiom does real work rather than restating an antecedent already present.** Measured: delete
+  `resultLenFact` from `lhsPred` without adding the axiom, rebuild at v0.14.76, and
+  `(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))` flips SAFE to REFUTED.
+- **The axiom's validity is a trust-channel dependency, not a contract discharge.** It holds because
+  codegen reads the same annotation to emit an n-length zero value, so it rides the
+  `codegen_semantics_version` stamp (§3.5). The category already existed rather than being opened
+  here: `bytes-set`'s `bytesLen(r) = bytesLen(b)` is the same kind of claim, shipped.
+- **The un-reified nullary equation stays as a fall-through.** `bodyToPredFrom`, the exported test
+  entry point, takes no `mRet` and therefore cannot reify; roughly thirty direct calls in
+  `compiler/test/Spec.hs` would meet a pattern-match failure without it. The production path always
+  reifies first, so the clause is dead there.
+
+### Not in this release
+
+**Stage 3 is open, and the stage ordering remains a correctness constraint, not a preference.**
+Stage 3 moves `resultLenFact` off the constraint LHS into the effective post, so the body VC proves
+its own result length and call sites recover it as an assumed post. It could not land first: without
+the constructor axiom the body VC for a `(bytes-zero)`-bodied def is UNSAT. Stage 3 changes the
+evidence hash of every bytes-returning function and owes the SAFE-ARG revalidation ceremony.
+
+**The bytes algebra does not close here.** Rev 2 of the design claimed it did, on the grounds that one
+constructor axiom plus `bytes-set`'s preservation lemma covers every introduction and update. The two
+lemmas cannot meet inside one body: `(bytes-set (bytes-zero) 0 1)` is a type error, because
+`(bytes-zero)` is admissible only as a whole body. Every real composition crosses a function boundary,
+and the length reaches the caller only through the callee's effective post, which is Stage 3. Stage 2
+makes the constructor self-supporting; Stage 3 makes it composable, and the algebra closes there.
+
+**A builtin axiom still appears on no channel of the trust report.** Measured at this stage:
+`bytes-set`'s length-preservation fact is absent from every reporting surface. `TrustReport.hs`,
+`ObligationMining.hs`, `ObligationAssembly.hs` and `WeaknessCheck.hs` carry no reference to it, and
+`cvPostAssumption` is consumed only inside `FixpointEmit`. A `verified` tier therefore already rests
+on a codegen-faithfulness assumption the report never names, and Stage 2's axiom inherits that
+silence. Tracked as **TRUST-AXIOM** on the roadmap; it is not Stage 2's work and is not fixed here.
+
+**SAFE-ARG is not closed by this release.** Stage 2 gives the constructor an establishing axiom of
+its own instead of a borrowed antecedent, which is an assumption with a named trust dependency rather
+than a proof; the return position is still shielded by `verify` rather than discharged by an
+obligation.
+
+### Gates
+
+**The gate is verdict-identity on the `bytes-zero`-bodied population plus the two new tests, not the
+corpus sweep.** `resultLenFact` is untouched, so the same fact reaches the solver twice and no verdict
+can move; what has to be shown is that the axiom is present, array-sorted, pre-free, and sourced from
+the declared return, which is what the new tests assert.
+
+The corpus sweep ran before and after over **273 files with 0 verdict deltas**, and it is recorded as
+a regression check only. `examples/` contained no `bytes-zero` at all before this release, so the
+sweep has **no witness for the construct**: it is silent on Stage 2 rather than passing it. `.fq`
+byte-identity is unavailable as a gate, because the fresh axiom binder shifts the file-scoped body
+counter.
+
+`examples/bytes-bounds/zero-buffer.llmll` is new and closes that witness gap ahead of Stage 3: the
+bytes-**construction** class had no fixture under `examples/` and no verified artifact anywhere in the
+tree, so Stage 3's evidence-hash revalidation would have had nothing to revalidate. It is frozen into
+the family's `EXPECTED_VERDICTS.json`, taking `scripts/refute-crux-gate.sh` from 58 to **59 cases, 0
+failed**.
+
+`scripts/check-examples.sh` reports **163 passed, 1 failed**. The single failure
+(`examples/totp_rfc6238/totp_filled.ast.json`) is the pre-existing v0.14.73 bytes-arm rejection
+recorded under §v0.14.74, unrelated to this change. No `checker_soundness_version` bump: the change
+adds an antecedent logically implied by one already present.
+
+### Tests
+
+**1461 → 1463.** `A1-11` pins the axiom's shape: a fresh call binder at the byte-array sort, the
+`Map_default(0)` equation and the `bytesLen(...) = n` conjunct on that binder, the result equation
+joining them, and **no** call-pre obligation, since a constructor has nothing to prove. `A1-12` is the
+discriminative negative for edge case 7: a program declaring `(post (= (bytes-length result) 16))`
+against a `-> bytes[8]` return must emit `= 8` on the axiom binder and never `= 16`, so an
+implementation reading `n` from the contract instead of the return type is caught rather than
+verified. `A1-4` gains the axiom conjunct alongside the reflection assertions it already carried.
+
+### Spec
+
+- **§5.3.3 and §3.4.6 are reconciled with Stage 1, which v0.14.76 shipped without doing.** Both still
+  described the `bytes[n]` length as a binder fact discharged by no obligation, which stopped being
+  true of the parameter position a release ago. Both now state the split: the parameter length is
+  earned at the call site, the return length is still asserted onto the constraint LHS until Stage 3,
+  and the `map[k,bool]` arm is unchanged and permanent. §3.4.6 additionally records that WILD-ASSUME's
+  bytes-parameter arm is retained as a **diagnostic** rather than for soundness, since a bare `?`
+  there now yields a worse message rather than an unsound verdict.
+- **§13.12's `bytes-zero` entry** gains the constructor length axiom: the declared return gives the
+  constructor its length in verification and not only at runtime, `n` is read from the return and
+  never from the `post`, and validity rides the `codegen_semantics_version` stamp. **§5.3.3** records
+  that `Σ_auto` is unchanged by the axiom, which introduces no new symbol, sort, or theory.
+
+Design: [`docs/design/fact-ag-proposal.md`](docs/design/fact-ag-proposal.md) (Rev 3), with the
+standalone [`docs/design/fact-ag-proposal-review.md`](docs/design/fact-ag-proposal-review.md).
+
 ## v0.14.76: the bytes[n] length is earned at the call site, not asserted from the declaration (2026-08-01)
 
 FACT-AG-LEN **Stage 1 of 3**, the parameter position. One emitter change plus test surface. No

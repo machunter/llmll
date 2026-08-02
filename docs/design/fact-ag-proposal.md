@@ -93,7 +93,7 @@ every inhabitant with no index to carry.
 Applied to the two arms:
 
 - **`bytes[n]` length.** The sole introduction form is `(bytes-zero)`. It translates to
-  `Map_default(0)` and carries no length; the emitter comment at `FixpointEmit.hs:3332-3337` says so
+  `Map_default(0)` and carries no length; before Stage 2 the emitter comment on that equation said so
   in terms: "the result binder's family-1 fact supplies its length," which is `resultLenFact`. The
   establish-half is **absent** at clause (i), so the length must be earned. This is why Stage 2
   below has to exist. And once Stage 2 supplies establishment, clause (ii) still bites, because the
@@ -174,7 +174,7 @@ applied at the `body'` seam (`:1078`, where `mRet` is already read at `:1064`). 
 `retTy@(TBytes _)` with no alias expansion, deliberately (`TypeCheck.hs:1212-1215`, "the two ends
 must agree on when the construct is legal"), and `CodegenHs.hs:586` matches the same way. Four
 readers of one annotation, one match shape. The new equation goes ahead of the nullary one at
-`:3343`:
+`:3404`:
 
 ```
 bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
@@ -187,9 +187,9 @@ bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
 
 A `CallVC` with `cvPreObligation = Nothing` and `cvPostAssumption = Just p` *is* an axiom: an
 ASSUME-polarity fact with no PROVE side, and the data type already separates the two by that
-`Nothing`. `bytes-set` at `:3335` is the shipped precedent for the shape. `SimpleVC` cannot carry it,
+`Nothing`. `bytes-set` at `:3349-3364` is the shipped precedent for the shape. `SimpleVC` cannot carry it,
 since its first field is `[LetBinding]`, which yields only `r = rhs` and has no seam for a
-free-standing fact. The nullary equation at `:3343` **stays** as the fall-through, because
+free-standing fact. The nullary equation at `:3404` **stays** as the fall-through, because
 `bodyToPredFrom` (`:2924`, cited at `:3756`) reaches `bodyToPredM` with no `mRet` at all; its
 comment, which currently says the result binder's family-1 fact supplies the length, becomes false
 and must be rewritten.
@@ -197,7 +197,7 @@ and must be rewritten.
 *The axiom's validity is a trust dependency, not a contract discharge.* It holds because codegen
 reads the same annotation to emit an n-length zero value (`CodegenHs.hs:582-586`), so it rides the
 `codegen_semantics_version` stamp (§3.5). This category already exists rather than being opened here:
-`bytes-set`'s `bytesLen(r) = bytesLen(b)` (`:3334`) is the same kind of claim, shipped.
+`bytes-set`'s `bytesLen(r) = bytesLen(b)` (`:3361`) is the same kind of claim, shipped.
 
 *Measured at Stage 2: it is recorded on **no** channel.* Running `verify --obligation-report` and
 `verify --trust-report` on `(def sr [b: bytes[8] v: int] -> bytes[8] (pre …) (post (= (bytes-length
@@ -222,7 +222,7 @@ length, so `bytesLen` applied to it is uninterpreted. The axiom does real work r
 duplicating an antecedent already present.
 
 *What Stage 2 does not buy.* Rev 2 claimed the bytes algebra closes here, on the grounds that one
-constructor axiom plus `bytes-set`'s preservation lemma (`FixpointEmit.hs:3334`) covers every
+constructor axiom plus `bytes-set`'s preservation lemma (`FixpointEmit.hs:3361`) covers every
 introduction and update. **That is wrong.** The two lemmas cannot meet inside one body:
 `(bytes-set (bytes-zero) 0 1)` is a type error, because `(bytes-zero)` is admissible only as a whole
 body. Every real composition crosses a function boundary, and the length reaches the caller only
@@ -313,7 +313,7 @@ says should never be done.
    without Stage 2: **REFUTED**, confirmed by a counterfactual build at v0.14.76 (delete
    `resultLenFact` at `:1270`, add no axiom). Under Stage 2: the constructor axiom supplies
    `bytesLen(r) = 8` and the goal discharges. Channel: contract. Cite `FixpointEmit.hs:1216-1219`,
-   `:3343-3344`, `compiler/test/Spec.hs:7076`.
+   `:3404-3405`, `compiler/test/Spec.hs:7076`.
 
 3. **Gate self-activation widens beyond bytes.** A function carrying both a `bytes[n]` and a
    `map[int,int]` parameter that is off-gate today becomes gated once the elaborated pre mentions
@@ -334,7 +334,7 @@ says should never be done.
 
 6. **`bytes[0]`.** At the constructor, `(def z [] -> bytes[0] (bytes-zero))` gives
    `bytesLen(r) = 0`, which is satisfiable, and every read on the result is refuted by `bytes-get`'s
-   `0 ≤ i < bytesLen(b)` pre (`FixpointEmit.hs:3311-3312`), UNSAT at length 0. At the parameter,
+   `0 ≤ i < bytesLen(b)` pre (`FixpointEmit.hs:3338-3339`), UNSAT at length 0. At the parameter,
    `(= (bytes-length v) 0)` is satisfiable; every read is refuted by the
    index-in-bounds obligation, unchanged. `lintContractReads`'s `bytesLens` (`TypeCheck.hs:2541`)
    must keep matching the base type rather than the elaborated wrapper, or CONTRACT-READ-LINT goes
@@ -352,7 +352,7 @@ says should never be done.
    `exprMentionsArrOp mBody` (`:1594`, `:1649`), so a `bytes-zero` body always self-activates the
    gate. This holds independently of Stage 1's parameter-side self-activation, and it covers the
    contract-free case `(def mk32 [] -> bytes[32] (bytes-zero))` where `bytesLenParamPre` contributes
-   nothing. The nullary equation at `:3343` is therefore dead for well-typed programs after Stage 2,
+   nothing. The nullary equation at `:3404` is therefore dead for well-typed programs after Stage 2,
    but it is live through `bodyToPredFrom` (`:2924`), which has no `mRet`. Naming
    the population that keeps it live is the D2 dead-guard discipline (`docs/UPDATE-PROTOCOL.md`).
    Channel: spec is silent (intentional).
@@ -389,7 +389,7 @@ says should never be done.
 |---|---|---|
 | Stage 1: `(= (bytes-length arg) n)` at a call site | contract, call-pre, PROVE | **QF-LIA + the `bytesLen` UF over `FQArr FQInt FQInt`.** In `Σ_auto` today: `exprToPred` at `FixpointEmit.hs:2797`, `measureConstant` at `:4222`. Well-sorted because the elaboration self-activates `arrGate` (see below), so the argument binds at `byteArraySort`. No widening. Cite `LLMLL.md §5.3.3`. |
 | Stage 2: `bytesLen(r) = n ∧ r = Map_default(0)` at `(bytes-zero)` | contract, ASSUME polarity, no PROVE side | QF-LIA + same UF, `n` a literal. Not an obligation on user code; an axiom whose no-laundering side condition is `TypeCheck.hs:1216,1250`. Carried by a `CallVC` with `cvPreObligation = Nothing`. |
-| Stage 2: **validity** of that axiom (that `bytes_zero n` really has length `n`) | **trust**, not contract | Not an SMT obligation at all. Discharged by codegen faithfulness (`CodegenHs.hs:582-586`) under the `codegen_semantics_version` stamp (§3.5). Same category as `bytes-set`'s preservation lemma (`FixpointEmit.hs:3334`), already shipped: an instance, not a new class. |
+| Stage 2: **validity** of that axiom (that `bytes_zero n` really has length `n`) | **trust**, not contract | Not an SMT obligation at all. Discharged by codegen faithfulness (`CodegenHs.hs:582-586`) under the `codegen_semantics_version` stamp (§3.5). Same category as `bytes-set`'s preservation lemma (`FixpointEmit.hs:3361`), already shipped: an instance, not a new class. |
 | Stage 3: `(= (bytes-length result) n)` in the effective post | contract, post, PROVE in the body VC | QF-LIA + same UF. Structurally the §3.4.1 introduction obligation for a refinement-aliased return, `LLMLL.md:1038`. Emitted by `augmentContractPost`, `FixpointEmit.hs:4311`. |
 | Map arm: `∀k. 0 ≤ select(m$val,k) ≤ 1` (**not proposed**) | contract | Decidable (array property fragment, Bradley-Manna-Sipma VMCAI 2006) but inexpressible: `FQPred` has no quantifier former and the Horn interface is quantifier-free. Moot regardless, since the establish-half is discharged. |
 | A1-congruence of the elaboration under alias resolution | metatheory, not the three-channel report | Property test, as with ADMIT-SHARED's A1/A2. Not an obligation in the obligation report. |
@@ -442,8 +442,8 @@ question.
 
 - `compiler/src/LLMLL/FixpointEmit.hs`: elaboration ahead of `paramRefinementPre` /
   `returnRefinementPost` (`:4229`, `:4280`, `:4311`); Stage 2 is **two** edits, the reification at
-  the `body'` seam (`:1078`) and a new `bodyToPredM` equation ahead of `:3343`, plus comment repairs
-  at `:3339-3342` (asserts the result binder supplies the length, false after Stage 2) and `:4228`
+  the `body'` seam (`:1078`) and a new `bodyToPredM` equation ahead of `:3404`, plus comment repairs
+  at `:3366-3386` (had asserted the result binder supplies the length, false after Stage 2) and `:4288-4295`
   (describes `bytesLen` as grounded per binder, already false after Stage 1); Stage 3 moves
   `resultLenFact` (`:1216-1217`, `:1270`). **No change** to `typeToSort`, `arrGateActive`, or the
   gate's read order.
@@ -548,7 +548,7 @@ antecedent already present, so no REFUTED can become SAFE.
 ## Risks
 
 1. **Stage ordering is a correctness constraint, not a preference.** Soundness / scope.
-   `FixpointEmit.hs:3332-3337`. Landing Stage 3 before Stage 2 refutes every `bytes-zero`-bodied
+   `FixpointEmit.hs:3387-3405`. Landing Stage 3 before Stage 2 refutes every `bytes-zero`-bodied
    function. Bite: **blocks** if violated; free if respected. Measured at Rev 3: the affected
    population is `mk32` and `zeros8` in `compiler/test/Spec.hs` and nothing under `examples/`, and
    `bytes-set`-returning functions survive because the preservation lemma composes with Stage 1's
@@ -564,7 +564,7 @@ antecedent already present, so no REFUTED can become SAFE.
 
 5. **Trust-row phrasing for the axiom.** Soundness, claim accuracy. If the axiom's validity is
    recorded as a contract discharge rather than a codegen-faithfulness trust dependency, the trust
-   report over-claims. Bite: **complicates**; fixed by wording, but check `FixpointEmit.hs:3334`'s
+   report over-claims. Bite: **complicates**; fixed by wording, but check `FixpointEmit.hs:3361`'s
    existing classification during implementation, since the same over-claim may already be shipped.
 2. **Gate self-activation deltas beyond the bytes population.** Verification-ergonomics.
    `FixpointEmit.hs:734-745` for co-resident maps, and `:259` with `:1643-1645` for direct callers
