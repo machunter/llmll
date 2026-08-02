@@ -372,6 +372,12 @@ buildFuncEnv stmts = Map.fromList
     -- discard an out-of-bounds read rather than fabricate a byte. §13.12
     -- restricts 'bytes-zero' to a whole def body, so this covers every legal
     -- occurrence; any other form is left untagged and a get on it discards.
+    --
+    -- TWIN: 'LLMLL.FixpointEmit.reifyBytesZeroLen' does the same rewrite with the
+    -- same head-syntactic match, for the body-VC emitter rather than this
+    -- evaluator (FACT-AG-LEN Stage 2, the constructor length axiom). Two
+    -- reifications, one match shape, different consumers — keep them in step, and
+    -- keep both matching 'TypeCheck.hs:1216' / ':1250' (no alias expansion).
     reifyBytesLen :: Maybe Type -> Expr -> Expr
     reifyBytesLen (Just (TBytes n)) (EApp "bytes-zero" []) =
       EApp "bytes-zero" [ELit (LitInt (toInteger n))]

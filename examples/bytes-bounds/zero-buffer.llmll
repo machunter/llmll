@@ -1,0 +1,25 @@
+;; bytes-bounds — the constructor witness: a fresh buffer knows its own length.
+;;
+;; The other three fixtures take a bytes[64] as a PARAMETER and read or write it.
+;; This one CONSTRUCTS a buffer. `(bytes-zero)` is admissible only as the whole
+;; body of a def with a literal `-> bytes[n]` return (§13.12), and that same
+;; annotation is what gives the constructor its length: the emitter reads `32`
+;; off the return type and emits the axiom `bytesLen(r) = 32` alongside the
+;; constant-zero array itself. Without that axiom the length is not derivable at
+;; all — `Map_default(0)` is a total function in the array theory and carries no
+;; length — so the post could not be discharged from the body.
+;;
+;; The length is read from the DECLARED RETURN, never from the post. Writing
+;; `(post (= (bytes-length result) 16))` here does not make the program verify;
+;; it makes it REFUTED, because the constructor still reports 32.
+;;
+;; The axiom's validity is a TRUST-channel dependency, not a solver discharge:
+;; it holds because codegen reads the same annotation to emit an n-length zero
+;; value, so it rides the codegen_semantics_version stamp. Same category as
+;; bytes-set's length-preservation fact.
+;;
+;; Verifies SAFE, including under --strict-verified-core.
+
+(def make-buffer [] -> bytes[32]
+  (post (= (bytes-length result) 32))
+  (bytes-zero))

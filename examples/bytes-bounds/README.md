@@ -10,6 +10,7 @@ error is caught **on the buffer access**, not via a length-proxy contract.
 | `read-at.llmll` | correct bound `(< i 64)`: SAFE, including under `--strict-verified-core` |
 | `read-at-off-by-one.llmll` | the same function with `(<= i 64)` — the Heartbleed-class off-by-one — REFUTED at the `bytes-get` call site |
 | `write-overflow.llmll` | index proven but value admits 300 > 255 — REFUTED at the `bytes-set` call site (a byte buffer cannot silently truncate) |
+| `zero-buffer.llmll` | the constructor side: `(bytes-zero)` under a declared `-> bytes[32]` return proves its own length post — SAFE, including under `--strict-verified-core` |
 
 ## Commands (outputs reproduced against the shipped binary)
 
@@ -46,6 +47,22 @@ error: call-site precondition of 'bytes-set' not satisfied in 'write-at' — cal
 ```
 Exit 1. The index is proven but the admitted value range reaches 300;
 `bytes-set` requires `0 ≤ v ≤ 255`.
+
+**Fresh buffer — its length is proven, not asserted.**
+```bash
+llmll verify ./zero-buffer.llmll --strict-verified-core
+```
+```
+   body-faithful: make-buffer
+   Running liquid-fixpoint ...
+✅ ./zero-buffer.llmll — SAFE (liquid-fixpoint)
+```
+Exit 0. The other three fixtures take their buffer as a parameter; this one
+constructs it. `(bytes-zero)` is legal only as the whole body of a def with a
+literal `-> bytes[n]` return, and the emitter reads `32` off that same
+annotation to give the constructor its length axiom `bytesLen(r) = 32`. The
+length comes from the declared return, never from the post: rewriting the post
+to `(= (bytes-length result) 16)` refutes the program rather than verifying it.
 
 ## Scope note
 

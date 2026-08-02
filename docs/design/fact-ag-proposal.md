@@ -1,7 +1,7 @@
 ---
 name: fact-ag-proposal
 title: "FACT-AG-LEN: earn the `bytes[n]` length instead of asserting it from a declaration"
-status: "Rev 2, SETTLED, with compiler-engineer at Stage 1. Rev 0 was a two-half move (parameter + return); professor review round 0 found the return half undischargeable because the language's only bytes constructor carries no length, so Rev 1 made this a THREE-STAGE line with the constructor axiom interposed, withdrew Rev 0's false decidability claim about the map arm, completed the criterion with Hoare's establish-half, re-anchored the rationale to the project's own obligations-not-indices decision, and REJECTED the review's proposed fix for the sort/gate hazard on measured grounds. Professor review round 1 CONCEDED that rejection and returned three findings: a stale line citation on which the whole rejection rested, a third delta population (direct callers, via the augmented ContractEnv), and a contradiction between the criterion and Stage 3. Rev 2 fixes the citation, adds the caller population to the declared delta set, and repairs the criterion with a modularity clause (parametric-in-an-index versus uniform-over-inhabitants) rather than by striking a reason as the review proposed. Roadmap row: FACT-AG, to be renamed FACT-AG-LEN"
+status: "Rev 3, SETTLED, with compiler-engineer at Stage 2. Rev 3 settles Stage 2's mechanism (reify-then-match at the body' seam, the axiom carried by a pre-free CallVC) and lands three corrections found by reading HEAD and by running the Stage 3 counterfactual: Rev 2's claim that the bytes algebra closes at Stage 2 is false (the two lemmas cannot meet inside one body, so closure is Stage 3's), Rev 2's ordering-argument population is false on both halves (examples/bytes-bounds contains no bytes-zero, and bytes-set-returning functions measurably survive), and the bytes-construction class has no example fixture and no verified artifact anywhere in the tree. Rev 2, SETTLED, shipped Stage 1 as v0.14.76. Rev 0 was a two-half move (parameter + return); professor review round 0 found the return half undischargeable because the language's only bytes constructor carries no length, so Rev 1 made this a THREE-STAGE line with the constructor axiom interposed, withdrew Rev 0's false decidability claim about the map arm, completed the criterion with Hoare's establish-half, re-anchored the rationale to the project's own obligations-not-indices decision, and REJECTED the review's proposed fix for the sort/gate hazard on measured grounds. Professor review round 1 CONCEDED that rejection and returned three findings: a stale line citation on which the whole rejection rested, a third delta population (direct callers, via the augmented ContractEnv), and a contradiction between the criterion and Stage 3. Rev 2 fixes the citation, adds the caller population to the declared delta set, and repairs the criterion with a modularity clause (parametric-in-an-index versus uniform-over-inhabitants) rather than by striking a reason as the review proposed. Roadmap row: FACT-AG, to be renamed FACT-AG-LEN"
 date: 2026-08-01
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -159,19 +159,104 @@ restricts `(bytes-zero)` to the whole body of a def with a literal `-> bytes[n]`
 no laundering path into it, and LEVER-A0 already requires the declared return
 (`FixpointEmit.hs:418`).
 
-With Stage 2 in place the bytes algebra closes: `bytes-set` already emits length preservation
-`bytesLen(r) = bytesLen(b)` (`FixpointEmit.hs:3327`), so one constructor axiom plus one preservation
-lemma covers every bytes introduction and update.
+*Mechanism: reify, then match.* `bodyToPredM` receives no `AliasMap` and no `mRet` (`:3039-3045`,
+and the standing comments at `:2487`, `:3119`, `:3180`), so the equation cannot read `n` from its own
+arguments, and threading `mRet` through forty-odd clauses to serve one call site is not the shape of
+this change. Rewrite the body before translation instead, mirroring `Contracts.hs:375-378`:
+
+```
+reify (Just (TBytes n)) (EApp "bytes-zero" [])  =  EApp "bytes-zero" [ELit (LitInt n)]
+reify _                 b                       =  b
+```
+
+applied at the `body'` seam (`:1078`, where `mRet` is already read at `:1064`). Match `TBytes n`
+**head-syntactically, not through `bytesLenOf`**: the checker's determining-context rule matches
+`retTy@(TBytes _)` with no alias expansion, deliberately (`TypeCheck.hs:1212-1215`, "the two ends
+must agree on when the construct is legal"), and `CodegenHs.hs:586` matches the same way. Four
+readers of one annotation, one match shape. The new equation goes ahead of the nullary one at
+`:3343`:
+
+```
+bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
+  r <- freshName "call_bytes_zero"
+  post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 0])
+               , FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n) ]
+  return . Just $ CallVC "bytes-zero" [] Nothing (Just post) r byteArraySort
+                         (SimpleVC [] (FQVar r))
+```
+
+A `CallVC` with `cvPreObligation = Nothing` and `cvPostAssumption = Just p` *is* an axiom: an
+ASSUME-polarity fact with no PROVE side, and the data type already separates the two by that
+`Nothing`. `bytes-set` at `:3335` is the shipped precedent for the shape. `SimpleVC` cannot carry it,
+since its first field is `[LetBinding]`, which yields only `r = rhs` and has no seam for a
+free-standing fact. The nullary equation at `:3343` **stays** as the fall-through, because
+`bodyToPredFrom` (`:2924`, cited at `:3756`) reaches `bodyToPredM` with no `mRet` at all; its
+comment, which currently says the result binder's family-1 fact supplies the length, becomes false
+and must be rewritten.
+
+*The axiom's validity is a trust dependency, not a contract discharge.* It holds because codegen
+reads the same annotation to emit an n-length zero value (`CodegenHs.hs:582-586`), so it rides the
+`codegen_semantics_version` stamp (§3.5). This category already exists rather than being opened here:
+`bytes-set`'s `bytesLen(r) = bytesLen(b)` (`:3334`) is the same kind of claim, shipped.
+
+*Measured at Stage 2: it is recorded on **no** channel.* Running `verify --obligation-report` and
+`verify --trust-report` on `(def sr [b: bytes[8] v: int] -> bytes[8] (pre …) (post (= (bytes-length
+result) 8)) (bytes-set b 3 v))` yields exactly one obligation (the `call-pre:bytes-set` index and
+value-range discharge, which is a genuine PROVE) and a trust report reading
+`post: verified (liquid-fixpoint)`. The preservation lemma appears nowhere: `TrustReport.hs`,
+`ObligationMining.hs`, `ObligationAssembly.hs` and `WeaknessCheck.hs` contain no `bytesLen` or
+`bytes-set` reference at all, and `cvPostAssumption` is consumed only inside `FixpointEmit`. So the
+shipped position is not the anticipated over-claim (a builtin axiom mis-filed as a contract
+discharge) but a **silence**: a `verified` tier that rests on a codegen-faithfulness assumption the
+report never names. Stage 2's axiom inherits the same silence. Correcting it means surfacing
+builtin-axiom dependencies as a trust-channel line, which is a `TrustReport` change with its own row,
+not part of Stage 2, but the roadmap should carry it, because the gap is exactly the kind §4.1's
+anti-laundering discipline exists to prevent.
+
+*Measured, not assumed.* Deleting `resultLenFact` from `lhsPred` without adding the axiom, rebuilding
+at v0.14.76, and verifying
+`(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))` flips it SAFE to
+REFUTED. The `.fq` shows why: the LHS loses `(bytesLen result) = 8` and retains only
+`result = (Map_default 0)`, and `Map_default(0)` is a total function in the array theory carrying no
+length, so `bytesLen` applied to it is uninterpreted. The axiom does real work rather than
+duplicating an antecedent already present.
+
+*What Stage 2 does not buy.* Rev 2 claimed the bytes algebra closes here, on the grounds that one
+constructor axiom plus `bytes-set`'s preservation lemma (`FixpointEmit.hs:3334`) covers every
+introduction and update. **That is wrong.** The two lemmas cannot meet inside one body:
+`(bytes-set (bytes-zero) 0 1)` is a type error, because `(bytes-zero)` is admissible only as a whole
+body. Every real composition crosses a function boundary, and the length reaches the caller only
+through the callee's effective post, which is Stage 3. Stage 2 makes the constructor self-supporting;
+**Stage 3 makes it composable**, and the algebra closes there.
 
 **Stage 3, return position.** `augmentContractPost` conjoins `(= (bytes-length result) n)` into the
 effective postcondition; `resultLenFact` moves off `lhsPred` (`:1216-1217`, `:1270`) into the goal,
 so the body VC proves its own result length. Call sites recover it as an assumed post through the
 existing assume-guarantee step 2 (`LLMLL.md §5.3.4`). `admits` loses `bytesLenOf` at this stage.
 
-**Stage 3 must not land before Stage 2.** Without the constructor axiom, the body VC for
-`(def mk () -> bytes[64] (bytes-zero))` is `result = Map_default(0) ⟹ bytesLen(result) = 64`, which
-is UNSAT. That refutes every bytes-constructing function in the corpus, including
-`examples/bytes-bounds/`, which is LEVER-A3's acceptance fixture.
+**Stage 3 must not land before Stage 2, and the population is far smaller than Rev 2 said.** Without
+the constructor axiom, the body VC for `(def mk () -> bytes[64] (bytes-zero))` is
+`result = Map_default(0) ⟹ bytesLen(result) = 64`, which is UNSAT. Rev 2 wrote that this "refutes
+every bytes-constructing function in the corpus, including `examples/bytes-bounds/`, which is
+LEVER-A3's acceptance fixture." **Both halves are false, and the same counterfactual build measures
+it.** `examples/bytes-bounds/read-at.llmll` takes `bytes[64]` as a *parameter* and constructs
+nothing; a full grep finds **zero** `bytes-zero` occurrences anywhere under `examples/`. And a
+function returning a `bytes-set` of a parameter survives:
+
+```lisp
+(def write-ok [b: bytes[64] i: int v: int] -> bytes[64]
+  (pre  (and (>= i 0) (and (< i 64) (and (>= v 0) (<= v 255)))))
+  (post (= (bytes-length result) 64))
+  (bytes-set b i v))
+```
+
+stays **SAFE** under the counterfactual, because the preservation lemma composes with the parameter
+length Stage 1 already earned into the effective pre. `examples/bytes-bounds/write-overflow.llmll`
+and `read-at.llmll` were also re-run under it and neither moved. The blast radius of
+Stage-3-without-Stage-2 is therefore exactly the **`bytes-zero`-bodied population**: `mk32` and
+`zeros8` in `compiler/test/Spec.hs` (`:2024`, `:2239`, `:2270`, `:2374`, `:6951`, `:6990`, `:7076`)
+and **zero** files under `examples/`. The ordering constraint stands; the sentence justifying it did
+not, and Stage 3's ceremony must not inherit it.
 
 ### Component positions: a deliberate exclusion
 
@@ -222,10 +307,13 @@ says should never be done.
    obligation is undischargeable and `caller` is **refuted** rather than SAFE. Channel: contract.
    Cite `LLMLL.md §5.3.4` call rule, `FixpointEmit.hs:4285`, `:1340-1344`.
 
-2. **Positive witness, Stage 2, the case that forces its existence.**
-   `(def mk [] -> bytes[64] (bytes-zero))`. Under Stage 3 without Stage 2: refuted, wrongly. Under
-   Stage 2: the constructor axiom supplies `bytesLen(result) = 64` and the goal discharges. Channel:
-   contract. Cite `FixpointEmit.hs:3332-3337`.
+2. **Positive witness, Stage 2, the case that forces its existence. Measured.**
+   `(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))`. SAFE today, with
+   the post discharged from `resultLenFact` on the LHS rather than from the body. Under Stage 3
+   without Stage 2: **REFUTED**, confirmed by a counterfactual build at v0.14.76 (delete
+   `resultLenFact` at `:1270`, add no axiom). Under Stage 2: the constructor axiom supplies
+   `bytesLen(r) = 8` and the goal discharges. Channel: contract. Cite `FixpointEmit.hs:1216-1219`,
+   `:3343-3344`, `compiler/test/Spec.hs:7076`.
 
 3. **Gate self-activation widens beyond bytes.** A function carrying both a `bytes[n]` and a
    `map[int,int]` parameter that is off-gate today becomes gated once the elaborated pre mentions
@@ -244,12 +332,52 @@ says should never be done.
    elaboration is itself alias-chasing. If it is not, `Key` gets no obligation while `bytes[32]`
    does. Channel: type / contract. Cite `TypeAdmissibility` property A1.
 
-6. **`bytes[0]`.** `(= (bytes-length v) 0)` is satisfiable; every read is refuted by the
+6. **`bytes[0]`.** At the constructor, `(def z [] -> bytes[0] (bytes-zero))` gives
+   `bytesLen(r) = 0`, which is satisfiable, and every read on the result is refuted by `bytes-get`'s
+   `0 ≤ i < bytesLen(b)` pre (`FixpointEmit.hs:3311-3312`), UNSAT at length 0. At the parameter,
+   `(= (bytes-length v) 0)` is satisfiable; every read is refuted by the
    index-in-bounds obligation, unchanged. `lintContractReads`'s `bytesLens` (`TypeCheck.hs:2541`)
    must keep matching the base type rather than the elaborated wrapper, or CONTRACT-READ-LINT goes
    dead. Channel: contract.
 
-7. **Recursive `bytes[n]`-returning function.** Excluded from body-VC emission for its own body
+7. **Discriminative negative for Stage 2.**
+   `(def bad [] -> bytes[8] (post (= (bytes-length result) 16)) (bytes-zero))` must be REFUTED, and
+   is REFUTED today (verified at v0.14.76) via `resultLenFact`. Verdict alone therefore does not test
+   Stage 2. What it tests is that the reification reads `mRet` and not the contract: an
+   implementation taking `n` from the post's literal would falsely verify this. Channel: contract.
+   New test, and the one that fails if the two annotations are confused.
+
+8. **Off-gate `(bytes-zero)` is unreachable, and the fall-through still must not be deleted.**
+   `"bytes-zero" ∈ bytesOpNames` (`FixpointEmit.hs:1549`) and `arrGateActive`'s second disjunct is
+   `exprMentionsArrOp mBody` (`:1594`, `:1649`), so a `bytes-zero` body always self-activates the
+   gate. This holds independently of Stage 1's parameter-side self-activation, and it covers the
+   contract-free case `(def mk32 [] -> bytes[32] (bytes-zero))` where `bytesLenParamPre` contributes
+   nothing. The nullary equation at `:3343` is therefore dead for well-typed programs after Stage 2,
+   but it is live through `bodyToPredFrom` (`:2924`), which has no `mRet`. Naming
+   the population that keeps it live is the D2 dead-guard discipline (`docs/UPDATE-PROTOCOL.md`).
+   Channel: spec is silent (intentional).
+
+   **Stage 2 implementation correction.** The disposition (keep the equation) is right; the stated
+   reason is wrong. `bodyToPredFrom` has **zero production callers**. `bodyToPredFromR` has exactly
+   one (the `body'` seam inside `emitFnConstraints`, which is where Stage 2 reifies), and the `:3756`
+   citation resolves to a *comment* mentioning `bodyToPredFrom`, not a call. `bodyToPredFrom` is an
+   exported test entry point (`FixpointEmit.hs:69`), invoked ~30 times from `compiler/test/Spec.hs`
+   with no `mRet`. So the population keeping the fall-through live is the **test suite**, and deleting
+   the equation turns those calls into a pattern-match failure rather than a fallback. Stage 3 should
+   not inherit the "production caller" framing.
+
+9. **Aliased return type.** `(type Key bytes[32])` with `(def mk [] -> Key (bytes-zero))` is a
+   **type error today**: `TCustom "Key"` misses `TypeCheck.hs:1216`'s `TBytes _` pattern, falls to
+   `inferExpr`, and hits `inferArrayOp`'s rejection at `:2091`. Matching syntactically in Stage 2
+   keeps the emitter's admission set from exceeding the checker's. **Not in tension with edge case
+   5**: that one is the parameter elaboration, which does chase aliases through
+   `resolveAllRefinements`; this one is the `bytes-zero` construct, whose determining-context rule is
+   syntactic by design so that checker and codegen agree. Vacuous in effect, recorded
+   because it is the ADMIT-OVER direction. The ergonomic wart is real (the alias idiom is used freely
+   elsewhere in the corpus) but widening it moves checker, codegen, and emitter together and is a
+   separate row, not Stage 2. Channel: type.
+
+10. **Recursive `bytes[n]`-returning function.** Excluded from body-VC emission for its own body
    (`LLMLL.md §5.3.4`), so Stage 3's post conjunct has no VC to prove it while callers still assume
    it. This is the same position as a hand-written `post` on a recursive function, with the tier
    riding the §4.4 meet. FACT-AG-LEN does **not** close the class for recursive functions, and that
@@ -260,7 +388,8 @@ says should never be done.
 | Obligation | Channel | Fragment |
 |---|---|---|
 | Stage 1: `(= (bytes-length arg) n)` at a call site | contract, call-pre, PROVE | **QF-LIA + the `bytesLen` UF over `FQArr FQInt FQInt`.** In `Σ_auto` today: `exprToPred` at `FixpointEmit.hs:2797`, `measureConstant` at `:4222`. Well-sorted because the elaboration self-activates `arrGate` (see below), so the argument binds at `byteArraySort`. No widening. Cite `LLMLL.md §5.3.3`. |
-| Stage 2: `bytesLen(result) = n` at `(bytes-zero)` | contract, established by a sealed builtin | QF-LIA + same UF. Not an obligation on user code; an axiom whose no-laundering side condition is `TypeCheck.hs:1216,1250`. |
+| Stage 2: `bytesLen(r) = n ∧ r = Map_default(0)` at `(bytes-zero)` | contract, ASSUME polarity, no PROVE side | QF-LIA + same UF, `n` a literal. Not an obligation on user code; an axiom whose no-laundering side condition is `TypeCheck.hs:1216,1250`. Carried by a `CallVC` with `cvPreObligation = Nothing`. |
+| Stage 2: **validity** of that axiom (that `bytes_zero n` really has length `n`) | **trust**, not contract | Not an SMT obligation at all. Discharged by codegen faithfulness (`CodegenHs.hs:582-586`) under the `codegen_semantics_version` stamp (§3.5). Same category as `bytes-set`'s preservation lemma (`FixpointEmit.hs:3334`), already shipped: an instance, not a new class. |
 | Stage 3: `(= (bytes-length result) n)` in the effective post | contract, post, PROVE in the body VC | QF-LIA + same UF. Structurally the §3.4.1 introduction obligation for a refinement-aliased return, `LLMLL.md:1038`. Emitted by `augmentContractPost`, `FixpointEmit.hs:4311`. |
 | Map arm: `∀k. 0 ≤ select(m$val,k) ≤ 1` (**not proposed**) | contract | Decidable (array property fragment, Bradley-Manna-Sipma VMCAI 2006) but inexpressible: `FQPred` has no quantifier former and the Horn interface is quantifier-free. Moot regardless, since the establish-half is discharged. |
 | A1-congruence of the elaboration under alias resolution | metatheory, not the three-channel report | Property test, as with ADMIT-SHARED's A1/A2. Not an obligation in the obligation report. |
@@ -312,16 +441,22 @@ question.
 ## Affected surface
 
 - `compiler/src/LLMLL/FixpointEmit.hs`: elaboration ahead of `paramRefinementPre` /
-  `returnRefinementPost` (`:4229`, `:4280`, `:4311`); Stage 2 at `bodyToPredM`'s `bytes-zero` case
-  (`:3336`); Stage 3 moves `resultLenFact` (`:1216-1217`, `:1270`). **No change** to `typeToSort`,
-  `arrGateActive`, or the gate's read order.
+  `returnRefinementPost` (`:4229`, `:4280`, `:4311`); Stage 2 is **two** edits, the reification at
+  the `body'` seam (`:1078`) and a new `bodyToPredM` equation ahead of `:3343`, plus comment repairs
+  at `:3339-3342` (asserts the result binder supplies the length, false after Stage 2) and `:4228`
+  (describes `bytesLen` as grounded per binder, already false after Stage 1); Stage 3 moves
+  `resultLenFact` (`:1216-1217`, `:1270`). **No change** to `typeToSort`, `arrGateActive`, or the
+  gate's read order.
 
   Two corrections from Stage 1 implementation, both of which this section got wrong:
 
   1. **Do not delete `bytesLenReft` from `emitParamBind` (`:1470-1472`).** That clause supplies the
      `byteArraySort` *as well as* the fact, and deleting it falls through to `typeToSort`'s
      conservative `FQInt` default, which emits ill-sorted `bytesLen` applications. The correct
-     change keeps the sort and drops only the predicate.
+     change keeps the sort and drops only the predicate. *Residue noted at Stage 2:* dropping the
+     predicate leaves the `bytesLenReft` **function** itself unreferenced, so the build now carries a
+     `-Wunused-top-binds` for it. Harmless, pre-existing since Stage 1, and it should be deleted with
+     the rest of the family-1 binder machinery when Stage 3 lands, not in isolation.
   2. **Do not fold the elaboration into `resolveAllRefinements`.** It has four other consumers that
      must not see it: `returnRefinementPost` (**that is Stage 3**, so folding lands Stage 3
      prematurely and violates the stage ordering this proposal calls a correctness constraint),
@@ -345,6 +480,18 @@ question.
   axiom).
 - `docs/compiler-team-roadmap.md`: FACT-AG becomes `FACT-AG-LEN`, staged; closed disposition note
   for the range arm; ADMIT-SHARED's "provisional against FACT-AG" narrows to the bytes arm.
+- `compiler/src/LLMLL/Contracts.hs:375-378`: **no code change.** The Stage 2 reification deliberately
+  mirrors this one. Add a cross-reference on both sides so the next reader finds two reifications
+  with the same match shape and different consumers (test-path evaluator, body-VC emitter).
+- `compiler/test/Spec.hs`: A1-4 (`:7075-7080`) keeps its assertions and gains the axiom assertion, or
+  Stage 2 ships unmeasured. New A1-11 (axiom present under a fresh call binder) and A1-12 (edge case
+  7, the mismatched-length negative). The edge case 2 counterfactual is recorded as a comment on
+  A1-4, not as a live test.
+- `examples/bytes-bounds/`: **gap, and it should close at Stage 2 rather than Stage 3.** The tree
+  contains no `bytes-zero` example and exactly one `-> bytes[n]` function
+  (`write-overflow.llmll:8`), which is an expected-REFUTED fixture. So the bytes-construction class
+  has no `.verified.json` artifact at all, and Stage 3's evidence-hash revalidation ceremony would
+  have nothing in `examples/` to revalidate. One positive constructor fixture repairs both.
 - `docs/design/type-driven-development.md`: cited as the rationale anchor. No edit.
 - `docs/design/finding-arg-position-false-safe.md`: its "FACT-AG, re-rated" bullet is superseded by
   this proposal. No edit; the pointer is one-directional.
@@ -382,11 +529,43 @@ bytes-typed function. So the 251-file, zero-verdict-delta result validates D1 an
 Stage 1 green as covering them, and the cheapest repair is a purpose-built fixture for each rather
 than waiting for the corpus to grow one.
 
+**Stage 2's gate is verdict-identity on a named population, not a corpus sweep.** Stage 2 lands while
+`resultLenFact` is still on the LHS, so for `zeros8` the solver sees `bytesLen(result) = 8` from
+`:1216` *and* `bytesLen(r) = 8 ∧ r = Map_default(0) ∧ result = r` from the axiom: logically identical
+to today modulo the renaming equation, so no program's verdict can change. That redundancy is what
+makes the staging safe, and it also means a 251-file sweep is **silent** on Stage 2, because the
+in-tree population is `bytes-zero`-bodied programs only and `examples/` has none. Reporting a green
+sweep as Stage 2 evidence would repeat the D3/D4 shape above: an absence of witnesses read as a pass.
+The real gate is (a) verdict-identity across the `Spec.hs` population, (b) the two new tests, and
+(c) the new `examples/` constructor fixture. `.fq` byte-identity is **unavailable** even on
+byte-inert files that follow a `bytes-zero` def in the same file, because `bodyCounterRef` is
+file-scoped and monotone (`:1050`, `:1074-1079`), so the fresh axiom binder shifts every later call
+binder's index. Verdicts are unaffected and the population is zero outside the test suite.
+
+No `checker_soundness_version` bump: the change adds an antecedent that is logically implied by an
+antecedent already present, so no REFUTED can become SAFE.
+
 ## Risks
 
 1. **Stage ordering is a correctness constraint, not a preference.** Soundness / scope.
-   `FixpointEmit.hs:3332-3337`. Landing Stage 3 before Stage 2 refutes every bytes-constructing
-   function. Bite: **blocks** if violated; free if respected.
+   `FixpointEmit.hs:3332-3337`. Landing Stage 3 before Stage 2 refutes every `bytes-zero`-bodied
+   function. Bite: **blocks** if violated; free if respected. Measured at Rev 3: the affected
+   population is `mk32` and `zeros8` in `compiler/test/Spec.hs` and nothing under `examples/`, and
+   `bytes-set`-returning functions survive because the preservation lemma composes with Stage 1's
+   earned parameter length. Rev 2's wider claim is retracted in
+   [Three stages](#three-stages-and-the-ordering-is-a-correctness-constraint).
+
+4. **The bytes-construction class has no in-tree witness.** Verification-ergonomics / measurement.
+   Zero `bytes-zero` occurrences under `examples/`; one `-> bytes[n]` function there and it is an
+   expected-REFUTED fixture. So Stage 2 and Stage 3 would both ship on `compiler/test/Spec.hs`
+   evidence alone, with no `.verified.json` artifact exercising the construct. Bite:
+   **complicates**; repaired by one `examples/bytes-bounds/` constructor fixture landing with
+   Stage 2.
+
+5. **Trust-row phrasing for the axiom.** Soundness, claim accuracy. If the axiom's validity is
+   recorded as a contract discharge rather than a codegen-faithfulness trust dependency, the trust
+   report over-claims. Bite: **complicates**; fixed by wording, but check `FixpointEmit.hs:3334`'s
+   existing classification during implementation, since the same over-claim may already be shipped.
 2. **Gate self-activation deltas beyond the bytes population.** Verification-ergonomics.
    `FixpointEmit.hs:734-745` for co-resident maps, and `:259` with `:1643-1645` for direct callers
    of a bytes-typed function, which gate through the augmented `ContractEnv` without carrying a
@@ -395,15 +574,15 @@ than waiting for the corpus to grow one.
    missed because nothing in those functions' own signatures mentions bytes.
 3. **Evidence-hash invalidation at Stage 3.** Release ops. `TrustReport.hs:586`. Bite:
    **complicates**; the SAFE-ARG revalidation ceremony applies.
-4. **No byte-identity gate.** Acceptance. Bite: **complicates**; weaker evidence than RET-RESOLVE's.
-5. **Diagnostic regression at the argument seam.** Verification-ergonomics. `TypeCheck.hs:2292`.
+6. **No byte-identity gate.** Acceptance. Bite: **complicates**; weaker evidence than RET-RESOLVE's.
+7. **Diagnostic regression at the argument seam.** Verification-ergonomics. `TypeCheck.hs:2292`.
    Today a laundered length is a localized type error naming the remedy; after Stage 1 it is a
    refuted obligation, or an `erBodyFallback` with no localization when `bytes-length` over an
    unannotated call result is non-emittable. Mitigated by keeping both WILD-ASSUME seams as
    diagnostics. Bite: **complicates**.
-6. **Recursive functions stay on the assumption channel.** Soundness scope. `LLMLL.md §5.3.4`. Bite:
+8. **Recursive functions stay on the assumption channel.** Soundness scope. `LLMLL.md §5.3.4`. Bite:
    **only matters at scale**; must be written into the spec rather than left implicit.
-7. **`resultLenFact`'s current soundness is shielded, not discharged.** Soundness.
+9. **`resultLenFact`'s current soundness is shielded, not discharged.** Soundness.
    `FixpointEmit.hs:1216-1217`, `:1270`. Given `compatibleWith _ (TBytes m) (TBytes n) = m == n`
    (`TypeCheck.hs:2387`), a concrete length mismatch is a type error, so the current assertion rests
    on an earlier pass rather than on a discharged obligation. That is the shielding-by-another-pass
@@ -466,3 +645,17 @@ Professor review round 1 (`docs/design/fact-ag-proposal-review.md`) adjudicated 
 
 Rev 2 diverges from the review only on R1-3's repair, and the divergence is about which criterion
 survives, not about whether the contradiction is real.
+
+Rev 3 (2026-08-01) settles Stage 2's mechanism and lands three self-corrections. None came from a
+review; all three came from reading HEAD and from running the counterfactual Rev 2 recommended:
+
+| Correction | What Rev 2 said | What Rev 3 says |
+|---|---|---|
+| **The algebra does not close at Stage 2.** | "With Stage 2 in place the bytes algebra closes: one constructor axiom plus one preservation lemma covers every bytes introduction and update." | The two lemmas cannot meet inside one body, because `(bytes-set (bytes-zero) 0 1)` is a type error under the whole-body determining-context rule. Composition crosses a function boundary and needs the callee's effective post. **Closure is Stage 3's.** |
+| **The ordering argument's population was wrong twice.** | Stage 3 before Stage 2 "refutes every bytes-constructing function in the corpus, including `examples/bytes-bounds/`, which is LEVER-A3's acceptance fixture." | `examples/bytes-bounds/read-at.llmll` takes `bytes[64]` as a parameter and constructs nothing; `examples/` contains no `bytes-zero` at all. And `bytes-set`-returning functions measurably survive the counterfactual, because the preservation lemma composes with Stage 1's earned parameter length. The affected population is `bytes-zero`-bodied programs in `compiler/test/Spec.hs`, and nothing else. The ordering constraint itself is unaffected. |
+| **The construction class has no in-tree witness.** | Not noticed. | Zero `bytes-zero` under `examples/`, and the single `-> bytes[n]` function there is an expected-REFUTED fixture, so no `.verified.json` artifact exercises the construct. Stage 3's evidence-hash ceremony would be vacuous in `examples/`. A constructor fixture becomes a Stage 2 deliverable. |
+
+Rev 3 also records the counterfactual as a measurement rather than a recommendation: `zeros8` flips
+SAFE to REFUTED with `resultLenFact` deleted and no axiom added, which establishes that the axiom
+does work rather than duplicating an antecedent already present. `Map_default(0)` is a total function
+in the array theory and carries no length, so `bytesLen` applied to it is uninterpreted.

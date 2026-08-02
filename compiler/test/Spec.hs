@@ -7072,12 +7072,62 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "(v <= 255)"                    -- value-range in the call-pre
         fq `shouldNotSatisfy` T.isInfixOf "(Map_store b 3 v) >= 0"     -- array-sorted term gets NO range fact
 
-      it "A1-4 bytes-zero: Map_default reflection + the result length fact rides the constraint LHS" $ do
+      it "A1-4 bytes-zero: Map_default reflection + the result length fact rides the constraint LHS + the Stage-2 constructor axiom" $ do
         er <- emitA1 "(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))"
         erBodyFaithfulFns er `shouldSatisfy` elem "zeros8"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "(Map_default 0)"
         fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 8)"
+        -- FACT-AG-LEN Stage 2: the constructor axiom's length conjunct. Stage 2
+        -- lands while 'resultLenFact' is still on the LHS, so the solver sees the
+        -- fact twice (once via `result`, once via the call binder, joined by
+        -- `result = _bv_call_bytes_zero_0`) — logically identical modulo the
+        -- renaming equation, hence no verdict may move. Without this assertion
+        -- Stage 2 would ship unmeasured, since the verdict cannot detect it.
+        --
+        -- COUNTERFACTUAL (recorded, not run as a live test): deleting
+        -- 'resultLenFact' from 'lhsPred' at v0.14.76 WITHOUT adding the axiom
+        -- flips this program SAFE → REFUTED. `Map_default(0)` is a total function
+        -- in the array theory carrying no length, so `bytesLen` applied to it is
+        -- uninterpreted. The axiom does real work; it is not a duplicate of an
+        -- antecedent already present. (docs/design/fact-ag-proposal.md edge case 2.)
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 8"
+
+      it "A1-11 FACT-AG-LEN Stage 2: the constructor axiom binds at a FRESH call binder, array-sorted, with no PROVE side" $ do
+        er <- emitA1 "(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "zeros8"
+        let fq = erFQText er
+        -- The axiom rides a CallVC with cvPreObligation = Nothing: an
+        -- ASSUME-polarity fact with a fresh result binder at the byte-array sort,
+        -- and NO call-pre obligation (a constructor has nothing to prove).
+        fq `shouldSatisfy` T.isInfixOf "_bv_call_bytes_zero_0 : { v : (Map_t int int) |"
+        fq `shouldSatisfy` T.isInfixOf "(_bv_call_bytes_zero_0 = (Map_default 0))"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 8"
+        fq `shouldSatisfy` T.isInfixOf "(result = _bv_call_bytes_zero_0)"
+        erCallPreFns er `shouldNotSatisfy` elem "zeros8"
+
+      it "A1-12 FACT-AG-LEN Stage 2 (edge case 7): the axiom's length comes from the DECLARED RETURN, never the post" $ do
+        -- The discriminative negative. This program is REFUTED today too (via
+        -- 'resultLenFact'), so the verdict alone does not test Stage 2. What it
+        -- tests is that 'reifyBytesZeroLen' reads 'mRet' and NOT the contract: an
+        -- implementation taking `n` from the post's literal would emit
+        -- `bytesLen(r) = 16`, discharge the goal, and falsely report SAFE.
+        --
+        -- MEASURED, not argued: rewriting `= 8` to `= 16` on the call binder in
+        -- this program's emitted .fq and re-running liquid-fixpoint flips Unsafe →
+        -- Safe. (At Stage 2 that is a vacuous Safe — 'resultLenFact' still pins
+        -- `bytesLen(result) = 8` on the same LHS, so the antecedent goes
+        -- contradictory; once Stage 3 moves that fact into the goal it becomes a
+        -- non-vacuous false SAFE. Either way the assertions below catch it.)
+        er <- emitA1 "(def bad [] -> bytes[8] (post (= (bytes-length result) 16)) (bytes-zero))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "bad"
+        let fq = erFQText er
+        fq `shouldSatisfy`    T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 8"   -- from `-> bytes[8]`
+        fq `shouldNotSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 16"  -- NOT from the post
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Unsafe"
 
       it "A1-5 (expectation flipped at A2): map ops now REFLECT — split binders + presence call-pre, body-faithful" $ do
         -- A1 asserted map ops stay out-of-fragment; A2 ships their reflection.

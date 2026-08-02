@@ -1071,11 +1071,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             -- (byte-inertness for everything else).
             when (isJust mMapRetPair) (writeIORef bodyCounterRef seedD')
             -- Translate body (generic path; Result-var matches handled within).
+            -- FACT-AG-LEN Stage 2: reify the declared bytes[n] length into a
+            -- whole-body (bytes-zero) first — 'bodyToPredM' gets no 'mRet', so the
+            -- constructor axiom's length arrives as a literal argument instead
+            -- (see 'reifyBytesZeroLen'). Identity on every other body.
             seed <- readIORef bodyCounterRef
             let (newSeed, mBodyVC) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
+                    else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet
+                           (reifyBytesZeroLen mRet body')
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
               (Just tree, _) -> do
@@ -1564,6 +1569,28 @@ byteArraySort = FQArr FQInt FQInt
 bytesLenReft :: Int -> FQReft
 bytesLenReft n = FQReft "v" byteArraySort
   (FQBinPred FQEq (FQApp "bytesLen" [FQVar "v"]) (FQLit (fromIntegral n)))
+
+-- | FACT-AG-LEN Stage 2: reify the declared @bytes[n]@ return length into a
+-- whole-body @(bytes-zero)@ before body translation, so the constructor's length
+-- axiom can be emitted without threading 'mRet' through 'bodyToPredM'\'s
+-- forty-odd clauses (it receives neither an 'AliasMap' nor an 'mRet').
+--
+-- The match is HEAD-SYNTACTIC on @TBytes n@, deliberately NOT through
+-- 'bytesLenOf'. The checker's determining-context rule matches @retTy\@(TBytes _)@
+-- with no alias expansion ('TypeCheck.hs:1216', ':1250') and codegen matches the
+-- same way ('CodegenHs.hs:586'). Four readers of one annotation, one match shape;
+-- chasing aliases here would let the emitter admit a construct the checker
+-- rejects (an aliased @-> Key@ return over @(type Key bytes[32])@ is a type error
+-- today, proposal edge case 9).
+--
+-- Deliberately mirrors 'LLMLL.Contracts.buildFuncEnv'\'s @reifyBytesLen@
+-- ('Contracts.hs:375-378'), which performs the same rewrite for the TEST-path
+-- symbolic evaluator. Two reifications, one match shape, different consumers
+-- (test-path evaluator vs. body-VC emitter) — keep them in step.
+reifyBytesZeroLen :: Maybe Type -> Expr -> Expr
+reifyBytesZeroLen (Just (TBytes n)) (EApp "bytes-zero" []) =
+  EApp "bytes-zero" [ELit (LitInt (toInteger n))]
+reifyBytesZeroLen _ b = b
 
 -- | Does an expression mention any op in the given family (any nesting)?
 exprMentionsOpIn :: [Name] -> Expr -> Bool
@@ -3336,10 +3363,44 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
                              r byteArraySort (SimpleVC [] (FQVar r))
     _ -> return Nothing
 
--- `(bytes-zero)` → the const array (probe p4). The typechecker restricts it to
--- the whole body of a def with a literal `-> bytes[n]` return, so it only ever
--- reaches here in result position; the result binder's family-1 fact supplies
--- its length.
+-- FACT-AG-LEN Stage 2 — `(bytes-zero)` at a declared `-> bytes[n]` return: the
+-- CONSTRUCTOR AXIOM. The reified form carries the length as a literal argument
+-- ('reifyBytesZeroLen', applied at the body' seam before translation), so the
+-- assumed post is `r = Map_default(0) ∧ bytesLen(r) = n`. Without the second
+-- conjunct the length is not derivable at all: `Map_default(0)` is a total
+-- function in the array theory and carries no length, so `bytesLen` applied to it
+-- is uninterpreted (measured: deleting 'resultLenFact' with no axiom flips
+-- `zeros8` SAFE → REFUTED).
+--
+-- A 'CallVC' with cvPreObligation = Nothing and cvPostAssumption = Just p IS an
+-- axiom: an ASSUME-polarity fact with no PROVE side. `bytes-set` above is the
+-- shipped precedent for the shape. 'SimpleVC' cannot carry it — its first field
+-- is [LetBinding], which yields only `r = rhs` and has no seam for a
+-- free-standing fact.
+--
+-- The axiom's VALIDITY is a TRUST-channel dependency, not a contract discharge:
+-- it holds because codegen reads the same annotation to emit an n-length zero
+-- value ('CodegenHs.hs:582-586'), so it rides the codegen_semantics_version stamp
+-- (§3.5). Same category as `bytes-set`'s length-preservation fact above. There is
+-- no laundering path into it: 'TypeCheck.hs:1216' / ':1250' restrict
+-- `(bytes-zero)` to the whole body of a def with a literal `-> bytes[n]` return.
+bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
+  r <- freshName "call_bytes_zero"
+  let post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 0])
+                   , FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n) ]
+  return . Just $ CallVC "bytes-zero" [] Nothing (Just post)
+                         r byteArraySort (SimpleVC [] (FQVar r))
+
+-- Un-reified `(bytes-zero)` → the bare const array (probe p4). Dead on the
+-- PRODUCTION path: 'bodyToPredFromR' has exactly one production caller (the
+-- body' seam in 'emitFnConstraints'), which always reifies first. It stays live
+-- through 'bodyToPredFrom', the exported test entry point, which takes no 'mRet'
+-- and so cannot reify — 'compiler/test/Spec.hs' calls it directly ~30 times.
+-- Keep it: without the fall-through that caller crashes on a pattern-match
+-- failure rather than falling back. No length fact is available on this path.
+-- (D2 dead-guard discipline, 'docs/UPDATE-PROTOCOL.md' — the population keeping
+-- it live is named here. Note the fact-ag proposal Rev 3 called 'bodyToPredFrom'
+-- a production caller; it is not, it is test-only.)
 bodyToPredM _ _ _ _ (EApp "bytes-zero" []) =
   return . Just $ SimpleVC [] (FQApp "Map_default" [FQLit 0])
 
@@ -4224,8 +4285,13 @@ appNames p = case p of
 -- | UF constant declaration for a measure symbol.
 measureConstant :: Text -> FQConstant
 measureConstant "listLen"  = FQConstant "listLen"  [FQList] FQInt
--- LEVER-A1: the family-1 length UF over the byte-array sort (grounded per
--- binder by the `bytesLen(v) = n` binder fact; declared only when used).
+-- LEVER-A1: the family-1 length UF over the byte-array sort (declared only when
+-- used). It is grounded per OCCURRENCE, from three sources after FACT-AG-LEN:
+-- a parameter's length arrives in the effective PRECONDITION (Stage 1,
+-- 'bytesLenParamPre' — no longer a binder refinement); `(bytes-zero)`'s arrives
+-- from the constructor axiom (Stage 2, 'bodyToPredM'); a `bytes[n]` RETURN's
+-- still rides the constraint LHS ('resultLenFact', until Stage 3 moves it into
+-- the goal).
 measureConstant "bytesLen" = FQConstant "bytesLen" [FQArr FQInt FQInt] FQInt
 measureConstant n          = FQConstant n          [FQStr]  FQInt  -- strLen + default
 
