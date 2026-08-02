@@ -1,7 +1,7 @@
 ---
 name: finding-arg-position-false-safe
 title: "SAFE-ARG: a `bytes[n]` length fact is asserted from an unvalidated declaration, and the wildcard launders the declaration"
-status: "Rev 4, SETTLED and SHIPPED: stage 1 (bytes) v0.14.73; stage 2 (map[k,bool]) v0.14.74; ADMIT-SHARED v0.14.75. Rev 3 corrected the non-member statement, which implementation read as a blanket refinement exclusion and shipped a wrapper evasion (CR-01) defeating BOTH arms, and replaced the membership side condition with ADMIT-SHARED. Rev 4 replaces 'checker and emitter agree' with the directional ADMIT-OVER invariant plus a declared-type-only side condition, splits the acceptance criterion into A1/A2 and narrows what A2 licenses, makes the non-contractive-alias rule intrinsic rather than ordering-based, and corrects the consumer count from five to a measured three. Four items routed out: bytesRootedArr (ARR-RANGE-NAME), FACT-AG, Module.compatibleTy (no change needed, measured test-only reachable), LLMLL.md §8.8 drift (IFACE-CONFORM)"
+status: "Rev 4, SETTLED and SHIPPED: stage 1 (bytes) v0.14.73; stage 2 (map[k,bool]) v0.14.74; ADMIT-SHARED v0.14.75. ROOT CAUSE CLOSED on the bytes arm by FACT-AG-LEN, v0.14.76 through v0.14.78: the length is no longer asserted from a declaration at any position, so this document's mechanism tables are a HISTORICAL RECORD of the pre-repair emitter and their symbol citations are frozen there. Rev 3 corrected the non-member statement, which implementation read as a blanket refinement exclusion and shipped a wrapper evasion (CR-01) defeating BOTH arms, and replaced the membership side condition with ADMIT-SHARED. Rev 4 replaces 'checker and emitter agree' with the directional ADMIT-OVER invariant plus a declared-type-only side condition, splits the acceptance criterion into A1/A2 and narrows what A2 licenses, makes the non-contractive-alias rule intrinsic rather than ordering-based, and corrects the consumer count from five to a measured three. Four items routed out: bytesRootedArr (ARR-RANGE-NAME), FACT-AG, Module.compatibleTy (no change needed, measured test-only reachable), LLMLL.md §8.8 drift (IFACE-CONFORM)"
 severity: "FALSE SAFE — a `verified` verdict on a memory-safety obligation that does not hold; not fail-closed"
 found_by: professor review of ret-resolve-proposal, 2026-07-29; chain measured jointly with language-team over four review rounds
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -18,6 +18,18 @@ This is the first defect on this line that is **not** fail-closed. Every prior m
 FQ-RESULT-SORT-1 family exits 1 with a solver crash. This one reports `SAFE`, writes a
 `.verified.json`, and records `display_level.level = "verified"` with `body_faithful: true` and a
 `verified_hash`.
+
+> **Root cause closed, and this document is now a historical record.** WILD-ASSUME and ADMIT-SHARED
+> were the interim repairs: they policed the laundering path without making the fact earned.
+> FACT-AG-LEN (`fact-ag-proposal.md`, v0.14.76 through v0.14.78) removed the premise instead. A
+> `bytes[n]` length is now earned at every position: proved at each call site for a parameter,
+> established by a constructor axiom for `(bytes-zero)`, and proved as a goal in the effective post
+> for a return. `bytesLenReft` and `resultLenFact`, the two injection sites this document analyses,
+> **no longer exist**, and `admits` has narrowed to `boolValuedMapTy`, with the diagnostic half of
+> the restriction moved to `wildAssumeRejects`. **The mechanism tables below describe the pre-repair
+> emitter. Their symbol names and line citations are frozen at that state and must not be renumbered
+> against current source.** The `map[k,bool]` arm is unaffected and remains a genuine soundness
+> claim, deliberately and permanently, for the reason `fact-ag-proposal.md` gives.
 
 ## Reproduction
 

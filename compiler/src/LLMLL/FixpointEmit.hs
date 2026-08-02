@@ -4305,12 +4305,14 @@ appNames p = case p of
 measureConstant :: Text -> FQConstant
 measureConstant "listLen"  = FQConstant "listLen"  [FQList] FQInt
 -- LEVER-A1: the family-1 length UF over the byte-array sort (declared only when
--- used). It is grounded per OCCURRENCE, from three sources after FACT-AG-LEN:
--- a parameter's length arrives in the effective PRECONDITION (Stage 1,
--- 'bytesLenParamPre' — no longer a binder refinement); `(bytes-zero)`'s arrives
--- from the constructor axiom (Stage 2, 'bodyToPredM'); a `bytes[n]` RETURN's
--- still rides the constraint LHS ('resultLenFact', until Stage 3 moves it into
--- the goal).
+-- used). It is grounded per OCCURRENCE, from three sources after FACT-AG-LEN,
+-- and from no declaration directly: a parameter's length arrives in the
+-- effective PRECONDITION (Stage 1, 'bytesLenParamPre' — no longer a binder
+-- refinement); `(bytes-zero)`'s arrives from the constructor axiom (Stage 2,
+-- 'bodyToPredM'); a `bytes[n]` RETURN's arrives in the effective POSTCONDITION
+-- (Stage 3, 'bytesLenRetPost'), where the body VC proves it as a goal and
+-- callers assume it via assume-guarantee. The former LHS assumption
+-- ('resultLenFact') and binder refinement ('bytesLenReft') are both deleted.
 measureConstant "bytesLen" = FQConstant "bytesLen" [FQArr FQInt FQInt] FQInt
 measureConstant n          = FQConstant n          [FQStr]  FQInt  -- strLen + default
 

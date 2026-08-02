@@ -25,16 +25,21 @@ module header states the position plainly: `admits` "is a denial list over decla
 header's claim is not quite right: the terminal state is `boolValuedMapTy`, not empty. Section
 [The criterion](#the-criterion-and-why-the-two-arms-differ) gives the reason.
 
-Three sites assert type-derived facts today:
+Three sites asserted type-derived facts when this proposal was written. **The table is a historical
+record of the pre-FACT-AG-LEN emitter, not a description of HEAD**: its first two rows name symbols
+this line has since deleted, so their line citations are frozen at the state the proposal argues
+against and must not be renumbered against current source.
 
-| Site | Fact | Where it lands |
-|---|---|---|
-| `emitParamBind` (`FixpointEmit.hs:1470-1472`, `bytesLenReft` at `:1553-1559`) | `bytesLen(v) = n` | parameter binder refinement |
-| `resultLenFact` (`FixpointEmit.hs:1216-1217`, used `:1270`) | `bytesLen(result) = n` | the constraint **LHS**, i.e. an assumption about the body's own result |
-| `injectBoolValRangeFacts` (`FixpointEmit.hs:4127-4140`) | `0 ≤ select(m$val,k) ≤ 1` per occurring select | constraint LHS |
+| Site (as of Rev 0, pre-FACT-AG-LEN) | Fact | Where it landed | Disposition |
+|---|---|---|---|
+| `emitParamBind` (`FixpointEmit.hs:1470-1472`, `bytesLenReft` at `:1553-1559`) | `bytesLen(v) = n` | parameter binder refinement | Stage 1 moved it to the effective pre; `bytesLenReft` **deleted** at Stage 3 |
+| `resultLenFact` (`FixpointEmit.hs:1216-1217`, used `:1270`) | `bytesLen(result) = n` | the constraint **LHS**, i.e. an assumption about the body's own result | **Deleted** at Stage 3; the fact is now a goal in the effective post |
+| `injectBoolValRangeFacts` (`FixpointEmit.hs:4127-4140`) | `0 ≤ select(m$val,k) ≤ 1` per occurring select | constraint LHS | **Unchanged, and deliberately so.** See [the map arm](#what-is-not-proposed-the-map-arm) |
 
-WILD-ASSUME polices the one type-compatibility path by which an unvalidated declaration reaches the
-first two. It does not make the facts earned.
+WILD-ASSUME policed the one type-compatibility path by which an unvalidated declaration reached the
+first two. It did not make the facts earned. That is the defect this line repairs; on the two bytes
+rows the restriction is now a diagnostic rather than a soundness claim, and on the third it remains
+a genuine soundness claim.
 
 ## Why this is a repair, not an improvement
 
@@ -732,7 +737,7 @@ Professor review, same day, returned seven findings. Six were adopted:
 | Component positions unaddressed | Adopted. Now a stated exclusion with its emitter-agreement argument. |
 | Two Rev 0 assertions verified (`mPre` reaches call-pre LHS; codegen reads the raw `contractPre`) | Recorded as checked. |
 
-Professor review round 1 (`docs/design/fact-ag-proposal-review.md`) adjudicated Rev 1. It
+Professor review round 1 (`docs/archive/professor-reviews/fact-ag-proposal-review.md`) adjudicated Rev 1. It
 **conceded** the sort/gate rejection after re-measuring at HEAD, and confirmed that the proposed
 `typeToSort` widening would have array-sorted Result and ADT components. It returned three findings:
 
@@ -758,3 +763,92 @@ Rev 3 also records the counterfactual as a measurement rather than a recommendat
 SAFE to REFUTED with `resultLenFact` deleted and no axiom added, which establishes that the axiom
 does work rather than duplicating an antecedent already present. `Map_default(0)` is a total function
 in the array theory and carries no length, so `bytesLen` applied to it is uninterpreted.
+
+Rev 4 (2026-08-01) landed Stage 3 and closed the line. Like Rev 3, no review prompted it: the five
+corrections came out of implementation, and two of them changed the design rather than its citations.
+
+| Correction | What the settled design said | What Rev 4 says |
+|---|---|---|
+| **`admits` and the WILD-ASSUME seams cannot share one predicate.** | "`admits` loses `bytesLenOf`" and "both seams kept, demoted to diagnostic" were stated as independent instructions. | They are jointly unsatisfiable while the seams read `admits`: dropping the arm makes the seams stop firing. Split into a **soundness** predicate (`admits` = `boolValuedMapTy`, what the emitter injects unearned) and a **diagnostic** predicate (`wildAssumeRejects` = `admits` ∪ bytes), containment holding by construction. ADMIT-OVER is stated about `admits`. Rejecting bytes on the diagnostic side costs nothing, since every program it rejects is refuted downstream anyway. |
+| **There is a third `admits` call site.** | Two seams named (`TypeCheck.hs:2292`, `:2372`). | `unify` is a third, a diagnostic router that must move in step or rejected programs degrade to the generic message. |
+| **Stage 3 empties a solver-crash class nobody predicted.** | Not anticipated at any revision. | `calleeRetSort` sorts a bytes callee's result binder array-wise only if the callee's stored contract mentions a bytes op, so a **contract-free** bytes-returning callee bound its result at `FQInt` and `bytesLen` over it crashed liquid-fixpoint on a sort error rather than returning a verdict. Both new fixtures were crashes at Stage 2. The `FQInt` fall-through on the `TBytes` arm is now dead and named in place. |
+| **`tcWildAssumeError` needed restructuring, not a noun swap.** | "`wildAssumeFactNoun` rewords its bytes arm." | The template asserted the fact is one "the verifier asserts from the declaration," now false for bytes and still true for map, so the verb had to move into the noun function and each arm carry its own. |
+| **`resultLenFact`'s citation.** | `:1216-1219` / `:1270`. | `:1221-1224` / `:1275`. |
+
+The two hazards Rev 3 pre-checked both held: the `result` shadowing note does not bite, because the
+goal lands in the `rhs` reft whose bound variable *is* `result`, and `augmentContractPost` at `:692`
+and `:259` supplies both the definition-site goal and the caller-side assumed post.
+
+**What the line does not close, stated because a closure claim invites the opposite reading.**
+Recursive `bytes[n]`-returning functions stay on the assumption channel at tier `asserted` (edge case
+10), and `letrec` cannot reach the class at all, since both parsers hardcode its return type to
+`Nothing`. The identity function on bytes still cannot prove its own length, because `bodyToPredM`'s
+variable clause admits no array-sorted variable; that was measured identical at Stage 2, so it is a
+pre-existing fragment boundary rather than anything this line introduced.
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal is
+folded here and the source file archived to
+[`docs/archive/professor-reviews/fact-ag-proposal-review.md`](../archive/professor-reviews/fact-ag-proposal-review.md).
+Folded at the close of the line, v0.14.78, with all three stages shipped.
+
+**Source:** `docs/archive/professor-reviews/fact-ag-proposal-review.md` at commit
+`a85910fa2ccb2413b2a725ecdf49051e96933bed` (reviewed 2026-08-01; reviewer: Lead Consultant for Formal
+Language Design). Two rounds. The per-finding dispositions are in [Review history](#review-history)
+above and are not repeated; what follows is each round's ranked recommendation and where it landed.
+
+### Round 0 recommendation, against Rev 0, and its outcome
+
+Adopt the parameter half; fix the constructor before adopting the return half; restate the map-arm
+exclusion. Six ranked items:
+
+1. **Ship Stage 1 after resolving H2** (the elaboration-unconditional / sort-`arrGate`-conditional
+   hazard). Shipped as v0.14.76, with H2's *resolution* rejected on measurement and the rejection
+   conceded in round 1.
+2. **Give `bytes-zero` a constructor post before moving `resultLenFact`.** Adopted as the whole
+   reason this became a three-stage line. Shipped as v0.14.77. The reviewer's supporting claim, that
+   landing the return half first refutes the corpus, was measured false on both halves by Rev 3; the
+   ordering constraint it supports survives on the `bytes-zero`-bodied population in `Spec.hs`.
+3. **Keep the map arm out, but rewrite the reason.** Adopted; the reason is now the two-clause
+   criterion (establishment plus modularity), not the fragment-membership argument Rev 0 gave.
+4. **Keep both WILD-ASSUME seams as diagnostics.** Adopted, and it is the item that survived
+   contact with implementation least changed in intent and most changed in mechanism: Stage 3 had to
+   split `admits` into a soundness predicate and a diagnostic predicate (`wildAssumeRejects`) for the
+   seams to be keepable at all. See correction 1 under
+   [Three stages](#three-stages-and-the-ordering-is-a-correctness-constraint).
+5. **Do not open a peer `FACT-AG-RANGE` row.** Adopted and held through close. No such row exists.
+6. **Cite `type-driven-development.md` as the primary rationale.** Adopted in Rev 1.
+
+Round 0's two open questions (whether a syntactic restriction on an introduction form discharges
+Hoare's establish-half, and whether the sealed-introduction-forms property has a standard name) were
+answered in round 1 and are carried in
+[Open questions for the professor](#open-questions-for-the-professor) above.
+
+### Round 1 recommendation, against Rev 1, and its outcome
+
+*Ship Stage 1. The three findings change text, not the design.* Round 1 also **conceded** the H2
+resolution after re-measuring at HEAD, confirming that the proposed `typeToSort` widening would have
+array-sorted `Result` and ADT components.
+
+1. **Fix the `:694-696` citation to `:715-716`.** Adopted in Rev 2, verified independently.
+2. **Enlarge the declared delta set** to the direct-caller population reached through the augmented
+   `ContractEnv`, one hop. Adopted in Rev 2 as delta 3.
+3. **Strike reason #1 from the map-arm exclusion, or add the modularity qualifier.** Rev 2 took the
+   second branch, which is the one divergence between this proposal and the review: the criterion
+   gains a modularity clause rather than losing its establishment clause.
+4. *Everything else in Rev 1 stands*, including the three-stage ordering, the Stage 2 constructor
+   axiom, the component-position exclusion, the retention of both WILD-ASSUME seams, and the refusal
+   to open a peer `FACT-AG-RANGE` row. All four held through Stage 3.
+
+Round 1 left one open question for the language-team: whether the range arm's closed disposition
+should carry an explicit reopening trigger, on the ground that R1-3 leaves the map arm excluded on
+inexpressibility alone and a future `FQPred` quantifier former would dissolve that ground. **Rev 2's
+repair answers it by removing its premise.** The modularity clause closes the map arm on substantive
+grounds (the fact is uniform over the type constructor's inhabitants, so there is nothing to export),
+so a quantifier former would not reopen it, and no conditional-reopening note is owed. The
+inexpressibility observation survives in
+[Verification mapping](#verification-mapping) as a second and independent reason rather than as the
+only one.
