@@ -724,8 +724,12 @@ trustedPrelude :: Set.Set Name
 trustedPrelude = Set.fromList
   [ "string-length", "string-concat", "list-head", "list-tail"
   , "list-length", "list-is-empty?", "pair", "first", "second"
-  , "random-int", "int-to-string"
+  , "int-to-string"
   ]
+-- R-13: every name above carries a 'builtinEnv' type. 'random-int' sat on this
+-- list without one, so a call to it passed core-membership on the strength of
+-- the entry alone and was then rejected downstream as an unknown function.
+-- Keep that invariant: do not add a name here that builtinEnv does not declare.
 
 -- | LT-INV (v0.11): under core mode, verify a callee is body-faithful or trusted-prelude.
 -- Emits a CoreMembershipViolation error when neither condition holds.

@@ -447,14 +447,19 @@ primEffect n
   -- either label is not.
   | n == "wasi.fs.sha256"    = Just (Caps (Set.fromList [EFsRead, ECrypto]))
   | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
-  -- wasi.clock.monotonic joins random-int under ENonDet. NOT bottomEff: for a
+  -- wasi.clock.monotonic is the sole ENonDet producer. NOT bottomEff: for a
   -- name in builtinEnv, 'calleeEff' tests knownPure (:489) BEFORE consulting
   -- primEffect, and bottomEff is the identity of joinEffs, so Just bottomEff is
   -- observationally the Nothing case — whose own doc above reads "pure
   -- builtin". A Command-returning operation that yields a different value per
   -- call is not pure, and LLMLL.md §10a makes determinism the condition for a
   -- replayable module.
-  | n == "random-int"       || n == "wasi.clock.monotonic" = one ENonDet
+  --
+  -- R-13: 'random-int' shared this clause until it was removed as undeclared.
+  -- It never had a builtinEnv type, so no call to it survived 'verify' in any
+  -- mode, and this clause classified an effect no reachable program could have.
+  -- Spec.hs CP-8 now pins its absence.
+  | n == "wasi.clock.monotonic" = one ENonDet
   | "haskell." `T.isPrefixOf` n                        = Just Unbounded
   | "c." `T.isPrefixOf` n                              = Just Unbounded
   -- wasi.proc.run REACHES THIS LINE BY DESIGN and must keep reaching it.

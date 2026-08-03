@@ -13432,14 +13432,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
 
-      it "INV-C3 SDef calling 'random-int' (trusted prelude) has no violation" $ do
+      -- R-13 retarget. This slot used to call 'random-int' and assert NO
+      -- violation, on the strength of its trustedPrelude entry. That entry is
+      -- gone (the name had no builtinEnv type), so the discriminating case it
+      -- was demonstrating is now the undeclared-callee case itself: a name with
+      -- no declaring statement anywhere in 'stmts' and no trustedPrelude
+      -- membership. INV-C1/C4/C5 all supply a declaring statement, so this path
+      -- was untested before this test moved onto it.
+      it "INV-C3 SDef calling an undeclared, non-prelude name emits core-membership-violation" $ do
         let stmts = [ SDef { defName = "rnd", defParams = [("lo", TInt), ("hi", TInt)]
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                           , defBody = EApp "random-int" [EVar "lo", EVar "hi"] } ]
+                           , defBody = EApp "totally-made-up" [EVar "lo", EVar "hi"] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
-        kinds `shouldNotContain` ["core-membership-violation"]
+        kinds `shouldContain` ["core-membership-violation"]
 
       it "INV-C4 SDef calling SDefShell (no evidence) emits core-membership-violation" $ do
         let stmts = [ SDefShell { defShellName = "sh", defShellParams = [("x", TInt)]
@@ -14273,8 +14280,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       primEffect "wasi.clock.monotonic" `shouldBe` Just (Caps (Set.singleton ENonDet))
       primEffect "wasi.clock.monotonic" `shouldNotBe` Just (Caps Set.empty)
 
-    it "CP-8: random-int shares ENonDet after the ERandom rename" $
-      primEffect "random-int" `shouldBe` Just (Caps (Set.singleton ENonDet))
+    -- R-13 retarget. CP-8 used to assert random-int shared this label. The
+    -- clause is gone, so CP-8 guards the removal instead. The ENonDet label
+    -- itself stays covered by CP-7 above, which is why this slot was free to
+    -- move rather than needing to be deleted.
+    it "CP-8: random-int has no primEffect clause (R-13 removal)" $
+      primEffect "random-int" `shouldBe` Nothing
+
+    it "CP-8b: random-int is absent from builtinEnv, which is why R-13 removed it" $
+      Map.lookup "random-int" builtinEnv `shouldBe` Nothing
 
     -- The inverted assertion. A bounded label here would be UNSOUND under the
     -- may-over-approximation semantics EffectSummary actually has: it would
