@@ -1,7 +1,7 @@
 ---
 name: effect-response-channel-proposal
 title: "EFFECT-RESP: a response channel, so an LLMLL program can consume the result of its own effects"
-status: "Rev 4, SETTLED. EFFECT-RESP (RC-1..RC-4) unchanged from Rev 2. Rev 4 closes the one item Rev 3 deferred: :deterministic true is NOT rejected on wasi.fs.* / wasi.http.*, because LLMLL.md §10a:1652 and §10:1122 define the flag as an opt-in to event-log capture rather than a claim that the effect is a function of its arguments, and §10a:1669-1672 makes it the condition for a replayable module. The flag is instead filed as a third instance of declared-surface-with-no-runtime (with WASI-RT and :read): capDeterministic is parsed and re-emitted, no event log is emitted, and ReplayStatus is never constructed. Rev 4 also moves the :read retirement from commit B to commit C, because removing the read property from DefMain is a JSON-AST schema delta and C already carries the 0.9.0 to 0.10.0 bump. Rev 3: EFFECT-RESP unchanged from Rev 2. DO-ACCUM-1 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-settled as P0-marker by user adjudication 2026-08-02, adding the DISCARD-1 step marker: LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error. Rev 2: two professor rounds folded; Rev 0's Result-returning read withdrawn; RESUME-1 promoted to the design; CMD-A recorded as target."
+status: "Rev 5, SETTLED. RC-1..RC-4 SHIPPED (commit bc78057, releasing in v0.14.80): the response channel, the compiler-supplied Response, the :step arity check, the console-harness restructure, and twelve migrated programs. Phase 1 acceptance was measured rather than argued: a program reads a file and branches on its contents through llmll build + GHC + execution; the corpus .fq is 151-of-151 byte-identical against a baseline compiler built from main, so the change did not reach the verification surface; and the RC-1 bijection was exercised as a COUNT (three performed reads of an 11-byte file accumulate 33, and the terminating step's command contributes nothing). One Phase 1 acceptance clause was refuted rather than met and the campaign doc moves, not RC-4: 'the twelve programs behave identically' is impossible under RC-4, measured on hangman, which loses its final board render (twelve lines) while :on-done still fires. Rev 5 settles the ARM SET before release, against the measured result shapes of the program being ported: one arm is added, RList list[string], for wasi.fs.list, which is the only operation of the seven that fails the file-indirection test; wasi.proc.spawn/await collapse into a synchronous wasi.proc.run (the driver holds no process handle); wasi.http.get does not expose its status code. A four-part admissibility rule now governs any future arm, and the corollary corrects driver-in-llmll-campaign.md: arm growth is not a failure signal. The arm ships WITH wasi.fs.list, not before it, because an arm no command can produce would be a fifth instance of the declared-surface-with-no-runtime class this campaign has already found four times. Rev 4 closed the one item Rev 3 deferred: :deterministic true is NOT rejected on wasi.fs.* / wasi.http.*, Rev 4 closes the one item Rev 3 deferred: :deterministic true is NOT rejected on wasi.fs.* / wasi.http.*, because LLMLL.md §10a:1652 and §10:1122 define the flag as an opt-in to event-log capture rather than a claim that the effect is a function of its arguments, and §10a:1669-1672 makes it the condition for a replayable module. The flag is instead filed as a third instance of declared-surface-with-no-runtime (with WASI-RT and :read): capDeterministic is parsed and re-emitted, no event log is emitted, and ReplayStatus is never constructed. Rev 4 also moves the :read retirement from commit B to commit C, because removing the read property from DefMain is a JSON-AST schema delta and C already carries the 0.9.0 to 0.10.0 bump. Rev 3: EFFECT-RESP unchanged from Rev 2. DO-ACCUM-1 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-settled as P0-marker by user adjudication 2026-08-02, adding the DISCARD-1 step marker: LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error. Rev 2: two professor rounds folded; Rev 0's Result-returning read withdrawn; RESUME-1 promoted to the design; CMD-A recorded as target."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -379,7 +379,8 @@ This answers the professor's second question and it is a decision, not a prefere
 
 ```lisp
 ;; illustrative shape; sealed in builtinEnv, not a user `type` declaration
-Response = (| RNone) (| RText string) (| RCode int) (| RErr string)
+;; Rev 5 adds the fifth arm; see "The arm set, and the rule for extending it".
+Response = (| RNone) (| RText string) (| RCode int) (| RErr string) (| RList list[string])
 ```
 
 Four reasons.
@@ -398,10 +399,98 @@ Four reasons.
 `RErr` is required, not optional: an effect failure must arrive as a value, which is what preserves
 "logic functions cannot crash from IO" (`LLMLL.md:1747`).
 
-**Payload classes are `string` and `int` only.** Both are inside `Σ_auto` (int natively, string via
+**Scalar payload classes are `string` and `int`.** Both are inside `Σ_auto` (int natively, string via
 STRLIT equality/distinctness/length). There is deliberately **no `RBytes` arm**: `bytes[n]` requires
 a literal length at the type level and a file read's length is not statically known. Binary reads are
 a named residue of this proposal, not an oversight, and route to a future row.
+
+### The arm set, and the rule for extending it (Rev 5)
+
+Settled 2026-08-02, after Phase 1 shipped and before its release, against the **measured** result
+shapes of the program being ported rather than against the nominal capability list. Doing it before
+the release is the whole point: adding an arm later breaks every exhaustive `match` in existence,
+and today exactly one in-tree program has one (`scripts/build-smoke/smoke.llmll`).
+
+**What was measured.** `scripts/rfc_to_implementation.py` is the driver DRIVER-LL ports. Its effect
+sites, read for what they actually consume:
+
+| Operation | Driver's actual use | Arm | New? |
+|---|---|---|---|
+| `wasi.proc.run` | `:211-215`, `:874-880` — takes `returncode`; child output is redirected to a **file** | `RCode` | no |
+| `wasi.clock.monotonic` | `:206`, `:225` — an integer difference | `RCode` | no |
+| `wasi.fs.mkdir` | `:158`, `:387`, `:393` — no result read | `RNone` | no |
+| `wasi.http.get` | `:419-420` — body written straight to a file; **status never inspected** | `RText` / `RErr` | no |
+| `wasi.fs.read` | shipped at v0.14.80 | `RText` / `RErr` | no |
+| `sha256` | `:111-116` — a pure function over bytes | not a command | n/a |
+| **`wasi.fs.list`** | `:485`, `:509`, `:670`, `:1656` — an iterated directory listing | **`RList`** | **yes** |
+
+Six of the seven map to existing arms, and the reason is not that the Phase 1 arm set was
+clairvoyant. It is that **the driver already routes bulk payloads through the filesystem**, because
+that is what `subprocess.run(stdout=file)` and `urlopen(...).read() → write_bytes` do. The response
+channel only ever has to carry a scalar or an error, because the program's own architecture puts the
+data in a file and reads it back. That property is worth a rule, because it is what will keep the
+arm set from growing once per capability.
+
+**An arm is admissible iff all four hold.**
+
+1. **Non-redundancy.** Its payload shape is not expressible by an existing arm.
+2. **No fragment widening.** The payload type is inside `Σ_auto` or inherits an existing exclusion.
+3. **Failure of the file-indirection test.** The operation cannot route its payload through the
+   filesystem without loss. This is the rule that does the work, and it is why six of seven need
+   nothing.
+4. **Shape, not capability.** Arms name payload shapes. `RHttp`, `RProc`, `RSpawn` are forbidden by
+   construction: an arm named after a capability turns the sum into a tagged union of operations and
+   reintroduces the pairing problem the seal exists to bound.
+
+`RList list[string]` passes all four. No arm carries a sequence; `TList` is already an opaque
+`FQList` sort (`FixpointEmit.hs:2419`, "opaque carrier for list measures") so nothing widens; a
+listing cannot be persisted and re-read without inventing a delimiter, which fails on the inputs an
+adversary controls (see edge cases); and it names a shape.
+
+**Corollary, correcting `driver-in-llmll-campaign.md`.** Arm growth is **not** a failure signal. This
+proposal's own justification for a compiler-supplied `Response` is that the response alphabet is a
+function of the command alphabet, so extending the command alphabet may legitimately extend the arm
+set. The Phase 2 acceptance clause is corrected to read: each response-bearing operation maps to an
+arm admissible under the four-part rule, and an operation needing an arm that **fails** the rule is
+the Phase 1 design error the STOP is for.
+
+#### Two capability-shape corrections that remove arm questions rather than answering them
+
+**`wasi.proc.spawn` + `wasi.proc.await` collapse into a single `wasi.proc.run`.** The driver contains
+no `Popen`; every process call is a blocking `subprocess.run`, and its concurrency is a
+`ThreadPoolExecutor` over blocking calls, which `driver-in-llmll-campaign.md` §5.2 has already
+decided not to reproduce. A spawn/await pair invents a process-handle type nothing in the driver
+holds, and it was the only operation that would have forced a handle to be typed as an integer.
+Removing the operation removes the problem instead of encoding around it.
+
+**`wasi.http.get` does not expose the status code.** `urllib` raises on 4xx/5xx and the driver writes
+the body to disk without inspecting status, so the faithful mapping is 2xx → `RText body` and
+everything else → `RErr` carrying the status. This is a **runtime obligation with no type-level
+enforcement**: a runtime that returned a 404 error page as `RText` would have a program read an error
+page as content. It belongs in the trust report's `harness_assumptions` beside the RC-1..RC-4
+entries. A program that must branch on a status is a program that needs an `(int, string)` payload,
+and that is the CMD-A case, not this one.
+
+#### The arm ships with its producer, not before it
+
+`RList` and `wasi.fs.list` land in the **same** change. An arm no command can produce is unreachable
+surface, and this campaign has already found four instances of declared-surface-with-no-runtime
+(`:read`, `:deterministic`, WASI-RT's four builtins, `ReplayStatus`). Shipping a fifth deliberately,
+to save a later migration, would trade a one-fixture breaking change for a defect class the campaign
+exists to stop producing.
+
+#### Soundness argument, as the lifted-freeze policy requires for a new WASI capability
+
+The arm is **erasable with respect to every existing program**: no program that compiles today can
+construct or receive an `RList`, so no existing program's meaning changes. The accept/reject boundary
+moves in one direction, and only for programs that write an exhaustive `match` on `Response` without
+a wildcard, which must gain an arm.
+
+`wasi.fs.list` is **not** subsumed by `(capability read …)` and must not ride on it. Reading a path
+requires already knowing the path; listing a directory *reveals* paths, which is an enumeration
+authority `read` does not confer. The grant is therefore its own verb, `(capability list "/path")`,
+scoped to a path prefix in the same shape as `(capability read-write "/rfc-swarm-runs")`. Treating
+enumeration as a sub-case of reading would silently widen every already-granted `wasi.fs` import.
 
 ### The command-to-response pairing is unchecked, and CMD-A closes it
 
@@ -572,6 +661,26 @@ decided. **CMD-A therefore adds no verification surface: it is a type-and-codege
    arity is correct under both the design and the current emitter, which is how the defect shipped.
 7. **A binary file read.** No `RBytes` arm exists, so a program cannot consume one.
    **Channel: type**, by absence. Named residue; routes to a future row.
+8. **Positive witness for `RList` (Rev 5).** `(wasi.fs.list "/rfc-swarm-runs/00-source")` over a
+   directory holding `rfc1350.txt` and `rfc2347.txt` yields `RList ["rfc1350.txt", "rfc2347.txt"]`,
+   and a step matching `((RList names) (list-length names))` observes `2`. **Channel: type.** This is
+   the minimal *concrete* firing input rather than a description of when the arm fires; without a
+   construction like it, the four-part admissibility rule would have admitted a constructor no
+   program can reach.
+9. **An empty directory (Rev 5).** `RList []`, **not** `RNone`. **Channel: type.** The distinction
+   carries weight rather than being pedantic: `RNone` is also what the harness's slot reset leaves
+   behind when a command publishes nothing, so collapsing "listed, and it was empty" into `RNone`
+   would make a successful listing indistinguishable from a command that failed to publish.
+10. **A filename containing a newline (Rev 5).** POSIX permits it. This is the concrete reason
+    `RText` with a `"\n"` delimiter is refused rather than merely disfavoured: the encoding is
+    ambiguous exactly on the inputs an adversary controls. **Channel: spec is silent (intentional)** —
+    the list arm makes the question not arise.
+11. **A non-2xx HTTP response (Rev 5).** `RErr "404"`, never `RText "<html>404…</html>"`.
+    **Channel: trust (disclosure required).** Nothing in the type system forces the runtime to
+    classify correctly, so this is a harness obligation and belongs in `harness_assumptions`.
+12. **Listing a path outside the capability grant (Rev 5).** `RErr`. **Channel: trust.** CAP-1 is
+    enforced at typecheck only and codegen contains zero capability references, so `wasi.fs.list`
+    **inherits** the capability-blind residue WASI-RT already named rather than introducing it.
 
 ---
 
@@ -587,9 +696,20 @@ decided. **CMD-A therefore adds no verification surface: it is a type-and-codege
 | DO-ACCUM-1 composition | none | codegen conformance to a settled design; no VC touched | `do-notation-design.md` §2.4 |
 | CMD-A bind in a body | none | excluded from the core grammar with `ELambda` | `LLMLL.md:451`; `roadmap:238` |
 
-**`Σ_auto` is unchanged by every item in this proposal.** No new sort, no new theory, no fragment
-widening. The effect model can be repaired without touching the verification fragment, which is the
+| `RList` arm exhaustiveness (Rev 5) | type | Not an SMT obligation; a well-formedness side condition | `TypeCheck.hs` `checkExhaustive` |
+| A body matching `RList` (Rev 5) | contract | **Falls back, unchanged.** `TList` is `FQList`, an opaque carrier (`FixpointEmit.hs:2419`), so a body mentioning it takes today's list fallback | `§5.3.5` |
+| `wasi.http.get` status classification (Rev 5) | trust | No SMT obligation; a runtime property requiring disclosure | TRUST-AXIOM shape |
+
+**`Σ_auto` is unchanged by every item in this proposal**, and Rev 5 does not change that. No new
+sort, no new theory, no fragment widening: `RList`'s payload inherits the exclusion `list[a]` already
+carries. The effect model can be repaired without touching the verification fragment, which is the
 strongest property this design has.
+
+**Measured for Phase 1, and the standard Rev 5 must also meet.** The claim is not an argument: at
+`bc78057`, the corpus `.fq` emitted by the shipped compiler was compared byte-for-byte against a
+baseline built from `main` at `2dc3548`. **151 of 151 identical**, including the twelve *participating*
+programs, whose step functions already fall back on `Command`. Any change to the arm set is held to
+the same measurement.
 
 ---
 

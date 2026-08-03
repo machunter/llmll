@@ -1,7 +1,7 @@
 ---
 name: driver-in-llmll-campaign
 title: "DRIVER-LL: a fully functional RFC-SWARM driver written in LLMLL, and the language work it requires"
-status: "Rev 3, READY FOR ENGINEER, commit A cleared to start. Rev 3 settles one decision the engineer routed back and adds it as §8.3: BUILD-GATE-1 lands INSIDE commit A rather than as its own follow-on row, overriding the A.6 recommendation, because the gate is the only observer of the defect commit A fixes and the row it would otherwise wait on is UNSCHEDULED. Acceptance is a positive witness (red on the merge base, green after), which is the part that fails quietly. Rev 2: §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
+status: "Rev 4, IN FLIGHT. Phases 0 and 1 are COMPLETE and merged to main (commits 8dff514 DISCARD-1, bc78057 EFFECT-RESP), releasing together as v0.14.80; Phase 1's step zero shipped earlier as v0.14.79. Rev 4 records the Phase 1 result as measured rather than argued (151-of-151 byte-identical corpus .fq against a baseline compiler; the bijection exercised as a count; a program that reads a file and branches on its contents, built and run), REFUTES one Phase 1 acceptance clause and moves it rather than moving RC-4 ('the twelve programs behave identically' is impossible under RC-4; hangman measurably loses twelve lines), and corrects §Phase 2 against the measured driver: wasi.proc.spawn/await collapse into a synchronous wasi.proc.run, wasi.fs.list needs a new Response arm and that is ordinary alphabet growth rather than a STOP, and wasi.http.get does not expose its status. The arm set is settled in effect-response-channel-proposal.md Rev 5 under a four-part admissibility rule. Phase 2 is cleared to start once the arm lands. Rev 3, READY FOR ENGINEER, commit A cleared to start. Rev 3 settles one decision the engineer routed back and adds it as §8.3: BUILD-GATE-1 lands INSIDE commit A rather than as its own follow-on row, overriding the A.6 recommendation, because the gate is the only observer of the defect commit A fixes and the row it would otherwise wait on is UNSCHEDULED. Acceptance is a positive witness (red on the merge base, green after), which is the part that fails quietly. Rev 2: §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -168,13 +168,34 @@ compiler-supplied `Response` sum, the `:step` arity change, the console-harness 
 channel has nothing to attach to until this lands. See §2 and the proposal's prerequisite section.
 
 - **Acceptance:** a program reads a file and branches on its contents; the **twelve** in-tree console
-  programs are migrated and behave identically (six `.llmll`, six `.ast.json`; an earlier count of
-  five was low); `Σ_auto` unchanged (corpus `.fq` byte-identical for every file not using the
-  channel); the RC-1 bijection is exercised by a fixture that counts performed commands against
-  delivered responses; **and the build-acceptance clause (§3a): the reading program is emitted by
-  `llmll build`, compiles under GHC, and is executed on at least one input.** For this phase the
-  clause is not ceremonial. It is the only criterion that distinguishes a working `wasi.fs.read`
-  from the lazy no-op the engineer plan's risk 8 describes.
+  programs are migrated, and **any behavioural change is exactly the RC-4 consequence** (the
+  terminating step's command is not performed), recorded per program (six `.llmll`, six `.ast.json`;
+  an earlier count of five was low); `Σ_auto` unchanged (corpus `.fq` byte-identical for every file
+  not using the channel); the RC-1 bijection is exercised by a fixture that counts performed commands
+  against delivered responses; **and the build-acceptance clause (§3a): the reading program is
+  emitted by `llmll build`, compiles under GHC, and is executed on at least one input.** For this
+  phase the clause is not ceremonial. It is the only criterion that distinguishes a working
+  `wasi.fs.read` from the lazy no-op the engineer plan's risk 8 describes.
+
+  **Rev 4 correction, forced by measurement.** This clause previously required the twelve programs to
+  "behave identically", which **cannot hold**: RC-4 mandates that the terminating step's command is
+  not performed, and the proposal's edge case 4 says so. Measured on `hangman_sexp` with identical
+  stdin against a baseline compiler built from `main`, the migrated binary emits **twelve fewer
+  lines**: the losing turn's board render is gone, while `:on-done show-result` still fires in both.
+  A criterion that forbids its own phase's settled design is a drafting error, so the criterion moves
+  and RC-4 stands. The four game examples are left degraded **deliberately**, by user adjudication
+  2026-08-02, on the ground that examples are revisitable and closing the phase is not blocked on
+  them; the repair, when taken, is to render the final board from `:on-done` rather than from the
+  terminating step, which is the pattern RC-4 mandates for any program whose final effect matters.
+
+- **Phase 1 result, measured at commit `bc78057`.** Reads-and-branches: a program prints `read 11`,
+  the length of the file it read, through `llmll build` + GHC + execution; a missing file yields
+  `RErr` and exit 0. `Σ_auto`: **151 of 151** corpus `.fq` files byte-identical against a baseline
+  compiler built from `main` at `2dc3548`, including the twelve participating programs, whose step
+  functions already fall back on `Command`. Bijection: three performed reads of an 11-byte file
+  accumulate `33`, and the terminating step's command contributes nothing — one response per
+  performed command, with the settle step owing none. The bijection program is **not yet a committed
+  fixture**, which is a named residue of this phase rather than a met criterion.
 - **The migration has no `check`-time diagnostic until it is built.** `checkStatement (SDefMain{..})`
   (`TypeCheck.hs:1405-1414`) discards the `:step` inferred type, so every unmigrated console program
   stays green at `check` and dies at GHC. The new arity check must land in the same commit; it is the
@@ -185,16 +206,39 @@ channel has nothing to attach to until this lands. See §2 and the proposal's pr
 ### Phase 2 — CAP-PROC `[CT][SPEC]` (M) and JSON-1 `[CT][SPEC]` (M), parallel
 
 **CAP-PROC** gives the driver's effects real capability names so authority stays bounded:
-`wasi.proc.spawn`, `wasi.proc.await`, `wasi.clock.monotonic` (closing the documented drift),
-`wasi.fs.list`, `wasi.fs.mkdir`, `wasi.http.get`, and `sha256`. Each needs one `EffectLabel`
-constructor, one `primEffect` clause, one `builtinEnv` signature, and one codegen case. **Each
-response-bearing operation must map to an existing `Response` arm**; none requires a new one, which
-is the check that the arm set chosen in Phase 1 was right.
+`wasi.proc.run`, `wasi.clock.monotonic` (closing the documented drift), `wasi.fs.list`,
+`wasi.fs.mkdir`, `wasi.http.get`, and `sha256`. Each needs one `EffectLabel` constructor, one
+`primEffect` clause, one `builtinEnv` signature, and one codegen case.
 
-`wasi.proc.spawn` is the first capability that can leave the sandbox by construction, so its grant
+**Rev 4 correction, settled 2026-08-02 against the measured driver.** This section previously listed
+`wasi.proc.spawn` and `wasi.proc.await` separately and asserted that "each response-bearing operation
+must map to an existing `Response` arm; none requires a new one, which is the check that the arm set
+chosen in Phase 1 was right." Both halves are corrected in
+[`effect-response-channel-proposal.md`](effect-response-channel-proposal.md) Rev 5, §"The arm set,
+and the rule for extending it":
+
+- **`wasi.proc.spawn` / `wasi.proc.await` collapse into a synchronous `wasi.proc.run`.**
+  `scripts/rfc_to_implementation.py` contains no `Popen`; every process call is a blocking
+  `subprocess.run` (`:211-215`, `:874-880`), and its concurrency is a `ThreadPoolExecutor` over
+  blocking calls, which §5.2 has already decided not to reproduce. The spawn/await pair invents a
+  process-handle type nothing in the driver holds.
+- **`wasi.fs.list` requires a new arm, `RList list[string]`, and that is not a failure signal.** The
+  response alphabet is a function of the command alphabet, so extending the command alphabet may
+  legitimately extend the arm set. The acceptance clause becomes: each response-bearing operation
+  maps to an arm **admissible under the four-part rule** in the Rev 5 section, and an operation
+  needing an arm that *fails* the rule is the Phase 1 design error the STOP is for. Six of the seven
+  operations need no arm, because the driver already routes bulk payloads through the filesystem.
+- **`wasi.http.get` does not expose its status code.** The driver never inspects it (`:419-420`);
+  non-2xx becomes `RErr`. That is a runtime obligation with no type-level enforcement and is
+  disclosed in the trust report rather than checked.
+
+`wasi.proc.run` is the first capability that can leave the sandbox by construction, so its grant
 must name the executable, mirroring `(capability read-write "/rfc-swarm-runs")` rather than granting
-spawn in general. That soundness argument belongs in the CAP-PROC design record, per the lifted-freeze
-policy: the lifted-exclusions note under `docs/compiler-team-roadmap.md` §"What's NOT on this Roadmap (and why)".
+process execution in general. `wasi.fs.list` needs its **own** grant verb, `(capability list …)`, and
+must not ride on `read`: reading a path requires already knowing it, whereas listing *reveals* paths,
+which is an enumeration authority `read` does not confer. Both soundness arguments belong in the
+CAP-PROC design record per the lifted-freeze policy: the lifted-exclusions note under
+`docs/compiler-team-roadmap.md` §"What's NOT on this Roadmap (and why)".
 
 **JSON-1** adds a **sealed `Json` builtin ADT**, `def-shell`-only: `json-parse : string ->
 Result[Json, string]`, `json-serialize : Json -> string`, and typed accessors returning `Result`.
@@ -211,8 +255,11 @@ collapse.
 - **Acceptance (both):** the build-acceptance clause (§3a). The spawning `def-shell` and the JSON
   round trip are each built and run, not only checked; a new `builtinEnv` signature with no codegen
   case is the WASI-RT defect repeated, and this phase adds seven of them.
-- **STOP (either):** a needed operation has no `Response` arm. That is a Phase 1 design error and
-  routes back to language-team rather than being patched with a new arm ad hoc.
+- **STOP (either):** a needed operation needs an arm that **fails** the four-part admissibility rule
+  (`effect-response-channel-proposal.md` Rev 5). That is a Phase 1 design error and routes back to
+  language-team. An operation needing an arm that *passes* the rule is ordinary alphabet growth and
+  does not halt the phase; `wasi.fs.list` is the settled instance, and its arm ships with it rather
+  than ahead of it.
 
 ### Phase 3 — the mechanical spine `[EXP][CT]` (M)
 
