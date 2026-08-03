@@ -5,5 +5,8 @@
 
 (def-main :mode console
   :init (pair "hello" (wasi.io.stdout "starting"))
-  :step (fn [state: string line: string]
+  ;; EFFECT-RESP: the inline lambda form of :step takes the response parameter
+  ;; too. The arity check resolves ELambda directly rather than through the
+  ;; environment, so this fixture is the lambda-shaped witness for it.
+  :step (fn [state: string line: string _r: Response]
     (pair state (wasi.io.stdout line))))

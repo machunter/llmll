@@ -123,7 +123,11 @@
           (let [(parts ["Player " next-turn "'s turn. Enter position: "])]
             (string-concat-many parts)))))
 
-(def-shell game-loop [s input: string]
+;; EFFECT-RESP: the third parameter is the response to the command this step
+;; returned last turn. Unused here (every command is a stdout, whose response is
+;; RNone), but the harness supplies one per performed command and the arity is
+;; part of the def-main contract.
+(def-shell game-loop [s input: string _r: Response]
   (let [(board  (state-board s))
         (turn   (state-turn  s))
         (clean  (string-trim input))

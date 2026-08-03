@@ -6,7 +6,7 @@ import Control.Monad (forM_, when)
 import Control.Exception (finally)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe, fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Encoding as TE
@@ -16,6 +16,9 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
+-- EFFECT-RESP: the type half of the sealed Response, paired with the value half
+-- in builtinEnv above.
+import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
@@ -47,7 +50,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -599,7 +602,13 @@ main = hspec $ do
           -- The eof line should appear at 6-space indent directly in do
           src `shouldSatisfy` T.isInfixOf "      eof <- hIsEOF stdin"
 
-    it "with :done?, loop body is at 8-space indent inside else do" $ do
+    -- EFFECT-RESP RC-4 moved the :done? guard from the TOP of the loop to
+    -- AFTER the step call, so it is evaluated on s' (a state that has received
+    -- a response) rather than on s. The guard is therefore no longer the outer
+    -- nesting level, and the eof check sits at 6 spaces whether or not :done?
+    -- is present. This test kept its original purpose: the loop body must be
+    -- indented for the nesting it actually has.
+    it "with :done?, the eof check is at 6-space indent and the guard is below it" $ do
       -- Build a minimal console def-main WITH :done?
       let stmt = SDefMain
             { defMainMode   = ModeConsole
@@ -612,10 +621,12 @@ main = hspec $ do
       case cgMainHs result of
         Nothing  -> expectationFailure "expected Main.hs to be generated"
         Just src -> do
-          -- The eof line must be at 8-space indent (inside the else do branch)
-          src `shouldSatisfy` T.isInfixOf "        eof <- hIsEOF stdin"
-          -- The broken pattern (6-space after else do) must NOT be present
-          src `shouldSatisfy` (not . T.isInfixOf "else do\n      eof")
+          src `shouldSatisfy` T.isInfixOf "      eof <- hIsEOF stdin"
+          -- The guard is inside the eof branch and reads s', not s (RC-4).
+          src `shouldSatisfy` T.isInfixOf "        if is_done s' then settle"
+          src `shouldSatisfy` (not . T.isInfixOf "if is_done s then")
+          -- The continue branch is indented one level inside `else do`.
+          src `shouldSatisfy` T.isInfixOf "          (output, resp) <- performStep cmd"
 
     it "with :done? and :on-done, on-done is called in the done branch" $ do
       let stmt = SDefMain
@@ -629,8 +640,12 @@ main = hspec $ do
       case cgMainHs result of
         Nothing  -> expectationFailure "expected Main.hs to be generated"
         Just src -> do
-          src `shouldSatisfy` T.isInfixOf "then finish s else do"
-          src `shouldSatisfy` T.isInfixOf "        eof <- hIsEOF stdin"
+          -- RC-4: the done branch is the settle step. on-done still runs there
+          -- and its command is still performed; what is dropped is the
+          -- terminating STEP's command.
+          src `shouldSatisfy` T.isInfixOf "then settle s' seqN line logHandle else do"
+          src `shouldSatisfy` T.isInfixOf "      finish s'"
+          src `shouldSatisfy` T.isInfixOf "      eof <- hIsEOF stdin"
 
   -- -----------------------------------------------------------------------
   -- ParserJSON regression: def-main done? / on-done key names (tictactoe bug)
@@ -5254,20 +5269,24 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
   -- ---------------------------------------------------------------
 
   describe "CodegenHs :done? loop branches" $ do
-    it "Generated Main.hs with :done? has loop s' logHandle seqRef" $ do
-      -- Use a console program with :done? that stops when input is "quit"
-      let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
+    it "Generated Main.hs with :done? threads logHandle, seqRef and the response" $ do
+      -- Use a console program with :done? that stops when input is "quit".
+      -- EFFECT-RESP: the step carries the response parameter, and the recursive
+      -- call carries the response the performed command produced.
+      let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string _r: Response] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testdone" stmts
           case cgMainHs result of
             Nothing -> expectationFailure "No Main.hs generated"
             Just mainHs -> do
-              -- The :done? branch must contain "loop s' logHandle seqRef"
-              -- (professor flag #2: all loop call sites pass logHandle + seqRef)
-              T.isInfixOf "loop s' logHandle seqRef" mainHs `shouldBe` True
-              -- And the done guard itself
-              T.isInfixOf "then return ()" mainHs `shouldBe` True
+              -- Professor flag #2 still holds: every loop call site passes
+              -- logHandle + seqRef. RC-1 adds the response between them.
+              T.isInfixOf "loop s' resp logHandle seqRef" mainHs `shouldBe` True
+              -- The done branch is the settle step, which is where the
+              -- terminating turn's `return ()` now lives.
+              T.isInfixOf "then settle" mainHs `shouldBe` True
+              T.isInfixOf "return ()" mainHs `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- ---------------------------------------------------------------
@@ -6217,14 +6236,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing [] [])
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -6236,7 +6259,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -6249,7 +6274,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -6262,7 +6289,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -6274,7 +6303,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
+          -- empty list here is the 4th positional field.
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -14213,14 +14244,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                  ". A program calling it will pass `llmll check` and fail at \
                  \GHC. Add the body next to the others in runtimePreamble."
 
-    -- Risk 3 of the plan: readFile is lazy, so `readFile path >> return ()`
-    -- performs no read at all. It compiles, runs, raises nothing on an
-    -- unreadable path, and passes every string-shape assertion. Verified at
-    -- run time during implementation (a read of a missing path raises); pinned
-    -- here because the failure mode is invisible in the emitted text.
-    it "wasi_fs_read forces the read with evaluate, so it is not a lazy no-op" $
-      T.isInfixOf "wasi_fs_read path = readFile path >>= evaluate . length" preambleText
-        `shouldBe` True
+    -- Risk 3 of the WASI-RT plan: readFile is lazy, so a body that does not
+    -- force the string performs no read at all. It compiles, runs, raises
+    -- nothing on an unreadable path, and passes every string-shape assertion.
+    --
+    -- EFFECT-RESP raised the stakes rather than lowering them. The body now
+    -- publishes the contents into the response slot, so an unforced thunk would
+    -- escape the `try` and be forced later by the PROGRAM, where the IO
+    -- exception becomes a crash instead of the RErr the channel promises. The
+    -- `evaluate` must therefore sit inside llmll_publish_io's action.
+    it "wasi_fs_read forces the read with evaluate, so it is not a lazy no-op" $ do
+      T.isInfixOf "wasi_fs_read path = llmll_publish_io" preambleText `shouldBe` True
+      T.isInfixOf "evaluate (length contents)" preambleText `shouldBe` True
 
     -- removeFile on a missing path throws, and an uncaught exception inside a
     -- Command breaks the no-crash property LLMLL.md:1747 relies on.
@@ -14232,6 +14267,340 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "wasi.http.post: no runtime in this backend" preambleText `shouldBe` True
       -- `error` would violate the same no-crash property as delete above.
       T.isInfixOf "wasi_http_post url _body = error" preambleText `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- EFFECT-RESP (RC-1..RC-4): the response channel.
+  --
+  -- `wasi.fs.read : string -> Command` and Command is opaque, so before this
+  -- commit no program could read a file and branch on the contents. The fix is
+  -- a response channel in the def-main harness: every performed command yields
+  -- one Response, delivered as the next :step call's third argument.
+  --
+  -- The arity change is breaking across every console program and had NO
+  -- check-time diagnostic: checkStatement (SDefMain) inferred the step
+  -- expression and discarded the result, so a one-parameter and a
+  -- three-parameter step type-checked identically. The first block below is
+  -- that diagnostic, and its first case is the positive witness: the error must
+  -- fire on an UNMIGRATED program, or the migration had no diagnostic at all.
+  -- -----------------------------------------------------------------------
+
+  describe "EFFECT-RESP: def-main :step arity (the migration's only diagnostic)" $ do
+
+    let mainSrc params = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell drive [" <> params <> "]"
+          , "  (pair s (wasi.io.stdout i)))"
+          , "(def-main :mode console :step drive)"
+          ]
+        errsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+        kindsOf src = [k | d <- errsOf src, Just k <- [diagKind d]]
+
+    -- POSITIVE WITNESS. This is the shape every console program in the corpus
+    -- had before the migration. If this case does not fire, the check is dead
+    -- code and twelve programs would have gone straight to a GHC arity error.
+    it "an UNMIGRATED two-parameter step is rejected" $
+      kindsOf (mainSrc "s: string i: string") `shouldContain` ["def-main-step-arity"]
+
+    it "a one-parameter step is rejected" $
+      kindsOf (mainSrc "s: string") `shouldContain` ["def-main-step-arity"]
+
+    it "the migrated three-parameter form is accepted" $
+      kindsOf (mainSrc "s: string i: string r: Response")
+        `shouldNotContain` ["def-main-step-arity"]
+
+    -- Arity alone is not the contract: a third parameter of the wrong type
+    -- would take the Response the harness passes and read it as something else.
+    it "three parameters whose third is not a Response are rejected" $
+      kindsOf (mainSrc "s: string i: string r: int") `shouldContain` ["def-main-step-arity"]
+
+    it "the error names the expected signature" $ do
+      let msgs = [diagMessage d | d <- errsOf (mainSrc "s: string i: string")]
+      any (T.isInfixOf "response: Response") msgs `shouldBe` True
+
+    -- The step may be an inline lambda rather than a named function; the check
+    -- resolves the lambda's own parameter list. compiler/test/fixtures/
+    -- pair_type_test is the corpus witness for this form.
+    it "the ELambda step form is checked too" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-main :mode console"
+            , "  :step (fn [s: string i: string] (pair s (wasi.io.stdout i))))"
+            ]
+      kindsOf src `shouldContain` ["def-main-step-arity"]
+
+    it "an ELambda step carrying the Response parameter is accepted" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-main :mode console"
+            , "  :step (fn [s: string i: string _r: Response] (pair s (wasi.io.stdout i))))"
+            ]
+      kindsOf src `shouldNotContain` ["def-main-step-arity"]
+
+    -- cli and http harnesses perform no command, so there is no response to
+    -- deliver and no arity to change. Scoping the rule to console is what keeps
+    -- this from being a change to modes the channel does not reach.
+    it "cli mode is NOT subject to the console arity rule" $ do
+      let src = T.unlines
+            [ "(def-shell run [args: list[string]] -> string \"ok\")"
+            , "(def-main :mode cli :step run)"
+            ]
+      kindsOf src `shouldNotContain` ["def-main-step-arity"]
+
+  describe "EFFECT-RESP: Response is a sealed compiler-supplied sum" $ do
+
+    let srcOf body = T.unlines
+          [ "(def classify [r: Response] -> int"
+          , "  (match r"
+          , body
+          , "))"
+          ]
+        errsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+        msgsOf src = [diagMessage d | d <- errsOf src]
+        allArms = T.unlines
+          [ "    ((RNone) 0)"
+          , "    ((RText s) (string-length s))"
+          , "    ((RCode n) n)"
+          , "    ((RErr e) 0)"
+          ]
+
+    -- Exhaustiveness is what bounds the unchecked command-to-response pairing:
+    -- a program that receives an arm it did not expect takes that arm instead
+    -- of crashing. That only holds if the missing arm is a check-time error,
+    -- which needs Response's TSumType body in the alias map. Without the alias
+    -- entry checkExhaustive abstains on an unresolved TCustom and this passes.
+    it "a match missing an arm is rejected as non-exhaustive" $ do
+      let missing = T.unlines
+            [ "    ((RNone) 0)"
+            , "    ((RText s) (string-length s))"
+            , "    ((RCode n) n)"
+            ]
+      any (T.isInfixOf "RErr") (msgsOf (srcOf missing)) `shouldBe` True
+
+    it "a match on all four arms is accepted" $
+      errsOf (srcOf allArms) `shouldBe` []
+
+    it "a wildcard arm is accepted" $
+      errsOf (srcOf "    ((RNone) 0)\n    (_ 1)") `shouldBe` []
+
+    it "RNone is usable bare as a value and the payload constructors as functions" $ do
+      let src = T.unlines
+            [ "(def none-of [] -> Response RNone)"
+            , "(def wrap [s: string] -> Response (RText s))"
+            , "(def code [n: int] -> Response (RCode n))"
+            , "(def oops [s: string] -> Response (RErr s))"
+            ]
+      errsOf src `shouldBe` []
+
+    -- A module's own STypeDefs win the alias-map union, so without this guard
+    -- a program could replace the harness contract's type with its own and the
+    -- mismatch would surface at GHC rather than at check.
+    it "redefining Response is rejected" $ do
+      let src = "(type Response (| Yes) (| No))"
+      [k | d <- errsOf src, Just k <- [diagKind d]]
+        `shouldContain` ["sealed-type-redefinition"]
+
+    it "the value and type halves declare the same four constructors" $ do
+      let valueHalf = sort [ n | n <- Map.keys builtinEnv
+                               , n `elem` ["RNone", "RText", "RCode", "RErr"] ]
+          typeHalf  = sort $ case Map.lookup "Response" builtinAliases of
+                        Just (TSumType ctors) -> map fst ctors
+                        _                     -> []
+      typeHalf `shouldBe` valueHalf
+
+  describe "EFFECT-RESP: the console harness (RC-1..RC-4)" $ do
+
+    let harnessOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> fromMaybe "" (cgMainHs (generateHaskell "h" stmts))
+        withInit = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell start [] -> (int, Command) (pair 0 (wasi.io.stdout \"\")))"
+          , "(def-shell drive [s: int i: string r: Response] -> (int, Command)"
+          , "  (pair (+ s 1) (wasi.io.stdout i)))"
+          , "(def-shell fin [s: int] -> bool (>= s 2))"
+          , "(def-main :mode console :init (start) :step drive :done? fin)"
+          ]
+        noInit = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell drive [s: string i: string r: Response] -> (string, Command)"
+          , "  (pair s (wasi.io.stdout i)))"
+          , "(def-main :mode console :step drive)"
+          ]
+
+    -- RC-1: the step takes THREE arguments, and the third is the response the
+    -- previous command produced, not the stdin line. Keeping stdin and the
+    -- response as separate parameters is what stops :mode console's input from
+    -- being indistinguishable from a wasi.fs.read payload.
+    it "RC-1: the step is called with state, line and response" $
+      T.isInfixOf "let (s', cmd) = drive s line r" (harnessOf withInit) `shouldBe` True
+
+    it "RC-1: the response comes from the slot, not from the stdout capture" $ do
+      let h = harnessOf withInit
+      T.isInfixOf "(output, resp) <- performStep cmd" h `shouldBe` True
+      T.isInfixOf "loop s' resp logHandle seqRef" h `shouldBe` True
+
+    -- RC-3: :init's command supplies the FIRST response, so there is no
+    -- special initial case.
+    it "RC-3: :init's command is performed and yields the first response" $
+      T.isInfixOf "r0 <- llmll_perform initCmd" (harnessOf withInit) `shouldBe` True
+
+    it "RC-3: with no :init the first response is RNone" $ do
+      let h = harnessOf noInit
+      T.isInfixOf "let r0 = RNone" h `shouldBe` True
+      T.isInfixOf "llmll_perform initCmd" h `shouldBe` False
+
+    -- RC-4: done? is evaluated on the state a step PRODUCED (s'), not on the
+    -- state it consumed (s). Before this commit it was checked at the top of
+    -- the loop on s, which is a state that had received no response.
+    it "RC-4: done? is evaluated on s', not on s" $ do
+      let h = harnessOf withInit
+      T.isInfixOf "if fin s' then settle" h `shouldBe` True
+      T.isInfixOf "if fin s then" h `shouldBe` False
+
+    -- RC-4: the terminating step's command is constructed and NOT performed.
+    -- The settle branch must not reach performStep.
+    it "RC-4: the terminating step's command is not performed" $ do
+      let h = harnessOf withInit
+          settleBlock = T.unlines
+            [ l | l <- T.lines h, T.isInfixOf "settle " l || T.isInfixOf "eventJsonL seqN \"stdin\" line \"stdout\" \"\"" l ]
+      T.isInfixOf "performStep" settleBlock `shouldBe` False
+
+    -- The terminating turn still CONSUMES a stdin line. Not logging it would
+    -- leave `llmll replay` driving one fewer input than the recorded run took,
+    -- which is a divergence the harness manufactured rather than one the
+    -- program produced.
+    it "RC-4: the terminating turn is still logged, with an empty output" $
+      T.isInfixOf "eventJsonL seqN \"stdin\" line \"stdout\" \"\"" (harnessOf withInit)
+        `shouldBe` True
+
+    it "the old top-of-loop _done placeholder is gone" $
+      T.isInfixOf "let _done = False" (harnessOf noInit) `shouldBe` False
+
+  describe "EFFECT-RESP: the response slot preamble" $ do
+
+    let preambleText = T.unlines runtimePreamble
+
+    it "the Response datatype is declared in the preamble" $ do
+      T.isInfixOf "data Response" preambleText `shouldBe` True
+      forM_ ["RNone", "RText String", "RCode Integer", "RErr String"] $ \arm ->
+        T.isInfixOf arm preambleText `shouldBe` True
+
+    it "the slot is a NOINLINE top-level IORef" $ do
+      T.isInfixOf "{-# NOINLINE llmll_response_slot #-}" preambleText `shouldBe` True
+      T.isInfixOf "llmll_response_slot :: IORef Response" preambleText `shouldBe` True
+
+    -- Clearing before performing is what keeps a stale response from being
+    -- re-delivered if a future Command performs no builtin.
+    it "llmll_perform clears the slot before performing" $
+      T.isInfixOf "llmll_reset_response" preambleText `shouldBe` True
+
+    it "wasi_fs_read publishes the contents as RText" $
+      T.isInfixOf "return (RText contents)" preambleText `shouldBe` True
+
+    -- An effect failure must arrive as a VALUE. Without this a program that
+    -- reads a missing file crashes, which is the property LLMLL.md:1747 keeps.
+    it "an IO failure is published as RErr rather than raised" $
+      T.isInfixOf "RErr (show (e :: IOException))" preambleText `shouldBe` True
+
+    -- RNone would read as "the post succeeded and returned nothing", which is
+    -- the one thing a body with no network runtime cannot claim.
+    it "wasi_http_post publishes RErr, not RNone" $
+      T.isInfixOf "llmll_publish (RErr (\"wasi.http.post: no runtime" preambleText
+        `shouldBe` True
+
+    -- RC-2 (seq-commands is discard-left) is delivered by seq_commands
+    -- UNCHANGED: `a >> b` leaves b's slot write last. Pinned so that a later
+    -- reader does not "implement" RC-2 and break it. Confirmed at run time
+    -- during implementation: (seq-commands (fs.read p) (io.stdout s)) delivers
+    -- stdout's RNone, not the read's RText.
+    it "RC-2 comes from seq_commands unchanged" $
+      T.isInfixOf "seq_commands a b = a >> b" preambleText `shouldBe` True
+
+  describe "EFFECT-RESP: Response survives the JSON-AST round trip" $ do
+
+    -- A Response-typed parameter adds no node shape: it rides the existing
+    -- `named` type encoding. Pinned anyway because AstEmit and ParserJSON have
+    -- no derived instances, so the two directions are related by nothing but a
+    -- test, and the twelve migrated documents all carry this annotation.
+    let src = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell drive [s: string i: string r: Response] -> (string, Command)"
+          , "  (pair s (wasi.io.stdout i)))"
+          ]
+
+    it "a Response parameter emits as a named type and parses back" $ do
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let json = emitJsonAST stmts
+          T.isInfixOf "\"Response\"" (T.pack (BLC.unpack json)) `shouldBe` True
+          case parseJSONAST GrammarCoreInversion "<test>" json of
+            Left err     -> expectationFailure ("re-parse failed: " <> show err)
+            Right stmts' ->
+              [ ty | SDefShell{defShellParams = ps} <- stmts', (_, ty) <- ps ]
+                `shouldBe`
+              [ ty | SDefShell{defShellParams = ps} <- stmts,  (_, ty) <- ps ]
+
+  describe "EFFECT-RESP: Response reaches the verifier's alias map" $ do
+
+    -- buildAliasMap feeds every alias-resolution consumer, including
+    -- FixpointEmit's sum-sort path, so Response resolves there the same way a
+    -- module's own STypeDef would.
+    --
+    -- What this does NOT buy, measured rather than assumed: a pure `def`
+    -- matching on a Response still falls back from body-faithful VC. So does an
+    -- identically-shaped user-declared sum, checked as a control. Matching on a
+    -- payload-carrying sum is a pre-existing Σ_auto boundary and Response sits
+    -- exactly where a user type sits. The seeding's real consequence is
+    -- EXHAUSTIVENESS, which is what bounds the pairing residue.
+    it "buildAliasMap resolves Response even with no STypeDef in the module" $
+      Map.lookup "Response" (buildAliasMap []) `shouldSatisfy` \m -> case m of
+        Just (TSumType ctors) -> length ctors == 4
+        _                     -> False
+
+    it "a module's own aliases still win the union" $ do
+      let local = [STypeDef "MyInt" TInt]
+      Map.lookup "MyInt" (buildAliasMap local) `shouldBe` Just TInt
+
+  describe "EFFECT-RESP: the harness residue is disclosed in the trust report" $ do
+
+    -- Nothing types the pairing between the command a step returns and the
+    -- response the harness supplies. That residue is a trust-channel assumption
+    -- in the TRUST-AXIOM category and must be reported rather than left
+    -- implicit. There is no per-function suppression to hang it from.
+    it "a console program's report carries the harness assumptions" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell drive [s: string i: string r: Response] -> (string, Command)"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let as = harnessAssumptions stmts
+          length as `shouldBe` 2
+          any (T.isInfixOf "not typed against the command") as `shouldBe` True
+          any (T.isInfixOf "RC-4") as `shouldBe` True
+
+    it "a library module carries none" $
+      harnessAssumptions [SDefLogic "f" [] Nothing
+                            (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+                            (ELit (LitInt 1))]
+        `shouldBe` []
+
+    -- The trust report is a versioned consumer-visible document, distinct from
+    -- the JSON-AST schemaVersion. harness_assumptions is a purely ADDITIVE
+    -- top-level key, which by the precedent already recorded for
+    -- joint_pbt_witnesses / overflow_tainted_fns / over_annotation does not
+    -- move the version. Pinned so the next additive field does not move it by
+    -- accident either.
+    it "the additive key does not bump trust_report_version" $
+      trustReportEmitVersion `shouldBe` "1.6.0"
 
   describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
 

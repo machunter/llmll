@@ -20,7 +20,9 @@
         (msg    (string-concat banner board))]
     (pair world0 (wasi.io.stdout msg))))
 
-(def-shell game-step [world _input: string]
+;; EFFECT-RESP: third parameter is the previous command's response (RNone here,
+;; every command being a stdout).
+(def-shell game-step [world _input: string _r: Response]
   (let [(next-world (evolve world))
         (board      (render-world next-world))
         (sep        "----------------------------------------\n")

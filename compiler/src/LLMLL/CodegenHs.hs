@@ -165,7 +165,10 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   , "import System.IO (hPutStr, hPutStrLn, stderr)"
   , "import Test.QuickCheck (quickCheck, property)"
   , "import qualified Control.Concurrent.Async as Async"
-  , "import Control.Exception (try, evaluate, SomeException)"
+  , "import Control.Exception (try, evaluate, SomeException, IOException)"
+  -- EFFECT-RESP: the response slot is an IORef built once at load time with
+  -- unsafePerformIO (already imported below for regex-match).
+  , "import Data.IORef (IORef, newIORef, readIORef, writeIORef)"
   -- WASI-RT: wasi_fs_delete's totality guard needs doesFileExist/removeFile,
   -- and `when` to make the guard a no-op rather than an exception on a
   -- missing path. `evaluate` (above) is what keeps wasi_fs_read from being
@@ -398,16 +401,80 @@ runtimePreamble =
   , "unwrap_or (Right v) _ = v"
   , "unwrap_or _         d = d"
   , ""
+  -- EFFECT-RESP (RC-1): the response channel.
+  --
+  -- Command is `IO ()` and carries no result, so `perform cmd` cannot return a
+  -- payload through the type. The response travels in a slot the command
+  -- writes and the harness reads.
+  --
+  -- The rejected alternative was to source the payload from the harness's
+  -- existing stdout capture (captureStdout, emitEventLogPreamble below). That
+  -- makes wasi.io.stdout and wasi.fs.read INDISTINGUISHABLE in the channel: a
+  -- program receiving `RText s` could not tell whether s came from a file or
+  -- from its own print, and the program's console output would be swallowed
+  -- into the response value. The response must be produced by performing the
+  -- command while knowing WHICH command was performed.
+  --
+  -- RC-2 (seq-commands is discard-left) needs no code: seq_commands a b = a >> b
+  -- already leaves b's slot write as the last one, so the composite yields b's
+  -- response and drops a's.
+  --
+  -- SINGLE-THREADED. One global slot is correct because the console harness is
+  -- a straight-line loop (emitMainBody below) that performs one command at a
+  -- time. It does not survive concurrency, and :mode http would need a
+  -- per-request slot. That mode does not run today, so there is no witness;
+  -- whoever wires warp needs to read this paragraph first.
+  , "data Response"
+  , "  = RNone"
+  , "  | RText String"
+  , "  | RCode Integer"
+  , "  | RErr String"
+  , "  deriving (Eq, Show)"
+  , ""
+  , "{-# NOINLINE llmll_response_slot #-}"
+  , "llmll_response_slot :: IORef Response"
+  , "llmll_response_slot = unsafePerformIO (newIORef RNone)"
+  , ""
+  -- Clears the slot BEFORE performing. Every Command bottoms out in a wasi.*
+  -- builtin and every builtin below writes the slot, so no stale value can be
+  -- re-delivered today; the clear is what keeps that from depending on the
+  -- builtin set staying complete.
+  , "llmll_reset_response :: IO ()"
+  , "llmll_reset_response = writeIORef llmll_response_slot RNone"
+  , ""
+  , "llmll_perform :: IO () -> IO Response"
+  , "llmll_perform cmd = do"
+  , "  llmll_reset_response"
+  , "  cmd"
+  , "  readIORef llmll_response_slot"
+  , ""
+  -- An effect failure must arrive as a VALUE, not an exception: that is what
+  -- preserves "logic functions cannot crash from IO" (LLMLL.md:1747) once a
+  -- program can observe its own effects.
+  , "llmll_publish :: Response -> IO ()"
+  , "llmll_publish = writeIORef llmll_response_slot"
+  , ""
+  , "llmll_publish_io :: IO Response -> IO ()"
+  , "llmll_publish_io act = do"
+  , "  r <- try act"
+  , "  llmll_publish (either (\\e -> RErr (show (e :: IOException))) id r)"
+  , ""
   , "-- §13.9 WASI command constructors (IO actions for v0.1.2)"
+  -- stdout/stderr publish RNone and do NOT catch. The console harness's own
+  -- output channel failing is harness breakage, and turning it into a program-
+  -- visible RErr would let a program read a broken harness as a failed effect
+  -- of its own. Deliberate asymmetry with the fs/http bodies below.
   , "wasi_io_stdout :: String -> IO ()"
-  , "wasi_io_stdout = putStr"
+  , "wasi_io_stdout s = putStr s >> llmll_publish RNone"
   , ""
   , "wasi_io_stderr :: String -> IO ()"
-  , "wasi_io_stderr = hPutStr stderr"
+  , "wasi_io_stderr s = hPutStr stderr s >> llmll_publish RNone"
   , ""
   , "{-# SPECIALIZE wasi_http_response :: Integer -> String -> IO () #-}"
   , "wasi_http_response :: Integral i => i -> String -> IO ()"
-  , "wasi_http_response code body = putStrLn (show (fromIntegral code :: Integer) ++ \" \" ++ body)"
+  , "wasi_http_response code body = do"
+  , "  putStrLn (show (fromIntegral code :: Integer) ++ \" \" ++ body)"
+  , "  llmll_publish (RCode (fromIntegral code))"
   , ""
   -- WASI-RT: builtinEnv (TypeCheck.hs:154-160) declares seven wasi.* names;
   -- only the three above had definitions, so a program calling any of the four
@@ -416,7 +483,8 @@ runtimePreamble =
   -- block "codegen: wasi preamble completeness" iterates the wasi. prefix of
   -- builtinEnv and fails if any declared name has no definition here.
   , "wasi_fs_write :: String -> String -> IO ()"
-  , "wasi_fs_write path contents = writeFile path contents"
+  , "wasi_fs_write path contents ="
+  , "  llmll_publish_io (writeFile path contents >> return RNone)"
   , ""
   -- Idempotent by design. removeFile on a missing path throws, and an uncaught
   -- exception inside a Command breaks the no-crash property LLMLL.md:1747
@@ -424,22 +492,28 @@ runtimePreamble =
   -- console harness is a single-threaded loop (see emitMainBody below), so no
   -- witness exists in this backend. Recorded, not paid for.
   , "wasi_fs_delete :: String -> IO ()"
-  , "wasi_fs_delete path = do"
+  , "wasi_fs_delete path = llmll_publish_io $ do"
   , "  exists <- doesFileExist path"
   , "  when exists (removeFile path)"
+  , "  return RNone"
   , ""
-  -- WASI-RT stage: performs the read so IO and permission errors surface, then
-  -- discards the result, because Command is IO () and there is no channel to
-  -- return it on yet. EFFECT-RESP (RC-1) replaces this body with one that
-  -- publishes the contents to the harness response slot.
+  -- EFFECT-RESP (RC-1): this is the command the response channel exists for.
+  -- WASI-RT's stopgap body performed the read and discarded the contents,
+  -- because Command is IO () and there was no channel to return them on. Now
+  -- there is: the contents are published as RText and an IO failure as RErr.
   --
-  -- `evaluate . length` is not decoration. readFile is lazy, so
-  -- `readFile path >> return ()` performs no read at all: it would compile,
-  -- run, raise nothing on an unreadable path, and pass every string-shape
-  -- test. This is the one line in the block where being subtly wrong yields a
-  -- definition that does nothing. Spec.hs pins `evaluate` for that reason.
+  -- `evaluate` is not decoration. readFile is lazy, so a body that does not
+  -- force the string performs no read at all: it compiles, runs, raises nothing
+  -- on an unreadable path, and passes every string-shape test. It matters more
+  -- here than it did under WASI-RT, because the unforced thunk would now escape
+  -- into the slot and be forced later, OUTSIDE the try, where the exception
+  -- becomes a crash instead of an RErr. `evaluate (length s)` inside the
+  -- try is what keeps the failure a value. Spec.hs pins it.
   , "wasi_fs_read :: String -> IO ()"
-  , "wasi_fs_read path = readFile path >>= evaluate . length >> return ()"
+  , "wasi_fs_read path = llmll_publish_io $ do"
+  , "  contents <- readFile path"
+  , "  _ <- evaluate (length contents)"
+  , "  return (RText contents)"
   , ""
   -- No network runtime in this backend. A real body needs http-client plus TLS
   -- in every generated project's dependency set, which is a material expansion
@@ -447,10 +521,17 @@ runtimePreamble =
   -- no-crash property as above, and a silent no-op would let a program believe
   -- it posted. Diagnosed twice instead: a cgWarnings entry at codegen and this
   -- line at run time.
+  -- Publishes RErr rather than RNone: RNone would read as "the post succeeded
+  -- and returned nothing", which is the one thing this body cannot claim.
   , "wasi_http_post :: String -> String -> IO ()"
-  , "wasi_http_post url _body ="
+  , "wasi_http_post url _body = do"
   , "  hPutStrLn stderr (\"wasi.http.post: no runtime in this backend (url=\" ++ url ++ \")\")"
+  , "  llmll_publish (RErr (\"wasi.http.post: no runtime in this backend (url=\" ++ url ++ \")\"))"
   , ""
+  -- EFFECT-RESP RC-2 (seq-commands is discard-left) is delivered by this
+  -- definition UNCHANGED: `a >> b` leaves b's slot write last, so the composite
+  -- yields b's response and drops a's. Do not "implement" RC-2 here. A test
+  -- pins this line for that reason.
   , "seq_commands :: IO () -> IO () -> IO ()"
   , "seq_commands a b = a >> b"
   , ""
@@ -941,6 +1022,18 @@ emitEventLogPreamble =
   -- not what gets logged/compared.
   , "  putStrLn output"
   , "  pure output"
+  , ""
+  -- EFFECT-RESP (RC-1): perform one command and return BOTH channels, the
+  -- event log's stdout capture and the program's response. They are separate on
+  -- purpose. Sourcing the response from `output` would make wasi.io.stdout and
+  -- wasi.fs.read indistinguishable in the channel and would swallow the
+  -- program's own console output into the response value.
+  , "performStep :: IO () -> IO (String, Response)"
+  , "performStep cmd = do"
+  , "  llmll_reset_response"
+  , "  output <- captureStdout cmd"
+  , "  resp <- readIORef llmll_response_slot"
+  , "  pure (output, resp)"
   ]
 
 -- ---------------------------------------------------------------------------
@@ -962,6 +1055,32 @@ emitMainHs modName stmts =
       , ""
       ] ++ emitEventLogPreamble ++ [""] ++ emitMainBody modName dm
 
+-- | EFFECT-RESP: the console harness is a Mealy loop over the response channel.
+--
+--   r0        = perform initCmd        -- RNone when :init has no command (RC-3)
+--   loop s r  = let (s', cmd) = step s line r
+--               in if done? s' then on-done s'   -- cmd is NOT performed (RC-4)
+--                             else loop s' (perform cmd)
+--
+-- Three things this shape gets right that the pseudocode leaves implicit.
+--
+-- The stdin channel and the response channel are SEPARATE parameters. The step
+-- signature is (S, string, Response) -> (S, Command). Collapsing stdin into
+-- RText would make console input indistinguishable from a wasi.fs.read payload
+-- and would change every existing program's meaning, not just its arity.
+--
+-- done? moved from the top of the loop to AFTER the step call, and is applied
+-- to s' rather than s. That is RC-4: done? is evaluated only on a state that has
+-- received a response. The consequence is visible and is the design's, not an
+-- accident: the terminating step's command is dropped, so a program whose final
+-- effect matters must issue it from a non-terminating step and terminate on the
+-- response. Programs with :on-done are unaffected there, since on-done still
+-- runs and its command is still performed.
+--
+-- The terminating turn still CONSUMES a stdin line, so it is still logged, with
+-- an empty output value. Skipping the entry would leave `llmll replay` driving
+-- one fewer input than the recorded run consumed, which is a divergence the
+-- harness manufactured rather than one the program produced.
 emitMainBody :: Text -> Statement -> [Text]
 emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone} =
   [ "main :: IO ()"
@@ -971,50 +1090,59 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
   , "  logHandle <- openFile \"" <> modName <> ".event-log.jsonl\" WriteMode"
   , "  hPutStrLn logHandle (headerJsonL \"" <> modName <> "\")"
   , "  seqRef <- newIORef (0 :: Int)"
-  , initBlock
-  , "  loop state0 logHandle seqRef"
+  ] ++ initBlock ++
+  [ "  loop state0 r0 logHandle seqRef"
   , "  hClose logHandle"
   , "  where"
-  , "    loop s logHandle seqRef = do"
-  ] ++ doneLines
+  , "    loop s r logHandle seqRef = do"
+  , "      eof <- hIsEOF stdin"
+  , "      if eof then return () else do"
+  , "        line <- getLine"
+  , "        seqN <- readIORef seqRef"
+  , "        let (s', cmd) = " <> stepCall step <> " s line r"
+  ] ++ doneLines ++ settleDef
   where
-    -- init returns (state, IO ()) pair — destructure and execute the command
+    -- RC-3: :init's command supplies the FIRST response, so there is no special
+    -- initial case. It is performed through llmll_perform (not captureStdout),
+    -- which keeps init's own output going straight to the real stdout as it did
+    -- before, and it is not logged, as it was not before.
     initBlock = case mInit of
-      Nothing -> "  let state0 = ()"
-      Just e  -> "  let (state0, initCmd) = " <> emitExpr e <> "\n  initCmd"
+      Nothing -> [ "  let state0 = ()"
+                 , "  let r0 = RNone" ]
+      Just e  -> [ "  let (state0, initCmd) = " <> emitExpr e
+                 , "  r0 <- llmll_perform initCmd" ]
     stepCall (EVar n) = toHsIdent n
-    stepCall e        = "(\\ s l -> " <> emitExpr e <> " s l)"
-    -- The inner loop body (eof check + step call + event logging).
-    -- 'ind' is the indentation prefix:
-    --   6 spaces ("      ") when there is no :done? guard (body sits directly in `do`)
-    --   8 spaces ("        ") when the body must sit inside an `else do` branch
-    loopBody ind =
-      [ ind <> "eof <- hIsEOF stdin"
-      , ind <> "if eof then return () else do"
-      , ind <> "  line <- getLine"
-      , ind <> "  seqN <- readIORef seqRef"
-      , ind <> "  let (s', cmd) = " <> stepCall step <> " s line"
-      , ind <> "  output <- captureStdout cmd"
-      , ind <> "  hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" output)"
-      , ind <> "  hFlush logHandle"
-      , ind <> "  modifyIORef' seqRef (+1)"
-      , ind <> "  loop s' logHandle seqRef"
+    stepCall e        = "(\\ s l r -> " <> emitExpr e <> " s l r)"
+    -- The non-terminating branch: perform, capture, log, recurse on the
+    -- response. performStep clears the slot before performing and reads it
+    -- after, so the delivered response is this command's and not a stale one.
+    continueLines ind =
+      [ ind <> "(output, resp) <- performStep cmd"
+      , ind <> "hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" output)"
+      , ind <> "hFlush logHandle"
+      , ind <> "modifyIORef' seqRef (+1)"
+      , ind <> "loop s' resp logHandle seqRef"
       ]
-    -- Check done? at the TOP of the loop, before blocking on stdin.
-    -- When :done? is absent the body is at 6-space indent (same level as `do`).
-    -- When :done? is present the guard ends with `else do` and the body must be
-    -- indented 2 extra spaces (8 total) to sit inside that branch.
-    -- Professor flag #2: ALL loop call sites must pass logHandle + seqRef.
-    doneLines = case (mDone, mOnDone) of
-      (Nothing, _) ->
-          "      let _done = False"   -- placeholder; never triggers
-        : loopBody "      "
-      (Just e, Nothing) ->
-          ("      if " <> emitExpr e <> " s then return () else do")
-        : loopBody "        "
-      (Just e, Just od) ->
-          ("      if " <> emitExpr e <> " s then " <> emitExpr od <> " s else do")
-        : loopBody "        "
+    doneLines = case mDone of
+      Nothing -> continueLines "        "
+      Just e  ->
+          ("        if " <> emitExpr e <> " s' then settle s' seqN line logHandle else do")
+        : continueLines "          "
+    -- RC-4's settle step. `cmd` is deliberately absent from this branch: it is
+    -- constructed and not performed. It stays a plain (not _-prefixed) binding
+    -- because the else branch below uses it, so there is no unused-binding
+    -- warning to suppress.
+    settleDef = case mDone of
+      Nothing -> []
+      Just _  ->
+        [ "    settle " <> settleParam <> " seqN line logHandle = do"
+        , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" \"\")"
+        , "      hFlush logHandle"
+        , "      " <> maybe "return ()" (\od -> emitExpr od <> " s'") mOnDone
+        ]
+    -- Underscore-prefixed when :on-done is absent, so -Wunused-matches stays
+    -- quiet on generated code.
+    settleParam = maybe "_s'" (const "s'") mOnDone
 
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"

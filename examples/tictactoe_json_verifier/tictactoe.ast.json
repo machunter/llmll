@@ -1525,6 +1525,13 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "_r",
+          "param_type": {
+            "kind": "named",
+            "name": "Response"
+          }
         }
       ],
       "body": {

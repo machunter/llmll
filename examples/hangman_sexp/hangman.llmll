@@ -115,7 +115,9 @@
 
 ;; ─── Step ──────────────────────────────────────────────────────────────────
 
-(def-shell game-loop [s: (string, (list[string], (int, int))) input: string]
+;; EFFECT-RESP: third parameter is the previous command's response (RNone here,
+;; every command being a stdout).
+(def-shell game-loop [s: (string, (list[string], (int, int))) input: string _r: Response]
   (let [(trimmed (string-trim input))
         (letter  (if (> (string-length trimmed) 0)
                      (string-char-at trimmed 0)

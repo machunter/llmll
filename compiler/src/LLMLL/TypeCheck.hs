@@ -72,7 +72,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, wildAssumeRejects, bytesLenOf, boolValuedMapTy)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -159,6 +159,26 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
+  -- EFFECT-RESP (RC-1): the response channel's four constructors.
+  --
+  -- Response is COMPILER-SUPPLIED, not program-declared, because the response
+  -- alphabet is a function of the COMMAND alphabet and the command alphabet is
+  -- sealed in this very list (§13.9 above). A program cannot introduce a
+  -- command, so it cannot need an arm; program-declaration would admit dead
+  -- arms no command produces and omit arms some command does.
+  --
+  -- The arms' TYPE (the four-way sum) lives in 'builtinAliases' below, not
+  -- here: this map is the VALUE namespace. Both are needed. Without the value
+  -- bindings '(RText "x")' is an unknown function; without the alias entry
+  -- 'checkExhaustive' cannot see the constructor set and a 'match' missing an
+  -- arm passes silently.
+  --
+  -- Nullary RNone binds as a VALUE rather than a 0-arg function, matching the
+  -- COMP-3b-general convention 'collectConstructors' applies to user sum types.
+  , ("RNone",              TCustom "Response")
+  , ("RText",              TFn [TString] (TCustom "Response"))
+  , ("RCode",              TFn [TInt]    (TCustom "Response"))
+  , ("RErr",               TFn [TString] (TCustom "Response"))
   -- §13.11 Cryptographic operations (v0.6.1)
   -- Opaque primitives backed by real Haskell crypto in preamble.
   -- Correctness is outside the decidable fragment — classified as Asserted.
@@ -184,6 +204,12 @@ builtinEnv = Map.fromList $
 
 emptyEnv :: TypeEnv
 emptyEnv = builtinEnv
+
+-- EFFECT-RESP: the TYPE half of the sealed 'Response' (its four-arm 'TSumType'
+-- body) lives in 'LLMLL.TypeAdmissibility.builtinAliases', imported above,
+-- because 'FixpointEmit' needs the same entry and imports TypeAdmissibility but
+-- not this module. It is seeded into 'tcAliasMap' at every 'TCState'
+-- construction site below.
 
 -- | Seed a TypeEnv with every cache module's exports under their qualified
 -- names ('lib.double'). The statement walk's SOpen handler then adds bare
@@ -319,6 +345,14 @@ recordRetType n t = modify $ \s -> s { tcRetTypes = Map.insert n t (tcRetTypes s
 tcError :: Text -> TC ()
 tcError msg = modify $ \s -> s
   { tcErrors = tcErrors s ++ [mkError Nothing msg] }
+
+-- | Emit a type error carrying a machine-readable 'diagKind'.
+--
+-- The kind is what a consumer (test, agent, editor) keys off; 'tcError' leaves
+-- it Nothing, so an error emitted through it can only be matched on its prose.
+tcErrorK :: Text -> Text -> TC ()
+tcErrorK kind msg = modify $ \s -> s
+  { tcErrors = tcErrors s ++ [(mkError Nothing msg) { diagKind = Just kind }] }
 
 -- | Emit a hole-sensitive type error (holeSensitive = True).
 -- Used in unify when at least one type is a hole variable.
@@ -770,9 +804,14 @@ tcEmitNonExhaustive typeName missing covered = do
 -- admissibility, so an entry point that hardcodes 'Map.empty' silently DISABLES
 -- the guard for anything it runs. Three positional 19-field constructions each
 -- pinning that field to empty is how such a hole stays invisible.
+-- EFFECT-RESP: 'builtinAliases' is unioned UNDER the caller's map here rather
+-- than at each call site, for the same reason the constructor was factored out
+-- in the first place: an entry point that misses the seed silently disables
+-- Response exhaustiveness for everything it runs, and that is invisible from
+-- the call site.
 initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
-  TCState env [] am Nothing False sketch [] [] Map.empty Map.empty Map.empty []
+  TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
           strict gm False 0 Map.empty [] Map.empty
 
 -- | Run the type checker monad.
@@ -974,7 +1013,10 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- code in-module type-checks. Type annotations on params are written bare
       -- (regardless of 'open'), so bare keys are the correct form. Local STypeDefs
       -- shadow these in 'checkStatements' (local wins; same direction as 'open').
-      seededAliases = Map.foldl seedAliases Map.empty cache
+      -- EFFECT-RESP: 'builtinAliases' goes UNDER the imported ones, so a
+      -- cached module can never displace a sealed type. This site does not
+      -- route through 'initialTCState', so it needs its own union.
+      seededAliases = Map.union (Map.foldl seedAliases Map.empty cache) builtinAliases
       (_, st) = runState (checkStatements stmts)
         (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty)
       diags = tcErrors st
@@ -1319,6 +1361,15 @@ checkStatement (SDefInterface name fns laws) = do
         tcError $ "interface '" <> name <> "' :laws clause must be bool, got " <> typeLabel bodyType
 
 checkStatement (STypeDef name body) = do
+  -- EFFECT-RESP: a program may not redefine a sealed builtin type. Local
+  -- STypeDefs win the alias-map union (checkStatements), so without this the
+  -- redefinition succeeds silently and the def-main loop hands a builtin
+  -- Response to a step whose parameter is the user's type.
+  when (name `elem` sealedTypeNames) $
+    tcErrorK "sealed-type-redefinition" $
+      "type '" <> name <> "' is supplied by the compiler and cannot be redefined; "
+      <> "its constructors are sealed because the response alphabet is a function "
+      <> "of the command alphabet"
   -- Check that dependent type constraints are well-formed
   case body of
     TDependent bindName base constraint -> do
@@ -1402,9 +1453,10 @@ checkStatement (SExpr expr) = do
   _ <- inferExpr expr
   pure ()
 
-checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
+checkStatement (SDefMain { defMainMode = mode, defMainStep = stepE, defMainDone = doneE }) = do
   -- Type-check the step and done? expressions
-  _ <- inferExpr stepE
+  stepTy <- inferExpr stepE
+  checkStepArity mode stepTy
   case doneE of
     Nothing -> pure ()
     Just de -> do
@@ -1412,6 +1464,51 @@ checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
       doneOk <- compatibleExpanded doneType TBool
       unless doneOk $
         tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
+
+-- | EFFECT-RESP (RC-1): the console @:step@ takes @(S, string, Response)@.
+--
+-- This is the migration's ONLY diagnostic and that is why it exists. Before it,
+-- 'checkStatement' for SDefMain inferred the step expression and DISCARDED the
+-- result, so the step was never applied and its arity was never constrained: a
+-- one-parameter step and a three-parameter step type-checked identically.
+-- Adding the response parameter is therefore a breaking change that @llmll
+-- check@ reported on no program at all, leaving GHC as the first observer. Same
+-- check-passes/build-fails seam as WASI-RT, reached by a different route.
+--
+-- Deliberately constrains the PARAMETER LIST ONLY, not the return position.
+-- 'collectTopLevel' gives an unannotated @def-shell@ a return type of
+-- @TVar "?"@, and every console step in the corpus is unannotated, so a rule
+-- requiring @(S, Command)@ back would reject the very programs it is meant to
+-- migrate. The return shape is already enforced where it can be: codegen
+-- destructures the pair, and 'expectPairType' covers the do-notation path.
+--
+-- cli and http modes are untouched. Their harnesses perform no command
+-- (CodegenHs 'emitMainBody' ModeCli prints the step's result and ModeHttp is an
+-- error stub), so there is no response to deliver and no arity to change.
+checkStepArity :: EntryMode -> Type -> TC ()
+checkStepArity ModeConsole stepTy = do
+  resolved <- expandAlias stepTy
+  case resolved of
+    TFn ps _
+      | length ps == 3 -> do
+          thirdOk <- compatibleExpanded (ps !! 2) (TCustom "Response")
+          unless thirdOk $ arityError (Just (ps !! 2)) (length ps)
+      | otherwise -> arityError Nothing (length ps)
+    -- Not a function type at all: either a hole or an ill-typed :step. Both are
+    -- already diagnosed by 'inferExpr' at the call site above; a second error
+    -- here would just double-report.
+    _ -> pure ()
+  where
+    arityError mThird n = tcErrorK "def-main-step-arity" $
+      ":step of a console def-main must take three parameters "
+      <> "(state, input: string, response: Response) and return (state, Command); found "
+      <> tshow n <> " parameter" <> (if n == 1 then "" else "s")
+      <> case mThird of
+           Just t  -> ", whose third is " <> typeLabel t <> " rather than Response"
+           Nothing -> ""
+      <> ". Each performed command yields one Response, delivered as the next "
+      <> "step's third argument (EFFECT-RESP RC-1)."
+checkStepArity _ _ = pure ()
 
 -- ---------------------------------------------------------------------------
 -- v0.4 CAP-1: Capability Enforcement Helpers

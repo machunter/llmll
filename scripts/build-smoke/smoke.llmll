@@ -18,6 +18,15 @@
 ;; the preamble should fail for preamble reasons only. tools/llmll-driver/
 ;; shell.llmll was the other candidate and was rejected for that reason, and
 ;; because it calls only two of the seven names.
+;;
+;; EFFECT-RESP widened this fixture with a def-main. The BUILD-GATE-1 roadmap
+;; row records three defects living in the check-passes/build-fails seam and
+;; notes that only the first was covered here: WASI-RT was, the def-main :step
+;; arity change was NOT, "since EFFECT-RESP has not shipped and the fixture has
+;; no def-main". It ships now, so the gate takes the second witness. Without a
+;; def-main no Main.hs is emitted at all, and the whole console harness -- the
+;; response slot, the RC-4 settle branch, the three-argument step call -- sat
+;; outside the only gate in this repository whose oracle is GHC.
 
 (module smoke
   (import wasi.io   (capability stdout :deterministic false))
@@ -49,4 +58,28 @@
   ;; composition, not only the leaf constructors.
   (def-shell smoke-seq [path: string body: string]
     (seq-commands (wasi.fs.write path body)
-                  (wasi.fs.delete path))))
+                  (wasi.fs.delete path)))
+
+  ;; EFFECT-RESP: the console harness. Every arm of Response is matched, so the
+  ;; generated Main.hs only compiles if the emitted `data Response` declaration,
+  ;; the response slot, and the three-argument step call all agree with what
+  ;; TypeCheck accepted. The step consumes the response rather than binding it
+  ;; to `_`, which is what makes this a gate over the CHANNEL and not only over
+  ;; the arity.
+  (def-shell smoke-init [] -> (int, Command)
+    (pair 0 (wasi.io.stdout "")))
+
+  (def-shell smoke-step [s: int input: string r: Response] -> (int, Command)
+    (match r
+      ((RNone)     (pair (+ s 1) (wasi.io.stdout input)))
+      ((RText t)   (pair (+ s 1) (wasi.io.stdout t)))
+      ((RCode n)   (pair (+ s 1) (wasi.io.stdout (int-to-string n))))
+      ((RErr e)    (pair (+ s 1) (wasi.io.stderr e)))))
+
+  (def-shell smoke-done? [s: int] -> bool (>= s 3))
+
+  (def-main
+    :mode    console
+    :init    (smoke-init)
+    :step    smoke-step
+    :done?   smoke-done?))

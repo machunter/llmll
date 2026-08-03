@@ -39,6 +39,7 @@ module LLMLL.TrustReport
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
+  , harnessAssumptions  -- EFFECT-RESP: module-level harness residue disclosure
   ) where
 
 import Data.Map.Strict (Map)
@@ -134,6 +135,12 @@ data TrustReport = TrustReport
   { trEntries          :: [TrustEntry]
   , trSummary          :: TrustSummary
   , trSuppressions     :: [(Name, Text)]  -- ^ v0.6: (function name, reason) from SWeaknessOk
+  -- EFFECT-RESP: module-level assumptions the generated HARNESS carries, which
+  -- no per-function tier can express. Distinct from 'trSuppressions': those are
+  -- keyed to an SWeaknessOk statement on a named function, and this residue is
+  -- attached to no function at all. Populated when the module declares a
+  -- console def-main. Empty otherwise, so a library's report is unchanged.
+  , trHarnessAssumptions :: [Text]
   , trTierProfile      :: TierProfile     -- ^ v0.10.4: fixed-arity tier-count aggregate (R6d)
   -- OBLIG-PBT-3: parallel per-clause tier-count profiles. Exposes the post-side
   -- empirical evidence directly, sidestepping the per-function meet that pins
@@ -280,6 +287,37 @@ data TierProfile = TierProfile
 trustReportEmitVersion :: Text
 trustReportEmitVersion = "1.6.0"
 
+-- | EFFECT-RESP: the harness-level residue a console program carries.
+--
+-- Nothing types the pairing between the command a step returned and the
+-- response the harness supplies. If a step returns @(wasi.fs.read p)@ and the
+-- harness supplies @RCode 5@, no type error occurs. Two things bound it and
+-- both belong in the report rather than in a design document: exhaustive
+-- matching is enforced, so the program must handle the arm it did not expect
+-- and the mismatch is a value rather than a crash; and the remainder is a trust
+-- assumption on the harness, the same category as TRUST-AXIOM.
+--
+-- Emitted as an additive top-level array and therefore does NOT bump
+-- 'trustReportEmitVersion', on the precedent already recorded for
+-- 'joint_pbt_witnesses', 'overflow_tainted_fns' and 'over_annotation': readers
+-- ignore unknown keys and the JSON shape grows monotonically.
+harnessAssumptions :: [Statement] -> [Text]
+harnessAssumptions stmts
+  | any isConsoleMain stmts =
+      [ "console harness (EFFECT-RESP RC-1..RC-4): the harness supplies one \
+        \Response per performed command, and its arm is not typed against the \
+        \command the step returned. A program that receives an unexpected arm \
+        \takes that arm rather than failing; exhaustive matching is what bounds \
+        \the consequence. Assumed, not proved."
+      , "console harness (EFFECT-RESP RC-4): done? is evaluated on the state a \
+        \step produced, and the command that same step returned is NOT \
+        \performed. A final effect must be issued from a non-terminating step."
+      ]
+  | otherwise = []
+  where
+    isConsoleMain SDefMain{defMainMode = ModeConsole} = True
+    isConsoleMain _ = False
+
 -- ---------------------------------------------------------------------------
 -- Report Building
 -- ---------------------------------------------------------------------------
@@ -394,6 +432,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        { trEntries         = markedEntries
        , trSummary         = summary
        , trSuppressions    = suppressions
+       , trHarnessAssumptions = harnessAssumptions entryStmts
        , trTierProfile     = tierProfile
        , trTierProfilePre  = tierProfilePre
        , trTierProfilePost = tierProfilePost
@@ -1475,6 +1514,10 @@ formatTrustReportJson report =
     -- additive-field precedent as 'joint_pbt_witnesses'/'overflow_tainted_fns'
     -- above — existing consumers ignore the new key.
     , "over_annotation" .= overAnnotationJson (trOverAnnotation report)
+    -- EFFECT-RESP: module-level harness assumptions. No 'trust_report_version'
+    -- bump, same additive-field precedent as the three keys above. Empty (and
+    -- so inert) for any module without a console def-main.
+    , "harness_assumptions" .= trHarnessAssumptions report
     ]
   where
     overAnnotationJson oai = object

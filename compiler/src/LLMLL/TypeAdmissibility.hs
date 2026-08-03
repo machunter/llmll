@@ -189,6 +189,8 @@ module LLMLL.TypeAdmissibility
   ( -- * Alias environment
     AliasMap
   , buildAliasMap
+  , builtinAliases
+  , sealedTypeNames
     -- * Normalization
   , resolveAliasTy
   , normalizeTy
@@ -221,8 +223,53 @@ import LLMLL.Syntax
 type AliasMap = Map Name Type
 
 -- | Build an alias map from top-level type definitions.
+--
+-- EFFECT-RESP: unions 'builtinAliases' underneath the module's own definitions,
+-- so every consumer of this function (notably 'FixpointEmit.cacheAwareAliasMap'
+-- and the VC emitter's sum-sort path) resolves @TCustom "Response"@ to its
+-- 'TSumType' body rather than leaving it opaque. Local definitions win the
+-- union; 'sealedTypeNames' is what keeps that from mattering in practice.
 buildAliasMap :: [Statement] -> AliasMap
-buildAliasMap stmts = Map.fromList [(n, body) | STypeDef n body <- stmts]
+buildAliasMap stmts =
+  Map.union (Map.fromList [(n, body) | STypeDef n body <- stmts]) builtinAliases
+
+-- | EFFECT-RESP: type-level half of the sealed builtin types.
+--
+-- Seeded into every alias environment so that alias resolution reaches the
+-- 'TSumType' body. That resolution is what the checker's exhaustiveness pass
+-- needs: it dispatches on 'TSumType' and abstains on an unresolved 'TCustom',
+-- so without this entry a @match@ on a Response missing its 'RErr' arm
+-- type-checks clean. Exhaustiveness is what converts a response arm the program
+-- did not expect from a crash into a value, so this entry is what bounds the
+-- command-to-response pairing residue.
+--
+-- The VALUE half (the four constructors as callable bindings) lives in
+-- 'LLMLL.TypeCheck.builtinEnv'. Both are needed and they are kept in sync by
+-- hand; the constructor set here is the one the exhaustiveness check reads.
+--
+-- Payload classes are 'string' and 'int' only, both inside Σ_auto, which is why
+-- this addition does not widen the verification fragment. There is deliberately
+-- no RBytes arm: @bytes[n]@ needs a literal type-level length and a file read's
+-- length is not statically known. Binary reads are a named residue.
+builtinAliases :: AliasMap
+builtinAliases = Map.fromList
+  [ ("Response", TSumType
+      [ ("RNone", Nothing)
+      , ("RText", Just TString)
+      , ("RCode", Just TInt)
+      , ("RErr",  Just TString)
+      ])
+  ]
+
+-- | Type names a program may not redefine.
+--
+-- A module's own @STypeDef@s shadow seeded aliases by design, so without a
+-- guard a program declaring @(type Response ...)@ silently replaces the harness
+-- contract's type with its own: the generated loop would then hand a builtin
+-- Response to a step whose parameter is the user's type, and the mismatch would
+-- surface at GHC rather than at @check@.
+sealedTypeNames :: [Name]
+sealedTypeNames = Map.keys builtinAliases
 
 -- ---------------------------------------------------------------------------
 -- Normalization
