@@ -4,6 +4,76 @@
 
 <a id="Latest"></a>
 
+## v0.14.81: four capability operations, and a gate that runs them (2026-08-03)
+
+CAP-PROC reaches five operations and closes there. Phase 2's remaining four ship with an execution
+stage on BUILD-GATE-1: the gate no longer stops at "it compiled" but runs the generated binary and
+checks its output against known answers. That stage paid for itself on first use. **One breaking
+change for report consumers:** the effect label `random` is renamed `nondet`.
+
+### Added, CAP-PROC (four operations; the row closes at five)
+
+`wasi.fs.mkdir : string -> Command`, `wasi.fs.sha256 : string -> Command`,
+`wasi.clock.monotonic : Command`, and
+`wasi.proc.run : string list[string] string string string int -> Command`. None needed a new
+`Response` arm, which was Phase 1's prediction and is now measured: `mkdir` delivers `RNone`,
+`sha256` a lowercase hex digest as `RText`, `monotonic` nanoseconds as `RCode`, and `proc.run` the
+child's exit status as `RCode`.
+
+- **`wasi.proc.run` reports `unbounded`, by design.** It runs an arbitrary program, so a bounded
+  label would be unsound rather than imprecise: `EffectSummary` is a may-over-approximation, and an
+  "EProc" label would claim the function may spawn and may not write files while the child may.
+- **It takes an executable and an argument vector, never a shell string**, so there is no
+  quoting-dependent injection surface. Authority delivered through argv is unbounded.
+- **`wasi.fs.sha256` takes a path, not bytes.** `wasi.fs.read` fails closed on binary input, so
+  composing it with a pure hash cannot mis-hash a binary file; it cannot read one at all.
+- **`wasi.http.get` is dropped, not deferred, and CAP-PROC closes at five.** Two independent
+  grounds. Its Phase 1 arm mapping is `RText`, which cannot reproduce the driver's intake stage,
+  since that writes bytes and hashes the file, and an `RText` round trip is not byte-faithful. And
+  `http-client` plus `http-client-tls` moves a generated project's dependency closure from **33
+  packages to 79**, none of them compiler dependencies, so CI's snapshot cache misses. Refiled as
+  `HTTP-GET-1`, signature and atomicity clause already settled.
+
+### Changed, effect labels (breaking for report consumers)
+
+`ERandom` is renamed `ENonDet` and its serialized string moves from `random` to `nondet`. Any
+consumer keyed on the old string must move. `wasi.clock.monotonic` is now its only producer.
+
+### Added, BUILD-GATE-1 execution stage
+
+`scripts/build_smoke.sh` gains a fixture that is built **and run**, output checked against known
+answers.
+
+- **It caught a defect on first use.** Against a missing executable, `createProcess` throws and
+  `RErr` is correct, but two redirect handles leaked still-open, and the **next** `wasi.fs.read` of
+  that path returned `resource busy (file is locked)`: a failed spawn corrupted a later read. Fixed
+  with `onException` guards, pinned by `CP-17`. No compile-only check could have seen it.
+
+### Fixed, R-13
+
+`random-int` held a `trustedPrelude` entry, a `primEffect` clause and a codegen stub returning `42`,
+and had no `builtinEnv` declaration. The `trustedPrelude` entry suppressed the core-membership error
+a call would otherwise get, so `llmll check` reported `OK` with an unknown-function warning while
+`llmll verify` errored: an agent running `check` saw a usable function that does not exist. Being
+undeclared it also had no arity, so `(random-int lo hi)` was accepted against a nullary stub.
+
+- **No soundness hole, no trust-closure change.** `verify` rejects a call in every mode, so no
+  function carrying one received a tier, and the `primEffect` clause classified an effect no
+  reachable program could have.
+- Both tests pinning the removed sites were **retargeted rather than deleted**, each being
+  discriminating. `INV-C3` demonstrated `trustedPrelude` membership suppressing the error and now
+  covers the undeclared-callee path, which nothing tested. `CP-8` asserted the shared label and now
+  guards the removal; the label stays covered by `CP-7`.
+- `LLMLL.md §5.2`'s note stated the membership and the stub in the present tense, and is corrected.
+
+**Tests:** 1566 Haskell examples, 0 failures (+22); 107 Python.
+
+Design: [`docs/design/driver-in-llmll-campaign.md`](docs/design/driver-in-llmll-campaign.md) §3 Phase 2.
+Open work carried past this release, including the four residues this release named, is recorded in
+[`docs/design/driver-ll-open-work.md`](docs/design/driver-ll-open-work.md).
+
+---
+
 ## v0.14.80: an effect returns a value the program can branch on (2026-08-03)
 
 DRIVER-LL Phases 0 and 1, in three commits. Until this release a `Command` was nullary: a program

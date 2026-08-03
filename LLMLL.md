@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.80)
+# LLMLL: Large Language Model Logical Language (v0.14.81)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.80.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.81.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -820,7 +820,7 @@ For types where rejection sampling is inefficient (e.g., a 64-hex-digit string),
 
 A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a refinement type, rejection sampling is used automatically.
 
-> **Illustrative, not currently runnable.** `string-char-at` is a real, codegen-backed builtin, but `random-int`, `hex-encode`, and `random-bytes` are not: `random-int` is listed in the type checker's `trustedPrelude` core-membership allowlist and has an orphaned Haskell codegen stub (`CodegenHs.hs`, always returns `42`), but isn't registered in `builtinEnv`, so a call to it is rejected as an unknown function before codegen is ever reached; `hex-encode` and `random-bytes` don't exist anywhere in the compiler. These examples show the intended `gen` declaration syntax and are reserved names for future random-generation builtins, not code you can build today.
+> **Illustrative, not currently runnable.** `string-char-at` is a real, codegen-backed builtin, but `random-int`, `hex-encode`, and `random-bytes` are not: none of the three exists anywhere in the compiler. `random-int` was removed at v0.14.81 (R-13), having carried a `trustedPrelude` core-membership entry and an orphaned codegen stub (always returned `42`) without a `builtinEnv` declaration, so a call to it passed core-membership on the strength of the allowlist entry and was then rejected as an unknown function before codegen was reached. These examples show the intended `gen` declaration syntax and are reserved names for future random-generation builtins, not code you can build today.
 
 ### 5.3 Verification
 
