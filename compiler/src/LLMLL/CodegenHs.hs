@@ -166,10 +166,10 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   [ "import Data.List (isPrefixOf, intercalate, nub, sort)"
   , "import Data.Char (ord, chr)"
   , "import qualified Data.Map.Strict as Map"
-  , "import System.IO (hPutStr, hPutStrLn, stderr)"
+  , "import System.IO (hPutStr, hPutStrLn, stderr, openFile, hClose, IOMode(..))"
   , "import Test.QuickCheck (quickCheck, property)"
   , "import qualified Control.Concurrent.Async as Async"
-  , "import Control.Exception (try, evaluate, SomeException, IOException)"
+  , "import Control.Exception (try, evaluate, onException, SomeException, IOException)"
   -- EFFECT-RESP: the response slot is an IORef built once at load time with
   -- unsafePerformIO (already imported below for regex-match).
   , "import Data.IORef (IORef, newIORef, readIORef, writeIORef)"
@@ -180,12 +180,25 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- listDirectory, not getDirectoryContents: it already omits "." and "..",
   -- so the exclusion is a property of the primitive rather than a filter that
   -- would need its own test.
-  , "import System.Directory (doesFileExist, removeFile, listDirectory)"
+  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
   , "import Text.Regex.TDFA ((=~))"
   , "import System.IO.Unsafe (unsafePerformIO)"
+  -- CAP-PROC Phase 2. All four bodies are unconditional, so runtimePreamble
+  -- stays a top-level CAF and the WASI-RT completeness guard in Spec.hs can
+  -- keep folding over it without knowing the program's import set. The cost is
+  -- three package.yaml entries (process, cryptohash-sha256, bytestring), all
+  -- three already compiler dependencies, so the LTS snapshot is cached and the
+  -- generated-project closure moves 31 -> 33 packages (measured, lts-22.43).
+  , "import qualified System.Process as P"
+  , "import System.Exit (ExitCode(..))"
+  , "import System.Timeout (timeout)"
+  , "import GHC.Clock (getMonotonicTimeNSec)"
+  , "import qualified Data.ByteString as BS"
+  , "import qualified Crypto.Hash.SHA256 as SHA256"
+  , "import Numeric (showHex)"
   , ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -538,6 +551,90 @@ runtimePreamble =
   , "  _ <- evaluate (length entries)"
   , "  return (RList (sort entries))"
   , ""
+  -- CAP-PROC Phase 2 ------------------------------------------------------
+  --
+  -- `True` creates parents, and the operation is idempotent on an existing
+  -- directory. Both matter: the driver calls mkdir on stage directories that
+  -- may already exist from a resumed run, and an exception there would break
+  -- the no-crash property LLMLL.md:1747 relies on.
+  , "wasi_fs_mkdir :: String -> IO ()"
+  , "wasi_fs_mkdir path ="
+  , "  llmll_publish_io (createDirectoryIfMissing True path >> return RNone)"
+  , ""
+  -- Nanoseconds since an unspecified epoch, as RCode. The epoch is unspecified
+  -- ON PURPOSE: only DIFFERENCES of two readings from the same process are
+  -- meaningful, and nothing in the type system can enforce that, because a
+  -- reading persisted with wasi.fs.write and re-read through wasi.fs.read comes
+  -- back as a String and is re-parsed. Cross-run differencing is therefore a
+  -- trust-channel assumption, not a checkable one; no phantom-origin type
+  -- survives the round trip through the filesystem.
+  , "wasi_clock_monotonic :: IO ()"
+  , "wasi_clock_monotonic = llmll_publish_io $ do"
+  , "  ns <- getMonotonicTimeNSec"
+  , "  return (RCode (fromIntegral ns))"
+  , ""
+  -- BS.readFile is strict, so unlike wasi_fs_read there is no lazy-IO thunk to
+  -- force; the `evaluate` below forces the hex rendering instead, keeping an
+  -- encoding failure inside the try where it becomes RErr.
+  --
+  -- Hashing happens on BYTES, inside the builtin. Composing wasi.fs.read with a
+  -- pure hash would hash DECODED TEXT: readFile is locale-decoded and throws on
+  -- invalid UTF-8, so a binary artifact is not merely mis-hashed but unreadable.
+  -- The driver uses this digest as a resume gate and a provenance pin, so a
+  -- text round trip would silently disagree with the reference implementation.
+  , "wasi_fs_sha256 :: String -> IO ()"
+  , "wasi_fs_sha256 path = llmll_publish_io $ do"
+  , "  bytes <- BS.readFile path"
+  , "  let hex2 b = let s = showHex b \"\" in if length s == 1 then '0' : s else s"
+  , "      digest = concatMap hex2 (BS.unpack (SHA256.hash bytes))"
+  , "  _ <- evaluate (length digest)"
+  , "  return (RText digest)"
+  , ""
+  -- exec + argv, never a shell string. `P.proc` does no shell interpretation,
+  -- so metacharacters in argv are data. This does NOT bound authority: argv is
+  -- unconstrained and a granted program that interprets its arguments as
+  -- instructions delivers unbounded authority through them. primEffect gives
+  -- this name ⊤ for that reason; see the note there.
+  --
+  -- Child output goes to FILES, not through the response channel: the channel
+  -- carries a scalar (the exit code) and the payload stays on disk, which is
+  -- the file-indirection property that keeps the Response arm set at five.
+  --
+  -- UseHandle: createProcess closes these handles after the fork, so the
+  -- SUCCESS path must not close them again. The FAILURE path must, and the
+  -- `onException` guards are not defensive decoration -- they were added after
+  -- a measured defect. With a nonexistent executable, createProcess throws,
+  -- llmll_publish_io turns it into RErr, and without these the two write
+  -- handles leak still-open. GHC's handle lock then makes a LATER, unrelated
+  -- wasi.fs.read of the same path fail with "resource busy (file is locked)",
+  -- so one bad spawn corrupts a subsequent operation. hClose is idempotent, so
+  -- closing on the error path cannot double-close what createProcess took.
+  --
+  -- A negative timeout means "no limit" (System.Timeout.timeout's own
+  -- convention). On overrun the child is terminated and reaped under a bounded
+  -- secondary wait, so a child ignoring SIGTERM costs 5s rather than a hang,
+  -- and the overrun arrives as RErr — a budget overrun is a stage failure the
+  -- program can branch on, not a crash.
+  , "wasi_proc_run :: String -> [String] -> String -> String -> String -> Integer -> IO ()"
+  , "wasi_proc_run exe args cwd outPath errPath secs = llmll_publish_io $ do"
+  , "  outH <- openFile outPath WriteMode"
+  , "  errH <- openFile errPath WriteMode `onException` hClose outH"
+  , "  let closeBoth = hClose outH >> hClose errH"
+  , "  (_, _, _, ph) <- P.createProcess (P.proc exe args)"
+  , "                     { P.cwd     = Just cwd"
+  , "                     , P.std_out = P.UseHandle outH"
+  , "                     , P.std_err = P.UseHandle errH"
+  , "                     } `onException` closeBoth"
+  , "  finished <- timeout (fromIntegral (secs * 1000000)) (P.waitForProcess ph)"
+  , "  case finished of"
+  , "    Nothing -> do"
+  , "      P.terminateProcess ph"
+  , "      _ <- timeout 5000000 (P.waitForProcess ph)"
+  , "      return (RErr (\"wasi.proc.run: \" ++ exe ++ \" exceeded \""
+  , "                    ++ show secs ++ \"s\"))"
+  , "    Just ExitSuccess     -> return (RCode 0)"
+  , "    Just (ExitFailure c) -> return (RCode (fromIntegral c))"
+  , ""
   -- No network runtime in this backend. A real body needs http-client plus TLS
   -- in every generated project's dependency set, which is a material expansion
   -- for a builtin with zero in-tree call sites. `error` would break the same
@@ -574,8 +671,14 @@ runtimePreamble =
   , ""
   , "sha1_hash :: [Word8] -> [Word8]"
   , "sha1_hash input ="
-  , "  -- Simplified SHA-1 stub: returns 20 bytes derived from input."
-  , "  -- Passes RFC 6238 test vectors when used through hmac_sha1."
+  , "  -- NOT SHA-1. A polynomial rolling hash truncated to 20 bytes, with no"
+  , "  -- preimage or collision resistance. Disclosed as a stub since CRYPTO-1"
+  , "  -- (docs/design/critique-2026-07-19-triage.md:34); the sha1 -> sha1_stub"
+  , "  -- rename was considered and retracted (critique-2026-05-23-triage.md:25)."
+  , "  -- A prior line here asserted conformance to a published test-vector"
+  , "  -- suite; that claim was false and is removed rather than weakened. A"
+  , "  -- test pins that no such claim reappears in this preamble."
+  , "  -- hmac_sha1 above is built entirely from this, so it is a stub too."
   , "  let h = foldl (\\acc b -> (acc * 31 + fromIntegral b) `mod` (2^160 :: Integer)) 0 input"
   , "      toBytes 0 _ = []"
   , "      toBytes n v = fromIntegral (v `mod` 256) : toBytes (n-1 :: Int) (v `div` 256)"
@@ -1243,6 +1346,17 @@ emitPackageYaml modName hasMain hackagePkgs =
   -- (compiler/package.yaml), so the LTS snapshot build is already cached in CI
   -- and this entry costs no resolver movement.
   , "  - directory"
+  -- CAP-PROC: wasi_proc_run needs `process`, wasi_fs_sha256 needs
+  -- `cryptohash-sha256` and `bytestring`. All three are already compiler
+  -- dependencies (compiler/package.yaml), so the LTS snapshot is cached in CI
+  -- and these cost no resolver movement — the same argument as `directory`
+  -- above. Measured against lts-22.43, the generated-project closure moves
+  -- from 31 to 33 packages. Adding http-client + http-client-tls for a
+  -- wasi.http.get would have moved it to 79 (crypton, tls, four crypton-x509-*,
+  -- three asn1-*, socks, pem, ...), which is why that operation is not here.
+  , "  - process"
+  , "  - cryptohash-sha256"
+  , "  - bytestring"
   ] ++
   -- src/Main.hs (emitted whenever hasMain) imports System.Posix.IO for the
   -- event-log capture harness; hpack's default source-dirs auto-discovery

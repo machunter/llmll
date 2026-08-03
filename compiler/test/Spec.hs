@@ -10621,8 +10621,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "B0-8: top encodes as the distinct \"unbounded\" sentinel, never the label array" $ do
       encode (encodeEff Unbounded) `shouldBe` "\"unbounded\""
+      -- CAP-PROC: "random" -> "nondet". encodeEff sorts, and both strings sort
+      -- between "net.http" and "stdout", so only the string moved.
       encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
-        `shouldBe` "[\"crypto\",\"fs.read\",\"fs.write\",\"net.http\",\"random\",\"stdout\"]"
+        `shouldBe` "[\"crypto\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdout\"]"
 
   -- F-B0-1 regression: a JSON-AST `module` form must flatten into its
   -- imports ++ body (single-file model), mirroring the S-expression parser's
@@ -14222,6 +14224,126 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- that would have caught this four names ago.
   -- -----------------------------------------------------------------------
 
+  -- -----------------------------------------------------------------------
+  -- CAP-PROC Phase 2: four operations. The signatures, the effect labels, and
+  -- the two decisions that are easy to reverse by accident (proc.run must stay
+  -- ⊤; the other three must NOT reach the `wasi.` fallthrough).
+  -- -----------------------------------------------------------------------
+
+  describe "CAP-PROC: Phase 2 operation signatures" $ do
+
+    it "CP-1: wasi.proc.run is exec/argv with cwd, two redirect paths, timeout" $
+      Map.lookup "wasi.proc.run" builtinEnv `shouldBe`
+        Just (TFn [TString, TList TString, TString, TString, TString, TInt]
+                  (TCustom "Command"))
+
+    -- Nullary, so it binds as a VALUE. A TFn [] would make `(wasi.clock.monotonic)`
+    -- an application of a 0-arg function, which is not how RNone binds either.
+    it "CP-2: wasi.clock.monotonic binds as a value, not a 0-arg function" $
+      Map.lookup "wasi.clock.monotonic" builtinEnv `shouldBe` Just (TCustom "Command")
+
+    it "CP-3: wasi.fs.mkdir and wasi.fs.sha256 are string -> Command" $ do
+      Map.lookup "wasi.fs.mkdir"  builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
+      Map.lookup "wasi.fs.sha256" builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
+
+    -- wasi.http.get is deliberately absent. Two grounds, either sufficient:
+    -- its Rev 5 arm mapping (RText body) cannot reproduce a byte-faithful
+    -- fetch-then-hash, and http-client + http-client-tls moves the generated
+    -- project's dependency closure from 33 to 79 packages.
+    it "CP-4: wasi.http.get is NOT declared (dropped from Phase 2)" $
+      Map.lookup "wasi.http.get" builtinEnv `shouldBe` Nothing
+
+  describe "CAP-PROC: Phase 2 effect labels" $ do
+
+    -- Each of these three would reach primEffect's `wasi.` prefix fallthrough
+    -- and report ⊤ if its clause were inserted BELOW it. That is the silent
+    -- degradation primEffect is exported to guard against.
+    it "CP-5: wasi.fs.mkdir joins EFsWrite, not the wasi.* fallthrough" $
+      primEffect "wasi.fs.mkdir" `shouldBe` Just (Caps (Set.singleton EFsWrite))
+
+    it "CP-6: wasi.fs.sha256 carries BOTH EFsRead and ECrypto" $
+      primEffect "wasi.fs.sha256"
+        `shouldBe` Just (Caps (Set.fromList [EFsRead, ECrypto]))
+
+    -- NOT bottomEff. For a name in builtinEnv, calleeEff tests knownPure before
+    -- primEffect and bottomEff is joinEffs' identity, so Just bottomEff is
+    -- observationally the "pure builtin" case — false for an operation that
+    -- returns a different value per call.
+    it "CP-7: wasi.clock.monotonic is ENonDet, not empty (it is not pure)" $ do
+      primEffect "wasi.clock.monotonic" `shouldBe` Just (Caps (Set.singleton ENonDet))
+      primEffect "wasi.clock.monotonic" `shouldNotBe` Just (Caps Set.empty)
+
+    it "CP-8: random-int shares ENonDet after the ERandom rename" $
+      primEffect "random-int" `shouldBe` Just (Caps (Set.singleton ENonDet))
+
+    -- The inverted assertion. A bounded label here would be UNSOUND under the
+    -- may-over-approximation semantics EffectSummary actually has: it would
+    -- claim the function may spawn and may NOT write files, while the child
+    -- process certainly may. ownEffects already sends opaque delegation to ⊤
+    -- (HDelegate/HScaffold); a spawned process is an opaque delegate.
+    it "CP-9: wasi.proc.run is Unbounded, and no narrower label may replace it" $ do
+      primEffect "wasi.proc.run" `shouldBe` Just Unbounded
+      encode (encodeEff (fromMaybe (Caps Set.empty) (primEffect "wasi.proc.run")))
+        `shouldBe` "\"unbounded\""
+
+    it "CP-10: Sigma_eff stays six-wide (no EProc was added)" $
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+
+  describe "CAP-PROC: Phase 2 codegen and dependencies" $ do
+
+    -- A rolling hash would satisfy every string-shape test while producing a
+    -- digest that silently disagrees with the reference implementation, which
+    -- is exactly what sha1_hash does two blocks above it in the preamble.
+    it "CP-11: wasi_fs_sha256 routes through a real SHA-256, not a stub" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "SHA256.hash" p) `shouldBe` True
+      (T.isInfixOf "wasi_fs_sha256 path = llmll_publish_io" p) `shouldBe` True
+
+    -- Bytes, never a decoded String: readFile is locale-decoded and throws on
+    -- invalid UTF-8, so composing wasi.fs.read with a pure hash cannot hash a
+    -- binary artifact at all.
+    it "CP-12: wasi_fs_sha256 reads bytes, not text" $
+      (T.isInfixOf "BS.readFile path" (T.unlines runtimePreamble)) `shouldBe` True
+
+    -- P.proc, never a shell. Metacharacters in argv stay data.
+    it "CP-13: wasi_proc_run uses exec/argv and never a shell string" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "P.createProcess (P.proc exe args)" p) `shouldBe` True
+      (T.isInfixOf "P.shell" p) `shouldBe` False
+
+    -- A budget overrun must arrive as a value the program can branch on.
+    it "CP-14: wasi_proc_run bounds the wait and publishes RErr on overrun" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "timeout (fromIntegral (secs * 1000000))" p) `shouldBe` True
+      (T.isInfixOf "P.terminateProcess ph" p) `shouldBe` True
+
+    -- Regression, from a MEASURED defect rather than a hypothetical. Built the
+    -- execution fixture against /bin/does-not-exist-xyz: createProcess throws,
+    -- llmll_publish_io turns it into RErr correctly, but the two redirect
+    -- handles leaked still-open, and the NEXT step's wasi.fs.read of the same
+    -- path returned "resource busy (file is locked)". One failed spawn
+    -- corrupted an unrelated later operation. hClose is idempotent, so closing
+    -- on the error path cannot double-close what createProcess takes on the
+    -- success path.
+    it "CP-17: wasi_proc_run closes both redirect handles when the spawn fails" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "`onException` hClose outH" p) `shouldBe` True
+      (T.isInfixOf "`onException` closeBoth" p)   `shouldBe` True
+
+    it "CP-15: generated package.yaml carries the three CAP-PROC dependencies" $ do
+      let cpNoC = Contract Nothing Nothing Nothing Nothing Nothing [] []
+          stmts = [SDef "f" [("x", TInt)] Nothing cpNoC (EVar "x")]
+          y     = cgPackageYaml (generateHaskell "m" stmts)
+      mapM_ (\d -> (T.isInfixOf ("  - " <> d) y, d) `shouldBe` (True, d))
+            ["process", "cryptohash-sha256", "bytestring"]
+
+    -- CRYPTO-1 (shipped, critique-2026-07-19-triage.md:34) discloses sha1 as a
+    -- stub. A prior preamble line additionally claimed it passed RFC 6238 test
+    -- vectors through hmac_sha1, which is false for a polynomial rolling hash.
+    -- Removed rather than weakened; this pins that it stays removed.
+    it "CP-16: the preamble makes no RFC 6238 conformance claim for the sha1 stub" $
+      (T.isInfixOf "RFC 6238 test vectors" (T.unlines runtimePreamble)) `shouldBe` False
+
   describe "CodegenHs: wasi preamble completeness (WASI-RT)" $ do
 
     let preambleText = T.unlines runtimePreamble
@@ -14230,12 +14352,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- becomes wasi_fs_read.
         mangle       = T.replace "." "_"
 
-    -- Count moved 7 -> 8 when CAP-PROC's wasi.fs.list landed. The FOLD below is
-    -- what does the work and is unchanged: it is the regression that would have
-    -- caught WASI-RT four names earlier. Only the count may move, and it moves
-    -- only when a name is added with a preamble body to match.
-    it "builtinEnv declares exactly the eight wasi.* names this block covers" $
-      length wasiNames `shouldBe` 8
+    -- Count moved 7 -> 8 when CAP-PROC's wasi.fs.list landed, then 8 -> 12 with
+    -- CAP-PROC Phase 2 (proc.run, clock.monotonic, fs.mkdir, fs.sha256). The
+    -- FOLD below is what does the work and is unchanged: it is the regression
+    -- that would have caught WASI-RT four names earlier. Only the count may
+    -- move, and it moves only when a name is added with a preamble body to
+    -- match.
+    it "builtinEnv declares exactly the twelve wasi.* names this block covers" $
+      length wasiNames `shouldBe` 12
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do

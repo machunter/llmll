@@ -1,0 +1,79 @@
+;; BUILD-GATE-1 execution fixture. Built AND RUN by scripts/build_smoke.sh.
+;;
+;; smoke.llmll proves the preamble COMPILES. This file proves it RUNS, which is
+;; a different property and the one WASI-RT was actually about: the stopgap
+;; wasi.fs.read body performed a read and discarded the result, and every
+;; compile-only check passed over it. `readFile` is lazy, `createProcess` can be
+;; spawned and never waited on, and a hash can be a rolling polynomial that
+;; returns twenty plausible bytes. None of those are visible to GHC.
+;;
+;; So each CAP-PROC operation here is checked against an answer computed
+;; elsewhere:
+;;
+;;   wasi.fs.sha256       against the NIST SHA-256 vector for "abc"
+;;   wasi.proc.run        against a string only /bin/echo can have written
+;;   wasi.clock.monotonic against being a positive integer
+;;   wasi.fs.mkdir        implicitly — every later step writes into the directory
+;;
+;; The sha256 assertion is the one that matters most. A stub returning
+;; input-derived bytes satisfies every type, every arity, and every string-shape
+;; test; only a known-answer vector separates it from a real hash. sha1_hash in
+;; the same preamble is exactly that stub, and it shipped for four releases.
+
+(module capproc_exec
+  (import wasi.io    (capability stdout :deterministic false))
+  (import wasi.fs    (capability read-write "/tmp"))
+  (import wasi.proc  (capability exec :deterministic false))
+  (import wasi.clock (capability read :deterministic false))
+
+  ;; Total over the arm set, so adding a Response arm breaks this file rather
+  ;; than silently falling through.
+  (def-shell resp-text [r: Response] -> string
+    (match r
+      ((RNone)    "none")
+      ((RText t)  t)
+      ((RCode n)  (int-to-string n))
+      ((RErr e)   (string-concat "ERR:" e))
+      ((RList ns) (int-to-string (list-length ns)))))
+
+  (def-shell exec-init [] -> (int, Command)
+    (pair 0 (wasi.fs.mkdir "/tmp/llmll-capproc-exec")))
+
+  ;; One operation per step; the response arrives at the following step. RC-4
+  ;; means the command of the step that satisfies done? is NOT performed, which
+  ;; is why the chain ends on a throwaway rather than on a real assertion.
+  (def-shell exec-step [s: int input: string r: Response] -> (int, Command)
+    (if (= s 0)
+        (pair 1 (wasi.fs.write "/tmp/llmll-capproc-exec/in.txt" "abc"))
+    (if (= s 1)
+        (pair 2 (wasi.fs.sha256 "/tmp/llmll-capproc-exec/in.txt"))
+    (if (= s 2)
+        (pair 3 (wasi.io.stdout (string-concat "sha256=" (resp-text r))))
+    ;; Absolute path: no PATH assumption, and no shell to interpret the argv.
+    (if (= s 3)
+        (pair 4 (wasi.proc.run "/bin/echo" ["capproc-echo-ok"]
+                               "/tmp/llmll-capproc-exec"
+                               "/tmp/llmll-capproc-exec/out.txt"
+                               "/tmp/llmll-capproc-exec/err.txt"
+                               30))
+    (if (= s 4)
+        (pair 5 (wasi.io.stdout (string-concat "exit=" (resp-text r))))
+    ;; Reads back what the CHILD wrote. This is what distinguishes a spawn that
+    ;; ran from a spawn that was created and never waited on.
+    (if (= s 5)
+        (pair 6 (wasi.fs.read "/tmp/llmll-capproc-exec/out.txt"))
+    (if (= s 6)
+        (pair 7 (wasi.io.stdout (string-concat "echo=" (resp-text r))))
+    (if (= s 7)
+        (pair 8 wasi.clock.monotonic)
+    (if (= s 8)
+        (pair 9 (wasi.io.stdout (string-concat "clock=" (resp-text r))))
+        (pair 10 (wasi.io.stdout ""))))))))))))
+
+  (def-shell exec-done? [s: int] -> bool (>= s 10))
+
+  (def-main
+    :mode    console
+    :init    (exec-init)
+    :step    exec-step
+    :done?   exec-done?))

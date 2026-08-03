@@ -388,7 +388,15 @@ descentDischargedFns stmts measured bodyFaithful isSafe
 -- ---------------------------------------------------------------------------
 
 -- | Closed coarse capability catalog Σ_eff (v0.12).
-data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ERandom | ECrypto
+--
+-- CAP-PROC renamed ERandom -> ENonDet. The class is "ambient nondeterministic
+-- read granting no outward authority", which covers a PRNG, a clock, and later
+-- a PID or an environment read. The rename landed with wasi.clock.monotonic,
+-- the label's second producer: at one producer the cost was three source lines
+-- and one expected-JSON string with no fixture dependence, and it only grows.
+-- The catalog stays SIX-wide. wasi.proc.run deliberately takes NO label; see
+-- the primEffect note below.
+data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ENonDet | ECrypto
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 effectLabelText :: EffectLabel -> Text
@@ -396,7 +404,7 @@ effectLabelText EStdout  = "stdout"
 effectLabelText EFsRead  = "fs.read"
 effectLabelText EFsWrite = "fs.write"
 effectLabelText ENetHttp = "net.http"
-effectLabelText ERandom  = "random"
+effectLabelText ENonDet  = "nondet"
 effectLabelText ECrypto  = "crypto"
 
 -- | Authority summary. 'Unbounded' (⊤) is distinct from the full 6-set.
@@ -432,11 +440,47 @@ primEffect n
   -- returns. Recorded as a known asymmetry; the Response arm set distinguishes
   -- RText from RList while this catalog does not.
   | n == "wasi.fs.read"     || n == "wasi.fs.list"     = one EFsRead
-  | n == "wasi.fs.write"    || n == "wasi.fs.delete"   = one EFsWrite
+  | n == "wasi.fs.write"    || n == "wasi.fs.delete"
+    || n == "wasi.fs.mkdir"                            = one EFsWrite
+  -- Reads the file AND hashes it, so it carries both labels. Set.union rather
+  -- than a choice: coarsening upward on a join-semilattice is sound, dropping
+  -- either label is not.
+  | n == "wasi.fs.sha256"    = Just (Caps (Set.fromList [EFsRead, ECrypto]))
   | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
-  | n == "random-int"                                  = one ERandom
+  -- wasi.clock.monotonic joins random-int under ENonDet. NOT bottomEff: for a
+  -- name in builtinEnv, 'calleeEff' tests knownPure (:489) BEFORE consulting
+  -- primEffect, and bottomEff is the identity of joinEffs, so Just bottomEff is
+  -- observationally the Nothing case — whose own doc above reads "pure
+  -- builtin". A Command-returning operation that yields a different value per
+  -- call is not pure, and LLMLL.md §10a makes determinism the condition for a
+  -- replayable module.
+  | n == "random-int"       || n == "wasi.clock.monotonic" = one ENonDet
   | "haskell." `T.isPrefixOf` n                        = Just Unbounded
   | "c." `T.isPrefixOf` n                              = Just Unbounded
+  -- wasi.proc.run REACHES THIS LINE BY DESIGN and must keep reaching it.
+  --
+  -- A bounded label (an "EProc") would be UNSOUND, not merely imprecise.
+  -- EffectSummary is a MAY-over-approximation — Bundle B0 was recast from
+  -- must-lower-bound to may after an earlier professor round, and 'ownEffects'
+  -- joins both arms of every EIf (:452), so the summary over-approximates from
+  -- the first conditional in any program. Under may-semantics `Caps {EProc}`
+  -- asserts the function MAY spawn and MAY NOT write files; the child process
+  -- certainly may. Only ⊤ is a sound over-approximation of "runs an arbitrary
+  -- program".
+  --
+  -- The rule is already in this module: ownEffects maps opaque delegation to ⊤
+  -- at :459 (HDelegate/HScaffold). A spawned process is an opaque delegate that
+  -- happens to be an OS process rather than an agent. Giving it a label would
+  -- carve out the one delegation form that gets a bound, on no stated principle.
+  --
+  -- ⊤ here is NOT the vacuous-report problem driver-in-llmll-campaign.md:67 and
+  -- the CAP-PROC roadmap row describe. That worry reads driver-spec §15.2 as a
+  -- claim about the effect summary; §15.2 (targets/driver-spec.txt:517-528) asks
+  -- that effects be REACHED ONLY THROUGH A DECLARATION, which is namespace
+  -- membership (checkWasiCapability), and never asks this catalog anything.
+  --
+  -- A test pins primEffect "wasi.proc.run" == Just Unbounded so a later
+  -- refinement cannot silently narrow it.
   | "wasi." `T.isPrefixOf` n                           = Just Unbounded
   | otherwise                                          = Nothing
   where one x = Just (Caps (Set.singleton x))

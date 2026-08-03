@@ -105,6 +105,8 @@ LIB="$OUTDIR/src/Lib.hs"
 MISSING=()
 for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_read wasi_fs_write wasi_fs_delete wasi_http_post \
+            wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
+            wasi_clock_monotonic wasi_proc_run \
             seq_commands; do
   grep -qE "^${name} " "$LIB" || MISSING+=("$name")
 done
@@ -123,4 +125,80 @@ $(cat "$BUILD_LOG")"
 fi
 
 echo "BUILD-GATE-1 PASS: fixture compiled through GHC; ${#MISSING[@]} missing preamble definitions"
+
+# --- 5. EXECUTION gate (CAP-PROC). ------------------------------------------
+#
+# Everything above proves the preamble COMPILES. That is not the property
+# WASI-RT was about. Its stopgap wasi.fs.read performed a read and discarded
+# the result; it compiled, linked, raised nothing on an unreadable path, and
+# passed every check in this script. readFile is lazy, a spawned process can go
+# unwaited, and a "hash" can be a rolling polynomial returning twenty plausible
+# bytes -- sha1_hash in the same preamble is exactly that and shipped for four
+# releases. GHC sees none of it.
+#
+# So this stage RUNS a second fixture and compares against answers computed
+# outside the program:
+#
+#   wasi.fs.sha256       NIST SHA-256 vector for "abc"
+#   wasi.proc.run        a string only a real /bin/echo can have written, read
+#                        back from the redirect file (a spawn that is created
+#                        and never waited on fails here, not above)
+#   wasi.clock.monotonic a positive integer
+#   wasi.fs.mkdir        implicit: every later step writes into the directory
+#
+# The console harness consumes one stdin line per step, so the input below is
+# the step budget, not data.
+
+EXEC_FIXTURE="${EXEC_FIXTURE:-$REPO_ROOT/scripts/build-smoke/capproc_exec.llmll}"
+EXEC_OUTDIR="$OUTDIR/exec"
+# Literal /tmp, not $TMPDIR: the fixture hardcodes this path because LLMLL has
+# no way to read an environment variable, and its (capability read-write "/tmp")
+# clause names the same root. On macOS $TMPDIR is a per-user /var/folders path,
+# so deriving it here would check a directory the program never touches.
+EXEC_SCRATCH="/tmp/llmll-capproc-exec"
+
+if [ -f "$EXEC_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$EXEC_FIXTURE")"
+  rm -rf "$EXEC_SCRATCH"
+  EXEC_LOG="$OUTDIR/.exec-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$EXEC_FIXTURE" -o "$EXEC_OUTDIR" > "$EXEC_LOG" 2>&1; then
+    cat "$EXEC_LOG" >&2
+    fail "the execution fixture does not build."
+  fi
+
+  EXE="$(find "$EXEC_OUTDIR/.stack-work/install" -type f -name capproc-exec -perm -111 2>/dev/null | head -1)"
+  [ -n "$EXE" ] || fail "built the execution fixture but found no capproc-exec
+  binary under $EXEC_OUTDIR/.stack-work/install. Without running it this stage
+  observes nothing, which is the failure mode it exists to prevent."
+
+  # Run from OUTDIR, not the caller's cwd: the console harness writes a
+  # <module>.event-log.jsonl beside wherever it runs, and CI's cwd is the repo
+  # root. Without this the gate litters a tracked directory on every run.
+  RUN_OUT="$(cd "$OUTDIR" && printf 'x\n%.0s' $(seq 12) | "$EXE" 2>&1)" || true
+
+  # SHA-256("abc"), FIPS 180-4. A stub that derives bytes from its input passes
+  # every other assertion in this file and fails this one.
+  EXPECT_SHA="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+  EXEC_FAIL=()
+  case "$RUN_OUT" in *"sha256=$EXPECT_SHA"*) ;; *) EXEC_FAIL+=("wasi.fs.sha256 did not produce the NIST vector for \"abc\"");; esac
+  case "$RUN_OUT" in *"exit=0"*)             ;; *) EXEC_FAIL+=("wasi.proc.run did not report exit 0");; esac
+  case "$RUN_OUT" in *"echo=capproc-echo-ok"*) ;; *) EXEC_FAIL+=("wasi.proc.run's child output did not round-trip through the redirect file");; esac
+  if ! printf '%s' "$RUN_OUT" | grep -qE 'clock=[0-9]+'; then
+    EXEC_FAIL+=("wasi.clock.monotonic did not return a positive integer")
+  fi
+  [ -d "$EXEC_SCRATCH" ] || EXEC_FAIL+=("wasi.fs.mkdir did not create $EXEC_SCRATCH")
+
+  if [ "${#EXEC_FAIL[@]}" -gt 0 ]; then
+    printf 'BUILD-GATE-1 execution failures:\n' >&2
+    for f in "${EXEC_FAIL[@]}"; do printf '  - %s\n' "$f" >&2; done
+    printf -- '--- program output ---\n%s\n' "$RUN_OUT" >&2
+    fail "the CAP-PROC bodies compiled but did not behave. A body that links and
+  does nothing is the WASI-RT defect class; this stage is its only oracle."
+  fi
+
+  rm -rf "$EXEC_SCRATCH"
+  echo "BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
+fi
+
 exit 0

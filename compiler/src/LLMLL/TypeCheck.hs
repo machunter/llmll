@@ -169,6 +169,35 @@ builtinEnv = Map.fromList $
   -- would parse (Parser.hs pCapKind's CapCustom fallthrough) and be ignored.
   -- Deliberately not faked here; routed as CAP-1-REAL.
   , ("wasi.fs.list",       TFn [TString] (TCustom "Command"))
+  -- CAP-PROC Phase 2, four operations. Each has a runtimePreamble body and a
+  -- primEffect clause landing ABOVE ObligationAssembly's `wasi.` fallthrough;
+  -- without the clause each would silently report ⊤ and every caller's
+  -- effect_summary would go vacuous (primEffect is exported for exactly that
+  -- regression).
+  --
+  -- wasi.proc.run is exec/argv, NOT a shell string. The split is what makes the
+  -- executable a syntactic constant a reader can enumerate from the module
+  -- header; it removes shell metacharacter interpretation as a category. It
+  -- BOUNDS NOTHING: the argument vector is unconstrained, and where the granted
+  -- program interprets its arguments as instructions the authority delivered
+  -- through argv is unbounded. The property is auditability, not authority
+  -- bounding, and no capability check is enforced here (CAP-1-REAL).
+  -- Parameters: executable, argv, cwd, stdout path, stderr path, timeout secs.
+  -- The timeout is in the signature because a budget overrun must be a value
+  -- (RErr), not a hang.
+  , ("wasi.proc.run",      TFn [TString, TList TString, TString, TString, TString, TInt]
+                               (TCustom "Command"))
+  -- Nullary: binds as a VALUE, not a 0-arg function, matching the RNone
+  -- convention below and COMP-3b-general's treatment of nullary constructors.
+  , ("wasi.clock.monotonic", TCustom "Command")
+  , ("wasi.fs.mkdir",      TFn [TString] (TCustom "Command"))
+  -- Takes a PATH, not bytes, and hashes inside the sealed builtin. It cannot be
+  -- a pure `sha256 : bytes[n] -> ...` on the sha1 precedent: bytes[n] needs a
+  -- literal length at the type level and a file's length is not statically
+  -- known (effect-response-channel-proposal.md:402-404, the same reason there
+  -- is no RBytes arm). Reading via wasi.fs.read first would hash decoded TEXT,
+  -- not the file's bytes, and the driver uses this digest as a resume gate.
+  , ("wasi.fs.sha256",     TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
   -- EFFECT-RESP (RC-1): the response channel's four constructors.
   --

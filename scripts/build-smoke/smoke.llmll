@@ -29,9 +29,14 @@
 ;; outside the only gate in this repository whose oracle is GHC.
 
 (module smoke
-  (import wasi.io   (capability stdout :deterministic false))
-  (import wasi.fs   (capability read-write "/tmp"))
-  (import wasi.http (capability post :deterministic false))
+  (import wasi.io    (capability stdout :deterministic false))
+  (import wasi.fs    (capability read-write "/tmp"))
+  (import wasi.http  (capability post :deterministic false))
+  ;; CAP-PROC Phase 2 opens two namespaces. Neither capability clause is
+  ;; enforced -- checkWasiCapability tests namespace membership and never reads
+  ;; the verb (CAP-1-REAL) -- so `exec` here is documentation, not a bound.
+  (import wasi.proc  (capability exec :deterministic false))
+  (import wasi.clock (capability read :deterministic false))
 
   (def-shell smoke-stdout [msg: string]
     (wasi.io.stdout msg))
@@ -56,6 +61,27 @@
 
   (def-shell smoke-list [path: string]
     (wasi.fs.list path))
+
+  ;; CAP-PROC Phase 2. Four operations, each called once so the gate fails if a
+  ;; builtinEnv entry lands without a preamble body.
+  (def-shell smoke-mkdir [path: string]
+    (wasi.fs.mkdir path))
+
+  (def-shell smoke-sha256 [path: string]
+    (wasi.fs.sha256 path))
+
+  ;; Nullary, so the name is a VALUE and not an application. This is the only
+  ;; builtin of that shape besides RNone, and nothing in the corpus used one as
+  ;; an expression before now.
+  (def-shell smoke-clock [] -> Command
+    wasi.clock.monotonic)
+
+  ;; exec/argv: six positional parameters, and argv is list[string]. The gate
+  ;; covers the list-typed ARGUMENT here the way smoke-step covers the
+  ;; list-typed response payload.
+  (def-shell smoke-proc [exe: string args: list[string] cwd: string
+                         out: string err: string secs: int]
+    (wasi.proc.run exe args cwd out err secs))
 
   ;; seq-commands is the Command monoid's <>; exercised so the gate covers
   ;; composition, not only the leaf constructors.
