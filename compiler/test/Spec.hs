@@ -31,7 +31,7 @@ import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFi
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
@@ -14065,6 +14065,88 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           let result = generateHaskell "testnopkg" stmts
           cgMainHs result `shouldBe` Nothing
           T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -----------------------------------------------------------------------
+  -- WASI-RT: builtinEnv declares seven wasi.* names; before this commit the
+  -- codegen preamble defined three. A program calling any of the other four
+  -- passed `llmll check` and died at GHC with "Variable not in scope". The
+  -- defect was invisible because nothing in the tree ran `llmll build`
+  -- (BUILD-GATE-1, now scripts/build_smoke.sh).
+  --
+  -- The completeness test below is written as a fold over builtinEnv rather
+  -- than as seven hand-written cases, so that adding an eighth wasi.* name
+  -- without a preamble definition fails the suite. That is the regression
+  -- that would have caught this four names ago.
+  -- -----------------------------------------------------------------------
+
+  describe "CodegenHs: wasi preamble completeness (WASI-RT)" $ do
+
+    let preambleText = T.unlines runtimePreamble
+        wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
+        -- Mangling mirrors CodegenHs's dotted-name lowering: wasi.fs.read
+        -- becomes wasi_fs_read.
+        mangle       = T.replace "." "_"
+
+    it "builtinEnv declares exactly the seven wasi.* names this block covers" $
+      length wasiNames `shouldBe` 7
+
+    forM_ wasiNames $ \n ->
+      it ("preamble defines a top-level binding for " <> T.unpack n) $ do
+        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart runtimePreamble)
+        if defined
+          then defined `shouldBe` True
+          else expectationFailure $
+                 "builtinEnv declares " <> T.unpack n <> " but the codegen \
+                 \preamble has no definition for " <> T.unpack (mangle n) <>
+                 ". A program calling it will pass `llmll check` and fail at \
+                 \GHC. Add the body next to the others in runtimePreamble."
+
+    -- Risk 3 of the plan: readFile is lazy, so `readFile path >> return ()`
+    -- performs no read at all. It compiles, runs, raises nothing on an
+    -- unreadable path, and passes every string-shape assertion. Verified at
+    -- run time during implementation (a read of a missing path raises); pinned
+    -- here because the failure mode is invisible in the emitted text.
+    it "wasi_fs_read forces the read with evaluate, so it is not a lazy no-op" $
+      T.isInfixOf "wasi_fs_read path = readFile path >>= evaluate . length" preambleText
+        `shouldBe` True
+
+    -- removeFile on a missing path throws, and an uncaught exception inside a
+    -- Command breaks the no-crash property LLMLL.md:1747 relies on.
+    it "wasi_fs_delete guards with doesFileExist, so a missing path is a no-op" $ do
+      T.isInfixOf "doesFileExist path" preambleText `shouldBe` True
+      T.isInfixOf "when exists (removeFile path)" preambleText `shouldBe` True
+
+    it "wasi_http_post writes a diagnostic rather than erroring or silently succeeding" $ do
+      T.isInfixOf "wasi.http.post: no runtime in this backend" preambleText `shouldBe` True
+      -- `error` would violate the same no-crash property as delete above.
+      T.isInfixOf "wasi_http_post url _body = error" preambleText `shouldBe` False
+
+  describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
+
+    it "generateHaskell warns when the source calls wasi.http.post" $ do
+      let src = "(def-shell p [u: string b: string] (wasi.http.post u b))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts ->
+          any (T.isInfixOf "wasi.http.post has no network runtime")
+              (cgWarnings (generateHaskell "postpkg" stmts)) `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "generateHaskell does not warn when the source does not call it" $ do
+      let src = "(def-shell w [p: string b: string] (wasi.fs.write p b))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts ->
+          any (T.isInfixOf "wasi.http.post")
+              (cgWarnings (generateHaskell "writepkg" stmts)) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  describe "CodegenHs emitPackageYaml: directory dependency (WASI-RT)" $ do
+
+    it "package.yaml declares `directory` for wasi_fs_delete's doesFileExist guard" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
+        Right stmts ->
+          T.isInfixOf "  - directory" (cgPackageYaml (generateHaskell "dirpkg" stmts))
+            `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- -----------------------------------------------------------------------

@@ -45,6 +45,7 @@ module LLMLL.CodegenHs
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nub, intercalate)
+import Data.Maybe (catMaybes)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -161,10 +162,16 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   [ "import Data.List (isPrefixOf, intercalate, nub)"
   , "import Data.Char (ord, chr)"
   , "import qualified Data.Map.Strict as Map"
-  , "import System.IO (hPutStr, stderr)"
+  , "import System.IO (hPutStr, hPutStrLn, stderr)"
   , "import Test.QuickCheck (quickCheck, property)"
   , "import qualified Control.Concurrent.Async as Async"
   , "import Control.Exception (try, evaluate, SomeException)"
+  -- WASI-RT: wasi_fs_delete's totality guard needs doesFileExist/removeFile,
+  -- and `when` to make the guard a no-op rather than an exception on a
+  -- missing path. `evaluate` (above) is what keeps wasi_fs_read from being
+  -- a lazy no-op; it was already in scope.
+  , "import System.Directory (doesFileExist, removeFile)"
+  , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
   , "import Text.Regex.TDFA ((=~))"
@@ -401,6 +408,48 @@ runtimePreamble =
   , "{-# SPECIALIZE wasi_http_response :: Integer -> String -> IO () #-}"
   , "wasi_http_response :: Integral i => i -> String -> IO ()"
   , "wasi_http_response code body = putStrLn (show (fromIntegral code :: Integer) ++ \" \" ++ body)"
+  , ""
+  -- WASI-RT: builtinEnv (TypeCheck.hs:154-160) declares seven wasi.* names;
+  -- only the three above had definitions, so a program calling any of the four
+  -- below type-checked clean and died at GHC with "Variable not in scope".
+  -- Keep this block in sync with the builtinEnv list: the Spec.hs describe
+  -- block "codegen: wasi preamble completeness" iterates the wasi. prefix of
+  -- builtinEnv and fails if any declared name has no definition here.
+  , "wasi_fs_write :: String -> String -> IO ()"
+  , "wasi_fs_write path contents = writeFile path contents"
+  , ""
+  -- Idempotent by design. removeFile on a missing path throws, and an uncaught
+  -- exception inside a Command breaks the no-crash property LLMLL.md:1747
+  -- relies on. The doesFileExist guard is TOCTOU-racy under concurrency; the
+  -- console harness is a single-threaded loop (see emitMainBody below), so no
+  -- witness exists in this backend. Recorded, not paid for.
+  , "wasi_fs_delete :: String -> IO ()"
+  , "wasi_fs_delete path = do"
+  , "  exists <- doesFileExist path"
+  , "  when exists (removeFile path)"
+  , ""
+  -- WASI-RT stage: performs the read so IO and permission errors surface, then
+  -- discards the result, because Command is IO () and there is no channel to
+  -- return it on yet. EFFECT-RESP (RC-1) replaces this body with one that
+  -- publishes the contents to the harness response slot.
+  --
+  -- `evaluate . length` is not decoration. readFile is lazy, so
+  -- `readFile path >> return ()` performs no read at all: it would compile,
+  -- run, raise nothing on an unreadable path, and pass every string-shape
+  -- test. This is the one line in the block where being subtly wrong yields a
+  -- definition that does nothing. Spec.hs pins `evaluate` for that reason.
+  , "wasi_fs_read :: String -> IO ()"
+  , "wasi_fs_read path = readFile path >>= evaluate . length >> return ()"
+  , ""
+  -- No network runtime in this backend. A real body needs http-client plus TLS
+  -- in every generated project's dependency set, which is a material expansion
+  -- for a builtin with zero in-tree call sites. `error` would break the same
+  -- no-crash property as above, and a silent no-op would let a program believe
+  -- it posted. Diagnosed twice instead: a cgWarnings entry at codegen and this
+  -- line at run time.
+  , "wasi_http_post :: String -> String -> IO ()"
+  , "wasi_http_post url _body ="
+  , "  hPutStrLn stderr (\"wasi.http.post: no runtime in this backend (url=\" ++ url ++ \")\")"
   , ""
   , "seq_commands :: IO () -> IO () -> IO ()"
   , "seq_commands a b = a >> b"
@@ -1038,6 +1087,11 @@ emitPackageYaml modName hasMain hackagePkgs =
   , "  - QuickCheck"
   , "  - async"
   , "  - regex-tdfa"
+  -- WASI-RT: wasi_fs_delete's doesFileExist/removeFile guard. `directory` is a
+  -- GHC boot package and is already a compiler dependency
+  -- (compiler/package.yaml), so the LTS snapshot build is already cached in CI
+  -- and this entry costs no resolver movement.
+  , "  - directory"
   ] ++
   -- src/Main.hs (emitted whenever hasMain) imports System.Posix.IO for the
   -- event-log capture harness; hpack's default source-dirs auto-discovery
@@ -1132,5 +1186,51 @@ toHsModName t = case T.uncons (T.map sanitize t) of
 -- Warnings
 -- ---------------------------------------------------------------------------
 
+-- | Codegen-time diagnostics. Surfaced by `llmll build` (Main.hs prints each
+-- as "WARNING: ..." and buildResultJson carries them in the JSON envelope).
+--
+-- WASI-RT: the only current warning is wasi.http.post, whose preamble body is
+-- a stderr-diagnosed stub rather than a network call. Diagnosing at codegen as
+-- well as at run time means a program that posts is told so before it runs,
+-- not only while it runs.
 stmtWarnings :: Statement -> [Text]
-stmtWarnings _ = []
+stmtWarnings s
+  | any (callsName "wasi.http.post") (stmtExprs s) =
+      [ "wasi.http.post has no network runtime in the Haskell backend; the \
+        \generated body writes a diagnostic to stderr and performs no request." ]
+  | otherwise = []
+
+-- | Every expression directly held by a statement. Bodies only — types,
+-- contracts and patterns carry no applied names that primEffect would reach.
+stmtExprs :: Statement -> [Expr]
+stmtExprs s = case s of
+  SDefLogic{}     -> [defLogicBody s]
+  SDef{}          -> [defBody s]
+  SDefShell{}     -> defShellBody s : defShellDecreases s
+  SDefInvariant{} -> [defInvariantBody s]
+  SLetrec{}       -> [letrecDecreases s, letrecBody s]
+  SExpr e         -> [e]
+  SDefMain{}      -> catMaybes [ defMainInit s, Just (defMainStep s)
+                               , defMainRead s, defMainDone s, defMainOnDone s ]
+  _               -> []
+
+-- | Does this expression apply the given name anywhere inside it?
+-- Total over the Expr grammar (Syntax.hs:218-231); a new constructor added
+-- without a case here is a -Wincomplete-patterns build failure, which is the
+-- intent.
+callsName :: Name -> Expr -> Bool
+callsName n = go
+  where
+    go e = case e of
+      EApp f args    -> f == n || any go args
+      EOp _ args     -> any go args
+      ELit _         -> False
+      EVar v         -> v == n
+      ELet binds b   -> any (\(_, _, x) -> go x) binds || go b
+      EIf c t f      -> go c || go t || go f
+      EMatch scr arms-> go scr || any (go . snd) arms
+      EPair a b      -> go a || go b
+      EHole _        -> False
+      EAwait x       -> go x
+      ELambda _ b    -> go b
+      EDo steps      -> any (\(DoStep _ x) -> go x) steps

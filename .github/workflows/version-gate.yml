@@ -117,6 +117,19 @@ jobs:
           LLMLL_BIN: stack exec llmll --
         run: bash ../scripts/doc_claims_gate.sh
 
+      # BUILD-GATE-1. Belongs in this job and not in version-gate: that job is
+      # deliberately Stack-free (see the header), and this gate's oracle is GHC.
+      # Cheap here because generated projects pin the same resolver as the
+      # compiler (lts-22.43, CodegenHs.hs emitStackYaml vs compiler/stack.yaml),
+      # so ~/.stack is already warm from the build step above. The one-time cost
+      # is `async` and `regex-tdfa`, which generated projects depend on and the
+      # compiler does not.
+      - name: Run end-to-end build gate (BUILD-GATE-1)
+        working-directory: compiler
+        env:
+          LLMLL_BIN: stack exec llmll --
+        run: bash ../scripts/build_smoke.sh
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

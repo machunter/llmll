@@ -1,0 +1,52 @@
+;; BUILD-GATE-1 fixture. Compiled end to end through GHC by
+;; scripts/build_smoke.sh on every CI run of the spec-roundtrip job.
+;;
+;; Purpose: this repository's corpus is a CHECK-ONLY corpus. Nothing in
+;; scripts/, .github/, compiler/test/, tools/ or the Makefile invoked
+;; `llmll build` before this fixture existed, so a program could typecheck
+;; clean and fail at GHC with nothing to catch it. Three independent defects
+;; of that shape were found in one release; WASI-RT was one of them.
+;;
+;; Every wasi.* builtin whose runtime lives in the codegen preamble is called
+;; here at least once. Adding a builtin to builtinEnv (TypeCheck.hs) without a
+;; preamble definition makes this file fail to build, which is the whole point.
+;; Keep the call set complete: the unit test in compiler/test/Spec.hs checks
+;; that definitions EXIST, and this fixture checks that they COMPILE TOGETHER
+;; against their real imports and dependency set.
+;;
+;; Deliberately has no sibling imports and no def-interface: a build gate over
+;; the preamble should fail for preamble reasons only. tools/llmll-driver/
+;; shell.llmll was the other candidate and was rejected for that reason, and
+;; because it calls only two of the seven names.
+
+(module smoke
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.fs   (capability read-write "/tmp"))
+  (import wasi.http (capability post :deterministic false))
+
+  (def-shell smoke-stdout [msg: string]
+    (wasi.io.stdout msg))
+
+  (def-shell smoke-stderr [msg: string]
+    (wasi.io.stderr msg))
+
+  (def-shell smoke-response [code: int body: string]
+    (wasi.http.response code body))
+
+  (def-shell smoke-read [path: string]
+    (wasi.fs.read path))
+
+  (def-shell smoke-write [path: string body: string]
+    (wasi.fs.write path body))
+
+  (def-shell smoke-delete [path: string]
+    (wasi.fs.delete path))
+
+  (def-shell smoke-post [url: string body: string]
+    (wasi.http.post url body))
+
+  ;; seq-commands is the Command monoid's <>; exercised so the gate covers
+  ;; composition, not only the leaf constructors.
+  (def-shell smoke-seq [path: string body: string]
+    (seq-commands (wasi.fs.write path body)
+                  (wasi.fs.delete path))))
