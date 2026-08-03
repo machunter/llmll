@@ -309,6 +309,18 @@ harnessAssumptions stmts
         \command the step returned. A program that receives an unexpected arm \
         \takes that arm rather than failing; exhaustive matching is what bounds \
         \the consequence. Assumed, not proved."
+      -- Strengthened per the professor's hazard 5. The arms are SHAPE-classes
+      -- admitted by shape non-redundancy, not per-command result types, so one
+      -- arm can have several unrelated producers. That is the cost of the
+      -- admissibility rule that keeps the arm set small, and it makes a
+      -- mispaired response more likely to be silently well-typed than the
+      -- sentence above alone suggests.
+      , "console harness (EFFECT-RESP arm set): Response arms are payload \
+        \shape-classes, not per-command result types, so a single arm may have \
+        \several unrelated producers (RCode carries an HTTP status, a process \
+        \exit code, and a clock reading). A response that is well-typed for the \
+        \arm is therefore not evidence that it came from the command the step \
+        \issued. Closed by CMD-A, which parameterises Command by its result."
       , "console harness (EFFECT-RESP RC-4): done? is evaluated on the state a \
         \step produced, and the command that same step returned is NOT \
         \performed. A final effect must be issued from a non-terminating step."

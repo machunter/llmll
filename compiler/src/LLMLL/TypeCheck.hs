@@ -158,6 +158,17 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
+  -- CAP-PROC (first operation, pulled forward into EFFECT-RESP's release): a
+  -- directory listing. It is here rather than in Phase 2 because it is the sole
+  -- producer of the RList arm below, and an arm no command can produce would be
+  -- declared surface with no runtime.
+  --
+  -- CAP-1 does NOT discriminate the capability verb. checkWasiCapability tests
+  -- `importPath imp == ns` and never reads importCapability, so this name lands
+  -- with exactly the authority wasi.fs.read has today and `(capability list …)`
+  -- would parse (Parser.hs pCapKind's CapCustom fallthrough) and be ignored.
+  -- Deliberately not faked here; routed as CAP-1-REAL.
+  , ("wasi.fs.list",       TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
   -- EFFECT-RESP (RC-1): the response channel's four constructors.
   --
@@ -179,6 +190,11 @@ builtinEnv = Map.fromList $
   , ("RText",              TFn [TString] (TCustom "Response"))
   , ("RCode",              TFn [TInt]    (TCustom "Response"))
   , ("RErr",               TFn [TString] (TCustom "Response"))
+  -- Fifth arm, settled Rev 5. Sole producer is wasi.fs.list above. A listing is
+  -- the one Phase 2 result shape that fails the file-indirection test: it cannot
+  -- be persisted and re-read without inventing a delimiter, and a filename may
+  -- contain a newline.
+  , ("RList",              TFn [TList TString] (TCustom "Response"))
   -- §13.11 Cryptographic operations (v0.6.1)
   -- Opaque primitives backed by real Haskell crypto in preamble.
   -- Correctness is outside the decidable fragment — classified as Asserted.

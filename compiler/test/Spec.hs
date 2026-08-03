@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel
-  , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
+  , computeEffectSummary, primEffect, encodeEff, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
@@ -14230,8 +14230,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- becomes wasi_fs_read.
         mangle       = T.replace "." "_"
 
-    it "builtinEnv declares exactly the seven wasi.* names this block covers" $
-      length wasiNames `shouldBe` 7
+    -- Count moved 7 -> 8 when CAP-PROC's wasi.fs.list landed. The FOLD below is
+    -- what does the work and is unchanged: it is the regression that would have
+    -- caught WASI-RT four names earlier. Only the count may move, and it moves
+    -- only when a name is added with a preamble body to match.
+    it "builtinEnv declares exactly the eight wasi.* names this block covers" $
+      length wasiNames `shouldBe` 8
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
@@ -14365,6 +14369,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "    ((RText s) (string-length s))"
           , "    ((RCode n) n)"
           , "    ((RErr e) 0)"
+          , "    ((RList ns) (list-length ns))"
           ]
 
     -- Exhaustiveness is what bounds the unchecked command-to-response pairing:
@@ -14380,8 +14385,28 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
       any (T.isInfixOf "RErr") (msgsOf (srcOf missing)) `shouldBe` True
 
-    it "a match on all four arms is accepted" $
+    it "a match on all five arms is accepted" $
       errsOf (srcOf allArms) `shouldBe` []
+
+    -- The fifth arm's own migration diagnostic. A program written against the
+    -- four-arm set is now non-exhaustive, and this is what tells its author so.
+    -- Population of such programs in-tree at the time the arm landed: one
+    -- (scripts/build-smoke/smoke.llmll), which is why the arm shipped now
+    -- rather than after the driver existed.
+    it "a match on the four PRE-Rev-5 arms is rejected, naming RList" $ do
+      let preRev5 = T.unlines
+            [ "    ((RNone) 0)"
+            , "    ((RText s) (string-length s))"
+            , "    ((RCode n) n)"
+            , "    ((RErr e) 0)"
+            ]
+      any (T.isInfixOf "RList") (msgsOf (srcOf preRev5)) `shouldBe` True
+
+    -- The payload binds at list[string], so list-length applies to it. Nothing
+    -- in TypeCheck needed changing for this; the constructor-pattern path
+    -- already threads the declared payload type into the arm's bindings.
+    it "the RList payload binds as a list[string]" $
+      errsOf (srcOf "    ((RList ns) (list-length ns))\n    (_ 0)") `shouldBe` []
 
     it "a wildcard arm is accepted" $
       errsOf (srcOf "    ((RNone) 0)\n    (_ 1)") `shouldBe` []
@@ -14403,13 +14428,76 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       [k | d <- errsOf src, Just k <- [diagKind d]]
         `shouldContain` ["sealed-type-redefinition"]
 
-    it "the value and type halves declare the same four constructors" $ do
+    it "the value and type halves declare the same constructors" $ do
       let valueHalf = sort [ n | n <- Map.keys builtinEnv
-                               , n `elem` ["RNone", "RText", "RCode", "RErr"] ]
+                               , n `elem` ["RNone", "RText", "RCode", "RErr", "RList"] ]
           typeHalf  = sort $ case Map.lookup "Response" builtinAliases of
                         Just (TSumType ctors) -> map fst ctors
                         _                     -> []
       typeHalf `shouldBe` valueHalf
+
+  -- -----------------------------------------------------------------------
+  -- CAP-PROC first operation: wasi.fs.list, the sole producer of RList.
+  --
+  -- Pulled forward out of Phase 2 into EFFECT-RESP's release because an arm no
+  -- command can produce is declared surface with no runtime, and this campaign
+  -- has already found four instances of that class (:read, :deterministic,
+  -- WASI-RT's four builtins, ReplayStatus). The arm and its producer ship
+  -- together or neither ships.
+  -- -----------------------------------------------------------------------
+
+  describe "CAP-PROC: wasi.fs.list" $ do
+
+    let preambleText = T.unlines runtimePreamble
+
+    it "builtinEnv types it string -> Command" $
+      Map.lookup "wasi.fs.list" builtinEnv
+        `shouldBe` Just (TFn [TString] (TCustom "Command"))
+
+    -- POSITIVE WITNESS for the EFsRead decision. primEffect's fallthrough at
+    -- the "wasi." prefix maps any unrecognized wasi.* name to Unbounded, and
+    -- joinEff makes Unbounded absorbing, so a missing clause here would make
+    -- every transitive caller report unbounded authority and the effect summary
+    -- vacuous. This test FAILS (returning Unbounded) without the clause.
+    it "primEffect maps it to EFsRead, not Unbounded" $ do
+      primEffect "wasi.fs.list" `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.list" `shouldNotBe` Just Unbounded
+
+    -- Deliberate coarsening, not an oversight. Effect lattices are
+    -- join-semilattices and coarsening is sound by construction; the
+    -- enumeration-vs-read distinction language-team wanted is authority
+    -- amplification, a property of value flow that no EffectLabel granularity
+    -- can express. Sigma_eff stays closed at six labels.
+    it "shares EFsRead with wasi.fs.read rather than taking a seventh label" $ do
+      primEffect "wasi.fs.list" `shouldBe` primEffect "wasi.fs.read"
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+
+    it "the preamble defines wasi_fs_list" $
+      T.isInfixOf "wasi_fs_list :: String -> IO ()" preambleText `shouldBe` True
+
+    -- listDirectory, not getDirectoryContents: the former already omits "."
+    -- and "..", so the exclusion is a property of the primitive rather than a
+    -- filter that could regress silently.
+    it "uses listDirectory, so . and .. are excluded by the primitive" $ do
+      T.isInfixOf "listDirectory path" preambleText `shouldBe` True
+      T.isInfixOf "getDirectoryContents" preambleText `shouldBe` False
+
+    -- Not cosmetic. listDirectory's order is filesystem-dependent, so an
+    -- unsorted listing makes the event log machine-dependent for identical
+    -- inputs and `llmll replay` reads that as divergence the program did not
+    -- cause.
+    it "sorts the listing, so the event log is machine-independent" $
+      T.isInfixOf "return (RList (sort entries))" preambleText `shouldBe` True
+
+    -- Verified at run time during implementation across three cases: a
+    -- directory with two files yields RList n=2; an EMPTY directory yields
+    -- RList n=0 and takes the RList arm, NOT RNone; a missing directory yields
+    -- RErr and the process exits 0. The empty case is the one that matters:
+    -- RNone is what llmll_reset_response leaves in the slot, so collapsing the
+    -- two would make a successful empty listing indistinguishable from a
+    -- command that published nothing.
+    it "publishes through llmll_publish_io, so an IO failure is RErr not a crash" $
+      T.isInfixOf "wasi_fs_list path = llmll_publish_io" preambleText `shouldBe` True
 
   describe "EFFECT-RESP: the console harness (RC-1..RC-4)" $ do
 
@@ -14559,7 +14647,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- EXHAUSTIVENESS, which is what bounds the pairing residue.
     it "buildAliasMap resolves Response even with no STypeDef in the module" $
       Map.lookup "Response" (buildAliasMap []) `shouldSatisfy` \m -> case m of
-        Just (TSumType ctors) -> length ctors == 4
+        Just (TSumType ctors) -> length ctors == 5   -- Rev 5 added RList
         _                     -> False
 
     it "a module's own aliases still win the union" $ do
@@ -14583,9 +14671,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let as = harnessAssumptions stmts
-          length as `shouldBe` 2
+          length as `shouldBe` 3
           any (T.isInfixOf "not typed against the command") as `shouldBe` True
           any (T.isInfixOf "RC-4") as `shouldBe` True
+          -- Third sentence added on the professor's hazard 5: the arms are
+          -- shape-classes, so one arm can have several unrelated producers and
+          -- a well-typed response is not evidence of correct pairing. The
+          -- two-sentence disclosure understated the residue once RCode came to
+          -- carry a status, an exit code, and a clock reading.
+          any (T.isInfixOf "shape-classes") as `shouldBe` True
 
     it "a library module carries none" $
       harnessAssumptions [SDefLogic "f" [] Nothing

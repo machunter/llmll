@@ -258,6 +258,10 @@ builtinAliases = Map.fromList
       , ("RText", Just TString)
       , ("RCode", Just TInt)
       , ("RErr",  Just TString)
+      -- Rev 5. Payload is list[string], which reflects to the opaque FQList
+      -- carrier, so a body matching this arm falls back exactly as any
+      -- list-mentioning body does. No fragment widening.
+      , ("RList", Just (TList TString))
       ])
   ]
 

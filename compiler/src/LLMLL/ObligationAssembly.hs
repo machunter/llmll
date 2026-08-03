@@ -20,6 +20,8 @@ module LLMLL.ObligationAssembly
   , EffectSummary(..)
     -- * Helpers
   , computeEffectSummary
+  , primEffect          -- exported for the CAP-PROC label tests: a missing clause
+                        -- silently degrades to Unbounded and the summary goes vacuous
   , encodeEff
   , exprToSExpr
   , substExpr           -- α-rename a refinement predicate (OBLIG-1 assumptions wire + REFINE-REUSE)
@@ -420,7 +422,16 @@ primEffect :: Name -> Maybe EffectSummary
 primEffect n
   | n == "wasi.io.stdout"   || n == "wasi.io.stderr"   = one EStdout
   | n == "wasi.http.response" || n == "wasi.http.post" = one ENetHttp
-  | n == "wasi.fs.read"                                = one EFsRead
+  -- wasi.fs.list shares EFsRead rather than taking a seventh label. Effect
+  -- lattices are join-semilattices and coarsening is sound by construction, so
+  -- merging enumeration into the read label over-approximates correctly. The
+  -- distinction language-team wanted (listing REVEALS paths, reading requires
+  -- already knowing one) is authority amplification, a property of value flow
+  -- rather than of operation occurrence, and no choice of EffectLabel
+  -- granularity can express it: Sigma_eff has no notion of what an operation
+  -- returns. Recorded as a known asymmetry; the Response arm set distinguishes
+  -- RText from RList while this catalog does not.
+  | n == "wasi.fs.read"     || n == "wasi.fs.list"     = one EFsRead
   | n == "wasi.fs.write"    || n == "wasi.fs.delete"   = one EFsWrite
   | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
   | n == "random-int"                                  = one ERandom

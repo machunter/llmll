@@ -54,6 +54,9 @@
   (def-shell smoke-post [url: string body: string]
     (wasi.http.post url body))
 
+  (def-shell smoke-list [path: string]
+    (wasi.fs.list path))
+
   ;; seq-commands is the Command monoid's <>; exercised so the gate covers
   ;; composition, not only the leaf constructors.
   (def-shell smoke-seq [path: string body: string]
@@ -74,7 +77,10 @@
       ((RNone)     (pair (+ s 1) (wasi.io.stdout input)))
       ((RText t)   (pair (+ s 1) (wasi.io.stdout t)))
       ((RCode n)   (pair (+ s 1) (wasi.io.stdout (int-to-string n))))
-      ((RErr e)    (pair (+ s 1) (wasi.io.stderr e)))))
+      ((RErr e)    (pair (+ s 1) (wasi.io.stderr e)))
+      ;; Fifth arm. Its payload is a list[string], so this arm also pins that a
+      ;; list-typed response payload survives codegen into the generated match.
+      ((RList ns)  (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length ns)))))))
 
   (def-shell smoke-done? [s: int] -> bool (>= s 3))
 

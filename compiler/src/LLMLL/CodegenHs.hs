@@ -159,7 +159,11 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   ] ++
   -- Hackage imports from haskell.* declarations
   map hackageImportLine hackagePkgs ++
-  [ "import Data.List (isPrefixOf, intercalate, nub)"
+  -- `sort` normalises wasi_fs_list's output. listDirectory's order is
+  -- filesystem-dependent, so without it the same program on the same inputs
+  -- produces a different event log on a different machine and `llmll replay`
+  -- reports divergence the program did not cause.
+  [ "import Data.List (isPrefixOf, intercalate, nub, sort)"
   , "import Data.Char (ord, chr)"
   , "import qualified Data.Map.Strict as Map"
   , "import System.IO (hPutStr, hPutStrLn, stderr)"
@@ -173,7 +177,10 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- and `when` to make the guard a no-op rather than an exception on a
   -- missing path. `evaluate` (above) is what keeps wasi_fs_read from being
   -- a lazy no-op; it was already in scope.
-  , "import System.Directory (doesFileExist, removeFile)"
+  -- listDirectory, not getDirectoryContents: it already omits "." and "..",
+  -- so the exclusion is a property of the primitive rather than a filter that
+  -- would need its own test.
+  , "import System.Directory (doesFileExist, removeFile, listDirectory)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
@@ -429,6 +436,7 @@ runtimePreamble =
   , "  | RText String"
   , "  | RCode Integer"
   , "  | RErr String"
+  , "  | RList [String]"
   , "  deriving (Eq, Show)"
   , ""
   , "{-# NOINLINE llmll_response_slot #-}"
@@ -514,6 +522,21 @@ runtimePreamble =
   , "  contents <- readFile path"
   , "  _ <- evaluate (length contents)"
   , "  return (RText contents)"
+  , ""
+  -- CAP-PROC, first operation. The `sort` is not cosmetic: listDirectory's
+  -- order is filesystem-dependent, and an unsorted listing makes the event log
+  -- machine-dependent for identical inputs, which `llmll replay` reads as
+  -- divergence. listDirectory already omits "." and "..".
+  --
+  -- An empty directory yields `RList []`, NOT RNone. The distinction matters:
+  -- RNone is what llmll_reset_response leaves in the slot, so collapsing them
+  -- would make a successful empty listing indistinguishable from a command that
+  -- published nothing.
+  , "wasi_fs_list :: String -> IO ()"
+  , "wasi_fs_list path = llmll_publish_io $ do"
+  , "  entries <- listDirectory path"
+  , "  _ <- evaluate (length entries)"
+  , "  return (RList (sort entries))"
   , ""
   -- No network runtime in this backend. A real body needs http-client plus TLS
   -- in every generated project's dependency set, which is a material expansion
