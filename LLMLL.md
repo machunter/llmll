@@ -1950,7 +1950,7 @@ The checkout response includes four optional fields (present when the compiler h
 
 These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report`.
 
-**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, and calls into a module not loaded). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. Obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
+**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, calls into a module not loaded, and `wasi.proc.run`, which runs an arbitrary program and can therefore reach anything the catalog names and more). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. Obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
 **Pointer normalization:** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
 
@@ -2447,6 +2447,10 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path |
 | `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below) |
 | `wasi.fs.list` | `string -> Command` | `(import wasi.fs (capability read PATH))` | List directory entries at path, sorted |
+| `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
+| `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
+| `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
+| `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds |
 | `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order |
 
 > **What a `Command` returns.** A `Command` value is not the result of an effect; it is a request to
@@ -2459,11 +2463,25 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > missing directory as `RErr`. The `cli` and `http` harnesses perform no command and deliver no
 > response.
 >
+> `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
+> `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as
+> `RCode` — with a budget overrun, a missing executable, or any IO failure arriving as `RErr`.
+>
+> **`wasi.proc.run` takes an executable and an argument vector, never a shell string**, so no
+> metacharacter in argv is interpreted. Its `capability exec` clause makes the set of programs a
+> module can invoke readable from the module header. Like every other capability clause it is **not
+> enforced** (§7), and even once enforced it would bound *which program runs*, never what that
+> program is told to do: where the named program interprets its arguments as instructions, the
+> authority delivered through argv is unbounded. `wasi.clock.monotonic` reads a clock whose epoch is
+> unspecified, so only differences of two readings taken in the same process are meaningful; a
+> reading persisted to a file and read back returns as a string, and nothing in the type system can
+> observe the round trip.
+>
 > Two limits that remain. `wasi.http.post` has **no network runtime in the Haskell backend**: it
 > writes a diagnostic to stderr, performs no request, and `llmll build` warns at codegen when a
-> program calls it. And the "sensitive command triggers human review" behavior on `wasi.fs.delete` is
-> **not implemented**; there is no guarded mode (§9.4). Both are tracked in
-> [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
+> program calls it. There is no `wasi.http.get`. And the "sensitive command triggers human review"
+> behavior on `wasi.fs.delete` is **not implemented**; there is no guarded mode (§9.4). All are
+> tracked in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 **Example: Using multiple commands**
 
@@ -2548,10 +2566,26 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 | `sha1` | `bytes[20] → bytes[20]` | FIPS 180-4 (SHA-1) | Input is `bytes[20]`, output is 20-byte hash. |
 
 > [!IMPORTANT]
-> **Implementation note:** The preamble SHA-1 implementation in `CodegenHs.hs` is a **simplified stub** (polynomial hash, not a faithful SHA-1). The trust report correctly classifies all functions depending on these builtins as `asserted`. For production use, replace the preamble with a real Haskell crypto library (`crypton` or `cryptohash-sha1`). The comment at `CodegenHs.hs` line 370 marks this.
+> **Implementation note:** The preamble SHA-1 implementation in `CodegenHs.hs` is a **simplified stub** (polynomial hash, not a faithful SHA-1). The trust report correctly classifies all functions depending on these builtins as `asserted`. For production use, replace the preamble with a real Haskell crypto library (`crypton` or `cryptohash-sha1`). The `sha1_hash` binding in `CodegenHs.hs`'s runtime preamble carries a comment marking this. (`cryptohash-sha256` is already a dependency of every generated project, added for `wasi.fs.sha256`, so the sibling `cryptohash-sha1` costs no resolver movement.)
 
 > [!NOTE]
-> **Extensible namespace.** `§13.11` is designed as an extensible section. Future builtins (`sha256`, `aes-128-cbc`, etc.) follow the same pattern: opaque primitive with concrete `bytes[N]` types, backed by a real Haskell crypto library in the preamble. Variable-length byte types (`bytes` without a length parameter) are deferred.
+> **Extensible namespace.** `§13.11` remains extensible for primitives whose inputs carry a
+> statically known length: an opaque primitive with concrete `bytes[N]` types, backed by a real
+> Haskell crypto library in the preamble. Variable-length byte types (`bytes` without a length
+> parameter) are deferred.
+>
+> **`sha256` was expected here and landed elsewhere.** It ships as `wasi.fs.sha256` in §13.9, a
+> `Command` over a *path* rather than a pure function over `bytes[N]`, because `bytes[N]` requires a
+> literal type-level length and a file's length is not statically known. Hashing therefore happens
+> inside the sealed builtin, on the file's bytes. The distinction is not cosmetic: composing
+> `wasi.fs.read` with a pure hash would hash locale-decoded **text**, and a file that is not valid
+> UTF-8 does not survive that read at all.
+>
+> **The two sections now differ in what they deliver.** `wasi.fs.sha256` is backed by
+> `cryptohash-sha256` and is a real SHA-256, pinned by a known-answer test against the FIPS 180-4
+> vector. `sha1` and `hmac-sha1` in this section are **stubs** and remain so: the preamble body is a
+> polynomial rolling hash with no preimage or collision resistance, and `hmac-sha1` is built entirely
+> from it. Neither is fit for any security purpose. Tracked as `CRYPTO-1`.
 
 > [!IMPORTANT]
 > **Stub-backend trust-tier annotation.** Distribution builds intended for production use **must** replace the preamble `sha1` / `hmac-sha1` stub in `CodegenHs.hs` with a verified crypto backend (`crypton` or `cryptohash-sha1`). The trust report annotates dependencies on these builtins as `asserted-with-stub-backend` until backend replacement is verified — a machine-readable signal distinguishing "asserted because the algorithm is opaque" (the diamond-lattice `asserted` tier per §4.4.1) from "asserted with a known-incorrect runtime implementation" (the additional stub-backend caveat). The symbols `sha1` and `hmac-sha1` retain their RFC 2104 / FIPS 180-4 contract names — they are not renamed to `sha1_stub` — because the contract is the standards specification; the stub status is an implementation defect documented in the trust report for downstream consumer transparency.

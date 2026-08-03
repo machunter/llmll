@@ -835,8 +835,15 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
 | `string-char-at` | `string int → string` | Single character at index. Returns `""` for negative or out-of-bounds indices. |
 | `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total).  |
-| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 HMAC-SHA1. Opaque — trust level is `asserted`. |
-| `sha1` | `bytes[20] → bytes[20]` | SHA-1 hash. Preamble is a stub — see LLMLL.md §13.11. |
+| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 shape. **Built entirely from the `sha1` stub below, so it is a stub too** — see LLMLL.md §13.11. Trust level is `asserted`. |
+| `sha1` | `bytes[20] → bytes[20]` | **Not SHA-1.** The preamble body is a polynomial rolling hash with no preimage or collision resistance — see LLMLL.md §13.11. Not fit for any security purpose. |
+
+> [!NOTE]
+> `sha256` is **not** in this table. It ships as the command constructor `wasi.fs.sha256`
+> (`string → Command`), which hashes a file's bytes inside the builtin and returns a hex digest as
+> `RText`. It is a real SHA-256. The reason it is not a prelude function over `bytes[n]` is that
+> `bytes[n]` needs a literal type-level length and a file's length is not statically known; see
+> LLMLL.md §13.11.
 
 ### 4.6 `def-main` Initialisation and Termination
 
@@ -1621,6 +1628,38 @@ A value reaching a `bytes[n]` parameter must come from a function that **declare
 ```
 
 The restriction exists because the verifier asserts a `bytes[n]` binder's length as a ground fact taken from its declared type, and discharges index-in-bounds obligations against it. An unannotated hop would let a `bytes[32]` satisfy a `bytes[64]` parameter, after which that false length proves an out-of-bounds read safe (`LLMLL.md §3.4.6`, WILD-ASSUME). Scalars, named holes, and `(map-empty)` are unaffected.
+
+### 4.17 A Nullary Command Constructor Is a Value, Not a Call
+
+`wasi.clock.monotonic` is the only command constructor that takes no arguments. Write it bare:
+
+```lisp
+(def-shell now [] -> Command
+  wasi.clock.monotonic)
+```
+
+The parenthesised form `(wasi.clock.monotonic)` is **also accepted** and emits the same code, so
+neither spelling is an error. Prefer the bare one: it matches how the nullary `Response` constructor
+`RNone` binds, and it does not read as an application of a zero-argument function, which LLMLL does
+not have.
+
+The reading arrives on the response channel as `RCode`, in nanoseconds:
+
+```lisp
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (match r
+    ((RCode ns) (pair (+ s 1) (wasi.io.stdout (int-to-string ns))))
+    ((RNone)    (pair (+ s 1) wasi.clock.monotonic))
+    ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
+    ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))
+    ((RList xs) (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length xs)))))))
+```
+
+> [!IMPORTANT]
+> **Only differences taken within one process run are meaningful.** The epoch is unspecified. If you
+> persist a reading with `wasi.fs.write` and read it back later, it returns as a string and is
+> re-parsed, so nothing in the type system can tell you the two readings share an origin. A duration
+> computed across a restart is meaningless and the compiler will not say so.
 
 ---
 
