@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.79)
+# LLMLL: Large Language Model Logical Language (v0.14.80)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.79.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.80.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -22,7 +22,7 @@ LLMLL's operational semantics are defined by the generated Haskell program. The 
 4a. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment (QF-LIA) are verified at compile time via liquid-fixpoint / Z3; contracts outside that fragment are enforced as runtime assertions and flagged with `?proof-required`. An interactive proof path (Lean 4 via Leanstral) is designed but not yet shipped (see §5.3.3). Each contract clause carries a *display level* — `verified`, `contract-checked`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.
 4b. **Transitive Trust Propagation:** Trust levels propagate through call chains: no `verified` conclusion rests silently on an `asserted` assumption. A function's effective display level is the lattice meet of its own level and all transitively reachable callees' levels.
 5. **Compositional Verification:** Verification extends beyond isolated functions. When a function calls a contracted callee, the verifier proves the caller satisfies the callee's precondition and assumes the callee's postcondition holds (assume-guarantee reasoning). This enables body-faithful verification across multi-function call chains without inlining. Recursive cycles are verified compositionally via the mutual-recursion assume-guarantee rule at **partial** correctness (termination unverified — §4.3), not contract-only.
-6. **Capability-Based Security:** Programs have zero access to the system unless explicitly granted via a `capability` import, enforced at compile time. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. See §7 for the sandbox implementation.
+6. **Declared Effect Namespaces:** A module reaches no part of the system it has not imported, and the compiler rejects a `wasi.*` call whose namespace the calling module did not declare. Imports are non-transitive, so every module states its own reach. The `capability` clause on an import records the intended verb and target but is **not yet enforced** (§7); the checked property is namespace declaration, not least authority. Every side effect is modeled as a `Command` value returned from pure logic, never performed directly, and what performing it produced comes back as a `Response` (§9.7). See §7 for the sandbox implementation and the enforcement gap.
 
 ---
 
@@ -142,8 +142,11 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | `Promise[t]` | Pending async value | `Promise[ImageBytes]` |
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
 | `Command` | An IO effect (see §9) | _(constructed via capability constructors only)_ |
+| `Response` | What performing a `Command` produced (see §9.7) | `(match r ((RText t) …))` |
 
-> `Command` is opaque — only produced by the standard command constructors (§13.9). Currently emitted as Haskell `IO ()`. Capability enforcement (§7) requires a matching `(import wasi.* (capability ...))` for any `wasi.*` call.
+> `Command` is opaque: it is only produced by the standard command constructors (§13.9), and is currently emitted as Haskell `IO ()`. Calling any `wasi.*` constructor requires that the module declare that namespace (§7).
+
+> `Response` is a builtin sum type with five arms (`RNone`, `RText string`, `RCode int`, `RErr string`, `RList list[string]`). Unlike `Command` it is transparent: a program matches on it to consume an effect's result. It is supplied by the console harness as the third argument to `:step` and is never constructed by user code.
 
 > `bytes[n]` and `map[k,v]` have a builtin operation family — indexing, update, presence, construction — catalogued in §13.12.
 
@@ -1111,13 +1114,25 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority. Non-transitive capability enforcement is implemented in [`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs) and verified by the capability test fixtures in [`compiler/test/fixtures/`](compiler/test/fixtures/).
+`llmll` programs run in a sandbox and reach the outside world only through declared `import` statements. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` with WASM-WASI planned as a future deployment target.
+
+**What the compiler checks, exactly.** When a `wasi.*` function is called, the type checker verifies that the calling module declares an import for that function's **namespace**, the first two segments of its dotted path. Calling `wasi.fs.read` requires `(import wasi.fs)` in that module. The check is non-transitive: module B importing module A does not inherit A's `wasi` imports, so each module re-declares what it reaches. It is implemented as `checkWasiCapability` in [`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs) and exercised by the capability fixtures in [`compiler/test/fixtures/`](compiler/test/fixtures/).
 
 ```lisp
 (module cloud-storage
   (import wasi.fs (capability read-write "/data"))
   (import wasi.http       (capability post "https://api.logging.com")))
 ```
+
+> [!WARNING]
+> **The `capability` clause is currently declarative, not enforced, and this section claimed otherwise for a long time.** The checker reads the import *path* and nothing else. Four consequences hold today:
+>
+> 1. A bare `(import wasi.fs)` **with no `capability` clause at all** authorizes every `wasi.fs.*` call. The clause is not required, even though the missing-import diagnostic asks for one.
+> 2. The granted **verb** is not checked. `(capability read "/data")` authorizes `wasi.fs.write` and `wasi.fs.delete`.
+> 3. The granted **target** is not checked, at compile time or at run time. `(capability read-write "/data")` does not confine anything to `/data`, and a computed path is unconstrained.
+> 4. Any unrecognized verb parses and is ignored.
+>
+> So the property that holds is **module-scoped declaration of effect namespaces**, which is real and useful for auditing, and it is weaker than least authority. Earlier revisions of this section named the principle of least authority and §9.4 described a runtime `CapabilityError`; neither is earned. Whether LLMLL should adopt object-capabilities, enforce the verb statically, or route the target through the contract channel is an open design question tracked as `CAP-1-REAL` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). Write the clause anyway: it is the declaration a future enforcing checker will read, and it is what the effect summary (§11.2) and reviewers use today.
 
 Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-log capture for replay:
 
@@ -1480,14 +1495,17 @@ If a single logic step must emit multiple side effects, use `seq-commands` to co
 (seq-commands cmd1 (seq-commands cmd2 cmd3))
 ```
 
+**`seq-commands` is discard-left on the response channel.** A composed command performs both effects but yields only the **right** operand's `Response` (§9.7); the left operand's is overwritten. This follows from the composition being `a >> b`. A step that needs the left command's result must return that command alone and consume its response on the next turn.
+
 ### 9.4 Runtime Execution Loop
 
 The LLMLL host runtime processes each `Command` as follows:
 
-1. **Verify** permissions against the module's declared `capability` list. A command without a matching capability raises a `CapabilityError` and halts.
-2. **Intercept** sensitive commands (e.g., `wasi.fs.delete`) for human/Lead-AI review if the module is running in guarded mode.
-3. **Execute** the physical IO via the OS.
-4. **Feed** the result (`Success` or `Error`) back as the next `Input` to the logic.
+1. **Execute** the physical IO via the OS.
+2. **Feed** the outcome back to the logic as a `Response` (§9.7), which the next `:step` receives as its third argument. `wasi.fs.read` yields the file's contents as `RText`, and an IO failure yields `RErr` rather than raising.
+
+> [!IMPORTANT]
+> **Authority is checked at compile time, not here.** Two steps that earlier revisions of this section described are **not implemented**, and the runtime performs neither. There is no runtime permission check and no `CapabilityError`: `CodegenHs` emits no capability code at all. There is no guarded mode and no interception of sensitive commands such as `wasi.fs.delete`. What the compiler does enforce is described in §7, and it is narrower than that section long claimed. This gap is tracked as `CAP-1-REAL` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 ### 9.5 Entry Point Declaration (`def-main`)
 
@@ -1497,12 +1515,14 @@ The LLMLL host runtime processes each `Command` as follows:
 
 ```lisp
 (def-main
-  :mode    (console | cli | http PORT)   ;; required — selects the harness template
+  :mode    (console | cli | http PORT)   ;; required, selects the harness template
   :init    init-expr                      ;; returns (State, Command) pair
-  :step    step-fn                        ;; (State, String) -> (State, Command)
+  :step    step-fn                        ;; console: (State, string, Response) -> (State, Command)
   :done?   done-pred                      ;; State -> Bool (optional; console only)
   :on-done on-done-fn)                    ;; State -> Command (optional)
 ```
+
+A console `:step` takes **three** parameters. Declaring two, one, or a wrong third type is rejected with `def-main-step-arity`. The `cli` and `http` harnesses perform no command and so deliver no response; their `:step` is unchanged at `(State, string) -> (State, Command)`.
 
 #### Modes
 
@@ -1529,49 +1549,58 @@ The LLMLL host runtime processes each `Command` as follows:
   :done? is-game-over?)
 ```
 
-#### The `:on-done` hook — avoiding double-render
+#### The `:on-done` hook, and the terminating step
 
 > [!IMPORTANT]
-> **`:on-done` is the canonical place to print end-of-game messages.**
+> **`:on-done` is the canonical place to print end-of-game messages**, and since RC-4 it is the
+> *only* place that works.
 
-When `:step` prints a board *and* an end-game message in the same `Command`, the
-final board will appear **twice** on game-over:
+**The terminating step's command is not performed.** The harness evaluates `:done?` on the state a
+step produced, and when it returns `true` the loop settles without performing that step's `Command`:
 
-1. `:step` executes and prints `"You won!\n"`.
-2. The harness checks `:done?` — it is now `true`.
-3. The loop exits (or calls `:on-done`).
+1. `:step` runs and returns `(state', cmd)`.
+2. The harness checks `:done?` on `state'`. If `true`, `cmd` is **discarded**, `:on-done` is called,
+   and the loop exits.
+3. Otherwise `cmd` is performed, its `Response` is delivered to the next `:step` (§9.7), and the loop
+   continues.
 
-Because `:step` already ran its `Command` before `:done?` was checked, the output
-from step 1 is always visible. If `:step` prints a win/loss message on the **same
-turn it makes the game over**, that message will print once — but any
-`render-state` call embedded in the *next* iteration's check can double the board.
+This is what makes the response channel well defined: a response can only be delivered to a step that
+runs, and no step runs after the terminating one, so performing its command would produce a response
+with nowhere to go.
 
-**The fix:** move all terminal output for the final state into `:on-done`.
+The consequence for output is direct. A `:step` that renders the final board on the turn that ends
+the game renders nothing at all, because that turn's command is the one discarded. **Terminal output
+for the final state must move into `:on-done`.**
 
 ```lisp
-;; Anti-pattern — game-loop prints the end message as part of its Command.
-;; The harness then calls done? on the same state and the board may render
-;; a second time on the next loop iteration.
+;; Anti-pattern: game-loop renders the final board as part of its own Command.
+;; That command belongs to the terminating step, so it is discarded and the
+;; board is never printed.
 (def-main
   :mode console
   :init (start-game "hangman")
-  :step game-loop           ;; game-loop prints board AND "You won!" on win
+  :step game-loop           ;; renders board AND "You won!" on the winning turn
   :done? is-game-over?)
 
-;; Canonical pattern — game-loop prints the board only.
-;; show-result prints the final message exactly once, after the loop exits.
+;; Canonical pattern: game-loop renders only on turns that continue.
+;; show-result renders the final state exactly once, after the loop settles.
 (def-main
   :mode console
   :init   (start-game "hangman")
-  :step   game-loop         ;; only prints the board on every turn
+  :step   game-loop         ;; renders the board on every non-final turn
   :done?  is-game-over?
-  :on-done show-result)     ;; prints "You won!" or "Game over!" exactly once
+  :on-done show-result)     ;; renders the final board and "You won!" / "Game over!"
 ```
 
-`show-result` has signature `State -> Command`. It is called with the final state
-immediately before the loop exits. Output produced by `:on-done` appears **after**
-the last `:step` output and **exactly once**, regardless of how many times
-`:done?` is checked.
+`show-result` has signature `State -> Command`. It is called with the final state immediately before
+the loop exits. Output produced by `:on-done` appears **after** the last performed `:step` command
+and **exactly once**, regardless of how many times `:done?` is checked.
+
+> [!WARNING]
+> Before this rule, the terminating step's command *was* performed, and the hazard this section
+> described was the opposite one: a final message rendered twice. Programs written against that
+> behavior lose their last render rather than duplicating it. The four game examples under
+> `examples/` have not yet been repaired and are known to be affected.
 
 In JSON-AST:
 
@@ -1603,13 +1632,77 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 - **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
 - **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def`/`def-shell` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`.
 - **Called functions need an explicit return-type annotation to be usable in a step.** Type inference for `do`-steps works in synthesis mode per step rather than resolving through unification: calling an unannotated `def`/`def-shell` function (no `-> RetType`) as a step infers `?` for its result and fails with `do-step-type-error`, even though the identical call outside a `do`-block, or with an explicit `-> (S, Command)` on the callee, type-checks fine. Give every function called from inside a `do`-block an explicit return-type annotation.
-- **Intermediate commands are silently discarded by default.** Non-final steps' `Command` components are bound but not executed unless explicitly wrapped in `seq-commands` (see §9.3) or the future `(discard cmd)` marker. This is a known surprise relative to monadic `do`-notation in other languages where the point of sequencing is to execute effects in order. **In LLMLL `def`/`def-shell`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** Generated code that looks effectful can silently drop effects unless the agent uses `seq-commands` or returns the intermediate `Command` value in the final tuple. This is planned to tighten to a warn-or-error on non-final `Command`-typed binds without explicit-discard wrapping; the syntactic surface is preserved during the warning phase.
+- **A dropped intermediate command must be declared (DISCARD-1).** A non-final step's `Command` component is bound but not executed. Because that is a surprise relative to monadic `do`-notation in other languages, where the point of sequencing is to execute effects in order, dropping one is an **error** unless the step carries an explicit `:discard` marker. **In LLMLL `def`/`def-shell`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** The three ways to write a non-final step are: wrap the command in `seq-commands` (see §9.3) so it reaches the block's result, return it in the final tuple, or mark the step `:discard` to state that dropping it is intended. Code that looks effectful can no longer silently drop effects; it either sequences them or says it is discarding them.
+
+  ```lisp
+  (do
+    [s1 <- (pair s0 (wasi.io.stdout "a")) :discard]
+    (pair s1 (wasi.io.stdout "b")))
+  ```
+
+  The marker rides the **bracketed** step form only. A step that wants to discard its command and does not need the state binding writes `[_ <- (expr) :discard]`. It is rejected on a **final** step, whose `Command` is the block's result and is therefore never dropped.
+
+  Note that the two discards a step can perform are orthogonal and both are explicit: omitting the binder (`(expr)` rather than `[s <- (expr)]`) discards the **state** component, and `:discard` declares that the **command** component is dropped.
 
 > [!WARNING]
 > Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s <- (expr)]` to thread modified states properly.
 
 
 ---
+
+### 9.7 The Response Channel
+
+A `Command` carries an effect. A `Response` carries what performing it produced. Together they close
+the loop: a console program can read a file, receive its contents, and branch on them, without any
+function ever performing IO.
+
+`Response` is a builtin sum type with five arms:
+
+| Arm | Payload | Produced by |
+|-----|---------|-------------|
+| `RNone` | none | a command with no observable result (`wasi.io.stdout`, `wasi.io.stderr`) |
+| `RText string` | the text produced | `wasi.fs.read` |
+| `RCode int` | a numeric outcome | operations whose result is a status or code |
+| `RErr string` | the failure message | any command whose IO failed |
+| `RList list[string]` | the entries produced | `wasi.fs.list` |
+
+```lisp
+(def-shell read-step [s: int input: string r: Response] -> (int, Command)
+  (match r
+    ((RNone)     (pair s (wasi.fs.read "/tmp/data")))
+    ((RText t)   (pair (string-length t) (wasi.io.stdout t)))
+    ((RErr e)    (pair s (wasi.io.stderr e)))
+    ((RCode n)   (pair n (wasi.io.stdout "")))
+    ((RList ns)  (pair (list-length ns) (wasi.io.stdout "")))))
+```
+
+**Delivery rules.**
+
+- **One response per performed command.** A step receives the response to the command *it* returned
+  on the previous turn, never a stale one. The response slot is cleared before each command is
+  performed and read after.
+- **`:init` supplies the first response.** The command in `:init`'s `(State, Command)` pair is
+  performed like any other, and its response reaches the first `:step`. A program with no `:init`
+  starts at `RNone`.
+- **`seq-commands` is discard-left.** A composed command yields the right operand's response (§9.3).
+- **The terminating step's command is not performed**, so it produces no response (§9.5).
+
+**Arms classify shape, not provenance.** `Response` says what kind of value came back, not which
+command produced it. `RCode` therefore carries HTTP statuses, process exit codes, and clock readings
+alike, and a program that needs to know which of several commands a response belongs to records that
+in its own state, where the coupling is visible in the program's type rather than implicit in the
+harness. An arm is admissible when it names a payload *shape* that no existing arm can carry; naming
+an arm after the capability that produced it is not admissible.
+
+**Bulk payloads travel through the filesystem, not through an arm.** An operation whose result is
+large writes it to a path and returns the path, which keeps the arm set small at the cost of leaving
+that payload out of the event log. That cost is accepted deliberately and is tracked as
+`REPLAY-INJECT` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
+
+> [!NOTE]
+> Matching on `Response` is outside the body-faithful verification fragment, exactly as matching on
+> any payload-carrying sum type is (§5.3.5). A `def` that matches on it falls back to contract-only
+> verification. This is a pre-existing Σ_auto boundary rather than anything specific to `Response`.
 
 ## 10. Compilation & Execution Pipeline
 
@@ -2066,7 +2159,6 @@ def-main    = "(" "def-main"
                 ":mode" ( "console" | "cli" | "(" "http" INT ")" )
                 [ ":init"    expr ]
                 ":step"     expr
-                [ ":read"    expr ]
                 [ ":done?"   expr ]
                 [ ":on-done" expr ]
               ")" ;
@@ -2122,8 +2214,10 @@ op          = "(" OP { expr } ")" ;
 pair        = "(" "pair" expr expr ")" ;
 await       = "(" "await" expr ")" ;
 do          = "(" "do" { do-step } ")" ;
-do-step     = "[" IDENT "<-" expr "]"        (* named: bind state component *)
-            | expr ;                           (* anonymous: discard state     *)
+do-step     = "[" IDENT "<-" expr [ ":discard" ] "]"  (* named: bind state component *)
+            | expr ;                                    (* anonymous: discard state    *)
+            (* ":discard" declares that a NON-FINAL step's Command is dropped;
+               it rides the bracketed form only and is rejected on the final step. *)
 lambda      = "(" "fn" "[" { typed-param } "]" expr ")" ;
 
 qual-ident  = IDENT { "." IDENT } ;   (* e.g., wasi.io.stdout *)
@@ -2351,20 +2445,25 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | POST body to URL |
 | `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path |
-| `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive** — triggers human review) |
-| `seq-commands` | `Command Command -> Command` | _(none — built-in)_ | Execute two commands in order |
+| `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below) |
+| `wasi.fs.list` | `string -> Command` | `(import wasi.fs (capability read PATH))` | List directory entries at path, sorted |
+| `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order |
 
-> **What a `Command` returns, and what it does not (v0.14.79).** `Command` is nullary: it carries an
-> effect, never a result. So `wasi.fs.read` performs the read and the contents are **not reachable
-> from the program**; `(string-length (wasi.fs.read p))` is a type error, not a value. The row above
-> says "read file at path" and means exactly that, no more. Two consequences worth stating rather
-> than leaving to be discovered. First, a program cannot branch on what it read, which is a property
-> of the effect type and not a gap in the builtin. Second, `wasi.http.post` has **no network runtime
-> in the Haskell backend**: it writes a diagnostic to stderr, performs no request, and `llmll build`
-> warns at codegen when a program calls it. Both are tracked as EFFECT-RESP and CAP-PROC in
-> [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). Before v0.14.79 these four
-> constructors had no runtime at all and a program calling one type-checked and then failed to
-> compile.
+> **What a `Command` returns.** A `Command` value is not the result of an effect; it is a request to
+> perform one. `(string-length (wasi.fs.read p))` is a type error, because `wasi.fs.read` evaluates to
+> a `Command`, not to the file's contents. The result arrives on the **response channel** instead: the
+> harness performs the command and hands what it produced to the next `:step` as a `Response`
+> (§9.7). A console program can therefore read a file and branch on its contents, with no function
+> performing IO. `wasi.fs.read` delivers contents as `RText` and an IO failure as `RErr`;
+> `wasi.fs.list` delivers entries as `RList`, an empty directory as `RList` with zero entries, and a
+> missing directory as `RErr`. The `cli` and `http` harnesses perform no command and deliver no
+> response.
+>
+> Two limits that remain. `wasi.http.post` has **no network runtime in the Haskell backend**: it
+> writes a diagnostic to stderr, performs no request, and `llmll build` warns at codegen when a
+> program calls it. And the "sensitive command triggers human review" behavior on `wasi.fs.delete` is
+> **not implemented**; there is no guarded mode (§9.4). Both are tracked in
+> [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 **Example: Using multiple commands**
 

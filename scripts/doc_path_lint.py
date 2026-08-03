@@ -109,11 +109,6 @@ ALLOW = {
      'design/rfc-swarm-roadmap-proposal.md'),
     ('docs/design/driver-in-llmll-campaign.md',
      'design/driver-in-llmll-campaign.md'),
-    # forward reference: the fixture is created by the DISCARD-1 commit, which
-    # the plan citing it specifies. DELETE THIS ROW when that commit lands;
-    # after it, the path resolves and the row would be masking a real check.
-    ('docs/design/driver-ll-phase01-implementation-plan.md',
-     'scripts/doc-claims/do-discard-on-final-step.llmll'),
     # gitignored by construction: .gitignore:25 excludes examples/**/*.verified.json,
     # so this path exists after a verify run and never in a fresh clone. The
     # citation is naming where the artifact appears, correctly.

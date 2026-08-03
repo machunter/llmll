@@ -4,6 +4,89 @@
 
 <a id="Latest"></a>
 
+## v0.14.80: an effect returns a value the program can branch on (2026-08-03)
+
+DRIVER-LL Phases 0 and 1, in three commits. Until this release a `Command` was nullary: a program
+could perform an effect and could not observe its result, so `wasi.fs.read` read a file that nothing
+downstream could see. A console `:step` now receives a `Response` carrying what the previous command
+produced, which is the property a driver cannot be written without. **Two breaking changes**, taken
+together rather than in two releases: the JSON-AST schema moves **0.9.0 to 0.10.0**, and every
+console `:step` gains a third parameter.
+
+### Changed, DISCARD-1 (breaking)
+
+A non-final `do` step whose `Command` is dropped must now say so with a `(discard ...)` marker;
+`checkDiscardedCommand` is promoted from warning to error, gated on the marker. The marker on a final
+step is rejected, since a final step's command is the block's result and is never dropped. `:read` is
+retired from `def-main`.
+
+- **JSON-AST schema 0.9.0 to 0.10.0**, with `$id` moved to `/schemas/v0.10/` in the same commit.
+- The re-scope from plain `P0-error` to `P0-marker` was user-adjudicated twice. The first adjudication
+  was put on a mis-described option (it cited a `seq-commands` escape hatch that is not reachable from
+  a `do`-step) and was re-put.
+
+### Added, EFFECT-RESP (breaking)
+
+A console `:step` takes `(state, input: string, response: Response)` and returns `(state, Command)`.
+`Response` has five arms: `RNone`, `RText string`, `RCode int`, `RErr string`, `RList list[string]`.
+
+- **RC-1, one response per performed command.** `performStep` clears the response slot before
+  performing and reads it after, so a step receives its own command's response and never a stale one.
+- **RC-2, `seq-commands` is discard-left.** `(seq-commands a b)` yields `b`'s response; `a`'s is
+  overwritten. This follows from the `Command` monoid's `a >> b` and needed no code.
+- **RC-3, `:init` supplies the first response.** There is no special initial case; init's command is
+  performed through the same path, and its output is not logged, as it was not before.
+- **RC-4, the terminating step's command is not performed.** `done?` is evaluated on the state a step
+  produced, so the step that ends the loop contributes no effect. **This changes observable output for
+  programs that rendered from the terminating step:** `examples/hangman_sexp` emits twelve fewer lines
+  on identical stdin, losing the final board while `:on-done` still fires. The repair is to render
+  from `:on-done`, which is the pattern RC-4 mandates. The four game examples are not yet repaired.
+- **`wasi.fs.read` returns contents as `RText`** and IO failure as `RErr` rather than raising.
+- Twelve programs migrated, six `.llmll` and six `.ast.json`. The migration's only diagnostic is the
+  new `def-main-step-arity` check, which fires on a two-parameter step, a one-parameter step, and a
+  wrong third type.
+- The trust report gains `harness_assumptions`. No `trust_report_version` bump.
+- **Σ_auto is unchanged.** All 151 corpus `.fq` files are byte-identical against a pre-EFFECT-RESP
+  compiler, including the twelve migrated programs, whose step functions already fell back on
+  `Command`. This was the campaign's Phase 1 STOP condition and it is cleared by measurement.
+
+### Added, CAP-PROC (first of six operations)
+
+`wasi.fs.list : string -> Command`, with `RList list[string]` as its response arm. Output is sorted,
+an empty directory yields `RList` with zero entries rather than `RNone`, and a missing directory
+yields `RErr`. It shares the `EFsRead` effect label rather than widening the closed six-label
+catalog, so `Response` is now strictly finer than `Σ_eff`: the arm set distinguishes `RText` from
+`RList` while both producers map to `fs.read`. Not a soundness defect (`effect_summary` is scoped
+informational and orthogonal to trust, `LLMLL.md §11.2`), recorded so it is not rediscovered.
+
+The arm set is settled under a four-part admissibility rule, so a later operation needing an arm that
+*fails* the rule is a design error rather than ordinary alphabet growth.
+
+### Fixed, spec disclosure
+
+- **`LLMLL.md §13.9`'s v0.14.79 note was inverted by this release.** It said a `Command` "carries an
+  effect, never a result", that `wasi.fs.read`'s contents are "not reachable from the program", and
+  that "a program cannot branch on what it read". All three are now false for console programs.
+  Rewritten rather than appended to.
+- **Four capability claims were never true.** `checkWasiCapability`
+  ([`TypeCheck.hs:1543-1553`](compiler/src/LLMLL/TypeCheck.hs)) tests `importPath imp == ns` and never
+  reads `importCapability`, so a bare `(import wasi.fs)` with no clause authorizes every `wasi.fs.*`
+  call, and the granted verb and path are decorative: `(capability read "/tmp")` already authorizes
+  `wasi.fs.delete` and a write to any path. `LLMLL.md` claimed enforcement at four places, including
+  "the principle of least authority" and a runtime `CapabilityError`; `CodegenHs` contains zero
+  capability references. Corrected to describe the property that holds, namespace membership, and to
+  name the gap. **Docs only in this release.** The design question, whether LLMLL wants
+  object-capabilities or has module-scoped effect-namespace declarations, is filed as `CAP-1-REAL`.
+
+**Tests:** 1544 Haskell examples, 0 failures (+55); 107 Python.
+
+Design: [`docs/design/effect-response-channel-proposal.md`](docs/design/effect-response-channel-proposal.md)
+(Rev 5, arm set settled) and [`docs/design/driver-in-llmll-campaign.md`](docs/design/driver-in-llmll-campaign.md)
+(Rev 4). Open work carried past this release, including two findings that do not close with it, is
+recorded in [`docs/design/driver-ll-open-work.md`](docs/design/driver-ll-open-work.md).
+
+---
+
 ## v0.14.79: four declared builtins get runtimes, and the tree builds in CI for the first time (2026-08-02)
 
 WASI-RT and BUILD-GATE-1, the first two items of the DRIVER-LL campaign. `builtinEnv` declared seven

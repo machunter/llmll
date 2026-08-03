@@ -706,9 +706,14 @@ message names the new construct:
 > `do-block step N: current codegen discards this intermediate command. Mark the step \`:discard\` to acknowledge, or fold the command into the final step with \`seq-commands\`.`
 
 `[DO-DISCARD-FINAL]` needs a second, distinct message and a second fixture, since it pins a
-different rule. Add `scripts/doc-claims/do-discard-on-final-step.llmll` with
-`@expect: check-error:` on a substring of that message. DRIFT-CT-2 goes 14 → 15, and both fixtures
-plus the gate re-run land in the same commit.
+different rule. Add a doc-claims fixture with `@expect: check-error:` on a substring of that message.
+DRIFT-CT-2 goes 14 → 15, and both fixtures plus the gate re-run land in the same commit.
+
+> **As shipped (v0.14.80).** The fixture landed as
+> [`scripts/doc-claims/do-notation-discard-marker.llmll`](../../scripts/doc-claims/do-notation-discard-marker.llmll),
+> not under the `do-discard-on-final-step` name this plan proposed, and it pins the `:discard`
+> opt-out rather than the final-step rejection. The final-step rule is covered by the
+> `do-discard-final` case in `compiler/test/Spec.hs` instead of by a doc-claim.
 
 ### C.7 The `do_emit_ac` fixture needs a consumer, not just a field
 
@@ -792,8 +797,9 @@ edit would force a bump of its own.
 - `compiler/test/Spec.hs`, "schema version", **2 tests**: a 0.10.0 document with `discard` parses;
   a 0.9.0 document without it still parses (backward compatibility, matching the
   `acceptedSchemaVersions` intent documented at `ParserJSON.hs:41-44`).
-- Doc-claims: `do-notation-discard-warn.llmll` flipped, `do-discard-on-final-step.llmll` added,
-  `bash scripts/doc_claims_gate.sh` re-run in the same commit. Target: **DRIFT-CT-2 14 → 15**.
+- Doc-claims: `do-notation-discard-warn.llmll` flipped, a marker fixture added (shipped as
+  `do-notation-discard-marker.llmll`), `bash scripts/doc_claims_gate.sh` re-run in the same commit.
+  Target: **DRIFT-CT-2 14 → 15**.
 - `scripts/version_gate.sh` run locally before push, for gates C3 and C4 (C.4).
 - Property-based: none applicable; no contracted function is added.
 - Golden regen: `do_emit_ac.ast.json` only.

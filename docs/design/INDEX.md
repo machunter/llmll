@@ -48,7 +48,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [examples-audit-2026-07-20-compiler-followups.md](examples-audit-2026-07-20-compiler-followups.md) | Two compiler/CI defects from the full `examples/` audit (R1 sort synthesis, R2 benchmark ordering) | **BOTH RESOLVED** (R1 v0.14.62, R2 2026-07-21) — archive-eligible |
 | [archive-organization-proposal.md](archive-organization-proposal.md) | DRIFT-DOC-3: retire version buckets, gate the archive invariant that is groundable | **Rev 2, SETTLED**: FLAT adjudicated 2026-07-26; professor review folded; P1/P2 applied, P3 gate shipped |
 | [archive-organization-review.md](archive-organization-review.md) | Professor: the gate is consistency-class, not correctness-class; both routed questions answered | **Rev 1**: standalone, folded into Rev 2, ready for M2 archive |
-| [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, plus DISCARD-1, the `do`-step discard marker | **Rev 4, SETTLED**: `:deterministic` closed against `LLMLL.md §10a`; `:read` retirement moved to the DISCARD-1 commit |
+| [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, plus DISCARD-1, the `do`-step discard marker | **Rev 5, SETTLED AND SHIPPED v0.14.80**: arm set closed under a four-part admissibility rule |
 | [event-log-scope-proposal.md](event-log-scope-proposal.md) | The event log is an I/O-trace divergence oracle; `§10a` specifies a different mechanism | **Rev 0, PROPOSED**: §10a narrows (EVENT-LOG-2); injection preserved as REPLAY-INJECT |
 
 ---
@@ -66,8 +66,9 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
-| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 3, IN FLIGHT**: Phase 1 step zero (WASI-RT + BUILD-GATE-1) shipped v0.14.79; §8.3 settles the gate into commit A; EFFECT-RESP and DISCARD-1 next |
-| [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **Plan, unreviewed** — implementation order A/C/B, risk order B/A/C |
+| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 4, IN FLIGHT**: Phases 0 and 1 shipped v0.14.80; Phase 2 (CAP-PROC + JSON-1) is next |
+| [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **IMPLEMENTED, shipped v0.14.80**; two of its path citations are stale (see the open-work record, R-5) |
+| [driver-ll-open-work.md](driver-ll-open-work.md) | What v0.14.80 shipped, and the work it deliberately left open | **ACTIVE ROUTING RECORD**: release now done; two blockers filed as `CAP-1-REAL` and `CONSOLE-INIT-1`, nine residues open |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
