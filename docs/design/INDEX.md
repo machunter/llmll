@@ -66,7 +66,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
-| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 2, READY FOR ENGINEER**: both §8 decisions settled 2026-08-02 (replaces the Python driver; `tools/llmll-driver/` is home); retirement gate is Phase 4 |
+| [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 3, IN FLIGHT**: Phase 1 step zero (WASI-RT + BUILD-GATE-1) shipped v0.14.79; §8.3 settles the gate into commit A; EFFECT-RESP and DISCARD-1 next |
 | [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **Plan, unreviewed** — implementation order A/C/B, risk order B/A/C |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |

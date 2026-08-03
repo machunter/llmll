@@ -4,6 +4,95 @@
 
 <a id="Latest"></a>
 
+## v0.14.79: four declared builtins get runtimes, and the tree builds in CI for the first time (2026-08-02)
+
+WASI-RT and BUILD-GATE-1, the first two items of the DRIVER-LL campaign. `builtinEnv` declared seven
+`wasi.*` names and the codegen preamble defined three; a program calling any of the other four passed
+`llmll check` and died at GHC. The defect survived because **nothing in this repository ever ran
+`llmll build`**: the corpus was a check-only corpus, and three independent defects of the shape
+"typechecks clean, fails at GHC" were found in this seam within one release. Codegen and CI edits
+only. No schema change, no grammar change, no builtin-signature change, no `checker_soundness_version`
+bump.
+
+### Added, WASI-RT
+
+- **`wasi.fs.read`, `wasi.fs.write`, `wasi.fs.delete` and `wasi.http.post` now have runtimes.**
+  Four definitions beside the three that existed, plus `System.Directory (doesFileExist, removeFile)`
+  and `Control.Monad (when)` in the generated import block and `hPutStrLn` added to the `System.IO`
+  import. Generated projects gain a `directory` dependency, a GHC boot package already in the
+  compiler's own dependency set, so no resolver movement.
+- **`wasi.fs.delete` is idempotent rather than failing on a missing path.** `removeFile` throws on a
+  path that is not there, and an uncaught exception inside a `Command` breaks the crash-freedom
+  property §10 relies on. The `doesFileExist` guard is TOCTOU-racy under concurrency; the console
+  harness is a single-threaded loop, so the imprecision is recorded rather than paid for.
+- **`wasi.fs.read` performs the read and discards the result.** `Command` is `IO ()` and carries no
+  return channel until EFFECT-RESP lands, so this stage makes the capability real (a declared
+  capability over an unreadable path now fails at run time) without pretending to be a read. The body
+  forces with `evaluate . length` for a reason worth stating: `readFile` is lazy, so
+  `readFile p >> return ()` performs no read at all. It would compile, run, raise nothing on an
+  unreadable path, and pass every string-shape test. That is the one place in the block where subtly
+  wrong Haskell yields a definition that does nothing, and it is pinned by a test.
+- **`wasi.http.post` is a diagnosed stub, not an error and not a silent success.** A real body needs
+  `http-client` plus TLS in every generated project for a builtin with zero in-tree call sites.
+  `error` would break the same crash-freedom property as delete; a silent no-op would let a program
+  believe it posted. It is diagnosed twice instead: `stmtWarnings` (previously a `_ -> []` stub) emits
+  a codegen warning, and the body writes to stderr at run time.
+
+### Added, BUILD-GATE-1
+
+- **`scripts/build_smoke.sh` compiles a fixture end to end through GHC on every CI run**, wired into
+  the `spec-roundtrip` job, which already has a warm Stack cache. It is affordable there because
+  generated projects pin the same resolver as the compiler (`lts-22.43`). The fast `version-gate` job
+  is deliberately Stack-free and was not touched.
+- **The gate does not trust `llmll build`'s exit code alone.** `runGhcCheck` returns success when
+  neither `stack` nor `ghc` is on PATH, so a gate reading only the exit code would go green in any
+  environment without a toolchain while observing nothing. It fails closed on a missing toolchain
+  rather than skipping, asserts every expected `wasi_*` name is defined in the emitted `src/Lib.hs`,
+  and asserts the log shows a real GHC invocation.
+- **Acceptance was a positive witness, both sides.** The gate was demonstrated red against a pre-fix
+  compiler (six `GHC-88464` "Variable not in scope" errors) and green after. A gate that passes on
+  both sides of its patch has not been shown to observe anything, which is how four missing
+  definitions survived since `builtinEnv` last grew.
+- **The completeness test folds over `builtinEnv` rather than listing seven cases**, so adding an
+  eighth `wasi.*` builtin without a preamble definition fails the suite. That is the regression that
+  would have caught this four names ago.
+
+### Fixed, CI
+
+`gh run list --branch main` showed the version-gate workflow failing on the **last six commits**,
+spanning the v0.14.76, v0.14.77 and v0.14.78 releases. Two pytest failures, both of which pass
+locally and fail on the runner, which is why they survived three releases.
+
+- **`rfc_to_implementation.self_test()` raised instead of skipping.** Its RFC-COV-1 section prints
+  "llmll not on PATH" as its skip reason, but as written that branch only fired when `llmll` **ran**
+  and printed something that was not JSON: an absent binary raises `FileNotFoundError` out of
+  `subprocess.run` first, so the one case the message named was the one case it did not handle. The
+  fast CI job installs no Stack and no `llmll`, which is exactly that configuration. Resolved with
+  `shutil.which` before running, and the two skip reasons are now distinguishable. This is not
+  cosmetic for DRIVER-LL: `self_test()` is the campaign's Phase 3 boundary gate, and Phase 3
+  acceptance requires the LLMLL driver to reproduce its oracle.
+- **DRIFT-DOC-4 had eight unresolved prose path citations.** Six `ALLOW` entries added, each stating
+  why. Three are `docs/`-relative citations inside the campaign doc's staged roadmap-delta table,
+  whose rows were authored to be pasted into `docs/compiler-team-roadmap.md` (where they resolve) and
+  are preserved unedited so the staging step stays auditable; one is a forward reference to a fixture
+  the DISCARD-1 commit creates, carrying a delete-this-row note for when that lands; two are paths
+  gitignored by construction.
+- **`test_every_entry_has_a_comment` asserted the opposite of its own message.** It read
+  `len(entries) >= len(comments)` against a failure message saying "more comments than entries is
+  fine; zero comments is not", so it failed a well-justified `ALLOW` table and passed a thinly
+  justified one. It went unnoticed only because the table carried terse one-line comments; adding six
+  properly explained entries surfaced it. Replaced with a group-aware check matching the class
+  docstring.
+
+**Tests:** 1489 Haskell examples, 0 failures (+14); 107 Python. Verified in the CI configuration
+rather than only locally: a fresh worktree at HEAD with no `llmll` on PATH under Python 3.11 runs 107
+Python tests green with DRIFT-DOC-4 reporting all citations resolved.
+
+Design: [`docs/design/driver-in-llmll-campaign.md`](docs/design/driver-in-llmll-campaign.md) (Rev 3,
+§8.3 settles BUILD-GATE-1 into this commit) and
+[`docs/design/effect-response-channel-proposal.md`](docs/design/effect-response-channel-proposal.md)
+(Rev 4). WASI-RT is a hard prerequisite of EFFECT-RESP, which is not in this release.
+
 ## v0.14.78: the bytes[n] length is earned at every position, and the line closes (2026-08-01)
 
 FACT-AG-LEN **Stage 3 of 3**, the return position, and **the line is closed**: no `bytes[n]` length

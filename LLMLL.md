@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.78)
+# LLMLL: Large Language Model Logical Language (v0.14.79)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.78.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.79.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2353,6 +2353,18 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path |
 | `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive** — triggers human review) |
 | `seq-commands` | `Command Command -> Command` | _(none — built-in)_ | Execute two commands in order |
+
+> **What a `Command` returns, and what it does not (v0.14.79).** `Command` is nullary: it carries an
+> effect, never a result. So `wasi.fs.read` performs the read and the contents are **not reachable
+> from the program**; `(string-length (wasi.fs.read p))` is a type error, not a value. The row above
+> says "read file at path" and means exactly that, no more. Two consequences worth stating rather
+> than leaving to be discovered. First, a program cannot branch on what it read, which is a property
+> of the effect type and not a gap in the builtin. Second, `wasi.http.post` has **no network runtime
+> in the Haskell backend**: it writes a diagnostic to stderr, performs no request, and `llmll build`
+> warns at codegen when a program calls it. Both are tracked as EFFECT-RESP and CAP-PROC in
+> [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). Before v0.14.79 these four
+> constructors had no runtime at all and a program calling one type-checked and then failed to
+> compile.
 
 **Example: Using multiple commands**
 
