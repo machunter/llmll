@@ -468,11 +468,10 @@ pDefMain = do
   mode    <- pModeKeyword *> pEntryMode
   initE   <- optional (symbol ":init"    *> pExpr)
   stepE   <- symbol ":step"              *> pExpr
-  readE   <- optional (symbol ":read"    *> pExpr)
   doneE   <- optional (symbol ":done?"   *> pExpr)
   onDoneE <- optional (symbol ":on-done" *> pExpr)
   _       <- symbol ")"
-  pure $ SDefMain mode initE stepE readE doneE onDoneE
+  pure $ SDefMain mode initE stepE doneE onDoneE
   where
     pModeKeyword = symbol ":mode"
 
@@ -795,13 +794,20 @@ pDoExpr = parens $ do
   steps <- some pDoStep
   pure $ EDo steps
 
+-- | DISCARD-1: the optional @:discard@ marker rides the bracketed form only.
+-- A bare (unbracketed) step cannot carry it, which costs nothing: a step that
+-- wants to discard its command and does not need the state binding writes
+-- @[_ <- e :discard]@. 'pIdent' already accepts @_@ as a leading character
+-- (see its definition), so that surface needs no lexer change.
 pDoStep :: Parser DoStep
-pDoStep = try pDoBind <|> (DoStep Nothing <$> pExpr)
+pDoStep = try pDoBind <|> (\e -> DoStep Nothing e False) <$> pExpr
   where
     pDoBind = brackets $ do
       name <- pIdent
       _ <- symbol "<-"
-      DoStep (Just name) <$> pExpr
+      e <- pExpr
+      dsc <- option False (True <$ symbol ":discard")
+      pure (DoStep (Just name) e dsc)
 
 -- | Parse hole expressions.
 pHoleExpr :: Parser Expr

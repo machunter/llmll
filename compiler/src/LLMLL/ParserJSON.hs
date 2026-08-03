@@ -12,6 +12,10 @@ module LLMLL.ParserJSON
   ( parseJSONAST
   , parseJSONASTValue
   , expectedSchemaVersion
+    -- | Exported so the test suite can assert that what the emitter STAMPS is
+    -- something the reader ACCEPTS. Bumping one without the other compiles
+    -- fine and makes the compiler refuse to read its own output.
+  , acceptedSchemaVersions
   ) where
 
 import Control.Monad (when)
@@ -43,15 +47,37 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- REC-DESCENT (v0.14.24): bumped 0.7.0 → 0.8.0 for the optional decreases array on def-shell.
 -- SRC-CONJ-1: bumped 0.8.0 → 0.9.0 for the optional pre_clauses/post_clauses
 -- per-conjunct provenance arrays on def/def-shell/letrec.
+-- DISCARD-1 (v0.14.80): bumped 0.9.0 → 0.10.0. TWO changes, one additive and
+-- one breaking, shipped together so the corpus pays one bump instead of two:
+-- the optional `discard` flag on do-step (additive), and the REMOVAL of `read`
+-- from def-main (breaking). Minor rather than major follows the precedent
+-- above, where every additive-optional field took a minor; the removal is
+-- carried at the same level because its measured in-tree population was zero.
+-- Both nodes carry "additionalProperties": false, so neither field can ride in
+-- unversioned: a document with `discard` fails against 0.9.0, and a document
+-- with `read` now fails against 0.10.0.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.9.0"
+expectedSchemaVersion = "0.10.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
 -- one — accept all for backward-compatible reads. Emission stamps 'expectedSchemaVersion'.
 -- Grammar discipline (e.g. def-logic rejection) is enforced separately by GrammarMode.
+--
+-- DISCARD-1: this list must gain each new version alongside the
+-- 'expectedSchemaVersion' bump above, or the compiler emits a document it then
+-- refuses to read. Bumping only the stamp is a silent emit/read asymmetry that
+-- no type catches: it was caught here by round-tripping the emitter's own
+-- output, which is why the test suite pins that round trip rather than the
+-- constant.
+--
+-- Older versions stay accepted because 'read' was optional on def-main and the
+-- reader now ignores it: a pre-0.10.0 document that carried it still parses,
+-- losing a field nothing consumed. Schema validation of such a document against
+-- 0.10.0 fails, which is the intended split — the schema is the authority on
+-- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -461,14 +487,20 @@ parseDefMain o = do
   mode    <- o .: "mode" :: Parser Text
   step    <- o .: "step"    >>= parseExpr
   mInit   <- o .:? "init"    >>= mapM parseExpr
-  mRead   <- o .:? "read"    >>= mapM parseExpr
+  -- DISCARD-1 (schema 0.10.0): `read` is RETIRED. It was parsed, round-tripped,
+  -- never type-checked and read by no emitter: a response-input channel that was
+  -- designed and never wired. EFFECT-RESP builds the working one, and shipping a
+  -- second live input channel beside a dead one is how agents learn a surface
+  -- that does nothing. Measured in-tree population at retirement: zero .llmll
+  -- sources and zero def-main JSON-AST documents carried it. The schema's
+  -- `additionalProperties: false` now rejects the property outright.
   mDone   <- o .:? "done?"   >>= mapM parseExpr
   mOnDone <- o .:? "on-done" >>= mapM parseExpr
   let entryMode = case mode of
         "console" -> ModeConsole
         "cli"     -> ModeCli
         _         -> ModeHttp 8080
-  pure $ SDefMain entryMode mInit step mRead mDone mOnDone
+  pure $ SDefMain entryMode mInit step mDone mOnDone
 
 -- ---------------------------------------------------------------------------
 -- Type decoder
@@ -694,7 +726,11 @@ parseDoStep = withObject "DoStep" $ \o -> do
     "do-step"   -> do
       expr  <- o .: "expr" >>= parseExpr
       mName <- o .:? "name" :: Parser (Maybe Name)
-      pure $ DoStep mName expr
+      -- DISCARD-1 (schema 0.10.0): optional, defaulting to False. Absent and
+      -- false must stay indistinguishable on the way in, because AstEmit omits
+      -- the field when False on the way out.
+      dsc   <- o .:? "discard" .!= False
+      pure $ DoStep mName expr dsc
     "bind-step" -> fail "use {\"kind\":\"do-step\",\"name\":\"x\",\"expr\":...} instead of \"bind-step\" (schema v0.3)"
     "expr-step" -> fail "use {\"kind\":\"do-step\",\"expr\":...} instead of \"expr-step\" (schema v0.3)"
     _ -> fail $ "unknown DoStep kind: " ++ T.unpack kind

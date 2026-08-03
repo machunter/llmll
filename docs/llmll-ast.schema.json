@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.9/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.10/ast.schema.json",
   "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
   "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.9.0' (SRC-CONJ-1: optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, plus the pre_source/post_source scalar fields the compiler has read since v0.6; was 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
@@ -15,7 +15,7 @@
         "schemaVersion": {
           "description": "Must be '0.9.0'. The compiler rejects files with an unrecognised version, but reads 0.8.0, 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.9.0 adds the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "const": "0.9.0"
+          "const": "0.10.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -824,7 +824,8 @@
         "kind":       { "type": "string", "const": "do-step" },
         "expr":       { "$ref": "#/$defs/Expr" },
         "name":       { "type": "string", "description": "If present, bound to the state component of expr's result (former bind-step). If absent, the state component is discarded (former expr-step)." },
-        "state_type": { "$ref": "#/$defs/Type", "description": "Optional hint: the state type S. Required only when expr itself is a hole." }
+        "state_type": { "$ref": "#/$defs/Type", "description": "Optional hint: the state type S. Required only when expr itself is a hole." },
+        "discard":    { "type": "boolean", "default": false, "description": "DISCARD-1 (0.10.0). Declares that this step's COMMAND component is intentionally dropped. A non-final step whose expr yields a Command is a type error unless this is true. Illegal on the FINAL step, whose command is the block's result and is performed. Absent and false are equivalent, and the emitter omits the field when false, so unmarked programs round-trip byte-identically. Orthogonal to 'name', which governs the STATE component." }
       }
     },
 
@@ -1023,10 +1024,6 @@
         },
         "step": {
           "description": "Function or expression of type (State, String) -> (State, Command). Called on each input line (console) or OS args (cli).",
-          "$ref": "#/$defs/Expr"
-        },
-        "read": {
-          "description": "Custom input reader expression (optional, console only).",
           "$ref": "#/$defs/Expr"
         },
         "done?": {

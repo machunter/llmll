@@ -169,7 +169,7 @@ stmtToJson (SExpr e) =
     , "body" .= exprToJson e
     ]
 
-stmtToJson (SDefMain mode mInit step mRead mDone mOnDone) =
+stmtToJson (SDefMain mode mInit step mDone mOnDone) =
   -- No JSON schema node for def-main yet — emit as a comment-like object
   object $
     [ "kind" .= ("def-main" :: Text)
@@ -177,7 +177,6 @@ stmtToJson (SDefMain mode mInit step mRead mDone mOnDone) =
     , "step" .= exprToJson step
     ] ++
     maybe [] (\e -> ["init"    .= exprToJson e]) mInit    ++
-    maybe [] (\e -> ["read"    .= exprToJson e]) mRead    ++
     maybe [] (\e -> ["done?"   .= exprToJson e]) mDone    ++
     maybe [] (\e -> ["on-done" .= exprToJson e]) mOnDone
   where
@@ -358,8 +357,16 @@ exprToJson (EDo steps) =
   object ["kind" .= ("do" :: Text), "steps" .= map doStepToJson steps]
   where
     -- PR 2: unified "do-step" with optional "name" field
-    doStepToJson (DoStep (Just n) e) = object ["kind" .= ("do-step" :: Text), "name" .= n,  "expr" .= exprToJson e]
-    doStepToJson (DoStep Nothing  e) = object ["kind" .= ("do-step" :: Text), "expr" .= exprToJson e]
+    -- DISCARD-1: `discard` is OMITTED when False, never emitted as false.
+    -- DoStep has no derived JSON instances (both directions are hand-written
+    -- here and in ParserJSON.parseDoStep), so nothing enforces this but the
+    -- round-trip test. Emitting it unconditionally would make `checkout` and
+    -- `patch` rewrite every unmarked do-block in the corpus on first touch.
+    doStepToJson (DoStep mName e dsc) = object $
+      [ "kind" .= ("do-step" :: Text) ]
+      ++ maybe [] (\n -> ["name" .= n]) mName
+      ++ [ "expr" .= exprToJson e ]
+      ++ [ "discard" .= True | dsc ]
 
 exprToJson (EHole hk) = holeToJson hk
 

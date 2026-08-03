@@ -1,6 +1,6 @@
 ;; @doc: LLMLL.md §9.6 (do-notation intermediate-command discard)
-;; @expect: warn:discards this intermediate command
-;; @claim: a non-final do-block step that produces a Command emits a discard warning (DO-1, checkDiscardedCommand). Guards that the warning is not silently dropped — the fourth 2026-07-19 edge, now covered.
+;; @expect: check-error:discards this intermediate command
+;; @claim: a non-final do-block step that produces a Command is REJECTED unless it carries the :discard marker (DISCARD-1, checkDiscardedCommand). Was a warning through v0.14.79; the v0.7 code note deferring the hard error "to v0.8 when (discard expr) provides an explicit opt-out" is cashed here. This fixture is the positive witness for the error: it is the same program that used to warn, unchanged.
 (module m
   (import wasi.io (capability stdout))
   (def-shell prog [s0: int]

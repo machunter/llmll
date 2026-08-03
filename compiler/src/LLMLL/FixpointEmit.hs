@@ -1604,7 +1604,7 @@ exprMentionsOpIn ops = go
     go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
     go (EMatch s as)  = go s || any (go . snd) as
     go (ELambda _ b)  = go b
-    go (EDo steps)    = any (\(DoStep _ e) -> go e) steps
+    go (EDo steps)    = any (\(DoStep _ e _) -> go e) steps
     go (EPair a b)    = go a || go b
     go (EAwait e)     = go e
     go _              = False
@@ -1689,7 +1689,7 @@ arrGateActive cenv contract mBody =
     calledNames (ELet bs b)    = Set.unions (calledNames b : [ calledNames r | (_, _, r) <- bs ])
     calledNames (EMatch s as)  = Set.unions (calledNames s : map (calledNames . snd) as)
     calledNames (ELambda _ b)  = calledNames b
-    calledNames (EDo steps)    = Set.unions [ calledNames e | DoStep _ e <- steps ]
+    calledNames (EDo steps)    = Set.unions [ calledNames e | DoStep _ e _ <- steps ]
     calledNames (EPair a b)    = Set.union (calledNames a) (calledNames b)
     calledNames (EAwait e)     = calledNames e
     calledNames _              = Set.empty
@@ -2372,7 +2372,7 @@ moduleUsesPairs am = any stmtUsesPairs
         go (ELet bs body)         = any (\(_, _, rhs) -> go rhs) bs || go body
         go (EMatch scr arms)      = go scr || any (go . snd) arms
         go (ELambda _ body)       = go body
-        go (EDo steps)            = any (\(DoStep _ e) -> go e) steps
+        go (EDo steps)            = any (\(DoStep _ e _) -> go e) steps
         go (EAwait e)             = go e
         go _                      = False
 
@@ -2407,7 +2407,7 @@ moduleConstructsResult am = any stmtConstructs
         go (ELet bs body)    = any (\(_, _, rhs) -> go rhs) bs || go body
         go (EMatch scr arms) = go scr || any (go . snd) arms
         go (ELambda _ body)  = go body
-        go (EDo steps)       = any (\(DoStep _ e) -> go e) steps
+        go (EDo steps)       = any (\(DoStep _ e _) -> go e) steps
         go (EPair a b)       = go a || go b
         go (EAwait e)        = go e
         go _                 = False
@@ -2633,7 +2633,7 @@ desugarCtorValues tags = go
       ELet binds body ->
         let bound' = foldr Set.insert bound (concatMap (\(p,_,_) -> patVars p) binds)
         in ELet [ (p, mt, go bound' rhs) | (p, mt, rhs) <- binds ] (go bound' body)
-      EDo steps   -> EDo [ DoStep mn (go bound se) | DoStep mn se <- steps ]
+      EDo steps   -> EDo [ DoStep mn (go bound se) dsc | DoStep mn se dsc <- steps ]
       EMatch scr arms
         | EVar _ <- scr, not (null arms), all (rewritableArm . fst) arms
           -> buildChain (go bound scr) bound arms
@@ -2748,7 +2748,7 @@ bodyHasOverflowArith = go
     go (ELet bindings body) = any (\(_, _, rhs) -> go rhs) bindings || go body
     go (EMatch scr arms) = go scr || any (go . snd) arms
     go (ELambda _ body) = go body
-    go (EDo steps)      = any (\(DoStep _ e) -> go e) steps
+    go (EDo steps)      = any (\(DoStep _ e _) -> go e) steps
     go (EPair l r)      = go l || go r
     go (EAwait e)       = go e
 
@@ -4129,7 +4129,7 @@ strEqOperandVars e = case e of
   EPair a b     -> Set.union (strEqOperandVars a) (strEqOperandVars b)
   ELambda _ b   -> strEqOperandVars b
   EAwait a      -> strEqOperandVars a
-  EDo steps     -> Set.unions [strEqOperandVars x | DoStep _ x <- steps]
+  EDo steps     -> Set.unions [strEqOperandVars x | DoStep _ x _ <- steps]
   _             -> Set.empty
   where
     operandVar (EVar v) = Set.singleton v
@@ -4147,7 +4147,7 @@ measureArgVars e = case e of
   EPair a b     -> Set.union (measureArgVars a) (measureArgVars b)
   ELambda _ b   -> measureArgVars b
   EAwait a      -> measureArgVars a
-  EDo steps     -> Set.unions [measureArgVars x | DoStep _ x <- steps]
+  EDo steps     -> Set.unions [measureArgVars x | DoStep _ x _ <- steps]
   _             -> Set.empty
 
 -- | True when a type resolves (through aliases / refinements) to a measure
@@ -4511,7 +4511,7 @@ collectCallArgCarrierVars am cenv = go
       EPair a b     -> Set.union (go a) (go b)
       ELambda _ b   -> go b
       EAwait a      -> go a
-      EDo steps     -> Set.unions [go x | DoStep _ x <- steps]
+      EDo steps     -> Set.unions [go x | DoStep _ x _ <- steps]
       _             -> Set.empty
 
 -- | Prepend a let-binding to a BodyVC.

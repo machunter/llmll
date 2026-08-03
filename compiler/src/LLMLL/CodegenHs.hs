@@ -799,10 +799,10 @@ emitDo steps =
   in "(let { " <> T.intercalate "; " bindings <> " } in ("
      <> finalState <> ", " <> finalCmd <> "))"
   where
-    stateVar _     _ (DoStep (Just n) _) = toHsIdent n
-    stateVar ishow i (DoStep Nothing  _) = "_s_" <> ishow i
+    stateVar _     _ (DoStep (Just n) _ _) = toHsIdent n
+    stateVar ishow i (DoStep Nothing  _ _) = "_s_" <> ishow i
 
-    mkBinding (i, step@(DoStep _ e)) =
+    mkBinding (i, step@(DoStep _ e _)) =
       let ishow = T.pack . show
       in "(" <> stateVar ishow i step <> ", _cmd" <> ishow i <> ") = " <> emitExpr e
 
@@ -1211,7 +1211,7 @@ stmtExprs s = case s of
   SLetrec{}       -> [letrecDecreases s, letrecBody s]
   SExpr e         -> [e]
   SDefMain{}      -> catMaybes [ defMainInit s, Just (defMainStep s)
-                               , defMainRead s, defMainDone s, defMainOnDone s ]
+                               , defMainDone s, defMainOnDone s ]
   _               -> []
 
 -- | Does this expression apply the given name anywhere inside it?
@@ -1233,4 +1233,4 @@ callsName n = go
       EHole _        -> False
       EAwait x       -> go x
       ELambda _ b    -> go b
-      EDo steps      -> any (\(DoStep _ x) -> go x) steps
+      EDo steps      -> any (\(DoStep _ x _) -> go x) steps

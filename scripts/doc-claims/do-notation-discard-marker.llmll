@@ -1,0 +1,9 @@
+;; @doc: LLMLL.md §9.6 (do-notation intermediate-command discard)
+;; @expect: check-ok
+;; @claim: the :discard marker is the opt-out that makes an intentional command discard legal. Sibling of do-notation-discard-warn.llmll: the same program, marked. Without both, the gate cannot tell "the error fires" from "the error always fires".
+(module m
+  (import wasi.io (capability stdout))
+  (def-shell prog [s0: int]
+    (do
+      [s1 <- (pair s0 (wasi.io.stdout "a")) :discard]
+      (pair s1 (wasi.io.stdout "b")))))

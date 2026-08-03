@@ -368,7 +368,7 @@ bodyMentionsCommand expr = go expr
     go (ELambda _ body)       = go body
     go _                      = False
 
-    goStep (DoStep _ e) = go e  -- PR 2: unified constructor
+    goStep (DoStep _ e _) = go e  -- PR 2: unified constructor
 
     -- Names known to produce a Command value — only WASI/IO imports qualify.
     -- Keep this list narrow: false positives cause valid properties to be skipped.
@@ -553,7 +553,7 @@ collectHeadOps = go
     go (EMatch e cases)     = go e ++ concatMap (go . snd) cases
     go (EPair a b)          = go a ++ go b
     go (ELambda _ b)        = go b
-    go (EDo steps)          = concatMap (\(DoStep _ e) -> go e) steps
+    go (EDo steps)          = concatMap (\(DoStep _ e _) -> go e) steps
     go (EAwait e)           = go e
     go (ELit _)             = []
     go (EVar _)             = []
@@ -666,7 +666,11 @@ canonicalParam :: (Name, Type) -> Text
 canonicalParam (n, ty) = "(param " <> n <> " " <> T.pack (show ty) <> ")"
 
 canonicalStep :: DoStep -> Text
-canonicalStep (DoStep mName e) = "(step " <> maybe "_" id mName <> " " <> canonicalExpr e <> ")"
+-- DISCARD-1: 'dsDiscard' is deliberately NOT part of the canonical form. The
+-- marker is erasable and carries no semantic content, so including it would
+-- move RefineReuse dedup keys (RefineReuse.hs:144) and cached verdicts for
+-- programs whose meaning did not change.
+canonicalStep (DoStep mName e _) = "(step " <> maybe "_" id mName <> " " <> canonicalExpr e <> ")"
 
 spaceList :: [Text] -> Text
 spaceList [] = ""

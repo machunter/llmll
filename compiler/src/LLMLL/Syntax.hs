@@ -232,9 +232,34 @@ data Expr
 
 -- | A step in a do-block.
 -- PR 2: collapsed from two constructors into one unified form.
--- @Nothing@   → anonymous step (former DoExpr; state component discarded)
--- @Just name@ → named step     (former DoBind; state component bound)
-data DoStep = DoStep (Maybe Name) Expr
+--
+-- The two discards a step can perform are orthogonal and both are explicit:
+--
+--   * 'dsName' @Nothing@ discards the STATE component (former DoExpr);
+--     @Just n@ binds it (former DoBind).
+--   * 'dsDiscard' declares that the COMMAND component is intentionally
+--     dropped. Only a non-final step can discard a command, because the final
+--     step's command is the one the harness performs.
+--
+-- DISCARD-1: 'dsDiscard' is a record field rather than a third positional
+-- argument so that the ~30 read-only sites use accessors and cannot land a
+-- value in the wrong slot. It is ERASABLE: it changes what the type checker
+-- ACCEPTS and never what any VC ASSERTS, which is the soundness argument the
+-- lifted-freeze policy requires of new syntax. 'emitDo' does not read it and
+-- generated Haskell is bit-identical with and without it.
+--
+-- Two consequences that must hold wherever DoStep is serialised or hashed,
+-- both because the marker carries no semantic content:
+--
+--   * 'LLMLL.AstEmit.doStepToJson' OMITS the field when False, or checkout /
+--     patch rewrites every unmarked do-block in the corpus on first touch.
+--   * 'LLMLL.PBT.canonicalStep' EXCLUDES it, or dedup keys and cached
+--     verdicts move for programs that did not change.
+data DoStep = DoStep
+  { dsName    :: Maybe Name  -- ^ binds the state component when present
+  , dsExpr    :: Expr        -- ^ the step's expression, of type (S, Command)
+  , dsDiscard :: Bool        -- ^ DISCARD-1 marker; surface @:discard@
+  }
   deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------
@@ -691,7 +716,6 @@ data Statement
     { defMainMode   :: EntryMode      -- ^ Runtime harness kind
     , defMainInit   :: Maybe Expr     -- ^ :init (optional for stateless)
     , defMainStep   :: Expr           -- ^ :step (name or lambda)
-    , defMainRead   :: Maybe Expr     -- ^ :read  (console/cli only)
     , defMainDone   :: Maybe Expr     -- ^ :done? (console only)
     , defMainOnDone :: Maybe Expr     -- ^ :on-done (optional)
     }

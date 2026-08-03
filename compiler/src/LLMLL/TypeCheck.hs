@@ -1828,41 +1828,69 @@ inferHole (HProofRequired reason mPred) = do
 inferDoSteps :: [DoStep] -> TC Type
 inferDoSteps [] = pure TUnit
 inferDoSteps steps = do
-  let (DoStep mName0 e0) = head steps
+  let (DoStep mName0 e0 dsc0) = head steps
   t0 <- withSegment "steps" $ withSegment "0" $ inferExpr e0
   (s0, cmd0) <- expectPairType "do-block step 0" t0
-  -- DO-1: check step 0 if it is not the final step
-  when (length steps > 1) $
-    checkDiscardedCommand 0 cmd0
+  -- DISCARD-1: check step 0 if it is not the final step; if it IS the final
+  -- step, its command is performed and the marker would assert a falsehood.
+  if length steps > 1
+    then checkDiscardedCommand 0 cmd0 dsc0
+    else checkMarkerOnFinalStep 0 dsc0
   let binding0 = case mName0 of
         Just n  -> [(n, s0)]
         Nothing -> [("_s_0", s0)]
   withEnv binding0 $ go s0 (1 :: Int) (tail steps)
   where
     go sType _ [] = pure (TPair sType (TCustom "Command"))
-    go sType i (DoStep mName e : rest) = do
+    go sType i (DoStep mName e dsc : rest) = do
       t <- withSegment "steps" $ withSegment (tshow i) $ inferExpr e
       (si, cmdTy) <- expectPairType ("do-block step " <> tshow i) t
       -- Unify S: all steps must thread the same state type
       unify ("do-block step " <> tshow i) sType si
-      -- DO-1: check non-final steps
-      when (not (null rest)) $
-        checkDiscardedCommand i cmdTy
+      -- DISCARD-1: non-final steps must opt out; the final step must not.
+      if not (null rest)
+        then checkDiscardedCommand i cmdTy dsc
+        else checkMarkerOnFinalStep i dsc
       let bindName = case mName of
             Just n  -> n
             Nothing -> "_s_" <> tshow i
       withEnv [(bindName, si)] $ go sType (i + 1) rest
 
--- | DO-1: Emit warning when an intermediate step produces a Command
--- that the current codegen will silently discard.
--- v0.7: Warning-only in all modes. Hard error deferred to v0.8
--- when (discard expr) provides an explicit opt-out.
-checkDiscardedCommand :: Int -> Type -> TC ()
-checkDiscardedCommand i cmdTy =
-  when (cmdTy == TCustom "Command") $
-    tcWarn $ "do-block step " <> tshow i
-             <> ": current codegen discards this intermediate command. "
-             <> "Use `seq-commands` to sequence IO actions explicitly."
+-- | DISCARD-1: a non-final step whose command is dropped must say so.
+--
+-- This was a warning from v0.7, carrying a note deferring the hard error to
+-- v0.8 "when (discard expr) provides an explicit opt-out". The opt-out is the
+-- @:discard@ marker and this is that error, cashed at v0.14.80. 'emitDo'
+-- is unchanged: it drops the command exactly as before, and the marker only
+-- decides whether dropping it is legal. Generated Haskell is bit-identical.
+--
+-- Deliberately NOT the alternative reading (auto-composing intermediate
+-- commands via 'seq-commands'): under EFFECT-RESP's response channel an
+-- auto-composing do-block discards every non-final step's RESPONSE and so
+-- could never consume an intermediate effect result, which is the shape the
+-- driver's stages need.
+checkDiscardedCommand :: Int -> Type -> Bool -> TC ()
+checkDiscardedCommand i cmdTy discarded =
+  when (cmdTy == TCustom "Command" && not discarded) $
+    modify $ \s -> s { tcErrors = tcErrors s ++
+      [(mkError Nothing $ "do-block step " <> tshow i
+          <> ": codegen discards this intermediate command. "
+          <> "Sequence it with `seq-commands`, or mark the step "
+          <> "`[x <- e :discard]` to state that dropping it is intended.")
+        { diagKind = Just "do-discard-error" }] }
+
+-- | DISCARD-1: the final step's command is the one the harness performs, so
+-- marking it discarded asserts something false. Rejected rather than ignored:
+-- a marker that silently means nothing on one position and something on every
+-- other is exactly the surface an agent mislearns.
+checkMarkerOnFinalStep :: Int -> Bool -> TC ()
+checkMarkerOnFinalStep i discarded =
+  when discarded $
+    modify $ \s -> s { tcErrors = tcErrors s ++
+      [(mkError Nothing $ "do-block step " <> tshow i
+          <> ": `:discard` is not allowed on the final step, whose command "
+          <> "is the block's result and is performed. Remove the marker.")
+        { diagKind = Just "do-discard-final" }] }
 
 -- | Expect a TPair; emit "do-step-type-error" and return wildcard components
 -- on failure so one bad step doesn't cascade and suppress subsequent errors.
@@ -2552,7 +2580,7 @@ exprContainsVar v (EMatch e cases)  = exprContainsVar v e || any (\(_, b) -> exp
 exprContainsVar v (EPair a b)       = exprContainsVar v a || exprContainsVar v b
 exprContainsVar v (ELambda _ body)  = exprContainsVar v body
 exprContainsVar v (EAwait e)        = exprContainsVar v e
-exprContainsVar v (EDo steps)       = any (\(DoStep _ e) -> exprContainsVar v e) steps
+exprContainsVar v (EDo steps)       = any (\(DoStep _ e _) -> exprContainsVar v e) steps
 exprContainsVar _ (ELit _)          = False
 exprContainsVar _ (EHole _)         = False
 
@@ -2591,7 +2619,7 @@ collectBytesGets (EMatch e cases)  = collectBytesGets e ++ concatMap (collectByt
 collectBytesGets (EPair a b)       = collectBytesGets a ++ collectBytesGets b
 collectBytesGets (ELambda _ body)  = collectBytesGets body
 collectBytesGets (EAwait e)        = collectBytesGets e
-collectBytesGets (EDo steps)       = concatMap (\(DoStep _ e) -> collectBytesGets e) steps
+collectBytesGets (EDo steps)       = concatMap (\(DoStep _ e _) -> collectBytesGets e) steps
 collectBytesGets (ELit _)          = []
 collectBytesGets (EVar _)          = []
 collectBytesGets (EHole _)         = []

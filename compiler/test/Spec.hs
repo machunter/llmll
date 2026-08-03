@@ -34,12 +34,12 @@ import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatRe
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
-import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
+import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
-                 , canonicalPropBodyHash, canonicalDefEvidenceHash)
+                 , canonicalPropBodyHash, canonicalDefEvidenceHash, canonicalExpr)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON, checkerSoundnessVersion)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
@@ -589,7 +589,6 @@ main = hspec $ do
             { defMainMode   = ModeConsole
             , defMainInit   = Nothing
             , defMainStep   = EVar "my_step"
-            , defMainRead   = Nothing
             , defMainDone   = Nothing
             , defMainOnDone = Nothing
             }
@@ -606,7 +605,6 @@ main = hspec $ do
             { defMainMode   = ModeConsole
             , defMainInit   = Nothing
             , defMainStep   = EVar "my_step"
-            , defMainRead   = Nothing
             , defMainDone   = Just (EVar "is_done")
             , defMainOnDone = Nothing
             }
@@ -624,7 +622,6 @@ main = hspec $ do
             { defMainMode   = ModeConsole
             , defMainInit   = Nothing
             , defMainStep   = EVar "my_step"
-            , defMainRead   = Nothing
             , defMainDone   = Just (EVar "is_done")
             , defMainOnDone = Just (EVar "finish")
             }
@@ -662,7 +659,7 @@ main = hspec $ do
           let mains = [s | s@SDefMain{} <- stmts]
           length mains `shouldBe` 1
           case head mains of
-            SDefMain _ _ _ _ mDone mOnDone -> do
+            SDefMain _ _ _ mDone mOnDone -> do
               mDone   `shouldSatisfy` (/= Nothing)
               mOnDone `shouldSatisfy` (/= Nothing)
             _ -> expectationFailure "expected SDefMain"
@@ -1615,13 +1612,14 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.9.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.10.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
+      -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.9.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.10.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -13364,7 +13362,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [ SDef { defName = "f", defParams = []
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                           , defBody = EDo [DoStep Nothing (ELit (LitInt 1))] } ]
+                           , defBody = EDo [DoStep Nothing (ELit (LitInt 1)) False] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
@@ -14066,6 +14064,119 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           cgMainHs result `shouldBe` Nothing
           T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
         Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -----------------------------------------------------------------------
+  -- DISCARD-1: a non-final do-step whose command is dropped must say so.
+  --
+  -- This was a warning from v0.7 carrying a note deferring the hard error "to
+  -- v0.8 when (discard expr) provides an explicit opt-out". The opt-out is the
+  -- :discard marker and this is that error. emitDo is untouched, so generated
+  -- Haskell is bit-identical; the marker only decides legality.
+  -- -----------------------------------------------------------------------
+
+  describe "DISCARD-1: the :discard step marker" $ do
+
+    let doSrc marker = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell prog [s0: int]"
+          , "  (do"
+          , "    [s1 <- (pair s0 (wasi.io.stdout \"a\"))" <> marker <> "]"
+          , "    (pair s1 (wasi.io.stdout \"b\"))))"
+          ]
+        errsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+        kindsOf src = [k | d <- errsOf src, Just k <- [diagKind d]]
+
+    it "an UNMARKED non-final command step is now an error, not a warning" $
+      kindsOf (doSrc "") `shouldContain` ["do-discard-error"]
+
+    it "the marker makes the same program legal" $
+      kindsOf (doSrc " :discard") `shouldNotContain` ["do-discard-error"]
+
+    -- Positive witness for the second rule. The final step's command is the
+    -- block's result and IS performed, so marking it asserts a falsehood.
+    it "the marker on the FINAL step is rejected" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell prog [s0: int]"
+            , "  (do"
+            , "    [s1 <- (pair s0 (wasi.io.stdout \"a\")) :discard]"
+            , "    [s2 <- (pair s1 (wasi.io.stdout \"b\")) :discard]))"
+            ]
+      kindsOf src `shouldContain` ["do-discard-final"]
+
+    -- pIdent accepts '_' as a leading character, so the anonymous marked form
+    -- needs no lexer change. Pinned because a regression there would silently
+    -- remove the only surface for "discard the command, ignore the state".
+    it "an anonymous marked step [_ <- e :discard] parses and is legal" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell prog [s0: int]"
+            , "  (do"
+            , "    [_ <- (pair s0 (wasi.io.stdout \"a\")) :discard]"
+            , "    (pair s0 (wasi.io.stdout \"b\"))))"
+            ]
+      kindsOf src `shouldBe` []
+
+    it "the marker reaches the AST, and its absence reads as False" $ do
+      let marks src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err    -> error (show err)
+            Right stmts -> [dsDiscard st | SDefShell{defShellBody = EDo sts} <- stmts, st <- sts]
+      marks (doSrc " :discard") `shouldBe` [True, False]
+      marks (doSrc "")          `shouldBe` [False, False]
+
+  describe "DISCARD-1: serialisation and hashing must ignore an unset marker" $ do
+
+    let mkSteps dsc = [DoStep (Just "s1") (ELit (LitInt 1)) dsc
+                      , DoStep Nothing (ELit (LitInt 2)) False]
+
+    -- DoStep has NO derived JSON instances: doStepToJson and parseDoStep are
+    -- both hand-written, so nothing but this test relates the two directions.
+    -- If `discard` were emitted unconditionally, checkout/patch would rewrite
+    -- every unmarked do-block in the corpus on first touch.
+    it "doStepToJson OMITS discard when False and emits it when True" $ do
+      let j dsc = T.pack $ BLC.unpack $ encode $ stmtToJson $
+                    SDefShell "f" [] Nothing
+                      (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+                      (EDo (mkSteps dsc)) []
+      T.isInfixOf "discard" (j False) `shouldBe` False
+      T.isInfixOf "\"discard\":true" (T.filter (/= ' ') (j True)) `shouldBe` True
+
+    -- canonicalExpr feeds RefineReuse dedup keys. The marker is erasable and
+    -- carries no semantic content, so including it would move keys and cached
+    -- verdicts for programs whose meaning did not change.
+    it "canonicalExpr is INSENSITIVE to the marker" $
+      canonicalExpr (EDo (mkSteps True)) `shouldBe` canonicalExpr (EDo (mkSteps False))
+
+    -- Regression for a bug found by round-tripping the emitter's own output:
+    -- bumping the emitted stamp without extending the accepted list makes the
+    -- compiler emit a document it then refuses to read. No type catches it.
+    it "the emitted schema version is one the reader accepts" $
+      acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+
+  describe "DISCARD-1: :read is retired from def-main" $ do
+
+    it ":read no longer parses" $ do
+      let src = T.unlines
+            [ "(def-main :mode console"
+            , "  :step (fn [s: string i: string] (pair s (wasi.io.stdout i)))"
+            , "  :read (fn [] \"x\"))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left _  -> pure ()
+        Right _ -> expectationFailure "':read' still parses; it was retired in schema 0.10.0"
+
+    it "a def-main without :read round-trips and emits no read key" $ do
+      let src = T.unlines
+            [ "(def-main :mode console"
+            , "  :step (fn [s: string i: string] (pair s (wasi.io.stdout i))))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let out = T.pack $ BLC.unpack $ emitJsonAST stmts
+          T.isInfixOf "\"read\"" out `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- WASI-RT: builtinEnv declares seven wasi.* names; before this commit the

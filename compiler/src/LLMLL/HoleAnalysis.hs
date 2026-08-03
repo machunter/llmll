@@ -221,7 +221,7 @@ collectHolesStmtIdx _idx (SExport _)  = []
 collectHolesStmtIdx _idx (STrust _ _) = []
 collectHolesStmtIdx _idx (SWeaknessOk _ _) = []
 
-collectHolesStmtIdx idx (SDefMain _ mInit step _mRead mDone mOnDone) =
+collectHolesStmtIdx idx (SDefMain _ mInit step mDone mOnDone) =
   let base = "statements/" <> tshow idx
       ctx  = "def-main"
       stepHoles = collectHolesExprPath (base <> "/step") ctx step
@@ -283,7 +283,7 @@ collectHolesExprPath path ctx expr = case expr of
   ELambda _ body -> collectHolesExprPath (path <> "/body") ctx body
 
   EDo steps ->
-    concat (zipWith (\i (DoStep _ e) ->
+    concat (zipWith (\i (DoStep _ e _) ->
       collectHolesExprPath (path <> "/steps/" <> tshow i <> "/expr") ctx e
       ) [0..] steps)
 
@@ -593,7 +593,7 @@ extractCalls (EPair a b)        = extractCalls a ++ extractCalls b
 extractCalls (EHole _)          = []
 extractCalls (EAwait e)         = extractCalls e
 extractCalls (ELambda _ body)   = extractCalls body
-extractCalls (EDo steps)        = concatMap (\(DoStep _ e) -> extractCalls e) steps
+extractCalls (EDo steps)        = concatMap (\(DoStep _ e _) -> extractCalls e) steps
 
 -- | Build call graph: function name → list of called function names.
 buildCallGraph :: [Statement] -> Map.Map Name [Name]

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.10.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
@@ -35,6 +35,7 @@
           {
             "kind": "do-step",
             "name": "s1",
+            "discard": true,
             "expr": {
               "kind": "pair",
               "fst": {

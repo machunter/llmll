@@ -839,7 +839,7 @@ extractCalls (EPair a b)        = extractCalls a ++ extractCalls b
 extractCalls (EHole _)          = []
 extractCalls (EAwait e)         = extractCalls e
 extractCalls (ELambda _ body)   = extractCalls body
-extractCalls (EDo steps)        = concatMap (\(DoStep _ e) -> extractCalls e) steps
+extractCalls (EDo steps)        = concatMap (\(DoStep _ e _) -> extractCalls e) steps
 
 -- | Compute epistemic drift warnings.
 -- v0.8.1b: Drift uses isSolverBacked and the transitive reachable set.

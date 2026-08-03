@@ -269,7 +269,7 @@ collectHoleGuards env0 se0 = go env0 se0 []
     go env se acc (EPair a b)      = go env se acc a ++ go env se acc b
     go env se acc (EAwait e)       = go env se acc e
     go env se acc (ELambda _ b)    = go env se acc b
-    go env se acc (EDo steps)      = concatMap (\(DoStep _ e) -> go env se acc e) steps
+    go env se acc (EDo steps)      = concatMap (\(DoStep _ e _) -> go env se acc e) steps
     go _   _  _   _                = []
 
     isIntLikeSimple TInt = True
@@ -445,7 +445,7 @@ ownEffects = go
       EPair a b     -> joinEff (go a) (go b)
       EAwait a      -> go a
       ELambda _ b   -> go b
-      EDo steps     -> joinEffs [go se | DoStep _ se <- steps]
+      EDo steps     -> joinEffs [go se | DoStep _ se _ <- steps]
       EHole hk      -> if opaque hk then Unbounded else bottomEff
       _             -> bottomEff
     opaque HDelegate{}        = True
@@ -557,7 +557,7 @@ hasHole (EMatch s arms)  = hasHole s || any (hasHole . snd) arms
 hasHole (EPair a b)      = hasHole a || hasHole b
 hasHole (EAwait e)       = hasHole e
 hasHole (ELambda _ body) = hasHole body
-hasHole (EDo steps)      = any (\(DoStep _ e) -> hasHole e) steps
+hasHole (EDo steps)      = any (\(DoStep _ e _) -> hasHole e) steps
 hasHole _                = False
 
 -- | isQfLia is now imported from ObligationMining (F5: predicate drift fix).
@@ -678,7 +678,7 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed re
     go (EPair a b)       = go a ++ go b
     go (EAwait e)        = go e
     go (ELambda _ b)     = go b
-    go (EDo steps)       = concatMap (\(DoStep _ e) -> go e) steps
+    go (EDo steps)       = concatMap (\(DoStep _ e _) -> go e) steps
     go _                 = []
 
 -- ---------------------------------------------------------------------------
@@ -832,7 +832,7 @@ collectContractedCalls cenv = go
     go (EPair a b)            = go a ++ go b
     go (EAwait e)             = go e
     go (ELambda _ body)       = go body
-    go (EDo steps)            = concatMap (\(DoStep _ e) -> go e) steps
+    go (EDo steps)            = concatMap (\(DoStep _ e _) -> go e) steps
     go _                       = []
 
 -- | XMOD-SCOPE-BRIEF: imported contracted functions visible to the entry
