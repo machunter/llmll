@@ -91,6 +91,38 @@ ALLOW = {
     # convention, not an instance: every emergent example carries its own
     # audit/runner.py, and the proposal is naming the shape, not one file
     ('docs/design/rfc-swarm-roadmap-proposal.md', 'audit/runner.py'),
+    # Added 2026-08-02. version-gate had been red on main for six commits,
+    # across the v0.14.76/77/78 releases, on these rows. Each is checked
+    # individually below and each is a case where the citation is RIGHT and the
+    # resolver cannot see it, which is what this table is for.
+    #
+    # docs/-relative citations inside a docs/design/ file. These three live in
+    # the campaign doc's "Roadmap delta, staged for documentation-lead" table,
+    # whose rows were authored to be pasted into docs/compiler-team-roadmap.md
+    # (a docs/-level file, where `design/foo.md` resolves) and are preserved
+    # unedited so the staging step stays auditable. Rewriting them to be
+    # correct from docs/design/ would make them wrong for their destination
+    # and would edit a block the doc marks as frozen.
+    ('docs/design/driver-in-llmll-campaign.md',
+     'archive/do_notation/do-notation-design.md'),
+    ('docs/design/driver-in-llmll-campaign.md',
+     'design/rfc-swarm-roadmap-proposal.md'),
+    ('docs/design/driver-in-llmll-campaign.md',
+     'design/driver-in-llmll-campaign.md'),
+    # forward reference: the fixture is created by the DISCARD-1 commit, which
+    # the plan citing it specifies. DELETE THIS ROW when that commit lands;
+    # after it, the path resolves and the row would be masking a real check.
+    ('docs/design/driver-ll-phase01-implementation-plan.md',
+     'scripts/doc-claims/do-discard-on-final-step.llmll'),
+    # gitignored by construction: .gitignore:25 excludes examples/**/*.verified.json,
+    # so this path exists after a verify run and never in a fresh clone. The
+    # citation is naming where the artifact appears, correctly.
+    ('docs/design/examples-audit-2026-07-20-compiler-followups.md',
+     'examples/conways_life_json_verifier/life.ast.json.verified.json'),
+    # a run directory that was never committed; the finding is citing which run
+    # produced the number it reports, which is the right thing for it to do
+    ('experiments/repair-loop/findings.md',
+     'experiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll'),
 }
 
 

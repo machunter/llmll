@@ -72,3 +72,7 @@ tags
 # built by .github/workflows/pages.yml, never committed)
 _site/
 .jekyll-cache/
+
+# Python bytecode from scripts/ and its pytest suite
+__pycache__/
+*.pyc

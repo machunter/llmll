@@ -129,8 +129,19 @@ class TestAllowList:
     def test_every_entry_has_a_comment(self):
         src = LINT.read_text()
         block = src.split("ALLOW = {", 1)[1].split("\n}", 1)[0]
-        entries = [l for l in block.split("\n") if l.strip().startswith("('")]
-        comments = [l for l in block.split("\n") if l.strip().startswith("#")]
+        lines = block.split("\n")
+        entries = [i for i, l in enumerate(lines) if l.strip().startswith("('")]
+        comments = [i for i, l in enumerate(lines) if l.strip().startswith("#")]
         assert comments, "ALLOW has no explanatory comments"
-        assert len(entries) >= len(comments), "more comments than entries is fine; " \
-            "zero comments is not"
+        assert entries, "ALLOW has no entries"
+        # Entries are grouped under a shared justification, so the contract is
+        # "no entry lacks a comment above it", not a count comparison.
+        #
+        # This assertion previously read `len(entries) >= len(comments)`, which
+        # contradicted its own failure message ("more comments than entries is
+        # fine; zero comments is not") and inverted the class docstring: it made
+        # a WELL-justified table fail and a thinly-justified one pass. It went
+        # unnoticed because ALLOW happened to carry terse one-line comments.
+        # Adding six entries with real explanations is what surfaced it.
+        assert min(entries) > min(comments), \
+            "an ALLOW entry appears before any justifying comment"

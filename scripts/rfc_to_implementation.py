@@ -1462,8 +1462,22 @@ def self_test() -> int:
 
     print("self-test: RFC-COV-1 (stage L) against the frozen TFTP clause surface")
     roots = REPO / "examples" / "tftp_rfc1350" / "roots"
-    if roots.exists():
-        llmll = os.environ.get("LLMLL_CMD", "llmll")
+    llmll = os.environ.get("LLMLL_CMD", "llmll")
+    # The second SKIP below used to name "llmll not on PATH" as its case while
+    # only firing when llmll RAN and printed something that was not JSON. An
+    # absent binary raises FileNotFoundError out of subprocess.run before p is
+    # bound, so the one case the message named was the one case it did not
+    # handle. That is the fast CI job's configuration exactly: it installs no
+    # Stack and no llmll, and self_test() raised there rather than skipping.
+    # version-gate was red on main for six commits over the v0.14.76, v0.14.77
+    # and v0.14.78 releases on this. Resolve the binary first, and keep the two
+    # skip reasons distinguishable so the next reader is not told "not on PATH"
+    # about a binary that ran.
+    if not roots.exists():
+        print("  SKIP  no frozen TFTP clause surface in this tree")
+    elif shutil.which(llmll) is None:
+        print("  SKIP  llmll not on PATH (set LLMLL_CMD); clause-surface check skipped")
+    else:
         tr = Path("/tmp/rfc-selftest-tr.json")
         p = subprocess.run([llmll, "verify", str(roots / "tftp.llmll"),
                             "--trust-report", "--json"],
@@ -1480,9 +1494,8 @@ def self_test() -> int:
             for line in cov.stdout.splitlines():
                 print(f"     {line}")
         else:
-            print("  SKIP  llmll not on PATH (set LLMLL_CMD); clause-surface check skipped")
-    else:
-        print("  SKIP  no frozen TFTP clause surface in this tree")
+            print(f"  SKIP  {llmll} produced no JSON trust report "
+                  f"(exit {p.returncode}); clause-surface check skipped")
 
     print(f"\nself-test {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
