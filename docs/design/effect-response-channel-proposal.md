@@ -419,9 +419,9 @@ sites, read for what they actually consume:
 | `wasi.proc.run` | `:211-215`, `:874-880` — takes `returncode`; child output is redirected to a **file** | `RCode` | no |
 | `wasi.clock.monotonic` | `:206`, `:225` — an integer difference | `RCode` | no |
 | `wasi.fs.mkdir` | `:158`, `:387`, `:393` — no result read | `RNone` | no |
-| `wasi.http.get` | `:419-420` — body written straight to a file; **status never inspected** | `RText` / `RErr` | no |
+| `wasi.http.get` | `:419-420` — **bytes** written straight to a file; **status never inspected** | ~~`RText` / `RErr`~~ **`RNone` / `RErr`, see Rev 6** | no |
 | `wasi.fs.read` | shipped at v0.14.80 | `RText` / `RErr` | no |
-| `sha256` | `:111-116` — a pure function over bytes | not a command | n/a |
+| `sha256` | `:111-116` — opens `"rb"` and hashes the **file**; every call site is `sha256_file(path)` | ~~not a command~~ **a command, `RText` / `RErr`, see Rev 6** | no |
 | **`wasi.fs.list`** | `:485`, `:509`, `:670`, `:1656` — an iterated directory listing | **`RList`** | **yes** |
 
 Six of the seven map to existing arms, and the reason is not that the Phase 1 arm set was
@@ -446,6 +446,39 @@ arm set from growing once per capability.
 `FQList` sort (`FixpointEmit.hs:2419`, "opaque carrier for list measures") so nothing widens; a
 listing cannot be persisted and re-read without inventing a delimiter, which fails on the inputs an
 adversary controls (see edge cases); and it names a shape.
+
+#### Rev 6 — two rows of this table were wrong, corrected against the shipped implementation
+
+Settled 2026-08-03, after CAP-PROC Phase 2 shipped four operations (`a46d361`). The arm set does
+**not** move; both corrections are about which operation produces which arm, and both were found by
+reading the driver rather than the table.
+
+**`sha256` is a command, not a pure function.** The row read "a pure function over bytes / not a
+command." Every call site is `sha256_file(path)` (`:426`, `:1768`, `:1809`), which opens `"rb"` and
+hashes the file; there is no `sha256(string)` site. It shipped as **`wasi.fs.sha256 : string ->
+Command`**, publishing a lowercase hex digest as `RText` and IO failure as `RErr`. The reason it
+cannot be the pure `bytes[N]` primitive `LLMLL.md §13.11` predicted is **this proposal's own
+argument, one section up**: `bytes[n]` requires a literal type-level length and a file's length is
+not statically known, which is why there is no `RBytes` arm either. Composing `wasi.fs.read` with a
+pure hash would hash locale-decoded *text*, and a non-UTF-8 file does not survive that read at all
+(`CodegenHs.hs:517-524` forces it inside the `try`, so it arrives as `RErr`). The digest is a resume
+gate at `:1768` and a provenance pin at `:426`, so a text round trip would silently disagree with the
+reference implementation.
+
+**`wasi.http.get` delivers no payload; it fetches to a file.** The row read `RText` / `RErr` on the
+reading that the body is a payload the program receives. The driver never materializes it: `:420` is
+`dest.write_bytes(r.read())`, and `:426` hashes the file. An `RText` body is not byte-faithful, so
+the pin would diverge. The faithful shape is **`wasi.http.get : string -> string -> Command`** (url,
+dest), publishing `RNone` on 2xx and `RErr` carrying the status otherwise, **with an atomicity
+obligation: `dest` is either absent or contains the complete 2xx body, never a prefix of it.** The
+runtime realization is write-to-temporary-then-`rename` on the same filesystem. Without that clause a
+transfer that begins and fails leaves a truncated file that `wasi.fs.sha256` then hashes into a
+well-formed pin over a partial download, which is the campaign's provenance root. It belongs in
+`harness_assumptions` beside the RC-1..RC-4 entries.
+
+`wasi.http.get` did **not** ship. It is refiled as `HTTP-GET-1` (`driver-ll-open-work.md` R-11) and
+blocked on a dependency decision: `http-client` + `http-client-tls` moves a generated project's
+closure from 33 to 79 packages, measured. CAP-PROC therefore closes at **five** operations.
 
 **Corollary, correcting `driver-in-llmll-campaign.md`.** Arm growth is **not** a failure signal. This
 proposal's own justification for a compiler-supplied `Response` is that the response alphabet is a

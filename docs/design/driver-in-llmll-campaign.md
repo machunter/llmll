@@ -63,8 +63,23 @@ Counted against `scripts/rfc_to_implementation.py` (1814 lines), by call site.
 Two structural facts govern the plan. First, the **authority collapse**: `primEffect`
 (`ObligationAssembly.hs:419-431`) maps every `haskell.*`, `c.*` and unrecognized `wasi.*` name to
 `Unbounded`, and `joinEff` makes ⊤ absorbing (`:408`), so one FFI call anywhere in a call graph makes
-every function above it report `unbounded`. Routing the driver's effects through FFI would satisfy
-driver-spec §15.2's letter (⊤ is an over-approximation) while making the report vacuous. Second, the
+every function above it report `unbounded`. Routing the driver's effects through FFI would make the
+report vacuous.
+
+> **Correction, 2026-08-03.** This sentence previously read "would satisfy driver-spec §15.2's letter
+> (⊤ is an over-approximation) while making the report vacuous," which over-reads §15.2. The clause
+> was finally opened (`experiments/rfc-swarm/targets/driver-spec.txt:517-528`) and has two paragraphs
+> with different fates. ¶1 requires that effectful operations "be reached only through a declared
+> capability or a named interface declared in the program itself" — a property of the **declaration
+> surface**, satisfied today by namespace membership (`checkWasiCapability`), which never consults
+> the effect summary. ⊤ is therefore neither satisfying nor violating ¶1. ¶2 requires runtime
+> enforcement of this tier's contracts, and LLMLL enforces nothing at runtime; that is the real
+> conformance gap and it belongs to `CAP-1-REAL`, not to CAP-PROC or to any choice of effect-label
+> granularity. Phase 5 should claim ¶1 and disclose ¶2. The reason to keep the driver's effects off
+> the FFI tier is unchanged and stands on its own: a vacuous report is useless regardless of what
+> §15.2 asks. See `driver-ll-open-work.md` §2.
+
+Second, the
 **FFI signature seam is unchecked**: a declared `(fn [cmd: string] -> int)` against
 `callCommand :: String -> IO ()` typechecks, codegens, and builds, failing only at GHC and only when
 a use forces the type. It cannot reach the proved tier (a `def` refuses an FFI callee at strict-core

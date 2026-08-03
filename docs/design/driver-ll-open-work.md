@@ -1,7 +1,7 @@
 ---
 name: driver-ll-open-work
 title: "DRIVER-LL open work: what v0.14.80 owes, and the two findings that must not close with it"
-status: "ACTIVE ROUTING RECORD, opened 2026-08-03. Phases 0 and 1 of the DRIVER-LL campaign are implemented and committed but NOT released: four commits sit ahead of origin/main with the release ceremony unperformed. This file exists so a session with no prior context can finish the release and route the open findings without re-measuring anything. Delete it when every row below is either shipped or has a roadmap row of its own."
+status: "ACTIVE ROUTING RECORD, opened 2026-08-03, updated 2026-08-03 after CAP-PROC Phase 2. Phases 0 and 1 SHIPPED as v0.14.80 (ef2bd49, pushed and tagged); §1's ceremony content is discharged and replaced by the v0.14.81 ceremony now owed for two unreleased commits on branch cap-proc/four-operations. CAP-PROC is 5 of 6 and now CLOSES AT FIVE: wasi.http.get is dropped and refiled as R-11 (HTTP-GET-1). Both formerly-unanswered open questions in §2 are DISCHARGED with their answers recorded. Four residues added: R-10 (CRYPTO-2, a trust channel that exists only in prose and propagated into two archived proposals), R-11, R-12 (REPORT-GATE-1, no gate covers report-shape doc claims), R-13 (random-int declared nowhere and admitted anyway). This file exists so a session with no prior context can finish the release and route the open findings without re-measuring anything. Delete it when every row below is either shipped or has a roadmap row of its own."
 date: 2026-08-03
 author: compiler-engineer
 consumers: [documentation-lead, compiler-engineer, language-team, user]
@@ -15,34 +15,46 @@ Read this before touching the campaign. Every measurement below was taken; none 
 
 ## 0. Exact state
 
+**Updated 2026-08-03, after the v0.14.80 release and the CAP-PROC Phase 2 work.**
+
 ```
-8b723a6  docs(design): settle the Response arm set; record Phase 1 as measured
-1036245  feat(cap-proc): the fifth Response arm ships with its producer, wasi.fs.list
-bc78057  feat(effect-resp): one response per performed command; :step gains its arity check   <- main
-8dff514  feat(discard-1): the dropped command must be declared; retire :read; schema 0.10.0
-2dc3548  docs(release): v0.14.79                                                    <- origin/main
+64e60f6  docs: the four CAP-PROC operations, and two claims the shipped design refuted
+a46d361  feat(cap-proc): four Phase 2 operations, and a build gate that runs them
+ef2bd49  docs(release): v0.14.80 — the response channel, DISCARD-1, and wasi.fs.list  <- main, origin/main, tagged
 ```
 
-Branch `cap-proc/fs-list-arm` holds the top two and fast-forwards onto `main` cleanly.
-`main` is two commits ahead of `origin/main`. **Nothing is pushed and nothing is tagged.**
+**v0.14.80 SHIPPED** (`ef2bd49`, pushed and tagged); §1's former ceremony content is discharged.
+Branch **`cap-proc/four-operations`** holds the top two commits. **Nothing is pushed; there is no
+version bump.**
 
-Tests **1544, 0 failures**. Schema **0.10.0**, `$id` at `/schemas/v0.10/`. Version banner still
-says **v0.14.79** everywhere, which is why `version_gate.sh` is currently green: the pins agree with
-each other, they just do not yet describe what is in the tree.
+Tests **1565, 0 failures** (was 1544 at `ef2bd49`). Schema **0.10.0** unchanged, no JSON-AST delta.
+Version banner reads **v0.14.80** across all five pins, which is why `version_gate.sh` is green: the
+pins agree with each other and do not yet describe what is on the branch.
 
-All gates green at `8b723a6`: `stack test`, `version_gate.sh`, `doc_archive_gate.sh`,
-`doc_claims_gate.sh` (15 claims), `build_smoke.sh`, `refute-crux-gate.sh` (61),
-`doc_path_lint.py`, `pytest scripts/tests/` (107), `spec_roundtrip.py`.
-`check-examples.sh` is 165 passed / 1 failed, and that one failure is pre-existing (row R-3 below).
+All gates green at `64e60f6`: `stack test` (1565), `version_gate.sh`, `doc_claims_gate.sh` (15),
+`build_smoke.sh` (**now with an execution stage**, see §5), `pytest scripts/tests/` (107).
+`check-examples.sh` is 165 passed / 1 failed, and that failure is pre-existing (row R-3 below).
 
 ---
 
-## 1. IMMEDIATE: the v0.14.80 release ceremony
+## 1. IMMEDIATE: the v0.14.81 release ceremony
 
-`documentation-lead`'s slot. Merge `cap-proc/fs-list-arm` into `main` first (fast-forward), then one
-`docs(release):` commit, then `version_gate.sh`, then push `main` and the tag together. The project
-rule is that the ceremony is owed **at merge time**; a bare merge leaves breaking changes on `main`
-labelled with the previous version.
+The v0.14.80 ceremony is **done**. What is owed now is v0.14.81 for the two branch commits.
+
+The bump is the **engineer's** slot (`compiler/package.yaml`, `compiler/llmll.cabal`); the ceremony is
+`documentation-lead`'s. Order: bump the two pins, then merge `cap-proc/four-operations` into `main`,
+then one `docs(release):` commit carrying the CHANGELOG entry and the README / `LLMLL.md` banner,
+then `version_gate.sh`, then push `main` and the tag together.
+
+The CHANGELOG entry is **drafted and held** rather than written, because a section cannot be authored
+against pins that name an already-released version. Its content: CAP-PROC reaches 5 of 6;
+`wasi.http.get` dropped with both measurements; the `random` → `nondet` label rename, which is
+**breaking for any consumer keyed on the old string**; `wasi.proc.run` reporting `unbounded`;
+BUILD-GATE-1's execution stage and the handle-leak defect it caught. Tests 1565 Haskell, 107 Python.
+
+The roadmap **CAP-PROC** row still reads "OPEN, 1 of 6 shipped" and cannot be flipped until a version
+exists to name, since the row's established form cites one (`wasi.fs.list` shipped v0.14.80, commit
+`1036245`). CAP-PROC now closes at **five** operations, not six; see R-11.
 
 What the release carries, in commit order:
 
@@ -126,13 +138,37 @@ Open **`CAP-1-REAL`**, `[CT][SPEC]`, and merge **WASI-RT residue (ii)** into it 
 same finding seen from one operation). Language-team owns the design question; doc-lead owns the four
 `LLMLL.md` corrections; the corrections should not wait on the design.
 
-Two open questions already put to language-team and unanswered:
+Two open questions, **both DISCHARGED by language-team 2026-08-03**. Answers below; do not re-open.
 
-1. Is §15.2's claim intended to survive as a namespace-membership property, in which case its wording
-   must change, or does Phase 5's conformance claim depend on enforcement that does not exist?
-2. Rev 5's rule 4 forbids capability-named arms and rule 1 admits by shape, which together force
-   `RCode` to carry HTTP statuses, exit codes, and clock readings. Accept the overloading explicitly,
-   or justify a provenance-tagged alternative.
+**1. §15.2 — ANSWERED BY READING IT.** `experiments/rfc-swarm/targets/driver-spec.txt:517-528` was
+not opened by anyone in the thread that filed this question. It has two paragraphs and they have
+different fates.
+
+¶1 requires that effectful operations "be reached only through a declared capability or a named
+interface declared in the program itself." That is a property of the **declaration surface**, it is
+satisfied today by namespace membership (`checkWasiCapability`), and **its wording does not need to
+change**. It never consults the effect summary, so the "⊤ satisfies §15.2's letter while making the
+report vacuous" framing at `driver-in-llmll-campaign.md:67` and in the CAP-PROC roadmap row is an
+**over-read**: ⊤ is neither satisfying nor violating ¶1, because ¶1 does not ask this catalog
+anything.
+
+¶2 requires that an implementation "enforce the contracts of this tier at runtime where it cannot
+prove them." LLMLL enforces nothing at runtime. **Yes, a Phase 5 conformance claim as currently
+imagined would depend on enforcement that does not exist.** The correct Phase 5 move is to claim ¶1
+and disclose ¶2. The gap is `CAP-1-REAL`'s, not CAP-PROC's, and no choice of effect-label granularity
+touches it.
+
+**2. `RCode` overloading — ACCEPTED EXPLICITLY.** Rev 5's rule 1 admits arms by payload shape and
+rule 4 forbids capability-named arms; one integer arm with several producers is the intended
+consequence of a rule chosen to keep the arm set small, not an accident. A provenance-tagged
+`RCode` is a capability-named arm wearing a payload disguise and fails rule 4.
+
+`TrustReport.hs:313-325` already discloses the overloading in `harness_assumptions`, naming all three
+producers (HTTP status, process exit code, clock reading) and naming **CMD-A** as the closure. A
+proposed `RCode` → `RInt` rename was raised twice and is now **CLOSED WITHOUT ACTION**: it is
+cosmetic relative to CMD-A, it makes no mispairing ill-typed, and if CMD-A ever lands then `Command`
+is parameterised by its result and `RCode` ceases to exist, so the name can never become
+load-bearing.
 
 ---
 
@@ -172,6 +208,10 @@ Phase 3's acceptance requires built-and-run artifacts, so this surfaces there if
 | **R-7** | Rule 3 of the arm-set admissibility rule (file-indirection) systematically enlarges **REPLAY-INJECT**: every payload the rule keeps out of the response channel is a payload the event log does not capture. This is the gap between value determinism and output determinism. Language-team owes the sentence in Rev 5's own rule text. | professor review, 2026-08-02 |
 | **R-8** | The arm set is now strictly **finer** than the effect catalog: `Response` distinguishes `RText` from `RList` while `Sigma_eff` maps both producers to `fs.read`. Not a soundness defect (`LLMLL.md:1860` scopes `effect_summary` as informational and orthogonal to trust), but an asymmetry that should be recorded rather than rediscovered. | professor review, 2026-08-02 |
 | **R-9** | The checkout brief does not describe `Response`'s arms. An agent filling a step hole is told the parameter's type name and not its constructors, and the brief is the only channel it gets. Will matter at Phase 3. | named, unscheduled |
+| **R-10 `CRYPTO-2`** | **`asserted-with-stub-backend` does not exist.** `LLMLL.md §13.11` describes it as a trust-report channel; `grep -rn 'stub-backend' compiler/` returns **zero hits** and `TrustReport.hs:1630` emits `"asserted"`. `critique-2026-05-23-triage.md:122` marks CRYPTO-1 **Shipped**, crediting `7ccd925`, which `git show --stat` shows is a **docs-only** commit. Two archived proposals then built on it as a real admissibility criterion (`core-shell-inversion-proposal.md:162`, `refinement-metatheory-of-record-proposal.md:143`). Retract the channel; the `asserted` cap on stub-reaching functions is unchanged and sufficient. The principled version is **not a tier** (a tier must be monotone under composition; "reaches a known-false axiom" says the assumption set is inconsistent) but an axiom-dependency report over the closure, i.e. Lean's `#print axioms` / Coq's `Print Assumptions`. Named `assumed_axioms`, **not scheduled**; it would sit *beside* the tier, not subsume it, so it is an additive report field rather than a trust-model change, and `computeEffectSummary` (`ObligationAssembly.hs:467-470`) already has the fixpoint it would reuse. | measured 2026-08-03 |
+| **R-11 `HTTP-GET-1`** | **`wasi.http.get` is dropped from CAP-PROC and refiled.** Two independent grounds, either sufficient. (i) Rev 5's arm table maps it to `RText` body, which **cannot reproduce `stage_A_intake`**: the driver does `dest.write_bytes(r.read())` then hashes the FILE (`rfc_to_implementation.py:419-426`), and an `RText` round trip is not byte-faithful. (ii) `http-client` + `http-client-tls` moves a generated project's dependency closure from **33 to 79 packages** (`stack ls dependencies`, lts-22.43: crypton, tls, four crypton-x509-\*, three asn1-\*, socks, pem, hourglass, cereal…), none of which are compiler deps, so CI's snapshot cache misses. Settled signature for whenever it lands: `wasi.http.get : string -> string -> Command` (url, dest), `RNone` on 2xx and `RErr` carrying the status otherwise, **plus an atomicity clause: `dest` is either absent or contains the complete 2xx body, never a prefix.** Without that clause a truncated transfer feeds `wasi.fs.sha256` a valid-looking pin over a partial download, and that pin is the campaign's provenance root. Interim: a granted `curl` through `wasi.proc.run`, zero deps, byte-faithful, and it moves TLS trust into an ambient binary invoked with an unchecked argv. **CAP-PROC closes at five operations, not six.** | measured 2026-08-03 |
+| **R-12 `REPORT-GATE-1`** | **No gate covers report-shape doc claims.** `doc_claims_gate.sh` (DRIFT-CT-2) runs `.llmll` fixtures through `llmll check` and compares an `expect=` verdict (`:4-22`, `:28`, `:78-79`), so it guards claims about *what the compiler rejects*. A claim that the trust report emits a given field has no expressible fixture in that harness. This is the gap R-10 propagated through: a documented mechanism with no implementation survived a Shipped status flip and reached two admissibility criteria. Seventh instance of the unobserved-check pattern BUILD-GATE-1 was created for, and the first on the *documentation* side. | named, unscheduled |
+| **R-13** | **`random-int` is declared nowhere and admitted anyway.** It has a `trustedPrelude` entry (`TypeCheck.hs:727`), a `primEffect` clause (`ObligationAssembly.hs:457`), and a codegen body (`CodegenHs.hs:658`, `random_int :: IO Int`, a `return 42` stub), and **no `builtinEnv` declaration**. It is the only name on the `trustedPrelude` list with that gap: `string-length` (`TypeCheck.hs:131`) and its line-mate `int-to-string` (`:142`) both carry real `builtinEnv` types. Consequences: `check` passes it with an unknown-function warning while `verify` errors, so an agent running `check` sees a usable function that does not exist; and because it is undeclared **nothing checks its arity**, so `(random-int lo hi)` against a nullary binding is accepted by both the checker and `Spec.hs:13435`. **No soundness hole** (see §5 probes: `verify` rejects it in every mode, so it never receives a tier). Recommended: remove all three sites and **retarget** `Spec.hs:13435` rather than deleting it. Zero `.llmll` / `.ast.json` callers. **Two tests pin the sites, not one:** `Spec.hs:14276` (CP-8) asserts `primEffect "random-int" == Just (Caps {ENonDet})` and fails the moment the `ObligationAssembly` clause goes, so it must be retargeted alongside INV-C3. CP-8's label coverage is already carried in full by CP-7 (`:14272-14274`, `wasi.clock.monotonic`). **Doc surface owed:** `LLMLL.md:823` asserts the `trustedPrelude` membership and the orphaned stub as present tense and goes false on removal; no gate covers it (R-12). | measured 2026-08-03; CP-8 + `LLMLL.md:823` found 2026-08-03 during implementation |
 
 ---
 
@@ -197,6 +237,48 @@ Phase 3's acceptance requires built-and-run artifacts, so this surfaces there if
   through the filesystem (`scripts/rfc_to_implementation.py:211-215`, `:419-420`). `wasi.proc.spawn`
   and `wasi.proc.await` collapse into a synchronous `wasi.proc.run`; there is no `Popen` in the
   driver.
+
+### Added 2026-08-03, CAP-PROC Phase 2
+
+- **`time.time()` reaches no persisted artifact.** `rfc_to_implementation.py:1596` lives in
+  `print_status()` and feeds exactly two printed lines (`:1598`, `:1607`) plus a `stalled` boolean
+  that is also only printed; the function returns 0 at `:1641` and writes nothing. It is differenced
+  against filesystem `st_mtime`, which is *why* it must be wall-clock: a monotonic reading has no
+  shared origin with `st_mtime`. What does persist is `time.monotonic()` at `:1808`, into
+  MANIFEST.json's `seconds`, whose only consumer is a display at `:1622`. **No clock operation was
+  added.** Porting `--status` would need `wasi.clock.now` *and* a file-mtime accessor, neither of
+  which exists; it is excluded from the port instead.
+- **Generated-project dependency closure, `stack ls dependencies` against lts-22.43: 33 packages**
+  with `process` + `cryptohash-sha256` + `bytestring` added (all three already compiler deps, so the
+  snapshot is cached), **79** if `http-client` + `http-client-tls` are added. See R-11.
+- **The `random-int` probe set.** Four programs, one minute, and it refuted three separate claims
+  that had been argued from reading code alone. All at `GrammarCoreInversion`, the CLI default
+  (`app/Main.hs:170`).
+
+  | Probe | Body | Result |
+  |---|---|---|
+  | (a) | `(string-length s)` | clean |
+  | (b) | `(random-int lo hi)` | `OK`, `warning: call to unknown function` — **no core-membership error** |
+  | (c) | `(totally-made-up lo hi)` | **`error: callee is not body-faithful and not in the trusted prelude`** |
+  | (d) | probe (b) under `llmll verify` | **`error: call to unknown function`**, in every mode |
+
+  (b) vs (c) differ only in `trustedPrelude` membership, so **the entry is live and load-bearing**:
+  it is exactly what suppresses the error (c) gets. That refutes "INV-C3 passes vacuously" (professor)
+  and "the `trustedPrelude` entry is dead" (language-team). (d) refutes "a real unsoundness in the
+  strict-verified-core" (language-team, Rev 3): `verify` rejects before any tier is assigned, so a
+  function calling `random-int` cannot enter the trust closure at all. **`Spec.hs:13435` is therefore
+  a discriminating test, not a dead one** — delete the `trustedPrelude` entry and probe (b) becomes
+  probe (c). The lesson worth keeping: the reading path was wrong three times and the probes were
+  cheap; construct the witness first.
+- **`wasi.fs.read` fails closed on binary input.** `readFile` + `evaluate (length …)` inside
+  `llmll_publish_io`'s `try` (`CodegenHs.hs:517-524`) turns an encoding failure into `RErr`, not a
+  wrong value. So composing it with a pure hash does not mis-hash a binary file, it cannot read one
+  at all, which is the argument for `wasi.fs.sha256` taking a path.
+- **A failed spawn used to corrupt a later read.** Against `/bin/does-not-exist-xyz`,
+  `createProcess` throws and `RErr` is correct, but the two redirect handles leaked still-open and
+  the **next** `wasi.fs.read` of that path returned `resource busy (file is locked)`. Fixed in
+  `a46d361` with `onException` guards; pinned by `Spec.hs` CP-17. Found by the execution stage, not
+  by any compile-only check.
 
 ---
 
