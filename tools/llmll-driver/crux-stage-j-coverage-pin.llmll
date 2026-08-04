@@ -1,0 +1,47 @@
+(module crux-stage-j-coverage-pin)
+;; Stage J's pins are proved rather than printed, and this is the check that
+;; the proof is doing work. The [J-COVERAGE] post says 63 carried; the body
+;; still admits only 62. An INVENTED mutant, not a shipped defect: it is
+;; spine.llmll's stage-j-pins with one numeral moved, and the numeral it moves
+;; is the figure SUMMARY.md had to correct once already (62/65 = 95.4% as
+;; published, 51/65 = 78.5% corrected).
+;;
+;; What it would catch is the ENUM-EQ-FALLBACK shape this whole gate exists for
+;; (refute-crux-gate.sh:18-20): a ported stage whose contract and body disagree
+;; must be refuted, not silently accepted, and a pin that stops being enforced
+;; degrades the port from proved to printed with no visible change in output.
+;;
+;; The crux's own limit, stated because it bounds the claim: perturbing the
+;; contract and the body TOGETHER verifies SAFE. That is correct behaviour, and
+;; it is why the pin's agreement with rfc_to_implementation.py:1412-1443 is a
+;; reading obligation the frozen verdict cannot discharge.
+(def stage-j-pins [rows: int encoded: int core: int core-out: int
+                   carried: int verifiable: int
+                   excluded: int listed-barrier: int] -> bool
+
+  (post (=> result (and (= rows 124) (= encoded 46)))
+    :source "[J-ROWS] self_test - 124 inventory rows, 46 of them Encoded")
+
+  (post (=> result (and (= core 15) (= core-out 0)))
+    :source "[J-CORE] self_test - 15 characteristic-core rows, none dispositioned out")
+
+  ;; The perturbation: 63, against a body that admits 62.
+  (post (=> result (and (= carried 63) (= verifiable 65)))
+    :source "[J-COVERAGE] self_test - verifiable subject matter carried 62/65, reported and NOT thresholded")
+
+  (post (=> result (and (= excluded 53) (= listed-barrier 0)))
+    :source "[J-BARRIER] self_test - 53 exclusions, none citing a barrier from the closed list")
+
+  (post (=> (not (= rows 124)) (not result))
+    :source "[J-NOVACUOUS] a divergent row count MUST fail the stage")
+
+  (post (=> (not (= carried 62)) (not result))
+    :source "[J-NOVACUOUS-2] a divergent coverage figure MUST fail the stage")
+
+  (and (= rows 124)
+       (and (= encoded 46)
+            (and (= core 15)
+                 (and (= core-out 0)
+                      (and (= carried 62)
+                           (and (= verifiable 65)
+                                (and (= excluded 53) (= listed-barrier 0)))))))))

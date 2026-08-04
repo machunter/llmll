@@ -2,7 +2,7 @@
  "family": "llmll-driver",
  "frozen_at": "v0.14.69",
  "frozen_date": "2026-07-27",
- "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). driver-spec.txt section 15.1 (proved tier) and section 15.2 (asserted tier). Five of the cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. This suite is addressed by repo-relative path and each case is verified against a copy of the whole directory, because shell.llmll and crux-shell-undeclared-authority.llmll import sibling modules; `verify` still checks only the named file, so the extra siblings change no verdict. The `capability` expectation is the third verdict kind: a capability violation is neither `safe` nor `refuted`, and grading it as `refuted` meant a program rejected at type-check stood in for one the solver disproved.",
+ "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). driver-spec.txt section 15.1 (proved tier) and section 15.2 (asserted tier). Five of the cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. This suite is addressed by repo-relative path and each case is verified against a copy of the whole directory, because shell.llmll and crux-shell-undeclared-authority.llmll import sibling modules; `verify` still checks only the named file, so the extra siblings change no verdict. The `capability` expectation is the third verdict kind: a capability violation is neither `safe` nor `refuted`, and grading it as `refuted` meant a program rejected at type-check stood in for one the solver disproved. Extended at v0.14.82 by the DRIVER-LL Phase 3 port with spine.llmll and crux-stage-j-coverage-pin.llmll: before that pair neither stage E's nor stage J's verify verdict was frozen anywhere, so the ported spine was the only unprotected artifact in a directory whose whole point is frozen verdicts. The new crux is an INVENTED mutant, so the count of five shipped-defect cruxes is unchanged.",
  "cases": [
   {
    "file": "stage.llmll",
@@ -70,6 +70,16 @@
    "expect": "refuted",
    "localized": "record-outcome",
    "why": "section 4: an error recorded as stopped lets a run killed by a network fault read as a gate that fired, which the spec calls the one confusion this pipeline cannot afford"
+  },
+  {
+   "file": "crux-stage-j-coverage-pin.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localized": "stage-j-pins",
+   "why": "INVENTED MUTANT, not a shipped defect: spine.llmll's stage-j-pins with the [J-COVERAGE] post moved to 63 against a body that admits 62. Guards the ENUM-EQ-FALLBACK shape this gate exists for (refute-crux-gate.sh:18-20) on the Phase 3 port: a pin that stops being enforced degrades the ported stage from proved to printed with no visible change in output. Measured at v0.14.82: refuted at constraint #0 standalone, and at constraint #3 when the same perturbation is applied in spine.llmll, because constraint indices are per-.fq. Perturbing contract and body TOGETHER verifies SAFE, so agreement with rfc_to_implementation.py:1412-1443 stays a reading obligation this frozen verdict does not discharge"
   },
   {
    "file": "crux-skip-presence-only.llmll",
@@ -148,6 +158,14 @@
    "expect": "safe",
    "cross_module": true,
    "why": "section 15.2 asserted tier: every effect reached through a declared capability or the Host interface; each function's authority is minimal and finish-stage inherits the union of its callees"
+  },
+  {
+   "file": "spine.llmll",
+   "flags": [],
+   "expect_exit": 0,
+   "expect": "safe",
+   "cross_module": true,
+   "why": "DRIVER-LL Phase 3, stages E and J. The verdict being frozen is the split: five defs body-faithful (stage-e-passes, stage-e-outcome, stage-j-pins, bad-barrier-count, stage-j-outcome) and the def-shell orchestration around them at body-fallback. No `--strict-verified-core`, because the shell layer is the asserted tier by construction; what the frozen verdict protects is that the proved centre stays SAFE and that the module keeps importing stage/skip/gate rather than reimplementing their decisions"
   },
   {
    "file": "crux-shell-undeclared-authority.llmll",
