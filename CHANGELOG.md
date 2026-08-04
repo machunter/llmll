@@ -4,6 +4,101 @@
 
 <a id="Latest"></a>
 
+## v0.14.83: four stages of the driver, and the replay that could not check them (2026-08-04)
+
+DRIVER-LL Phase 3's porting work finishes. `tools/llmll-driver/spine.llmll` runs stages **E, J, L
+and G2** end to end against the committed TFTP execution, with **nine** body-faithful `def`s
+carrying the pins as contracts, zero FFI declarations, and every proved core called rather than
+reimplemented.
+
+The larger part of this release is not the driver. Writing a program that *is* the driver put
+`llmll replay` under load for the first time, and it had misread its own log format since the log
+existed.
+
+### Fixed, `llmll replay` (P1-P5)
+
+A turn's wire bytes are `output ++ "\n"`, so an event occupies `count('\n')+1` lines.
+`Replay.replayOne` read exactly one.
+
+- **A trailing newline made replay blame the wrong turn.** The event *matched*, because the reader
+  stripped the discrepancy; the unconsumed line then desynchronized the stream and the divergence
+  was reported against the FOLLOWING event. An oracle that misattributes is worse than one that
+  fails. A two-line step replayed 0/2.
+- **`actual=` was the constant `"<no output>"`**, so wrong output was indistinguishable from none.
+  It now carries what the program wrote, EOF stays distinguishable, and the diagnostic escapes
+  newlines so a report stays on one line.
+- **Line-count alignment is total by construction.** Zero-newline events read one line as before;
+  interior newlines could not strip-match a single line, so they only go mismatch to match;
+  trailing-newline events matched before and after and stop leaking a line. No case converts match
+  to mismatch, which is why no deprecation path is needed. One test per branch pins that argument
+  by name.
+- **The settle entry's result kind is `none`, not `stdout`.** RC-4 performs no command
+  (`LLMLL.md:1561`), so the old `"stdout"` entry claimed an output never produced and could match
+  only when a program happened to print a bare newline. Program stdout bytes are unchanged and old
+  logs behave exactly as before.
+- **`W-REPLAY-INIT`** warns that `:init`'s output is printed but not logged. The stray line count
+  is `count('\n')` in that output, so 0, 1, or unbounded, and "discard one leading line" repairs
+  the shifted case while breaking the fused one. The fix is deferred to `REPLAY-INJECT`; it
+  reverses a deliberate decision and changes shipped programs' stdout bytes.
+
+**Nothing anywhere ran `llmll replay`**, which is why none of this was caught. `build_smoke.sh`
+gains a stage that replays two fixtures and asserts both directions: clean logs replay 2/2, and
+logs with every `stdout` value tampered must exit non-zero. Two `Spec.hs` mock fixtures used
+framing the emitter does not produce and were passing because `T.strip` hid it; correcting them was
+mandatory, not cosmetic.
+
+**Known limit, stated rather than left implicit:** `:on-done`'s output is outside the capture, so a
+green `llmll replay` is not evidence that `:on-done` ran. Bringing it inside needs newline-framing
+that would change shipped programs' bytes; that trade belongs to `REPLAY-INJECT`.
+
+### Added, DRIVER-LL Phase 3 stages L and G2
+
+- **Stage L** pins exactly one value, because `self_test` pins one: RFC-COV-1's exit status at
+  freeze strength. Measured, it exits 0 over 23 root contracts. The 23 and RFC-COV-1's 46/46 and
+  15/15 figures are **reported and pinned by nothing**; pinning them would be the port inventing an
+  acceptance criterion the original does not have.
+- **Stage G2** ports the **strength half only**. The pinned RFCs are deliberately absent from this
+  repository, so its citation half cannot be replayed here at all, and porting a check that cannot
+  fail is not porting it. The strength half reproduces 124 canonical rows and the three cids whose
+  declared strength is absent from their own quote.
+- **G2 required a rule Python does not use, and the port owns the divergence.** Python lowercases
+  the quote; LLMLL has no `string-lower`, so the port searches the lowercase and uppercase forms.
+  These are not the same function: a mixed-case "Must" is found by Python and missed here. Measured
+  over the committed census both rules yield the same three cids and title-case variants change
+  nothing. That is agreement on one artifact, not equivalence. Without any case handling the check
+  yields seven cids rather than three.
+
+### Stage A is a STOP, and Phase 3 closes with it filed
+
+Stage A fetches the RFC over HTTP GET; LLMLL has only `wasi.http.post` (`HTTP-GET-1`). Its fetch is
+skippable only `if dest.exists()` and **no RFC source bytes are committed anywhere in this
+repository**. `self_test()` carries no stage A block, so it contributes nothing to the acceptance
+clause. The campaign's STOP rule prescribes halting and filing the gap rather than taking a
+workaround, so **`HTTP-GET-1` is now on the driver's critical path**, which its roadmap row
+previously denied.
+
+### Also
+
+- **`spine.llmll` is now in the frozen-verdict gate**, with a stage J refute crux; the driver family
+  goes 17 to 19 cases. Neither stage E's nor stage J's verdict had been protected against
+  regression, which is the `ENUM-EQ-FALLBACK` shape the gate exists for.
+- **Three findings were withdrawn under independent reproduction**, recorded in
+  `experiments/rfc-swarm/DRIVER-LL-PORT-FINDINGS.md` with their refutations. In two the observation
+  was correct and the mechanism wrong, and in both the wrong mechanism pointed at a fix that would
+  have made things worse. One was a claim that higher-order list builtins lack a core gate:
+  composing the fallback is already gated on the default path, and five `trustedPrelude` names fall
+  back by design, so admission and body-faithfulness were never coupled.
+- **`native-json-proposal.md` to Rev 4**, reconciled at fourteen builtins. The settled proposal said
+  thirteen; `json-get-number` was re-admitted during implementation because Phase 3's acceptance
+  clause reads four floats, and the census that closed the count had measured stages rather than the
+  clause that grades them.
+- **The Phase 3 acceptance clause now distinguishes a gate's decision from its passing.** Stage J's
+  pins reproduce and the gate halts; without the distinction a faithful port reads as a failed one.
+- **`doc_path_lint` does not see untracked files**, so a new document's citations are unchecked
+  until it is committed. Found the hard way.
+
+---
+
 ## v0.14.82: JSON, and the driver that runs on it (2026-08-03)
 
 `JSON-1` closes DRIVER-LL Phase 2, and Phase 3's spine immediately used it to become the first
