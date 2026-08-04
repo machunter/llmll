@@ -1,7 +1,7 @@
 ---
 name: driver-in-llmll-campaign
 title: "DRIVER-LL: a fully functional RFC-SWARM driver written in LLMLL, and the language work it requires"
-status: "Rev 4, IN FLIGHT. Phases 0 and 1 are COMPLETE and merged to main (commits 8dff514 DISCARD-1, bc78057 EFFECT-RESP), releasing together as v0.14.80; Phase 1's step zero shipped earlier as v0.14.79. Rev 4 records the Phase 1 result as measured rather than argued (151-of-151 byte-identical corpus .fq against a baseline compiler; the bijection exercised as a count; a program that reads a file and branches on its contents, built and run), REFUTES one Phase 1 acceptance clause and moves it rather than moving RC-4 ('the twelve programs behave identically' is impossible under RC-4; hangman measurably loses twelve lines), and corrects §Phase 2 against the measured driver: wasi.proc.spawn/await collapse into a synchronous wasi.proc.run, wasi.fs.list needs a new Response arm and that is ordinary alphabet growth rather than a STOP, and wasi.http.get does not expose its status. The arm set is settled in effect-response-channel-proposal.md Rev 5 under a four-part admissibility rule. Phase 2 is cleared to start once the arm lands. Rev 3, READY FOR ENGINEER, commit A cleared to start. Rev 3 settles one decision the engineer routed back and adds it as §8.3: BUILD-GATE-1 lands INSIDE commit A rather than as its own follow-on row, overriding the A.6 recommendation, because the gate is the only observer of the defect commit A fixes and the row it would otherwise wait on is UNSCHEDULED. Acceptance is a positive witness (red on the merge base, green after), which is the part that fails quietly. Rev 2: §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
+status: "Rev 5, IN FLIGHT. **Phases 0 through 3 are COMPLETE at v0.14.83** (Phases 0+1 v0.14.80, CAP-PROC v0.14.81, JSON-1 v0.14.82 closing Phase 2, the mechanical spine v0.14.83 with stage A filed as a STOP). Rev 5 rewrites §Phase 4 against docs/design/driver-ll-phase4-proposal.md (Rev 3, SETTLED), correcting two things that document measured false. (i) The phase ports ELEVEN stages, not ten: stage G is agent-typed and was assigned to no phase, and it produces the input to G2's audit and to both of gate J's disposition-reading conditions. (ii) The acceptance clause 'a complete run reproduces a committed campaign's artifacts' is NOT SATISFIABLE against this tree, on two independent grounds: ARP is the only run that reached all fifteen stages and its committed directory is missing five stages' declared outputs, and stages B, C and O write model-authored prose. Replaced by three clauses (refinement over an eight-transition cover, conformance where the two drivers differ, and a live oracle judged on decisions rather than bytes). Rev 5 also REFUTES Rev 4's claim that a serial wave exercises the token discipline just as well: contention is unreachable under one writer, so fill.next-error-budget's contention branch and token-during's AgentWorking arm never fire at run time; the proofs are unaffected and the repair is a harness one. And it records a second live divergence of the crux-gate-single-remedy family: the Python driver has ONE halt channel where driver-spec §4 defines two, so four conditions are recorded stopped that must be failed, and Phase 4 is where stage.record-outcome's Errored constructor acquires its first call site. Rev 4: Phases 0 and 1 COMPLETE and merged to main (commits 8dff514 DISCARD-1, bc78057 EFFECT-RESP), releasing together as v0.14.80; Phase 1's step zero shipped earlier as v0.14.79. Rev 4 records the Phase 1 result as measured rather than argued (151-of-151 byte-identical corpus .fq against a baseline compiler; the bijection exercised as a count; a program that reads a file and branches on its contents, built and run), REFUTES one Phase 1 acceptance clause and moves it rather than moving RC-4 ('the twelve programs behave identically' is impossible under RC-4; hangman measurably loses twelve lines), and corrects §Phase 2 against the measured driver: wasi.proc.spawn/await collapse into a synchronous wasi.proc.run, wasi.fs.list needs a new Response arm and that is ordinary alphabet growth rather than a STOP, and wasi.http.get does not expose its status. The arm set is settled in effect-response-channel-proposal.md Rev 5 under a four-part admissibility rule. Phase 2 is cleared to start once the arm lands. Rev 3, READY FOR ENGINEER, commit A cleared to start. Rev 3 settles one decision the engineer routed back and adds it as §8.3: BUILD-GATE-1 lands INSIDE commit A rather than as its own follow-on row, overriding the A.6 recommendation, because the gate is the only observer of the defect commit A fixes and the row it would otherwise wait on is UNSCHEDULED. Acceptance is a positive witness (red on the merge base, green after), which is the part that fails quietly. Rev 2: §8's two open decisions are SETTLED by user adjudication 2026-08-02: the LLMLL driver REPLACES the Python one, and tools/llmll-driver/ is the home. The retirement gate moved from self_test() to Phase 4 acceptance, because self_test() replays the mechanical stages only and cannot gate a decision about all fifteen. Rev 2 also adds the per-phase build-acceptance clause §3a called for but did not specify, and corrects §3a's grep count (three to five, matching the BUILD-GATE-1 roadmap row). Rev 1: Phase 0 was reopened (its blast-radius and spec-gap claims were re-measured and refuted) and re-scoped as P0-marker by user adjudication 2026-08-02 (a first adjudication chose plain P0-error; that option was mis-described and was re-put): LLMLL.md §9.6 stands, do-notation-design.md §2.4 is superseded, checkDiscardedCommand is promoted from warning to error gated on a new (discard) step marker, specified as DISCARD-1. Scope authorized by the user 2026-08-02, superseding rfc-swarm-roadmap-proposal.md §5.2. Depends on effect-response-channel-proposal.md (Rev 4, SETTLED)."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -302,24 +302,67 @@ adds the program around a proved centre rather than duplicating it.
 
 ### Phase 4 — the agent-delegated stages and the wave `[EXP][CT]` (L)
 
-Port B, C, D, F, H, I, K, M, N, O. Stage M (the wave) ships **serial**: agents are spawned and
-awaited one at a time.
+**Detailed design: [`design/driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 3,
+SETTLED).** This section is the summary; the proposal carries the sub-phase decomposition, the
+delegated-stage disposition table, the edge cases and the filed gaps. Rev 5 of this document
+corrects two things the proposal measured false.
+
+Port **B, C, D, F, G, H, I, K, M, N, O**. Eleven stages. **Rev 4 said ten and omitted stage G**,
+which is `agent`-typed (`rfc_to_implementation.py:579-626`) and was assigned to no phase at all: the
+registry has sixteen entries, Phase 3 took five, and B..O minus G is ten. G produces
+the dispositioned inventory, which is the input to stage G2's audit and to both of gate J's
+disposition-reading conditions, so until it is ported the LLMLL driver cannot produce its own input
+for two stages it already runs.
+
+Stage M (the wave) ships **serial**: agents are spawned and awaited one at a time.
 
 Serial is a decision, not a limitation discovered late. LLMLL has no concurrency surface
 (`Control.Concurrent.Async` sits in the generated preamble as codegen-internal with no language-level
 form), and adding one would be a larger language change than everything else in this campaign
-combined. Parallelism is a throughput optimization, not a correctness property, and a serial wave
-exercises the token discipline `token.llmll` proves just as well. Whether to add a concurrency
-surface is a decision for after the driver runs, informed by measured wall-clock rather than by
-anticipation.
+combined. Parallelism is a throughput optimization, not a correctness property. Whether to add a
+concurrency surface is a decision for after the driver runs, informed by measured wall-clock rather
+than by anticipation.
 
-- **Acceptance:** a complete run reproduces a committed campaign's artifacts; zero FFI declarations;
-  the driver's own authority report is bounded end to end; §15.1's seven obligations are discharged
-  by the proved cores the program calls; the build-acceptance clause (§3a).
+**Rev 4's claim that "a serial wave exercises the token discipline `token.llmll` proves just as
+well" is REFUTED, not qualified.** Under a serial wave there is one writer, `_apply` re-checkouts
+under the lock immediately before patching (`rfc_to_implementation.py:1157-1198`), and nothing can
+invalidate the brief in between, so `contention = true` never fires, `fill.is-finding`'s
+`protocol-exhausted` discriminant is constant, and `token-during`'s `AgentWorking` arm is never
+observed. The proofs are unaffected and hold over all inputs; what the serial wave does not do is
+supply the input that distinguishes the branches. The repair is a harness one and costs no
+concurrency: the stub `llmll` rejects the *n*th `patch` with `PatchAuthError`, which drives
+`_apply`'s retry predicate directly. Under a live run the branch stays unreachable and the gap
+inventory says so.
+
+- **Acceptance, replaced.** Rev 4's clause was "a complete run reproduces a committed campaign's
+  artifacts", and it is **not satisfiable against this tree**, on two independent grounds. ARP is the
+  only run that reached all fifteen stages (`experiments/rfc-swarm/SUMMARY.md:21`) and its committed
+  directory is missing five stages' declared outputs (stage D's two extractions, F's `core.json`,
+  G2's `audit.json`, H's `feasibility.json`, L's `rfc-cov-1.txt` and `ROOTS.txt`); and stages B, C
+  and O write model-authored prose, so byte comparison is a claim about model determinism. The
+  replacement is three clauses, in `driver-ll-phase4-proposal.md` §2:
+  **(1a) refinement** — on an eight-transition cover over the manifest state machine, minus the
+  divergence inputs below, the LLMLL driver's sequence of manifest writes matches the Python
+  driver's; **(1b) conformance where they differ** — on those inputs the LLMLL driver conforms to
+  driver-spec §4 and §7 and the Python driver does not; **(2) the live oracle** — one real campaign
+  run judged on decisions rather than bytes. Plus, unchanged: zero FFI declarations; bounded
+  authority end to end; §15.1's seven obligations discharged by the proved cores the program calls;
+  the build-acceptance clause (§3a).
+- **The Python driver has one halt channel where driver-spec defines two.** `stage_J_gate` halts
+  through the same `require()` as every delegated-output validation (`:938-943`, `:245`), and
+  `main()` maps that single channel to `stopped` unconditionally (`:1784-1788`). Four conditions are
+  recorded `stopped` that driver-spec §4 requires `failed`: every delegated-output validation
+  failure, plus the agent timeout, non-zero exit, and missing output at `:221`, `:227` and `:230`.
+  Gate halts are correct and are outside the set. `stage.record-outcome` already models both channels
+  and `[S4-NOT-STOPPED]` proves they cannot collapse, so **Phase 4 is where `Errored` acquires its
+  first construction site in the campaign**. Second live divergence of the `crux-gate-single-remedy`
+  family (§6); the Python-side repair is experiment-lead's.
 - **This acceptance list is the Python driver's retirement gate (§8.1).** It is the first criterion
   in the campaign that exercises all fifteen stages, which is why the retirement rides here rather
   than on `self_test()`. Retirement does not follow automatically from the phase closing: the
-  plumbing lifted from §5.3 is ported first, and the claim is worded per §5.4.
+  plumbing lifted from §5.3 is ported first, and the claim is worded per §5.4. Clause 1b is what
+  carries it: a structural conformance difference is a stronger basis than artifact reproduction
+  ever was.
 - **STOP:** if serial wall-clock makes a campaign impractical, stop and file the concurrency
   requirement with the measurement attached. Do not add a concurrency surface mid-campaign.
 
