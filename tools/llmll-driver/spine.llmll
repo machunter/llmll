@@ -1,7 +1,15 @@
 ;; DRIVER-LL Phase 3 — the mechanical spine.
 ;;
-;; Stages E (reconcile) and J (gate) ported from scripts/rfc_to_implementation.py
-;; as def-shell orchestration around the proved cores in this directory. The
+;; Stages E (reconcile), J (gate), L (coverage) and G2 (audit) ported from
+;; scripts/rfc_to_implementation.py as def-shell orchestration around the proved
+;; cores in this directory. Stage A is NOT here and is not omitted by oversight:
+;; it fetches the RFC over HTTP GET, LLMLL has only wasi.http.post (roadmap row
+;; HTTP-GET-1), no RFC source bytes are committed anywhere in this repository,
+;; and self_test() carries no stage A block, so it contributes nothing to the
+;; acceptance clause. Per the campaign's STOP rule a stage requiring an
+;; unavailable effect halts and files the gap rather than taking a workaround.
+;;
+;; The
 ;; campaign's rule for this phase is that the port adds the program AROUND a
 ;; proved centre rather than duplicating it, so the halt decision comes from
 ;; stage.record-outcome and the skip decision from skip.may-skip; neither is
@@ -9,10 +17,18 @@
 ;;
 ;; The shape that matters: everything touching JSON, the filesystem, or a
 ;; subprocess is def-shell and unverified, and the DECISION is a strict-core
-;; `def` over scalars the shell extracted. Five defs are body-faithful and carry
+;; `def` over scalars the shell extracted. Nine defs are body-faithful and carry
 ;; their pins as contracts, so the acceptance criterion is proved rather than
 ;; printed: stage-e-passes, stage-e-outcome, stage-j-pins, bad-barrier-count,
-;; stage-j-outcome.
+;; stage-j-outcome, stage-l-passes, stage-l-outcome, stage-g2-pins,
+;; stage-g2-outcome.
+;;
+;; TWO STAGES ARE PORTED IN PART, and each says so in its own section rather
+;; than in a footnote. Stage L pins only RFC-COV-1's exit status, because that
+;; is the only value self_test pins for it; its 23-root count is reported and
+;; pinned by nothing. Stage G2 ports the strength half only, because the pinned
+;; RFCs are deliberately absent from this repository and its citation half
+;; cannot be replayed here at all.
 ;;
 ;; STAGE J STOPS, AND THAT IS THE CORRECT REPLAY. All seven of self_test()'s J
 ;; pins reproduce and gate J still halts, because its third condition counts
@@ -186,6 +202,80 @@
 
     (if pins-ok (if halts PartialThenHalt Finished) ConditionUnmet))
 
+  ;; Stage L's acceptance. self_test() pins exactly ONE value for this stage
+  ;; (rfc_to_implementation.py:1493): RFC-COV-1's exit status at freeze
+  ;; strength. That is the whole of it, and the port does not invent more. The
+  ;; 23-root count and the 46/46 and 15/15 coverage figures RFC-COV-1 prints are
+  ;; REPORTED by this port and pinned by nothing, which is the same treatment
+  ;; stage J gives its coverage ratio and for the same reason.
+  (def stage-l-passes [cov-exit: int] -> bool
+
+    (post (= result (= cov-exit 0))
+      :source "[L-COV] self_test - RFC-COV-1 at freeze strength exits 0")
+
+    (post (=> (not (= cov-exit 0)) (not result))
+      :source "[L-NOVACUOUS] a non-zero RFC-COV-1 status MUST fail the stage")
+
+    (= cov-exit 0))
+
+  ;; Stage L writes 11-freeze/trust-report.json, ROOTS.txt and rfc-cov-1.txt
+  ;; before its require() fires (rfc_to_implementation.py:989, :992 and
+  ;; :999-1000 all precede :1003), so a failure here is PartialThenHalt for the
+  ;; same reason stage J's is: artifacts already exist on disk.
+  (def stage-l-outcome [passes: bool] -> Outcome
+
+    (post (=> passes (= result Finished))
+      :source "[S4-COMPLETE] a clause surface that freezes finishes the stage")
+
+    (post (=> (not passes) (= result PartialThenHalt))
+      :source "[S4-PARTIAL] the freeze artifacts are written BEFORE the halt")
+
+    (post (not (= result Errored))
+      :source "[S4-NOT-ERRORED] a coverage shortfall is a defined condition, not an error")
+
+    (if passes Finished PartialThenHalt))
+
+  ;; Stage G2's acceptance, and only the half that needs no source bytes. The
+  ;; pinned RFCs are deliberately absent from this repository
+  ;; (rfc_to_implementation.py:1447-1449), so G2's citation checks cannot be
+  ;; replayed here at all; the strength check reads the census row alone and can.
+  ;; Porting the half that cannot run would be porting a check that cannot fail.
+  ;;
+  ;; The three cids arrive as a shell-computed boolean for the STRLIT-BODY-1
+  ;; reason stage E hit: a strict-core body doing string-literal comparison
+  ;; falls back whole. The COUNTS are proved here.
+  (def stage-g2-pins [canonical: int absent: int cids-match: bool] -> bool
+
+    (post (=> result (= canonical 124))
+      :source "[G2-CANON] self_test - 124 canonical rows")
+
+    (post (=> result (and (= absent 3) cids-match))
+      :source "[G2-ABSENT] self_test - declared strength absent from its own quote in exactly T117, T118, T119")
+
+    (post (=> (not (= canonical 124)) (not result))
+      :source "[G2-NOVACUOUS] a divergent canonical row count MUST fail the stage")
+
+    ;; The count alone is not the pin. Three DIFFERENT rows would satisfy
+    ;; (= absent 3) and must still fail, which is what cids-match carries.
+    (post (=> (not cids-match) (not result))
+      :source "[G2-NOVACUOUS-2] the right count over the wrong rows MUST fail the stage")
+
+    (and (= canonical 124) (and (= absent 3) cids-match)))
+
+  ;; G2's strength check REPORTS and never halts, which self_test states in
+  ;; prose at rfc_to_implementation.py:1459-1461: the three rows cite RFC 1123's
+  ;; requirements-summary table, where the strength is a column position rather
+  ;; than a word. So a reproducing stage G2 is Finished, not PartialThenHalt.
+  (def stage-g2-outcome [pins-ok: bool] -> Outcome
+
+    (post (=> pins-ok (= result Finished))
+      :source "[S4-COMPLETE] the strength check reports and never halts")
+
+    (post (=> (not pins-ok) (= result ConditionUnmet))
+      :source "[S4-STOPPED] a census that does not reproduce is a defined condition, not an error")
+
+    (if pins-ok Finished ConditionUnmet))
+
   ;; ------------------------------------------------------------------
   ;; The shell: JSON, files, subprocesses. Nothing below is proved.
   ;; ------------------------------------------------------------------
@@ -259,10 +349,15 @@
   (def-shell cat3 [a: string b: string c: string] -> string
     (string-concat a (string-concat b c)))
 
-  (def-shell rows-of [inv: Json] -> list[Json]
-    (match (json-get inv "rows")
-      ((Success rs) (unwrap-or (json-array rs) (list-empty)))
+  ;; A named array member, or empty. A missing member yields no rows rather
+  ;; than a default that could satisfy a count.
+  (def-shell arr-at [j: Json k: string] -> list[Json]
+    (match (json-get j k)
+      ((Success a) (unwrap-or (json-array a) (list-empty)))
       ((Error _) (list-empty))))
+
+  (def-shell rows-of [inv: Json] -> list[Json]
+    (arr-at inv "rows"))
 
   ;; The sentinel is what a missing member reduces to. "MISSING" is not a
   ;; disposition, not a class, and not a barrier code, so an absent field can
@@ -385,6 +480,121 @@
                       "\nstage-J-halt=none")
                   ""))))
 
+  ;; ---- stage L's shell -----------------------------------------------
+
+  ;; The trust report's entries are the clause-carrying surface. Python takes
+  ;; e["name"] for each (rfc_to_implementation.py:990); ROOTS.txt is those names
+  ;; newline-joined with a trailing newline (:992).
+  (def-shell root-names [tr: Json] -> list[string]
+    (list-map (arr-at tr "entries")
+              (fn [e: Json] (unwrap-or (json-get-string e "name") "MISSING"))))
+
+  (def-shell roots-file [tr: Json] -> string
+    (list-fold (root-names tr) ""
+               (fn [acc: string n: string] (cat3 acc n "\n"))))
+
+  (def-shell root-count [tr: Json] -> int
+    (list-length (root-names tr)))
+
+  ;; RFC-COV-1's exit status is the whole of stage L's pin, so the verdict is
+  ;; read straight off the Response rather than out of an artifact.
+  (def-shell l-block [r: Response] -> string
+    (match r
+      ((RCode n)
+        (cat3 (cat3 "stage-L-cov-exit=" (int-to-string n) "\nstage-L=")
+              (status-word (record-outcome (stage-l-outcome (stage-l-passes n))))
+              (if (= n 0)
+                  ""
+                  "\nstage-L-halt=RFC-COV-1 failed at freeze strength")))
+      ((RNone)   "stage-L=no-exit-status")
+      ((RText t) (cat3 "stage-L=unexpected-text:" t ""))
+      ((RErr e)  (cat3 "stage-L=run-failed:" e ""))
+      ((RList _) "stage-L=no-exit-status")))
+
+  ;; ---- stage G2's shell ----------------------------------------------
+
+  ;; Python lowercases the quote once and searches it (rfc_to_implementation.py
+  ;; :749-751). LLMLL has no string-lower, so this searches for the lowercase
+  ;; and the uppercase form instead.
+  ;;
+  ;; THE TWO RULES ARE NOT THE SAME FUNCTION, and the port owns the divergence
+  ;; rather than hiding it: a mixed-case occurrence such as "Must" is found by
+  ;; Python and missed here. MEASURED over the committed canonical rows, both
+  ;; rules yield the same three cids, and adding title-case variants changes
+  ;; nothing, so no such occurrence exists in this census. That is agreement on
+  ;; one artifact, not equivalence, and it is why this is written down.
+  ;;
+  ;; Python also collapses whitespace before searching. That cannot matter here,
+  ;; and this one IS structural rather than measured: the closed strength domain
+  ;; below yields only single-word patterns, and collapsing whitespace runs
+  ;; never changes whether a whitespace-free pattern is present.
+  (def-shell has2 [q: string lo: string up: string] -> bool
+    (or (string-contains q lo) (string-contains q up)))
+
+  ;; The census's strength domain is CLOSED at seven values (measured: MAY,
+  ;; MUST, SHOULD, declarative, may, must, should), so Python's .lower() is a
+  ;; seven-way comparison here rather than a general fold.
+  ;;
+  ;; DIVERGENCE, disclosed: for a strength outside this domain Python falls back
+  ;; to searching for the strength word itself (`_STRENGTH_FAMILY.get(s, (s,))`,
+  ;; :751), while this maps it to "other" and skips the row. No such value
+  ;; exists in the committed census; one appearing would be a silent divergence
+  ;; here and is the reason the canonical-row count is pinned alongside.
+  (def-shell strength-key [s: string] -> string
+    (if (or (= s "MUST") (= s "must")) "must"
+    (if (or (= s "MAY") (= s "may")) "may"
+    (if (or (= s "SHOULD") (= s "should")) "should"
+        "other"))))
+
+  ;; _STRENGTH_FAMILY, rfc_to_implementation.py:296-306. Only the must, may and
+  ;; should families can fire, because the census carries no other strength.
+  (def-shell family-hit [k: string q: string] -> bool
+    (if (= k "must")
+        (or (has2 q "must" "MUST")
+            (or (has2 q "shall" "SHALL") (has2 q "required" "REQUIRED")))
+    (if (= k "may")
+        (or (has2 q "may" "MAY")
+            (or (has2 q "optional" "OPTIONAL") (has2 q "can" "CAN")))
+    (if (= k "should")
+        (or (has2 q "should" "SHOULD") (has2 q "recommended" "RECOMMENDED"))
+        false))))
+
+  (def-shell strength-absent [c: Json] -> bool
+    (let [(k (strength-key (str-field c "strength")))]
+      (and (not (= k "other"))
+           (not (family-hit k (str-field c "quote"))))))
+
+  (def-shell absent-rows [canon: list[Json]] -> list[Json]
+    (list-filter canon (fn [c: Json] (strength-absent c))))
+
+  (def-shell cid-strings [rows: list[Json]] -> list[string]
+    (list-map rows (fn [c: Json] (str-field c "cid"))))
+
+  ;; Combined with (= absent 3), containing all three IS being exactly those
+  ;; three, which is what makes the count and this boolean jointly a pin.
+  (def-shell cids-are-the-three [rows: list[Json]] -> bool
+    (let [(cs (cid-strings rows))]
+      (and (list-contains cs "T117")
+           (and (list-contains cs "T118") (list-contains cs "T119")))))
+
+  (def-shell g2-block [inv: Json] -> string
+    (let [(canon (arr-at inv "canonical"))]
+      (let [(absent (absent-rows canon))]
+        (cat3 (cat3 "stage-G2-canonical=" (int-to-string (list-length canon))
+                    (cat3 " strength-absent=" (int-to-string (list-length absent)) ""))
+              (cat3 "\nstage-G2-pins="
+                    (if (stage-g2-pins (list-length canon)
+                                       (list-length absent)
+                                       (cids-are-the-three absent))
+                        "reproduced" "DIVERGED") "")
+              (cat3 "\nstage-G2="
+                    (status-word (record-outcome
+                                   (stage-g2-outcome
+                                     (stage-g2-pins (list-length canon)
+                                                    (list-length absent)
+                                                    (cids-are-the-three absent)))))
+                    "\nstage-G2-scope=strength half only; the citation half needs source bytes this repo does not carry")))))
+
   ;; ------------------------------------------------------------------
   ;; The console harness
   ;; ------------------------------------------------------------------
@@ -467,9 +677,89 @@
     ;; (LLMLL.md:1555-1606) and is NOT usable here: it is State -> Command and
     ;; this state is an int, so it cannot run the read-then-print cycle the
     ;; verdict needs.
-        (pair 9 (wasi.io.stdout "")))))))))))
+    ;; ---- stage L: RFC-COV-1, then freeze the clause surface ----------
+    ;; s=8: verify the frozen TFTP root surface and capture its trust report.
+    ;; /usr/bin/env resolves llmll from PATH, which is how self_test resolves it
+    ;; too (rfc_to_implementation.py:1465: LLMLL_CMD defaulting to "llmll",
+    ;; then shutil.which).
+    (if (= s 8)
+        (pair 9 (wasi.proc.run "/usr/bin/env"
+                               ["llmll" "verify"
+                                "examples/tftp_rfc1350/roots/tftp.llmll"
+                                "--trust-report" "--json"]
+                               "."
+                               "/tmp/llmll-spine-tr.json"
+                               "/tmp/llmll-spine-tr-err.txt"
+                               300))
+    ;; s=9: read the trust report back.
+    (if (= s 9)
+        (pair 10 (wasi.fs.read "/tmp/llmll-spine-tr.json"))
+    ;; s=10: ROOTS.txt is the entry names, newline-joined (:992).
+    (if (= s 10)
+        (pair 11 (match r
+                   ((RText body)
+                     (match (json-parse body)
+                       ((Success tr) (wasi.fs.write "/tmp/llmll-spine-roots.txt"
+                                                    (roots-file tr)))
+                       ((Error e) (wasi.io.stdout (string-concat "stage-L=parse-failed:" e)))))
+                   ((RNone)   (wasi.io.stdout "stage-L=no-trust-report"))
+                   ((RCode _) (wasi.io.stdout "stage-L=no-trust-report"))
+                   ((RErr e)  (wasi.io.stdout (string-concat "stage-L=read-failed:" e)))
+                   ((RList _) (wasi.io.stdout "stage-L=no-trust-report"))))
+    ;; s=11: re-read it, since a Response carries only the latest payload.
+    (if (= s 11)
+        (pair 12 (wasi.fs.read "/tmp/llmll-spine-tr.json"))
+    ;; s=12: the root count, PINNED BY NOTHING. Printed as evidence the port did
+    ;; the work; self_test pins only the exit status, so pinning more here would
+    ;; be the port inventing an acceptance criterion the original does not have.
+    (if (= s 12)
+        (pair 13 (wasi.io.stdout
+                   (match r
+                     ((RText body)
+                       (match (json-parse body)
+                         ((Success tr) (cat3 "stage-L-roots="
+                                             (int-to-string (root-count tr))
+                                             " (reported, not pinned)"))
+                         ((Error e) (string-concat "stage-L=parse-failed:" e))))
+                     ((RNone)   "stage-L=no-trust-report")
+                     ((RCode _) "stage-L=no-trust-report")
+                     ((RErr e)  (string-concat "stage-L=read-failed:" e))
+                     ((RList _) "stage-L=no-trust-report"))))
+    ;; s=13: RFC-COV-1 both ways, at freeze strength.
+    (if (= s 13)
+        (pair 14 (wasi.proc.run "/usr/bin/python3"
+                                ["scripts/rfc_coverage.py"
+                                 "--inventory"
+                                 "experiments/rfc-swarm/data/inventory-dispositioned.json"
+                                 "--trust-report" "/tmp/llmll-spine-tr.json"
+                                 "--roots" "/tmp/llmll-spine-roots.txt"
+                                 "--require-full-coverage"]
+                                "."
+                                "/tmp/llmll-spine-cov.txt"
+                                "/tmp/llmll-spine-cov-err.txt"
+                                120))
+    ;; s=14: the exit status IS stage L's whole pin.
+    (if (= s 14)
+        (pair 15 (wasi.io.stdout (l-block r)))
+    ;; ---- stage G2: the artifact audit, strength half -----------------
+    ;; s=15: read the merged census.
+    (if (= s 15)
+        (pair 16 (wasi.fs.read "experiments/rfc-swarm/data/inventory-merged.json"))
+    ;; s=16: discharge G2's canonical count and its strength-absent rows.
+    (if (= s 16)
+        (pair 17 (wasi.io.stdout
+                   (match r
+                     ((RText body)
+                       (match (json-parse body)
+                         ((Success inv) (g2-block inv))
+                         ((Error e) (string-concat "stage-G2=parse-failed:" e))))
+                     ((RNone)   "stage-G2=no-artifact")
+                     ((RCode _) "stage-G2=no-artifact")
+                     ((RErr e)  (string-concat "stage-G2=read-failed:" e))
+                     ((RList _) "stage-G2=no-artifact"))))
+        (pair 18 (wasi.io.stdout ""))))))))))))))))))))
 
-  (def-shell spine-done? [s: int] -> bool (>= s 9))
+  (def-shell spine-done? [s: int] -> bool (>= s 18))
 
   (def-main
     :mode  console
