@@ -107,3 +107,4 @@ not to reintroduce one.
 | `data/` | the TFTP extractions, reconciliation, and dispositioned inventory |
 | `tools/reconcile.py` | stage E: line-span reconciliation, kappa on 1:1 matched rows |
 | `PRE-REGISTRATION.md` | the TFTP pre-registration and its amendment |
+| `DRIVER-LL-PORT-FINDINGS.md` | what porting stages E and J into LLMLL surfaced (DRIVER-LL Phase 3) |

@@ -1,7 +1,7 @@
 ---
 name: native-json-proposal
-title: "JSON-1: the thirteen builtins the driver needs, and the native-JSON work that is not on its path"
-status: "Rev 3, SETTLED by user adjudication 2026-08-03; ready for compiler-engineer. The thirteen-builtin surface is accepted as scoped, and the two §11 open questions are closed with it: the count stands (every name is a measured call site), and D-5's datatype encoding is not taken. Rescoped from Rev 2 after the byte-identity premise that drove most of Rev 0-2's clause burden was measured false: the resume gate at `rfc_to_implementation.py:1758-1769` compares a digest THIS RUN recorded against the file as it is now, in one workdir, so byte-identity with Python's `json.dumps` is required by nothing. Removing that premise removes insertion-ordered objects, the CPython layout clause, the float-formatting obligation, and half the trust-channel disclosures, and it demotes aeson's rejection from two grounds to one (the measured +40-package closure). Rev 2 folded `native-json-review.md`, whose F2 proposed replacing the opaque carrier with a matchable seven-constructor datatype; F2's two empirical claims were checked and both are wrong in the same direction, but its conclusion still does not follow, because a `list`-carrying match arm forces `body-fallback` (measured) and every exhaustive match on `json` has two. Rev 1 folded a professor critique: equality at `Json` is unspecified and reaches through `list-contains` as well as `=`; duplicate keys are rejected per RFC 7493 rather than last-wins. Rev 0 established the carrier design and four spec-drift findings. Roadmap row: JSON-1"
+title: "JSON-1: the fourteen builtins the driver needs, and the native-JSON work that is not on its path"
+status: "Rev 4, SETTLED, reconciled against the shipped compiler. The surface is FOURTEEN builtins, not thirteen. `json-get-number` was re-admitted during implementation (`TypeCheck.hs:290`) on the rationale recorded at `TypeCheck.hs:283-289`, which measured Rev 3's exclusion premise false: Rev 3 dropped the name because the ported spine reads no float, which is true of stage E as a stage and false of Phase 3's acceptance clause, four of whose six pinned results are floats (`rfc_to_implementation.py:1405-1409`). Without it the LLMLL driver can produce the artifact but not check it, and the check falls back to Python. Rev 4 therefore reopens and re-closes §11's first adjudicated question at fourteen, half-ships D-3, and withdraws §2's claim that the name is deliberately absent. The drift was confined to this file: `LLMLL.md:152`, LLMLL.md §13.13 and `CHANGELOG.md:13` already said fourteen. Shipped in v0.14.82. Rev 3, SETTLED by user adjudication 2026-08-03; ready for compiler-engineer. The thirteen-builtin surface was accepted as scoped, and the two §11 open questions were closed with it: the count stands (every name is a measured call site), and D-5's datatype encoding is not taken. Rescoped from Rev 2 after the byte-identity premise that drove most of Rev 0-2's clause burden was measured false: the resume gate at `rfc_to_implementation.py:1758-1769` compares a digest THIS RUN recorded against the file as it is now, in one workdir, so byte-identity with Python's `json.dumps` is required by nothing. Removing that premise removes insertion-ordered objects, the CPython layout clause, the float-formatting obligation, and half the trust-channel disclosures, and it demotes aeson's rejection from two grounds to one (the measured +40-package closure). Rev 2 folded `native-json-review.md`, whose F2 proposed replacing the opaque carrier with a matchable seven-constructor datatype; F2's two empirical claims were checked and both are wrong in the same direction, but its conclusion still does not follow, because a `list`-carrying match arm forces `body-fallback` (measured) and every exhaustive match on `json` has two. Rev 1 folded a professor critique: equality at `Json` is unspecified and reaches through `list-contains` as well as `=`; duplicate keys are rejected per RFC 7493 rather than last-wins. Rev 0 established the carrier design and four spec-drift findings. Roadmap row: JSON-1"
 date: 2026-08-03
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -11,7 +11,7 @@ consumers: [compiler-engineer, professor, documentation-lead, user]
 
 **One line.** DRIVER-LL Phase 3 cannot be ported without structured JSON (72 field reads and 10 field
 writes across its five stages, 54 of the reads in stage G2 alone), so `json` ships as a sealed opaque
-carrier with thirteen `def-shell`-only builtins; everything that makes JSON *native* rather than
+carrier with fourteen `def-shell`-only builtins; everything that makes JSON *native* rather than
 merely *available* is recorded in §8 and is not on the driver's path.
 
 ---
@@ -62,7 +62,7 @@ the clause burden, and that is what Rev 3 cuts.
 
 ## 2. Shipped surface
 
-Thirteen builtins, a new `LLMLL.md §13.13`, all `def-shell`-only.
+Fourteen builtins, a new `LLMLL.md §13.13`, all `def-shell`-only.
 
 ```lisp
 ;; ingress and egress
@@ -74,6 +74,7 @@ json-get         : Json -> string -> Result[Json, string]
 json-get-string  : Json -> string -> Result[string, string]
 json-get-int     : Json -> string -> Result[int, string]
 json-get-bool    : Json -> string -> Result[bool, string]
+json-get-number  : Json -> string -> Result[string, string]   ;; the source LEXEME, §3.3
 
 ;; sequence bridge
 json-array       : Json -> Result[list[Json], string]
@@ -98,10 +99,18 @@ entries do (`TypeCheck.hs:236-239`).
 **Deliberately absent, each with the measurement.** No `json-index`: 3 integer-indexed reads exist,
 all in `_checkout`'s pointer walk (`:1121-1128`), and `json-array` composed with `list-nth` covers
 them. No `json-keys`: no site iterates object keys. No polymorphic `json-of`: `TVar` unification
-would admit `Command -> Json`. No `json-remove`: zero deletion sites. No `json-get-number` and no
-`float` anywhere: the driver's only float reads are in `self_test`'s four pinned comparisons
-(`:1405-1409`), which are a test harness rather than a stage, so the ported spine never reads one.
+would admit `Command -> Json`. No `json-remove`: zero deletion sites.
 No RFC 6901 pointer access: 7 chained reads driver-wide, **0 in Phase 3** (§7.1); deferred as D-1.
+
+**`json-get-number` is present, and Rev 3's argument for excluding it was wrong (Rev 4).** Rev 3
+listed it in this paragraph on the ground that the driver's only float reads are `self_test`'s four
+pinned comparisons (`:1405-1409`), a test harness rather than a stage, so the ported spine never
+reads one. That is true of a stage and false of the phase: Phase 3's acceptance clause IS
+`self_test()`'s pinned results (`driver-in-llmll-campaign.md:286-290`), and four of the six are
+floats. Excluding the name let the driver produce the artifact but not check it, which moves the
+acceptance check back into Python and forfeits the point of the port. It returns the source LEXEME
+rather than a `float` (§3.3), so comparison against a literal is STRLIT string equality and lands
+inside `Σ_auto`, where float equality does not (`LLMLL.md:289`). Still no `float` anywhere.
 
 ---
 
@@ -250,7 +259,7 @@ which removes the one carrier-sort re-entry Rev 1 carried.
 
 ## 6. Affected surface
 
-1. `compiler/src/LLMLL/TypeCheck.hs`: thirteen `builtinEnv` entries (new `§13.13` block after
+1. `compiler/src/LLMLL/TypeCheck.hs`: fourteen `builtinEnv` entries (new `§13.13` block after
    `:247`); `coreExcludedBuiltins :: Set Name` and its leg in `checkCalleeAdmissibility`
    (`:788-791`), carrying the `wasi.*` names too; JSON-NOEQ at the per-call-site substitution point,
    which needs a `TypeAdmissibility` call `TypeCheck` does not have today. `TypeAdmissibility` must
@@ -265,7 +274,7 @@ which removes the one carrier-sort re-entry Rev 1 carried.
    unchanged).
 5. `compiler/test/Spec.hs`: extend the WASI-RT preamble-completeness fold (`:14361-14386`) to cover
    `jsonPreamble`, plus a mirror fold asserting every `json-*` name in `builtinEnv` has a preamble
-   binding. JSON-1 adds thirteen names at once and WASI-RT was the four-name version of this defect.
+   binding. JSON-1 adds fourteen names at once and WASI-RT was the four-name version of this defect.
    Add the JSONTestSuite differential gate.
 6. `LLMLL.md`: `§3` type table, `§4.1` (`:454` becomes true once CORE-EXCL lands), new `§13.13`
    after `§13.12` (`:2606`), `§13.2` equality table (`:2278`) gains the JSON-NOEQ note. Doc-lead's
@@ -274,7 +283,7 @@ which removes the one carrier-sort re-entry Rev 1 carried.
    ordinary `EApp` operators; no node kind changes, no version bump from 0.10.0. Worth stating
    because the roadmap row carries a `[SPEC]` tag that reads as though it implies one.
 8. `scripts/build_smoke.sh`: the §3a build-acceptance clause requires the round trip to be built and
-   executed, not checked. Thirteen signatures with no codegen case is the WASI-RT defect at three
+   executed, not checked. Fourteen signatures with no codegen case is the WASI-RT defect at three
    times the scale.
 
 No freeze conflict: the freeze ran through v0.10 (`docs/compiler-team-roadmap.md:26-31`) and is
@@ -412,7 +421,7 @@ None of this is on the driver's path. Each row states what it would buy and what
 |---|---|---|---|
 | **D-1** | **RFC 6901 pointer access.** `json-ptr : Json -> string -> Result[Json, string]` plus fused typed leaf projections; `json-set` taking a pointer with RFC 6902 §4.1 `add` semantics including the `-` append token. | Closes a real asymmetry: LLMLL's own tooling speaks JSON Pointer in diagnostics, `checkout`, and normalization (`LLMLL.md:831`, `:1712`, `:1890`, `:1955`) and JSON Patch in hole resolution (`:1892-1910`), and an LLMLL program cannot address a JSON document at all. `_checkout` walks a pointer by hand (`:1121-1128`). | **Deferred on measurement**: 7 chained reads driver-wide, 0 in Phase 3 (§7.1). Take it when a consumer needs depth, not before. The fused form is the right shape (D7 in the review); the generic-then-project pair forces an intermediate unwrap at every read site. |
 | **D-2** | **Byte-compatible serialization against an external producer.** Insertion-ordered objects, CPython layout, `float.__repr__` reproduction. | Would let LLMLL-produced and Python-produced artifacts be compared bytewise. | **Deferred, and the requirement should be re-derived before it is taken.** §1 shows nothing requires it today. §7.6 records what it costs. |
-| **D-3** | **Numeric re-entry beyond `int`.** `json-get-number` returning the lexeme, or a `float` projection. | The lexeme form keeps a comparison inside `Σ_auto` via STRLIT; a `float` projection would land outside it (`LLMLL.md:289`). | **Deferred**: the ported spine reads no non-integer number (§2). If a future stage does, prefer the lexeme form and compare as a string. |
+| **D-3** | **Numeric re-entry beyond `int`.** `json-get-number` returning the lexeme, or a `float` projection. | The lexeme form keeps a comparison inside `Σ_auto` via STRLIT; a `float` projection would land outside it (`LLMLL.md:289`). | **Half-shipped (Rev 4).** The lexeme form SHIPPED as `json-get-number` (§2): Rev 3's deferral rested on the ported spine reading no non-integer number, which held for a stage and failed for Phase 3's acceptance clause. The `float` projection remains deferred and should stay so, since it lands outside `Σ_auto`. |
 | **D-4** | **RFC 8785 (JCS) canonical serialization.** | A standard canonical form for hashing and signing. | **Deferred, and in tension with D-2**: JCS canonicalizes numbers through ECMAScript `Number::toString` and sorts keys, which is incompatible with reproducing another producer's bytes. Taking both is not possible; taking neither is the current state. |
 | **D-5** | **`match` on `json` via a datatype-sort encoding.** Seven constructors whose fields are existing scalar sorts and the opaque `Lst` carrier. | Testers and selectors reflect exactly for scalar arms, and `is-ok (json-as-int v) ⟺ tag(v) = JInt` becomes a theorem of the datatype theory rather than an asserted fact. | **Blocked, not merely deferred**: every exhaustive match falls back on the list-carrying arms (§7.3), so the surface would degrade silently on every real use. Revisit only if `FixpointEmit.hs:2500`'s list-carrier firewall moves. The sort is acyclic and the declaration is accepted today (§7.3), so nothing else stands in the way. |
 | **D-6** | **A general equality discipline for opaque types.** `Command`, `Response`, `Promise`, and `Json` all have unspecified equality; JSON-1 denies it for one of them. | One rule instead of four ad hoc dispositions. | **Deferred, and routed to the professor**: whether SML's eqtype discipline is the right frame given LLMLL has no class system and no constraint solving (plain `TVar` substitution at `TypeCheck.hs:98`), or whether a denial list is the terminal state. |
@@ -486,6 +495,13 @@ each was a live alternative and a later reader should see it was considered.
 1. **Thirteen builtins stands.** It is the largest single `builtinEnv` addition in the project's
    history, nearly three times CAP-PROC's five. Every name is a measured call site (§7.1) and the
    count does not shrink without dropping one. Accepted as scoped.
+
+   **Reopened and re-closed at fourteen (Rev 4).** The count did grow by one, and by the mechanism
+   this bullet did not anticipate: not a name added for a new call site, but a name whose exclusion
+   argument was refuted. `json-get-number` shipped (`TypeCheck.hs:290`). The clause "every name is a
+   measured call site" was sound; what failed was the census's boundary, which counted the field
+   reads of the five stages and not the reads of the acceptance clause that grades them. A phase's
+   acceptance check is a consumer of the surface even though it is not a stage. Accepted at fourteen.
 2. **The acyclic seven-constructor datatype is not declared** (D-5), not even speculatively against a
    future move of `FixpointEmit.hs:2500`'s list-carrier boundary. A `match` surface that falls back
    on every exhaustive use is worse than no `match` surface, because the degradation is silent. If

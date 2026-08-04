@@ -284,10 +284,19 @@ Port stages **A, E, G2, J, L** (the five typed `mechanical` or `gate` in
 adds the program around a proved centre rather than duplicating it.
 
 - **Acceptance:** the five stages run end to end against the committed TFTP execution and reproduce
-  `self_test()`'s pinned results (`rfc_to_implementation.py:1378`); **zero FFI declarations**; every
+  `self_test()`'s pinned results (`rfc_to_implementation.py:1378`). For a stage typed `gate`,
+  reproducing its results means reproducing its **decision**, including a halt: a stage that halts
+  where the Python driver halts has met this clause, not failed it. **Zero FFI declarations**; every
   ported function's authority is bounded; the proved cores are called, not reimplemented; the
   build-acceptance clause (§3a). Clearing this phase is what licenses running a campaign off the
   LLMLL driver; it does **not** license retiring the Python one, which is Phase 4's gate (§8.1).
+
+  The `gate` clause is not a loosening, and stage J is why it is stated. Its seven pins reproduce
+  and gate J still halts, because the third condition counts exclusions citing no barrier from the
+  closed list and the committed inventory carries no `barrier` field on any row, so all 53 qualify
+  (`rfc_to_implementation.py:918-920`, and the outcome is stated in prose at `:1425-1431`).
+  Without this sentence a faithful port reads as a failed one, and the repair a reader would reach
+  for is to weaken the port until the gate passes.
 - **STOP:** any stage requiring an unavailable effect halts the phase and files the gap; it does not
   get an FFI workaround.
 

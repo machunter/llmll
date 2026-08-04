@@ -1,0 +1,29 @@
+;; REPLAY-FRAME / RC-4 gate fixture.
+;;
+;; A console program that declares :done? and :on-done, which is the shape that
+;; could not be replayed clean before the settle entry started recording kind
+;; "none". The terminating turn performs no command, so it writes no line; the
+;; log says so and `llmll replay` reads nothing for it.
+;;
+;; :init deliberately performs a command that writes NOTHING. An :init that
+;; prints puts its bytes on the same stdout stream replay reads without being
+;; recorded anywhere, which is REPLAY-INJECT's open item; this fixture stays on
+;; the clean side of that line while still exercising the W-REPLAY-INIT warning.
+
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell rs-init [] (pair 0 (wasi.io.stdout "")))
+
+(def-shell rs-step [s: int input: string _r: Response]
+  (pair (+ s 1) (wasi.io.stdout (string-concat "step-" (int-to-string s)))))
+
+(def-shell rs-done? [s: int] -> bool (>= s 2))
+
+(def-shell rs-result [s: int] (wasi.io.stdout "DONE"))
+
+(def-main
+  :mode    console
+  :init    (rs-init)
+  :step    rs-step
+  :done?   rs-done?
+  :on-done rs-result)

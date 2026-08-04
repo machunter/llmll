@@ -1570,11 +1570,34 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
     -- constructed and not performed. It stays a plain (not _-prefixed) binding
     -- because the else branch below uses it, so there is no unused-binding
     -- warning to suppress.
+    --
+    -- The result kind is "none", NOT "stdout". This turn performs no command,
+    -- so the program writes no line, and a "stdout" entry carrying "" claimed
+    -- an output that was never produced. Measured at v0.14.82, that claim made
+    -- the entry unmatchable for essentially every program: `llmll replay`
+    -- wrote the input, called hGetLine, hit EOF because the process had
+    -- exited, and reported a divergence on the one entry that exists to keep
+    -- replay ALIGNED. It could match only by accident -- a program whose
+    -- :on-done printed exactly a bare newline replayed 2/2, comparing "" from
+    -- the log against "" read off the wire, two facts that are unrelated and
+    -- happened to be equal. "none" says what is true (no command ran), keeps
+    -- the entry so the input count still matches the recorded run, and lets
+    -- Replay.replayOne skip the read instead of guessing.
+    --
+    -- THE LIMIT THIS LEAVES, stated because a passing count will not state it
+    -- (A2): :on-done's command runs HERE, outside performStep, so its output
+    -- reaches the real stdout and is recorded nowhere. The settle entry can
+    -- match while carrying no information about it. A green `llmll replay` is
+    -- therefore not evidence that :on-done ran, or ran correctly. Bringing it
+    -- inside the oracle needs its output newline-framed like every other
+    -- turn's, which would change the stdout bytes of every shipped program
+    -- that declares :done?; that trade belongs to REPLAY-INJECT
+    -- (docs/compiler-team-roadmap.md), not here.
     settleDef = case mDone of
       Nothing -> []
       Just _  ->
         [ "    settle " <> settleParam <> " seqN line logHandle = do"
-        , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" \"\")"
+        , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"none\" \"\")"
         , "      hFlush logHandle"
         , "      " <> maybe "return ()" (\od -> emitExpr od <> " s'") mOnDone
         ]
