@@ -36,7 +36,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, emptyEnv, TypeEnv)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, emptyEnv, TypeEnv, collectConstructors)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
 import LLMLL.VerifiedCache (loadVerified)
@@ -253,7 +253,22 @@ parseFile gm fp
 buildModuleEnv :: ModulePath -> [Statement] -> Map Name Type -> TypeEnv -> ModuleEnv
 buildModuleEnv path stmts retTypes _env =
   let aliasMap'  = Map.fromList [(n, b) | STypeDef n b <- stmts]
-      allExports = Map.fromList $ mapMaybe toExport stmts
+      -- XMOD-CTOR-1: a sum type's constructors are VALUE bindings and belong in
+      -- the export map beside the functions.
+      --
+      -- Without them an importing module can MATCH on an imported sum but not
+      -- CONSTRUCT one: pattern position reads the constructor set off the
+      -- scrutinee's TSumType (which meAliasMap already carries cross-module),
+      -- while expression position resolves against the value env, which
+      -- seedCacheEnv builds from meExports alone. The asymmetry surfaced as
+      -- `unbound variable 'Finished'` (a warning at `check`, an ERROR at
+      -- `verify`) the first time a Phase 3 driver module tried to call a proved
+      -- core taking an Outcome.
+      --
+      -- Placed in allExports rather than after the filter, so an explicit
+      -- (export ...) list governs constructors on the same terms as functions.
+      ctorExports = Map.fromList (collectConstructors stmts)
+      allExports = Map.union (Map.fromList (mapMaybe toExport stmts)) ctorExports
       ifaceMap   = Map.fromList
                      [(defInterfaceName s, defInterfaceFns s)
                       | s@SDefInterface{} <- stmts]

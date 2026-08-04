@@ -26,6 +26,10 @@ module LLMLL.TypeCheck
     -- * Environment
   , TypeEnv
   , builtinEnv
+    -- XMOD-CTOR-1: Module.buildModuleEnv needs the same constructor bindings the
+    -- local checker installs, so an importer can CONSTRUCT a value of an
+    -- imported sum type and not merely match one.
+  , collectConstructors
   , emptyEnv
   , seedCacheEnv   -- XMOD-SCOPE-BRIEF: qualified cache exports into a TypeEnv
   , extendEnv
@@ -272,6 +276,18 @@ builtinEnv = Map.fromList $
   , ("json-get-string", TFn [TCustom jsonTypeName, TString] (TResult TString TString))
   , ("json-get-int",    TFn [TCustom jsonTypeName, TString] (TResult TInt TString))
   , ("json-get-bool",   TFn [TCustom jsonTypeName, TString] (TResult TBool TString))
+  -- Returns the number's SOURCE LEXEME as a string, which is the only
+  -- observation of a non-integral number the surface offers. Rev 3 dropped this
+  -- on the ground that the ported spine reads no float; that is true of stage E
+  -- as a stage and false of Phase 3's acceptance clause, which reproduces
+  -- self_test()'s six pinned results and four of them are floats
+  -- (rfc_to_implementation.py:1405-1409). Without it the LLMLL driver can
+  -- produce the artifact but not check it, and the check falls back to Python.
+  --
+  -- The lexeme, not a float: comparing against a literal is then STRLIT string
+  -- equality, which reflects into Sigma_auto, where float equality does not
+  -- (LLMLL.md:289). The acceptance check lands inside the fragment.
+  , ("json-get-number", TFn [TCustom jsonTypeName, TString] (TResult TString TString))
   , ("json-array",      TFn [TCustom jsonTypeName]
                             (TResult (TList (TCustom jsonTypeName)) TString))
   -- Nullary: binds as a VALUE, not a 0-arg function, matching wasi.clock.monotonic
@@ -1276,6 +1292,30 @@ checkStatements stmts = do
     forM_ (nub dupes) $ \dupName ->
       tcWarnOrError $ "duplicate constructor name '" <> dupName
                       <> "' within or across type definitions; first definition wins"
+    -- XMOD-CTOR-2 / RESULT-CTOR-COLLIDE: a user sum type may not declare a
+    -- constructor named Success or Error.
+    --
+    -- CodegenHs.rewriteCtor rewrites those two names to Right and Left
+    -- UNCONDITIONALLY, with no knowledge of the declaring type, because
+    -- Result[t,e] is emitted as Either e t. So `(type Outcome (| Error) ...)`
+    -- silently emits a nullary user constructor as `Left`, and GHC then reports
+    -- "The constructor 'Left' should have 1 argument, but has been given none".
+    -- Found by building tools/llmll-driver/stage.llmll, which had type-checked
+    -- and VERIFIED in that state since July: the corpus is check-only, so
+    -- nothing had ever compiled it.
+    --
+    -- Rejecting here converts a silent miscompile into a check error. The
+    -- principled fix is to thread the declaring type into rewriteCtor so user
+    -- constructors are never confused with Result's; that is a codegen refactor
+    -- and is filed rather than done here.
+    forM_ (nub (map fst ctorBindings)) $ \ctorName ->
+      when (ctorName `elem` (["Success", "Error"] :: [Name])) $
+        tcErrorK "reserved-constructor-name" $
+          "constructor '" <> ctorName <> "' is reserved: it is a Result[t,e] "
+          <> "constructor and the code generator rewrites it to Haskell's "
+          <> (if ctorName == "Success" then "Right" else "Left")
+          <> " regardless of the declaring type. Rename it; a program using it "
+          <> "type-checks and then fails to build."
     -- Phase 2: constructor/function collisions (value namespace only).
     -- Skip TCustom entries (type names, interface names) — separate namespace.
     forM_ (nub (map fst ctorBindings)) $ \ctorName -> do

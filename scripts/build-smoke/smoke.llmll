@@ -133,6 +133,9 @@
   (def-shell smoke-json-get-bool [j: Json k: string] -> Result[bool, string]
     (json-get-bool j k))
 
+  (def-shell smoke-json-number [j: Json k: string] -> Result[string, string]
+    (json-get-number j k))
+
   (def-shell smoke-json-array [j: Json] -> Result[list[Json], string]
     (json-array j))
 

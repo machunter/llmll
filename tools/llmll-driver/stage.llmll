@@ -5,8 +5,9 @@
 (type Status (| Pending) (| Complete) (| Stopped) (| Failed))
 
 ;; Why a stage stopped running. ConditionUnmet is a condition this
-;; specification defines; Error is anything else.
-(type Outcome (| ConditionUnmet) (| Error) (| PartialThenHalt) (| Finished))
+;; specification defines; Errored is anything else. (Named Errored, not
+;; Error: Error is a reserved Result[t,e] constructor name.)
+(type Outcome (| ConditionUnmet) (| Errored) (| PartialThenHalt) (| Finished))
 
 (def record-outcome [o: Outcome] -> Status
 
@@ -16,10 +17,10 @@
   (post (=> (= o ConditionUnmet) (= result Stopped))
     :source "[S4-STOPPED] driver-spec.txt sec 4 - halts on a defined condition MUST be stopped")
 
-  (post (=> (= o Error) (= result Failed))
+  (post (=> (= o Errored) (= result Failed))
     :source "[S4-FAILED] driver-spec.txt sec 4 - halts for any other reason MUST be failed")
 
-  (post (=> (= o Error) (not (= result Stopped)))
+  (post (=> (= o Errored) (not (= result Stopped)))
     :source "[S4-NOT-STOPPED] driver-spec.txt sec 4 - such a stage MUST NOT be recorded stopped")
 
   (post (=> (= o PartialThenHalt) (= result Stopped))
@@ -30,6 +31,6 @@
 
   (match o
     ((ConditionUnmet) Stopped)
-    ((Error) Failed)
+    ((Errored) Failed)
     ((PartialThenHalt) Stopped)
     ((Finished) Complete)))

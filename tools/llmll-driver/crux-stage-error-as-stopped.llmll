@@ -3,16 +3,16 @@
 ;; recorded as stopped, so a run killed by a network fault reads as a
 ;; gate that fired.
 (type Status (| Pending) (| Complete) (| Stopped) (| Failed))
-(type Outcome (| ConditionUnmet) (| Error) (| PartialThenHalt) (| Finished))
+(type Outcome (| ConditionUnmet) (| Errored) (| PartialThenHalt) (| Finished))
 (def record-outcome [o: Outcome] -> Status
   (post (=> (= o Finished) (= result Complete)))
   (post (=> (= o ConditionUnmet) (= result Stopped)))
-  (post (=> (= o Error) (= result Failed)))
-  (post (=> (= o Error) (not (= result Stopped))))
+  (post (=> (= o Errored) (= result Failed)))
+  (post (=> (= o Errored) (not (= result Stopped))))
   (post (=> (= o PartialThenHalt) (= result Stopped)))
   (post (not (= result Pending)))
   (match o
     ((ConditionUnmet) Stopped)
-    ((Error) Stopped)
+    ((Errored) Stopped)
     ((PartialThenHalt) Stopped)
     ((Finished) Complete)))

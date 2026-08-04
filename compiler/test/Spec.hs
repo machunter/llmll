@@ -14371,8 +14371,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     let jsonNames = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "json-" n ]
         hsName    = T.replace "-" "_"
 
-    it "builtinEnv declares exactly the thirteen json-* names this block covers" $
-      length jsonNames `shouldBe` 13
+    it "builtinEnv declares exactly the fourteen json-* names this block covers" $
+      length jsonNames `shouldBe` 14
 
     -- Same fold as WASI-RT below, same reason. jsonPreamble is appended INTO
     -- runtimePreamble rather than spliced at the call site, which is what lets

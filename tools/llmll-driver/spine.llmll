@@ -1,0 +1,210 @@
+;; DRIVER-LL Phase 3 — the mechanical spine.
+;;
+;; Stage E (reconcile) ported from scripts/rfc_to_implementation.py as
+;; def-shell orchestration around the proved cores in this directory. The
+;; campaign's rule for this phase is that the port adds the program AROUND a
+;; proved centre rather than duplicating it, so the halt decision comes from
+;; stage.record-outcome and the skip decision from skip.may-skip; neither is
+;; re-implemented here.
+;;
+;; The shape that matters: everything touching JSON, the filesystem, or a
+;; subprocess is def-shell and unverified, and the DECISION is a strict-core
+;; `def` over scalars the shell extracted. stage-e-passes is body-faithful and
+;; carries its pins as contracts, so the acceptance criterion is proved rather
+;; than printed.
+;;
+;; Zero FFI declarations, which is the standing rule from Phase 3 onward.
+
+(module spine
+  (import wasi.io   (capability stdout :deterministic false))
+  ;; CAP-1-REAL: the verb and path are documentation, not a bound.
+  (import wasi.fs   (capability read "/"))
+  (import wasi.proc (capability exec :deterministic false))
+
+  (import stage) (open stage)
+  (import skip)  (open skip)
+
+  ;; ------------------------------------------------------------------
+  ;; The proved centre
+  ;; ------------------------------------------------------------------
+
+  ;; Stage E's acceptance, as a contract rather than as a print statement.
+  ;; self_test() (rfc_to_implementation.py:1402-1410) pins six values against
+  ;; the committed TFTP execution; this is that check, in the strict core.
+  ;;
+  ;; SCOPE OF THE PROOF, stated because it is narrower than it first looks.
+  ;; The two count pins and the whole conjunction structure are proved: a body
+  ;; that returned `true` unconditionally is REFUTED by the last two posts, and
+  ;; no conjunct can be dropped without failing one of them. The four lexeme
+  ;; comparisons arrive as booleans the shell already computed, and are NOT
+  ;; proved here.
+  ;;
+  ;; They cannot be. Measured at v0.14.81: a `def` whose body performs a
+  ;; string-literal comparison falls back to contract-checked whatever its
+  ;; contract says. LLMLL.md:289's STRLIT reflection covers a `(= s "lit")`
+  ;; predicate in CONTRACT position over a param the body does not itself
+  ;; compare; it does not cover the comparison as the body's own computation.
+  ;; Filed as STRLIT-BODY-1. Taking the booleans as parameters is what keeps
+  ;; the rest of the decision inside Sigma_auto instead of losing the whole
+  ;; function to fallback.
+  (def stage-e-passes [compared: int a-unmatched: int b-unmatched: int
+                       raw-ok: bool kappa-ok: bool
+                       j1350-ok: bool j1123-ok: bool] -> bool
+
+    (post (=> result (= compared 43))
+      :source "[E-COMPARED] self_test - 43 rows compared 1:1")
+
+    (post (=> result (and (= a-unmatched 1) (= b-unmatched 10)))
+      :source "[E-UNMATCHED] self_test - (1, 10) genuine coverage disagreements")
+
+    (post (=> result (and raw-ok kappa-ok))
+      :source "[E-AGREEMENT] self_test - raw rule agreement and Cohen's kappa reproduce")
+
+    (post (=> result (and j1350-ok j1123-ok))
+      :source "[E-JACCARD] self_test - per-RFC line-coverage Jaccard reproduces")
+
+    ;; A stage that reproduces nothing MUST NOT pass. Stated separately from
+    ;; the conjunction above so a body that returned `true` unconditionally is
+    ;; refuted rather than merely unproved.
+    (post (=> (not (= compared 43)) (not result))
+      :source "[E-NOVACUOUS] a divergent row count MUST fail the stage")
+
+    (post (=> (not raw-ok) (not result))
+      :source "[E-NOVACUOUS-2] a divergent agreement figure MUST fail the stage")
+
+    (and (= compared 43)
+         (and (= a-unmatched 1)
+              (and (= b-unmatched 10)
+                   (and raw-ok
+                        (and kappa-ok
+                             (and j1350-ok j1123-ok)))))))
+
+  ;; Which Outcome a completed stage E reports. Pure, so it is strict-core:
+  ;; the campaign's §15.1 obligation is that a halt is classified, and
+  ;; record-outcome (proved, in stage.llmll) turns that into a Status.
+  (def stage-e-outcome [passes: bool] -> Outcome
+    (post (=> passes (= result Finished))
+      :source "[S4-COMPLETE] a stage that finishes without error is complete")
+    (post (=> (not passes) (= result ConditionUnmet))
+      :source "[S4-STOPPED] a pinned value that does not reproduce is a defined condition, not an error")
+    (if passes Finished ConditionUnmet))
+
+  ;; ------------------------------------------------------------------
+  ;; The shell: JSON, files, subprocesses. Nothing below is proved.
+  ;; ------------------------------------------------------------------
+
+  (def-shell status-word [s: Status] -> string
+    (match s
+      ((Complete) "complete")
+      ((Stopped)  "stopped")
+      ((Failed)   "failed")
+      ((Pending)  "pending")))
+
+  ;; A nested projection: line_coverage -> <rfc> -> jaccard. Returns the
+  ;; lexeme, or a sentinel that cannot equal any pinned value, so a missing
+  ;; member fails the check rather than silently defaulting into it.
+  (def-shell jaccard-of [rep: Json rfc: string] -> string
+    (match (json-get rep "line_coverage")
+      ((Success lc)
+        (match (json-get lc rfc)
+          ((Success entry) (unwrap-or (json-get-number entry "jaccard") "MISSING"))
+          ((Error _) "MISSING")))
+      ((Error _) "MISSING")))
+
+  (def-shell agreement-of [rep: Json k: string] -> string
+    (match (json-get rep "rule_agreement")
+      ((Success ra) (unwrap-or (json-get-number ra k) "MISSING"))
+      ((Error _) "MISSING")))
+
+  (def-shell compared-of [rep: Json] -> int
+    (match (json-get rep "rule_agreement")
+      ((Success ra) (unwrap-or (json-get-int ra "compared") 0))
+      ((Error _) 0)))
+
+  (def-shell unmatched-count [rep: Json k: string] -> int
+    (match (json-get rep k)
+      ((Success arr) (list-length (unwrap-or (json-array arr) (list-empty))))
+      ((Error _) 0)))
+
+  ;; The lexeme comparisons. Here rather than in the proved centre because a
+  ;; strict-core body performing string-literal equality falls back whole
+  ;; (STRLIT-BODY-1); keeping them out is what lets stage-e-passes stay
+  ;; body-faithful. Comparing lexemes, not floats, so "0.725" and "0.7250" are
+  ;; distinct and no rounding is involved on either side.
+  (def-shell agreement-holds [rep: Json] -> bool
+    (= (agreement-of rep "raw_agreement") "0.9535"))
+
+  (def-shell kappa-holds [rep: Json] -> bool
+    (= (agreement-of rep "cohens_kappa") "0.9378"))
+
+  (def-shell j1350-holds [rep: Json] -> bool
+    (= (jaccard-of rep "RFC1350") "0.8655"))
+
+  (def-shell j1123-holds [rep: Json] -> bool
+    (= (jaccard-of rep "RFC1123") "0.725"))
+
+  ;; The whole of stage E's verification, over a parsed report.
+  (def-shell check-report [rep: Json] -> bool
+    (stage-e-passes (compared-of rep)
+                    (unmatched-count rep "A_unmatched_rows")
+                    (unmatched-count rep "B_unmatched_rows")
+                    (agreement-holds rep)
+                    (kappa-holds rep)
+                    (j1350-holds rep)
+                    (j1123-holds rep)))
+
+  (def-shell verdict-line [rep: Json] -> string
+    (string-concat "stage-E="
+      (status-word (record-outcome (stage-e-outcome (check-report rep))))))
+
+  ;; ------------------------------------------------------------------
+  ;; The console harness
+  ;; ------------------------------------------------------------------
+
+  (def-shell spine-init [] -> (int, Command)
+    (pair 0 (wasi.io.stdout "DRIVER-LL Phase 3: stage E over the committed TFTP data")))
+
+  (def-shell spine-step [s: int input: string r: Response] -> (int, Command)
+    ;; s=0: run the reconciler. Absolute exe, argv vector, no shell.
+    (if (= s 0)
+        (pair 1 (wasi.proc.run "/usr/bin/python3"
+                               ["experiments/rfc-swarm/tools/reconcile.py"
+                                "experiments/rfc-swarm/data"]
+                               "."
+                               "/tmp/llmll-spine-out.txt"
+                               "/tmp/llmll-spine-err.txt"
+                               120))
+    ;; s=1: the exit status arrives as RCode.
+    (if (= s 1)
+        (pair 2 (wasi.io.stdout
+                  (string-concat "reconcile-exit="
+                    (match r
+                      ((RNone)    "none")
+                      ((RText t)  t)
+                      ((RCode n)  (int-to-string n))
+                      ((RErr e)   (string-concat "ERR:" e))
+                      ((RList ns) (int-to-string (list-length ns)))))))
+    ;; s=2: read the artifact the reconciler wrote.
+    (if (= s 2)
+        (pair 3 (wasi.fs.read "experiments/rfc-swarm/data/reconciliation.json"))
+    ;; s=3: parse it and discharge the pinned check.
+    (if (= s 3)
+        (pair 4 (wasi.io.stdout
+                  (match r
+                    ((RText body)
+                      (match (json-parse body)
+                        ((Success rep) (verdict-line rep))
+                        ((Error e) (string-concat "stage-E=parse-failed:" e))))
+                    ((RNone)    "stage-E=no-artifact")
+                    ((RCode _)  "stage-E=no-artifact")
+                    ((RErr e)   (string-concat "stage-E=read-failed:" e))
+                    ((RList _)  "stage-E=no-artifact"))))
+        (pair 5 (wasi.io.stdout "")))))))
+
+  (def-shell spine-done? [s: int] -> bool (>= s 5))
+
+  (def-main
+    :mode  console
+    :init  (spine-init)
+    :step  spine-step
+    :done? spine-done?))

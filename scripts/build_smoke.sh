@@ -109,7 +109,7 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_clock_monotonic wasi_proc_run \
             seq_commands \
             json_parse json_serialize json_get json_get_string json_get_int \
-            json_get_bool json_array json_object json_set \
+            json_get_bool json_get_number json_array json_object json_set \
             json_of_string json_of_int json_of_bool json_of_list; do
   grep -qE "^${name} " "$LIB" || MISSING+=("$name")
 done
