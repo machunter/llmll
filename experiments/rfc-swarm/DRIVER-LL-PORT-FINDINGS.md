@@ -1,6 +1,6 @@
 # DRIVER-LL Phase 3: what the port of stages E and J found
 
-> Session 2026-08-03, compiler v0.14.82, branch `driver-ll/phase-3-stage-j` at `d98ea8a`
+> Session 2026-08-03, compiler v0.14.82, branch `driver-ll/phase-3-stage-j` at `5a55fac`
 > (one commit above `main` at `9cec606`). Campaign:
 > [`../../docs/design/driver-in-llmll-campaign.md`](../../docs/design/driver-in-llmll-campaign.md)
 > §"Phase 3". Port: [`../../tools/llmll-driver/spine.llmll`](../../tools/llmll-driver/spine.llmll).
@@ -11,13 +11,15 @@
 > below rather than appended, and each says what the first pass got wrong. Measurements attributed
 > to that pass are marked; the rest are this role's own.
 >
-> **Line citations are pinned to `d98ea8a`.** `compiler/src/LLMLL/Replay.hs`,
-> `CodegenHs.hs`, `TypeCheck.hs` and `app/Main.hs` all carry uncommitted engineer-pass edits as of
-> this writing, so every `<file>:<line>` below resolves against the commit, not the working tree.
+> **Line citations resolve against the compiler as it stood BEFORE the replay repair.**
+> `compiler/src/LLMLL/Replay.hs`, `compiler/src/LLMLL/CodegenHs.hs`,
+> `compiler/src/LLMLL/TypeCheck.hs` and `compiler/app/Main.hs` were all changed by that repair
+> (`25eabde`), which by design moved the very lines these findings describe. Read every
+> `<file>:<line>` below against `5a55fac`, the commit this file was written against.
 
 Phase 3 ports stages A, E, G2, J and L of the Python driver into LLMLL as `def-shell`
 orchestration around the proved cores in `tools/llmll-driver/`. Stage E shipped in `c3681b0`,
-stage J in `d98ea8a`. This file records what porting them surfaced, which is mostly not about
+stage J in `5a55fac`. This file records what porting them surfaced, which is mostly not about
 the two stages.
 
 **Three of the five findings carried into this session did not survive re-measurement, and all
@@ -38,13 +40,13 @@ stage-J=stopped
 stage-J-halt=gate J condition 3, exclusions citing no barrier from the closed list
 ```
 
-All seven of `self_test()`'s stage-J pins reproduce (`rfc_to_implementation.py:1412-1443`), and
+All seven of `self_test()`'s stage-J pins reproduce (`rfc_to_implementation.py:1413-1444`), and
 `experiments/rfc-swarm/data/reconciliation.json` came back byte-identical, so stage E reproduces
 too. The gate nonetheless halts, and that is the correct replay rather than a port defect: gate
 J's third condition counts exclusions whose `barrier` is not in the closed list
 (`rfc_to_implementation.py:918-920`), no row in this artifact carries a `barrier` key at all, so
 all 53 exclusions qualify. `rfc_to_implementation.py:1425-1437` states exactly this outcome in
-prose, and `self_test()` does not exercise the condition (`:1442-1443` prints
+prose, and `self_test()` does not exercise the condition (`:1442-1444` prints
 `NOT EXERCISED`).
 
 That distinction is the whole of F-D below.
@@ -217,7 +219,7 @@ fact does not decide whether they fall back, because prelude membership does not
 
 **Consumer:** language-team, already owned.
 
-**Verified at HEAD `d98ea8a`.** `docs/design/native-json-proposal.md` was titled "the thirteen
+**Verified at HEAD `5a55fac`.** `docs/design/native-json-proposal.md` was titled "the thirteen
 builtins the driver needs", status Rev 3 SETTLED. Its `:101` read "No `json-get-number`", and D-3
 at `:415` deferred exactly that name. The shipped surface is fourteen: `builtinEnv` carries
 fourteen `json-` entries at `TypeCheck.hs:272-303`, the extra being `json-get-number` at `:290`,
@@ -292,7 +294,7 @@ Two cases added, gate re-run:
 `error: body verification of 'stage-j-pins' failed — implementation does not satisfy
 postcondition`, and perturbing the contract and the body TOGETHER verifies SAFE. So the frozen
 verdict proves the pin is enforced against its own body; it does not prove the pin equals
-`rfc_to_implementation.py:1412-1443`, which stays a reading obligation.
+`rfc_to_implementation.py:1413-1444`, which stays a reading obligation.
 
 **Incidental, and worth knowing before citing one.** Constraint indices are per-`.fq` file. The
 identical perturbation reports constraint #0 in the standalone crux and constraint #3 applied
@@ -494,7 +496,7 @@ that cannot currently be replayed clean.
   body-faithfulness, and the class is at least 37 builtins rather than three. The proposed fix
   would have gated three cases and implied 34 others were covered.
 - **F-C**, that the JSON design record and the compiler disagree on the builtin count. True at
-  HEAD `d98ea8a`, closed in the working tree by the language-team track during this session.
+  HEAD `5a55fac`, closed in the working tree by the language-team track during this session.
 - **F-G's universal form**, that every console program declaring `:done?` diverges on its final
   event. Refuted by a program whose `:on-done` prints `"\n"` and replays 2/2. The narrowed
   finding is worse in kind, not milder.
