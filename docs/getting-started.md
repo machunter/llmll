@@ -1694,3 +1694,34 @@ The reading arrives on the response channel as `RCode`, in nanoseconds:
 ```
 
 > Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
+
+### 4.18 JSON Is `def-shell`-Only
+
+Every `json-*` operation is rejected inside a `def`:
+
+```
+error: def 'read-cid': callee 'json-get-string' is a def-shell-only builtin;
+JSON values are an opaque carrier, so a body touching one cannot produce a
+body-faithful VC
+  suggestion: Replace (def read-cid ...) with (def-shell read-cid ...)
+```
+
+The fix is always to change `def` to `def-shell`, never to verify the callee: a sealed builtin has no LLMLL body to verify. The same diagnostic covers every `wasi.*` effect.
+
+Accessors return `Result`, so match or use `unwrap-or`:
+
+```lisp
+(def-shell read-cid [j: Json] -> string
+  (unwrap-or (json-get-string j "cid") ""))
+```
+
+Building a document is functional; `json-set` returns a new value rather than mutating:
+
+```lisp
+(def-shell make-row [n: int] -> Json
+  (unwrap-or (json-set json-object "n" (json-of-int n)) json-object))
+```
+
+`=` on two `Json` values is a type error, because structural equality would make member order observable. Compare `(json-serialize a)` with `(json-serialize b)`.
+
+**The shape that keeps verification:** extract scalars in a `def-shell`, then decide in a `def`. The extraction cannot be body-faithful, but the decision can. [`tools/llmll-driver/spine.llmll`](../tools/llmll-driver/spine.llmll) is a worked example: the JSON projections are shell, and `stage-e-passes` is a strict-core `def` whose contracts pin the values it must reproduce.

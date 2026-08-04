@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.81)
+# LLMLL: Large Language Model Logical Language (v0.14.82)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.81.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.82.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -143,10 +143,13 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
 | `Command` | An IO effect (see §9) | _(constructed via capability constructors only)_ |
 | `Response` | What performing a `Command` produced (see §9.7) | `(match r ((RText t) …))` |
+| `Json` | An opaque JSON value (see §13.13) | _(produced by `json-parse` or the `json-of-*` injections)_ |
 
 > `Command` is opaque: it is only produced by the standard command constructors (§13.9), and is currently emitted as Haskell `IO ()`. Calling any `wasi.*` constructor requires that the module declare that namespace (§7).
 
 > `Response` is a builtin sum type with five arms (`RNone`, `RText string`, `RCode int`, `RErr string`, `RList list[string]`). Unlike `Command` it is transparent: a program matches on it to consume an effect's result. It is supplied by the console harness as the third argument to `:step` and is never constructed by user code.
+
+> `Json` is **sealed and opaque**: no program-visible structure, no constructors, no `match` form. It is produced only by `json-parse` and the `json-of-*` injections (§13.13), and a program may not redefine the name. Its fourteen operations are `def-shell`-only, and equality is not defined on it (§13.2).
 
 > `bytes[n]` and `map[k,v]` have a builtin operation family — indexing, update, presence, construction — catalogued in §13.12.
 
@@ -451,7 +454,7 @@ Two declaration forms are available under the default grammar (`GrammarCoreInver
 
 The annotation is **optional and checking-mode**, consistent with the synthesis-primary checker (§3.4.6): omit it and the return type is fully inferred (`mRet = Nothing`); declare it and the body is checked against `RetType`. A bare-hole body under a declared return records `HoleTyped RetType`, so a function-body hole reports its type in the checkout brief / obligation report (the `expected_return_type` field, §11.2). A concrete (non-hole) body is synthesized and unified against `RetType`, with a mismatch attributed to the function. A refinement-aliased return (`-> PositiveInt`) additionally joins the §3.4.1 introduction obligation `p[body/result]` to the body-VC set and discharges it: the predicate folds into the effective post via `augmentContractPost` (the guarantee-side dual of `augmentContractPre`), so the body-VC proves it (`verified` / `refuted` / `erBodyFallback` per §5.3.3) and it is exported as a caller-assumable guarantee (assume-guarantee; tier rides the §5.3.4 meet); see §3.4.5 and §5.3.5. See [`docs/archive/shipped-design-specs/def-return-annotation-proposal.md`](docs/archive/shipped-design-specs/def-return-annotation-proposal.md) for the design rationale. When the body discharging a refinement-aliased return is itself a two-arm `match` on a `Result`-typed parameter, the predicate discharges **per arm** — each arm re-establishes `p[result/x]` on its own result (clean → `verified`; a violating arm → `refuted`, localized to that arm) — at any nesting depth (under `let`/`if`), and this extends to a two-arm *user* ADT scrutinee with QF-LIA-scalar payloads, not only when the body *is* the match. A matched arm additionally **consumes its payload's own declared refinement**, made sound by a declaration-driven call-site payload-subtyping obligation that obligates callers to honor it. Payload-carrying construction over an admissible sum discharges as well: a constructed `(Ctor e)` reflects into the native datatype term and a construction/totality post discharges by constructor equality (§5.3.3 datatype class, §5.3.5); nullary-variant construction `(Empty)` types as its sum. A *recursive* (non-acyclic) sum is firewalled — its constructors are rejected at the strict-core gate (`def-shell` required) — and a constructor-dependent post over a non-admissible type stays a deliberate fallback.
 
-**When to use `def` vs `def-shell`.** Use `def` when the function body is composed exclusively of linear arithmetic, `let` bindings, conditionals, pair operations, `Result` 2-arm matching, and calls to builtins or body-faithfully verified functions. The typechecker enforces this at compile time and emits `core-grammar-violation` or `core-membership-violation` on non-admitted constructs. Use `def-shell` for everything else: functions that use lambdas (`fn`), call user-defined functions from the same module, perform IO via `wasi.*`, contain `?proof-required` holes, or are self-recursive.
+**When to use `def` vs `def-shell`.** Use `def` when the function body is composed exclusively of linear arithmetic, `let` bindings, conditionals, pair operations, `Result` 2-arm matching, and calls to builtins or body-faithfully verified functions. The typechecker enforces this at compile time and emits `core-grammar-violation`, `core-membership-violation`, or `core-excluded-builtin` on non-admitted constructs. The last covers builtins that are `def-shell`-only by construction: every `wasi.*` effect and every `json-*` operation (§13.13). Its remedy is always to move the caller to `def-shell`, never to verify the callee, since a sealed builtin has no LLMLL body to verify. Use `def-shell` for everything else: functions that use lambdas (`fn`), call user-defined functions from the same module, perform IO via `wasi.*`, contain `?proof-required` holes, or are self-recursive.
 
 **Complete `def` example:**
 
@@ -2282,6 +2285,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 - **`(a, b)` pairs:** equal if both components are `=`.
 - **ADT constructors:** equal if same constructor tag and payload is `=`.
 - **`Command`:** comparison is **not defined** — commands are opaque.
+- **`Json`:** comparison is **not defined**, and `=`, `!=`, and `list-contains` are *rejected* at any argument type mentioning `Json` (including `list[Json]` and `Result[Json,string]`). Structural equality would make member order observable program behaviour; compare serializations instead: `(= (json-serialize a) (json-serialize b))`.
 
 | Operator | Signature | Notes |
 |----------|-----------|-------|
@@ -2619,5 +2623,34 @@ Operations over the compound types `bytes[n]` and `map[k,v]` (§3.2). Reads carr
 | `map-empty` | `→ map[k,v]` | — | Empty map; type from context. |
 
 **Map keys are `{int, string}`** (`int` in v1, `string` added v0.14.51) — a map operation at any other key type is a typechecker diagnostic on the *operation*; the `map[k,v]` type former itself is unrestricted.
+
+### 13.13 JSON Operations
+
+Operations over the sealed opaque type `Json` (§3.2). All fourteen are **`def-shell`-only**: a `def` body calling one is rejected with `core-excluded-builtin` (§4.1). Every partial operation returns `Result`, because a JSON value's shape is not statically expressible and there is no `match` form to discriminate it.
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `json-parse` | `string → Result[Json,string]` | RFC 8259. Rejects duplicate member names and nesting deeper than 512. |
+| `json-serialize` | `Json → string` | Deterministic; one-space indent; members in stored order. |
+| `json-get` | `Json string → Result[Json,string]` | Member by name; `err` if absent or the receiver is not an object. |
+| `json-get-string` | `Json string → Result[string,string]` | `err` unless the member is a string. |
+| `json-get-int` | `Json string → Result[int,string]` | `err` unless the member is an **integer lexeme**. |
+| `json-get-bool` | `Json string → Result[bool,string]` | `err` unless the member is a bool. |
+| `json-get-number` | `Json string → Result[string,string]` | The member's **source lexeme**, unparsed. |
+| `json-array` | `Json → Result[list[Json],string]` | The bridge to `list[t]`, for iteration. |
+| `json-object` | `Json` | The empty object. A **value**, not a call. |
+| `json-set` | `Json string Json → Result[Json,string]` | Functional update: replace in place, append when absent. |
+| `json-of-string` | `string → Json` | |
+| `json-of-int` | `int → Json` | |
+| `json-of-bool` | `bool → Json` | |
+| `json-of-list` | `list[Json] → Json` | |
+
+**Numbers are stored as source lexemes.** `json-parse` keeps a number's original text and `json-serialize` emits it unchanged, so a parsed number survives a round trip byte for byte and a large integer keeps full precision. `json-get-int` is therefore strict: `1.0` denotes an integral value but is not an integer lexeme, and returns `err`. There is no float projection; `json-get-number` returns the lexeme and the program decides what to do with it. Comparing that lexeme against a string literal is also what keeps such a check inside `Σ_auto`, where a float comparison would not be (§5.3.5).
+
+**Duplicate member names are rejected**, compared after unescaping, per RFC 7493 §2.3. RFC 8259 §4 leaves the behaviour to the implementation; rejecting is what makes `json-set` replace-in-place total, so `(json-get (json-set v k x) k)` is `(ok x)` unconditionally.
+
+**Verification.** `Json` lowers to an opaque carrier sort, exactly as `list[t]` does. No `json-*` name is reflected into the solver, so a body mentioning one takes the fallback routing of §5.3.3 and reaches `contract-checked` rather than a body-faithful VC. That is why the family is `def-shell`-only: the restriction makes the fallback explicit at `check` time instead of silent at emission. The accessors' *results* (`int`, `bool`, `string`) re-enter `Σ_auto` normally, which is the intended shape — extract scalars in a `def-shell`, then decide in a `def`.
+
+**Trust tier.** The parser and serializer are sealed builtins backed by Haskell in the codegen preamble; their correctness is `asserted` (the §13.11 precedent). Unlike the §13.11 stubs they carry an oracle: BUILD-GATE-1's execution stage runs a round trip and a ten-case adversarial parse battery against hand-computed answers.
 
 ---

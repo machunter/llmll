@@ -66,6 +66,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
+| [native-json-proposal.md](native-json-proposal.md) | Fourteen JSON builtins for the driver, and the native-JSON work deferred | **Rev 3, SETTLED**; shipped as JSON-1 at v0.14.82 |
+| [native-json-review.md](native-json-review.md) | Professor review of an earlier JSON draft; six findings folded | **Rev 0, standalone**; reviews a superseded draft, see proposal §10 |
 | [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 4, IN FLIGHT**: Phases 0 and 1 shipped v0.14.80; CAP-PROC shipped v0.14.81, leaving JSON-1 as Phase 2's last item |
 | [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **IMPLEMENTED, shipped v0.14.80**; two of its path citations are stale (see the open-work record, R-5) |
 | [driver-ll-open-work.md](driver-ll-open-work.md) | What the v0.14.80 and v0.14.81 line shipped, and the work it deliberately left open | **ACTIVE ROUTING RECORD**: both releases done; two blockers filed as `CAP-1-REAL` and `CONSOLE-INIT-1`; R-11 promoted to `HTTP-GET-1` and R-13 closed at v0.14.81 |

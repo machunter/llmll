@@ -4,6 +4,78 @@
 
 <a id="Latest"></a>
 
+## v0.14.82: JSON, and the driver that runs on it (2026-08-03)
+
+`JSON-1` closes DRIVER-LL Phase 2, and Phase 3's spine immediately used it to become the first
+LLMLL program that *is* the driver rather than a proved fragment of one. Writing that program
+found three defects a check-only corpus cannot see, and all three are fixed here.
+
+### Added, JSON-1 (fourteen `def-shell`-only builtins, new §13.13)
+
+A sealed opaque `Json` carrier plus `json-parse`, `json-serialize`, five typed projections
+(`json-get` and `-string` / `-int` / `-bool` / `-number`), `json-array`, `json-object`,
+`json-set`, and four scalar injections. No JSON-AST schema delta; schema stays 0.10.0.
+
+- **Numbers are stored as source lexemes**, not doubles, so a parsed number round-trips byte for
+  byte and a large integer keeps full precision. `json-get-int` is strict on `1.0`: integral
+  value, not an integer lexeme. `json-get-number` returns the lexeme, which also keeps a
+  comparison against a literal inside `Σ_auto` where a float comparison would not be.
+- **Duplicate member names are rejected** per RFC 7493 §2.3, compared after unescaping. RFC 8259
+  §4 leaves this to the implementation; rejecting makes `json-set` replace-in-place total, so
+  `(json-get (json-set v k x) k)` is `(ok x)` unconditionally.
+- **Equality is denied at `Json`.** `=`, `!=`, and `list-contains` are rejected at any argument
+  type mentioning `Json`, including `list[Json]` and `Result[Json,string]`. Structural equality
+  would make member order observable; compare serializations instead.
+- **No new generated-project dependency.** The parser and serializer are hand-rolled in the
+  codegen preamble. `aeson` would have added a measured **40 packages** to a generated project's
+  closure, against the 46 that dropped `wasi.http.get` at v0.14.81.
+
+### Changed, strict-core admission (closes a claim that was false)
+
+`§4.1` has said the typechecker enforces `def-shell` for functions performing IO via `wasi.*`.
+It did not: `checkCalleeAdmissibility` admitted every `builtinEnv` member unconditionally, and a
+`def` calling `wasi.fs.read` type-checked clean. CORE-EXCL now covers `wasi.*` alongside
+`json-*`, with a new **`core-excluded-builtin`** diagnostic whose remedy is reachable (move the
+caller to `def-shell`) rather than impossible (verify a sealed builtin). Blast radius measured
+across the whole corpus: **0 of 303** `def`-form functions.
+
+### Added, DRIVER-LL Phase 3 spine
+
+[`tools/llmll-driver/spine.llmll`](tools/llmll-driver/spine.llmll) runs stage E end to end: it
+invokes the reconciler through `wasi.proc.run`, reads the artifact through `wasi.fs.read`, parses
+it with JSON-1, and discharges `self_test()`'s six pinned values against the committed TFTP
+execution. Built and run, not merely type-checked. Zero FFI declarations.
+
+The verdict is eliminative: perturbing a pinned literal flips it from `stage-E=complete` to
+`stage-E=stopped`, and `stopped` rather than `failed` is the proved core working — a
+non-reproducing pin is `ConditionUnmet`, which `stage.record-outcome`'s verified contract maps to
+`Stopped` per driver-spec §4. `stage-e-passes` and `stage-e-outcome` are both body-faithful.
+
+### Fixed, three defects found by writing the driver
+
+- **`XMOD-CTOR-1`.** A sum-type constructor imported via `(import m) (open m)` worked in *pattern*
+  position but was unbound as an *expression* — a warning at `check`, an **error** at `verify`.
+  Patterns read the constructor set off the scrutinee's `TSumType`, which `meAliasMap` carries
+  cross-module; expressions resolve against the value env, which `seedCacheEnv` builds from
+  `meExports`, and `buildModuleEnv` never emitted constructors. An importer could match an
+  imported sum but not construct one, which is exactly what calling a proved core taking an
+  `Outcome` requires.
+- **`RESULT-CTOR-COLLIDE`.** `CodegenHs.rewriteCtor` rewrites any constructor named `Success` or
+  `Error` to `Right` or `Left` unconditionally, with no knowledge of the declaring type, because
+  `Result[t,e]` emits as `Either e t`. `tools/llmll-driver/stage.llmll` declared `(| Error)` and
+  had type-checked **and verified** in that state since July; it emitted `Left` with no argument
+  and GHC refused it. Nothing had ever built it. Now a check-time `reserved-constructor-name`
+  error instead of a silent miscompile; the constructor is renamed `Errored` and its refute-crux
+  twin still refutes.
+- **`STRLIT-BODY-1`** (documented, not fixed). A `def` whose *body* performs a string-literal
+  comparison falls back to `contract-checked` whatever its contract says; §5.3.5's STRLIT
+  reflection covers contract-position predicates, not the body's own comparison. This narrows
+  what any proved centre can cover and is recorded in the spine's source rather than hidden.
+
+**Tests:** 1594 Haskell, 107 Python.
+
+---
+
 ## v0.14.81: four capability operations, and a gate that runs them (2026-08-03)
 
 CAP-PROC reaches five operations and closes there. Phase 2's remaining four ship with an execution
