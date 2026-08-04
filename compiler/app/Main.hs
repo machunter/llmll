@@ -42,7 +42,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -2556,6 +2556,29 @@ doReplay json gm srcFp logFp = do
       unless json $
         putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
 
+      -- W-REPLAY-INIT: :init's command is performed through llmll_perform
+      -- before the loop and is deliberately NOT logged (CodegenHs.hs:1543-1546).
+      -- Its output still reaches the same stdout stream replay reads, so if it
+      -- writes anything, the bytes on the wire are not the bytes the log
+      -- accounts for and alignment is not guaranteed. Measured at v0.14.82:
+      -- an :init printing "init-ran" (no trailing newline) FUSES with the first
+      -- event's line, breaking seq 0 only; an :init printing "init-ran\n"
+      -- shifts every event and matches nothing. Replay cannot correct for
+      -- either, because the stray line count is the newline count of an output
+      -- the log does not record. Warn rather than fail: the program may print
+      -- nothing (a (wasi.io.stdout "") init replays clean), which is not
+      -- decidable from the source. The repair is REPLAY-INJECT's.
+      mStmts <- loadStatements json gm srcFp
+      case mStmts of
+        Left _   -> pure ()   -- the build below reports the parse failure
+        Right ss -> unless json $
+          forM_ [ () | SDefMain{defMainMode = ModeConsole, defMainInit = Just _} <- ss ] $ \_ ->
+            hPutStrLn stderr $
+              "warning: W-REPLAY-INIT: this program's :init performs a command before the loop "
+              ++ "and its output is not recorded in the event log; if it writes to stdout, "
+              ++ "replay alignment is not guaranteed and divergences may be reported against "
+              ++ "the wrong event."
+
       -- Build the program to get an executable
       let modName  = takeBaseName srcFp
           -- BUG-2 (v0.14.3): the executable's on-disk name is the
@@ -2596,6 +2619,11 @@ doReplay json gm srcFp logFp = do
           unless json $ putStrLn $ "Running replay against " ++ execPath ++ " ..."
           result <- runReplay execPath entries
           putStrLn $ show (replayMatched result) ++ "/" ++ show (replayTotal result) ++ " events matched"
+          -- Both halves arrive control-character-escaped from
+          -- LLMLL.Replay.escapeForDiag, so a multi-line event's report stays
+          -- on ONE line. Do not print raw values here: before the escape a
+          -- step whose output was two lines split its own DIVERGE report
+          -- across two lines and the trailing half looked like a stray.
           forM_ (replayDiverged result) $ \(sq, expected, actual) ->
             putStrLn $ "  DIVERGE seq " ++ show sq
                     ++ ": expected=\"" ++ T.unpack expected

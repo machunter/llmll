@@ -218,4 +218,112 @@ if [ -f "$EXEC_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
 fi
 
+# --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------
+#
+# Before this stage, `llmll replay` was executed by NO gate: not this script,
+# not check-examples.sh, not refute-crux-gate.sh, not pytest, not any CI job.
+# Its only coverage was three unit tests driving runReplay against bash mocks,
+# and those mocks framed their output differently from the emitter, so they
+# passed while three separate divergence classes shipped (unlogged :init
+# output, an unmatchable RC-4 settle entry, and any event whose output was not
+# exactly one line). The pattern is the same one that justifies stage 5: a
+# component with no end-to-end oracle drifts from the emitter that feeds it.
+#
+# Two fixtures, because they cover different halves:
+#   replay-demo      the shipped example, no :done? -- proves no regression on
+#                    the one program anyone runs by hand
+#   replay_settle    :done? + :on-done -- the RC-4 settle entry, which is the
+#                    shape that could not replay clean at all
+#
+# Each is asserted BOTH ways. A tampered log must make replay fail: a replay
+# gate whose oracle never reports divergence is indistinguishable from one that
+# always returns 2/2, which is the dead-gate mode this file's header names.
+
+REPLAY_DIR="$OUTDIR/replay"
+mkdir -p "$REPLAY_DIR"
+
+replay_case() {
+  # $1 = source path, $2 = module name, $3 = stdin line count, $4 = expected "N/N"
+  local src="$1" mod="$2" lines="$3" expect="$4"
+  [ -f "$src" ] || { echo "  skip $mod (fixture not found: $src)"; return 0; }
+  cp "$src" "$REPLAY_DIR/$mod.llmll"
+
+  ( cd "$REPLAY_DIR" && "${LLMLL_CMD[@]}" build "$mod.llmll" ) > "$REPLAY_DIR/$mod.build.log" 2>&1 \
+    || { cat "$REPLAY_DIR/$mod.build.log" >&2; fail "replay fixture $mod does not build"; }
+
+  # BUG-2 (v0.14.3): the executable's on-disk name is the hpack/Cabal-sanitized
+  # package name (underscores -> hyphens, CodegenHs.sanitizePkgName), not the
+  # filename-derived module name. capproc_exec builds capproc-exec for the same
+  # reason (stage 5 above hardcodes that).
+  local exe exe_name="${mod//_/-}"
+  exe="$(find "$REPLAY_DIR/generated/$mod/.stack-work/install" -type f -name "$exe_name" -perm -111 2>/dev/null | head -1)"
+  [ -n "$exe" ] || fail "built $mod but found no executable named '$exe_name'; the replay stage would observe nothing"
+
+  # Record. The harness writes <module>.event-log.jsonl into its own cwd.
+  ( cd "$REPLAY_DIR" && printf 'x\n%.0s' $(seq "$lines") | "$exe" ) > "$REPLAY_DIR/$mod.run.out" 2>&1 || true
+  local log="$REPLAY_DIR/$mod.event-log.jsonl"
+  [ -f "$log" ] || fail "$mod produced no event log at $log"
+
+  # Replay must reproduce it exactly.
+  local out rc
+  out="$( cd "$REPLAY_DIR" && "${LLMLL_CMD[@]}" replay "$mod.llmll" "$mod.event-log.jsonl" 2>&1 )"
+  rc=$?
+  case "$out" in
+    *"$expect events matched"*) ;;
+    *) printf -- '--- replay output ---\n%s\n' "$out" >&2
+       fail "$mod did not replay $expect. A recorded run that cannot be replayed
+  is the defect class this stage exists for.";;
+  esac
+  [ "$rc" -eq 0 ] || { printf -- '--- replay output ---\n%s\n' "$out" >&2
+                       fail "$mod replayed $expect but exited $rc"; }
+
+  # Refute-crux: perturb every recorded stdout value and the verdict must flip.
+  # Prefixing rather than substituting a literal keeps this independent of what
+  # the fixture happens to print, so the crux cannot rot into a no-op when a
+  # fixture's output changes. A kind="none" entry is deliberately untouched:
+  # it records that nothing was written, so there is no value to corrupt.
+  local tampered="$REPLAY_DIR/$mod.tampered.jsonl"
+  sed 's/"kind":"stdout","value":"/"kind":"stdout","value":"TAMPERED-/g' \
+    "$log" > "$tampered"
+  if cmp -s "$log" "$tampered"; then
+    fail "the $mod refute-crux did not perturb anything, so it proves nothing.
+  Its sed pattern no longer matches the log's recorded values."
+  fi
+  local tout trc
+  tout="$( cd "$REPLAY_DIR" && "${LLMLL_CMD[@]}" replay "$mod.llmll" "$(basename "$tampered")" 2>&1 )"
+  trc=$?
+  [ "$trc" -ne 0 ] || { printf -- '--- replay output ---\n%s\n' "$tout" >&2
+                        fail "$mod replayed a TAMPERED log successfully. The oracle
+  does not discriminate, so its green verdict on the real log means nothing."; }
+
+  echo "  $mod: replayed $expect, tampered log correctly refuted"
+}
+
+echo "BUILD-GATE-1: replaying recorded runs"
+replay_case "$REPO_ROOT/examples/replay-demo/replay-demo.llmll" "replay-demo"   2 "2/2"
+replay_case "$REPO_ROOT/scripts/build-smoke/replay_settle.llmll" "replay_settle" 2 "2/2"
+
+# W-REPLAY-INIT must fire on a program that declares :init, or the warning
+# added for the unlogged-:init hazard is dead code. Emitted by `llmll replay`,
+# not by `llmll build`, so this re-runs replay rather than reading the build log.
+if [ -f "$REPLAY_DIR/replay_settle.llmll" ]; then
+  RS_WARN="$( cd "$REPLAY_DIR" && "${LLMLL_CMD[@]}" replay replay_settle.llmll replay_settle.event-log.jsonl 2>&1 )"
+  case "$RS_WARN" in
+    *W-REPLAY-INIT*) ;;
+    *) printf -- '--- replay output ---\n%s\n' "$RS_WARN" >&2
+       fail "W-REPLAY-INIT did not fire on a program declaring :init. The warning
+  exists because an :init that prints breaks replay alignment; if it never
+  fires it warns nobody.";;
+  esac
+  # And it must NOT fire on a program with no :init, or it is unconditional
+  # noise rather than a signal.
+  RD_WARN="$( cd "$REPLAY_DIR" && "${LLMLL_CMD[@]}" replay replay-demo.llmll replay-demo.event-log.jsonl 2>&1 )"
+  case "$RD_WARN" in
+    *W-REPLAY-INIT*) fail "W-REPLAY-INIT fired on replay-demo, which declares no
+  :init. A warning that fires on every program is not a warning.";;
+  esac
+fi
+
+echo "BUILD-GATE-1 PASS: recorded runs replay clean and tampered logs are refuted"
+
 exit 0

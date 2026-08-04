@@ -46,7 +46,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON, checkerSoundnessVersion)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit, ReplayObs(..), expectedLineCount, obsMatches, describeObs, escapeForDiag)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
@@ -4994,13 +4994,22 @@ removeIfExists fp = do
 
 replayExecutionTests :: Spec
 replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
+    -- REPLAY-FRAME fixture fidelity: the recorded value is the CAPTURED bytes,
+    -- and the harness then frames them with `putStrLn output`
+    -- (CodegenHs.hs:1461), so the wire carries `output ++ "\n"`. These mocks
+    -- use `echo`, which writes `Got: $line\n`; the faithful recorded value is
+    -- therefore "Got: hello", with NO trailing newline. The fixtures used to
+    -- record "Got: hello\n" and passed anyway, because T.strip erased the
+    -- discrepancy on a one-line read -- so the tests pinned a mock's framing
+    -- rather than the emitter's, which is why no test caught the multi-line
+    -- and trailing-newline divergences that shipped.
     it "runReplay with matching events reports all matched" $ do
       -- Create a mock executable that echoes input with a prefix
       let mockScript = "test_echo_mock.sh"
       writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
       callProcess "chmod" ["+x", mockScript]
-      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "Got: hello\n"
-                    , EventLogEntry 1 "stdin" "world" "stdout" "Got: world\n"
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "Got: hello"
+                    , EventLogEntry 1 "stdin" "world" "stdout" "Got: world"
                     ]
       result <- runReplay ("./" ++ mockScript) entries
       removeIfExists mockScript
@@ -5012,13 +5021,172 @@ replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
       let mockScript = "test_echo_mock2.sh"
       writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
       callProcess "chmod" ["+x", mockScript]
-      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "WRONG OUTPUT\n"
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "WRONG OUTPUT"
                     ]
       result <- runReplay ("./" ++ mockScript) entries
       removeIfExists mockScript
       replayTotal result `shouldBe` 1
       replayMatched result `shouldBe` 0
       length (replayDiverged result) `shouldBe` 1
+
+    -- -----------------------------------------------------------------
+    -- REPLAY-DIAG (P1): the divergence report carries what the program
+    -- ACTUALLY produced. `actual` used to be the constant "<no output>",
+    -- so a wrong output and no output were the same diagnostic.
+    -- -----------------------------------------------------------------
+
+    it "REPLAY-DIAG: a divergence reports the output the program actually produced" $ do
+      let mockScript = "test_diag_mock.sh"
+      writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "WRONG" ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      -- The point: "Got: hello" appears, NOT "<no output>".
+      map (\(_, _, actual) -> actual) (replayDiverged result)
+        `shouldBe` ["Got: hello"]
+
+    it "REPLAY-DIAG: no output at all is distinguishable from wrong output" $ do
+      let mockScript = "test_silent_mock.sh"
+      writeFile mockScript "#!/bin/bash\nexit 0"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "anything" ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      map (\(_, _, actual) -> actual) (replayDiverged result)
+        `shouldBe` [describeObs ObsEof]
+
+    it "REPLAY-DIAG: control characters are escaped so a report stays one line" $ do
+      escapeForDiag (T.pack "a\nb")   `shouldBe` T.pack "a\\nb"
+      escapeForDiag (T.pack "a\tb")   `shouldBe` T.pack "a\\tb"
+      escapeForDiag (T.pack "a\r\nb") `shouldBe` T.pack "a\\r\\nb"
+      escapeForDiag (T.pack "plain")  `shouldBe` T.pack "plain"
+
+    -- -----------------------------------------------------------------
+    -- REPLAY-FRAME (P2): an event owns `count '\n' output + 1` lines of
+    -- the child's stdout, not one. The three cases below ARE the totality
+    -- argument that makes this safe without a deprecation path: the rule
+    -- can never turn a match into a mismatch, because the zero-newline
+    -- case is identical to the old constant, the interior-newline case
+    -- could never strip-match a single line, and the trailing-newline
+    -- case matched before and still matches.
+    -- -----------------------------------------------------------------
+
+    it "REPLAY-FRAME: zero newlines reads one line, identical to the old rule" $ do
+      expectedLineCount (EventLogEntry 0 "stdin" "i" "stdout" "one line")
+        `shouldBe` 1
+      expectedLineCount (EventLogEntry 0 "stdin" "i" "stdout" "")
+        `shouldBe` 1
+
+    it "REPLAY-FRAME: an interior newline claims both lines" $ do
+      expectedLineCount (EventLogEntry 0 "stdin" "i" "stdout" "line-A\nline-B")
+        `shouldBe` 2
+      expectedLineCount (EventLogEntry 0 "stdin" "i" "stdout" "a\nb\nc")
+        `shouldBe` 3
+
+    it "REPLAY-FRAME: a trailing newline claims the blank line it produces" $ do
+      -- `putStrLn "echo-0\n"` writes "echo-0\n\n": two lines, the second empty.
+      -- Reading only one left the blank on the pipe and desynchronized every
+      -- later event, which is how a trailing newline used to "match" at seq 0
+      -- and surface as a divergence at seq 1.
+      expectedLineCount (EventLogEntry 0 "stdin" "i" "stdout" "echo-0\n")
+        `shouldBe` 2
+
+    it "REPLAY-FRAME: multi-line output replays clean end to end" $ do
+      let mockScript = "test_multiline_mock.sh"
+      writeFile mockScript
+        "#!/bin/bash\nwhile IFS= read -r line; do printf 'line-A\\nline-B-%s\\n' \"$line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "0" "stdout" "line-A\nline-B-0"
+                    , EventLogEntry 1 "stdin" "1" "stdout" "line-A\nline-B-1"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 2
+      replayMatched result `shouldBe` 2
+
+    it "REPLAY-FRAME: a tampered multi-line event still diverges, and names itself" $ do
+      -- Refute-crux for the test above: perturb one line of a two-line event
+      -- and the verdict must flip, with the report naming the right event and
+      -- staying on one line.
+      let mockScript = "test_multiline_mock2.sh"
+      writeFile mockScript
+        "#!/bin/bash\nwhile IFS= read -r line; do printf 'line-A\\nline-B-%s\\n' \"$line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "0" "stdout" "line-A\nline-B-TAMPERED"
+                    , EventLogEntry 1 "stdin" "1" "stdout" "line-A\nline-B-1"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayMatched result `shouldBe` 1
+      map (\(sq, expected, actual) -> (sq, expected, actual)) (replayDiverged result)
+        `shouldBe` [(0, T.pack "line-A\\nline-B-TAMPERED", T.pack "line-A\\nline-B-0")]
+
+    -- -----------------------------------------------------------------
+    -- RC-4 settle entry (P3): the terminating turn performs no command, so
+    -- its entry records kind "none" and replay reads nothing for it. Before
+    -- this the entry claimed kind "stdout" with value "", which no program
+    -- writes, so it diverged for every program that declared :done?.
+    -- -----------------------------------------------------------------
+
+    it "RC-4: a kind=none entry consumes its input but reads no output" $ do
+      -- The mock consumes two lines and prints only for the first, exactly as
+      -- the generated harness does on a terminating turn.
+      let mockScript = "test_settle_mock.sh"
+      writeFile mockScript
+        "#!/bin/bash\nIFS= read -r a; echo \"step-$a\"; IFS= read -r b; exit 0"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "0" "stdout" "step-0"
+                    , EventLogEntry 1 "stdin" "1" "none"   ""
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 2
+      replayMatched result `shouldBe` 2
+
+    it "RC-4: the same log with kind=stdout diverges, which is what shipped" $ do
+      -- Refute-crux for the test above: the ONLY change is the result kind.
+      -- If this still matched, the kind would not be doing the work.
+      let mockScript = "test_settle_mock2.sh"
+      writeFile mockScript
+        "#!/bin/bash\nIFS= read -r a; echo \"step-$a\"; IFS= read -r b; exit 0"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "0" "stdout" "step-0"
+                    , EventLogEntry 1 "stdin" "1" "stdout" ""
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayMatched result `shouldBe` 1
+
+    it "RC-4: a kind=none entry matches while carrying no information (stated limit)" $ do
+      -- A2, pinned so it is not mistaken for coverage: obsMatches accepts a
+      -- kind=none entry unconditionally. :on-done's output is performed
+      -- outside captureStdout and is in no log, so a green replay of a program
+      -- with :on-done is NOT evidence that :on-done ran correctly.
+      let settle = EventLogEntry 1 "stdin" "x" "none" ""
+      obsMatches settle ObsNoCommand `shouldBe` True
+      obsMatches settle (ObsLines (T.pack "ANYTHING AT ALL")) `shouldBe` False
+
+    it "REPLAY-FRAME: a stalled read is classified apart from a closed stream" $ do
+      -- Reachable only from a log claiming more lines than the program writes,
+      -- which is a TAMPERED log. Both are divergences, but the diagnostics must
+      -- differ: "the stream ended" and "the log over-claims" send a reader to
+      -- different places. The wall-clock path itself (readNLines' 10s deadline)
+      -- has no automated test, deliberately: pinning it would cost 10s of suite
+      -- time to observe System.Timeout doing what it documents.
+      let e = EventLogEntry 0 "stdin" "i" "stdout" "a\nb"
+      obsMatches e (ObsStalled (T.pack "a")) `shouldBe` False
+      obsMatches e (ObsTruncated (T.pack "a")) `shouldBe` False
+      describeObs (ObsStalled (T.pack "a"))
+        `shouldSatisfy` T.isInfixOf (T.pack "log claims more lines")
+      describeObs (ObsTruncated (T.pack "a"))
+        `shouldSatisfy` T.isInfixOf (T.pack "stream ended")
+
+    it "REPLAY-FRAME: parseEventLog reads the none kind off a real log line" $ do
+      let logLine = T.pack $
+            "{\"type\":\"event\",\"seq\":1,\"input\":{\"kind\":\"stdin\",\"value\":\"b\"}"
+            ++ ",\"result\":{\"kind\":\"none\",\"value\":\"\"},\"captures\":[]}"
+      map evResultKind (parseEventLog logLine) `shouldBe` [T.pack "none"]
 
     -- -----------------------------------------------------------------
     -- BUG-1 (v0.14.3): `llmll replay`'s doReplay (app/Main.hs) used to call
@@ -14835,9 +15003,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- leave `llmll replay` driving one fewer input than the recorded run took,
     -- which is a divergence the harness manufactured rather than one the
     -- program produced.
-    it "RC-4: the terminating turn is still logged, with an empty output" $
-      T.isInfixOf "eventJsonL seqN \"stdin\" line \"stdout\" \"\"" (harnessOf withInit)
+    it "RC-4: the terminating turn is still logged, as kind none" $ do
+      -- The entry stays, so replay still drives the same number of inputs the
+      -- recorded run consumed. Its kind is "none", not "stdout": this turn
+      -- performs no command and the program writes no line, and claiming
+      -- "stdout" with value "" asserted an output that never existed --
+      -- which made the entry diverge for every program declaring :done?.
+      T.isInfixOf "eventJsonL seqN \"stdin\" line \"none\" \"\"" (harnessOf withInit)
         `shouldBe` True
+      T.isInfixOf "eventJsonL seqN \"stdin\" line \"stdout\" \"\"" (harnessOf withInit)
+        `shouldBe` False
 
     it "the old top-of-loop _done placeholder is gone" $
       T.isInfixOf "let _done = False" (harnessOf noInit) `shouldBe` False

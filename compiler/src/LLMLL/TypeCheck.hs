@@ -261,8 +261,32 @@ builtinEnv = Map.fromList $
   -- is NOT opacity. Measured, a `def` matching a list-carrying datatype arm also
   -- lands at body-fallback (FixpointEmit.hs:2500, "the deliberate final
   -- boundary"), so a matchable seven-constructor Json would produce the same
-  -- verdict. What the exclusion buys is that the fallback is EXPLICIT at the
-  -- type-check gate instead of silent at the emitter.
+  -- verdict. What the exclusion buys FOR THIS POPULATION is that the fallback
+  -- is explicit at the type-check gate instead of silent at the emitter.
+  --
+  -- READ THAT AS SCOPED TO json-/wasi., NOT AS A GENERAL PRINCIPLE. It holds
+  -- here because the fallback is unconditional for these names: a `def`
+  -- touching JSON structure falls back under any encoding. It does NOT
+  -- generalize to the rest of 'builtinEnv', and reading it as though it did
+  -- produces a finding that does not survive measurement (it was filed once).
+  -- At v0.14.82, 37 of builtinEnv's 93 names are outside both json-/wasi. and
+  -- FixpointEmit's reflected set, so a `def` calling one falls back with no
+  -- check-time diagnostic -- and FIVE of them are in 'trustedPrelude' by
+  -- deliberate design: 'list-head', 'list-tail', 'string-concat',
+  -- 'int-to-string' and 'pair' each land a caller at body-fallback, measured.
+  -- 'trustedPrelude' is a CORE-MEMBERSHIP set, not a body-faithfulness set;
+  -- ':778' says so ("no body-faithful VC required"). Admission and
+  -- body-faithfulness were never coupled.
+  --
+  -- What actually gates the fallback is composition, not names. The moment a
+  -- fallback `def` is CALLED from another `def`, 'checkCalleeAdmissibility'
+  -- rejects the caller at `llmll check`, cold, exit 1, via
+  -- 'mkCoreMembershipViolation' (':887'). Only a LEAF that nothing calls is
+  -- undiagnosed, and it is in no trust closure by construction;
+  -- '--strict-verified-core' covers even that, totally, over all 37 rather
+  -- than over a hand-listed few. Do not "fix" the gap by adding list-filter /
+  -- list-map / list-fold here: that gates 3 of 37 and implies the other 34 are
+  -- covered.
   --
   -- NUMBERS ARE LEXEMES. json-parse stores a number's source text and
   -- json-serialize emits it unchanged, so no float ever enters the surface and
