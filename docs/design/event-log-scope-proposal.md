@@ -1,7 +1,7 @@
 ---
 name: event-log-scope-proposal
 title: "EVENT-LOG-2: the event log is an I/O-trace divergence oracle, and §10a describes a different mechanism"
-status: "Rev 0, PARTIALLY DISCHARGED. Adjudicates a four-part drift between LLMLL.md §10a and the shipped event log. Recommends that §10a narrow to the shipped mechanism (zero in-tree cost: no program declares :deterministic true) and that the specified-but-unbuilt injection mechanism be preserved as its own unscheduled row, because EFFECT-RESP RC-1 degrades the shipped oracle and injection is its named repair. Routed from documentation-lead 2026-08-02, who declined to write a roadmap row on a premise that did not survive verification. DISCHARGED 2026-08-02: Affected-surface items 2 and 3 are applied. The roadmap carries EVENT-LOG-2 [SPEC] and REPLAY-INJECT [CT] as separate rows in the Open work (v0.12+) table, and the v0.8.0-versus-v0.3.1 attribution is corrected by an appended note in Shipped Releases rather than by editing the shipped rows, that section being append-only. STILL OPEN BY DESIGN: item 1, the six-point §10a narrowing (doc-lead, spec-track, the action EVENT-LOG-2 closes on) and item 4, retiring ReplayStatus (compiler, rides REPLAY-INJECT or standalone cleanup). Item 5 stands: no schema delta."
+status: "Rev 1, PARTIALLY DISCHARGED. Rev 1 folds what the DRIVER-LL Phase 3 port measured and what shipped in response, adding two items to the proposed §10a resolution: the LINE-FRAMING CONTRACT (a turn's wire bytes are `output ++ "\n"`, so an event is `count('\n')+1` lines and not one, which `Replay.replayOne` had assumed since the log existed) and the SETTLE ENTRY'S `none` RESULT KIND (RC-4 performs no command, so the prior `stdout` entry claimed an output that was never produced). Both landed unreleased on `driver-ll/phase-3-stage-j`. The framing defect is the one worth the spec text: an output ending in a newline matched at its own event, then desynchronized and reported the divergence against the FOLLOWING event, so the oracle could blame the wrong turn. Rev 1 also records the A2 limit as a disclosure `§10a` owes: `:on-done`'s output is outside the capture, so a green replay is not evidence it ran. Rev 0, PARTIALLY DISCHARGED. Adjudicates a four-part drift between LLMLL.md §10a and the shipped event log. Recommends that §10a narrow to the shipped mechanism (zero in-tree cost: no program declares :deterministic true) and that the specified-but-unbuilt injection mechanism be preserved as its own unscheduled row, because EFFECT-RESP RC-1 degrades the shipped oracle and injection is its named repair. Routed from documentation-lead 2026-08-02, who declined to write a roadmap row on a premise that did not survive verification. DISCHARGED 2026-08-02: Affected-surface items 2 and 3 are applied. The roadmap carries EVENT-LOG-2 [SPEC] and REPLAY-INJECT [CT] as separate rows in the Open work (v0.12+) table, and the v0.8.0-versus-v0.3.1 attribution is corrected by an appended note in Shipped Releases rather than by editing the shipped rows, that section being append-only. STILL OPEN BY DESIGN: item 1, the six-point §10a narrowing (doc-lead, spec-track, the action EVENT-LOG-2 closes on) and item 4, retiring ReplayStatus (compiler, rides REPLAY-INJECT or standalone cleanup). Item 5 stands: no schema delta."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -124,6 +124,29 @@ section must state.
    computation does not exist. A table with neither is not a weaker true claim; it is a claim with
    nothing behind it. Restoring a status is the injection row's work, since a status needs a
    definition of which capabilities are non-deterministic.
+7. **The line-framing contract, stated because replay read it wrong for as long as it existed
+   (Rev 1).** A turn's wire bytes are `output ++ "\n"` (`CodegenHs.hs:1461`), so an event occupies
+   `count('\n', output) + 1` lines, **not one**. `§10a` never said this, and `Replay.replayOne`
+   assumed one line per event, which made any event whose recorded output was not exactly one line
+   misalign. The failure mode worth naming in the spec is not the plain one: an output ending in a
+   newline **matched** at its own event, because the reader stripped the discrepancy, and then
+   desynchronized and reported the divergence against the following event. A divergence oracle that
+   can blame the wrong turn is worse than one that fails, so the framing rule belongs in the
+   normative text and not only in the emitter.
+8. **The settle entry's result kind is `none`, not `stdout` (Rev 1).** The terminating step performs
+   no command (RC-4, `LLMLL.md:1561`), so the program writes no line, and the entry previously
+   claimed a `stdout` result of `""` that was never produced. `none` says what is true, keeps the
+   entry so the input count still matches the recorded run, and lets the reader skip the read rather
+   than guess. This adds a value to `result.kind`, which is the one surface addition this narrowing
+   makes rather than removes.
+
+   **The limit it leaves, which a passing replay will not state.** `:on-done`'s command runs outside
+   the capture, so its output reaches real stdout and is recorded nowhere; the settle entry can match
+   while carrying no information about it. **A green `llmll replay` is not evidence that `:on-done`
+   ran, or ran correctly.** Bringing it inside the oracle requires newline-framing its output like
+   every other turn's, which changes the stdout bytes of every shipped program declaring `:done?`.
+   That trade was adjudicated to REPLAY-INJECT rather than taken here, and `§10a` should disclose the
+   limit rather than let a green count imply coverage it does not have.
 
 ## The EFFECT-RESP interaction
 
