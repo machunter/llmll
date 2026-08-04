@@ -37,6 +37,7 @@ module LLMLL.FixpointIR
   , emitFQFile
     -- * Predicate emission
   , emitPred
+  , emitSort              -- JSON-1: sort-rendering test
   , emitPredParens
     -- * STRLIT literal interning (shared by FixpointEmit + GuardClassifier)
   , strlitConst
@@ -83,6 +84,12 @@ data FQSort
   | FQUnit           -- ^ unit (for functions returning ())
   | FQStr            -- ^ opaque string carrier (built-in Str sort)
   | FQList           -- ^ opaque list carrier (uninterpreted Lst sort)
+  -- JSON-1: the sealed JSON carrier. Same shape as FQList and for the same
+  -- reason: no json-* builtin is reflected, so nothing ever constructs a term
+  -- at this sort. It exists so a Json binder is declared at an OPAQUE sort
+  -- rather than falling through typeToSort's `_ -> FQInt` default, which
+  -- declared it as an integer.
+  | FQJson           -- ^ opaque JSON carrier (uninterpreted Jsn sort)
   | FQData Text      -- ^ named ADT sort, e.g. Color
   | FQDataApp Text [FQSort]  -- ^ PAIR-RET: applied (parametric) datatype sort, e.g. (Pair2 int int)
   | FQTyVar Int      -- ^ PAIR-RET: polymorphic field tyvar @(n) inside a parametric data decl
@@ -231,6 +238,7 @@ emitSort FQBool     = "bool"
 emitSort FQUnit     = "unit"
 emitSort FQStr      = "Str"   -- liquid-fixpoint built-in string sort (opaque under path (a))
 emitSort FQList     = "Lst"   -- uninterpreted carrier sort (probe-verified accepted bare)
+emitSort FQJson     = "Jsn"   -- JSON-1: uninterpreted carrier, same bare-acceptance path as Lst
 emitSort (FQData n) = n
 -- PAIR-RET: an applied parametric sort prints as `(TyCon arg ...)`; a field tyvar
 -- prints as liquid-fixpoint's `@(n)` De-Bruijn sort variable. Both spike-confirmed

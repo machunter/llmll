@@ -107,7 +107,10 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_read wasi_fs_write wasi_fs_delete wasi_http_post \
             wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
             wasi_clock_monotonic wasi_proc_run \
-            seq_commands; do
+            seq_commands \
+            json_parse json_serialize json_get json_get_string json_get_int \
+            json_get_bool json_array json_object json_set \
+            json_of_string json_of_int json_of_bool json_of_list; do
   grep -qE "^${name} " "$LIB" || MISSING+=("$name")
 done
 
@@ -188,6 +191,20 @@ if [ -f "$EXEC_FIXTURE" ]; then
     EXEC_FAIL+=("wasi.clock.monotonic did not return a positive integer")
   fi
   [ -d "$EXEC_SCRATCH" ] || EXEC_FAIL+=("wasi.fs.mkdir did not create $EXEC_SCRATCH")
+
+  # JSON-1. "jr=42" is a four-way conjunction: json-set replaced the existing
+  # "n" instead of appending a second member (42, not 41), json-serialize kept
+  # both members, json-parse read them back, and both typed projections hit the
+  # right lexeme. A parser returning an empty object passes every type check in
+  # the fixture and fails this.
+  case "$RUN_OUT" in *"json=jr=42"*) ;; *) EXEC_FAIL+=("the JSON round trip did not yield jr=42; json-set, json-serialize, json-parse, or a typed projection is wrong");; esac
+  # RFC 7493 §2.3, compared after unescaping. Last-wins is the permissive
+  # reading RFC 8259 §4 allows and this implementation deliberately refuses.
+  case "$RUN_OUT" in *"dup=rejected"*) ;; *) EXEC_FAIL+=("json-parse accepted an object with duplicate member names (RFC 7493 §2.3)");; esac
+  # Ten adversarial inputs, verdicts hand-computed in the fixture. Both
+  # degenerate parsers (accept-everything, reject-everything) differ from this
+  # string in its first character, so the assertion cannot pass vacuously.
+  case "$RUN_OUT" in *"battery=ARRRRRRAAR"*) ;; *) EXEC_FAIL+=("the adversarial parse battery did not match ARRRRRRAAR; json-parse accepts or rejects the wrong inputs");; esac
 
   if [ "${#EXEC_FAIL[@]}" -gt 0 ]; then
     printf 'BUILD-GATE-1 execution failures:\n' >&2

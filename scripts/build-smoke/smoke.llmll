@@ -108,6 +108,47 @@
       ;; list-typed response payload survives codegen into the generated match.
       ((RList ns)  (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length ns)))))))
 
+  ;; JSON-1 (§13.13). Thirteen builtins over the sealed opaque carrier, each
+  ;; called at least once, for the same reason the wasi.* names above are: an
+  ;; entry in builtinEnv with no jsonPreamble body is the WASI-RT defect, and
+  ;; this phase adds thirteen chances to repeat it.
+  ;;
+  ;; All def-shell, and not by preference: every json-* name is in
+  ;; coreExcludedBuiltins, so `def` is a check-time error (CORE-EXCL).
+  (def-shell smoke-json-parse [s: string] -> Result[Json, string]
+    (json-parse s))
+
+  (def-shell smoke-json-ser [j: Json] -> string
+    (json-serialize j))
+
+  (def-shell smoke-json-get [j: Json k: string] -> Result[Json, string]
+    (json-get j k))
+
+  (def-shell smoke-json-get-string [j: Json k: string] -> Result[string, string]
+    (json-get-string j k))
+
+  (def-shell smoke-json-get-int [j: Json k: string] -> Result[int, string]
+    (json-get-int j k))
+
+  (def-shell smoke-json-get-bool [j: Json k: string] -> Result[bool, string]
+    (json-get-bool j k))
+
+  (def-shell smoke-json-array [j: Json] -> Result[list[Json], string]
+    (json-array j))
+
+  ;; Nullary, so the name is a VALUE and not an application — the
+  ;; wasi.clock.monotonic shape.
+  (def-shell smoke-json-object [] -> Json
+    json-object)
+
+  (def-shell smoke-json-set [j: Json k: string v: Json] -> Result[Json, string]
+    (json-set j k v))
+
+  (def-shell smoke-json-of-string [s: string] -> Json (json-of-string s))
+  (def-shell smoke-json-of-int    [n: int]    -> Json (json-of-int n))
+  (def-shell smoke-json-of-bool   [b: bool]   -> Json (json-of-bool b))
+  (def-shell smoke-json-of-list   [xs: list[Json]] -> Json (json-of-list xs))
+
   (def-shell smoke-done? [s: int] -> bool (>= s 3))
 
   (def-main

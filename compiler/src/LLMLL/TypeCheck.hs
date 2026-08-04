@@ -72,7 +72,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -245,6 +245,46 @@ builtinEnv = Map.fromList $
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
   , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
   , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
+  -- §13.13 JSON (JSON-1). Thirteen operations over a SEALED OPAQUE carrier.
+  --
+  -- 'Json' is TCustom jsonTypeName with NO builtinAliases entry, deliberately:
+  -- it has no TSumType body, it never resolves, and it lowers to an opaque FQ
+  -- sort exactly as list[a] lowers to Lst (FixpointEmit.hs:2419). No name below
+  -- is reflected by FixpointEmit, so a body or contract mentioning one takes
+  -- today's fallback routing unchanged -- the bytes/map precedent above.
+  --
+  -- Every one of these is in 'coreExcludedBuiltins': def-shell only. The reason
+  -- is NOT opacity. Measured, a `def` matching a list-carrying datatype arm also
+  -- lands at body-fallback (FixpointEmit.hs:2500, "the deliberate final
+  -- boundary"), so a matchable seven-constructor Json would produce the same
+  -- verdict. What the exclusion buys is that the fallback is EXPLICIT at the
+  -- type-check gate instead of silent at the emitter.
+  --
+  -- NUMBERS ARE LEXEMES. json-parse stores a number's source text and
+  -- json-serialize emits it unchanged, so no float ever enters the surface and
+  -- no float-formatting rule is owed. json-get-int is strict on "1.0": it
+  -- denotes an integral value but is not an integer lexeme, and silent
+  -- narrowing is the worse failure.
+  , ("json-parse",      TFn [TString] (TResult (TCustom jsonTypeName) TString))
+  , ("json-serialize",  TFn [TCustom jsonTypeName] TString)
+  , ("json-get",        TFn [TCustom jsonTypeName, TString]
+                            (TResult (TCustom jsonTypeName) TString))
+  , ("json-get-string", TFn [TCustom jsonTypeName, TString] (TResult TString TString))
+  , ("json-get-int",    TFn [TCustom jsonTypeName, TString] (TResult TInt TString))
+  , ("json-get-bool",   TFn [TCustom jsonTypeName, TString] (TResult TBool TString))
+  , ("json-array",      TFn [TCustom jsonTypeName]
+                            (TResult (TList (TCustom jsonTypeName)) TString))
+  -- Nullary: binds as a VALUE, not a 0-arg function, matching wasi.clock.monotonic
+  -- and RNone above and COMP-3b-general's treatment of nullary constructors.
+  , ("json-object",     TCustom jsonTypeName)
+  , ("json-set",        TFn [TCustom jsonTypeName, TString, TCustom jsonTypeName]
+                            (TResult (TCustom jsonTypeName) TString))
+  -- Four MONOMORPHIC injections rather than one polymorphic `json-of : a -> Json`:
+  -- a TVar signature would unify with Command -> Json and Json -> Json.
+  , ("json-of-string",  TFn [TString] (TCustom jsonTypeName))
+  , ("json-of-int",     TFn [TInt] (TCustom jsonTypeName))
+  , ("json-of-bool",    TFn [TBool] (TCustom jsonTypeName))
+  , ("json-of-list",    TFn [TList (TCustom jsonTypeName)] (TCustom jsonTypeName))
   ]
 
 emptyEnv :: TypeEnv
@@ -731,6 +771,35 @@ trustedPrelude = Set.fromList
 -- the entry alone and was then rejected downstream as an unknown function.
 -- Keep that invariant: do not add a name here that builtinEnv does not declare.
 
+-- | CORE-EXCL (JSON-1): builtins that are 'def-shell'-only.
+--
+-- 'checkCalleeAdmissibility' admitted every 'builtinEnv' member unconditionally,
+-- which is why 'LLMLL.md':454's claim that the typechecker enforces @def-shell@
+-- for functions that "perform IO via @wasi.*@" was false: measured at v0.14.81,
+-- @(def make-read [p: string] (wasi.fs.read p))@ passed @llmll check@.
+--
+-- Two populations, one mechanism:
+--
+--   * @json-*@ -- a `def` touching JSON structure lands at body-fallback under
+--     ANY encoding (FixpointEmit.hs:2500 firewalls the list carrier), so the
+--     exclusion does not lose verification power. It converts a silent emitter-
+--     side degradation into an explicit check-time diagnostic.
+--
+--   * @wasi.*@ -- makes the existing spec sentence true. Blast radius measured
+--     across examples\/, scripts\/, tools\/, compiler\/test\/, docs\/: __0 of 303__
+--     `def`-form functions mention a @wasi.@ name.
+--
+-- Membership is by NAME, not by type. A `Json`-typed binder with no operation
+-- applied to it stays admissible and stays body-faithful: its sort is opaque,
+-- no axiom mentions it, and it cannot affect a VC's satisfiability -- the same
+-- reason a @list[a]@ parameter is admissible today. The rule bounds operations,
+-- not values. Equality is the one operation that reaches a value without naming
+-- it, and JSON-NOEQ ('inferExpr' EOp\/EApp) covers that separately.
+coreExcludedBuiltins :: Set.Set Name
+coreExcludedBuiltins =
+  Set.filter (\n -> "json-" `T.isPrefixOf` n || "wasi." `T.isPrefixOf` n)
+             (Map.keysSet builtinEnv)
+
 -- | LT-INV (v0.11): under core mode, verify a callee is body-faithful or trusted-prelude.
 -- Emits a CoreMembershipViolation error when neither condition holds.
 --
@@ -785,13 +854,60 @@ checkCalleeAdmissibility func = do
             | otherwise -> erFullyVerifiedAdmissible (csPre cs)
                            || erFullyVerifiedAdmissible (csPost cs)
           Nothing -> False
-        trusted = func `Set.member` trustedPrelude
-                  || Map.member func builtinEnv
+        -- CORE-EXCL (JSON-1): the exclusion set is consulted BEFORE the
+        -- builtinEnv leg, so a def-shell-only builtin is not admitted on the
+        -- strength of having a type. Ordering matters: every excluded name is
+        -- also a builtinEnv member, so testing membership first would admit
+        -- all of them.
+        excluded = func `Set.member` coreExcludedBuiltins
+        trusted = not excluded
+                  && (func `Set.member` trustedPrelude || Map.member func builtinEnv)
     am <- gets tcAliasMap   -- COMP-4 (a): admissible-sum constructors are admissible
-    unless (persistedVerified || trusted || isAdmissibleConstructor am func) $ do
+    unless (not excluded && (persistedVerified || trusted || isAdmissibleConstructor am func)) $ do
       enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
-      modify $ \s -> s
-        { tcErrors = tcErrors s ++ [mkCoreMembershipViolation enclosing func] }
+      -- CORE-EXCL gets its OWN diagnostic: the membership message's remedy
+      -- ("verify it first") is unreachable for a sealed builtin.
+      let d = if excluded then mkCoreExcludedBuiltin enclosing func
+                          else mkCoreMembershipViolation enclosing func
+      modify $ \s -> s { tcErrors = tcErrors s ++ [d] }
+
+-- | JSON-NOEQ (JSON-1): equality is denied at the sealed @Json@ carrier.
+--
+-- Three consumers, because @=@ and @!=@ are 'EOp' (Parser.hs:933-935) while
+-- @list-contains@ is an ordinary 'EApp':
+--
+-- >  =  : TFn [TVar "a", TVar "a"] TBool
+-- >  != : TFn [TVar "a", TVar "a"] TBool
+-- >  list-contains : TFn [TList (TVar "a"), TVar "a"] TBool
+--
+-- @list-contains@ is the path a review of this design missed, and it is
+-- reachable rather than hypothetical: @json-array@ produces exactly the
+-- @list[Json]@ it consumes.
+--
+-- Denied rather than defined, for two reasons. Structural equality on any
+-- representation makes representation detail (key order) observable program
+-- behaviour, and equality at an opaque carrier silently drops a `def` from
+-- body-faithful to fallback with no diagnostic -- measured on @Command@, the
+-- nearest existing analogue, controlled against @int@ (faithful) and @string@
+-- (fallback). The idiom for a program that needs it is
+-- @(= (json-serialize a) (json-serialize b))@, where what is compared is stated.
+--
+-- Checked against the per-call-site substitution rather than the raw argument
+-- types, so @Result[Json, string]@ and @list[Json]@ are caught by the same test
+-- that catches a bare @Json@.
+jsonEqConsumers :: Set.Set Name
+jsonEqConsumers = Set.fromList ["=", "!=", "list-contains"]
+
+checkJsonNoEq :: Name -> Map.Map Name Type -> TC ()
+checkJsonNoEq name subst =
+  when (name `Set.member` jsonEqConsumers) $ do
+    am <- gets tcAliasMap
+    when (any (mentionsJson am) (Map.elems subst)) $
+      tcErrorK "json-equality-denied" $
+        "'" <> name <> "' is not defined at type '" <> jsonTypeName
+        <> "': equality on a sealed JSON value would expose member order as "
+        <> "observable behaviour. Compare serializations instead: "
+        <> "(= (json-serialize a) (json-serialize b))"
 
 -- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
 -- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
@@ -1414,11 +1530,18 @@ checkStatement (STypeDef name body) = do
   -- STypeDefs win the alias-map union (checkStatements), so without this the
   -- redefinition succeeds silently and the def-main loop hands a builtin
   -- Response to a step whose parameter is the user's type.
+  -- JSON-1: the reason clause is now per-type. It used to state the Response
+  -- rationale unconditionally, which became wrong the moment an opaque sealed
+  -- type joined the list (Json has no constructors at all, so "its constructors
+  -- are sealed because the response alphabet ..." is not a reason for it).
   when (name `elem` sealedTypeNames) $
     tcErrorK "sealed-type-redefinition" $
       "type '" <> name <> "' is supplied by the compiler and cannot be redefined; "
-      <> "its constructors are sealed because the response alphabet is a function "
-      <> "of the command alphabet"
+      <> if name == jsonTypeName
+           then "it is an opaque carrier with no program-visible structure, and its \
+                \operations are sealed in §13.13"
+           else "its constructors are sealed because the response alphabet is a \
+                \function of the command alphabet"
   -- Check that dependent type constraints are well-formed
   case body of
     TDependent bindName base constraint -> do
@@ -1829,6 +1952,7 @@ inferExpr (EApp func args) = do
               actual'   <- expandAlias actual
               structuralUnify func subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
+      checkJsonNoEq func finalSubst   -- JSON-NOEQ: list-contains
       pure (applySubst finalSubst retType)
     Just (TCustom n)
       -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a
@@ -1872,6 +1996,7 @@ inferExpr (EOp op args) = do
               actual'   <- expandAlias actual
               structuralUnify op subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
+      checkJsonNoEq op finalSubst     -- JSON-NOEQ: = and !=
       pure (applySubst finalSubst retType)
     Just other -> do
       tcError $ "operator '" <> op <> "' has non-function type "

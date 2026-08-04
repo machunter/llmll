@@ -40,6 +40,7 @@ module LLMLL.Diagnostic
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
+  , mkCoreExcludedBuiltin
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
   , mkContractReadOOBWarning
@@ -365,6 +366,32 @@ mkCoreMembershipViolation defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
+       }
+
+-- | CORE-EXCL (JSON-1): emitted when a strict-core body calls a builtin that is
+-- 'def-shell'-only by construction.
+--
+-- Distinct from 'mkCoreMembershipViolation' because that diagnostic's remedy is
+-- wrong here: it says the callee "is not body-faithful" and suggests running
+-- @llmll verify@ on it, and neither applies to a sealed builtin. A @json-*@ or
+-- @wasi.*@ name has no LLMLL body to verify and never will, so the only remedy
+-- is to move the caller to @def-shell@. Pointing an agent at a verification run
+-- that cannot exist is the one-shot-correctness cost this arm exists to avoid
+-- (docs\/compiler-team-roadmap.md:6).
+mkCoreExcludedBuiltin :: Text -> Text -> Diagnostic
+mkCoreExcludedBuiltin defName callee =
+  let why | "json-" `T.isPrefixOf` callee =
+              "JSON values are an opaque carrier, so a body touching one cannot \
+              \produce a body-faithful VC"
+          | otherwise =
+              "it performs IO, and effects are not admissible in a strict-core body"
+      msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is a def-shell-only builtin; " <> why
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-excluded-builtin"
+       , diagSuggestion = Just ("Replace (def " <> defName <> " ...) with (def-shell "
+                                <> defName <> " ...); '" <> callee
+                                <> "' is sealed and has no verifiable body")
        }
 
 -- ---------------------------------------------------------------------------

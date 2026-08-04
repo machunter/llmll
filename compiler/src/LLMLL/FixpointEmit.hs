@@ -78,6 +78,7 @@ module LLMLL.FixpointEmit
   , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
+  , typeToSort                   -- JSON-1: the opaque-carrier lowering test
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -2417,6 +2418,12 @@ typeToSort TInt    = FQInt
 typeToSort TBool   = FQBool
 typeToSort TString = FQStr            -- NIW: opaque carrier for string measures
 typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
+-- JSON-1: without this clause TCustom "Json" falls through to the `_ -> FQInt`
+-- default below and a Json binder is declared at sort int. Nothing can exploit
+-- that today (the type checker rejects int predicates over Json, and JSON-NOEQ
+-- rejects equality), but a binder whose declared sort disagrees with its type is
+-- a trap for the next arm that reflects a json-* name.
+typeToSort (TCustom "Json") = FQJson
 typeToSort (TDependent _ base _) = typeToSort base
 -- PAIR-RET: a pair lowers to the parametric product sort `(Pair2 s0 s1)`, recursively
 -- (nested pairs nest the applied sort — spike-confirmed). This is unconditional so the

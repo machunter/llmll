@@ -191,6 +191,9 @@ module LLMLL.TypeAdmissibility
   , buildAliasMap
   , builtinAliases
   , sealedTypeNames
+  , opaqueSealedNames
+  , jsonTypeName
+  , mentionsJson
     -- * Normalization
   , resolveAliasTy
   , normalizeTy
@@ -265,6 +268,23 @@ builtinAliases = Map.fromList
       ])
   ]
 
+-- | JSON-1: the sealed opaque carrier's type name, in one place so the checker,
+-- the emitter, and the seal agree.
+jsonTypeName :: Name
+jsonTypeName = "Json"
+
+-- | JSON-1: sealed types that are OPAQUE, i.e. have no 'TSumType' body and
+-- therefore no 'builtinAliases' entry.
+--
+-- 'sealedTypeNames' used to be exactly @Map.keys builtinAliases@, which cannot
+-- express this class: an opaque type is sealed precisely BECAUSE it has no body
+-- to put in the alias map, so keying the seal off that map left it unsealable.
+-- Measured before the fix: @(def-shell f [j: Json] 1)@ type-checked clean with
+-- @Json@ undeclared, and @(type Json ...)@ would have shadowed the builtin
+-- silently.
+opaqueSealedNames :: [Name]
+opaqueSealedNames = [jsonTypeName]
+
 -- | Type names a program may not redefine.
 --
 -- A module's own @STypeDef@s shadow seeded aliases by design, so without a
@@ -273,7 +293,36 @@ builtinAliases = Map.fromList
 -- Response to a step whose parameter is the user's type, and the mismatch would
 -- surface at GHC rather than at @check@.
 sealedTypeNames :: [Name]
-sealedTypeNames = Map.keys builtinAliases
+sealedTypeNames = Map.keys builtinAliases ++ opaqueSealedNames
+
+-- | JSON-1 (JSON-NOEQ): does a type mention the sealed @Json@ carrier anywhere?
+--
+-- Alias-chasing and structural, because the equality denial has to hold at every
+-- position @Json@ can reach: @list[Json]@ (which 'json-array' produces),
+-- @Result[Json, string]@ (which every accessor produces), a pair component, and
+-- through a user alias @(type MyJson Json)@.
+--
+-- Cycle-guarded on the same @seen@ discipline as 'isIntLike': a non-contractive
+-- alias returns False rather than diverging. Sound in the denial direction --
+-- a stuck alias cannot BE @Json@, because reaching @Json@ requires the chain to
+-- terminate at it.
+mentionsJson :: AliasMap -> Type -> Bool
+mentionsJson am = go Set.empty
+  where
+    go seen t = case t of
+      TCustom n
+        | n == jsonTypeName   -> True
+        | n `Set.member` seen -> False                       -- Norm-Stuck
+        | otherwise           -> maybe False (go (Set.insert n seen)) (Map.lookup n am)
+      TDependent _ b _ -> go seen b
+      TList a          -> go seen a
+      TMap k v         -> go seen k || go seen v
+      TResult a b      -> go seen a || go seen b
+      TPair a b        -> go seen a || go seen b
+      TPromise a       -> go seen a
+      TFn args ret     -> any (go seen) args || go seen ret
+      TSumType ctors   -> any (maybe False (go seen) . snd) ctors
+      _                -> False
 
 -- ---------------------------------------------------------------------------
 -- Normalization

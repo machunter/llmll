@@ -29,8 +29,8 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
@@ -87,8 +87,8 @@ import LLMLL.CDP
   , cdpWarningLabel
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
-import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC)
-import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy)
+import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
+import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -14357,6 +14357,142 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- Removed rather than weakened; this pins that it stays removed.
     it "CP-16: the preamble makes no RFC 6238 conformance claim for the sha1 stub" $
       (T.isInfixOf "RFC 6238 test vectors" (T.unlines runtimePreamble)) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- JSON-1 (§13.13): a sealed opaque Json carrier and thirteen def-shell-only
+  -- builtins. Structured as three blocks: the preamble completeness fold (the
+  -- WASI-RT regression, applied to thirteen new names at once), the
+  -- type-checker rules (CORE-EXCL and JSON-NOEQ, each with a firing witness
+  -- AND a quiet control), and the sort lowering.
+  -- -----------------------------------------------------------------------
+
+  describe "JSON-1: preamble completeness (§13.13)" $ do
+
+    let jsonNames = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "json-" n ]
+        hsName    = T.replace "-" "_"
+
+    it "builtinEnv declares exactly the thirteen json-* names this block covers" $
+      length jsonNames `shouldBe` 13
+
+    -- Same fold as WASI-RT below, same reason. jsonPreamble is appended INTO
+    -- runtimePreamble rather than spliced at the call site, which is what lets
+    -- one fold cover both families.
+    forM_ jsonNames $ \n ->
+      it ("preamble defines a top-level binding for " <> T.unpack n) $ do
+        let defined = any (T.isPrefixOf (hsName n <> " ") . T.stripStart) runtimePreamble
+                      || any (T.isPrefixOf (hsName n <> " ::") . T.stripStart) runtimePreamble
+        if defined
+          then defined `shouldBe` True
+          else expectationFailure $
+                 "builtinEnv declares " <> T.unpack n <> " but the codegen \
+                 \preamble has no definition for " <> T.unpack (hsName n) <>
+                 ". A program calling it will pass `llmll check` and fail at GHC."
+
+    -- The generated type must carry the SAME name as the LLMLL type, because
+    -- emitType lowers TCustom verbatim. Caught by BUILD-GATE-1 on first run
+    -- when the preamble declared `data JsonV`: eleven GHC errors reading
+    -- "Not in scope: type constructor or class 'Json'".
+    it "the preamble's data declaration is named Json, matching the LLMLL type" $ do
+      T.isInfixOf "data Json" (T.unlines runtimePreamble) `shouldBe` True
+      T.isInfixOf "JsonV" (T.unlines runtimePreamble) `shouldBe` False
+
+    -- Numbers are lexemes, not Doubles. A Double round trip diverges from any
+    -- external producer's formatting (Haskell `show` gives 1.0e-3 where CPython
+    -- `repr` gives 0.001) and loses precision on large integers.
+    it "the JSON number constructor stores a lexeme, not a Double" $ do
+      T.isInfixOf "JNum String" (T.unlines runtimePreamble) `shouldBe` True
+      T.isInfixOf "JNum Double" (T.unlines runtimePreamble) `shouldBe` False
+
+  describe "JSON-1: CORE-EXCL and JSON-NOEQ" $ do
+
+    -- Parses and strict-core type-checks a source string, returning the
+    -- diagnostic messages. Source text rather than hand-built Statements
+    -- because these rules are about what an AGENT writes, and the surface is
+    -- what an agent emits.
+    let diagsFor :: String -> [T.Text]
+        diagsFor src =
+          case parseStatements GrammarCoreInversion "<json1-test>" (T.pack src) of
+            Left  e  -> ["PARSE FAILURE: " <> T.pack (show e)]
+            Right ss -> [ diagMessage d
+                        | d <- reportDiagnostics
+                                 (typeCheckStrict GrammarCoreInversion emptyEnv ss)
+                        , diagSeverity d == SevError ]
+        hasErrorContaining needle ds = any (T.isInfixOf needle) ds
+        noErrors = null
+        checkSrc = diagsFor
+
+    -- FIRING WITNESS. Without CORE-EXCL this module checks clean and the
+    -- degradation is silent at the emitter.
+    it "CORE-EXCL: a def calling a json-* builtin is rejected" $ do
+      let src = "(def field-len [j: Json] -> int\n\
+                \  (post (>= result 0))\n\
+                \  (string-length (unwrap (json-get-string j \"cid\"))))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "def-shell-only builtin"
+
+    -- FIRING WITNESS for the second population. Measured blast radius before
+    -- this landed: 0 of 303 def-form functions in the committed corpus.
+    it "CORE-EXCL: a def calling a wasi.* builtin is rejected" $ do
+      let src = "(import wasi.fs (capability read \"/tmp\"))\n\
+                \(def make-read [p: string] (wasi.fs.read p))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "def-shell-only builtin"
+
+    -- QUIET CONTROL: the rule bounds OPERATIONS, not values. A Json binder with
+    -- nothing applied to it stays admissible, the same way a list[a] param does.
+    it "CORE-EXCL: a def with a Json parameter and no json-* call is admitted" $ do
+      let src = "(def constant-one [j: Json] -> int (post (>= result 0)) 1)"
+      checkSrc src `shouldSatisfy` noErrors
+
+    it "JSON-NOEQ: = at Json is rejected" $ do
+      let src = "(def-shell eq-json [a: Json b: Json] -> int (if (= a b) 1 0))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "not defined at type 'Json'"
+
+    it "JSON-NOEQ: != at Json is rejected" $ do
+      let src = "(def-shell ne-json [a: Json b: Json] -> int (if (!= a b) 1 0))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "not defined at type 'Json'"
+
+    -- list-contains is the second equality consumer over TVar "a"
+    -- (TypeCheck.hs:121) and it is REACHABLE, not hypothetical: json-array
+    -- produces exactly the list[Json] it consumes.
+    it "JSON-NOEQ: list-contains at list[Json] is rejected" $ do
+      let src = "(def-shell has-it [xs: list[Json] j: Json] -> int\n\
+                \  (if (list-contains xs j) 1 0))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "not defined at type 'Json'"
+
+    -- QUIET CONTROL: equality at every other type is untouched.
+    it "JSON-NOEQ: = at int and string is unaffected" $ do
+      let src = "(def-shell eq-int [a: int b: int] -> int (if (= a b) 1 0))\n\
+                \(def-shell eq-str [a: string b: string] -> int (if (= a b) 1 0))"
+      checkSrc src `shouldSatisfy` noErrors
+
+    -- The seal could not be expressed before this change: sealedTypeNames was
+    -- Map.keys builtinAliases, and an opaque type has no alias body to key off.
+    it "Json is sealed against program redefinition" $ do
+      let src = "(type Json (| Nope))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "cannot be redefined"
+
+  describe "JSON-1: type predicates and sort lowering" $ do
+
+    it "mentionsJson reaches Json through list, Result, pair, and an alias" $ do
+      let am = Map.fromList [("MyJson", TCustom "Json")]
+      mentionsJson am (TCustom "Json")                    `shouldBe` True
+      mentionsJson am (TList (TCustom "Json"))            `shouldBe` True
+      mentionsJson am (TResult (TCustom "Json") TString)  `shouldBe` True
+      mentionsJson am (TPair TInt (TCustom "Json"))       `shouldBe` True
+      mentionsJson am (TCustom "MyJson")                  `shouldBe` True
+      mentionsJson am (TList TString)                     `shouldBe` False
+      mentionsJson am TInt                                `shouldBe` False
+
+    -- A non-contractive alias must not diverge. False is the sound answer in
+    -- the denial direction: reaching Json requires the chain to terminate at it.
+    it "mentionsJson terminates on a non-contractive alias" $ do
+      let am = Map.fromList [("A", TCustom "B"), ("B", TCustom "A")]
+      mentionsJson am (TCustom "A") `shouldBe` False
+
+    -- Without this clause TCustom "Json" falls through typeToSort's
+    -- `_ -> FQInt` default and a Json binder is DECLARED AS AN INTEGER.
+    it "Json lowers to the opaque Jsn sort, not to int" $ do
+      typeToSort (TCustom "Json") `shouldBe` FQJson
+      emitSort FQJson `shouldBe` "Jsn"
 
   describe "CodegenHs: wasi preamble completeness (WASI-RT)" $ do
 

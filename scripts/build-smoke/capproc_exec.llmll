@@ -36,6 +36,68 @@
       ((RErr e)   (string-concat "ERR:" e))
       ((RList ns) (int-to-string (list-length ns)))))
 
+  ;; JSON-1 (§13.13). A round trip computed against an answer written HERE, not
+  ;; against whatever the implementation happens to produce: construct an object
+  ;; functionally, serialize it, parse it back, and project two fields out. A
+  ;; parser that returns a plausible-but-empty value, a serializer that drops
+  ;; members, and an upsert that appends instead of replacing all satisfy every
+  ;; type and every arity, and all three fail this.
+  ;;
+  ;; json-get-int is projected from a value that was injected as an int, and
+  ;; json-get-string from one injected as a string, so the lexeme representation
+  ;; is exercised in both directions.
+  (def-shell json-doc [] -> Json
+    (unwrap-or
+      (json-set
+        (unwrap-or (json-set json-object "n" (json-of-int 41)) json-object)
+        "tag" (json-of-string "jr"))
+      json-object))
+
+  ;; Replace-in-place: "n" already exists, so a correct upsert overwrites rather
+  ;; than appending a second member. With duplicates rejected at parse, reading
+  ;; back 42 is what pins the law json-get (json-set v k x) k = ok x.
+  (def-shell json-doc2 [] -> Json
+    (unwrap-or (json-set (json-doc) "n" (json-of-int 42)) json-object))
+
+  (def-shell json-roundtrip [] -> string
+    (match (json-parse (json-serialize (json-doc2)))
+      ((Success j)  (string-concat
+                 (string-concat (unwrap-or (json-get-string j "tag") "NOTAG") "=")
+                 (int-to-string (unwrap-or (json-get-int j "n") 0))))
+      ((Error e) (string-concat "PARSE-ERR:" e))))
+
+  ;; RFC 7493 §2.3: a duplicate member name is an error, not a last-wins merge.
+  ;; The two names here are the SAME after unescaping, which is the comparison
+  ;; the RFC specifies and the one a raw-text check would miss.
+  (def-shell json-dup-rejected [] -> string
+    (match (json-parse "{\"a\": 1, \"\\u0061\": 2}")
+      ((Success _) "dup=ACCEPTED")
+      ((Error _) "dup=rejected")))
+
+  ;; Adversarial parse battery. The parser ships at the `asserted` tier
+  ;; (LLMLL.md §13.11 precedent) over agent-authored input, so it needs an
+  ;; oracle that is not itself. Each case has a hand-computed verdict; a
+  ;; permissive parser that accepts everything scores AAAAAAAAAA and a broken
+  ;; one that rejects everything scores RRRRRRRRRR, so both degenerate
+  ;; implementations fail on the FIRST character.
+  (def-shell json-verdict [s: string] -> string
+    (match (json-parse s)
+      ((Success _) "A")
+      ((Error _)   "R")))
+
+  (def-shell json-battery [] -> string
+    (string-concat-many
+      [ (json-verdict "{\"a\":1}")            ;; A  well-formed object
+        (json-verdict "{\"a\":1,\"a\":2}")    ;; R  duplicate member (RFC 7493)
+        (json-verdict "{\"a\":01}")           ;; R  leading zero (RFC 8259 §6)
+        (json-verdict "[1,]")                 ;; R  trailing comma
+        (json-verdict "{\"a\":1} junk")       ;; R  trailing input after value
+        (json-verdict "\"\\ud800\"")          ;; R  unpaired high surrogate
+        (json-verdict "\"\\q\"")              ;; R  invalid escape
+        (json-verdict "[1e5,-0.5,0]")         ;; A  exponent / negative / zero
+        (json-verdict "{}")                   ;; A  empty object
+        (json-verdict "tru") ]))              ;; R  truncated literal
+
   (def-shell exec-init [] -> (int, Command)
     (pair 0 (wasi.fs.mkdir "/tmp/llmll-capproc-exec")))
 
@@ -68,9 +130,17 @@
         (pair 8 wasi.clock.monotonic)
     (if (= s 8)
         (pair 9 (wasi.io.stdout (string-concat "clock=" (resp-text r))))
-        (pair 10 (wasi.io.stdout ""))))))))))))
+    ;; JSON-1: pure, so no response is consumed and the two steps are
+    ;; independent of the effect chain above.
+    (if (= s 9)
+        (pair 10 (wasi.io.stdout (string-concat "json=" (json-roundtrip))))
+    (if (= s 10)
+        (pair 11 (wasi.io.stdout (json-dup-rejected)))
+    (if (= s 11)
+        (pair 12 (wasi.io.stdout (string-concat "battery=" (json-battery))))
+        (pair 13 (wasi.io.stdout "")))))))))))))))
 
-  (def-shell exec-done? [s: int] -> bool (>= s 10))
+  (def-shell exec-done? [s: int] -> bool (>= s 13))
 
   (def-main
     :mode    console
