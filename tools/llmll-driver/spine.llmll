@@ -1,7 +1,7 @@
 ;; DRIVER-LL Phase 3 — the mechanical spine.
 ;;
-;; Stage E (reconcile) ported from scripts/rfc_to_implementation.py as
-;; def-shell orchestration around the proved cores in this directory. The
+;; Stages E (reconcile) and J (gate) ported from scripts/rfc_to_implementation.py
+;; as def-shell orchestration around the proved cores in this directory. The
 ;; campaign's rule for this phase is that the port adds the program AROUND a
 ;; proved centre rather than duplicating it, so the halt decision comes from
 ;; stage.record-outcome and the skip decision from skip.may-skip; neither is
@@ -9,27 +9,45 @@
 ;;
 ;; The shape that matters: everything touching JSON, the filesystem, or a
 ;; subprocess is def-shell and unverified, and the DECISION is a strict-core
-;; `def` over scalars the shell extracted. stage-e-passes is body-faithful and
-;; carries its pins as contracts, so the acceptance criterion is proved rather
-;; than printed.
+;; `def` over scalars the shell extracted. Five defs are body-faithful and carry
+;; their pins as contracts, so the acceptance criterion is proved rather than
+;; printed: stage-e-passes, stage-e-outcome, stage-j-pins, bad-barrier-count,
+;; stage-j-outcome.
+;;
+;; STAGE J STOPS, AND THAT IS THE CORRECT REPLAY. All seven of self_test()'s J
+;; pins reproduce and gate J still halts, because its third condition counts
+;; exclusions citing no barrier from the closed list and this artifact carries no
+;; `barrier` field on any row, so all 53 exclusions qualify. That outcome is
+;; stated in prose at rfc_to_implementation.py:1425-1431 and self_test() does not
+;; exercise it. `stopped` rather than `failed` is the proved core working: a gate
+;; halt is a defined condition, and because the report is written BEFORE the halt
+;; the Outcome is PartialThenHalt (stage.llmll:26-27), not ConditionUnmet.
+;;
+;; gate.remedy-for is proved and deliberately UNCALLED. The Python stage never
+;; classifies a barrier class, and with no `barrier` field present there is no
+;; BarrierClass to construct, so it is not merely uncalled here but uncallable on
+;; this data. Filed rather than papered over; Phase 3's rule is that the port
+;; wraps a proved centre, not that it consumes every proved def.
 ;;
 ;; Zero FFI declarations, which is the standing rule from Phase 3 onward.
 
 (module spine
   (import wasi.io   (capability stdout :deterministic false))
-  ;; CAP-1-REAL: the verb and path are documentation, not a bound.
-  (import wasi.fs   (capability read "/"))
+  ;; CAP-1-REAL: the verb and path are documentation, not a bound. `read-write`
+  ;; rather than `read` from stage J on, which writes its gate report.
+  (import wasi.fs   (capability read-write "/"))
   (import wasi.proc (capability exec :deterministic false))
 
   (import stage) (open stage)
   (import skip)  (open skip)
+  (import gate)  (open gate)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre
   ;; ------------------------------------------------------------------
 
   ;; Stage E's acceptance, as a contract rather than as a print statement.
-  ;; self_test() (rfc_to_implementation.py:1402-1410) pins six values against
+  ;; self_test() (rfc_to_implementation.py:1404-1411) pins six values against
   ;; the committed TFTP execution; this is that check, in the strict core.
   ;;
   ;; SCOPE OF THE PROOF, stated because it is narrower than it first looks.
@@ -88,6 +106,85 @@
     (post (=> (not passes) (= result ConditionUnmet))
       :source "[S4-STOPPED] a pinned value that does not reproduce is a defined condition, not an error")
     (if passes Finished ConditionUnmet))
+
+  ;; Stage J's acceptance. self_test() (rfc_to_implementation.py:1413-1444) pins
+  ;; seven counts against the committed dispositioned inventory.
+  ;;
+  ;; Unlike stage E, every pin here is an INTEGER count, so the whole check sits
+  ;; in the strict core: no lexeme comparison appears in the body and
+  ;; STRLIT-BODY-1 never bites. Stage J's proved centre is strictly larger than
+  ;; stage E's, which is the reason to port it first and not its field count.
+  (def stage-j-pins [rows: int encoded: int core: int core-out: int
+                     carried: int verifiable: int
+                     excluded: int listed-barrier: int] -> bool
+
+    (post (=> result (and (= rows 124) (= encoded 46)))
+      :source "[J-ROWS] self_test - 124 inventory rows, 46 of them Encoded")
+
+    (post (=> result (and (= core 15) (= core-out 0)))
+      :source "[J-CORE] self_test - 15 characteristic-core rows, none dispositioned out")
+
+    (post (=> result (and (= carried 62) (= verifiable 65)))
+      :source "[J-COVERAGE] self_test - verifiable subject matter carried 62/65, reported and NOT thresholded")
+
+    (post (=> result (and (= excluded 53) (= listed-barrier 0)))
+      :source "[J-BARRIER] self_test - 53 exclusions, none citing a barrier from the closed list")
+
+    ;; A stage that reproduces nothing MUST NOT pass. Without these an empty
+    ;; artifact would take the Finished arm through a gate that cannot fire,
+    ;; which is the gate-kept-green-by-its-own-blind-spot shape that
+    ;; rfc_to_implementation.py:1433-1437 names.
+    (post (=> (not (= rows 124)) (not result))
+      :source "[J-NOVACUOUS] a divergent row count MUST fail the stage")
+
+    (post (=> (not (= carried 62)) (not result))
+      :source "[J-NOVACUOUS-2] a divergent coverage figure MUST fail the stage")
+
+    (and (= rows 124)
+         (and (= encoded 46)
+              (and (= core 15)
+                   (and (= core-out 0)
+                        (and (= carried 62)
+                             (and (= verifiable 65)
+                                  (and (= excluded 53) (= listed-barrier 0)))))))))
+
+  ;; Gate J's third condition counts every exclusion whose barrier is NOT in the
+  ;; closed list. Deriving it as the complement within the exclusions rather than
+  ;; counting it a second time in the shell is what keeps the two figures from
+  ;; drifting: the exclusions partition into listed and not-listed.
+  (def bad-barrier-count [excluded: int listed-barrier: int] -> int
+
+    (pre (and (>= excluded 0) (and (>= listed-barrier 0) (>= excluded listed-barrier)))
+      :source "[J-BB-DOM] the exclusions citing a listed barrier are a subset of the exclusions")
+
+    (post (= result (- excluded listed-barrier))
+      :source "[J-BB] rfc_to_implementation.py:918-920 - the third condition is the complement within the exclusions")
+
+    (post (>= result 0)
+      :source "[J-BB-NONNEG] a count MUST NOT be negative")
+
+    (- excluded listed-barrier))
+
+  ;; Which Outcome a completed stage J reports. PartialThenHalt is the point:
+  ;; stage J writes 09-gate/gate.json (rfc_to_implementation.py:921-932) BEFORE
+  ;; either require() fires (:936, :939), and stage.llmll:26-27 defines exactly
+  ;; that case. A port that skipped writing the artifact would degrade to
+  ;; ConditionUnmet and leave that proved arm of record-outcome unexercised.
+  (def stage-j-outcome [pins-ok: bool halts: bool] -> Outcome
+
+    (post (=> (and pins-ok (not halts)) (= result Finished))
+      :source "[S4-COMPLETE] a gate that does not halt finishes the stage")
+
+    (post (=> (and pins-ok halts) (= result PartialThenHalt))
+      :source "[S4-PARTIAL] stage J writes its report BEFORE it halts")
+
+    (post (=> (not pins-ok) (= result ConditionUnmet))
+      :source "[S4-STOPPED] a pinned count that does not reproduce is a defined condition, not an error")
+
+    (post (not (= result Errored))
+      :source "[S4-NOT-ERRORED] neither a gate halt nor a divergent pin is an error")
+
+    (if pins-ok (if halts PartialThenHalt Finished) ConditionUnmet))
 
   ;; ------------------------------------------------------------------
   ;; The shell: JSON, files, subprocesses. Nothing below is proved.
@@ -157,6 +254,137 @@
     (string-concat "stage-E="
       (status-word (record-outcome (stage-e-outcome (check-report rep))))))
 
+  ;; ---- stage J's shell -----------------------------------------------
+
+  (def-shell cat3 [a: string b: string c: string] -> string
+    (string-concat a (string-concat b c)))
+
+  (def-shell rows-of [inv: Json] -> list[Json]
+    (match (json-get inv "rows")
+      ((Success rs) (unwrap-or (json-array rs) (list-empty)))
+      ((Error _) (list-empty))))
+
+  ;; The sentinel is what a missing member reduces to. "MISSING" is not a
+  ;; disposition, not a class, and not a barrier code, so an absent field can
+  ;; only ever fail a predicate, never satisfy one.
+  (def-shell str-field [r: Json k: string] -> string
+    (unwrap-or (json-get-string r k) "MISSING"))
+
+  (def-shell is-core [r: Json] -> bool
+    (unwrap-or (json-get-bool r "core") false))
+
+  (def-shell is-excluded [r: Json] -> bool
+    (= (str-field r "disposition") "Dispositioned out"))
+
+  ;; VERIFIABLE_CLASSES and CARRIED, rfc_to_implementation.py:99-100.
+  (def-shell is-verifiable [r: Json] -> bool
+    (list-contains ["C1" "C2" "C3"] (str-field r "class")))
+
+  (def-shell is-carried [r: Json] -> bool
+    (list-contains ["Encoded" "Deployment-modeled" "Vectored"] (str-field r "disposition")))
+
+  ;; The closed barrier list, rfc_to_implementation.py:87-96. The committed TFTP
+  ;; inventory carries no `barrier` key on any row, so every row reduces to the
+  ;; sentinel and this count is zero, which is the pin AND the reason gate J
+  ;; fires: 53 exclusions none of which cites a listed barrier.
+  (def-shell cites-listed-barrier [r: Json] -> bool
+    (list-contains ["B1" "B2" "B3" "B4" "B5" "B6" "B7" "B8"] (str-field r "barrier")))
+
+  (def-shell core-out-rows [rs: list[Json]] -> list[Json]
+    (list-filter rs (fn [r: Json] (and (is-core r) (is-excluded r)))))
+
+  (def-shell excluded-rows [rs: list[Json]] -> list[Json]
+    (list-filter rs (fn [r: Json] (is-excluded r))))
+
+  (def-shell bad-barrier-rows [rs: list[Json]] -> list[Json]
+    (list-filter (excluded-rows rs) (fn [r: Json] (not (cites-listed-barrier r)))))
+
+  (def-shell n-encoded [rs: list[Json]] -> int
+    (list-length (list-filter rs (fn [r: Json] (= (str-field r "disposition") "Encoded")))))
+
+  (def-shell n-core [rs: list[Json]] -> int
+    (list-length (list-filter rs (fn [r: Json] (is-core r)))))
+
+  (def-shell n-verifiable [rs: list[Json]] -> int
+    (list-length (list-filter rs (fn [r: Json] (is-verifiable r)))))
+
+  (def-shell n-carried [rs: list[Json]] -> int
+    (list-length (list-filter rs (fn [r: Json] (and (is-verifiable r) (is-carried r))))))
+
+  (def-shell n-listed-barrier [rs: list[Json]] -> int
+    (list-length (list-filter (excluded-rows rs) (fn [r: Json] (cites-listed-barrier r)))))
+
+  (def-shell n-bad-barrier [rs: list[Json]] -> int
+    (bad-barrier-count (list-length (excluded-rows rs)) (n-listed-barrier rs)))
+
+  (def-shell j-pins-hold [rs: list[Json]] -> bool
+    (stage-j-pins (list-length rs)
+                  (n-encoded rs)
+                  (n-core rs)
+                  (list-length (core-out-rows rs))
+                  (n-carried rs)
+                  (n-verifiable rs)
+                  (list-length (excluded-rows rs))
+                  (n-listed-barrier rs)))
+
+  ;; The halt decision is NOT written here. gate-halts is proved in gate.llmll
+  ;; and its [S6-CORE] post determines the result entirely from the two enforced
+  ;; conditions, so coverage cannot be thresholded by a caller either.
+  ;;
+  ;; CALLER OBLIGATION, stated because a def-shell caller does not discharge it:
+  ;; gate-halts's [S6-DOM] pre requires verifiable >= carried. It holds by
+  ;; construction here (carried is filtered FROM verifiable) but that argument
+  ;; lives in this comment, not in the solver.
+  (def-shell j-halts [rs: list[Json]] -> bool
+    (gate-halts (list-length (core-out-rows rs))
+                (n-bad-barrier rs)
+                (n-carried rs)
+                (n-verifiable rs)))
+
+  ;; 09-gate/gate.json, rfc_to_implementation.py:921-932. The `ratio` member is
+  ;; omitted: it is a float, and the surface has no float injection. The note it
+  ;; carried is kept, because "reported, NOT thresholded" is the semantics.
+  (def-shell cid-array [rs: list[Json]] -> Json
+    (json-of-list (list-map rs (fn [r: Json] (json-of-string (str-field r "cid"))))))
+
+  (def-shell jset [o: Json k: string v: Json] -> Json
+    (unwrap-or (json-set o k v) json-object))
+
+  (def-shell gate-report [rs: list[Json]] -> string
+    (json-serialize
+      (jset (jset (jset (jset (jset json-object
+        "verifiable_carried" (json-of-int (n-carried rs)))
+        "verifiable_total"   (json-of-int (n-verifiable rs)))
+        "coverage_note"      (json-of-string "reported, NOT thresholded"))
+        "characteristic_core_dispositioned_out" (cid-array (core-out-rows rs)))
+        "exclusions_outside_barrier_list"       (cid-array (bad-barrier-rows rs)))))
+
+  (def-shell counts-line [rs: list[Json]] -> string
+    (cat3 (cat3 "stage-J-counts=rows:" (int-to-string (list-length rs))
+                (cat3 " encoded:" (int-to-string (n-encoded rs))
+                      (cat3 " core:" (int-to-string (n-core rs)) "")))
+          (cat3 " core-out:" (int-to-string (list-length (core-out-rows rs)))
+                (cat3 " carried:" (int-to-string (n-carried rs))
+                      (cat3 "/" (int-to-string (n-verifiable rs)) "")))
+          (cat3 " excluded:" (int-to-string (list-length (excluded-rows rs)))
+                (cat3 " bad-barrier:" (int-to-string (n-bad-barrier rs)) ""))))
+
+  ;; The verdict. `stopped` here is not a port defect: gate J's third condition
+  ;; fires on this artifact, which rfc_to_implementation.py:1425-1431 states in
+  ;; prose and self_test() does not exercise. The pins reproducing AND the gate
+  ;; halting is the correct replay of the shipped driver against this data.
+  (def-shell j-block [inv: Json] -> string
+    (let [(rs (rows-of inv))]
+      (cat3 (counts-line rs)
+            (cat3 "\nstage-J-pins=" (if (j-pins-hold rs) "reproduced" "DIVERGED") "")
+            (cat3 (cat3 "\nstage-J="
+                        (status-word (record-outcome
+                                       (stage-j-outcome (j-pins-hold rs) (j-halts rs)))) "")
+                  (if (j-halts rs)
+                      "\nstage-J-halt=gate J condition 3, exclusions citing no barrier from the closed list"
+                      "\nstage-J-halt=none")
+                  ""))))
+
   ;; ------------------------------------------------------------------
   ;; The console harness
   ;; ------------------------------------------------------------------
@@ -199,9 +427,49 @@
                     ((RCode _)  "stage-E=no-artifact")
                     ((RErr e)   (string-concat "stage-E=read-failed:" e))
                     ((RList _)  "stage-E=no-artifact"))))
-        (pair 5 (wasi.io.stdout "")))))))
+    ;; s=4: read the dispositioned inventory stage J gates on.
+    (if (= s 4)
+        (pair 5 (wasi.fs.read "experiments/rfc-swarm/data/inventory-dispositioned.json"))
+    ;; s=5: write stage J's report BEFORE its halt is reported, which is the
+    ;; order rfc_to_implementation.py:921-939 runs in and what makes the outcome
+    ;; PartialThenHalt rather than ConditionUnmet.
+    (if (= s 5)
+        (pair 6 (match r
+                  ((RText body)
+                    (match (json-parse body)
+                      ((Success inv) (wasi.fs.write "/tmp/llmll-spine-gate.json"
+                                                    (gate-report (rows-of inv))))
+                      ((Error e) (wasi.io.stdout (string-concat "stage-J=parse-failed:" e)))))
+                  ((RNone)    (wasi.io.stdout "stage-J=no-artifact"))
+                  ((RCode _)  (wasi.io.stdout "stage-J=no-artifact"))
+                  ((RErr e)   (wasi.io.stdout (string-concat "stage-J=read-failed:" e)))
+                  ((RList _)  (wasi.io.stdout "stage-J=no-artifact"))))
+    ;; s=6: re-read it. A Response carries only the latest command's payload, so
+    ;; the inventory parsed at s=5 is gone by now.
+    (if (= s 6)
+        (pair 7 (wasi.fs.read "experiments/rfc-swarm/data/inventory-dispositioned.json"))
+    ;; s=7: discharge stage J's pinned counts and its gate decision.
+    (if (= s 7)
+        (pair 8 (wasi.io.stdout
+                  (match r
+                    ((RText body)
+                      (match (json-parse body)
+                        ((Success inv) (j-block inv))
+                        ((Error e) (string-concat "stage-J=parse-failed:" e))))
+                    ((RNone)    "stage-J=no-artifact")
+                    ((RCode _)  "stage-J=no-artifact")
+                    ((RErr e)   (string-concat "stage-J=read-failed:" e))
+                    ((RList _)  "stage-J=no-artifact"))))
+    ;; RC-4: the terminating step's command is not performed (LLMLL.md:1561).
+    ;; done? is evaluated on the state a step RETURNS, so the last state must
+    ;; carry a throwaway; the stage-E-only spine's (pair 5 (stdout "")) was
+    ;; doing the same. :on-done is the canonical remedy for a lost final render
+    ;; (LLMLL.md:1555-1606) and is NOT usable here: it is State -> Command and
+    ;; this state is an int, so it cannot run the read-then-print cycle the
+    ;; verdict needs.
+        (pair 9 (wasi.io.stdout "")))))))))))
 
-  (def-shell spine-done? [s: int] -> bool (>= s 5))
+  (def-shell spine-done? [s: int] -> bool (>= s 9))
 
   (def-main
     :mode  console
