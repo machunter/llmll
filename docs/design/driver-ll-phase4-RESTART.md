@@ -13,16 +13,17 @@ Read this first, then
 [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 4, SETTLED). Everything else is
 downstream of those two.
 
-## 1. Uncommitted work in the tree
+## 1. Where the work is
 
-**Nothing below is committed.** `main` is at `0ed395b` (v0.14.83).
+Committed to branch **`driver-ll/phase-4`** at `4423287`, one commit above `main` (`0ed395b`,
+v0.14.83). **Not pushed.** `main` is untouched and clean.
 
-| Path | State |
+| Path | State in `4423287` |
 |---|---|
-| `docs/design/driver-ll-phase4-proposal.md` | **new**, Rev 4, SETTLED, READY FOR ENGINEER |
-| `docs/design/driver-in-llmll-campaign.md` | **modified**, §Phase 4 → Rev 5 |
-| `experiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md` | **new**, six findings, F-1 closed by proposal §3.5 |
-| `scripts/tests/test_rfc_pipeline_integration.py` | **modified**, 15 → 19 tests |
+| `docs/design/driver-ll-phase4-proposal.md` | new, Rev 4, SETTLED, READY FOR ENGINEER |
+| `docs/design/driver-in-llmll-campaign.md` | modified, §Phase 4 → Rev 5 |
+| `experiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md` | new, six findings, F-1 closed by proposal §3.5 |
+| `scripts/tests/test_rfc_pipeline_integration.py` | modified, 15 → 19 tests |
 | `docs/design/driver-ll-phase4-RESTART.md` | this file |
 
 `scripts/rfc_to_implementation.py` is **unchanged** and must stay that way until the §3.5 repair is
