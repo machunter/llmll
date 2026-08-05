@@ -637,3 +637,184 @@ witness.
 
 `pytest scripts/tests/` 120 passed; `scripts/doc_path_lint.py` 754 citations all resolve;
 `rfc_to_implementation.py --self-test` PASS (RFC-COV-1: 46/46 Encoded rows cited, 15/15 core rows).
+
+# Session 2026-08-05, second leg: the T7 mutation check
+
+> Harness at `2b82464` (`main`), compiler **v0.14.85**.
+> Question put to this leg: the port's T7 scenario did not discriminate, and was repaired
+> (`sequencer.llmll:485-496`). **Does the Python-side T7 have the same masking defect?**
+> Read-only on the reference except for three mutations, each reverted before the next. No driver
+> change survives this leg; `git diff -- scripts/rfc_to_implementation.py` is empty.
+
+## Headline finding
+
+**No. The Python-side T7 is sound, and this is a confirmation rather than a defect.** Under
+mutation, `test_a_declared_artifact_deleted_from_a_complete_stage_forces_a_rerun` dies to the
+removal of skip condition (b) and survives the removal of condition (c); the T6 test
+(`test_a_modified_artifact_forces_a_rerun`) does the exact opposite. The two cells are therefore
+independently discriminating and separable from each other, which is the stronger of the two
+properties the check was asked for. n = 3 mutations over 5 tests, 15 test-mutant cells plus a
+5-cell baseline, all deterministic under the hermetic stub configuration.
+
+The port's defect does not carry over, and F-13 gives the mechanism: the reference evaluates
+condition (c) *under a guard* that already requires (b), so (c) is never computed on an absent
+artifact and cannot mask (b). The port derived both conditions from one `wasi.fs.sha256`, whose
+`RErr` on a missing path made (c) fail alongside (b).
+
+## Sample composition
+
+Reference under test: `scripts/rfc_to_implementation.py:1931-1952`, the resume gate. Test file:
+`scripts/tests/test_rfc_pipeline_integration.py`. Five tests selected, one per §5 skip-decision
+cell reachable from this gate. Compiler v0.14.85 (`llmll version`), Python 3.9.6. Wall clock 4.2 s
+to 4.4 s per mutant, so the whole matrix cost under 30 s.
+
+| Mutation | Edit applied | Reading |
+|---|---|---|
+| baseline | none | HEAD |
+| **M2** | `:1933` `artifacts = all(...exists())` → `artifacts = True` | (b) hardcoded true at its definition, the port's own perturbation |
+| **M1** | `:1943` `recorded and artifacts and not mismatched` → `recorded and True and not mismatched` | (b) dropped from the DECISION, (c) left exactly as written |
+| **D** | `:1943` `recorded and artifacts and not mismatched` → `recorded and artifacts and True` | (c) dropped from the DECISION, (b) left exactly as written |
+
+M1 and D mutate the same expression, one conjunct each, which is what makes the pair a clean
+discrimination test rather than two unrelated perturbations.
+
+## Verified findings
+
+### F-12. T7 and T6 each die to their own conjunct and survive the other's
+
+**Priority:** High
+**Consumer:** language-team (Rev 7 §2.3 cover claim), experiment-lead
+
+#### Evidence
+
+| Test | cell | baseline | M2 (b) at def | M1 (b) at decision | D (c) at decision |
+|---|---|---|---|---|---|
+| `…declared_artifact_deleted_from_a_complete_stage…` | **T7** | pass | **FAILED** (crash) | **FAILED** (decision) | pass |
+| `…a_modified_artifact_forces_a_rerun` | **T6** | pass | pass | pass | **FAILED** |
+| `…artifacts_without_a_completion_record…` | T8 | pass | pass | pass | pass |
+| `…an_untouched_run_still_skips_everything` | skip-still-works | pass | pass | pass | pass |
+| `…a_manifest_without_digests_is_not_trusted` | (c) via absent digest | pass | pass | pass | **FAILED** |
+
+Under M1 the T7 failure is on the decision assertion at
+`test_rfc_pipeline_integration.py:571-572`, "the stage whose artifact is gone must RUN", and the
+resume's stdout contains the line the test pins as must-not-appear:
+
+```
+stage A (intake and provenance pinning): already complete, skipping
+stage B (scope decision): already complete, skipping      <- artifact deleted, skipped anyway
+stage C (normativity rubric): already complete, skipping
+```
+
+Exit code stayed 0 and `mismatched` stayed empty, so condition (c) contributed nothing to the
+decision. That is the whole question answered: with (b) removed, nothing else refuses the skip.
+
+Under D the T6 failure comes with no reason line at all, because the skip `continue` at `:1944`
+precedes the `if mismatched` diagnostic at `:1946`, so the stage is skipped before the report is
+reached. The `without_digests` test fails for the same reason.
+
+#### Why we saw what we saw
+
+The gate computes `mismatched` under `if recorded and artifacts:` (`:1936`). With an artifact
+deleted, `artifacts` is false, the loop does not run, and `mismatched` is `[]`. Condition (c) is
+therefore *vacuously satisfied* on a missing artifact, and the only conjunct that can refuse the
+skip is (b). This is the opposite of the port's pre-repair arrangement, where (c) was *falsified*
+by a missing artifact.
+
+#### Implication
+
+Implication for language-team: the Rev 7 claim that the cover is eleven of eleven covered survives
+this check for T7, and the cover is stronger than a cell count suggests, since T6 and T7 are
+mutually distinguishable rather than merely both green. The T7 docstring's account of the mechanism
+(`:553-559`, "`mismatched` is computed under `if recorded and artifacts` and is therefore empty")
+is confirmed by execution and not only by reading.
+
+#### Acceptance
+
+Closed. Re-running the M1/D pair after any change to the resume gate reproduces the 2x2; a future
+gate where T7 survives M1, or where T6 and T7 die to the same mutation, would reopen it.
+
+### F-13. The port's masking mechanism does not transfer, because the reference guards (c) behind (b)
+
+**Priority:** Medium, and Defence-in-depth for its second half
+**Consumer:** compiler-engineer, language-team
+
+#### Evidence
+
+Port, `tools/llmll-driver/sequencer.llmll:29-38` and `:485-496`, both read-only this leg:
+`artifacts-present` and `digests-match` are BOTH derived from one `wasi.fs.sha256` per declared
+artifact, `RErr` on a missing path is read as absent, hex is `""`, and `""` differs from the
+recorded digest, so "presence and match fail TOGETHER and (c) masks (b)". The port records the same
+perturbation this leg applied: a hardcoded `true` for `artifacts-present` left all fifteen cover
+scenarios green until the gate was added.
+
+Reference, `scripts/rfc_to_implementation.py:1936-1942`: presence is a separate
+`Path.exists()` sweep at `:1933`, and the digest loop is guarded by it. The two conditions are
+computed by two different operations against two different failure modes, so hardcoding one does
+not satisfy the other. M2 and M1 confirm this by execution.
+
+#### Why we saw what we saw
+
+The difference is error-as-value versus guarded evaluation. `wasi.fs.sha256` is total and returns a
+constructor that the port must interpret, and interpreting `RErr` as "absent" is what folded the
+two conditions into one. `sha256_file` (`:157-159`) is partial: it opens the path with no existence
+check and raises `FileNotFoundError` on a missing one. The reference is correct today only because
+`:1936`'s guard makes that call total at this site.
+
+M2 is the demonstration: hardcoding presence at its definition does not produce a wrong skip, it
+produces an unhandled traceback out of `sha256_file`, exit 1, with the run dead at stage B. That is
+the reason M2 alone could not answer the question and M1 was needed.
+
+#### Implication
+
+Implication for compiler-engineer, defence-in-depth and not a defect at HEAD: the resume gate's
+correctness on a missing artifact rests on the ORDER of two lines, `:1936`'s guard before `:1941`'s
+digest. Any refactor that computes digests before or independently of the presence sweep turns a
+deleted artifact from a clean re-run into an unhandled `FileNotFoundError`. By this file's own
+standard at `:589-603`, a halt reaching the operator as a host-language traceback is
+indistinguishable from a crash of the driver, so the failure mode would land as a §4:141-143 defect
+rather than a wrong decision. A one-line existence check inside `sha256_file`, or a digest loop
+written to treat a missing file as a mismatch, would make the gate robust to the reordering. Not
+undertaken this leg: the tree is at a released version and no defect is reachable at HEAD.
+
+Implication for language-team: none for the cover. The cell is covered and the witness is real.
+
+#### Acceptance
+
+Closed as a finding. Would reopen if the resume gate is refactored such that M2 stops crashing and
+starts skipping, which is the signature of the port's pre-repair arrangement appearing on the
+Python side.
+
+## Withdrawn items
+
+None. The hypothesis under test was that the Python T7 shares the port's defect, and it was
+disconfirmed rather than narrowed.
+
+## Null results
+
+- **Hypothesis: the Python T7 passes because condition (c) independently fails on a missing file,
+  as it did in the port.** No support. Required evidence would have been T7 staying green under a
+  mutation that removes (b); T7 went red under both such mutations (M2 by crash, M1 by decision),
+  and `mismatched` was measured empty on the deleted-artifact path. n = 2 mutations, 1 test each.
+- **Hypothesis: T6 and T7 are decided by the same conjunct and therefore indistinguishable.** No
+  support. T6 survived both (b)-removing mutations and died only to D; T7 did the reverse. n = 3
+  mutations, 2 tests each.
+
+## Priority matrix
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---|---|---|---|
+| F-12 | T7 and T6 are separately discriminating; cover claim survives | language-team | High | none, confirmation |
+| F-13 | Reference guards (c) behind (b); `sha256_file` is partial | compiler-engineer | Defence-in-depth | 1 line, deferred |
+
+## Changes made this session
+
+**None to any executable file.** Three mutations were applied to
+`scripts/rfc_to_implementation.py` and each was reverted before the next; the file is byte-identical
+to `2b82464`. No test was added or repaired, because no defect was established. This findings
+section is the only write.
+
+### Gates
+
+`pytest scripts/tests/` 123 passed, 1 skipped, unchanged from the pre-leg baseline;
+`scripts/doc_path_lint.py` 837 prose path citations in 160 living files before this write and 840
+after, all resolve; `git status` shows this file and nothing else.
