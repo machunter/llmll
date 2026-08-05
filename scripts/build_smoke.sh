@@ -218,7 +218,7 @@ if [ -f "$EXEC_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
 fi
 
-# --- 5b. FS TEXT ENCODING (FS-ENCODING-1). -----------------------------------
+# --- 5b. FS ENCODING + BYTE-FAITHFUL COPY (FS-ENCODING-1, FS-COPY-1). --------
 #
 # Two properties that only a RUNNING program settles, and that were both
 # asserted from source before they were measured.
@@ -230,6 +230,12 @@ fi
 # already made the failure a value, so this stage asserts a SUCCESSFUL round
 # trip rather than the absence of a traceback. A gate written against the
 # crash-freedom framing would have passed before the fix.
+#
+# The copy half compares two digests. That is the only byte-faithfulness check
+# expressible from inside the language, and it is why the fixture prints both
+# rather than deciding its own verdict. Note that read-then-write cannot even
+# be attempted here: wasi.fs.read of this input returns RErr under UTF-8 as
+# much as under any other encoding, which is precisely why wasi.fs.copy exists.
 FSENC_FIXTURE="$REPO_ROOT/scripts/build-smoke/fs_encoding.llmll"
 FSENC_OUTDIR="$OUTDIR/fsenc"
 FSENC_SCRATCH="/tmp/llmll-fsenc"
@@ -237,6 +243,9 @@ FSENC_SCRATCH="/tmp/llmll-fsenc"
 if [ -f "$FSENC_FIXTURE" ]; then
   echo "BUILD-GATE-1: building and RUNNING $(basename "$FSENC_FIXTURE") under LC_ALL=C"
   rm -rf "$FSENC_SCRATCH"; mkdir -p "$FSENC_SCRATCH"
+  # The binary input is created HERE: a .llmll string literal cannot carry a
+  # lone 0xFF, so the fixture cannot author its own adversarial input.
+  printf 'binary \377\376\000 raw\n' > "$FSENC_SCRATCH/bin.dat"
   # Multi-buffer, and non-ASCII throughout so it exercises the decoder rather
   # than just the byte count. GHC's default handle buffer is 8K; 4000 lines of
   # this is comfortably past it. This is the input the truncation guard needs:
@@ -258,6 +267,18 @@ if [ -f "$FSENC_FIXTURE" ]; then
   # U+00A7 is the character 45 files in this repository's own corpus carry.
   case "$FSENC_OUT" in *"text=section § marker"*) ;; *)
     FSENC_FAIL+=("the non-ASCII write/read round trip did not survive LC_ALL=C (FS-ENCODING-1)");; esac
+  FSENC_SRC="$(printf '%s\n' "$FSENC_OUT" | sed -n 's/^src=//p')"
+  FSENC_DST="$(printf '%s\n' "$FSENC_OUT" | sed -n 's/^dst=//p')"
+  if [ -z "$FSENC_SRC" ] || [ -z "$FSENC_DST" ]; then
+    FSENC_FAIL+=("one or both digests are missing; the copy or a sha256 published RErr")
+  elif [ "$FSENC_SRC" != "$FSENC_DST" ]; then
+    FSENC_FAIL+=("wasi.fs.copy is not byte-faithful: src=$FSENC_SRC dst=$FSENC_DST (FS-COPY-1)")
+  fi
+  # Guards the assertion above against passing on a copy that never happened:
+  # two absent files would hash to nothing and the digests would both be empty,
+  # which the -z branch catches, but a copy of the WRONG file would not.
+  cmp -s "$FSENC_SCRATCH/bin.dat" "$FSENC_SCRATCH/bin.copy" \
+    || FSENC_FAIL+=("bin.copy does not match bin.dat on disk")
   # The truncation guard. A force moved outside the bracket closes the handle
   # before the string is demanded, and the read returns SHORT with no error.
   if ! cmp -s "$FSENC_SCRATCH/big.txt" "$FSENC_SCRATCH/big.copy"; then
@@ -275,7 +296,7 @@ the force may have escaped the bracket")
   fi
 
   rm -rf "$FSENC_SCRATCH"
-  echo "BUILD-GATE-1 PASS: UTF-8 round trip and multi-buffer read survived LC_ALL=C"
+  echo "BUILD-GATE-1 PASS: UTF-8 round trip survived LC_ALL=C; wasi.fs.copy byte-faithful"
 fi
 
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------

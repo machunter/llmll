@@ -12,8 +12,15 @@
 ;;   availability, not crash-freedom, which is why this fixture asserts a
 ;;   SUCCESSFUL round trip rather than the absence of a traceback.
 ;;
-;; The shell half of the fixture supplies the multi-buffer input, because a
-;; .llmll string literal cannot practically carry one.
+;;   FS-COPY-1. wasi.fs.copy is byte-faithful. Proven the only way that is
+;;   checkable from inside the language: hash both files and compare. A text
+;;   round trip cannot reproduce this, because wasi.fs.read of a file carrying
+;;   byte 0xFF returns RErr under UTF-8 as much as under any other encoding.
+;;   driver-spec section 8:336-337 requires the checking copy to be the
+;;   ORIGINAL, UNMODIFIED subject, so this is conformance rather than ergonomics.
+;;
+;; The shell half of the fixture creates the binary input (a .llmll string
+;; literal cannot carry a lone 0xFF) and compares the two digests this prints.
 
 (module fs_encoding
   (import wasi.io (capability stdout :deterministic false))
@@ -50,19 +57,33 @@
     ;; error rather than the contents.
     (if (= s 2)
         (pair 3 (wasi.io.stdout (string-concat "text=" (resp-text r))))
+    (if (= s 3)
+        (pair 4 (wasi.fs.sha256 "/tmp/llmll-fsenc/bin.dat"))
+    (if (= s 4)
+        (pair 5 (wasi.io.stdout (string-concat "src=" (resp-text r))))
+    (if (= s 5)
+        (pair 6 (wasi.fs.copy "/tmp/llmll-fsenc/bin.dat"
+                              "/tmp/llmll-fsenc/bin.copy"))
+    (if (= s 6)
+        (pair 7 (wasi.fs.sha256 "/tmp/llmll-fsenc/bin.copy"))
+    ;; Equal digests are the byte-faithfulness claim. The shell compares them
+    ;; rather than the program, because a program that decided its own verdict
+    ;; would be asserting the thing under test.
+    (if (= s 7)
+        (pair 8 (wasi.io.stdout (string-concat "dst=" (resp-text r))))
     ;; TRUNCATION GUARD. hGetContents is lazy and bracket closes the handle on
     ;; the way out, so a force placed AFTER the bracket reads a closed handle
     ;; and yields truncated or empty contents with no error at all: it publishes
     ;; a well-formed RText and every arm-shaped assertion still passes. A short
     ;; string fits in one buffer and would survive that bug, so the shell half
     ;; supplies a multi-buffer file and compares the round trip byte for byte.
-    (if (= s 3)
-        (pair 4 (wasi.fs.read "/tmp/llmll-fsenc/big.txt"))
-    (if (= s 4)
-        (pair 5 (wasi.fs.write "/tmp/llmll-fsenc/big.copy" (resp-text r)))
-        (pair 6 (wasi.io.stdout ""))))))))
+    (if (= s 8)
+        (pair 9 (wasi.fs.read "/tmp/llmll-fsenc/big.txt"))
+    (if (= s 9)
+        (pair 10 (wasi.fs.write "/tmp/llmll-fsenc/big.copy" (resp-text r)))
+        (pair 11 (wasi.io.stdout "")))))))))))))
 
-  (def-shell fsenc-done? [s: int] -> bool (>= s 6))
+  (def-shell fsenc-done? [s: int] -> bool (>= s 11))
 
   (def-main
     :mode    console

@@ -186,7 +186,7 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- listDirectory, not getDirectoryContents: it already omits "." and "..",
   -- so the exclusion is a property of the primitive rather than a filter that
   -- would need its own test.
-  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing)"
+  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing, copyFile)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
@@ -526,6 +526,21 @@ runtimePreamble =
   , "    hSetEncoding h utf8"
   , "    hPutStr h contents"
   , "    return RNone"
+  , ""
+  -- FS-COPY-1. copyFile moves BYTES and never decodes, which is the whole
+  -- point: read-then-write cannot express a copy of a binary artifact, because
+  -- wasi.fs.read of one yields RErr under any encoding, UTF-8 included. Measured
+  -- against a file carrying byte 0xFF. driver-spec section 8:336-337 requires
+  -- that where an agent needs a copy of the subject to check its own work, the
+  -- copy be the ORIGINAL, UNMODIFIED subject, so a lossy text round trip fails
+  -- a MUST rather than merely being inconvenient.
+  --
+  -- Overwrites an existing destination and raises on a missing source
+  -- directory, both inherited from copyFile and both surfacing as RErr through
+  -- llmll_publish_io. The overwrite behaviour matches wasi_fs_write above
+  -- rather than introducing a second convention.
+  , "wasi_fs_copy :: String -> String -> IO ()"
+  , "wasi_fs_copy src dst = llmll_publish_io (copyFile src dst >> return RNone)"
   , ""
   -- Idempotent by design. removeFile on a missing path throws, and an uncaught
   -- exception inside a Command breaks the no-crash property LLMLL.md:1747

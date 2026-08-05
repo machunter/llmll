@@ -446,6 +446,17 @@ primEffect n
   -- than a choice: coarsening upward on a join-semilattice is sound, dropping
   -- either label is not.
   | n == "wasi.fs.sha256"    = Just (Caps (Set.fromList [EFsRead, ECrypto]))
+  -- FS-COPY-1. Reads one path AND writes another, so it carries both labels, on
+  -- the sha256 precedent directly above. Set.union rather than a choice, for the
+  -- same reason: coarsening upward on the join-semilattice is sound, dropping
+  -- either label is not. This grants no authority the existing read/write pair
+  -- does not already grant, which is the soundness argument for adding it.
+  --
+  -- Known limitation, and it is the sha256/list asymmetry again: the label set
+  -- cannot distinguish an operation that moves ARBITRARY BYTES from one bounded
+  -- by the text channel's UTF-8 domain. Sigma_eff names operation occurrence,
+  -- not payload shape, so no granularity of EffectLabel expresses it. Recorded.
+  | n == "wasi.fs.copy"      = Just (Caps (Set.fromList [EFsRead, EFsWrite]))
   | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
   -- wasi.clock.monotonic is the sole ENonDet producer. NOT bottomEff: for a
   -- name in builtinEnv, 'calleeEff' tests knownPure (:489) BEFORE consulting

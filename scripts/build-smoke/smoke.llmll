@@ -70,6 +70,13 @@
   (def-shell smoke-sha256 [path: string]
     (wasi.fs.sha256 path))
 
+  ;; FS-COPY-1. Two string arguments and RNone, so it exercises the binary
+  ;; arity of the fs group against its real imports. copyFile comes from
+  ;; System.Directory, which the preamble already imports for delete/list/mkdir,
+  ;; so a missing import here would fail this gate rather than a user's build.
+  (def-shell smoke-copy [src: string dst: string]
+    (wasi.fs.copy src dst))
+
   ;; Nullary, so the name is a VALUE and not an application. This is the only
   ;; builtin of that shape besides RNone, and nothing in the corpus used one as
   ;; an expression before now.
