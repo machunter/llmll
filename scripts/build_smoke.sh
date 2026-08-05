@@ -79,6 +79,50 @@ else
   ~/.local/bin. A missing binary is a failure here, not a skip: see the header."
 fi
 
+# --- 2a. Anchor the compiler to an ABSOLUTE path, before anything cd's. ------
+#
+# Several stages below invoke the compiler from a DIFFERENT directory: the
+# replay stage cd's into $REPLAY_DIR (inside the temp $OUTDIR) and the DRIVER-LL
+# stage cd's into tools/llmll-driver. A project-relative invocation re-resolves
+# against that new cwd and dies there. MEASURED, CI run 30938236092, with
+# LLMLL_BIN="stack exec llmll --" -- which is exactly what
+# .github/workflows/version-gate.yml:130 sets:
+#
+#   BUILD-GATE-1: replaying recorded runs
+#   Executable named llmll not found on path:
+#     ["/tmp/llmll-build-smoke.DMRLnw/.stack-work/install/...", ...]
+#
+# stack had taken the temp OUTDIR for its project root, because that is where it
+# was standing. Resolving once HERE, while the cwd is still the one the caller
+# chose, makes every later invocation cwd-independent. This never fired on macOS
+# because local runs put llmll on PATH as an absolute path already.
+case "${LLMLL_CMD[0]}" in
+  stack)
+    _SIR="$(stack path --local-install-root 2>/dev/null || true)"
+    if [ -z "$_SIR" ] || [ ! -x "$_SIR/bin/llmll" ]; then
+      _SIR="$( (cd "$REPO_ROOT/compiler" && stack path --local-install-root) 2>/dev/null || true)"
+    fi
+    { [ -n "$_SIR" ] && [ -x "$_SIR/bin/llmll" ]; } || fail "LLMLL_BIN is
+  '${LLMLL_CMD[*]}' but no llmll binary exists under \`stack path
+  --local-install-root\`, from either \$PWD or $REPO_ROOT/compiler. Build it
+  first: (cd compiler && stack build)."
+    # The trailing '--' of "stack exec llmll --" is dropped with the wrapper; it
+    # only ever separated stack's own flags from the compiler's.
+    LLMLL_CMD=("$_SIR/bin/llmll")
+    ;;
+  /*) ;;   # already absolute — nothing to anchor
+  *)
+    _ABS="$(command -v "${LLMLL_CMD[0]}" 2>/dev/null || true)"
+    case "$_ABS" in
+      /*) LLMLL_CMD[0]="$_ABS" ;;
+      ?*) LLMLL_CMD[0]="$(cd "$(dirname "$_ABS")" && pwd)/$(basename "$_ABS")" ;;
+      *)  fail "LLMLL_BIN names '${LLMLL_CMD[0]}', which does not resolve to an
+  executable. It must be runnable from any directory, because stages below run
+  it from inside \$OUTDIR." ;;
+    esac
+    ;;
+esac
+
 [ -f "$FIXTURE" ] || fail "fixture not found: $FIXTURE"
 
 echo "BUILD-GATE-1: building $(basename "$FIXTURE") with ${LLMLL_CMD[*]}"
@@ -261,6 +305,38 @@ if [ -f "$FSENC_FIXTURE" ]; then
   FSENC_EXE="$(find "$FSENC_OUTDIR/.stack-work/install" -type f -name 'fs-encoding' -perm -111 2>/dev/null | head -1)"
   [ -n "$FSENC_EXE" ] || fail "built the fs-encoding fixture but found no fs-encoding binary."
 
+  # DOES LC_ALL=C MEAN ANYTHING TO GHC ON THIS PLATFORM?
+  #
+  # On Linux/glibc it does: the locale encoding resolves to ANSI_X3.4-1968 and
+  # every non-ASCII encode or decode fails. On macOS it does NOT. GHC 9.6.6
+  # (aarch64-osx) resolves UTF-8 under LC_ALL=C even though the system's own
+  # locale database reports otherwise -- MEASURED 2026-08-05, macOS 25.5.0:
+  #
+  #   $ LC_ALL=C locale charmap                             -> US-ASCII
+  #   $ LC_ALL=C ./probe   # getLocaleEncoding >>= print     -> UTF-8
+  #
+  # So on macOS the encoding half of this stage is a STRUCTURAL NO-OP. That is
+  # not a hypothetical: it reported PASS on the developer's machine for the whole
+  # of v0.14.84 while the property it names was false, and its first real
+  # execution -- CI run 31035476326 -- failed on the first line it printed. A
+  # gate that cannot fail where it runs is worth nothing, and printing PASS for
+  # it is how the shipped defect got past review.
+  #
+  # The assertions still RUN everywhere: the copy and truncation halves are
+  # locale-independent and catch regressions on any platform. Only the VERDICT
+  # changes. Where the locale cannot be made non-UTF-8 for GHC, this stage says
+  # NOT EXERCISED and refuses to claim the LC_ALL=C property it cannot test.
+  #
+  # The discriminator is the platform, not a probe, because after the fix the
+  # program behaves IDENTICALLY under both locales by construction -- so nothing
+  # the fixture can print distinguishes them. If GHC on macOS ever starts
+  # honouring LC_ALL, this under-claims (loses a claim it could make) rather than
+  # over-claims, which is the safe direction to rot in.
+  case "$(uname -s)" in
+    Darwin) FSENC_LOCALE_HONOURED=0 ;;
+    *)      FSENC_LOCALE_HONOURED=1 ;;
+  esac
+
   FSENC_OUT="$(cd "$OUTDIR" && printf 'x\n%.0s' $(seq 12) | LC_ALL=C "$FSENC_EXE" 2>&1)" || true
 
   FSENC_FAIL=()
@@ -282,9 +358,13 @@ if [ -f "$FSENC_FIXTURE" ]; then
   # The truncation guard. A force moved outside the bracket closes the handle
   # before the string is demanded, and the read returns SHORT with no error.
   if ! cmp -s "$FSENC_SCRATCH/big.txt" "$FSENC_SCRATCH/big.copy"; then
+    # `wc -c < missing` fails in the SHELL, before wc runs, so a 2>/dev/null on
+    # wc does not suppress it -- the bare "No such file or directory" that led
+    # this stage's CI output came from here and named a line number rather than
+    # a cause. Report 0 for an absent file instead, which is the fact.
+    _bytes() { if [ -f "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi; }
     FSENC_FAIL+=("the multi-buffer read/write round trip did not preserve the file \
-($(wc -c < "$FSENC_SCRATCH/big.txt" | tr -d ' ') bytes in, \
-$(wc -c < "$FSENC_SCRATCH/big.copy" 2>/dev/null | tr -d ' ') out); \
+($(_bytes "$FSENC_SCRATCH/big.txt") bytes in, $(_bytes "$FSENC_SCRATCH/big.copy") out); \
 the force may have escaped the bracket")
   fi
 
@@ -296,7 +376,15 @@ the force may have escaped the bracket")
   fi
 
   rm -rf "$FSENC_SCRATCH"
-  echo "BUILD-GATE-1 PASS: UTF-8 round trip survived LC_ALL=C; wasi.fs.copy byte-faithful"
+  if [ "$FSENC_LOCALE_HONOURED" -eq 1 ]; then
+    echo "BUILD-GATE-1 PASS: UTF-8 round trip survived LC_ALL=C; wasi.fs.copy byte-faithful"
+  else
+    echo "BUILD-GATE-1 PASS: wasi.fs.copy byte-faithful; multi-buffer round trip preserved"
+    echo "BUILD-GATE-1 NOT EXERCISED: the LC_ALL=C encoding claim (FS-ENCODING-1).
+  GHC on $(uname -s) resolves UTF-8 whatever LC_ALL says, so this run cannot
+  distinguish a working pin from a missing one. Only Linux CI settles it; do not
+  read this stage's green as evidence for the encoding half. See the note above."
+  fi
 fi
 
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------

@@ -14839,6 +14839,85 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "wasi_http_post url _body = error" preambleText `shouldBe` False
 
   -- -----------------------------------------------------------------------
+  -- FS-ENCODING-1, SECOND HALF: the harness's own handles.
+  --
+  -- The first half pinned UTF-8 on wasi_fs_read / wasi_fs_write, asserted above
+  -- against runtimePreamble. It left every OTHER text handle in a generated
+  -- program resolving the ambient locale, and MEASURED under LC_ALL=C on Linux
+  -- that is what killed fs_encoding.llmll: the file round trip SUCCEEDED (17
+  -- bytes of correct UTF-8 on disk, verified) and the program then died PRINTING
+  -- the result --
+  --
+  --   <stdout>: hPutChar: invalid argument (cannot encode character '\167')
+  --
+  -- -- at which point sha256, wasi.fs.copy and the multi-buffer round trip never
+  -- ran. One encode failure reported as four independent gate failures, and the
+  -- report named wasi.fs.copy, which had not executed at all. CI run 31035476326.
+  --
+  -- The end-to-end oracle is scripts/build_smoke.sh stage 5b ON LINUX. It cannot
+  -- be macOS: GHC there resolves UTF-8 whatever LC_ALL says (measured, 9.6.6 /
+  -- aarch64-osx), which is precisely why the defect shipped green. This block is
+  -- the part that runs everywhere.
+  describe "FS-ENCODING-1: the generated harness pins UTF-8 on its own handles" $ do
+
+    let harnessOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> fromMaybe "" (cgMainHs (generateHaskell "h" stmts))
+        consoleSrc = T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell drive [s: int i: string r: Response] -> (int, Command)"
+          , "  (pair (+ s 1) (wasi.io.stdout i)))"
+          , "(def-main :mode console :step drive)"
+          ]
+        cliSrc = T.unlines
+          [ "(def-shell run [args: list[string]] -> string \"ok\")"
+          , "(def-main :mode cli :step run)"
+          ]
+
+    -- The three the RTS creates before main runs, so no locale move can reach
+    -- them retroactively. stdout is the one the shipped defect died on.
+    it "console main pins stdin, stdout and stderr explicitly" $ do
+      let h = harnessOf consoleSrc
+      T.isInfixOf "hSetEncoding stdin utf8" h `shouldBe` True
+      T.isInfixOf "hSetEncoding stdout utf8" h `shouldBe` True
+      T.isInfixOf "hSetEncoding stderr utf8" h `shouldBe` True
+
+    -- setLocaleEncoding is not decoration on top of the three pins above: it is
+    -- the only thing that reaches the handles main never names. GHC's
+    -- dupHandle_ builds a duplicate's codec from getLocaleEncoding, so the
+    -- hDuplicate / hDuplicateTo pair in captureStdout RESETS stdout's encoding
+    -- to the locale's on every single step, discarding whatever was pinned.
+    -- Moving the locale is what makes those duplicates UTF-8; it covers the
+    -- event-log handle and the createPipe/fdToHandle pair for the same reason,
+    -- without enumerating them.
+    it "console main moves the LOCALE, which is what hDuplicateTo re-reads" $ do
+      let h = harnessOf consoleSrc
+      T.isInfixOf "setLocaleEncoding utf8" h `shouldBe` True
+      T.isInfixOf "import GHC.IO.Encoding (setLocaleEncoding)" h `shouldBe` True
+
+    -- Ordering is the property, not presence. A pin placed after the first write
+    -- has already lost the byte it existed to protect, and the locale move must
+    -- precede the event log's openFile, whose handle resolves its codec at
+    -- creation time. Asserted as ordering for the same reason the fs bodies'
+    -- force-inside-the-bracket test is.
+    it "the pins precede the first handle use and the event-log openFile" $ do
+      let h       = harnessOf consoleSrc
+          idxOf s = T.length (fst (T.breakOn s h))
+      T.isInfixOf "<- openFile" h `shouldBe` True
+      (idxOf "setLocaleEncoding utf8"   < idxOf "hSetBuffering stdin") `shouldBe` True
+      (idxOf "setLocaleEncoding utf8"   < idxOf "<- openFile")         `shouldBe` True
+      (idxOf "hSetEncoding stdout utf8" < idxOf "<- openFile")         `shouldBe` True
+
+    -- cli prints its result through stdout too. Fixing console and leaving cli
+    -- on the ambient locale would be the same defect with a smaller blast
+    -- radius rather than a fix.
+    it "cli main pins stdout and stderr as well" $ do
+      let h = harnessOf cliSrc
+      T.isInfixOf "setLocaleEncoding utf8"  h `shouldBe` True
+      T.isInfixOf "hSetEncoding stdout utf8" h `shouldBe` True
+      T.isInfixOf "hSetEncoding stderr utf8" h `shouldBe` True
+
+  -- -----------------------------------------------------------------------
   -- EFFECT-RESP (RC-1..RC-4): the response channel.
   --
   -- `wasi.fs.read : string -> Command` and Command is opaque, so before this

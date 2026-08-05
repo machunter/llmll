@@ -1575,7 +1575,12 @@ emitMainHs modName stmts =
       -- -Wall (emitPackageYaml below ships no ghc-options), so an import the
       -- cli/http bodies do not use costs a name in scope and nothing else.
       , "import System.Exit (exitWith, exitSuccess, ExitCode(..))"
-      , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout)"
+      , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout, stderr, hSetEncoding, utf8)"
+      -- FS-ENCODING-1, second half. See the note on emitMainBody below: the fs
+      -- bodies pin their OWN handles, but every other text handle in a generated
+      -- program -- the three standard ones, the event log, and the pipe
+      -- captureStdout builds -- still resolved the AMBIENT locale.
+      , "import GHC.IO.Encoding (setLocaleEncoding)"
       , "import Data.IORef (newIORef, readIORef, modifyIORef')"
       , "import GHC.IO.Handle (hDuplicate, hDuplicateTo)"
       , "import System.Posix.IO (createPipe, fdToHandle)"
@@ -1661,10 +1666,40 @@ emitMainHs modName stmts =
 -- compiler/test/fixtures/pair_type_test) keep exiting 0, MEASURED, and the ones
 -- that do declare it were already unable to exit 0 by exhaustion because they
 -- did not terminate that way in any gate. :status is additive on top.
+-- FS-ENCODING-1, SECOND HALF. The first half pinned UTF-8 on the two fs bodies'
+-- own handles (wasi_fs_read / wasi_fs_write in runtimePreamble). That left the
+-- generated program's OTHER text handles resolving the ambient locale, and the
+-- gap is not theoretical: MEASURED under LC_ALL=C on Linux, fs_encoding.llmll
+-- wrote "section § marker" to disk as correct UTF-8, read it back correctly, and
+-- then DIED printing it -- `<stdout>: hPutChar: invalid argument (cannot encode
+-- character '\167')`. Every later step (sha256, wasi.fs.copy, the multi-buffer
+-- round trip) never ran, so ONE encode failure on stdout reported as four
+-- independent gate failures and implicated wasi.fs.copy, which was innocent.
+-- CI run 31035476326; the same binary passes every assertion under C.UTF-8.
+--
+-- setLocaleEncoding is the mechanism rather than a per-site hSetEncoding sweep,
+-- because per-site pinning does not actually hold here. GHC's dupHandle_ builds
+-- the new Handle's codec from getLocaleEncoding, so hDuplicate/hDuplicateTo --
+-- which captureStdout calls three times per step -- RESET the encoding to the
+-- locale's no matter what the source handle carried. Moving the locale itself is
+-- what makes those duplicates UTF-8; it also covers the event-log handle and the
+-- createPipe/fdToHandle pair without naming them. It is the same reason the
+-- existing NoBuffering line in captureStdout has to be re-asserted after a
+-- restore rather than inherited.
+--
+-- The three standard handles still need explicit pins: the RTS creates them
+-- before main runs, so setLocaleEncoding cannot reach them retroactively.
+--
+-- This does NOT weaken the fs bodies' own hSetEncoding calls, which stay: they
+-- state the fs contract locally and independently of which harness runs them.
 emitMainBody :: Text -> Statement -> [Text]
 emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone, defMainStatus = mStatus} =
   [ "main :: IO ()"
   , "main = do"
+  , "  setLocaleEncoding utf8"
+  , "  hSetEncoding stdin utf8"
+  , "  hSetEncoding stdout utf8"
+  , "  hSetEncoding stderr utf8"
   , "  hSetBuffering stdin LineBuffering"
   , "  hSetBuffering stdout NoBuffering"
   , "  logHandle <- openFile \"" <> modName <> ".event-log.jsonl\" WriteMode"
@@ -1780,9 +1815,17 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
       | isJust mOnDone || isJust mStatus = "s'"
       | otherwise                        = "_s'"
 
+-- The cli harness gets the same pins as the console one. It has no event log and
+-- no captureStdout, so only the standard handles are at stake -- but `print` of
+-- any non-ASCII result dies exactly as the console path did, and a fix that left
+-- one of the two modes on the ambient locale would be the same defect with a
+-- smaller blast radius rather than a fix.
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"
   , "main = do"
+  , "  setLocaleEncoding utf8"
+  , "  hSetEncoding stdout utf8"
+  , "  hSetEncoding stderr utf8"
   , "  args <- getArgs"
   , "  print (" <> stepCall step <> " args)"
   ]
