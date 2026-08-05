@@ -221,14 +221,18 @@ collectHolesStmtIdx _idx (SExport _)  = []
 collectHolesStmtIdx _idx (STrust _ _) = []
 collectHolesStmtIdx _idx (SWeaknessOk _ _) = []
 
-collectHolesStmtIdx idx (SDefMain _ mInit step mDone mOnDone) =
+collectHolesStmtIdx idx (SDefMain _ mInit step mDone mOnDone mStatus) =
   let base = "statements/" <> tshow idx
       ctx  = "def-main"
       stepHoles = collectHolesExprPath (base <> "/step") ctx step
       initHoles = maybe [] (collectHolesExprPath (base <> "/init") (ctx <> " [init]")) mInit
       doneHoles = maybe [] (collectHolesExprPath (base <> "/done") (ctx <> " [done?]")) mDone
       onDoneH   = maybe [] (collectHolesExprPath (base <> "/on-done") (ctx <> " [on-done]")) mOnDone
-  in stepHoles ++ initHoles ++ doneHoles ++ onDoneH
+      -- PROC-BOUNDARY-1: :status is a fillable position like the other four.
+      -- Omitting it here would make a `?hole` there invisible to checkout, and
+      -- an agent could not be handed the exit-status projection to write.
+      statusH   = maybe [] (collectHolesExprPath (base <> "/status") (ctx <> " [status]")) mStatus
+  in stepHoles ++ initHoles ++ doneHoles ++ onDoneH ++ statusH
 
 -- | Legacy wrapper for backward-compatible callers.
 collectHolesStmt :: Text -> Statement -> [HoleEntry]

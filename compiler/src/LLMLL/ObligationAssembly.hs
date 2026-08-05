@@ -470,7 +470,16 @@ primEffect n
   -- It never had a builtinEnv type, so no call to it survived 'verify' in any
   -- mode, and this clause classified an effect no reachable program could have.
   -- Spec.hs CP-8 now pins its absence.
-  | n == "wasi.clock.monotonic" = one ENonDet
+  --
+  -- PROC-BOUNDARY-1: wasi.proc.args joins the SAME label rather than taking a
+  -- seventh, on the wasi.fs.list/EFsRead precedent directly above. ENonDet's
+  -- documented class is "ambient nondeterministic read granting no outward
+  -- authority", and argv is exactly that: process-supplied input the program
+  -- did not choose, conferring no capability on anything downstream. The
+  -- catalog stays SIX-wide. Note this clause must stay ABOVE the `wasi.`
+  -- fallthrough at :476 or argv would silently report ⊤ and every caller's
+  -- effect_summary would go vacuous.
+  | n == "wasi.clock.monotonic" || n == "wasi.proc.args" = one ENonDet
   | "haskell." `T.isPrefixOf` n                        = Just Unbounded
   | "c." `T.isPrefixOf` n                              = Just Unbounded
   -- wasi.proc.run REACHES THIS LINE BY DESIGN and must keep reaching it.

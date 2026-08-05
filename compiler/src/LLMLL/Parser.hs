@@ -462,6 +462,12 @@ splitDotted :: Text -> [Text]
 splitDotted = T.splitOn "."
 
 -- | Parse (def-main :mode console|cli|http [:port n] :init expr :step expr ...)
+--
+-- PROC-BOUNDARY-1: @:status@ is appended LAST, keeping the existing
+-- fixed-order discipline every other field already has (each @optional@ below
+-- is sequential, so @:on-done@ before @:done?@ has never parsed either). A
+-- program writing @:status@ ahead of @:on-done@ is rejected the same way and
+-- for the same reason.
 pDefMain :: Parser Statement
 pDefMain = do
   _ <- try (symbol "(" *> symbol "def-main")
@@ -470,8 +476,9 @@ pDefMain = do
   stepE   <- symbol ":step"              *> pExpr
   doneE   <- optional (symbol ":done?"   *> pExpr)
   onDoneE <- optional (symbol ":on-done" *> pExpr)
+  statusE <- optional (symbol ":status"  *> pExpr)
   _       <- symbol ")"
-  pure $ SDefMain mode initE stepE doneE onDoneE
+  pure $ SDefMain mode initE stepE doneE onDoneE statusE
   where
     pModeKeyword = symbol ":mode"
 

@@ -594,6 +594,7 @@ main = hspec $ do
             , defMainStep   = EVar "my_step"
             , defMainDone   = Nothing
             , defMainOnDone = Nothing
+            , defMainStatus = Nothing
             }
       let result = generateHaskell "test" [stmt]
       case cgMainHs result of
@@ -616,6 +617,7 @@ main = hspec $ do
             , defMainStep   = EVar "my_step"
             , defMainDone   = Just (EVar "is_done")
             , defMainOnDone = Nothing
+            , defMainStatus = Nothing
             }
       let result = generateHaskell "test" [stmt]
       case cgMainHs result of
@@ -635,6 +637,7 @@ main = hspec $ do
             , defMainStep   = EVar "my_step"
             , defMainDone   = Just (EVar "is_done")
             , defMainOnDone = Just (EVar "finish")
+            , defMainStatus = Nothing
             }
       let result = generateHaskell "test" [stmt]
       case cgMainHs result of
@@ -674,7 +677,7 @@ main = hspec $ do
           let mains = [s | s@SDefMain{} <- stmts]
           length mains `shouldBe` 1
           case head mains of
-            SDefMain _ _ _ mDone mOnDone -> do
+            SDefMain _ _ _ mDone mOnDone _ -> do
               mDone   `shouldSatisfy` (/= Nothing)
               mOnDone `shouldSatisfy` (/= Nothing)
             _ -> expectationFailure "expected SDefMain"
@@ -1627,14 +1630,15 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.10.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.11.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
+      -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.10.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.11.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -5452,9 +5456,17 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
               -- logHandle + seqRef. RC-1 adds the response between them.
               T.isInfixOf "loop s' resp logHandle seqRef" mainHs `shouldBe` True
               -- The done branch is the settle step, which is where the
-              -- terminating turn's `return ()` now lives.
+              -- terminating turn's return now lives.
               T.isInfixOf "then settle" mainHs `shouldBe` True
-              T.isInfixOf "return ()" mainHs `shouldBe` True
+              -- PROC-BOUNDARY-1 retarget. This asserted `return ()` until the
+              -- loop began carrying its outcome back to main: settle now yields
+              -- `Just <status>` (0 with no :status declared, which is this
+              -- program) and EOF yields Nothing, because a `()` cannot tell
+              -- main which of the two terminal paths ran. The assertion moved
+              -- rather than being deleted: it still pins that the settle branch
+              -- RETURNS rather than recursing, which is what it was written for.
+              T.isInfixOf "return (Just (0 :: Integer))" mainHs `shouldBe` True
+              T.isInfixOf "return ()" mainHs `shouldBe` False
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- ---------------------------------------------------------------
@@ -14732,8 +14744,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- move, and it moves only when a name is added with a preamble body to
     -- match.
     -- 12 -> 13 with FS-COPY-1's wasi.fs.copy.
-    it "builtinEnv declares exactly the thirteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 13
+    -- 13 -> 14 with PROC-BOUNDARY-1's wasi.proc.args.
+    it "builtinEnv declares exactly the fourteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 14
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
@@ -15051,6 +15064,244 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- command that published nothing.
     it "publishes through llmll_publish_io, so an IO failure is RErr not a crash" $
       T.isInfixOf "wasi_fs_list path = llmll_publish_io" preambleText `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- PROC-BOUNDARY-1: argv in, status out.
+  --
+  -- Two halves, deliberately different categories (proposal §2). Reading argv
+  -- is an ambient nondeterministic read and lands in the capability system;
+  -- setting a terminal status is NOT an effect, since nothing in the program
+  -- observes it and the program does not continue past it, so it lands on
+  -- def-main as a projection. Splitting on that line is what keeps the whole
+  -- boundary inside the auto-discharged fragment.
+  --
+  -- MEASURED END TO END during implementation, on
+  -- scripts/build-smoke/proc_boundary.llmll, comparing the pre-change harness
+  -- against the post-change one on the SAME fixture:
+  --
+  --                                     before   after
+  --   1 line (:done? needs 2, starved)      0      70
+  --   2 lines (:done? fires, :status)       0      42
+  --   0 lines (immediate EOF)               0      70
+  --
+  -- The "before" column is the bug: partial state written, no diagnostic, exit
+  -- 0. build_smoke.sh stage 7 keeps that measurement running; the assertions
+  -- below pin the emitter shape it depends on.
+  -- -----------------------------------------------------------------------
+
+  describe "PROC-BOUNDARY-1: wasi.proc.args (half one)" $ do
+
+    let preambleText = T.unlines runtimePreamble
+
+    -- Nullary, so it binds as a VALUE and `wasi.proc.args` is an expression
+    -- rather than an application. A TFn [] would make it a 0-arg function,
+    -- which is not how wasi.clock.monotonic or RNone bind either.
+    it "PB-1: builtinEnv binds it as a VALUE of type Command, not a 0-arg function" $ do
+      Map.lookup "wasi.proc.args" builtinEnv `shouldBe` Just (TCustom "Command")
+      Map.lookup "wasi.proc.args" builtinEnv `shouldNotBe` Just (TFn [] (TCustom "Command"))
+
+    -- POSITIVE WITNESS for the ENonDet decision, and the failure it guards is
+    -- silent: primEffect's "wasi." fallthrough maps any unrecognized wasi.*
+    -- name to Unbounded, joinEff makes Unbounded absorbing, so a clause placed
+    -- BELOW the fallthrough would make every transitive caller report unbounded
+    -- authority. This test fails (returning Unbounded) without the clause.
+    it "PB-2: primEffect maps it to ENonDet, not the wasi.* Unbounded fallthrough" $ do
+      primEffect "wasi.proc.args" `shouldBe` Just (Caps (Set.singleton ENonDet))
+      primEffect "wasi.proc.args" `shouldNotBe` Just Unbounded
+
+    -- Label SHARING, on the wasi.fs.list/EFsRead precedent, not a seventh
+    -- label. The catalog is closed at six and this change does not open it.
+    it "PB-3: shares ENonDet with the clock rather than taking a seventh label" $ do
+      primEffect "wasi.proc.args" `shouldBe` primEffect "wasi.clock.monotonic"
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+
+    -- The arm set does NOT move. CAP-PROC's rule is that needing a new arm is
+    -- the signal EFFECT-RESP's arm set was wrong; a vector of strings is what
+    -- RList already carries. Response stays five-wide.
+    it "PB-4: rides the EXISTING RList arm; Response gains no sixth arm" $ do
+      T.isInfixOf "return (RList as)" preambleText `shouldBe` True
+      case Map.lookup "Response" builtinAliases of
+        Just (TSumType ctors) -> map fst ctors
+                                   `shouldMatchList` ["RNone","RText","RCode","RErr","RList"]
+        _ -> expectationFailure "Response has no TSumType body"
+
+    it "PB-5: the preamble defines wasi_proc_args and publishes through llmll_publish_io" $ do
+      T.isInfixOf "wasi_proc_args :: IO ()" preambleText `shouldBe` True
+      T.isInfixOf "wasi_proc_args = llmll_publish_io" preambleText `shouldBe` True
+
+    -- getArgs, not getProgName ++ getArgs. ModeCli's harness has always passed
+    -- getArgs to :step, so publishing argv[0] here would make the two entry
+    -- modes disagree about what "the arguments" means.
+    it "PB-6: reads getArgs, so argv[0] is excluded and cli/console agree" $ do
+      T.isInfixOf "as <- getArgs" preambleText `shouldBe` True
+      T.isInfixOf "getProgName" preambleText `shouldBe` False
+
+    -- The wasi_fs_read lesson: an unforced thunk escapes the `try` and is
+    -- forced later by the PROGRAM, where the IO exception becomes a crash
+    -- instead of the RErr arm the channel promises.
+    it "PB-7: forces the vector inside llmll_publish_io, so a failure stays a value" $
+      T.isInfixOf "_ <- evaluate (length as)" preambleText `shouldBe` True
+
+  describe "PROC-BOUNDARY-1: :status (half two)" $ do
+
+    let harnessOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> fromMaybe "" (cgMainHs (generateHaskell "h" stmts))
+        stmtsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> stmts
+        prelude =
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell drive [s: int i: string r: Response] -> (int, Command)"
+          , "  (pair (+ s 1) (wasi.io.stdout i)))"
+          , "(def fin [s: int] -> bool (>= s 2))"
+          , "(def code [s: int] -> int (post (and (>= result 0) (<= result 255)))"
+          , "  (if (>= s 2) 42 7))"
+          ]
+        withStatus = T.unlines (prelude ++
+          [ "(def-main :mode console :step drive :done? fin :status code)" ])
+        withoutStatus = T.unlines (prelude ++
+          [ "(def-main :mode console :step drive :done? fin)" ])
+        statusNoDone = T.unlines (prelude ++
+          [ "(def-main :mode console :step drive :status code)" ])
+
+    -- Surface: the S-expr field parses and reaches the AST.
+    it "PB-8: the S-expr parser reads :status into defMainStatus" $ do
+      let mains = [s | s@SDefMain{} <- stmtsOf withStatus]
+      map defMainStatus mains `shouldBe` [Just (EVar "code")]
+      map defMainStatus [s | s@SDefMain{} <- stmtsOf withoutStatus] `shouldBe` [Nothing]
+
+    -- Round trip through the JSON-AST, both directions. The emit/read pair is
+    -- what DISCARD-1's note calls out as the asymmetry no type catches.
+    it "PB-9: `status` round-trips through emitJsonAST and parseJSONAST" $ do
+      let doc = emitJsonAST (stmtsOf withStatus)
+      T.isInfixOf "\"status\"" (TE.decodeUtf8 (BL.toStrict doc)) `shouldBe` True
+      case parseJSONAST GrammarCoreInversion "<test>" doc of
+        Left e      -> expectationFailure ("emitted doc must re-read: " <> show e)
+        Right back  -> map defMainStatus [s | s@SDefMain{} <- back]
+                         `shouldBe` [Just (EVar "code")]
+
+    -- RD1-6's byte-inertness rule: a def-main that declares no :status must
+    -- emit no key, so every pre-0.11.0 document round-trips unchanged.
+    it "PB-10: a def-main with no :status emits no `status` key (byte-inert)" $
+      T.isInfixOf "\"status\"" (TE.decodeUtf8 (BL.toStrict (emitJsonAST (stmtsOf withoutStatus))))
+        `shouldBe` False
+
+    -- Emit/read symmetry. Bumping the stamp without extending the accepted list
+    -- makes the compiler emit a document it then refuses to read.
+    it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
+      expectedSchemaVersion `shouldBe` "0.11.0"
+      acceptedSchemaVersions `shouldContain` ["0.11.0"]
+      acceptedSchemaVersions `shouldContain` ["0.10.0"]
+
+    -- §4.1, the :done? path. The status is APPLIED to the final state and
+    -- travels back to main as the loop's result.
+    it "PB-12: settle applies :status to the final state and returns it" $
+      T.isInfixOf "return (Just (code s'))" (harnessOf withStatus) `shouldBe` True
+
+    -- §4.1, :status absent is exit 0, which is what every shipped program did.
+    it "PB-13: with no :status the settled path returns 0" $ do
+      let h = harnessOf withoutStatus
+      T.isInfixOf "return (Just (0 :: Integer))" h `shouldBe` True
+      T.isInfixOf "llmll_terminate (Just 0) = exitSuccess" h `shouldBe` True
+
+    -- §4.3, THE POINT OF THE WHOLE DESIGN. Exhaustion exits a fixed 70 and does
+    -- NOT consult :status: a projection from state alone cannot tell a run that
+    -- completed every stage from one whose input ran out, because the
+    -- distinguishing predicate (:done?) lives outside the state. An earlier
+    -- form of this design applied :status at both paths and was refuted.
+    it "PB-14: EOF returns Nothing and exits a fixed 70 without consulting :status" $ do
+      let h = harnessOf withStatus
+      T.isInfixOf "if eof then return Nothing else do" h `shouldBe` True
+      T.isInfixOf "llmll_terminate Nothing  = exitWith (ExitFailure 70)" h `shouldBe` True
+      -- The exhaustion clause must not mention the status function at all.
+      let eofClause = T.unlines [ l | l <- T.lines h, T.isInfixOf "llmll_terminate Nothing" l ]
+      T.isInfixOf "code" eofClause `shouldBe` False
+
+    -- Rev 3's correction, and the reason it is a correction rather than a
+    -- weakening. A program that declares no completion predicate has no notion
+    -- of completion, so EOF is the normal end of its input, not starvation.
+    -- Under Rev 2's unconditional rule such a program exited 70 on EVERY run: a
+    -- false alarm on a success, firing on exactly the population it could say
+    -- nothing about. The guarantee survives where "starved" is meaningful,
+    -- which is PB-14 directly above.
+    it "PB-15: a console program with no :done? exits 0 on exhaustion" $ do
+      let h = harnessOf (T.unlines (prelude ++ [ "(def-main :mode console :step drive)" ]))
+      T.isInfixOf "if eof then return Nothing else do" h `shouldBe` True
+      T.isInfixOf "llmll_terminate Nothing  = exitSuccess" h `shouldBe` True
+      T.isInfixOf "ExitFailure 70" h `shouldBe` False
+      -- and it has no settle path to reach the other clause through
+      T.isInfixOf "settle" h `shouldBe` False
+
+    -- The discriminator, asserted as a CONTRAST rather than as two independent
+    -- facts. Two harnesses differing only in whether :done? is declared must
+    -- differ in exactly this clause. Written this way because the failure it
+    -- guards is the emitter reading the wrong thing: whether :done? FIRED is a
+    -- run-time fact and `Nothing` reaching llmll_terminate already says it did
+    -- not, so declaration is the only signal available at emit time.
+    it "PB-21: the exhaustion status is gated on :done? being DECLARED" $ do
+      let declared   = harnessOf withoutStatus   -- has :done?, no :status
+          undeclared = harnessOf (T.unlines (prelude ++
+                         [ "(def-main :mode console :step drive)" ]))
+      T.isInfixOf "llmll_terminate Nothing  = exitWith (ExitFailure 70)" declared
+        `shouldBe` True
+      T.isInfixOf "llmll_terminate Nothing  = exitWith (ExitFailure 70)" undeclared
+        `shouldBe` False
+      T.isInfixOf "llmll_terminate Nothing  = exitSuccess" undeclared `shouldBe` True
+      T.isInfixOf "llmll_terminate Nothing  = exitSuccess" declared   `shouldBe` False
+
+    -- Threading the outcome back to main rather than exiting from inside the
+    -- loop is what keeps hClose on BOTH paths. Not tidiness: the header line
+    -- written before the loop is the only log write with no following hFlush,
+    -- so a program reaching EOF before its first step would lose the header if
+    -- the exit jumped the close. MEASURED: after the change, a zero-input run
+    -- still leaves a 61-byte log holding exactly the header.
+    it "PB-16: the log is closed BEFORE the process exits, on both paths" $ do
+      let ls = T.lines (harnessOf withStatus)
+          idxOf p = length (takeWhile (not . T.isInfixOf p) ls)
+      idxOf "hClose logHandle" `shouldSatisfy` (< idxOf "llmll_terminate outcome")
+
+    -- ExitFailure 0 raises in GHC ("ExitFailure 0 makes no sense"), so the zero
+    -- case must branch rather than fold into the general clause. A generated
+    -- program that folded them would crash on its own success.
+    it "PB-17: exit 0 goes through exitSuccess, never ExitFailure 0" $ do
+      let h = harnessOf withStatus
+      T.isInfixOf "llmll_terminate (Just 0) = exitSuccess" h `shouldBe` True
+      T.isInfixOf "ExitFailure 0" h `shouldBe` False
+
+    -- §6.6, the gap the proposal flags: with no :done? the settle path is
+    -- unreachable, the only exit is exhaustion, and exhaustion does not consult
+    -- :status. A warning, not an error, on the MATCH-CATCHALL-1 precedent.
+    it "PB-18: :status without :done? warns that the projection is dead" $ do
+      let report = typeCheck GrammarCoreInversion emptyEnv (stmtsOf statusNoDone)
+          warns  = [ d | d <- reportDiagnostics report
+                       , diagSeverity d == SevWarning
+                       , T.isInfixOf ":status without :done?" (diagMessage d) ]
+      length warns `shouldSatisfy` (>= 1)
+
+    -- ANTI-REGRESSION, and it is why this check was written from scratch rather
+    -- than copied from its :done? sibling. That sibling compares the inferred
+    -- type of the whole EXPRESSION against TBool, but :done? names a FUNCTION,
+    -- so its type is TFn [S] bool and compatibleWith falls through to
+    -- structural equality and returns False. MEASURED at v0.14.84: `llmll check`
+    -- on scripts/build-smoke/smoke.llmll, a correct program, reports
+    -- ":done? should return bool". The :status check reads the RETURN POSITION,
+    -- so a correctly-typed named projection produces NO warning. If this test
+    -- ever fails, the check has acquired the sibling's defect.
+    it "PB-19: a correctly-typed named :status produces no return-type warning" $ do
+      let report = typeCheck GrammarCoreInversion emptyEnv (stmtsOf withStatus)
+          warns  = [ d | d <- reportDiagnostics report
+                       , T.isInfixOf ":status should return int" (diagMessage d) ]
+      warns `shouldBe` []
+
+    -- A hole in the :status position must be visible to checkout, or an agent
+    -- cannot be handed the exit-status projection to write.
+    it "PB-20: a ?hole in :status is collected with a def-main [status] context" $ do
+      let src = T.unlines (prelude ++
+                  [ "(def-main :mode console :step drive :done? fin :status ?exit-code)" ])
+          hs  = holeEntries (analyzeHoles (stmtsOf src))
+      [ holeContext e | e <- hs, T.isInfixOf "status" (holeContext e) ]
+        `shouldBe` ["def-main [status]"]
 
   describe "EFFECT-RESP: the console harness (RC-1..RC-4)" $ do
 

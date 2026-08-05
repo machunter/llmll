@@ -106,7 +106,7 @@ MISSING=()
 for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_read wasi_fs_write wasi_fs_delete wasi_http_post \
             wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
-            wasi_clock_monotonic wasi_proc_run \
+            wasi_clock_monotonic wasi_proc_run wasi_proc_args \
             seq_commands \
             json_parse json_serialize json_get json_get_string json_get_int \
             json_get_bool json_get_number json_array json_object json_set \
@@ -406,5 +406,127 @@ if [ -f "$REPLAY_DIR/replay_settle.llmll" ]; then
 fi
 
 echo "BUILD-GATE-1 PASS: recorded runs replay clean and tampered logs are refuted"
+
+# --- 7. PROCESS BOUNDARY (PROC-BOUNDARY-1). ---------------------------------
+#
+# Three properties, none settleable by a check-only gate and two of them EXIT
+# CODES, which a program cannot observe about itself:
+#
+#   wasi.proc.args   the real argument vector arrives on the existing RList arm
+#                    through RC-3. Invoked with three known arguments, so a body
+#                    publishing RList [] unconditionally fails HERE and passes
+#                    every string-shape assertion in the unit suite.
+#   :done? + :status the settled path applies :status and exits with it. 42 is
+#                    neither 0 nor 70 nor 1, so it cannot be produced by
+#                    success, by exhaustion, or by a crash.
+#   starved stdin    with :done? DECLARED, exhaustion exits 70 without
+#                    consulting :status.
+#   no :done?        exhaustion exits 0. Asserted on examples/replay-demo, a
+#                    SHIPPED program, because this half of the rule is a
+#                    no-regression claim about the existing corpus and a
+#                    purpose-built fixture cannot make it.
+#
+# The third is the one with a silent failure mode, and it is the only assertion
+# in this file whose pre-change behaviour was SUCCESS. Measured against the
+# pre-PROC-BOUNDARY-1 harness on this same fixture: 1 line exited 0, 2 lines
+# exited 0, 0 lines exited 0. Partial state written, no diagnostic, exit 0.
+#
+# The fourth exists because an earlier revision of this rule got it wrong in the
+# other direction: it exited 70 on ANY exhaustion, which made every run of a
+# program with no :done? a false alarm on a success. A program that declares no
+# completion predicate has no notion of completion, so EOF is the normal end of
+# its input. The discriminator is DECLARATION, not firing.
+#
+# Note the `|| true` idiom stages 5 and 6 use to swallow exit codes CANNOT be
+# used here: the exit code is the observation.
+PB_FIXTURE="$REPO_ROOT/scripts/build-smoke/proc_boundary.llmll"
+PB_OUTDIR="$OUTDIR/procboundary"
+
+if [ -f "$PB_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$PB_FIXTURE") for exit codes"
+  PB_LOG="$OUTDIR/.pb-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$PB_FIXTURE" -o "$PB_OUTDIR" > "$PB_LOG" 2>&1; then
+    cat "$PB_LOG" >&2
+    fail "the process-boundary fixture does not build."
+  fi
+  PB_EXE="$(find "$PB_OUTDIR/.stack-work/install" -type f -name 'proc-boundary' -perm -111 2>/dev/null | head -1)"
+  [ -n "$PB_EXE" ] || fail "built the process-boundary fixture but found no
+  proc-boundary binary. Without running it this stage observes nothing, which is
+  the failure mode it exists to prevent."
+
+  PB_FAIL=()
+
+  # (a) :done? path. Two lines reach (>= s 2); :status yields 42.
+  PB_OUT="$( cd "$OUTDIR" && printf 'x\nx\n' | "$PB_EXE" 2>&1 )" && PB_RC=0 || PB_RC=$?
+  [ "$PB_RC" -eq 42 ] || PB_FAIL+=(":done? path exited $PB_RC, not the 42 :status returns")
+
+  # (b) argv. Three arguments must reach the program through RC-3's first
+  # response. Checked on the SAME two-line run so the count is independent of
+  # how many lines :done? needs.
+  PB_ARGV="$( cd "$OUTDIR" && printf 'x\nx\n' | "$PB_EXE" alpha beta gamma 2>&1 )" || true
+  case "$PB_ARGV" in
+    *"argc=3"*) ;;
+    *) PB_FAIL+=("wasi.proc.args did not deliver three arguments; got: $PB_ARGV");;
+  esac
+  # The negative half. Without it, a body publishing a constant three-element
+  # list would pass the line above.
+  PB_ARGV0="$( cd "$OUTDIR" && printf 'x\nx\n' | "$PB_EXE" 2>&1 )" || true
+  case "$PB_ARGV0" in
+    *"argc=0"*) ;;
+    *) PB_FAIL+=("wasi.proc.args reported a non-empty vector for a no-argument run; got: $PB_ARGV0");;
+  esac
+
+  # (c) THE POSITIVE WITNESS. One line is not enough to reach :done?, so stdin
+  # is starved. Before PROC-BOUNDARY-1 this exited 0.
+  ( cd "$OUTDIR" && printf 'x\n' | "$PB_EXE" > /dev/null 2>&1 ) && PB_RC=0 || PB_RC=$?
+  [ "$PB_RC" -eq 70 ] || PB_FAIL+=("a starved stdin exited $PB_RC, not 70 (this exited 0 before PROC-BOUNDARY-1)")
+
+  # (d) Immediate EOF, the degenerate case: still 70, and the event log must
+  # still hold its header. The header is the ONLY log write with no following
+  # hFlush, so an exit that jumped over hClose would lose it entirely.
+  ( cd "$PB_OUTDIR" && rm -f proc_boundary.event-log.jsonl \
+      && printf '' | "$PB_EXE" > /dev/null 2>&1 ) && PB_RC=0 || PB_RC=$?
+  [ "$PB_RC" -eq 70 ] || PB_FAIL+=("an immediate EOF exited $PB_RC, not 70")
+  if ! grep -q '"type":"header"' "$PB_OUTDIR/proc_boundary.event-log.jsonl" 2>/dev/null; then
+    PB_FAIL+=("a zero-input run left no header in the event log; the exit jumped over hClose")
+  fi
+
+  # (e) THE OTHER HALF OF THE RULE, and it needs a SHIPPED program rather than
+  # this fixture. examples/replay-demo declares no :done?, so EOF is the normal
+  # end of its input and it must exit 0. This is a no-regression claim about the
+  # existing corpus, so a purpose-built fixture cannot make it: the assertion
+  # only means something against a program that predates the change.
+  #
+  # Stage 6 already built this exact source into $REPLAY_DIR, so the binary is
+  # reused rather than rebuilt. Falling back to a build keeps the stage
+  # self-contained if stage 6 is ever reordered or skipped.
+  RD_EXE="$(find "$REPLAY_DIR/generated/replay-demo/.stack-work/install" -type f -name 'replay-demo' -perm -111 2>/dev/null | head -1)"
+  if [ -z "$RD_EXE" ] && [ -f "$REPO_ROOT/examples/replay-demo/replay-demo.llmll" ]; then
+    RD_DIR="$OUTDIR/nodone"; mkdir -p "$RD_DIR"
+    cp "$REPO_ROOT/examples/replay-demo/replay-demo.llmll" "$RD_DIR/"
+    ( cd "$RD_DIR" && "${LLMLL_CMD[@]}" build replay-demo.llmll ) > "$RD_DIR/build.log" 2>&1 \
+      || { cat "$RD_DIR/build.log" >&2; fail "the no-:done? witness does not build"; }
+    RD_EXE="$(find "$RD_DIR/generated/replay-demo/.stack-work/install" -type f -name 'replay-demo' -perm -111 2>/dev/null | head -1)"
+  fi
+  [ -n "$RD_EXE" ] || fail "found no replay-demo binary for the no-:done? exit-code
+  witness. Skipping it silently would leave the half of the rule that protects
+  the SHIPPED corpus unobserved, which is the dead-gate mode this file refuses."
+
+  ( cd "$OUTDIR" && printf 'a\nb\n' | "$RD_EXE" > /dev/null 2>&1 ) && PB_RC=0 || PB_RC=$?
+  [ "$PB_RC" -eq 0 ] || PB_FAIL+=("examples/replay-demo declares no :done?, so EOF is normal termination, but it exited $PB_RC instead of 0")
+  ( cd "$OUTDIR" && printf '' | "$RD_EXE" > /dev/null 2>&1 ) && PB_RC=0 || PB_RC=$?
+  [ "$PB_RC" -eq 0 ] || PB_FAIL+=("examples/replay-demo exited $PB_RC on immediate EOF instead of 0")
+
+  if [ "${#PB_FAIL[@]}" -gt 0 ]; then
+    printf 'BUILD-GATE-1 process-boundary failures:\n' >&2
+    for f in "${PB_FAIL[@]}"; do printf '  - %s\n' "$f" >&2; done
+    fail "the process boundary compiled but did not behave. A starved stdin that
+  reports success is the exact defect PROC-BOUNDARY-1 closes, and it is silent;
+  a program with no :done? reporting failure on a clean run is the same defect
+  inverted, and it is loud but wrong."
+  fi
+
+  echo "BUILD-GATE-1 PASS: argv on RList; :done? exits 42; starved exits 70; no-:done? exits 0"
+fi
 
 exit 0

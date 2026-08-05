@@ -169,7 +169,7 @@ stmtToJson (SExpr e) =
     , "body" .= exprToJson e
     ]
 
-stmtToJson (SDefMain mode mInit step mDone mOnDone) =
+stmtToJson (SDefMain mode mInit step mDone mOnDone mStatus) =
   -- No JSON schema node for def-main yet — emit as a comment-like object
   object $
     [ "kind" .= ("def-main" :: Text)
@@ -178,7 +178,10 @@ stmtToJson (SDefMain mode mInit step mDone mOnDone) =
     ] ++
     maybe [] (\e -> ["init"    .= exprToJson e]) mInit    ++
     maybe [] (\e -> ["done?"   .= exprToJson e]) mDone    ++
-    maybe [] (\e -> ["on-done" .= exprToJson e]) mOnDone
+    maybe [] (\e -> ["on-done" .= exprToJson e]) mOnDone  ++
+    -- PROC-BOUNDARY-1: omitted when absent, on the RD1-6 precedent, so a
+    -- def-main that declares no :status round-trips byte-identically.
+    maybe [] (\e -> ["status"  .= exprToJson e]) mStatus
   where
     entryModeLabel ModeConsole  = "console" :: Text
     entryModeLabel ModeCli      = "cli"

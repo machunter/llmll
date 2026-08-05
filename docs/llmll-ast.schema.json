@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.10/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.11/ast.schema.json",
   "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.9.0' (SRC-CONJ-1: optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, plus the pre_source/post_source scalar fields the compiler has read since v0.6; was 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.11.0' (PROC-BOUNDARY-1: optional 'status' on def-main, an exit-status projection from the state type to int; was 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.9.0'. The compiler rejects files with an unrecognised version, but reads 0.8.0, 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.9.0 adds the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "Must be '0.11.0'. The compiler rejects files with an unrecognised version, but reads 0.10.0, 0.9.0, 0.8.0, 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "const": "0.10.0"
+          "const": "0.11.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -1032,6 +1032,10 @@
         },
         "on-done": {
           "description": "Function of type State -> Command called once when done? returns true (optional).",
+          "$ref": "#/$defs/Expr"
+        },
+        "status": {
+          "description": "PROC-BOUNDARY-1 (0.11.0). Total function of type State -> int, applied to the FINAL state when done? holds; the process then exits with the result. Optional: absent means exit 0 on that path, which is every pre-0.11.0 program's behaviour. Declare the range on the named function's contract: {v : int | 0 <= v && v <= 255}. POSIX truncates a status to the low 8 bits, so an unconstrained 256 would exit 0 and report success. NOT consulted when stdin reaches EOF: where done? IS declared that path exits a fixed 70, because a projection from state alone cannot distinguish a completed run from a starved one (the distinguishing predicate, done?, lives outside the state). 70 is not reserved from the program, so a shell can tell neither path from success but cannot tell exhaustion from a deliberately-returned 70. Where done? is NOT declared, EOF is normal termination and the program exits 0: a program with no completion predicate has no notion of completion, so exhaustion is not starvation. The discriminator is whether done? is DECLARED, not whether it fired. Console mode only; ignored in cli and http, which perform no Command and have no terminal state to project.",
           "$ref": "#/$defs/Expr"
         }
       }

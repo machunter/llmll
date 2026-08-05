@@ -56,8 +56,14 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- Both nodes carry "additionalProperties": false, so neither field can ride in
 -- unversioned: a document with `discard` fails against 0.9.0, and a document
 -- with `read` now fails against 0.10.0.
+-- PROC-BOUNDARY-1: bumped 0.10.0 → 0.11.0 for the optional `status` field on
+-- def-main. PURELY ADDITIVE, unlike DISCARD-1's mixed bump above: nothing is
+-- removed and no existing field changes meaning, so every 0.10.0 document is a
+-- valid 0.11.0 one. The bump is still owed rather than optional, because
+-- DefMain carries "additionalProperties": false, so a document with `status`
+-- fails validation against 0.10.0 and the field cannot ride in unversioned.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.10.0"
+expectedSchemaVersion = "0.11.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -77,7 +83,7 @@ expectedSchemaVersion = "0.10.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -496,11 +502,15 @@ parseDefMain o = do
   -- `additionalProperties: false` now rejects the property outright.
   mDone   <- o .:? "done?"   >>= mapM parseExpr
   mOnDone <- o .:? "on-done" >>= mapM parseExpr
+  -- PROC-BOUNDARY-1 (schema 0.11.0): additive-optional. Absent is exit 0 on the
+  -- :done? path, which is what every pre-0.11.0 document meant, so a 0.10.0
+  -- def-main reads unchanged.
+  mStatus <- o .:? "status"  >>= mapM parseExpr
   let entryMode = case mode of
         "console" -> ModeConsole
         "cli"     -> ModeCli
         _         -> ModeHttp 8080
-  pure $ SDefMain entryMode mInit step mDone mOnDone
+  pure $ SDefMain entryMode mInit step mDone mOnDone mStatus
 
 -- ---------------------------------------------------------------------------
 -- Type decoder

@@ -718,6 +718,20 @@ data Statement
     , defMainStep   :: Expr           -- ^ :step (name or lambda)
     , defMainDone   :: Maybe Expr     -- ^ :done? (console only)
     , defMainOnDone :: Maybe Expr     -- ^ :on-done (optional)
+    -- | PROC-BOUNDARY-1 §4: @:status@, a total projection from the state type
+    -- to @int@, applied ONLY on the @:done?@ path. It is not an effect: nothing
+    -- in the program observes the result and the program does not continue past
+    -- it, so it is a field on the entry declaration rather than a 'Command'.
+    -- Absent means exit 0 on that path, which is every shipped program's
+    -- behaviour, so the field is additive.
+    --
+    -- Deliberately NOT consulted on stdin exhaustion (§4.3): where @:done?@ is
+    -- DECLARED the harness exits a fixed 70 there, and where it is not, EOF is
+    -- normal termination and the harness exits 0. The information separating
+    -- "finished" from "starved" lives in @:done?@, a predicate OUTSIDE the
+    -- state, so a projection from state alone cannot see it, and where the
+    -- predicate is absent there is no starvation to see.
+    , defMainStatus :: Maybe Expr     -- ^ :status (optional; console :done? path)
     }
   -- v0.2 module system
   | SOpen

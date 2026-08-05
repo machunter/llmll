@@ -1,7 +1,7 @@
 ---
 name: proc-boundary-1-proposal
 title: "PROC-BOUNDARY-1: argv in, status out"
-status: "Rev 1, SETTLED, READY FOR ENGINEER. Specifies the process boundary sub-phase 4a is blocked on: an entry that both receives argv and reports a defined terminal status. The two halves are deliberately different categories. Reading argv is an ambient nondeterministic read and lands in the capability system as `wasi.proc.args`, on the EXISTING `RList` arm under the EXISTING `ENonDet` label, riding RC-3's already-shipped path, with zero grammar and zero schema change. Setting a terminal status is NOT an effect, since nothing in the program observes it and the program does not continue past it, so it lands in `def-main` as `:status`, a pure projection from state to int. One refutation is folded from the drafting turn and it strengthened the design: Rev 1's first form applied `:status` at both terminal paths and claimed section 4's `Phase` sum would distinguish a starved run from a clean finish. It does not. All three arms (`Sequencing`, `Delegating`, `Waving`) are non-terminal and the distinguishing information lives in `:done?`, a predicate outside the state. EOF-before-`:done?` is therefore a harness-level condition and exits a fixed, disclosed 70 without consulting `:status`, which makes the no-silent-success guarantee universal rather than conditional on the caller's data modelling. Nothing escapes to Lean and nothing is nonlinear: the whole boundary lands in the auto-discharged fragment, which is the result that justifies this shape."
+status: "Rev 3, SETTLED. IMPLEMENTED EXCEPT ONE NAMED ITEM: section 4.1's semantics ship in full, and section 6.3's `tcWarn` (fire when `:status` names a function carrying no range postcondition) is OWED, not built. It needs `checkStatusField` to look up the named function's contract, which it does not do. Flagged by the implementing engineer against this document's own status line, on the ground that IMPLEMENTED unqualified would be read as covering everything the proposal names. Rev 3 removes a breaking change Rev 2 introduced, and it was found by an engineer implementing Rev 2 faithfully and reporting the consequence rather than by re-reading the spec. Rev 2 gated the exhaustion exit on whether `:done?` FIRED, so a program declaring no `:done?` could never signal completion, every run of it terminated by exhaustion, and every run exited 70 where it had exited 0. That is a false alarm on a successful run: a program with no completion predicate is a stream processor and for it EOF is the normal end of input, not starvation. Measured population: examples/replay-demo, examples/proof_required_test, compiler/test/fixtures/pair_type_test. Rev 3 gates on whether `:done?` is DECLARED. The guarantee survives exactly where it means anything (no program that declares a completion predicate can exit 0 without reaching it) and the breaking change disappears entirely. Rev 2 folded three findings the implementation measured, one of which is a defect in this document. (1) EDGE CASE 3 WAS WRONG AND CONTRADICTED THIS PROPOSAL'S OWN RISK 2: it said an out-of-range `:status` is rejected at `llmll verify` before codegen, and the compiler injects no postcondition, so the range binds only where the program declares it. An undeclared `:status` returning 300 truncates to 44 and one returning 256 exits 0 REPORTING SUCCESS, which is exactly what risk 2 described and edge case 3 denied. Corrected, with a `tcWarn` named as the in-scope move. (2) The two terminal paths are not separately addressable in the emitted program: `settle` returns to `loop` and `loop` returns to `main`, so the implementation threads the outcome back as `Maybe Integer` rather than exiting inside the branches, which keeps `hClose` on both paths. (3) A pre-existing sibling defect was found by executing rather than reading: the `:done?` check compares the whole expression's type against `TBool` where `:done?` names a FUNCTION of type `TFn [S] bool`, so it warns on every correct console program in the corpus and carries no information; `checkStatusField` reads the return position instead and does not copy it. The sibling is left alone and owed a row. Rev 1 specified the process boundary sub-phase 4a is blocked on: an entry that both receives argv and reports a defined terminal status. The two halves are deliberately different categories. Reading argv is an ambient nondeterministic read and lands in the capability system as `wasi.proc.args`, on the EXISTING `RList` arm under the EXISTING `ENonDet` label, riding RC-3's already-shipped path, with zero grammar and zero schema change. Setting a terminal status is NOT an effect, since nothing in the program observes it and the program does not continue past it, so it lands in `def-main` as `:status`, a pure projection from state to int. One refutation is folded from the drafting turn and it strengthened the design: Rev 1's first form applied `:status` at both terminal paths and claimed section 4's `Phase` sum would distinguish a starved run from a clean finish. It does not. All three arms (`Sequencing`, `Delegating`, `Waving`) are non-terminal and the distinguishing information lives in `:done?`, a predicate outside the state. EOF-before-`:done?` is therefore a harness-level condition and exits a fixed, disclosed 70 without consulting `:status`, which makes the no-silent-success guarantee universal rather than conditional on the caller's data modelling. Nothing escapes to Lean and nothing is nonlinear: the whole boundary lands in the auto-discharged fragment, which is the result that justifies this shape."
 date: 2026-08-05
 author: language-team
 consumers: [compiler-engineer, documentation-lead, professor, user]
@@ -105,12 +105,28 @@ same rule. If argv later earns its own label the change is additive and carries 
 
 Two terminal paths, and they are **not** treated alike.
 
-| Path | Behaviour |
-|---|---|
-| `:done?` holds | The harness applies `:status` to the final state and exits with the result. `:status` absent means exit 0 |
-| stdin reaches EOF first | The harness exits **70**, fixed and disclosed. **`:status` is not consulted** |
+Two terminal paths, and they are **not** treated alike. The exhaustion status is gated on whether
+`:done?` is **declared**, not on whether it fired.
+
+| `:done?` | Terminal path | Behaviour |
+|---|---|---|
+| declared | it holds | Apply `:status` to the final state, exit with the result. `:status` absent means exit 0 |
+| declared | stdin exhausts first | Exit **70**, fixed and disclosed. **`:status` is not consulted** |
+| **not declared** | stdin exhausts | **Exit 0.** Normal termination |
 
 `:status` absent is today's behaviour for every shipped program, so the field is additive.
+
+**The third row is Rev 3, and it exists because Rev 2 broke three shipped programs.** Rev 2 gated on
+whether `:done?` *fired*, so a program declaring no `:done?` could never signal completion, every run
+of it terminated by exhaustion, and every run exited 70. That is a false alarm on a successful run:
+a program with no completion predicate is a stream processor, and for it EOF is not starvation but
+the normal end of input. Measured population at v0.14.84: `examples/replay-demo`,
+`examples/proof_required_test`, `compiler/test/fixtures/pair_type_test`.
+
+Gating on **declaration** rather than on firing keeps the guarantee exactly where it means anything:
+**no program that declares a completion predicate can exit 0 without reaching it.** A program that
+declares none has no notion of starvation to be protected from. The correction was found by an
+engineer implementing Rev 2 faithfully and reporting the consequence, not by re-reading the spec.
 
 ### 4.2 The refutation this section is built on
 
@@ -136,9 +152,10 @@ design, for a reason that survives the refutation that produced it.
 
 Under the original form, protection from the silent-success bug was **conditional on the caller's
 data modelling**: a program that carefully modelled a terminal phase was protected, and a program
-with a flat state type kept the bug. Under the revision, **no program can exit 0 on a starved
-stdin**, whatever its state type. The guarantee stops depending on the caller getting something
-right.
+with a flat state type kept the bug. Under the revision, **no program that declares `:done?` can
+exit 0 on a starved stdin**, whatever its state type. The guarantee stops depending on the caller
+getting its data modelling right, and depends instead on the one declaration that defines what
+starvation would even mean for that program.
 
 Asking a program to score a state it does not consider terminal is asking it to describe a
 condition it has no knowledge of. The harness knows; the program does not.
@@ -165,7 +182,7 @@ a hole in an otherwise total 0..255 range.
 
 | Obligation | Channel | Fragment |
 |---|---|---|
-| `0 <= status <= 255` | contract | **QF-LIA, auto-discharged** by liquid-fixpoint (`LLMLL.md` §5.3.3) |
+| `0 <= status <= 255`, **where the program declares it** | contract | **QF-LIA, auto-discharged** by liquid-fixpoint (`LLMLL.md` §5.3.3). Nothing is auto-injected; see edge case 3 |
 | `:status` total over the state type | type | decidable; `checkExhaustive` in [`TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) already enforces coverage for sum-typed scrutinees |
 | `wasi.proc.args` carries `ENonDet` | trust | existing label; `EffectSummary`'s join is unchanged and nothing widens to `Unbounded` |
 
@@ -179,17 +196,25 @@ here.
 ## 6. Edge cases and degenerate inputs
 
 **1. EOF before `:done?` ever fires.** *(Positive witness. This is the bug the proposal closes.)*
-Feed a driver two lines when its wave needs four. **Today:** partial state written, no diagnostic,
-**exit 0**. **Under this proposal:** exit **70**, `:status` not consulted. Channel: **harness**, not
+Feed a driver two lines when its wave needs four; the driver declares `:done?`, which is what makes
+the shortfall observable. **Today:** partial state written, no diagnostic, **exit 0**. **Under this
+proposal:** exit **70**, `:status` not consulted. Channel: **harness**, not
 contract, and deliberately so per §4.3, since a contract obligation would only bind programs that
 already modelled the case. Cite: `CodegenHs.hs:1587-1588`.
 
-**2. `:status` absent.** Every console program shipped to date. Exit 0 on the `:done?` path, exit 70
-on exhaustion. Channel: **spec is silent by design**, and the default is stated rather than left to
-inference.
+**2. `:status` absent.** Every console program shipped to date. Exit 0 on the `:done?` path; exit 70
+on exhaustion **only where `:done?` is declared**, and 0 otherwise. Channel: **spec is silent by
+design**, and the default is stated rather than left to inference.
 
-**3. `:status` returns 300, or -1.** Rejected at `llmll verify` by the range refinement, before
-codegen. Channel: **contract**, QF-LIA.
+**3. `:status` returns 300, or -1.** Rejected at `llmll verify` **if and only if the program declares
+the range as a postcondition** on the function `:status` names. *(Corrected at Rev 2, measured
+during implementation. Rev 1 said "rejected before codegen" without the conditional, which
+contradicted this proposal's own risk 2.)* The compiler injects no postcondition, so an undeclared
+`:status` returning 300 truncates to 44, and one returning **256 exits 0 and reports success**.
+Channel: **contract, and only where declared**, QF-LIA when it is. The in-scope move is a `tcWarn`
+when `:status` names a function carrying no range postcondition, on the same precedent as edge case
+6; auto-injecting the predicate is the alternative and is a larger change, since it would put a
+clause on a user function the user did not write.
 
 **4. `:done?` holds on the first line.** `:status` applied to a state that consumed exactly one
 line. Nothing special; the projection is total. Channel: **type**.
@@ -201,18 +226,20 @@ catch-all suppressed, so a program that matches `RList` against a literal arm is
 population.
 
 **6. A program declares `:status` but no `:done?`.** The `:done?` path is unreachable, so the only
-exit is exhaustion at 70 and `:status` is dead. Channel: **spec is silent (gap, flagged)**. The
-in-scope move is a `tcWarn`, not an error, on the precedent that `MATCH-CATCHALL-1`'s population is
-bounded by programs shipping past a warning.
+exit is exhaustion, which under §4.1's third row is **0**, and `:status` is dead surface. Channel:
+**spec is silent (gap, flagged)**. The in-scope move is a `tcWarn`, not an error, on the precedent
+that `MATCH-CATCHALL-1`'s population is bounded by programs shipping past a warning.
 
 **7. Empty stdin: `:init` runs, `:step` never does.** *(The degenerate limit of case 1, and it needs
 saying separately because effects have already happened.)* The generated harness performs `:init`'s
 command **before** the loop's first `hIsEOF` test (`CodegenHs.hs:1598-1602`, then `:1586-1588`). A
 program invoked with argv and no stdin therefore acquires its arguments, performs whatever `:init`
-commands, and exits **70** without a single `:step`. This is the correct outcome, since the program
-never reached a state it considers terminal, but it is the one path where a nonzero status coexists
-with completed side effects. Channel: **harness**. It is disclosed rather than prevented: preventing
-it would mean forbidding effects in `:init`, which RC-3 depends on.
+commands, and terminates without a single `:step`. **Where `:done?` is declared it exits 70**, which
+is correct, since the program never reached a state it considers terminal; it is the one path where
+a nonzero status coexists with completed side effects. Where `:done?` is not declared it exits 0,
+per §4.1's third row, and the side effects stand as the run's whole output. Channel: **harness**. It
+is disclosed rather than prevented: preventing it would mean forbidding effects in `:init`, which
+RC-3 depends on.
 
 ---
 

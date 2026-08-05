@@ -199,6 +199,23 @@ builtinEnv = Map.fromList $
   -- (RErr), not a hang.
   , ("wasi.proc.run",      TFn [TString, TList TString, TString, TString, TString, TInt]
                                (TCustom "Command"))
+  -- PROC-BOUNDARY-1 half one: the process argument vector.
+  --
+  -- Nullary, so it binds as a VALUE (the wasi.clock.monotonic shape below), and
+  -- it lands on the EXISTING RList arm rather than a sixth one. CAP-PROC's
+  -- admissibility rule states that needing a new arm is the signal EFFECT-RESP's
+  -- arm set was wrong; a vector of strings is what RList already carries, so
+  -- there is nothing to admit and the Response sum does not move.
+  --
+  -- Namespace is wasi.proc (extractWasiNamespace takes the first two segments),
+  -- so it rides the capability import wasi.proc.run already opens. As with every
+  -- other name here, CAP-1 does not discriminate the verb (CAP-1-REAL).
+  --
+  -- It needs NO grammar and NO def-main change: RC-3 already routes :init's
+  -- command into the first response (CodegenHs.hs:1594-1597), so a program that
+  -- wants argv issues this as :init's command and matches RList on r0. :init's
+  -- arity does not move, so every shipped console program keeps working.
+  , ("wasi.proc.args",     TCustom "Command")
   -- Nullary: binds as a VALUE, not a 0-arg function, matching the RNone
   -- convention below and COMP-3b-general's treatment of nullary constructors.
   , ("wasi.clock.monotonic", TCustom "Command")
@@ -1697,7 +1714,8 @@ checkStatement (SExpr expr) = do
   _ <- inferExpr expr
   pure ()
 
-checkStatement (SDefMain { defMainMode = mode, defMainStep = stepE, defMainDone = doneE }) = do
+checkStatement (SDefMain { defMainMode = mode, defMainStep = stepE, defMainDone = doneE
+                         , defMainStatus = statusE }) = do
   -- Type-check the step and done? expressions
   stepTy <- inferExpr stepE
   checkStepArity mode stepTy
@@ -1708,6 +1726,63 @@ checkStatement (SDefMain { defMainMode = mode, defMainStep = stepE, defMainDone 
       doneOk <- compatibleExpanded doneType TBool
       unless doneOk $
         tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
+  checkStatusField mode doneE statusE
+
+-- | PROC-BOUNDARY-1 §4: the @:status@ field's check-time surface.
+--
+-- Three diagnostics, all warnings and none an error, because @:status@ is
+-- additive and no shipped program declares it: a hard error here could only
+-- fire on a program written after this ships, and the design's own gap case
+-- (§6.6) names @tcWarn@ as the in-scope move.
+--
+-- IT DOES NOT COPY THE @:done?@ CHECK ABOVE, deliberately. That check compares
+-- the inferred type of the whole EXPRESSION against 'TBool', but @:done?@ names
+-- a FUNCTION, so its type is @TFn [S] bool@ and 'compatibleWith' falls through
+-- to structural equality and returns False. Measured at v0.14.84: `llmll check`
+-- on scripts/build-smoke/smoke.llmll, a correct program, reports
+-- "1 warning ... :done? should return bool". The warning fires on every console
+-- program in the corpus that declares @:done?@ by name, so it carries no
+-- information. This function reads the RETURN POSITION instead, which is what
+-- the sibling meant to do. The sibling is left alone rather than fixed here:
+-- changing it is a behaviour change to an unrelated diagnostic and belongs to
+-- its own row.
+--
+-- 'TVar' in return position (an unannotated @def-shell@) is compatible with
+-- anything by 'compatibleWith':2777, so an inferred-return program is not
+-- warned at. That is the same latitude 'checkStepArity' extends and for the
+-- same reason: every console entry point in the corpus is unannotated.
+checkStatusField :: EntryMode -> Maybe Expr -> Maybe Expr -> TC ()
+checkStatusField _    _     Nothing   = pure ()
+checkStatusField mode mDone (Just se) = do
+  -- §4: the field is meaningful only where a :done? path exists to apply it on.
+  -- cli and http harnesses perform no Command and have no terminal state to
+  -- project, so :status there is dead surface.
+  unless (mode == ModeConsole) $
+    tcWarn ":status applies only to :mode console; it is ignored in cli and http mode"
+  -- §6.6, the gap the proposal flags: with no :done? the settle path is
+  -- unreachable, the only exit is stdin exhaustion, and exhaustion does NOT
+  -- consult :status (§4.3). The projection is therefore dead code, and a
+  -- program that declared it believing it would run on EOF has the design
+  -- exactly backwards. A warning rather than an error, on the MATCH-CATCHALL-1
+  -- precedent: the population is bounded by programs shipping past a warning.
+  --
+  -- Rev 3 sharpened what the dead path exits: 0, not 70. A program with no
+  -- :done? has no notion of completion, so EOF is normal termination rather
+  -- than starvation. That makes this warning MORE worth emitting, not less --
+  -- the author asked for an exit status and will silently get 0 every run.
+  when (mode == ModeConsole && not (isJust mDone)) $
+    tcWarn ":status without :done? is dead: the only exit is stdin exhaustion, \
+           \which is normal termination here and exits 0 without consulting \
+           \:status"
+  sTy      <- inferExpr se
+  resolved <- expandAlias sTy
+  retTy    <- case resolved of
+                TFn _ r -> expandAlias r
+                other   -> pure other
+  retOk    <- compatibleExpanded retTy TInt
+  unless retOk $
+    tcWarn ":status should return int (an exit status in 0..255); \
+           \found a non-int return type"
 
 -- | EFFECT-RESP (RC-1): the console @:step@ takes @(S, string, Response)@.
 --

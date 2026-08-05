@@ -83,6 +83,15 @@
   (def-shell smoke-clock [] -> Command
     wasi.clock.monotonic)
 
+  ;; PROC-BOUNDARY-1. Nullary like the clock above. Here for this fixture's
+  ;; stated contract -- every wasi.* name with a preamble body is called at
+  ;; least once, so a builtinEnv entry landing without a body fails the BUILD
+  ;; rather than a user's. Its RUNTIME behaviour (a real argument vector on the
+  ;; RList arm) is settled by scripts/build-smoke/proc_boundary.llmll, which is
+  ;; executed rather than only compiled.
+  (def-shell smoke-args [] -> Command
+    wasi.proc.args)
+
   ;; exec/argv: six positional parameters, and argv is list[string]. The gate
   ;; covers the list-typed ARGUMENT here the way smoke-step covers the
   ;; list-typed response payload.

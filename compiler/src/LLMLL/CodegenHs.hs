@@ -45,7 +45,7 @@ module LLMLL.CodegenHs
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nub, intercalate)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -200,6 +200,11 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- generated-project closure moves 31 -> 33 packages (measured, lts-22.43).
   , "import qualified System.Process as P"
   , "import System.Exit (ExitCode(..))"
+  -- PROC-BOUNDARY-1: wasi_proc_args's body. Unconditional like the CAP-PROC
+  -- Phase 2 bodies above, so runtimePreamble stays a top-level CAF the WASI-RT
+  -- completeness fold can walk without knowing the program's import set. base
+  -- only; no package.yaml entry is owed and the generated closure does not move.
+  , "import System.Environment (getArgs)"
   , "import System.Timeout (timeout)"
   , "import GHC.Clock (getMonotonicTimeNSec)"
   , "import qualified Data.ByteString as BS"
@@ -611,6 +616,33 @@ runtimePreamble =
   , "wasi_fs_mkdir :: String -> IO ()"
   , "wasi_fs_mkdir path ="
   , "  llmll_publish_io (createDirectoryIfMissing True path >> return RNone)"
+  , ""
+  -- PROC-BOUNDARY-1 half one. The argument vector, on the EXISTING RList arm.
+  --
+  -- getArgs, so argv[0] IS EXCLUDED. That is the vector a program reasons about
+  -- -- its flags -- and it is what ModeCli's harness has always passed to :step
+  -- (`args <- getArgs` in emitMainBody below). Publishing argv[0] here would
+  -- make the two entry modes disagree about what "the arguments" means, and the
+  -- executable's own path is a fact about how the process was launched rather
+  -- than about what it was asked to do.
+  --
+  -- `evaluate (length as)` for the wasi_fs_list reason: forcing inside
+  -- llmll_publish_io keeps any failure a VALUE (RErr) rather than a thunk the
+  -- PROGRAM forces later, where the exception becomes a crash instead of the
+  -- arm the channel promises. getArgs does not realistically throw; the force
+  -- costs one traversal of a list that is empty in most runs and keeps the body
+  -- structurally identical to its siblings rather than a special case a later
+  -- edit can get wrong.
+  --
+  -- The empty vector publishes `RList []`, NOT RNone, on wasi_fs_list's rule:
+  -- RNone is what llmll_reset_response leaves in the slot, so collapsing them
+  -- would make "invoked with no arguments" indistinguishable from "no command
+  -- published anything".
+  , "wasi_proc_args :: IO ()"
+  , "wasi_proc_args = llmll_publish_io $ do"
+  , "  as <- getArgs"
+  , "  _ <- evaluate (length as)"
+  , "  return (RList as)"
   , ""
   -- Nanoseconds since an unspecified epoch, as RCode. The epoch is unspecified
   -- ON PURPOSE: only DIFFERENCES of two readings from the same process are
@@ -1537,6 +1569,12 @@ emitMainHs modName stmts =
       [ "module Main where"
       , "import Lib"
       , "import System.Environment (getArgs)"
+      -- PROC-BOUNDARY-1: the console harness's terminal paths. Imported
+      -- unconditionally rather than per-mode because emitMainHs emits ONE
+      -- import block for all three harnesses; the generated project sets no
+      -- -Wall (emitPackageYaml below ships no ghc-options), so an import the
+      -- cli/http bodies do not use costs a name in scope and nothing else.
+      , "import System.Exit (exitWith, exitSuccess, ExitCode(..))"
       , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout)"
       , "import Data.IORef (newIORef, readIORef, modifyIORef')"
       , "import GHC.IO.Handle (hDuplicate, hDuplicateTo)"
@@ -1570,8 +1608,61 @@ emitMainHs modName stmts =
 -- an empty output value. Skipping the entry would leave `llmll replay` driving
 -- one fewer input than the recorded run consumed, which is a divergence the
 -- harness manufactured rather than one the program produced.
+-- PROC-BOUNDARY-1 §4: the two terminal paths, and their asymmetry is the whole
+-- design content.
+--
+--   :done? DECLARED, and it holds   -> apply :status to the final state, exit
+--                                      with it. No :status means exit 0.
+--   :done? DECLARED, stdin exhausts -> exit a fixed 70. :status is NOT
+--                                      consulted. This is the case the whole
+--                                      guarantee exists for.
+--   :done? NOT DECLARED             -> exit 0 on exhaustion.
+--
+-- THE DISCRIMINATOR IS DECLARATION, NOT FIRING, and Rev 3 corrects Rev 2 here.
+-- Under the Rev 2 rule the exhaustion status was unconditional, which made every
+-- run of a program with no :done? exit 70. That is a false alarm on a SUCCESSFUL
+-- run: a program that declares no completion predicate has no notion of
+-- completion, so reaching EOF is not starvation, it is the normal end of input.
+-- Rev 2's rule could only ever fire on such a program, never distinguish
+-- anything about it, and it broke three shipped programs to say nothing.
+--
+-- The guarantee survives intact WHERE "starved" IS MEANINGFUL: no program that
+-- declares a completion predicate can exit 0 without reaching it. That is still
+-- unconditional on the caller's state modelling, which is what §4.3 was
+-- protecting; it is now also conditional on the caller having asked the question
+-- at all, which is not a weakening because a program with no :done? has no
+-- starvation to be protected from.
+--
+-- The mechanism: `loop` now returns `Maybe Integer` instead of `()`. Nothing is
+-- exhaustion, `Just n` is a settled run carrying the status. Threading the
+-- outcome back to `main` rather than calling exitWith from inside the branches
+-- is what keeps `hClose logHandle` on both paths. It is not tidiness: the
+-- header line written before the loop is the ONLY log write with no following
+-- hFlush, so a program that reaches EOF before its first step would lose the
+-- header entirely if the exit jumped over the close.
+--
+-- WHY EOF DOES NOT CONSULT :status, since the code cannot say it. A projection
+-- from state alone cannot see the difference. A run that completed every stage
+-- and a run whose input ran out sit in the SAME state; what separates them is
+-- :done?, a predicate OUTSIDE the state. Applying :status at both paths would
+-- make protection from the silent-success bug conditional on the caller having
+-- modelled a terminal phase, and a flat state type would keep the bug. Fixing
+-- 70 at the harness makes "no program exits 0 on a starved stdin" hold whatever
+-- the state type is.
+--
+-- 70 is NOT reserved from the program: a :status may return 70 deliberately, so
+-- a shell can distinguish neither-is-success from success but not exhaustion
+-- from a chosen 70. Stated rather than left to inference; making 70
+-- unavailable buys a distinction nothing needs at the cost of a hole in an
+-- otherwise total 0..255 range.
+--
+-- NO SHIPPED PROGRAM CHANGES BEHAVIOUR. The three console programs in the tree
+-- that declare no :done? (examples/replay-demo, examples/proof_required_test,
+-- compiler/test/fixtures/pair_type_test) keep exiting 0, MEASURED, and the ones
+-- that do declare it were already unable to exit 0 by exhaustion because they
+-- did not terminate that way in any gate. :status is additive on top.
 emitMainBody :: Text -> Statement -> [Text]
-emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone} =
+emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone, defMainStatus = mStatus} =
   [ "main :: IO ()"
   , "main = do"
   , "  hSetBuffering stdin LineBuffering"
@@ -1580,12 +1671,19 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
   , "  hPutStrLn logHandle (headerJsonL \"" <> modName <> "\")"
   , "  seqRef <- newIORef (0 :: Int)"
   ] ++ initBlock ++
-  [ "  loop state0 r0 logHandle seqRef"
+  [ "  outcome <- loop state0 r0 logHandle seqRef"
   , "  hClose logHandle"
+  , "  llmll_terminate outcome"
   , "  where"
+  -- ExitFailure 0 is an error in GHC ("ExitFailure 0 makes no sense"), so the
+  -- zero case must branch to exitSuccess rather than be folded in.
+  , "    llmll_terminate :: Maybe Integer -> IO ()"
+  , exhaustionClause
+  , "    llmll_terminate (Just 0) = exitSuccess"
+  , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
   , "    loop s r logHandle seqRef = do"
   , "      eof <- hIsEOF stdin"
-  , "      if eof then return () else do"
+  , "      if eof then return Nothing else do"
   , "        line <- getLine"
   , "        seqN <- readIORef seqRef"
   , "        let (s', cmd) = " <> stepCall step <> " s line r"
@@ -1602,6 +1700,18 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
                  , "  r0 <- llmll_perform initCmd" ]
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\ s l r -> " <> emitExpr e <> " s l r)"
+    -- The exhaustion status, gated on whether :done? is DECLARED. mDone is the
+    -- discriminator and it is the only one available: whether :done? FIRED is a
+    -- run-time fact, and `Nothing` reaching this clause already says it did not.
+    --
+    -- With no :done? the (Just _) clauses below are unreachable -- settleDef is
+    -- empty, so nothing in the emitted loop constructs a Just. They are kept
+    -- rather than dropped so llmll_terminate stays total under its signature; a
+    -- one-clause definition would be a partial function whose fall-through is a
+    -- pattern-match failure rather than an exit.
+    exhaustionClause = case mDone of
+      Just _  -> "    llmll_terminate Nothing  = exitWith (ExitFailure 70)"
+      Nothing -> "    llmll_terminate Nothing  = exitSuccess"
     -- The non-terminating branch: perform, capture, log, recurse on the
     -- response. performStep clears the slot before performing and reads it
     -- after, so the delivered response is this command's and not a stale one.
@@ -1650,11 +1760,25 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
         [ "    settle " <> settleParam <> " seqN line logHandle = do"
         , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"none\" \"\")"
         , "      hFlush logHandle"
-        , "      " <> maybe "return ()" (\od -> emitExpr od <> " s'") mOnDone
-        ]
-    -- Underscore-prefixed when :on-done is absent, so -Wunused-matches stays
-    -- quiet on generated code.
-    settleParam = maybe "_s'" (const "s'") mOnDone
+        ] ++ onDoneLine ++
+        -- PROC-BOUNDARY-1: the settled run's status leaves through the return
+        -- value, so `main` still closes the log before exiting. :on-done keeps
+        -- running FIRST and its command is still performed here, outside
+        -- performStep, exactly as before -- the status application is appended
+        -- after it and observes only the state, so it cannot reorder anything.
+        [ "      return (Just (" <> statusExpr <> "))" ]
+    -- Absent :status is exit 0, which is what every program shipped before this
+    -- field did on the :done? path. The annotation pins the literal's type
+    -- rather than leaving it to the use site, so the generated code does not
+    -- depend on where GHC generalizes the where-block's binding group.
+    onDoneLine = maybe [] (\od -> ["      " <> emitExpr od <> " s'"]) mOnDone
+    statusExpr = maybe "0 :: Integer" (\st -> emitExpr st <> " s'") mStatus
+    -- Underscore-prefixed when NEITHER :on-done nor :status is present, so
+    -- -Wunused-matches stays quiet on generated code. :status reads the final
+    -- state too, so it binds the parameter for the same reason :on-done does.
+    settleParam
+      | isJust mOnDone || isJust mStatus = "s'"
+      | otherwise                        = "_s'"
 
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"
@@ -1862,7 +1986,8 @@ stmtExprs s = case s of
   SLetrec{}       -> [letrecDecreases s, letrecBody s]
   SExpr e         -> [e]
   SDefMain{}      -> catMaybes [ defMainInit s, Just (defMainStep s)
-                               , defMainDone s, defMainOnDone s ]
+                               , defMainDone s, defMainOnDone s
+                               , defMainStatus s ]
   _               -> []
 
 -- | Does this expression apply the given name anywhere inside it?

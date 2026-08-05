@@ -1,0 +1,73 @@
+;; PROC-BOUNDARY-1 execution fixture. Built AND RUN by scripts/build_smoke.sh.
+;;
+;; Three properties, none of which any check-only gate can settle, and two of
+;; which are exit codes the compiler cannot observe about itself:
+;;
+;;   1. wasi.proc.args delivers the real argument vector on the EXISTING RList
+;;      arm, through RC-3 (:init's command supplies the first response). The
+;;      program prints argc, and the gate invokes it with a known number of
+;;      arguments, so a body that publishes RList [] unconditionally fails here
+;;      and passes every string-shape assertion in the unit suite.
+;;
+;;   2. The :done? path applies :status and exits with the result. 42 is chosen
+;;      because it is neither 0 nor 70 nor 1, so it cannot be produced by
+;;      success, by exhaustion, or by a crash.
+;;
+;;   3. A stdin that runs out before :done? fires exits 70 WITHOUT consulting
+;;      :status. Under this same fixture the pre-PROC-BOUNDARY-1 harness exited
+;;      0 with partial state and no diagnostic. That is the positive witness the
+;;      proposal's §6.1 names, and it is the only assertion here whose failure
+;;      mode is silent success.
+;;
+;; Deliberately NOT folded into smoke.llmll: that fixture is a compile gate over
+;; the preamble and asserts nothing about a running process. An exit code is only
+;; observable from outside the program.
+
+(module proc-boundary
+  (import wasi.io   (capability stdout :deterministic false))
+  ;; wasi.proc.args shares the wasi.proc namespace with wasi.proc.run
+  ;; (extractWasiNamespace takes the first two segments), so this one clause
+  ;; grants both. CAP-1 does not read the verb (CAP-1-REAL), so `exec` here is
+  ;; documentation rather than a bound.
+  (import wasi.proc (capability exec :deterministic false))
+
+  ;; RC-3: :init's command supplies the FIRST response, so argv arrives as r0 in
+  ;; the loop's first turn. :init's arity does not move to carry it -- that is
+  ;; the whole reason half one needs no surface change.
+  (def-shell pb-init [] -> (int, Command)
+    (pair 0 wasi.proc.args))
+
+  ;; The counter advances by one per line in EVERY arm, so the number of stdin
+  ;; lines needed to reach :done? does not depend on how many arguments the
+  ;; process was given. Without that the two exit-code cases below would not be
+  ;; independent of the argv case.
+  (def-shell pb-step [s: int input: string r: Response] -> (int, Command)
+    (match r
+      ((RList as) (pair (+ s 1)
+                        (wasi.io.stdout (string-concat "argc="
+                                                       (int-to-string (list-length as))))))
+      ((RNone)    (pair (+ s 1) (wasi.io.stdout "tick")))
+      ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
+      ((RCode n)  (pair (+ s 1) (wasi.io.stdout (int-to-string n))))
+      ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))))
+
+  (def pb-done? [s: int] -> bool
+    (>= s 2))
+
+  ;; PROC-BOUNDARY-1 §4.4: the range refinement, on the DECLARED CONTRACT of the
+  ;; function :status names. Both branches are literals, so the obligation is
+  ;; ground QF-LIA and liquid-fixpoint discharges it without a precondition. A
+  ;; body like (+ s 40) would NOT verify -- s is an unconstrained int -- which is
+  ;; the point of putting the refinement on the contract rather than trusting the
+  ;; platform: POSIX truncates to the low 8 bits, so an unchecked 256 would exit
+  ;; 0 and report success.
+  (def pb-status [s: int] -> int
+    (post (and (>= result 0) (<= result 255)))
+    (if (>= s 2) 42 7))
+
+  (def-main
+    :mode    console
+    :init    (pb-init)
+    :step    pb-step
+    :done?   pb-done?
+    :status  pb-status))
