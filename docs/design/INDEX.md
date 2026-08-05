@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-08-02  
+> **Last updated:** 2026-08-05  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -71,7 +71,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [driver-in-llmll-campaign.md](driver-in-llmll-campaign.md) | Five phases to a working RFC-SWARM driver in LLMLL, and the language work it needs | **Rev 4, IN FLIGHT**: Phases 0 and 1 shipped v0.14.80; CAP-PROC shipped v0.14.81, leaving JSON-1 as Phase 2's last item |
 | [driver-ll-phase01-implementation-plan.md](driver-ll-phase01-implementation-plan.md) | Engineer plan for WASI-RT, EFFECT-RESP RC-1..RC-4, and DISCARD-1 | **IMPLEMENTED, shipped v0.14.80**; two of its path citations are stale (see the open-work record, R-5) |
 | [driver-ll-open-work.md](driver-ll-open-work.md) | What the v0.14.80 and v0.14.81 line shipped, and the work it deliberately left open | **ACTIVE ROUTING RECORD**: both releases done; two blockers filed as `CAP-1-REAL` and `CONSOLE-INIT-1`; R-11 promoted to `HTTP-GET-1` and R-13 closed at v0.14.81 |
-| [driver-ll-phase4-proposal.md](driver-ll-phase4-proposal.md) | The eleven agent-delegated stages, the serial wave, and the two oracles that can check them | **Rev 5, SETTLED, READY FOR ENGINEER**: `FS-ENCODING-1` and `FS-COPY-1` shipped v0.14.84; sub-phases 4a–4f open |
+| [driver-ll-phase4-proposal.md](driver-ll-phase4-proposal.md) | Eleven agent-delegated stages, the serial wave, and two checkable oracles | **Rev 7, SETTLED, READY FOR ENGINEER**: `FS-ENCODING-1` and `FS-COPY-1` shipped v0.14.84; sub-phase 4a unblocked, 4b-4f open |
 | [driver-ll-phase4-RESTART.md](driver-ll-phase4-RESTART.md) | Session restart record for Phase 4: branch, task queue, next actions, gotchas | **LIVE**; delete when Phase 4 closes |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
