@@ -12,15 +12,14 @@ consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
 Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 7,
 SETTLED). Everything else is downstream of those two.
 
-**Thirty-second version.** Phase 4's first three tasks shipped as v0.14.84 and are merged. The
-2026-08-05 session took the proposal from Rev 5 to Rev 7, ran the harness leg, ran the doc-lead pass,
-and put sub-phase 4a to the compiler-engineer, whose plan **found 4a blocked at the process
-boundary** (§4). The port cannot receive argv and cannot set an exit status, both measured, so the
-user's adjudication is **close the capability first, then port 4a against it**. The next action is a
-language-team capability proposal, not the port. Rev 8 is deliberately **not** open: four findings
-are filed and wait to be settled against measured behaviour rather than predicted (§8). The one
-thing not to re-derive: 4a's acceptance criterion is Rev 7 text, all eleven transitions have a test,
-and that work is done and committed.
+**Thirty-second version.** **Sub-phase 4a is SHIPPED** (`2b82464`, v0.14.85) and the phase now runs
+at **4b**. The 2026-08-05 session took the proposal from Rev 5 to **Rev 8**, ran the harness leg,
+found 4a blocked at the process boundary, specified and shipped the capability that unblocked it
+(`PROC-BOUNDARY-1`, v0.14.85), then ported 4a against it **with no shim**. Rev 8 settles all four
+findings Rev 7 held: three were predictions and all three are confirmed by execution. Everything is
+committed and every gate is green (§1). The one thing not to re-derive: **closing the capability
+before porting is what bought the no-shim result**, and a shim would have mediated every 4a
+acceptance result, which is the one property 4a exists to establish.
 
 ## 1. Where the work is
 
@@ -82,9 +81,11 @@ caller since v0.14.70.
 | 9 | Harness leg for 4a: T7 test, the guarded manifest read, §10 cases 16–18 | experiment-lead | **done**, uncommitted. 115 → 120 Python tests; findings F-9/F-10/F-11 |
 | 10 | Two roadmap rows (`FS-STAT-1` re-scoped, `MATCH-CATCHALL-1`), `CLAUSE-INDEP-1` under the layer-3 row, two DRIVER-LL notes additions, one stale internal cross-reference | documentation-lead | **done** 2026-08-05, `docs/compiler-team-roadmap.md` + `INDEX.md` |
 | 11 | Sub-phase 4a **plan**: module decomposition, acceptance instrumentation, eight measured findings | compiler-engineer | **done**, `driver-ll-phase4a-implementation-plan.md`. It found #4 blocked |
-| **12** | **The process-boundary capability: argv into a `Command`-performing entry, and a defined terminal status. Proposal, then row, then ship** | **language-team, then compiler-engineer** | **PENDING. This is next** |
-| 4 | Sub-phase 4a: sequencer, manifest, resume gate, two halt channels. No stage bodies | compiler-engineer | **BLOCKED by #12.** Plan written and holds; it cannot be executed against the current entry modes |
-| 5 | Sub-phases 4b–4f | compiler-engineer | pending, blocked by #4 |
+| 12 | `PROC-BOUNDARY-1`: `wasi.proc.args` + `def-main :status`. Proposal, row, ship, release | language-team → compiler-engineer → documentation-lead | **done, SHIPPED v0.14.85**. Proposal at Rev 3; no breaking change |
+| 4 | **Sub-phase 4a: sequencer, manifest, resume gate, two halt channels. No stage bodies** | compiler-engineer | **done, SHIPPED** (`2b82464`). No shim. 15/15 cover, 6 refute-crux perturbations |
+| 13 | Does the Python T7 mask like the port's did? | experiment-lead | **done**, answered NO by mutation. F-12/F-13. Cover is separable |
+| 14 | Rev 8: settle the four held findings | language-team | **done**, all three predictions confirmed |
+| **5** | **Sub-phases 4b–4f. 4b is next: stages B, C, I and §6's validation obligations as a shared facility** | **compiler-engineer** | **PENDING, UNBLOCKED. This is next** |
 | 6b | Doc-lead pass at each sub-phase | documentation-lead | pending, runs after each |
 
 ## 4. The next action
@@ -230,11 +231,25 @@ being filed in proposal §14 and absent here.
   'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
   the 4a plan; it wants a roadmap row and has none yet.
 
-## 8. Filed for Rev 8, deliberately not settled
+## 8. Rev 8: SETTLED, and what it cost to wait
 
-Rev 8 is **shut on purpose**. Four findings bear on the settled proposal, three of them predictions
-about behaviour the port has not yet exhibited, and this phase's record is that every revision which
-predicted was wrong in a checkable way. They are settled when 4a runs and measures them, not before.
+Rev 8 was **shut on purpose** until 4a ran, on the ground that every revision of this proposal which
+predicted was wrong in a checkable way. The wait paid. All three predictions were confirmed by
+execution, **and holding them produced two findings a predicted Rev 8 would have missed**: the
+cover's cells are separable, not merely present, and a perturbation that crashes is not a
+perturbation that refutes. Both came out of mutating the cover rather than reasoning about it.
+
+The table below is kept as the record of what was held and why. **All four are now settled in Rev 8
+§15.** Two items remain open and are NOT Rev 8's:
+
+- **`PROC-BOUNDARY-1`'s range refinement is body-faithful only for a scalar state.** A `def`
+  projecting a pair falls back, measured on `[s: (int,int)]` as much as on the driver's state, so
+  `:status`'s range post is contract-checked rather than proved for any real driver. The 4a port
+  puts the weight on a body-faithful `exit-code` and clamps at the boundary. **Language-team.**
+- **`sha256_file` is partial.** It opens its path with no existence check and is correct today only
+  because the presence guard runs first. Any refactor computing digests independently of the
+  presence sweep turns a deleted artifact from a clean re-run into a traceback. Defence-in-depth,
+  no defect reachable at HEAD. **Compiler-engineer.**
 
 | # | Finding | Where it lands | Status |
 |---|---|---|---|
