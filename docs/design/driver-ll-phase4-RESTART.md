@@ -13,12 +13,14 @@ Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal
 SETTLED). Everything else is downstream of those two.
 
 **Thirty-second version.** Phase 4's first three tasks shipped as v0.14.84 and are merged. The
-2026-08-05 session took the proposal from Rev 5 to Rev 7 and ran the harness leg that Rev 6 had put
-in front of sub-phase 4a. **Sub-phase 4a is now unblocked and is the next action** (§4). Six files
-are modified and uncommitted (§1). Two roadmap edits and three routing rows are waiting on doc-lead
-and block nothing (§3 row 10, §6). The one thing not to re-derive: the acceptance criterion for 4a
-is Rev 7 text and the transition count moved twice, from eight to nine to **eleven**, all eleven of
-which now have a test.
+2026-08-05 session took the proposal from Rev 5 to Rev 7, ran the harness leg, ran the doc-lead pass,
+and put sub-phase 4a to the compiler-engineer, whose plan **found 4a blocked at the process
+boundary** (§4). The port cannot receive argv and cannot set an exit status, both measured, so the
+user's adjudication is **close the capability first, then port 4a against it**. The next action is a
+language-team capability proposal, not the port. Rev 8 is deliberately **not** open: four findings
+are filed and wait to be settled against measured behaviour rather than predicted (§8). The one
+thing not to re-derive: 4a's acceptance criterion is Rev 7 text, all eleven transitions have a test,
+and that work is done and committed.
 
 ## 1. Where the work is
 
@@ -26,9 +28,9 @@ which now have a test.
 is merged and can be deleted. **Nothing is pushed**; `origin` is still at v0.14.83, so `main` is ten
 commits ahead.
 
-**UNCOMMITTED, and this is the part a fresh session will not otherwise know about.** Six files are
-modified in the working tree from the 2026-08-05 session (proposal Rev 6 and Rev 7, plus Task #9's
-harness leg). Nothing is staged. No commit was authorized.
+**All of the 2026-08-05 session's work is committed.** Rev 6 and Rev 7 plus Task #9's harness leg
+landed as `766be6e` and `c10081d`. The table below records who wrote what, since the split is not
+recoverable from the diff.
 
 | File | What changed | Role that wrote it |
 |---|---|---|
@@ -78,20 +80,39 @@ caller since v0.14.70.
 | 3 | `FS-ENCODING-1` + `wasi.fs.copy` | compiler-engineer | **done**, v0.14.84 (`82a0772`, `0f2c22f`) |
 | 6a | Release ceremony v0.14.84 | documentation-lead | **done** (`a182638`) |
 | 9 | Harness leg for 4a: T7 test, the guarded manifest read, §10 cases 16–18 | experiment-lead | **done**, uncommitted. 115 → 120 Python tests; findings F-9/F-10/F-11 |
-| **4** | **Sub-phase 4a: sequencer, manifest, resume gate, two halt channels. No stage bodies.** | **compiler-engineer** | **PENDING, UNBLOCKED. This is next** |
+| 10 | Two roadmap rows (`FS-STAT-1` re-scoped, `MATCH-CATCHALL-1`), `CLAUSE-INDEP-1` under the layer-3 row, two DRIVER-LL notes additions, one stale internal cross-reference | documentation-lead | **done** 2026-08-05, `docs/compiler-team-roadmap.md` + `INDEX.md` |
+| 11 | Sub-phase 4a **plan**: module decomposition, acceptance instrumentation, eight measured findings | compiler-engineer | **done**, `driver-ll-phase4a-implementation-plan.md`. It found #4 blocked |
+| **12** | **The process-boundary capability: argv into a `Command`-performing entry, and a defined terminal status. Proposal, then row, then ship** | **language-team, then compiler-engineer** | **PENDING. This is next** |
+| 4 | Sub-phase 4a: sequencer, manifest, resume gate, two halt channels. No stage bodies | compiler-engineer | **BLOCKED by #12.** Plan written and holds; it cannot be executed against the current entry modes |
 | 5 | Sub-phases 4b–4f | compiler-engineer | pending, blocked by #4 |
 | 6b | Doc-lead pass at each sub-phase | documentation-lead | pending, runs after each |
-| 10 | Two roadmap rows (`FS-STAT-1` re-scoped, `MATCH-CATCHALL-1`), `CLAUSE-INDEP-1` under the layer-3 row, two DRIVER-LL notes additions, one stale internal cross-reference | documentation-lead | pending, parallel, blocks nothing |
 
 ## 4. The next action
 
-**Task #4, sub-phase 4a.** The harness leg ran and unblocked it. 4a now has a red/green target rather
-than a description: **eleven of eleven cover cells and all three corrupt-manifest shapes have a
-Python-side test**, where at Rev 6 the count was ten of eleven and zero of three.
+**Task #12, the process-boundary capability.** The 4a plan is written and its acceptance
+instrumentation holds, but it cannot run: the port has no way to receive `--workdir`, `--only` or
+`--force`, and no way to exit 2. Both were measured, not inferred, and both are in the compiler
+rather than in the port.
 
-Proposal §9 gives the row. Its acceptance cell is Rev 7 text, not Rev 5 text; the count moved twice.
+1. **`ModeCli` has argv and performs no `Command`.** `emitMainBody` generates
+   `args <- getArgs; print (step args)` (`CodegenHs.hs:1659-1663`). It can read the flags and cannot
+   act on them.
+2. **`ModeConsole` performs `Command`s and never sees argv**, and its loop ends at
+   `if eof then return ()` (`:1587-1588`), so a starved stdin exits **0** having written partial
+   state, with no diagnostic. There is no terminal-marker check.
+3. **Neither mode can set an exit status.** The rig asserts `returncode == 2` at four sites in
+   `test_rfc_pipeline_integration.py`, and no entry mode can produce it.
 
-What the harness leg changed for the port, beyond the tests:
+**The adjudication is close the capability first, then port 4a against it**, rather than bridging it
+with a shim. The reason is that a shim would sit between the rig and the thing under test and
+mediate every 4a acceptance result, which is the one property 4a exists to establish.
+
+R-14 states the promotion rule this fires: an R-item becomes a roadmap row **the moment something is
+blocked on it**, which is how R-11 became `HTTP-GET-1`. Something is now blocked on it.
+
+Sub-phase 4a resumes unchanged once #12 ships. Proposal §9 gives its row, and its acceptance cell is
+Rev 7 text, not Rev 5 text; the count moved twice. What the harness leg changed for the port, beyond
+the tests:
 
 1. **`read_manifest`** (`rfc_to_implementation.py:212`) guards three corrupt-manifest shapes and
    raises `StageFailure`, which the top-level `except Halt` renders as exit 2. The port needs a
@@ -194,11 +215,33 @@ being filed in proposal §14 and absent here.
   anything without a slash (`:150-151`), so the line numbers inside `` `Foo.hs:120-145` `` are never
   checked. Seven were stale in the proposal at Rev 5, five of them into `compiler/src/LLMLL/`, and
   all four of §10 case 6's. Rev 6 repaired them and proposes citing the top-level binding instead,
-  since a rename is grep-detectable where a line shift is not. **The roadmap has the same defect
-  internally**: its layer-3 row at `:210` cross-references CDP at `:224`, which is now a table header.
+  since a rename is grep-detectable where a line shift is not. **The roadmap had the same defect
+  internally**, and it was worse than drift: its layer-3 row cross-referenced CDP at `:224`, and
+  `:224` was **already a table header at `0b27ee0`, the commit that introduced the reference**. It
+  never resolved once. Doc-lead repaired it name-based on 2026-08-05, to the `#active-items` anchor,
+  so a line shift cannot re-break it.
 - **The driver's stage-selection flag is `--only`, not `--stages`.** The rig's fixture takes a
   `stages=` keyword and maps it (`test_rfc_pipeline_integration.py:275`). A hand-rolled invocation
   using `--stages` dies in argparse with exit 2, which reads exactly like a deliberate `Halt` and
   cost a debugging cycle on 2026-08-05.
 - **`pytest tmp_path` lives under `/var/folders`, which the driver refuses as a run directory.** Pass
   `--allow-volatile-workdir`; the rig already does.
+- **An LLMLL binding named `show` passes `llmll check` and fails GHC** with `Ambiguous occurrence
+  'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
+  the 4a plan; it wants a roadmap row and has none yet.
+
+## 8. Filed for Rev 8, deliberately not settled
+
+Rev 8 is **shut on purpose**. Four findings bear on the settled proposal, three of them predictions
+about behaviour the port has not yet exhibited, and this phase's record is that every revision which
+predicted was wrong in a checkable way. They are settled when 4a runs and measures them, not before.
+
+| # | Finding | Where it lands | Status |
+|---|---|---|---|
+| 1 | **§3.5 states a measurement with no epoch.** "46 `require()` sites plus three raises" was correct against `aa08051~1` and is **39 and ten** at HEAD. Nothing drifted: Task #8 landed the second raising form (`require_spec`, `:358`) that §3.5 itself ordered, so the counts moved because the repair shipped. §3.5's partition ("of the 46: 9 spec-defined, 26 …") is now over an encoding the repair replaced | §3.5 gains a measurement epoch and a re-measured partition | **Confirmed by measurement.** No bite for 4a; hits 4b's framing |
+| 2 | **`wasi.fs.sha256` collapses presence and digest into one command** (`RErr` absent / `RText` hex). Conservative in the safe direction | A third §7 disclosure, which the proposal does not list | Predicted. Confirm against the port |
+| 3 | **§4's sum encoding makes `:on-done` usable**, retiring the RC-4 workaround `spine.llmll:673-679` documents | §4, plus the workaround's own note | Predicted. Confirm against the port |
+| 4 | **The port decides all three corrupt-manifest shapes with one total predicate** over what the reader indexes, where the reference discriminates by Python exception site. The port is **better than the thing clause 1b checks it against** | Clause 1b, conformance-where-they-differ | Predicted, and it is the interesting one: 1b assumes the reference is the standard |
+
+The first is a document defect an engineer already tripped on, and it is recorded here rather than
+repaired so that the repair and its re-measurement land together.
