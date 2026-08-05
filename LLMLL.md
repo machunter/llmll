@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.84)
+# LLMLL: Large Language Model Logical Language (v0.14.85)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.84.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.85.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1522,8 +1522,12 @@ The LLMLL host runtime processes each `Command` as follows:
   :init    init-expr                      ;; returns (State, Command) pair
   :step    step-fn                        ;; console: (State, string, Response) -> (State, Command)
   :done?   done-pred                      ;; State -> Bool (optional; console only)
-  :on-done on-done-fn)                    ;; State -> Command (optional)
+  :on-done on-done-fn                     ;; State -> Command (optional)
+  :status  status-fn)                     ;; State -> int (optional; console only)
 ```
+
+Fields are parsed in the order shown. Every optional field is read sequentially, so a `def-main` that
+writes `:on-done` ahead of `:done?`, or `:status` ahead of `:on-done`, does not parse.
 
 A console `:step` takes **three** parameters. Declaring two, one, or a wrong third type is rejected with `def-main-step-arity`. The `cli` and `http` harnesses perform no command and so deliver no response; their `:step` is unchanged at `(State, string) -> (State, Command)`.
 
@@ -1540,6 +1544,7 @@ A console `:step` takes **three** parameters. Declaring two, one, or a wrong thi
 - `:init` must return a `(State, Command)` pair. The `Command` is executed (e.g., print welcome message), and the `State` is passed to the first `:step` call.
 - `:step` receives the current state and one line of input (for `console`) or the OS args (for `cli`). It must return a `(NewState, Command)` pair.
 - `:done?` (optional, console only) receives the new state after each step. If it returns `true`, the loop exits.
+- `:status` (optional, console only) is a **total projection from the state type to `int`**. It is applied to the final state when `:done?` holds, and the process exits with the result. Absent means exit 0. It is **not** consulted when stdin exhausts first; see "The terminal status" below.
 - The `Command` returned by `:step` is executed directly as an IO action (it is **not** printed or shown).
 
 #### Complete example
@@ -1605,6 +1610,63 @@ and **exactly once**, regardless of how many times `:done?` is checked.
 > behavior lose their last render rather than duplicating it. The four game examples under
 > `examples/` have not yet been repaired and are known to be affected.
 
+#### The terminal status (`:status`), and the two terminal paths
+
+A console program has two ways to stop, and the harness does **not** treat them alike. `:status` is a
+total projection from the state type to `int`, applied on one of them.
+
+| `:done?` | Terminal path | Behaviour |
+|---|---|---|
+| declared | it holds | `:status` is applied to the final state and the process exits with the result. `:status` absent means exit **0** |
+| declared | stdin exhausts first | The process exits a fixed, disclosed **70**. **`:status` is not consulted** |
+| not declared | stdin exhausts | The process exits **0**. Normal termination |
+
+**The discriminator is whether `:done?` is declared, not whether it fired.** A program that declares
+no completion predicate can never signal completion, so exhaustion is its only terminal path, and for
+such a program EOF is the normal end of input rather than starvation. Gating on firing would make
+every run of a stream processor exit 70, a false alarm on a successful run. Gating on declaration
+keeps the guarantee exactly where it means anything: **no program that declares a completion
+predicate can exit 0 without reaching it**, whatever its state type.
+
+**Exhaustion is a harness-level condition, which is why `:status` cannot report it.** A projection
+from state alone cannot distinguish a run that completed every stage from one whose input ran out,
+because the distinguishing information lives in `:done?`, a predicate *outside* the state. Asking the
+program to score a state it does not consider terminal is asking it to describe a condition it has no
+knowledge of. The harness knows; the program does not. The cost is disclosed rather than hidden: see
+"70 is not reserved" below.
+
+**Declare the range on the named function's contract. The compiler injects nothing.** A POSIX exit
+status is the low 8 bits of the value, so the useful range is `0..255`:
+
+```lisp
+(def exit-status [s: RunState] -> int
+  (post (and (>= result 0) (<= result 255)))
+  (if (all-stages-passed? s) 0 2))
+```
+
+With that postcondition the obligation is ground QF-LIA and liquid-fixpoint discharges it
+automatically (§5.3.3). Without it, nothing constrains the projection: a `:status` returning 300
+truncates to 44, and one returning 256 exits **0 and reports success**. The refinement is the only
+thing standing between the program and that outcome, and it binds only where it is written.
+
+`llmll check` warns in three cases, none of them an error: `:status` declared on a `cli` or `http`
+mode, which perform no `Command` and have no terminal state to project; `:status` declared with no
+`:done?`, where the settle path is unreachable and the projection is dead code (the author asked for
+an exit status and will silently get 0 on every run); and a named function whose return position is
+not `int`.
+
+**70 is not reserved from the program.** A `:status` may return 70 deliberately, so a shell can tell
+that neither outcome is success but cannot separate exhaustion from a deliberate 70. Reserving it was
+considered and rejected: it buys a distinction nothing currently needs, at the cost of a hole in an
+otherwise total `0..255` range.
+
+One consequence worth stating separately, because effects have already happened when it fires. The
+harness performs `:init`'s command **before** the loop's first end-of-input test, so a program
+invoked with argv and an empty stdin acquires its arguments, performs whatever `:init` commands, and
+terminates without a single `:step`. Where `:done?` is declared that exits 70, correctly: the program
+never reached a state it considers terminal. It is the one path where a nonzero status coexists with
+completed side effects.
+
 In JSON-AST:
 
 ```json
@@ -1616,6 +1678,10 @@ In JSON-AST:
   "done?": { "kind": "var", "name": "is-game-over?" }
 }
 ```
+
+The optional fields carry their surface names, minus the leading colon: `init`, `done?`, `on-done`,
+and `status` (`schemaVersion` 0.11.0; a `def-main` that declares no `:status` emits no `status` key
+and round-trips byte-identically).
 
 ### 9.6 `do`-notation State Threading
 
@@ -1667,7 +1733,7 @@ function ever performing IO.
 | `RText string` | the text produced | `wasi.fs.read` |
 | `RCode int` | a numeric outcome | operations whose result is a status or code |
 | `RErr string` | the failure message | any command whose IO failed |
-| `RList list[string]` | the entries produced | `wasi.fs.list` |
+| `RList list[string]` | the entries produced | `wasi.fs.list`, `wasi.proc.args` |
 
 ```lisp
 (def-shell read-step [s: int input: string r: Response] -> (int, Command)
@@ -2164,7 +2230,11 @@ def-main    = "(" "def-main"
                 ":step"     expr
                 [ ":done?"   expr ]
                 [ ":on-done" expr ]
+                [ ":status"  expr ]
               ")" ;
+              (* Fields are read in this order; an out-of-order optional
+                 field does not parse. :status is console-only, a total
+                 State -> int projection applied when :done? holds (§9.5). *)
 
 (* ============================================================ *)
 (* Property-based tests & generators                            *)
@@ -2455,6 +2525,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
 | `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
+| `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
 | `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds |
 | `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order |
 
@@ -2477,6 +2548,17 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as
 > `RCode` — with a budget overrun, a missing executable, or any IO failure arriving as `RErr`.
+> `wasi.proc.args` delivers the argument vector as `RList`, and an invocation with **no** arguments
+> as `RList` with zero entries rather than as `RNone`: `RNone` is what the response slot holds when
+> nothing published, so collapsing the two would make "invoked with no arguments" indistinguishable
+> from "no command published anything".
+>
+> **`wasi.proc.args` reads argv through the response channel, not through an entry-point parameter.**
+> A program that wants its arguments issues it as `:init`'s command and receives the vector as the
+> first `:step`'s `Response` (§9.7). `:init`'s arity does not move to carry it. `argv[0]` is
+> excluded, so `console` and `cli` agree on what "the arguments" means. It shares the `wasi.proc`
+> namespace with `wasi.proc.run`, and the capability check matches the namespace rather than the
+> verb (§7), so one `(import wasi.proc ...)` clause grants both.
 >
 > **`wasi.proc.run` takes an executable and an argument vector, never a shell string**, so no
 > metacharacter in argv is interpreted. Its `capability exec` clause makes the set of programs a

@@ -4,6 +4,111 @@
 
 <a id="Latest"></a>
 
+## v0.14.85: argv in, status out, and a starved stdin stops reporting success (2026-08-05)
+
+The process boundary DRIVER-LL sub-phase 4a is blocked on: an entry point that both receives the
+argument vector and reports a defined terminal status. The two halves are deliberately different
+categories, and splitting them on that line is what keeps the whole boundary inside the
+auto-discharged verification fragment. Nothing escapes to Lean and nothing is nonlinear.
+
+### Added, `wasi.proc.args` (`PROC-BOUNDARY-1`)
+
+    wasi.proc.args : Command
+
+Nullary, so it is a value rather than a call, the same shape as `wasi.clock.monotonic`. It delivers
+the process argument vector on the **existing** `RList` response arm under the **existing**
+`ENonDet` effect label, `argv[0]` excluded. **The catalog does not grow**: six effect labels before,
+six after, and `Response` gains no sixth arm. The name lands in the `wasi.proc` namespace and CAP-1
+matches the namespace rather than the verb, so the `(import wasi.proc (capability exec ...))` clause
+a program already writes for `wasi.proc.run` grants this too.
+
+It rides RC-3 rather than moving an entry point's arity: a program issues `wasi.proc.args` as
+`:init`'s command and reads the vector as `r0` on its first `:step`. `:init`'s arity does not move,
+so every console program shipped to date keeps working. An invocation with no arguments publishes
+`RList` with zero entries and **not** `RNone`, on `wasi.fs.list`'s rule: `RNone` is what the response
+slot holds when nothing published, so collapsing the two would make "invoked with no arguments"
+indistinguishable from "no command published anything".
+
+### Added, `def-main :status` (`PROC-BOUNDARY-1`)
+
+One new optional `def-main` field, a total function from the state type to `int`, applied to the
+final state when `:done?` holds; the process then exits with the result. Absent means exit 0, which
+is every shipped program's behaviour today, so the field is additive.
+
+| `:done?` | Terminal path | Exit |
+|---|---|---|
+| declared | it holds | `:status` applied to the final state; **0** when `:status` is absent |
+| declared | stdin exhausts first | a fixed **70**; `:status` is **not** consulted |
+| not declared | stdin exhausts | **0**, normal termination |
+
+The second row is the defect this closes. The console loop ended at `if eof then return ()`, so a
+program whose stdin ran out before it reached its own terminal state wrote partial state and exited
+**0**, with no diagnostic of any kind. Measured both ways rather than read off the diff: one fixture,
+emitted by the pre-change compiler and by the post-change compiler, same GHC and same inputs, exits
+0 then **70** on a starved run and 0 then **42** on a completed one. Before this release a program
+had no way to produce 42 at all, which is what made sub-phase 4a's acceptance criterion unmeetable
+rather than awkward.
+
+**There is no breaking behaviour change, and the third row is why.** The exhaustion rule is gated on
+whether `:done?` is **declared**, not on whether it fired. A program that declares no completion
+predicate can never signal completion, so exhaustion is its only terminal path; gating on firing
+would have made every run of such a program exit 70, a false alarm on a successful run. A program
+with no completion predicate is a stream processor, and for it EOF is the normal end of input rather
+than starvation. All three in-tree console programs that declare no `:done?` (`examples/replay-demo`,
+`examples/proof_required_test`, `compiler/test/fixtures/pair_type_test`) were built and run, and all
+three exit 0 before and after. That is the whole measured population, not a sample. The guarantee
+survives exactly where it means anything: **no program that declares a completion predicate can exit
+0 without reaching it**, whatever its state type.
+
+**Declare the range yourself; the compiler injects nothing.**
+
+```lisp
+(def exit-status [s: RunState] -> int
+  (post (and (>= result 0) (<= result 255)))
+  ...)
+```
+
+POSIX truncates a status to the low 8 bits. With that postcondition the obligation is ground QF-LIA
+and liquid-fixpoint discharges it; without it a `:status` returning 300 truncates to 44, and one
+returning 256 exits **0 and reports success**. `llmll check` warns when `:status` is declared on a
+non-console mode, when it is declared with no `:done?` (the settle path is unreachable, so the
+projection is dead code and the author will silently get 0 every run), and when the named function's
+return position is not `int`. It does **not** yet warn when that function carries no range
+postcondition; that diagnostic is named in the settled design and is the one piece of
+`PROC-BOUNDARY-1` still owed.
+
+**70 is not reserved from the program.** A `:status` may return 70 deliberately, so a shell can tell
+that neither outcome is success but cannot separate exhaustion from a deliberate 70. Reserving it was
+considered and rejected: it buys a distinction nothing currently needs, at the cost of a hole in an
+otherwise total 0..255 range.
+
+### Also
+
+- **JSON-AST schema 0.10.0 to 0.11.0**, additive: one optional `status` property on `DefMain`, `$id`
+  moved to `/schemas/v0.11/`, nothing removed. `0.10.0` stays in the accepted-versions list, no field
+  changed meaning, and a `def-main` without `:status` round-trips byte-identically. A document
+  written by the new emitter that reaches an old reader fails on the version constant rather than
+  parsing wrongly.
+- **A new build gate**, [`scripts/build-smoke/proc_boundary.llmll`](scripts/build-smoke/proc_boundary.llmll),
+  built and run: it asserts four exit codes and both argv cases, plus a fifth assertion on
+  [`examples/replay-demo/replay-demo.llmll`](examples/replay-demo/replay-demo.llmll), a **shipped**
+  program with no `:done?`, which must exit 0. That last one deliberately is not a purpose-built
+  fixture: the claim it makes is a no-regression claim about a corpus that predates the change, and
+  only a program from that corpus can make it. The `|| true` idiom the neighbouring stages use is
+  unavailable here, because the exit code **is** the observation.
+- **A pre-existing sibling defect, found by executing rather than by reading**, is filed as
+  `DONE-TYPE-1` and deliberately left alone: the `:done?` check compares the whole expression's
+  inferred type against `bool` where `:done?` names a *function*, so it warns on every correct
+  console program in the corpus. `:status`'s check was written from scratch rather than copied and
+  reads the return position instead. Fixing the sibling changes an unrelated diagnostic on every
+  console program in the tree, which is its own row and its own release note.
+- **`llmll` gains no new command or flag.** The command table is unchanged.
+- **`LLMLL.md` §9.5, §12 and §13.9** carry the new surfaces.
+
+**Tests:** 1638 Haskell, 120 Python.
+
+---
+
 ## v0.14.84: the bytes the text channel could not carry (2026-08-04)
 
 Two filesystem gaps that DRIVER-LL Phase 4 needed, and the halt distinction the Python driver had
