@@ -575,7 +575,7 @@ The replay command:
 ```json
 // if_hole.ast.json
 {
-  "schemaVersion": "0.9.0",
+  "schemaVersion": "0.11.0",
   "statements": [
     { "kind": "def", "name": "greet",
       "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
@@ -762,13 +762,13 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.9.0",
+  "schemaVersion": "0.11.0",
   "llmll_version": "0.14.65",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
+The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
 
 | Field | Meaning |
 |-------|---------|
@@ -1593,7 +1593,7 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.9.0` (optional `pre_clauses`/`post_clauses` per-conjunct provenance arrays, SRC-CONJ-1; the reader also accepts `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility — the newer fields are additive-optional). New `.ast.json` files should carry `"schemaVersion": "0.9.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+- Schema `schemaVersion` is `0.11.0` (optional `status` field on `def-main`, PROC-BOUNDARY-1; the reader also accepts `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility, the newer fields being additive-optional). New `.ast.json` files should carry `"schemaVersion": "0.11.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
 ### §4.26 Bytes and Map Patterns (Array Class)
 
