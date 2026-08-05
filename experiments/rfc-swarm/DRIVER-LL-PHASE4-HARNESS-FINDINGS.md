@@ -818,3 +818,405 @@ section is the only write.
 `pytest scripts/tests/` 123 passed, 1 skipped, unchanged from the pre-leg baseline;
 `scripts/doc_path_lint.py` 837 prose path citations in 160 living files before this write and 840
 after, all resolve; `git status` shows this file and nothing else.
+
+---
+
+# Session 2026-08-05, third leg: re-measuring §3.5 against HEAD
+
+> Harness and reference at `6e92dd0` (`main`), compiler v0.14.86 (built and confirmed; no CLI
+> result is consumed below).
+> Brief: re-measure [`../../docs/design/driver-ll-phase4-proposal.md`](../../docs/design/driver-ll-phase4-proposal.md)
+> §3.5 against HEAD, because Rev 8 stamped the section with a measurement epoch rather than
+> renumbering it and sub-phase 4b reads the numbers.
+> Surface: [`../../scripts/rfc_to_implementation.py`](../../scripts/rfc_to_implementation.py),
+> [`../../scripts/tests/test_rfc_to_implementation.py`](../../scripts/tests/test_rfc_to_implementation.py),
+> [`../../scripts/tests/test_rfc_pipeline_integration.py`](../../scripts/tests/test_rfc_pipeline_integration.py),
+> [`targets/driver-spec.txt`](targets/driver-spec.txt).
+
+## Headline finding
+
+**The halt-site set did not move. Only the raising form did.** At the measurement epoch
+(`aa08051~1`) there were 46 halt-helper call sites, all `require()`. At HEAD there are still
+**exactly 46**, distributed as **36 `require()`, 9 `require_spec()`, 1 `require_written()`**, and
+every one of the 46 conditions matches an epoch site argument-for-argument. Task #8 changed no
+condition, added none and removed none; it re-encoded ten of them.
+
+**The shipped split agrees with §3.5's classification nine times out of nine, clause for clause**,
+and the polarity guard holds: §14:484-491's two must-not-halt checks are collected, logged and
+written to the report at `:942-943` with no `require*` call on either. The section's argument
+survives its re-measurement intact.
+
+Rev 8's arithmetic does not. **"46 call sites before, 39 after" is wrong in both directions**: the
+total is 46 at both epochs, and 39 matches no AST census of any revision (F-14). Three further
+items are filed against 4b's port rather than against §3.5's rule: a line-number collision that
+makes §3.5's table actively misleading at HEAD (F-15), one site whose disposition is row-granular
+where the rule is clause-granular (F-16), and two of 4b's three stages reaching `failed` through an
+unguarded host-language exception that the port has no way to construct (F-17).
+
+## Sample composition
+
+Census by AST call-site walk (`ast.Call` with `func.id` in the helper set, definitions excluded),
+not by grep. Every disposition claim below was executed, not read.
+
+| Revision | `require` | `require_spec` | `require_written` | total sites | raw `raise` (outside helpers) |
+|---|---|---|---|---|---|
+| `aa08051~1` (Rev 8's "before") | 46 | 0 | 0 | **46** | 4 |
+| `aa08051` (Task #8, v0.14.84) | 36 | 9 | 1 | **46** | 4 |
+| `6e92dd0` (HEAD, v0.14.86) | 36 | 9 | 1 | **46** | 7 |
+
+Executed probes: 3 in-process helper-to-exception assertions; 7 end-to-end driver runs recording a
+MANIFEST.json disposition; 4 upstream-input runs against stages B, C and I; the 3 shipped stage-G2
+flag tests re-run individually. `pytest scripts/tests/` 123 passed, 1 skipped.
+
+## The census at HEAD
+
+**53 halt sites total**, of which 46 are helper call sites and 7 are raw `raise` statements outside
+the helper definitions. The two `raise` statements inside `require` (`:355`) and `require_spec`
+(`:370`), and the one inside `require_written` (`:383`), are definitions and are not call sites.
+
+| Form | n | Exception | Recorded | `outcome` | Exit |
+|---|---|---|---|---|---|
+| `require()` | 36 | `StageFailure` | `failed` | `Errored` | 3 |
+| `require_spec()` | 9 | `StopCondition` | `stopped` | `ConditionUnmet` | 2 |
+| `require_written()` | 1 | `PartialHalt` | `stopped` | `PartialThenHalt` | 2 |
+| `raise StageFailure` | 6 | | `failed` | `Errored` | 3 |
+| `raise StopCondition` | 1 | | no stage row assigned | | 2 |
+
+The mapping is `:1962-1988`, and the handler order is load-bearing: `PartialHalt` is a
+`StopCondition`, `StopCondition` is not a `StageFailure`, and both precede the bare `except
+Exception` at `:1989`, which records `failed`/`Errored` **and prints a traceback**.
+
+The 7 raw raises: `:192` (`require_durable_workdir`, `StopCondition`, fires before the stage loop
+and is caught by `:2026`, which assigns no stage row and exits 2); `:251`, `:256`, `:262`
+(`read_manifest`, `StageFailure`, added at `c10081d`, after Task #8); `:323`, `:329`, `:332`
+(`AgentRunner.run`, `StageFailure`: budget overrun, non-zero exit, no declared output).
+
+## The partition, re-derived at HEAD
+
+`require_spec` sites, with the epoch line each came from and the clause each carries in code:
+
+| HEAD | epoch | Function | Condition | Clause in code | §3.5's clause |
+|---|---|---|---|---|---|
+| `:493` | `:355` | `check_dispositioned` | exclusion cites a barrier outside the closed list | §6:229-231 | §6:229-231 |
+| `:921` | `:782` | `stage_G2_audit` | a flag's quoted phrase absent from the pinned quote | §7:305-309 | §7:305-309 |
+| `:928` | `:788` | `stage_G2_audit` | a flag's reason phrase absent from the recorded reason | §7:305-309 | §7:305-309 |
+| `:956` | `:811` | `stage_G2_audit` | a dispositioned row citing no census row | §14:479-483 + §6:255-258 (by entailment) | same |
+| `:966` | `:815` | `stage_G2_audit` | a citation that does not resolve to the pinned bytes | §14:479-483 | §14:479-483 |
+| `:974` | `:821` | `stage_G2_audit` | a core row whose stated reason misreads its clause | §14:494-499 | §14:494-499 |
+| `:1100` | `:936` | `stage_J_gate` | a characteristic-core row dispositioned out | §6:222-224 | §6:222-224 |
+| `:1104` | `:939` | `stage_J_gate` | the `:493` condition, re-checked at the gate | §6:229-231 | §6:229-231 |
+| `:1170` | `:1003` | `stage_L_coverage` | RFC-COV-1 fails at freeze strength | §11:386-397 | §11:386-397 + §6 |
+
+Nine for nine. The one wording difference is `:1170`, where §3.5's table adds "+ §6" for gate L and
+the code cites §11 alone; both name gate L's condition and the disposition is unaffected.
+
+The three sites §3.5 could not classify all agree with the resolutions it recorded: epoch `:967`
+(stage K, authored roots do not typecheck) is HEAD `:1134`, `require`, `failed`; epoch `:1045` (no
+holes to fill) is HEAD `:1213`, `require`, `failed`; epoch `:866` (stage H) is HEAD `:1028`,
+`require_written`, `stopped`/`PartialThenHalt`, carrying §4:146-147, which is §3.6's conservative
+action taken exactly.
+
+The remaining 36 `require()` sites all record `failed`, as §3.5's rule gives. Descriptive buckets,
+re-derived (the bucket boundary is a judgement, and it changes no disposition):
+
+- **Delegated-output shape validation, 27**: `:394 :398 :400 :403 :405 :407 :410 :422` (extraction),
+  `:457 :460 :462 :464 :465 :470 :475` (audit catalogue), `:483 :486 :487 :490 :499` (dispositions),
+  `:579` (B), `:593` (C), `:714` (F), `:1006 :1010` (H), `:1134` (K), `:1453` (N).
+- **Driver-internal invariants and tool failures, 7**: `:540` (unfilled prompt placeholder), `:629`
+  (no pinned RFC text), `:685` (`reconcile.py` failed), `:811 :815` (`_pinned_sources`), `:1211`
+  (could not emit the AST), `:1213` (no holes to fill).
+- **Pre-stage argument validation, 2**: `:1883 :1886`.
+
+This is 27/7/2 where §3.5 recorded 26/9/2 over its 46. The difference is bucket assignment, not
+disposition: `:866` left the set into `require_written`, and one site sits on the boundary between
+"validates a delegated output" and "a tool that had to succeed". Both readings give `failed`.
+
+### The polarity guard holds
+
+§14:484-491 states two checks that MUST be reported and MUST NOT halt. At HEAD `near_miss` and
+`strength_absent` are accumulated at `:884-892`, logged at `:896-897`, and written to `audit.json`
+at `:942-943` under a note that names them as not thresholded. No `require`, `require_spec` or
+`require_written` reads either list. `test_audit_reports_a_near_miss_span_and_an_absent_strength_without_stopping`
+(`test_rfc_to_implementation.py:417`) pins it, and it passes.
+
+One thing the guard does not settle, recorded because 4b must encode it: the boundary between
+§14:481-482's halt ("a citation that does not resolve") and §14:484-485's must-not-halt ("a span
+that supplies the quoted words only in part") is drawn at `CITATION_RESOLVES_AT = 0.5` (`:763`).
+That constant is measured against the TFTP census rather than derived from a clause, and its
+rationale at `:755-762` says so. driver-spec names no threshold, so the port inherits the constant
+as a pinned datum, not as a derivation.
+
+## Verified findings
+
+### F-14. The site set did not shrink, and Rev 8's "39" is a grep artefact
+
+**Priority:** High
+**Consumer:** language-team
+
+#### Evidence
+
+AST census over three revisions is in the sample-composition table above: 46 helper call sites at
+`aa08051~1`, 46 at `aa08051`, 46 at HEAD. The 46 conditions match argument-for-argument across the
+epoch: matching each call's source segment with the callee name stripped pairs 36 sites exactly,
+leaves 10 unmatched on the old side and 9 on the new, and the 10 are precisely §3.5's nine
+spec-defined sites plus `:866`, whose message text was rewrapped when it became `require_written`.
+No condition was added and none was removed.
+
+At HEAD, `grep -cF 'require('` returns **40**: 36 call sites, one definition at `:343`, and three
+docstring mentions of `` `require()` `` at `:113`, `:150` and `:152`. Subtracting only the
+definition gives **39**.
+
+Rev 8's third claim, that "the raise count rose correspondingly", does not hold either. The raise
+count was 4 both before and after Task #8. It rose to 7 at `c10081d`, a later commit, which added
+`read_manifest`'s three `StageFailure` raises. Nothing about the `require`/`require_spec` split
+produced a raise: both splits happen inside the helper bodies.
+
+#### Why we saw what we saw
+
+The stamp was written to retire a stale count and reached for the same instrument that produced the
+stale one. A grep over `require(` cannot separate a call site from a definition or from prose, and
+this file's own §3.5 measurement a session earlier had already been corrected once for the same
+reason. The count that is stable across the repair is the one the code itself still states: the
+comment at `:1026` says "the two axes disagree on this one site out of 46", written by Task #8,
+after the repair.
+
+#### Implication
+
+Implication for language-team: Rev 9 should replace the epoch stamp with the census rather than
+re-date it. The sentence that needs changing is not the number but the claim behind it: the section
+reads as though the repair reduced a halt surface, and what it did was partition one. The
+"of the 46: 9 spec-defined, 26 ..." partition is not "over an encoding that no longer exists"; it
+is over a set that is unchanged, and 9 of its 4 buckets are now carried by the type system instead
+of by the table.
+
+#### Acceptance
+
+Closed when §3.5 states 46/36/9/1 with the AST-census method named, and when the raise-count
+sentence attributes the rise to `c10081d`.
+
+### F-15. §3.5's `:811` and `:815` name live sites at HEAD with a different disposition
+
+**Priority:** High
+**Consumer:** language-team, compiler-engineer
+
+#### Evidence
+
+§3.5's table lists epoch `:811` (a dispositioned row citing no census row, `stopped`) and epoch
+`:815` (a citation that does not resolve to the pinned bytes, `stopped`). Those conditions are at
+HEAD `:956` and `:966`.
+
+HEAD `:811` and `:815` both exist and are both `require()`, both inside `_pinned_sources`:
+
+- `:811` `require(key not in out, "stage G2: two pinned files normalise to ...")` — `failed`
+- `:815` `require(out, "stage G2: no pinned RFC text under 00-source; run stage A first")` — `failed`
+
+Same file, same stage prefix in the message, both in the `require`/`stopped` neighbourhood a reader
+of §3.5 would expect, and both carrying the opposite disposition to the row §3.5 files under that
+number.
+
+#### Why we saw what we saw
+
+Task #8 inserted roughly 145 lines above `stage_G2_audit`, and `_pinned_sources` moved into the
+vacated range. A collision of this shape is invisible to any check that verifies a line number
+resolves to a line.
+
+#### Implication
+
+Implication for compiler-engineer: sub-phase 4b must not resolve §3.5's table against HEAD line
+numbers. Use the epoch-to-HEAD map in this section, or re-derive from the condition text. Two of
+the nine rows silently land on a live site of the opposite disposition, which is the single
+highest-probability way for the port to invert a status.
+
+Implication for language-team: Rev 9's table should carry the condition text as the key and the
+line number as a convenience, since the line number is the part that rots.
+
+#### Acceptance
+
+Closed when §3.5's table is keyed on condition rather than on line, or when the numbers are
+refreshed to HEAD with the collision noted.
+
+### F-16. `:921`/`:928` halt `stopped` on non-core rows, and §3.5's rule cannot express the scope
+
+**Priority:** High
+**Consumer:** language-team
+
+#### Evidence
+
+`:974` filters to core rows before halting (`flagged_core = [v["cid"] for v in misread if
+v.get("core")]`, `:973`), and cites §14:494-499, which scopes its halt explicitly: "A reason found
+to misread the clause carrying **a characteristic requirement** MUST halt the run, because the gate
+of section 6 decides the target from exactly those rows."
+
+`:921` and `:928` sit inside `for v in misread:` at `:919` with no core filter, and cite §7:305-309,
+whose halt-mandate is supplied by its own closing sentence: "A finding the driver cannot locate is
+an assertion, and section 6 forbids a gate to rest on one."
+
+Two shipped tests pin the consequence on one and the same non-core row:
+
+| Test | Flag on a non-core row | Result |
+|---|---|---|
+| `test_rfc_to_implementation.py:431` | `misreads`, evidence phrase **not** in the quote | `StopCondition`, run halts `stopped` |
+| `test_rfc_to_implementation.py:461` | `misreads`, evidence phrases **present** | no halt; recorded in `reasons_flagged` |
+
+Both re-run individually this leg and both pass. The driver's own log line at `:981-983` reads
+"reasons flagged (none core, recorded not fatal)".
+
+#### Why we saw what we saw
+
+The severity ordering is inverted, and the inversion is a consequence of the halt-mandate route,
+not of the check. A substantiated misread on a row no gate rules on is correctly non-fatal. An
+unsubstantiated one on that same row halts the run as a verdict the method reached. The clause that
+supplies `:921`/`:928` their halt-mandate under §3.5's second conjunct is §6:252-258, reached
+through §7:309-310, and §6:252-258 binds **the gate**. Where no gate rests on the row, the second
+conjunct is not satisfied and the rule gives `failed`.
+
+#### Implication
+
+Implication for language-team: this is a limit of the rule's granularity, not a defect in the
+repair. §3.1's Rev 4 amendment already moved the unit from the stage to the clause because
+`check_dispositioned` holds six checks of which one is spec-defined. `:921`/`:928` push once more:
+the same clause, at the same call site, is spec-defined for a core row and not for a non-core one,
+because the clause that mandates the halt is scoped to what the gate reads. The rule as written
+assigns one disposition per site and cannot say this. Three ways out, none of which is
+experiment-lead's to pick: scope the sites to core rows and match `:974`; state that §7:306-309's
+"MUST require" is itself the halt-mandate independently of §6, which makes the current code right
+and drops the entailment; or add a scope column to §3.5's table and accept that a site's
+disposition can depend on the row.
+
+Note that `:956` is already flagged in §3.5 as "the only row resting on entailment rather than
+quotation". On the reading above it is not the only one: `:921` and `:928` rest on the same
+entailment through §6, and the code marks `:956` with "(by entailment)" while marking those two
+plainly.
+
+#### Acceptance
+
+Closed when §3.5 either scopes the two sites or records the halt-mandate as §7-internal. Empirically,
+the finding would not resurface if `:921`/`:928` acquired the `:974` core filter and
+`test_rfc_to_implementation.py:431` were rewritten against a core row.
+
+### F-17. Two of 4b's three stages reach `failed` through an unguarded host-language exception
+
+**Priority:** High
+**Consumer:** compiler-engineer
+
+#### Evidence
+
+Four runs against a workdir whose upstream inputs are absent or malformed, `--only` on the stage
+under test:
+
+| Stage | Input state | Manifest | Traceback | Halt line |
+|---|---|---|---|---|
+| B | no stage A, `00-source` empty | `failed`/`Errored` | **yes** | `FileNotFoundError` on `PROVENANCE.json` |
+| B | `00-source` present, `PROVENANCE.json` malformed | `failed`/`Errored` | **yes** | `JSONDecodeError` |
+| C | no stage A, `00-source` empty | `failed`/`Errored` | no | `require(:629)` "no pinned RFC text found; run stage A first" |
+| I | no stage B, the run's `scope.md` absent | `failed`/`Errored` | **yes** | `FileNotFoundError` on `scope.md` |
+
+Stage B reads `PROVENANCE.json` through `read_json` (`:208-209`, a bare `json.loads(p.read_text())`
+with no guard) at `:573`. Stage I reads `scope.md` through `.read_text()` at `:1062-1063`. Stage C
+reads only through `_sources_text`, which guards at `:629`. The three arrive at the same recorded
+disposition through two different mechanisms, and the traceback column is the difference: `:1989`'s
+bare handler, not a deliberate halt.
+
+Separately, **stage I validates nothing**. It is the only one of the three with no `require*` call
+at all (`stage_I_prereg`, `:1053-1065`, zero halt calls, zero raises). A zero-byte
+`PRE-REGISTRATION.md` and a 28-byte non-pre-registration were both recorded `complete`, exit 0.
+Stages B and C each carry one size check (`:579` > 200 bytes, `:593` > 400 bytes).
+
+#### Why we saw what we saw
+
+`:1989`'s handler exists precisely to keep these cases out of the operator's face, and it does its
+job on the Python side: the manifest row is written and the status is right. The problem is that it
+has no analogue in the port. LLMLL has no host-language exception to fall through to, so a
+`FileNotFoundError` path is not something the port can reproduce; it has to become an explicit
+`Errored` construction at the read site, or the read has to be total.
+
+#### Implication
+
+Implication for compiler-engineer, and this is the list 4b ports against. The **complete** halt
+surface reachable from stages B, C and I:
+
+| Site | Form | Stage(s) | Condition | Records |
+|---|---|---|---|---|
+| `:323` | `raise StageFailure` | B, C, I | agent exceeded its budget | `failed`/`Errored` |
+| `:329` | `raise StageFailure` | B, C, I | agent exited non-zero | `failed`/`Errored` |
+| `:332` | `raise StageFailure` | B, C, I | agent exited 0 and wrote no declared output | `failed`/`Errored` |
+| `:540` | `require` | B, C, I | prompt template has unfilled placeholders | `failed`/`Errored` |
+| `:629` | `require` | B, C | no pinned RFC text under `00-source` | `failed`/`Errored` |
+| `:579` | `require` | B | `scope.md` at or under 200 bytes | `failed`/`Errored` |
+| `:593` | `require` | C | `rubric.md` at or under 400 bytes | `failed`/`Errored` |
+| `:573` | *unguarded* `read_json` | B | `PROVENANCE.json` absent or malformed | `failed`/`Errored` **+ traceback** |
+| `:1062` | *unguarded* `read_text` | I | stage B's `scope.md` absent | `failed`/`Errored` **+ traceback** |
+
+Every one of the nine records `failed`/`Errored`. **No halt reachable from stages B, C or I records
+`stopped` under any input.** That is the single most useful fact for 4b: the three stages it ports
+construct `Errored` and nothing else, so the port needs no `ConditionUnmet` or `PartialThenHalt`
+site in this sub-phase, and any B/C/I site that ends up `stopped` in the port is wrong by
+construction.
+
+The two unguarded rows are the ones needing a decision before the port is written, since they have
+no direct encoding. Whether stage I should validate its declared output at all is a separate
+question and belongs to language-team, not to the port: driver-spec §7:282-285 requires validating a
+delegated output against its declared shape, and stage I declares `PRE-REGISTRATION.md` and checks
+only that the agent wrote something.
+
+#### Acceptance
+
+Closed for the port when the nine sites above are encoded and B/C/I construct only `Errored`.
+Reopened if any input is found that makes a B, C or I halt record `stopped`.
+
+## Withdrawn items
+
+- **"The repair moved sites that §3.5 classified as spec-defined into a second form, and the
+  partition must be re-derived from scratch."** Withdrawn as framed. The partition needed
+  re-measuring, and it came back identical: 9 for 9 by clause, with the three unclassifiable sites
+  resolving as §3.5 and §3.6 recorded. The re-derivation was necessary and it changed nothing, which
+  is a corroboration rather than a correction.
+
+## Null results
+
+- **Hypothesis: sites added to the driver after the epoch would need classifying under §3.5's
+  rule.** No support. Argument-level matching across `aa08051~1` and HEAD pairs all 46 conditions;
+  zero halt-helper call sites were added or removed in either direction. n = 46 sites, 2 revisions.
+- **Hypothesis: the repair broke the polarity guard by pattern-matching MUST without reading
+  polarity.** No support. Neither §14:484-491 check is read by any halt helper; both are report-only
+  and one shipped test pins it. Required evidence would have been a `require*` call over `near_miss`
+  or `strength_absent`; there is none. n = 46 sites inspected.
+- **Hypothesis: §3.1's row 3 ("declared output present and valid, agent exit non-zero →
+  `complete`") describes the reference.** No support, and this is a divergence rather than a null:
+  `AgentRunner.run` raises `StageFailure` at `:329` on `rc != 0` **before** the output-existence
+  check at `:331`, so a stage that produced a valid declared output and exited non-zero records
+  `failed`. Measured: a stage-B run whose agent wrote a valid 1200-byte `scope.md` and exited 7
+  recorded `failed`/`Errored`, exit 3. §3.1 cites §7:279 for that row, and §7:279 governs a stage
+  that "terminates without producing its declared output", which is not this case. Routed to
+  language-team as a §3.1 question, not repaired. n = 1 run.
+
+## Priority matrix
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---|---|---|---|
+| F-14 | Site set unchanged at 46; Rev 8's 39 is a grep artefact | language-team | High | Rev 9 edit |
+| F-15 | §3.5's `:811`/`:815` collide with live HEAD sites of opposite disposition | language-team, compiler-engineer | High | Rev 9 edit; 4b must use the map |
+| F-16 | `:921`/`:928` are row-granular where the rule is clause-granular | language-team | High | design decision, three options |
+| F-17 | B and I halt through unguarded host exceptions; I validates nothing | compiler-engineer | High | 4b port input |
+| — | §3.1 row 3 does not describe `AgentRunner.run` | language-team | Medium | filed as a null result |
+
+## Changes made this session
+
+**None to any executable file.** `scripts/rfc_to_implementation.py` and both test files are
+byte-identical to `6e92dd0`; no mutation was applied at any point, and every probe ran from the
+scratchpad against the unmodified reference. This findings section is the only write.
+
+### Gates
+
+`pytest scripts/tests/` 123 passed, 1 skipped, unchanged from the pre-leg baseline;
+`scripts/doc_path_lint.py` 841 prose path citations in 160 living files before this write and 848
+after, all resolve; `llmll version` 0.14.86, matching the tree, though no CLI result is consumed by
+any claim above.
+
+### Environment note
+
+`git diff` at the end of this leg reports three modified files under `compiler/` (`CodegenHs.hs`,
+`ParserJSON.hs`, and the compiler test spec) that were clean when the leg started and were not
+touched by it.
+Their mtimes fall inside this session's window, so a second writer was active in the same working
+tree. Recorded because `stack build` ran against that tree; nothing above depends on the build.
