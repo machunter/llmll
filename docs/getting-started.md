@@ -421,7 +421,7 @@ This leverages existing `TrustReport.hs` transitive closure infrastructure and t
 ```console
 $ stack exec llmll -- verify file.llmll --obligation-report --json
 {
-  "schema_version": "0.12.1",
+  "schema_version": "0.12.2",
   "source_file": "./file.llmll",
   "cross_module": "single-file",
   "obligations": [

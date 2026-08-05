@@ -1238,7 +1238,7 @@ If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precede
 > with a `removed-construct` diagnostic (exit 1) under **all** grammar modes —
 > def-logic is not a valid construct. `{"kind": "letrec"}` produces a
 > `core-grammar-violation` (exit 1) under `GrammarCoreInversion`. Hub publishers
-> must ship `schemaVersion 0.7.0` modules using `def`/`def-shell` node kinds (`0.6.0` is still accepted by the reader).
+> must ship `schemaVersion 0.11.0` modules using `def`/`def-shell` node kinds (`0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` are still accepted by the reader).
 >
 > `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
 > file and are exempt from grammar-mode checking.
@@ -2019,7 +2019,7 @@ The checkout response includes four optional fields (present when the compiler h
 
 These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report`.
 
-**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, calls into a module not loaded, and `wasi.proc.run`, which runs an arbitrary program and can therefore reach anything the catalog names and more). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. Obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
+**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, calls into a module not loaded, and `wasi.proc.run`, which runs an arbitrary program and can therefore reach anything the catalog names and more). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. `effect_summary` arrived at obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
 **Pointer normalization:** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
 
