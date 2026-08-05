@@ -2434,7 +2434,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-concat` | `string string -> string` | Concatenation |
 | `string-slice` | `string int int -> string` | `[start, end)` half-open slice |
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string). Returns `""` for negative or out-of-bounds indices. |
-| `string-split` | `string string -> list[string]` | Split on delimiter |
+| `string-split` | `string string -> list[string]` | `(string-split sep subject)` splits `subject` on `sep`. The **separator comes first**; both parameters are `string`, so a reversed call type-checks and fails only in its output. |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
 | `string-concat-many` | `list[string] -> string` | Concatenate a list of strings (variadic join without separator) |
 | `regex-match` | `string string -> bool` | POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total). |
