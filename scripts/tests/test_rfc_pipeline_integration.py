@@ -77,10 +77,27 @@ def rows(tag):
 if name == "body.json":
     # Stage M: the AST node that replaces the hole. The stub `llmll` decides
     # whether a fill verifies, so the body only has to be well-formed JSON.
+    #
+    # STUB_MODE=agent-flaky: exit 0 on the FIRST attempt without writing the
+    # output, which is the "silence is not success" condition (driver-spec sec
+    # 7:279). Inside the wave that must spend one attempt for this hole and
+    # retry, never halt the run. The marker lives in the hole's own working
+    # directory, which is stable across attempts.
+    marker = out.parent / ".flaky-fired"
+    if mode == "agent-flaky" and not marker.exists():
+        marker.write_text("1")
+        sys.exit(0)
     json.dump({"kind": "int_lit", "value": 1}, out.open("w"))
 elif name == "extraction.json":
     tag = "A" if "(extractor A)" in prompt.read_text() else "B"
-    json.dump({"extractor": tag, "normative": rows(tag),
+    norm = rows(tag)
+    if mode == "bad-extraction":
+        # A DELEGATED-OUTPUT DEFECT, not a gate condition: the span is a string
+        # where reconcile.py matches on integers. driver-spec sec 4:129 records
+        # this `failed`, because the declared shape belongs to the stage
+        # contract rather than to the specification (proposal sec 3.2).
+        norm[0]["line_start"] = "2"
+    json.dump({"extractor": tag, "normative": norm,
                "excluded": [{"id": f"{tag}x", "source": "SPEC", "line_start": 1,
                              "line_end": 1, "quote": "q", "rule": "X1",
                              "reason": "preamble"}]}, out.open("w"))
@@ -211,7 +228,15 @@ if cmd == "verify":
         print(f"OK {target} - SAFE (liquid-fixpoint)")
         sys.exit(0)
     if "mutant" in target.read_text():
-        print("error: body verification failed"); sys.exit(1)
+        # STUB_MODE=probe-survives: the mutant verifies SAFE, so stage H's
+        # acceptance bar (probe body-faithful AND mutant refuted) is not met and
+        # `:866` fires. That halt lands AFTER feasibility.json is written, which
+        # is driver-spec sec 4:146-147 and the one site where the two
+        # classification axes disagree (proposal sec 3.6).
+        if MODE != "probe-survives":
+            print("error: body verification failed"); sys.exit(1)
+        print("   body-faithful: mutant")
+        print(f"OK {target} - SAFE (liquid-fixpoint)"); sys.exit(0)
     print(f"   body-faithful: {target.stem}")
     print(f"OK {target} - SAFE (liquid-fixpoint)")
     sys.exit(0)
@@ -298,6 +323,63 @@ def test_exclusion_outside_the_barrier_list_halts_the_run(rig):
     m = manifest(wd)
     assert m["G"]["status"] == "stopped"
     assert "H" not in m and "J" not in m
+
+
+# ---------------------------------------------------------------------------
+# The two halt channels of driver-spec section 4
+#
+# Section 4:133-137: "A stopped stage is a verdict the method reached, and is a
+# result of the run. A failed stage is an accident, and is not." Before the
+# split every require() raised StopCondition, so these two tests could not have
+# been written: a malformed agent output and a fired gate recorded the same
+# status. The transition cover (proposal sec 2.3) named this exact hole, having
+# coverage for absent-to-failed only via a host-language crash.
+# ---------------------------------------------------------------------------
+
+def test_a_delegated_output_defect_records_failed_not_stopped(rig):
+    """The repair's headline case. A malformed extraction is an ACCIDENT: nothing
+    about the target document was learned, so recording it `stopped` would file
+    it beside a gate that fired."""
+    p, wd = rig(mode="bad-extraction", stages="A,B,C,D")
+    assert p.returncode != 0
+    m = manifest(wd)
+    assert m["D"]["status"] == "failed", (m.get("D"), p.stdout)
+    assert m["D"]["outcome"] == "Errored"
+    assert "non-integer line_start/line_end" in m["D"]["detail"]
+    # A deliberate halt must not reach the operator as a host-language error
+    # (sec 4:139-143). The generic-crash path prints one; this path must not.
+    assert "Traceback" not in p.stderr, p.stderr
+
+
+def test_a_spec_defined_halt_records_stopped_and_names_its_clause(rig):
+    """`stopped` rows carry the driver-spec clause that authorised them, so the
+    disposition is auditable from the manifest rather than only from the code.
+    Section 4:126 asks for "a detail string naming the condition"."""
+    p, wd = rig(mode="core-excluded")
+    assert p.returncode != 0
+    j = manifest(wd)["J"]
+    assert j["status"] == "stopped"
+    assert j["outcome"] == "ConditionUnmet"
+    assert j["clause"] == "driver-spec sec 6:222-224"
+
+
+def test_stage_H_records_partial_then_halt_after_writing_its_output(rig):
+    """The one site in 46 where the two classification axes disagree. The
+    clause-source axis says `failed` (the acceptance bar is the driver's own,
+    not driver-spec's); the artifact-state axis says `stopped` (sec 4:146-147,
+    the declared output was already written). Proposal sec 3.6 takes the
+    artifact-state reading, which is also the value the site already had, so
+    this test pins the CONSERVATIVE outcome under both readings."""
+    p, wd = rig(mode="probe-survives", stages="A,B,C,D,E,F,G,H")
+    assert p.returncode != 0
+    h = manifest(wd)["H"]
+    assert h["status"] == "stopped", (h, p.stdout)
+    assert h["outcome"] == "PartialThenHalt"
+    assert h["clause"] == "driver-spec sec 4:146-147"
+    # The premise of the whole disposition: the declared output really is on
+    # disk when the halt lands. If this ever stops holding, sec 4:146-147 no
+    # longer applies and the site reverts to the clause-source axis.
+    assert (wd / "07-feasibility" / "feasibility.json").exists()
 
 
 def test_gate_J_halts_on_a_bad_barrier_it_is_handed_directly(rig, tmp_path):
@@ -549,6 +631,26 @@ def test_the_wave_fills_a_hole(rig, tmp_path):
     assert [f["status"] for f in w["fills"]] == ["filled"], w
     assert w["fills"][0]["attempts"] == 1, "no injection, so no retry"
     assert w["whole_tree"]["safe"], w["whole_tree"]
+
+
+def test_an_agent_failure_inside_the_wave_retries_the_hole_and_never_halts(rig, tmp_path):
+    """Inside the wave an agent timeout, a non-zero exit, or a missing body is a
+    RETRY for that hole, not a halt for the run.
+
+    This is a regression guard with a specific history: the three AgentRunner
+    raises became StageFailure when the halt channels were split, and the fill
+    loop's handler named only StopCondition. Left that way, one agent timeout
+    would have propagated out of the per-hole worker and recorded the whole of
+    stage M `failed`, discarding every sibling hole's completed work. Mutation
+    check: reverting that handler to `except StopCondition` leaves the rest of
+    this suite green, so nothing else covers it."""
+    p, wd = rig(mode="agent-flaky", stages=ALL_STAGES,
+                workdir=tmp_path / "wave-flaky")
+    assert p.returncode == 0, p.stdout + p.stderr
+    w = _wave(wd)
+    assert [f["status"] for f in w["fills"]] == ["filled"], w
+    assert w["fills"][0]["attempts"] == 2, "the failed attempt must be spent, not free"
+    assert manifest(wd)["M"]["status"] == "complete"
 
 
 def test_contention_does_not_consume_the_error_budget(rig, tmp_path):

@@ -104,8 +104,54 @@ VERIFIABLE_CLASSES = ("C1", "C2", "C3")
 # Small utilities
 # ---------------------------------------------------------------------------
 
-class StopCondition(Exception):
-    """A gate fired. The run ends non-zero; nothing downstream is attempted."""
+class Halt(Exception):
+    """A deliberate halt. Never raised directly: which subclass is raised is
+    what decides the recorded status, and driver-spec section 4 makes that
+    distinction the one this pipeline cannot afford to lose.
+
+    Before this hierarchy existed the driver had TWO manifest writers (stopped
+    and failed) but only ONE way to reach them: every `require()` raised
+    StopCondition, so a malformed agent output and a fired gate recorded the
+    same status. The channels were never missing; the routing was.
+    """
+
+
+class StopCondition(Halt):
+    """driver-spec sec 4:125-127. A condition THE SPECIFICATION defines was not
+    met, so the halt is a verdict the method reached: recorded `stopped`.
+
+    `clause` is required rather than advisory. Section 4:126 wants "a detail
+    string naming the condition", and requiring the citation at the raise site
+    is what stops a stage-contract check from claiming to be a gate. If you
+    cannot name the driver-spec clause, the site is a StageFailure.
+    """
+
+    def __init__(self, msg: str, clause: str = "") -> None:
+        super().__init__(msg if not clause else f"{msg}  [{clause}]")
+        self.clause = clause
+
+
+class PartialHalt(StopCondition):
+    """driver-spec sec 4:146-147. The stage wrote at least one DECLARED output
+    and then halted, so it is `stopped` whatever defined the failed condition.
+
+    A subclass of StopCondition on purpose: every handler that records `stopped`
+    keeps working untouched, and the distinct type is what the LLMLL port's
+    `PartialThenHalt` constructor maps to (`tools/llmll-driver/stage.llmll`,
+    [S4-PARTIAL]). This is a SECOND axis, not a second reason: it classifies on
+    what the stage had already written, not on which clause defined the failure.
+    """
+
+
+class StageFailure(Halt):
+    """driver-spec sec 4:129-131. A halt for any other reason: recorded
+    `failed`, and section 4:130 says such a stage MUST NOT be recorded stopped.
+
+    This is the DEFAULT for `require()`. Section 4:135-137 names the dangerous
+    direction: reporting an accident as stopped lets a run killed by a network
+    error read as a gate that fired. Defaulting to `failed` means a `require()`
+    added later is wrong only in the safe direction.
+    """
 
 
 def sha256_file(p: Path) -> str:
@@ -218,16 +264,16 @@ class AgentRunner:
                 # stage recorded nothing, the manifest was left mid-run, and the
                 # partial work in the agent's directory looked like debris rather
                 # than a resumable state.
-                raise StopCondition(
+                raise StageFailure(
                     f"agent[{label}] exceeded its {self.timeout}s budget. Its "
                     f"partial work is in {workdir}. Re-run this stage with a "
                     "larger --timeout, or treat the overrun as a finding.")
         dur = round(time.monotonic() - started, 1)
         if rc != 0:
-            raise StopCondition(
+            raise StageFailure(
                 f"agent[{label}] exited {rc} after {dur}s; see {workdir}/agent.stderr.log")
         if not out_path.exists():
-            raise StopCondition(
+            raise StageFailure(
                 f"agent[{label}] exited 0 but wrote no {out_name}; "
                 f"the stage contract was not met (see {workdir}/agent.stdout.log)")
         log(f"  agent[{label}] ok ({dur}s)")
@@ -239,10 +285,46 @@ class AgentRunner:
 # ---------------------------------------------------------------------------
 
 def require(cond: object, msg: str) -> None:
-    """Assert a stage contract. `cond` is any truthy value, not just a bool:
-    the call sites test non-empty lists and regex matches as well as booleans."""
+    """Assert a STAGE CONTRACT: the declared shape of a delegated output, a
+    driver invariant, or a tool that had to succeed. Records `failed`.
+
+    `cond` is any truthy value, not just a bool: the call sites test non-empty
+    lists and regex matches as well as booleans.
+
+    This is the default because the declared shape belongs to the stage
+    contract, not to driver-spec (proposal section 3.2), so section 4:129's
+    residual applies. Use `require_spec` only when you can cite the clause.
+    """
     if not cond:
-        raise StopCondition(msg)
+        raise StageFailure(msg)
+
+
+def require_spec(cond: object, msg: str, clause: str) -> None:
+    """Assert a condition DRIVER-SPEC defines, citing the clause. Records
+    `stopped` per section 4:125-127.
+
+    Nine call sites qualify and they are enumerated in
+    `docs/design/driver-ll-phase4-proposal.md` section 3.5. The bar is two
+    conjuncts, not one: driver-spec must state the condition as a MUST over
+    artifact content identifiable by clause, AND must either mandate the halt
+    or make it a section 6 gate condition. A clause that mandates only that
+    something be *resolved* does not qualify.
+    """
+    if not cond:
+        raise StopCondition(msg, clause)
+
+
+def require_written(cond: object, msg: str, clause: str) -> None:
+    """Assert a condition checked AFTER the stage wrote a declared output.
+    Records `stopped` per section 4:146-147, whatever defined the condition.
+
+    One call site today (stage H, `:866`). The clause is cited for the same
+    reason `require_spec` cites one: so a reader can check the claim rather
+    than take it. See proposal section 3.6 for the measurement, and for why
+    "its artifacts" is read as DECLARED outputs rather than any file written.
+    """
+    if not cond:
+        raise PartialHalt(msg, clause)
 
 
 def check_extraction(doc: Any, label: str) -> dict[str, Any]:
@@ -352,11 +434,12 @@ def check_dispositioned(doc: Any) -> list[dict[str, Any]]:
         require(re.match(r"^C[1-6]$", str(r.get("class", ""))),
                 f"dispositions: {cid} has class {r.get('class')!r}, expected C1..C6")
         if r["disposition"] == "Dispositioned out":
-            require(r.get("barrier") in BARRIERS,
-                    f"dispositions: {cid} is excluded but cites barrier "
-                    f"{r.get('barrier')!r}, which is not in the closed list "
-                    f"{sorted(BARRIERS)}. An exclusion outside the list is a STOP "
-                    "(playbook stage J).")
+            require_spec(r.get("barrier") in BARRIERS,
+                         f"dispositions: {cid} is excluded but cites barrier "
+                         f"{r.get('barrier')!r}, which is not in the closed list "
+                         f"{sorted(BARRIERS)}. An exclusion outside the list is a "
+                         "STOP (playbook stage J).",
+                         "driver-spec sec 6:229-231")
         require(r.get("reason"), f"dispositions: {cid} has no reason")
     return rows
 
@@ -779,18 +862,20 @@ def stage_G2_audit(ctx: Ctx) -> None:
     misread = [v for v in verdicts if v["verdict"] == "misreads"]
     for v in misread:
         c, r = cite[v["cid"]], next(x for x in rows if x["cid"] == v["cid"])
-        require(" ".join(v["quote_phrase"].lower().split())
-                in " ".join(str(c["quote"]).lower().split()),
-                f"STOP (stage G2): the flag on {v['cid']} quotes "
-                f"{v['quote_phrase']!r} from the clause, and that phrase is not in "
-                "the pinned quote. A flag whose evidence is not in the artifact is "
-                "an assertion, not a finding.")
-        require(" ".join(v["reason_phrase"].lower().split())
-                in " ".join(str(r["reason"]).lower().split()),
-                f"STOP (stage G2): the flag on {v['cid']} quotes "
-                f"{v['reason_phrase']!r} from the reason, and that phrase is not in "
-                "the recorded reason. A flag whose evidence is not in the artifact "
-                "is an assertion, not a finding.")
+        require_spec(" ".join(v["quote_phrase"].lower().split())
+                     in " ".join(str(c["quote"]).lower().split()),
+                     f"STOP (stage G2): the flag on {v['cid']} quotes "
+                     f"{v['quote_phrase']!r} from the clause, and that phrase is "
+                     "not in the pinned quote. A flag whose evidence is not in the "
+                     "artifact is an assertion, not a finding.",
+                     "driver-spec sec 7:305-309")
+        require_spec(" ".join(v["reason_phrase"].lower().split())
+                     in " ".join(str(r["reason"]).lower().split()),
+                     f"STOP (stage G2): the flag on {v['cid']} quotes "
+                     f"{v['reason_phrase']!r} from the reason, and that phrase is "
+                     "not in the recorded reason. A flag whose evidence is not in "
+                     "the artifact is an assertion, not a finding.",
+                     "driver-spec sec 7:305-309")
         v["core"] = bool(next(x for x in rows if x["cid"] == v["cid"]).get("core"))
 
     report = {
@@ -808,22 +893,35 @@ def stage_G2_audit(ctx: Ctx) -> None:
     }
     write_json(ctx.d("06b-audit", "audit.json"), report)
 
-    require(not uncited,
-            f"STOP (stage G2): {len(uncited)} dispositioned rows cite no census "
-            f"row: {uncited[:8]}. A disposition with no citation cannot be checked "
-            "against the pinned bytes at all.")
-    require(not unresolved,
-            "STOP (stage G2): citations that do not resolve to the pinned bytes: "
-            + json.dumps(unresolved[:6])
-            + ". Section 14 pins the source so that every later stage reads it; a "
-              "citation that resolves to nothing was not read from it.")
+    # These three fire AFTER audit.json is written above, so section 4:146-147
+    # independently gives `stopped` for them as well. They are cited on the
+    # clause-source axis because that is the stronger claim: it does not depend
+    # on where the write happens to sit relative to the check.
+    require_spec(not uncited,
+                 f"STOP (stage G2): {len(uncited)} dispositioned rows cite no "
+                 f"census row: {uncited[:8]}. A disposition with no citation "
+                 "cannot be checked against the pinned bytes at all.",
+                 # By ENTAILMENT, not quotation: sec 14 requires every citation to
+                 # be checked against the pinned bytes, and a citation that does
+                 # not exist cannot be; sec 6:255-258 forbids a gate condition to
+                 # rest on an input carrying no evidence. Read strictly this row
+                 # is a StageFailure. Flagged rather than smoothed over.
+                 "driver-spec sec 14:479-483 + 6:255-258 (by entailment)")
+    require_spec(not unresolved,
+                 "STOP (stage G2): citations that do not resolve to the pinned "
+                 "bytes: "
+                 + json.dumps(unresolved[:6])
+                 + ". Section 14 pins the source so that every later stage reads "
+                   "it; a citation that resolves to nothing was not read from it.",
+                 "driver-spec sec 14:479-483")
     flagged_core = [v["cid"] for v in misread if v.get("core")]
-    require(not flagged_core,
-            f"STOP (stage G2): characteristic-core rows whose stated reason "
-            f"misreads the clause it cites: {flagged_core}. Stage J decides the "
-            "target from core membership and disposition, and section 6 forbids a "
-            "gate condition to rest on an input carrying no evidence. Correct the "
-            "reason, then let the gate rule on it.")
+    require_spec(not flagged_core,
+                 f"STOP (stage G2): characteristic-core rows whose stated reason "
+                 f"misreads the clause it cites: {flagged_core}. Stage J decides "
+                 "the target from core membership and disposition, and section 6 "
+                 "forbids a gate condition to rest on an input carrying no "
+                 "evidence. Correct the reason, then let the gate rule on it.",
+                 "driver-spec sec 14:494-499")
     if misread:
         log(f"  reasons flagged (none core, recorded not fatal): "
             f"{[v['cid'] for v in misread]}")
@@ -863,10 +961,20 @@ def stage_H_feasibility(ctx: Ctx) -> None:
             f"mutant={'refuted' if not m['safe'] else 'SURVIVED'} -> {'ok' if ok else 'FAIL'}")
     write_json(wd / "feasibility.json", results)
     bad = [r["name"] for r in results if not r["pass"]]
-    require(not bad,
-            f"stage H: feasibility not established for {bad}. A probe must verify "
-            "body-faithfully AND its mutant must refute; otherwise the contract "
-            "shape is decorative and the target should be re-scoped, not re-graded.")
+    # `feasibility.json` is this stage's DECLARED output (see STAGES) and is
+    # written immediately above, so the halt lands after the artifact exists.
+    # That is section 4:146-147 and it is why this records `stopped` rather than
+    # `failed`. The acceptance bar itself is the driver's own, not driver-spec's
+    # (section 7:313-316 covers the stage as a delegated catalogue, not the bar),
+    # so the CLAUSE-source axis would give `failed` here. The two axes disagree
+    # on this one site out of 46; proposal section 3.6 records both and takes the
+    # artifact-state reading, which is also the value this site already had.
+    require_written(not bad,
+                    f"stage H: feasibility not established for {bad}. A probe "
+                    "must verify body-faithfully AND its mutant must refute; "
+                    "otherwise the contract shape is decorative and the target "
+                    "should be re-scoped, not re-graded.",
+                    "driver-spec sec 4:146-147")
 
 
 def _verify(ctx: Ctx, f: Path, strict: bool = True) -> dict:
@@ -933,12 +1041,15 @@ def stage_J_gate(ctx: Ctx) -> None:
     log(f"  coverage of verifiable subject matter (C1+C2+C3): "
         f"{len(carried)}/{len(verifiable)} (reported, not graded)")
     log(f"  characteristic core: {len(core)} rows, {len(core_out)} dispositioned out")
-    require(not core_out,
-            f"STOP (stage J): characteristic-core rows dispositioned out: {core_out}. "
-            "The target is re-scoped, not re-graded.")
-    require(not bad_barrier,
-            f"STOP (stage J): exclusions citing no barrier from the closed list: "
-            f"{bad_barrier}. An exclusion nobody can justify is the real failure.")
+    require_spec(not core_out,
+                 f"STOP (stage J): characteristic-core rows dispositioned out: "
+                 f"{core_out}. The target is re-scoped, not re-graded.",
+                 "driver-spec sec 6:222-224")
+    require_spec(not bad_barrier,
+                 f"STOP (stage J): exclusions citing no barrier from the closed "
+                 f"list: {bad_barrier}. An exclusion nobody can justify is the "
+                 "real failure.",
+                 "driver-spec sec 6:229-231")
     log("  gate PASS")
 
 
@@ -1000,10 +1111,11 @@ def stage_L_coverage(ctx: Ctx) -> None:
         cov.stdout + cov.stderr, encoding="utf-8")
     for line in cov.stdout.splitlines():
         log(f"  {line}")
-    require(cov.returncode == 0,
-            "STOP (stage L): RFC-COV-1 failed at freeze strength. The clause "
-            "surface cannot be frozen while the inventory and the citations "
-            "disagree.")
+    require_spec(cov.returncode == 0,
+                 "STOP (stage L): RFC-COV-1 failed at freeze strength. The clause "
+                 "surface cannot be frozen while the inventory and the citations "
+                 "disagree.",
+                 "driver-spec sec 11:386-397")
     log("  clause surface FROZEN")
 
 
@@ -1070,7 +1182,12 @@ def stage_M_wave(ctx: Ctx) -> None:
                                              hole=fn, llmll=ctx.llmll,
                                              errors=errors or "(first attempt)"),
                               "body.json", f"fill-{fn}#{attempt}")
-            except StopCondition as e:
+            except Halt as e:
+                # `Halt`, not StopCondition: inside the wave an agent timeout or
+                # a missing body is a RETRY for this hole, never a halt for the
+                # run, and the three AgentRunner raises are StageFailure now. A
+                # handler naming only StopCondition would let one agent timeout
+                # crash the whole wave instead of spending one attempt.
                 errors = str(e)
                 _release(ctx, tree, brief["token"])
                 continue
@@ -1781,16 +1898,43 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         try:
             stage.fn(ctx)
+        # Three handlers, not two, and the order is load-bearing: PartialHalt is
+        # a StopCondition, StageFailure is not, and both must be caught before
+        # the bare Exception. `outcome` names the LLMLL constructor the port
+        # maps to (tools/llmll-driver/stage.llmll), so the disposition is
+        # auditable in the manifest rather than reconstructable only from code.
         except StopCondition as e:
+            partial = isinstance(e, PartialHalt)
             log(f"STOP at stage {stage.key}: {e}")
-            manifest["stages"][stage.key] = {"status": "stopped", "detail": str(e)}
+            manifest["stages"][stage.key] = {
+                "status": "stopped",
+                "detail": str(e),
+                "clause": e.clause,
+                "outcome": "PartialThenHalt" if partial else "ConditionUnmet",
+            }
             write_json(manifest_path, manifest)
             return 2
+        except StageFailure as e:
+            # A DELIBERATE halt that is not a specification condition: a
+            # malformed delegated output, a driver invariant, a tool that had to
+            # succeed. Section 4:129-131 records it `failed` and forbids
+            # `stopped`. No traceback: section 4:139-143 says a halt reaching the
+            # operator as an unhandled host-language error has reported nothing,
+            # and the converse holds too, since a traceback on a decision the
+            # driver made reads as a crash it did not intend.
+            log(f"FAILED at stage {stage.key}: {e}")
+            manifest["stages"][stage.key] = {
+                "status": "failed",
+                "detail": str(e),
+                "outcome": "Errored",
+            }
+            write_json(manifest_path, manifest)
+            return 3
         except Exception as e:  # noqa: BLE001 — see below
-            # Anything that is NOT a deliberate stop: a fetch that failed, a
-            # malformed JSON file, a bug in this script. Previously these escaped
-            # as a bare traceback, which left NOTHING in the manifest, so a
-            # resume could not tell "stage crashed" from "stage never ran" and
+            # Anything that is NOT a deliberate halt at all: a fetch that failed,
+            # a malformed JSON file, a bug in this script. Previously these
+            # escaped as a bare traceback, which left NOTHING in the manifest, so
+            # a resume could not tell "stage crashed" from "stage never ran" and
             # the operator could not tell a decision from an accident. Both facts
             # are worth keeping, so record the failure AND print the traceback:
             # the manifest entry serves resume, the traceback serves debugging.
@@ -1799,6 +1943,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest["stages"][stage.key] = {
                 "status": "failed",
                 "detail": f"{type(e).__name__}: {e}",
+                "outcome": "Errored",
             }
             write_json(manifest_path, manifest)
             return 3
@@ -1822,6 +1967,10 @@ if __name__ == "__main__":
     # now a deliberate halt has been indistinguishable from a crash.
     try:
         sys.exit(main())
-    except StopCondition as exc:
+    except Halt as exc:
+        # Either subclass: outside a stage no status is assigned, so the
+        # stopped/failed distinction has nothing to attach to. Section 4 is not
+        # reached. What matters here is only that a deliberate halt reads as a
+        # decision rather than as a traceback.
         log(f"STOP: {exc}")
         sys.exit(2)

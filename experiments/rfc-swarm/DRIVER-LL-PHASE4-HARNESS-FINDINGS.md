@@ -282,3 +282,116 @@ made on no evidence. The LLMLL driver simply will not have the export, which is 
   `patch` and a tree-aware `verify` so stage M can run; `STUB_MODE=wave` injects contention and one
   unfaithful verify; four tests added (wave premise, contention witness, failed → re-run, `--force`).
 - `scripts/rfc_to_implementation.py`: **unchanged.** Item (d) is blocked on F-1.
+
+---
+
+# Second session: the halt-channel repair, and two findings the sweep produced
+
+F-1 closed as proposal §3.5 and §3.6, which unblocked item (d). This session executed it. Two new
+findings came out of the language-team sweep of driver-spec §8 through §15.4 rather than out of the
+harness, and are recorded here because both are findings about the campaign's own target and product.
+
+## F-7. Stage O is the only delegated stage with no validator, and driver-spec §13 is its spec
+
+**Priority:** High  **Consumer:** compiler-engineer (sub-phase 4f), language-team (settled)
+
+### Evidence
+
+`stage_O_writeup` (`scripts/rfc_to_implementation.py`, kind `agent`, declared output `REPORT.md`)
+has **zero** `require()` call sites. Measured across the stage registry, every other delegated stage
+has at least one. Three of driver-spec §13's eight MUSTs are restated inside the function's own
+docstring, which reaches the model as prompt text and is checked by nothing.
+
+### Why we saw what we saw
+
+The harness leg exercised **transitions**, not stage bodies, so a stage whose body validates nothing
+produces no transition anomaly. The transition cover (F-5) is complete at nine and still cannot see
+this: stage O either completes or is never reached.
+
+### Implication
+
+Implication for compiler-engineer: sub-phase 4f gains a validator. Proposal §6.2 settles the split,
+one mechanizable clause (§13:443-446, perturbation omission, checkable as a set difference over the
+`name` key of stage N's kill matrix) and seven disclosure-only. Implication for experiment-lead: the
+transition cover is the wrong instrument for stage-body obligations, and a body-obligation cover is
+a separate instrument this harness does not have.
+
+### Acceptance
+
+A test in which stage N reports a survivor, stage O omits it, and the run records `stopped` with
+`outcome: PartialThenHalt`. Not written this session: stage O is not yet ported and the Python
+driver's stage O is out of scope for the disposition repair.
+
+## F-8. `SPEC-TIER-1`: driver-spec's tiering clause cannot classify its own §13
+
+**Priority:** Medium  **Consumer:** language-team (filed), Phase 5
+
+### Evidence
+
+§15.1:509 asserts that "the obligations of sections 4 through 13 are properties of sequencing and
+state over enumerated statuses and bounded counters." That is false of §13:433-435 and §13:448-454,
+which constrain the framing of natural-language prose. §15.1's own enumeration at `:512-515` omits
+reporting. §15.1:504-505 requires every obligation to sit in exactly one of three tiers, and §13's
+prose MUSTs fit none: not proved (not properties of enumerated statuses), not §15.2 (not effectful
+operations reached through a capability), not §15.3 (whose list is prompt content, agent-internal
+behaviour, and OS guarantees).
+
+### Implication
+
+This is a defect in the **target**, which is the campaign's product rather than its input. driver-spec
+is pinned under §14:473-474, so it is recorded and not repaired. It constrains what Phase 5's §15.4
+conformance claim may assert. No tier is manufactured for the orphaned obligations.
+
+## Changes made this session
+
+- `scripts/rfc_to_implementation.py`: **the halt-channel repair.** A `Halt` base with three
+  subclasses replaces the single `StopCondition`. `require()` now raises `StageFailure` (recorded
+  `failed`), which makes the **safe** direction the default per §4:135-137; `require_spec(…, clause)`
+  raises `StopCondition` (recorded `stopped`) and takes the driver-spec clause as a **required**
+  argument, so a stage-contract check cannot claim to be a gate without naming one;
+  `require_written(…, clause)` raises `PartialHalt` for the single §4:146-147 site. The main loop
+  gains a third handler and every manifest row now carries `outcome`, naming the LLMLL constructor
+  the port maps to (`tools/llmll-driver/stage.llmll`).
+- `scripts/tests/test_rfc_to_implementation.py`: 18 assertions moved from `StopCondition` to
+  `StageFailure`; 9 kept, and those 9 are exactly the spec-defined sites.
+- `scripts/tests/test_rfc_pipeline_integration.py`: two `STUB_MODE` values added
+  (`bad-extraction`, `probe-survives`, plus `agent-flaky`); four tests added.
+
+### Measured
+
+| | Before | After |
+|---|---|---|
+| Tests, whole suite | 111 | 115 |
+| Passing | 111 | 115 |
+| `require`-family call sites | 46, one form | 46, three forms |
+| Sites recording `stopped` | 46 | 10 |
+| Divergence set closed | 0 of 37 | 37 of 37 |
+
+Classification audit, reproducing proposal §3.5 and §3.6 from the tree rather than from the document:
+9 `require_spec`, 1 `require_written`, 36 `require` of which 2 are pre-stage, giving 34 stage-level
+sites plus the three `AgentRunner` raises. **37.**
+
+### Mutation checks
+
+A guard that never fires is decorative, so each change was reverted and the suite re-run.
+
+| Mutant | Killed by | Result |
+|---|---|---|
+| `require()` reverts to `StopCondition` (the original defect) | 10 tests | killed |
+| Stage H uses `require_spec` rather than `require_written` | `test_stage_H_records_partial_then_halt_after_writing_its_output` | killed |
+| Wave fill loop catches `StopCondition` rather than `Halt` | `test_an_agent_failure_inside_the_wave_retries_the_hole_and_never_halts` | **survived at first, then killed** |
+
+The third is the finding inside the repair. Splitting the channels made the three `AgentRunner`
+raises `StageFailure`, and the wave's per-hole retry handler named only `StopCondition`. Left that
+way, one agent timeout would have propagated out of the per-hole worker and recorded the whole of
+stage M `failed`, discarding every sibling hole's completed work. The first mutation run showed 114
+passing with the handler reverted, so **nothing in the suite covered it**. The test named above was
+written to close that, and it now kills the mutant.
+
+### Null result
+
+`:546` (stage E) was checked against §4:146-147's artifact-state axis and does **not** move. It fires
+after `reconcile.stdout.txt` is written, but the stage registry declares only `SUMMARY.json`, and
+proposal §3.6 settles "its artifacts" as declared outputs. Under an any-file-written reading it would
+have moved. Recorded because the two readings differ on exactly this site and on no other, which is
+what makes the reading checkable rather than stipulated.
