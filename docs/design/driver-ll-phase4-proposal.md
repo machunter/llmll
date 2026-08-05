@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-proposal
 title: "DRIVER-LL Phase 4: the agent-delegated stages, the serial wave, and the two oracles that can check them"
-status: "Rev 4, SETTLED, READY FOR ENGINEER. Rev 4 is the first revision driven by EXECUTING the harness rather than reading it, and it closes the one item Rev 3 left un-implementable. §3.5 is new: the halt surface is 46 require() sites plus three AgentRunner raises, not the four conditions §3.4 described, and the disposition attaches to the CLAUSE rather than the stage or the validator, because check_dispositioned holds six checks of which exactly one (:355, the closed-barrier condition, driver-spec §6:229-231) is spec-defined. §3.5 gives the classification rule with a polarity guard (§14:484-491 states two checks that MUST be reported and MUST NOT halt), enumerates the nine spec-defined sites by clause, and resolves all three sites the harness could not classify -- :967, :866 and :1045 -- to failed, which unblocks the Python-side repair. Divergence set is 38, not 4. Three corrections to Rev 3, two of them to this proposal's own claims: §10 case 5 was WRONG (it derived 'no holes to fill -> stopped' from the driver's own source, and driver-spec has no clause about an empty hole set, so §4:129's residual gives failed -- the third instance of the error shape §3.3 records twice, and the first originating here); §2.3's coverage claim counted STUB_MODE values rather than tests, and the measured cover was six of eight with a ninth transition omitted; and the citation-resolution mandate is §14:479-483, not §7, which Rev 3 missed because a heading grep truncated at section 9 and §10 through §15.4 were never read. One finding PARTLY REFUTED: stage H is not unspecified, since §7:313-316's catalogue clause covers it; only its acceptance bar is driver-defined, which narrows what Phase 5 §15.4 owes. Rev 3, SETTLED. Revises `driver-in-llmll-campaign.md` §Phase 4 on two structural corrections: the phase's stage enumeration was short by one (stage G was assigned to no phase), and its acceptance clause ('a complete run reproduces a committed campaign's artifacts') is not satisfiable against this tree, measured. Replaced by two claims plus a derived transition-cover scenario set. Rev 3 settles the delegated-stage disposition on its THIRD derivation: Rev 1 argued from §4's residual clause, Rev 2 argued from §7's wording and was refuted on the specification's own use of 'fails' as a verb, and Rev 3 rests the conclusion on §4:132-136's verdict-versus-accident criterion, which neither prior derivation touched. The conclusion did not move; the argument did, twice. Rev 3 also reframes the finding against the Python driver from a wrong constant to a missing distinction: it has ONE halt channel where the specification defines TWO, and `stage.record-outcome`'s `Outcome` type already models both. Rev 2 folded the first professor round (serial wave makes the contention branch unreachable, so the Rev 1 positive witness was unsatisfiable; state is a sum over phases, not a flat product; `wasi.fs.copy` split out from the encoding fix). Rev 3 folds the second (the §7 lexical refutation, accepted; its replacement conclusion, rejected; the citation-clause over-reading, withdrawn; the abstraction-function disclosure, adopted). Both professor rounds were conversational; no standalone review file exists, and their findings are folded in §15."
+status: "Rev 5, SETTLED, READY FOR ENGINEER. Rev 5 folds the third professor round and a sweep of driver-spec §8 through §15.4, the sections the truncated heading grep had left unread. Four substantive changes. (1) §3.5's classification rule was two-way over a FOUR-constructor Outcome: it never referenced PartialThenHalt, which stage.llmll proves maps to Stopped under [S4-PARTIAL] citing §4:146-147, and which Phase 3 already constructs. Measured over the write-before-require ordering of every stage, exactly one of the 38 divergent sites fires after its stage wrote a DECLARED output: :866, stage H. It becomes PartialThenHalt and stays stopped, so the divergence set is 37. The same clause independently corroborates six of the nine spec-defined sites and contradicts one, which is the profile of an eliminative check rather than an agreement. (2) §6 gains driver-spec §8, §10, §12 and §13 conformance. Stage O is the ONLY delegated stage with no validator at all, and §13 is its specification; its eight MUSTs split on §15.1:512-515's enumeration rather than on decidability, one being mechanizable (§13:443-446, perturbation omission) and seven disclosure-only. (3) §14's Blocks column is corrected twice: FS-COPY-1 blocks driver-spec §8:336-337, which requires the checking copy to be the original unmodified subject, so it is conformance and not ergonomics; FS-STAT-1 blocks §12:405-428 via a §15.2:522-524 capability gap, the §15.1:511 proof obligation being already discharged. (4) One target-spec defect filed: §15.1:509's range sentence contradicts its own enumeration at :512-515, and §13's prose MUSTs consequently fit none of the three tiers §15.1:504-505 requires every obligation to occupy. driver-spec is pinned under §14:473-474, so this is recorded rather than repaired. §15 records two corrections to this proposal's own prior turns, both misreadings of a citation audit this proposal itself produced. Rev 4, SETTLED. Rev 4 is the first revision driven by EXECUTING the harness rather than reading it, and it closes the one item Rev 3 left un-implementable. §3.5 is new: the halt surface is 46 require() sites plus three AgentRunner raises, not the four conditions §3.4 described, and the disposition attaches to the CLAUSE rather than the stage or the validator, because check_dispositioned holds six checks of which exactly one (:355, the closed-barrier condition, driver-spec §6:229-231) is spec-defined. §3.5 gives the classification rule with a polarity guard (§14:484-491 states two checks that MUST be reported and MUST NOT halt), enumerates the nine spec-defined sites by clause, and resolves all three sites the harness could not classify -- :967, :866 and :1045 -- to failed, which unblocks the Python-side repair. Divergence set is 38, not 4. Three corrections to Rev 3, two of them to this proposal's own claims: §10 case 5 was WRONG (it derived 'no holes to fill -> stopped' from the driver's own source, and driver-spec has no clause about an empty hole set, so §4:129's residual gives failed -- the third instance of the error shape §3.3 records twice, and the first originating here); §2.3's coverage claim counted STUB_MODE values rather than tests, and the measured cover was six of eight with a ninth transition omitted; and the citation-resolution mandate is §14:479-483, not §7, which Rev 3 missed because a heading grep truncated at section 9 and §10 through §15.4 were never read. One finding PARTLY REFUTED: stage H is not unspecified, since §7:313-316's catalogue clause covers it; only its acceptance bar is driver-defined, which narrows what Phase 5 §15.4 owes. Rev 3, SETTLED. Revises `driver-in-llmll-campaign.md` §Phase 4 on two structural corrections: the phase's stage enumeration was short by one (stage G was assigned to no phase), and its acceptance clause ('a complete run reproduces a committed campaign's artifacts') is not satisfiable against this tree, measured. Replaced by two claims plus a derived transition-cover scenario set. Rev 3 settles the delegated-stage disposition on its THIRD derivation: Rev 1 argued from §4's residual clause, Rev 2 argued from §7's wording and was refuted on the specification's own use of 'fails' as a verb, and Rev 3 rests the conclusion on §4:132-136's verdict-versus-accident criterion, which neither prior derivation touched. The conclusion did not move; the argument did, twice. Rev 3 also reframes the finding against the Python driver from a wrong constant to a missing distinction: it has ONE halt channel where the specification defines TWO, and `stage.record-outcome`'s `Outcome` type already models both. Rev 2 folded the first professor round (serial wave makes the contention branch unreachable, so the Rev 1 positive witness was unsatisfiable; state is a sum over phases, not a flat product; `wasi.fs.copy` split out from the encoding fix). Rev 3 folds the second (the §7 lexical refutation, accepted; its replacement conclusion, rejected; the citation-clause over-reading, withdrawn; the abstraction-function disclosure, adopted). Both professor rounds were conversational; no standalone review file exists, and their findings are folded in §15."
 date: 2026-08-04
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, professor, user]
@@ -252,24 +252,80 @@ mandate in §7. It is **§14:479-483**, and the driver's own STOP message says s
 (`rfc_to_implementation.py:815`, "Section 14 pins the source"). §7 carries the *delegation* of the
 reading (§14:493-495); §14 carries the *check* and the halt.
 
-**The three sites the harness could not classify. All resolve, and all to `failed`.**
+**The three sites the harness could not classify. All resolve.**
 
 - **`:967`** (stage K, authored roots do not typecheck). §7:283-286 requires validating a delegated
   output "against its declared shape." For a `.llmll` artifact, well-formedness under `llmll check`
-  *is* that validation. Stage-contract-defined.
-- **`:866`** (stage H, feasibility not established). See §6's stage-H note: §7 covers the stage, not
-  the acceptance bar.
+  *is* that validation. Stage-contract-defined, `failed`.
+- **`:866`** (stage H, feasibility not established). Stage-contract-defined per §6's stage-H note:
+  §7 covers the stage, not the acceptance bar. Rev 4 concluded `failed` from that alone.
+  **Corrected in Rev 5 to `stopped`** on a second axis §3.6 introduces; the clause-source reasoning
+  is unchanged and is not what decides it.
 - **`:1045`** (no holes to fill). §9 defines the fill protocol per hole and states nothing about an
-  empty hole set, so §4:129's residual applies. This is the correction §10 case 5 carries.
+  empty hole set, so §4:129's residual applies, `failed`. This is the correction §10 case 5 carries.
 
 **Counts.** Of the 46 `require()` sites: 9 spec-defined (`stopped`, correct today); 26
 delegated-output shape validation; 9 driver-internal invariants and tool failures; 2 pre-stage
 argument validation, which fire before any stage exists and assign no stage status.
 
-**The divergence set is 38**: the middle two classes (35 sites, all of which must become `failed`)
-plus the three `AgentRunner` raises, which are not `require()` calls — `:221` timeout, `:227`
-non-zero exit, `:230` declared output absent. §3.1's table disposes of the last three; §3.5's rule
-disposes of the 35.
+### 3.6 The second axis: `PartialThenHalt`, and the site it moves
+
+Added in Rev 5. §3.5's rule classifies by **which clause defines the failed condition**, and it sorts
+every halt into two of `Outcome`'s four constructors. The type has a third halt constructor, and it
+is not decorative.
+
+[`stage.llmll:10`](../../tools/llmll-driver/stage.llmll) declares
+`(type Outcome (| ConditionUnmet) (| Errored) (| PartialThenHalt) (| Finished))`, and `record-outcome`
+carries `[S4-PARTIAL]`, proving `PartialThenHalt → Stopped` with the source string
+"driver-spec.txt sec 4 - wrote some artifacts then halted MUST be stopped". §4:146-147 is the clause.
+§3.4 already records that Phase 3 constructs `ConditionUnmet` and `PartialThenHalt`, and §3.3 already
+cites §4:146-147, so neither the clause nor the constructor is new to this proposal. What is new is
+applying them to the 46-site classification, which §3.5 did not.
+
+**The second axis.** §4:146-147 classifies by **what the stage had already written** when it halted,
+independently of which clause defined the condition. The two axes are orthogonal and §3.5 carried
+only the first.
+
+**Measured**, over the write-before-`require()` ordering of every stage in
+[`rfc_to_implementation.py`](../../scripts/rfc_to_implementation.py):
+
+| Post-write site | Clause-source axis | §4:146-147 axis | Agree |
+|---|---|---|---|
+| `:811`, `:815`, `:821` (G2, after the write at `:809`) | `stopped` | `stopped` | yes |
+| `:936`, `:939` (J, after `:932`) | `stopped` | `stopped` | yes |
+| `:1003` (L, after `:999`) | `stopped` | `stopped` | yes |
+| `:866` (H, after `:864`) | **`failed`** | **`stopped`** | **no** |
+| `:546` (E, after `:544`) | `failed` | not triggered | yes |
+
+Six of the nine spec-defined sites are corroborated by a clause that played no part in selecting
+them, and exactly one site is contradicted. That is the profile of an eliminative check rather than
+of an agreement between two readings of the same evidence.
+
+**`:546` is the discriminating case for the reading of "its artifacts."** Stage E writes
+`reconcile.stdout.txt` at `:544` and then halts at `:546`, but the registry (`:1341-1342`) declares
+only `SUMMARY.json` as its output. Under a **declared-output** reading the axis does not fire and
+`:546` stays `failed`. Under an any-file-written reading it fires. **Settled: declared outputs**,
+because that reading makes the rule computable from the registry rather than from filesystem
+observation, and because a diagnostic dump is not an artifact the stage owes.
+
+**Named ambiguity, not resolved by fiat.** §4:146 says "wrote **some** of its artifacts." Every
+affected site wrote *all* of its declared outputs and then failed validation, which is not literally
+"some." The reading that makes the clause operative is that "some" means "not none," and it is the
+reading the driver already follows in six places. Recorded as a reading of a pinned source
+(§14:473-474) rather than as a derivation.
+
+**The divergence set is 37**, not 38: the two middle classes (35 sites) plus the three `AgentRunner`
+raises, which are not `require()` calls (`:221` timeout, `:227` non-zero exit, `:230` declared output
+absent), **minus `:866`**, which stays `stopped` and changes constructor rather than status. §3.1's
+table disposes of the three raises; §3.5's rule disposes of 34; §3.6 disposes of `:866`.
+
+**Recorded uncertainty.** `:866` now has two derivations pointing opposite ways: §3.5's clause-source
+axis gives `failed`, §3.6's artifact-state axis gives `stopped`. driver-spec never states which
+governs when they disagree, and §4:146-147 presents itself as an instance ("In particular") of
+§4:145, which is about `complete` rather than about `stopped`, so it widens rather than instantiates
+what it is attached to. The disjunctive reading is taken here. **The conservative action for the
+Python-side repair is the same under both readings**: hold `:866` at `stopped`, which is its value
+today, and move the other 37. If the disjunctive reading is later rejected, one site moves.
 
 ---
 
@@ -339,7 +395,13 @@ the split makes the executable a syntactic constant a reader can enumerate
 
 ---
 
-## 6. driver-spec §7 conformance
+## 6. driver-spec conformance: §7, and the four sections a truncated grep hid
+
+§6.1 is §7, settled since Rev 2. §6.2 through §6.5 are new in Rev 5 and come from sweeping §8
+through §15.4, the sections `grep -nE "^[0-9]*\.  [A-Z]"` never returned because §10 and up use a
+single space after the numeral.
+
+### 6.1 §7, the delegated-stage contract
 
 §7 specifies what a delegated stage owes independently of how the Python driver implements it. Three
 of its obligations are Phase 4 work and were not in the campaign's §Phase 4.
@@ -381,9 +443,100 @@ that covers stage N's mutant taxonomy including the unrealisable-entry rule.
 
 What driver-spec does **not** define is stage H's acceptance condition (the probe verifies
 body-faithfully **and** its mutant refutes). That bar is the driver's own, so `:866` is
-stage-contract-defined and records `failed`. **Consequence for Phase 5 §15.4:** no special sentence
-is owed for stage H, which conforms to §7 as a delegated catalogue stage. The disclosure owed is
-narrower: its acceptance bar is driver-defined and is not a conformance claim.
+stage-contract-defined on the clause-source axis. **Rev 5:** that settles which clause defines the
+condition and no longer settles the status, which §3.6 decides on artifact state. **Consequence for
+Phase 5 §15.4:** no special sentence is owed for stage H, which conforms to §7 as a delegated
+catalogue stage. The disclosure owed is narrower: its acceptance bar is driver-defined and is not a
+conformance claim.
+
+### 6.2 §13 is stage O's specification, and stage O has no validator
+
+Stage O (`stage_O_writeup`, kind `agent`, declared output `REPORT.md`, registry `:1370`) is the
+**only delegated stage in the driver with zero `require()` sites**. Measured: `:1298-1305` is a
+docstring and a body that runs the agent. §7:283-286 makes validating a delegated output mandatory,
+non-downgradable and non-skippable, which is §6.1 item 1, and for this one stage there is nothing to
+downgrade because nothing exists. Neither this proposal through Rev 4 nor the harness findings named
+it; the harness leg exercised transitions rather than stage bodies.
+
+driver-spec §13 carries eight MUSTs over the report. Three of them are already restated inside
+`stage_O_writeup`'s docstring, which reaches the agent as prompt text and is checked by nothing.
+
+**The split is drawn by §15.1:512-515, not by decidability.** §15.1 characterises its tier as
+"properties of sequencing and state over enumerated statuses and bounded counters" and enumerates
+what it covers; reporting is absent from that enumeration. That is the specification drawing the
+line itself, which is firmer ground than an argument about what a validator could decide.
+
+- **Mechanizable, one clause.** §13:443-446, the full perturbation result including undetected
+  perturbations. Stage N holds the reference set: `kill-matrix.json` is written at `:1291` and keyed
+  by `name`, with `unwritable` rows retained and survivors logged rather than dropped
+  (`:1273-1277`, `:1292-1295`). The check is a set difference over that key.
+- **Disclosure-only, seven clauses.** §13:433-435 (lead with coverage and the core count, not the
+  raw carried/total ratio), §13:437 (state what is not claimed), §13:439-441 (disclose every assumed
+  step), §13:448-450 (MUST NOT characterise perturbation as validating contracts), §13:452-454
+  (MUST NOT claim verification prevented an error absent a comparison capable of showing it).
+
+**The check is named for what it decides.** It is the **perturbation-omission check**, not a §13:446
+conformance check. A report that lists a survivor and dismisses it passes the set difference while
+violating "MUST be resolved rather than omitted." §13:448-450 states this asymmetry about
+perturbation evidence generally, and the same discipline applies to the oracle that checks the
+report. Passing it does not discharge §13:446 and the phase close must not say that it does.
+
+**§13:439-441 is a trust-channel disclosure, not a completeness check.** It names "any inference
+from a per-step property to a property of all executions," which is the induction step over the
+transition relation, and `stage_O_writeup:1301-1303` already identifies it as "a trace induction
+outside the decidable fragment." There is no set for the driver to difference against: the statements
+§7 owes live in this document and in the phase gap inventory, both design-doc artifacts. Grepped:
+the driver holds no assumed-step inventory.
+
+**Disposition.** Stage O writes its declared output, then the validator runs, then a halt occurs.
+That is the house ordering of all five stages that validate after writing, so §3.6's axis applies
+and the halt records `stopped` as `PartialThenHalt`. It does **not** qualify under §3.5's rule:
+§13:446 mandates *resolution*, not halting, and §13 is not a §6 gate, so the second conjunct fails.
+The nine-site table is unaffected; sub-phase 4f adds one construction site on §3.6's axis.
+
+### 6.3 §12: `--status` is a specification section, not operator plumbing
+
+`show_status` (`:1541-1640`) already distinguishes all four §4 statuses at `:1613-1632`, with
+§4:133-137's rationale quoted in the comment. §12:405-428 is therefore satisfied by the Python
+reference, and the LLMLL port currently plans to drop it.
+
+**§12:428 corroborates §3 by entailment.** "The report MUST distinguish the four stage statuses of
+section 4 from one another" reaches the recording only by entailment: a report that can never emit
+`failed` for a deliberate halt does not operatively distinguish four statuses. The renderer conforms;
+what does not is the recording, under §4:129-131. Flagged as entailment rather than quotation, on the
+same standard §3.5 applies to `:811`.
+
+**§12:419-420 is what `FS-STAT-1` blocks**, since it requires advancement to be judged from change to
+any artifact under the workdir and not from the driver's log. That needs a file mtime.
+
+### 6.4 §8: isolation is a MUST, and its re-check facility is a spec obligation
+
+§8:330-332 requires the driver to "re-check isolation after a run and report any file in an agent's
+directory that was not among its declared inputs." `audit_blindness` (`:1644-1668`) implements it.
+Like `--status`, it is a specification obligation the port defers as operator surface.
+
+§8:336-337 is the one that changes a gap's severity: where an agent needs a copy of the subject to
+check its own work, "the copy MUST be the original, unmodified subject." A copy that cannot
+round-trip non-UTF-8 bytes is not the original. `FS-COPY-1` is therefore conformance, not the
+ergonomics §14 recorded through Rev 4.
+
+### 6.5 §10: the ordering is a shell obligation, and the contention refutation does not reach it
+
+§10:371-373 requires that the token not be held while the agent works, that the driver release once
+the agent has what it needs, and that it obtain a **fresh** token at submission. `_apply:1176-1186`
+implements exactly that under one lock; the rebind at `:1181` is what makes the request at `:1182`
+carry the fresh token rather than the released one. §10:381 requires that an unreleasable token not
+leave the hole permanently unavailable, and `_release:1149-1153` names that failure mode.
+
+The first professor round refuted the contention witness as unreachable under a serial wave. That
+refutation is correct and **confined to §10:375-379**. §10:371-373 and §10:381 are reachable
+serially and this proposal's §10 case 1 addresses neither.
+
+**Open for the engineer, not settled here.** `token.llmll:9` declares
+`(def token-during [p: Phase] -> TokenState)`, a total function from phase to token state. That
+shape proves a phase-indexed invariant and does not obviously prove an *ordering*. If it does not,
+§10:371-373's ordering is a shell obligation and §7 owes a fourth statement. Confirm against the
+module body and `crux-token-held-across-call.llmll` before 4e.
 
 ---
 
@@ -418,12 +571,26 @@ These belong in the phase's gap inventory, in the same category as the FFI count
 authority report.
 
 **Rev 4 tightening.** §3.5 makes the third of these **enumerable rather than open**. Before it, "the
-shell chooses the `Outcome` constructor" was an unbounded disclosure. Now it is a 46-row table with
-nine `ConditionUnmet` and the rest `Errored`, plus a rule that classifies a site the table does not
-list. The abstraction function is still unproved and still outside Σ_auto, but it is auditable, and
-a reviewer can check a call site against the rule rather than against an intention. The first two
-statements (contention, and the fill-acceptance triple) remain open: both are substring tests over
-compiler output whose wording carries no stability contract.
+shell chooses the `Outcome` constructor" was an unbounded disclosure. Now it is a 46-row table plus a
+rule that classifies a site the table does not list. The abstraction function is still unproved and
+still outside Σ_auto, but it is auditable, and a reviewer can check a call site against the rule
+rather than against an intention. The first two statements (contention, and the fill-acceptance
+triple) remain open: both are substring tests over compiler output whose wording carries no
+stability contract.
+
+**Rev 5 corrections and additions.**
+
+- The `stage.record-outcome` statement now covers **three** halt constructors rather than two:
+  nine `ConditionUnmet`, one `PartialThenHalt` (`:866`, plus stage O's site at 4f), and the rest
+  `Errored`. §3.6 gives the second axis and the measurement behind it.
+- **A fifth statement is owed at 4f**, for the perturbation-omission check of §6.2. The set
+  difference runs over identifiers read as strings from stage N's output, so it is shell-side and
+  outside Σ_auto for the same reason the other four are. Phase 4 must **not** intern those
+  identifiers as a nullary enum to move the check into QF-LIA: the identifier set is authored by an
+  agent per run and is not a closed vocabulary.
+- **A fourth statement may be owed at 4e**, for §10:371-373's token ordering, conditional on the
+  `token.llmll` read §6.5 routes to the engineer. Named here so its absence is a decision rather
+  than an omission.
 
 ---
 
@@ -460,17 +627,35 @@ grants no authority the existing read-and-write pair does not already grant.
 | **4b** | B, C, I, and §6's validation obligations as a shared facility | none new | A delegated output that is absent, malformed, or subject-hardcoded fails the stage and is never skipped |
 | **4c** | D, F, G | none new | Stage E's Phase 3 pins reproduce over D's own output |
 | **4d** | H, K, N | none new | Probe-verifies / mutant-refutes polarity reproduces; stage N retains unrealisable entries in the denominator |
-| **4e** | M, serial, **with contention injected under clause 1a** | `fill.fill-accepted`, `fill.next-error-budget`, `fill.is-finding`, `token.token-during` | Both retry budgets fire and are separately counted; a hole exhausting its semantic budget is a finding and never hinted; §7's three statements are written |
-| **4f** | O, phase close, gap inventory | none new | Clauses 1a, 1b and 2 |
+| **4e** | M, serial, **with contention injected under clause 1a** | `fill.fill-accepted`, `fill.next-error-budget`, `fill.is-finding`, `token.token-during` | Both retry budgets fire and are separately counted; a hole exhausting its semantic budget is a finding and never hinted; §7's statements are written, and §6.5's `token.llmll` read is resolved either way |
+| **4f** | O **with its §13 validator**, phase close, gap inventory | none new | Clauses 1a, 1b and 2; the perturbation-omission check of §6.2 fires on an omitted survivor and records `PartialThenHalt`; the seven disclosure-only §13 clauses are listed as unchecked in the phase close |
 
 **4e is the phase.** It is where three of the six proved modules acquire their first caller.
 
 **`liveness.advancing` gets no caller, and the reason is a filed gap.** Its precondition is over
 artifact ages in seconds and there is no `wasi.fs.stat`: `wasi.clock.monotonic` reports nanoseconds
 since an unspecified epoch and nothing exposes a file mtime. Filed as `FS-STAT-1`. It does not block
-Phase 4, `--status` being operator plumbing the campaign's §5 item 3 defers to the retirement step,
-but the phase reports that one of the six proved modules has no callable data source rather than
-leaving a reader to infer it was forgotten.
+Phase 4, the campaign's §5 item 3 deferring the operator surface to the retirement step, but the
+phase reports that one of the six proved modules has no callable data source rather than leaving a
+reader to infer it was forgotten.
+
+**Rev 5 correction to that paragraph's framing.** "Operator plumbing" is the wrong category. §12 is
+a specification section and §8:330-332 is a MUST, so deferring `--status` and `audit_blindness`
+defers **conformance**, and both are implemented and conformant in the Python reference. The
+deferral is a scope decision the campaign is entitled to make; what it is not entitled to do is
+leave it undisclosed. §15.1:504-505 is the governing clause: "An implementation MUST place every
+obligation in exactly one of three tiers, and MUST be able to report which." *Every* obligation, not
+every claimed one, so a deferred §12 obligation must still be tiered and reportable. Neither
+§15:547 (which constrains obligations a claim "claims to meet") nor §13:437 (which governs the run's
+report rather than the phase's conformance claim) reaches this.
+
+The gap is also not where it first appears. §15.1:511 requires the proved-tier obligations to be
+discharged by proof over all inputs; `liveness.llmll.verified.json` exists, so **that obligation is
+discharged**. What is missing is the effectful surface that would feed the proved predicate, and
+§15.2:522-524 requires effectful operations to be reached "only through a declared capability or a
+named interface declared in the program itself." A capability that does not exist cannot be
+declared. So: §15.1:511 satisfied, §15.2:522-524 is where the gap sits, §12:405-428 is what
+consequently cannot be met.
 
 ---
 
@@ -556,6 +741,46 @@ Channel: **spec is silent, intentionally.** Every contract clause discharges cor
 is entirely in the abstraction function. This is §7's witness and it is invisible to every channel
 the project has.
 
+**10. Positive witness for §3.6's axis.** Stage H's agent writes a catalogue of three probes. The
+driver evaluates each, appends to `results`, writes its declared output `feasibility.json` at `:864`,
+computes `bad = ["probe-2"]`, and halts at `:866`. Expected: the shell constructs `PartialThenHalt`;
+`record-outcome` yields `Stopped`; detail names §4:146-147. Under Rev 4's rule it would have
+constructed `Errored` and recorded `failed`. This is the one site in the divergence set where the
+two axes disagree, and it is the concrete firing input for the new axis rather than a description of
+when it would fire.
+Channel: **contract, proved for the mapping** (`[S4-PARTIAL]`); the constructor choice is unproved
+per §7. Citation: registry `:1351-1352`; `rfc_to_implementation.py:864-869`.
+
+**11. Negative witness, guarding §3.6 against over-fire.** Stage M halts at `:1045` on an empty hole
+set. Its declared outputs are written at `:1099`, which has not run. Expected: §3.6's axis does not
+fire; `Errored`; `failed`; unchanged from case 5. Without this case the axis reads as converting
+every stage-contract failure to `stopped`.
+Channel: **contract.** Citation: registry `:1366-1367`; `rfc_to_implementation.py:1045`, `:1099`.
+
+**12. The discriminating case for "its artifacts."** Stage E writes `reconcile.stdout.txt` at `:544`,
+then halts at `:546`. The registry declares only `SUMMARY.json` (`:1341-1342`). Expected under the
+settled declared-output reading: the axis does not fire and `:546` stays `failed`. Under an
+any-file-written reading it would fire and the site would move. Stated because the two readings
+differ on exactly this site and the choice is otherwise invisible.
+Channel: **contract.** Citation: registry `:1341-1342`.
+
+**13. Positive witness for the perturbation-omission check.** Stage N's kill matrix holds a row
+`mut-07` with `verdict: SAFE` and `good_twin: false`, which `:1292-1293` classifies a survivor. Stage
+O's agent writes a report whose perturbation table lists `mut-01` through `mut-06`. The set
+difference over the `name` key is `{mut-07}`, non-empty; the run halts after the report is on disk;
+`PartialThenHalt`; `stopped`; detail naming §13:443-446. The guard is satisfiable because an omitted
+undetected perturbation is the exact failure §13:444-446 was written against.
+Channel: **contract for the mapping, shell-side for the predicate** (§7's fifth statement).
+Citation: `rfc_to_implementation.py:1291-1295`; driver-spec §13:443-446.
+
+**14. The omission check passes on a dismissive report.** The kill matrix holds `mut-07` as a
+survivor; the report lists `mut-07` and calls it out of scope. The set difference is empty and the
+check passes, while §13:446's "resolved rather than omitted" is violated.
+Channel: **spec is silent (intentional).** The check decides omission and is strictly weaker than the
+clause it is named after, which is why §6.2 names it for what it decides. driver-spec states the same
+asymmetry about perturbation evidence at §13:448-450, and it applies to the oracle as much as to the
+contracts.
+
 ---
 
 ## 11. Verification mapping
@@ -564,12 +789,16 @@ the project has.
 |---|---|---|---|
 | Retry-budget separation, finding condition, fill acceptance (`fill.llmll`, three `def`s, six posts) | contract | **QF-LIA, auto-discharged.** Ints and bools only; body-faithful at HEAD | `FixpointEmit.hs`; `LLMLL.md §5.3.3` arithmetic class |
 | Token phase discipline (`token.token-during`) | contract | **QF-LIA** via the nullary-enum int-tag discriminant | `LLMLL.md §5.3.5`, n-arm sum `EMatch`, nullary enums stay pure QF-LIA |
-| Stage outcome classification, all four arms (`stage.record-outcome`) | contract | **QF-LIA.** Discharged at HEAD; Phase 4 adds the `Errored` construction site | `LLMLL.md §5.3.5` |
+| Stage outcome classification, all four arms (`stage.record-outcome`) | contract | **QF-LIA.** Discharged at HEAD; Phase 4 adds the `Errored` construction site, and 4f adds a second `PartialThenHalt` site per §6.2 | `LLMLL.md §5.3.5`; `[S4-PARTIAL]` |
 | Skip decision over the manifest (`skip.may-skip`) | contract | **QF-LIA.** Discharged at HEAD | `LLMLL.md §5.3.3` |
 | Phase 4's own pins as new strict-core `def`s (wave partition counts, per-stage status counts) | contract | **QF-LIA for the count conjuncts; lexeme comparisons fall back** (`STRLIT-BODY-1`) | roadmap `STRLIT-BODY-1`; `spine.llmll:71-80` states the same limit for stage E |
 | §6 validation, citation resolution, catalogue rules | **none.** Shell-side | Outside Σ_auto (string and JSON structure) | `LLMLL.md §5.3.5`; no `?proof-required` proposed |
-| `Outcome` constructor choice at §3.1's four-way disposition | **none.** Shell-side | Outside Σ_auto | §7; `stage.llmll:8-10` proves the mapping, not the choice |
-| The three abstraction functions of §7 | **none.** Shell-side substring tests | Outside Σ_auto | Disclosed, not discharged |
+| `Outcome` constructor choice across §3.5's and §3.6's two axes | **none.** Shell-side | Outside Σ_auto | §7; `stage.llmll:10` proves the mapping, not the choice |
+| The abstraction functions of §7 | **none.** Shell-side substring tests | Outside Σ_auto | Disclosed, not discharged |
+| §3.6's "wrote a declared output before halting" predicate | contract | **QF-LIA.** A written-count comparison against a declared-output list fixed statically by the registry. No string structure: the predicate is an integer comparison, and the list is not read from an artifact | `LLMLL.md §5.3.3` arithmetic class |
+| Perturbation-omission set difference (§6.2) | **none.** Shell-side | Outside Σ_auto. Identifiers arrive as strings from stage N's output; **deliberately not interned**, the identifier set being agent-authored per run rather than a closed vocabulary | `LLMLL.md §5.3.5`; §7's fifth statement |
+| §13's seven disclosure-only clauses | trust | **Not dischargeable, and not attempted.** Prose constraints on a natural-language artifact | driver-spec §15.1:512-515 excludes reporting from the proved tier |
+| §15.1:504-505 tier placement for the deferred §8 and §12 obligations | trust | **No SMT obligation.** Discharged by the phase-close gap inventory | driver-spec §15.1:504-505 |
 | Artifact digest match | trust | The digest comes from a sealed builtin (`wasi.fs.sha256`); the driver compares hex strings | `LLMLL.md §13.11` |
 | `wasi.fs.copy`'s effect summary | trust (informational) | Not a proof obligation. `Caps {EFsRead, EFsWrite}` under may-over-approximation | `ObligationAssembly.hs:399-448`; `LLMLL.md:1860` |
 | `STATE-PROD-1`, if it ships | type | **QF-LIA plus the datatype theory, no widening.** An n-ary product is `Pairn` at the theory `LLMLL.md:963` already runs | `FixpointEmit.hs` `typeToSortA` |
@@ -589,7 +818,12 @@ distinction drawn.
 - [`driver-in-llmll-campaign.md`](driver-in-llmll-campaign.md) §Phase 4 — Rev 5: eleven stages,
   §2's acceptance clauses, §5's operator-surface change, §3's disposition table, and the correction
   of the "exercises the token discipline just as well" sentence at §Phase 4.
-- [`driver-ll-open-work.md`](driver-ll-open-work.md) — new rows per §14.
+- [`driver-in-llmll-campaign.md`](driver-in-llmll-campaign.md), proved-core roster: add the
+  §15.1:512-515 citation. The roster's seven obligations are already counted at §2.4 of this file;
+  what is missing is the citation at the point where the roster is introduced, so a reader sees it
+  as specified rather than chosen.
+- [`driver-ll-open-work.md`](driver-ll-open-work.md): new rows per §14, plus the §8 and §12
+  conformance deferrals, which need a home before Phase 5 can write its §15.1:504-505 tier statement.
 - `INDEX.md` — one-liner for this file (doc-lead's slot).
 
 **Driver artifacts** ([`tools/llmll-driver/`](../../tools/llmll-driver/))
@@ -610,10 +844,21 @@ distinction drawn.
 
 **Harness** ([`scripts/`](../../scripts/))
 
-- `tests/test_rfc_pipeline_integration.py` — the stub agent moves from env to argv; the stub `llmll`
+- `scripts/tests/test_rfc_pipeline_integration.py` — the stub agent moves from env to argv; the stub `llmll`
   gains the §10 case 1 contention injection; the scenario set grows to eight; a second driver comes
   under test.
 - `build_smoke.sh` — the Phase 4 artifact enters the build gate per campaign §3a.
+- [`rfc_to_implementation.py`](../../scripts/rfc_to_implementation.py): the §3.5 and §3.6 repair,
+  experiment-lead's slot. **37 sites, not 38.** `:866` is held at `stopped` and changes constructor
+  rather than status, per §3.6's recorded uncertainty. `require()` needs a second raising form so the
+  disposition rides the clause rather than the validator, and
+  `test_exclusion_outside_the_barrier_list_halts_the_run` must keep asserting `stopped` as the
+  witness that the rule does not over-fire. A stage-O validator is **new behaviour** and must not be
+  bundled into that repair.
+- [`DRIVER-LL-PHASE4-HARNESS-FINDINGS.md`](../../experiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md)
+  carries §6.2's stage-O finding and §14's target-spec defect as new rows. The defect is a finding
+  about the campaign's target document, which is the campaign's own product, so it does not belong
+  only in a design proposal.
 
 ---
 
@@ -641,6 +886,20 @@ distinction drawn.
    warning-bearing program.
 9. **§7's citation half is unreachable in this repository.** Scope. Bite: **already recorded**; it is
    the G2 limitation and widens nothing.
+10. **§3.6 changes a site the Python repair was handed as mechanical.** Spec-drift, timing. `:866` is
+    in the list the restart record gives experiment-lead. Bite: **blocks the mechanical framing by
+    one site**; the conservative action (hold `:866`, move 37) is the same under both readings of
+    §4:146-147, so it does not block the work itself.
+11. **"Some of its artifacts" is a reading, not a derivation.** Scope. §4:146 does not settle the
+    wrote-all-then-failed-validation case, and the driver's six-site precedent is behaviour rather
+    than authority. Bite: **complicates**; it is the fourth under-specified clause this proposal has
+    had to read, and §3.6 records it as a reading rather than presenting it as settled.
+12. **§14's target-spec defect has no repair path.** Spec-drift. driver-spec is pinned under
+    §14:473-474, and §13's prose MUSTs fit none of §15's three tiers while §15.1:504-505 requires
+    every obligation to occupy one. Bite: **does not block Phase 4**; it constrains what Phase 5's
+    conformance claim can assert, and it must be recorded before that claim is written.
+13. **The perturbation-omission check is necessary and not sufficient.** Claim discipline. Bite:
+    **complicates 4f**; the mitigation is naming, not machinery, and §10 case 14 is the witness.
 
 ---
 
@@ -649,8 +908,10 @@ distinction drawn.
 | Tag | What | Blocks |
 |---|---|---|
 | `FS-ENCODING-1` | `wasi.fs.read` / `write` inherit the locale; a decode failure throws inside a `Command` | Sub-phase 4e on a non-UTF-8 locale |
-| `FS-COPY-1` | No byte-faithful copy; `wasi.fs.copy` proposed in §8 | Nothing; stage D's blindness argument is weaker without it |
-| `FS-STAT-1` | No file mtime, so `liveness.advancing` has no callable data source | Nothing in Phase 4; `--status` at the retirement step |
+| `FS-COPY-1` | No byte-faithful copy; `wasi.fs.copy` proposed in §8 | **driver-spec §8:336-337**, which requires the checking copy to be the original unmodified subject. Conformance, not the ergonomics Rev 4 recorded |
+| `FS-STAT-1` | No file mtime, so `liveness.advancing` has no callable data source | **driver-spec §12:405-428, via a §15.2:522-524 capability gap.** The §15.1:511 proof obligation is discharged; the capability that would feed the proved predicate does not exist. Deferral must be tiered under §15.1:504-505 |
+| `FS-ISOLATION-1` | `audit_blindness` (`:1644-1668`) implements driver-spec §8:330-332 and the port defers it | Nothing in Phase 4; like `--status`, a spec obligation deferred as operator surface, and disclosed under §15.1:504-505 rather than dropped |
+| `SPEC-TIER-1` | **Target-spec defect.** §15.1:509's range ("sections 4 through 13") contradicts its own characterisation at `:509-510` and its enumeration at `:512-515`, neither of which covers reporting. §13's prose MUSTs consequently fit none of §15's three tiers, while §15.1:504-505 requires every obligation to occupy exactly one | Nothing in Phase 4. driver-spec is pinned (§14:473-474) so it cannot be repaired here; it constrains what Phase 5's §15.4 conformance claim may assert. No tier is manufactured for them: stretching §15.2's scope sentence past "effectful operations" is the over-reading this proposal has been refuted on twice |
 | `PROC-ENV-1` | `wasi.proc.run` has no env parameter | Nothing; named-not-scheduled, and deliberately so |
 | `STATE-PROD-1` | At most one payload per constructor; no n-ary product | Nothing; ergonomics |
 | (unnamed) | `emitMatch` suppresses its catch-all on any constructor arm, including in a mixed match with literal arms | Nothing; general crash-freedom hole, needs a row |
@@ -659,7 +920,7 @@ distinction drawn.
 
 ## 15. Revision history and professor review log
 
-Both professor rounds were conversational. No standalone `driver-ll-phase4-review.md` exists, so
+All three professor rounds were conversational. No standalone `driver-ll-phase4-review.md` exists, so
 there is no M2 fold-and-archive to trigger; the findings are recorded here.
 
 **Rev 1 → Rev 2, first professor round.**
@@ -714,7 +975,65 @@ first revision driven by executing something rather than by reading it.
   citation-resolution mandate in §7. It is §14:479-483, and the driver's own STOP message says so.
   A heading grep that truncated at section 9 is why Rev 3 never read §10 through §15.4.
 
-**Standing note.** The delegated-stage disposition produced three derivations in three turns and a
-fourth turn made it operational. §3.1 is the settled table, §3.2 the derivation it rests on, and
-§3.5 the rule that applies it per call site. A fifth challenge has to engage §4:132-136's
-verdict-versus-accident criterion directly; none of the failed derivations touched it.
+**Rev 4 → Rev 5, third professor round, plus a sweep of §8 through §15.4.**
+
+The round was prompted by a residue of the Rev 4 attribution correction: the truncated grep meant
+§10 through §15.4 had been read only where Rev 4 went looking, and a targeted lookup finds the clause
+you sought rather than the ones you did not know to seek. The sweep extracted every RFC 2119 keyword
+in §8 through §15.4 and matched each against this proposal's citation set.
+
+- *Stage O is the only delegated stage with no validator, and §13 is its specification.* **Accepted
+  in full**, and confirmed independently by the professor. §6.2 added. Measured: `stage_O_writeup`
+  has zero `require()` sites and restates three §13 MUSTs in a docstring that reaches the agent as
+  prompt text.
+- *The tenth-spec-defined-site claim fails §3.5's own second conjunct.* **Accepted.** §13:446
+  mandates resolution, not halting, and §13 is not a §6 gate. The first draft of §6.2 substituted
+  "resolution mandate" for "halt mandate," which is the same elision that got Rev 2's §7 derivation
+  refuted. Withdrawn.
+- *Ground the stage-O disposition on §14:484-491's report-without-halting polarity instead.*
+  **Refuted, ground and conclusion.** §14's stated ground is that both its checks "occur in correct
+  censuses"; a report omitting a survivor is not a correct artifact, so the rationale does not
+  transfer, and applying the wording without the ground would be a fourth instance of the shape
+  §3.3 records. The accompanying artifact-destruction premise is refuted by measurement: all five
+  stages that validate after writing write the declared output first, so a halt leaves the artifact
+  on disk. Refuting it is what produced §3.6.
+- *§13:439-441 is misclassified twice: the driver holds no assumed-step set, and the obligation is
+  the inductive-invariant-to-trace-property disclosure.* **Accepted in full.** §6.2 routes it to the
+  trust channel. The first draft's claim that the driver "already holds this set" was asserted
+  without grepping for it.
+- *§15:547 is the wrong citation for the deferrals.* **Accepted, and the replacement is also
+  wrong.** §15:547 constrains obligations a claim "claims to meet." The professor's substitute
+  §13:437 governs the run's report rather than the phase's conformance claim. The clause is
+  **§15.1:504-505**, which binds *every* obligation.
+- *§12:428 is overstated as violated today.* **Accepted.** The renderer conforms; the recording does
+  not. §6.3 flags it as entailment on the standard §3.5 applies to `:811`.
+- *The omission check is necessary and not sufficient.* **Accepted.** Renamed in §6.2 for what it
+  decides; §10 case 14 is the witness.
+- *§15.1's range contradicts its enumeration and §13's prose MUSTs fit no tier.* **Accepted**, filed
+  as `SPEC-TIER-1` against the target rather than resolved.
+
+**Two corrections to this proposal's own prior turn, both self-inflicted.** The Rev 5 sweep produced
+a citation audit and then misread it twice.
+
+- *"§15.1 is unread; the campaign never cited the clause specifying its proved-core roster."*
+  **False.** §2.4 cites §15.1 and counts its seven obligations. The audit reported "§15.1: 1x, line
+  119" and the reading passed over it. The roster cross-check against `tools/llmll-driver/` was real
+  and the one-to-one correspondence holds; the conclusion hung on it did not. What survives is
+  narrow: the citation belongs at the point where the roster is introduced in the campaign doc, and
+  `FS-STAT-1`'s Blocks column was wrong.
+- *"§4:146-147 is used by neither turn."* **False.** §3.3 cites it, as evidence about the
+  specification's use of *fails* as an ordinary verb. It appeared in the audit under §4's spans. What
+  survives is narrower and is §3.6: the clause is cited for its vocabulary and never applied to the
+  46-site classification, and `PartialThenHalt` was proved and constructed in Phase 3 while §3.5's
+  rule sorted every halt into the other two constructors.
+
+Both errors share a cause worth recording: the audit was run, its output was correct, and the reading
+of it was not. A citation audit is evidence about what a document cites, and it is not evidence about
+what the reader noticed.
+
+**Standing note.** The delegated-stage disposition produced three derivations in three turns, a
+fourth turn made it operational, and a fifth found that the rule sorted a four-constructor type into
+two constructors. §3.1 is the settled table, §3.2 the derivation it rests on, §3.5 the clause-source
+rule that applies it per call site, and §3.6 the artifact-state axis that overrides it at one site. A
+sixth challenge has to engage §4:132-136's verdict-versus-accident criterion directly, and separately
+say which axis governs when §3.5 and §3.6 disagree; driver-spec does not.

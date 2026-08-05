@@ -10,7 +10,7 @@ consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
 # DRIVER-LL Phase 4 — restart record
 
 Read this first, then
-[`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 4, SETTLED). Everything else is
+[`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 5, SETTLED). Everything else is
 downstream of those two.
 
 ## 1. Where the work is
@@ -68,9 +68,13 @@ expectation that it is zero because the corpus is ASCII is an expectation, not a
 ([`ObligationAssembly.hs:448`](../../compiler/src/LLMLL/ObligationAssembly.hs)), one codegen case,
 `RNone`, no new label and no new `Response` arm. Both are proposal §8 and §14.
 
-**#8 is now mechanical**, which it was not before §3.5. 38 halt sites move to `failed`; nine stay
+**#8 is now mechanical**, which it was not before §3.5. **37** halt sites move to `failed`; nine stay
 `stopped` and are listed by clause in proposal §3.5. `require()` needs a second raising form so the
-disposition rides the clause rather than the validator.
+disposition rides the clause rather than the validator. **Rev 5 changed the count from 38.** `:866`
+(stage H) is held at `stopped` and changes constructor rather than status: it fires after its stage
+wrote a declared output, which proposal §3.6 shows is a second classification axis §3.5 omitted.
+Holding it is the conservative action under both readings of §4:146-147, so #8 does not wait on that
+question being settled.
 `test_exclusion_outside_the_barrier_list_halts_the_run` must keep asserting `stopped`: it is the
 witness that the rule does not over-fire.
 
@@ -89,8 +93,10 @@ spec section.
   `llmll version`.
 - **The doc path lint gates CI.** `scripts/tests/test_doc_path_lint.py::test_clean_on_live_repo` runs
   in `version-gate.yml`, so an unresolved prose citation leaves `main` red. A backticked
-  workdir-relative path such as `06-disposition/inventory-dispositioned.json` reads as a repo path
-  and fails; name the artifact by role instead.
+  workdir-relative path, of the stage-directory-slash-filename shape a stage output naturally has,
+  reads as a repo path and fails; name the artifact by role instead. Writing that example out in
+  backticks is itself enough to trip the lint, which is how this line broke it once. Bare filenames
+  are safe: `doc_path_lint.py:150-151` skips any citation with no slash in it.
 - **Stage G2 still cannot run under the stub.** Its citation check scores every stub citation below
   `CITATION_RESOLVES_AT` because the rows quote `"q"` against SPEC lines that do not contain it.
   Fixing it needs stub rows whose quotes are drawn from the pinned bytes. Filed as harness finding
