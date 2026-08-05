@@ -4,6 +4,107 @@
 
 <a id="Latest"></a>
 
+## v0.14.86: the program wrote the bytes correctly, then died printing them (2026-08-05)
+
+`main` had been red on CI since 2026-08-04, on four gate failures plus a missing file. There was one
+defect. `FS-ENCODING-1`, which arrived at v0.14.84, pinned UTF-8 on the two filesystem handles and
+left the generated program's **standard** handles on the ambient locale; its acceptance gate reported
+PASS throughout that release because the platform it was written on cannot express the condition it
+names. A shipped feature was incomplete, and its own gate was structurally unable to say so.
+
+### Fixed, the generated program's standard handles (`FS-ENCODING-1`, second half)
+
+Under `LC_ALL=C` the `fs-encoding` fixture wrote `section § marker` to disk as correct UTF-8 (17
+bytes, verified on disk), read it back correctly, and then died printing it:
+
+    <stdout>: hPutChar: invalid argument (cannot encode character '\167')
+
+Steps 3 through 9 never ran. One encode failure on stdout therefore surfaced as four independent gate
+failures plus an absent `big.copy`, and the report named **`wasi.fs.copy`, which had not executed at
+all**. The same binary under `LC_ALL=C.UTF-8` passes every assertion with matching digests, which is
+what identifies the encode as the whole defect rather than one of several. CI run 31035476326.
+
+`main` now moves the locale and pins the standard handles, in both entry modes that run:
+
+    setLocaleEncoding utf8
+    hSetEncoding stdin  utf8     -- console only; the cli harness reads no stdin
+    hSetEncoding stdout utf8
+    hSetEncoding stderr utf8
+
+Both halves are needed and neither substitutes for the other. The RTS creates the three standard
+handles before `main` runs, so `setLocaleEncoding` cannot reach them retroactively and each needs its
+own explicit pin. In the other direction, GHC's `dupHandle_` rebuilds a duplicate's codec from
+`getLocaleEncoding`, so the `hDuplicate` / `hDuplicateTo` pair that `captureStdout` runs three times
+per step **reset** stdout's encoding to the locale's whatever the source handle carried; moving the
+locale is what makes those duplicates UTF-8, and it covers the event-log handle and the `createPipe`
+/ `fdToHandle` pair without enumerating them. Ordering is asserted rather than presence alone: a pin
+placed after the first write has already lost the byte it existed to protect, and the locale move has
+to precede the event log's `openFile`, whose handle resolves its codec at creation. The fs bodies'
+own `hSetEncoding` calls stay, stating the filesystem contract locally.
+
+**This changes the emitted Haskell for every generated `console` and `cli` program, and that is a
+behaviour change even though it is a repair.** A program that could previously encode its output in a
+non-UTF-8 locale's bytes now writes UTF-8. Under a POSIX locale those writes failed outright, so
+nothing that worked stops working; under a locale that could encode them, the bytes on the wire
+differ. The `http` mode's `main` is untouched, being a scaffold that ends in `error` and performs no
+user IO.
+
+### Changed, the `LC_ALL=C` gate reports NOT EXERCISED where it cannot fail
+
+GHC 9.6.6 on macOS resolves UTF-8 under every value of `LC_ALL`, even where the system's own locale
+database says otherwise. Measured 2026-08-05, macOS 25.5.0: `LC_ALL=C locale charmap` reports
+`US-ASCII`, and a probe printing `getLocaleEncoding` under the same environment reports `UTF-8`. The
+platform cannot express the condition, so the encoding half of `build_smoke.sh` stage 5b is a
+structural no-op there. That is not a hypothetical risk: it reported PASS on the developer's machine
+for the whole of v0.14.84 while the property it names was false, and failed on the first line it
+printed the first time it ran anywhere else.
+
+Every assertion still runs on every platform, the copy and truncation halves being
+locale-independent. Only the verdict changes. On Darwin the stage now prints
+
+    BUILD-GATE-1 NOT EXERCISED: the LC_ALL=C encoding claim (FS-ENCODING-1).
+
+and names Linux CI as the only thing that settles the encoding claim, instead of a PASS it has not
+earned. The discriminator is the platform rather than a probe, because after the fix the program
+behaves identically under both locales by construction, so nothing the fixture can print separates a
+working pin from a missing one. Should GHC on macOS ever start honouring `LC_ALL`, the stage
+under-claims, which is the safe direction.
+
+### Fixed, `build_smoke.sh` resolved the compiler after changing directory
+
+A second defect, independently blocking, which only stopped recurring because stage 5b failed first.
+The replay and DRIVER-LL stages `cd` out of the caller's directory (into the temp `OUTDIR`, and into
+`tools/llmll-driver`) and then invoke `$LLMLL_BIN`, and CI sets `LLMLL_BIN="stack exec llmll --"`.
+`stack` took the temp directory for its project root and reported `Executable named llmll not found
+on path`. `LLMLL_BIN` is now resolved to an absolute binary once, at the top of the script, while the
+cwd is still the caller's. It never fired locally because a macOS run already has `llmll` on `PATH`
+at an absolute path. It is a separate defect rather than a symptom of the first, proven by A/B in the
+container: the fixed codegen with the old script still fails the replay stage with the exact error
+the previous release produced.
+
+### Also in this release
+
+- **Verified red to green in Linux, not inferred.** A `haskell:9.6.6` container running the CI
+  invocation exactly: the unmodified tree reproduces the failure byte-identically to CI run
+  31035476326, down to the `178890` figure, and the final tree passes all six stages.
+- **Four new Haskell tests** assert the three pins, the locale move and its import, the ordering
+  against the event-log `openFile`, and the `cli` mode's pair. They run everywhere; the end-to-end
+  oracle is stage 5b on Linux, and cannot be anything on macOS.
+- **A failing `wc -c` no longer leads the stage's own diagnostic.** `wc -c < missing` fails in the
+  shell before `wc` runs, so a `2>/dev/null` on `wc` does not suppress it, and the CI output opened
+  with a bare `No such file or directory` naming a line number rather than a cause. An absent file
+  now reports 0 bytes, which is the fact.
+- **Two residues of the same class are recorded and untouched**, filed as `TOOL-ENCODING-1` on the
+  roadmap: `llmll replay`'s `CreatePipe` handles and the compiler's own reading of `.llmll` source
+  both take locale-derived encodings, and nothing in the tree exercises either. The shipped
+  `Dockerfile`'s `LANG=C.UTF-8` is the workaround already in place for the second.
+- **`llmll` gains no new command or flag**, and the JSON-AST schema does not move.
+- **`LLMLL.md` §13.9** states the pin for the program's standard handles beside the filesystem ones.
+
+**Tests:** 1642 Haskell, 123 Python.
+
+---
+
 ## v0.14.85: argv in, status out, and a starved stdin stops reporting success (2026-08-05)
 
 The process boundary DRIVER-LL sub-phase 4a is blocked on: an entry point that both receives the

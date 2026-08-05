@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.85)
+# LLMLL: Large Language Model Logical Language (v0.14.86)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.85.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.86.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2549,6 +2549,12 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > `wasi.fs.read` of a file that is not valid UTF-8 delivers `RErr`, and `wasi.fs.write` encodes as
 > UTF-8 regardless of `LANG`. Bytes that are not text do not belong on this channel: `wasi.fs.sha256`
 > hashes them and `wasi.fs.copy` moves them, neither decoding on the way through.
+>
+> **The same pin covers the program's own standard handles.** A generated program sets its locale to
+> UTF-8 and pins its standard handles before its first read or write, so `wasi.io.stdout` and
+> `wasi.io.stderr` write UTF-8 under any `LANG` rather than failing to encode a non-ASCII string
+> under a POSIX one. The property is the same one the filesystem commands state: what a program puts
+> on a channel is a fact about the program, not about the shell that launched it.
 >
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as
