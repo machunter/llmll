@@ -7,7 +7,11 @@
 -- The two parsers MUST agree on every construct. Any divergence is a bug.
 --
 -- JSON schema: docs/llmll-ast.schema.json
--- Versioning policy: docs/json-ast-versioning.md
+-- Versioning policy: the "description" field of that same schema file, which
+-- enumerates the accepted schemaVersions and what each one added. There is no
+-- separate versioning document by design -- a second file would be a second
+-- source of truth to drift against. The per-bump rationale lives in the
+-- 'expectedSchemaVersion' comment block below.
 module LLMLL.ParserJSON
   ( parseJSONAST
   , parseJSONASTValue
@@ -157,7 +161,11 @@ parseProgram mode _fp = withObject "Program" $ \o -> do
       ++ show acceptedSchemaVersions
       ++ ", got '"
       ++ T.unpack sv
-      ++ "' (see docs/json-ast-versioning.md)"
+      -- No inner quotes around `description`: the message is rendered inside a
+      -- quoted string in both the s-expression and the JSON diagnostic
+      -- channels, where they come back to the user as \" escape noise.
+      ++ "' (see the description field of docs/llmll-ast.schema.json for what "
+      ++ "each accepted version added)"
     else do
       stmtVals <- o .: "statements" :: Parser [Value]
       concat <$> mapM (flattenStatement mode) stmtVals

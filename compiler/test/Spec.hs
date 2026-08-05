@@ -16224,6 +16224,166 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       reportSuccess report `shouldBe` False
 
   -- -----------------------------------------------------------------------
+  -- SLICE-CLAMP: string_slice clamps out-of-range endpoints.
+  --
+  -- The unclamped body `take (to - from) (drop from s)` was wrong for a
+  -- NEGATIVE start. Haskell's `drop` no-ops on a negative count while the take
+  -- count still widens by |from|, so the result had the wrong LENGTH, silently
+  -- and with no error: string_slice "abc" (-1) 1 returned "ab" for a
+  -- one-character window, and string_slice "abc" (-3) 0 returned the whole
+  -- string for a window that ends at index 0.
+  --
+  -- string_char_at already had a convention for out-of-range access (return
+  -- ""), so the fix is the family-consistent one: clamp both endpoints into
+  -- [0, n] and keep the half-open [from, to) reading. string-slice is
+  -- UNINTERPRETED in the verifier -- of the string builtins only string-length
+  -- reaches the SMT layer, as strLen (FixpointEmit.hs:2822) -- so this is a
+  -- runtime-semantics change with no VC or trust-tier impact.
+  -- -----------------------------------------------------------------------
+  describe "CodegenHs: string_slice out-of-range clamp (SLICE-CLAMP)" $ do
+
+    -- Each preamble definition is a run of non-blank lines terminated by a
+    -- blank one. Pulling a block out by its signature lets SLICE-4 below
+    -- execute the SHIPPED source rather than a copy that can drift from it.
+    let preambleBlock nm =
+          takeWhile (not . T.null)
+            (dropWhile (not . T.isPrefixOf (nm <> " ::")) runtimePreamble)
+        codeLinesOf nm =
+          filter (not . T.isPrefixOf "--" . T.stripStart) (preambleBlock nm)
+
+    -- Scoped to CODE lines on purpose: the block's comment quotes the old
+    -- unclamped body verbatim as the record of what was wrong, and a
+    -- whole-preamble substring check fails on that comment. (It did.)
+    it "SLICE-1 no code line in the shipped block carries the unclamped body" $ do
+      any (T.isInfixOf "take (to - from)") (codeLinesOf "string_slice")
+        `shouldBe` False
+      -- and there is exactly one string_slice, so the extractor is not reading
+      -- past a second definition that could still be the unclamped one.
+      length (filter (T.isPrefixOf "string_slice ::") runtimePreamble)
+        `shouldBe` 1
+
+    it "SLICE-2 the shipped block clamps both endpoints into [0, n]" $ do
+      let blk = T.unlines (preambleBlock "string_slice")
+      T.isInfixOf "max 0 from" blk `shouldBe` True
+      T.isInfixOf "max 0 to"   blk `shouldBe` True
+      T.isInfixOf "min n"      blk `shouldBe` True
+
+    it "SLICE-3 the block extractor finds both definitions it executes" $ do
+      length (preambleBlock "string_slice")   `shouldSatisfy` (> 1)
+      length (preambleBlock "string_char_at") `shouldSatisfy` (> 1)
+
+    -- The preamble is a string literal, so every text-shape assertion above can
+    -- pass while the SEMANTICS are wrong. Compile the extracted blocks and read
+    -- the actual values back. string_char_at rides along so the test witnesses
+    -- the CONSISTENCY that motivated the clamp, not just the clamp.
+    it "SLICE-4 executing the shipped blocks yields clamped values" $ do
+      mrunghc <- findExecutable "runghc"
+      case mrunghc of
+        Nothing -> pendingWith
+          "runghc not on PATH; SLICE-1..3 still pin the clamp textually"
+        Just runghcExe -> do
+          tmpRoot <- getTemporaryDirectory
+          let dir  = tmpRoot </> "llmll-slice-clamp"
+              path = dir </> "SliceProbe.hs"
+          createDirectoryIfMissing True dir
+          TIO.writeFile path . T.unlines $
+            [ "module Main where", "" ]
+            ++ preambleBlock "string_slice"   ++ [""]
+            ++ preambleBlock "string_char_at" ++ [""]
+            ++ [ "main :: IO ()"
+               , "main = mapM_ putStrLn"
+               , "  [ show (string_slice \"abc\" (-1) 1)"
+               , "  , show (string_slice \"abc\" (-3) 0)"
+               , "  , show (string_slice \"abc\" (-5) (-2))"
+               , "  , show (string_slice \"abcdef\" (-2) 4)"
+               , "  , show (string_slice \"abc\" 1 3)"
+               , "  , show (string_slice \"abc\" 0 3)"
+               , "  , show (string_slice \"abc\" 0 100)"
+               , "  , show (string_slice \"abc\" 5 7)"
+               , "  , show (string_slice \"abc\" 2 0)"
+               , "  , show (string_char_at \"abc\" (-1))"
+               , "  , show (string_char_at \"abc\" 3)"
+               , "  , show (string_char_at \"abc\" 0)"
+               , "  ]"
+               ]
+          (code, out, err) <- readProcessWithExitCode runghcExe [path] ""
+          removeDirectoryRecursive dir
+          case code of
+            ExitFailure _ -> expectationFailure $
+              "the extracted string_slice / string_char_at preamble blocks do \
+              \not compile standalone:\n" ++ err
+            ExitSuccess ->
+              lines out `shouldBe`
+                [ "\"a\""     -- the reported defect: was "ab", the wrong LENGTH
+                , "\"\""      -- was "abc" for a window ending at index 0
+                , "\"\""      -- both endpoints below range; was "abc"
+                , "\"abcd\""  -- was "abcdef"
+                , "\"bc\""    -- in-range half-open window, unchanged
+                , "\"abc\""   -- whole string, unchanged
+                , "\"abc\""   -- `to` past the end clamps to n
+                , "\"\""      -- both endpoints past the end
+                , "\"\""      -- transposed pair, the documented empty result
+                , "\"\""      -- string_char_at: negative index, the convention
+                , "\"\""      -- string_char_at: index == length
+                , "\"a\""     -- string_char_at: in range
+                ]
+
+  -- -----------------------------------------------------------------------
+  -- JSON-VER-CITE: the schema-version-mismatch message cites a file that is
+  -- actually there.
+  --
+  -- Both the module header and the rejection message pointed at
+  -- docs/json-ast-versioning.md, which has never existed in this repository.
+  -- scripts/doc_path_lint.py cannot see it: that lint reads prose in tracked
+  -- markdown, and this citation lives in a Haskell string literal PRINTED TO
+  -- THE USER at the moment their document is rejected. The canonical
+  -- versioning record is the schema's own "description" field, so the citation
+  -- was repointed rather than the missing document written -- a second
+  -- versioning document would be a second source of truth to drift against.
+  -- -----------------------------------------------------------------------
+  describe "ParserJSON: version-mismatch citation resolves (JSON-VER-CITE)" $ do
+
+    let badDoc = BLC.pack "{\"schemaVersion\":\"0.1.3\",\"statements\":[]}"
+        rejection = parseJSONAST GrammarCoreInversion "<test>" badDoc
+        mismatchMsg = case rejection of
+          Left d  -> diagMessage d
+          Right _ -> "<parser ACCEPTED schemaVersion 0.1.3>"
+
+    it "JVC-1 a stale schemaVersion is still rejected as schema-version-mismatch" $
+      case rejection of
+        Right _ -> expectationFailure "parser accepted schemaVersion 0.1.3"
+        Left d  -> do
+          diagKind d `shouldBe` Just "schema-version-mismatch"
+          diagCode d `shouldBe` Just "E011"
+
+    it "JVC-2 the rejection message no longer cites the nonexistent doc" $
+      T.isInfixOf "json-ast-versioning" mismatchMsg `shouldBe` False
+
+    it "JVC-3 the rejection message cites the schema file" $
+      T.isInfixOf "docs/llmll-ast.schema.json" mismatchMsg `shouldBe` True
+
+    -- The substance of the ticket: the path a rejected user is told to read
+    -- has to be there. A future repoint at some other dead path fails here.
+    it "JVC-4 every docs/ path the message cites exists on disk" $ do
+      let scrub c  = if c `elem` (",()\"" :: String) then ' ' else c
+          cited    = [ T.unpack w
+                     | w <- T.words (T.map scrub mismatchMsg)
+                     , "docs/" `T.isPrefixOf` w ]
+      cited `shouldSatisfy` (not . null)
+      forM_ cited $ \p -> do
+        ex <- doesFileExist (".." </> p)
+        when (not ex) . expectationFailure $
+          "schema-version-mismatch tells a rejected user to read " ++ p ++
+          ", which does not exist. doc_path_lint.py does not read Haskell \
+          \string literals, so this test is the only guard on that citation."
+
+    -- Whole-file guard: covers the module-header comment as well as the error
+    -- message, and catches any reintroduction of the dead path anywhere else.
+    it "JVC-5 no site in ParserJSON.hs cites the nonexistent versioning doc" $ do
+      src <- TIO.readFile "src/LLMLL/ParserJSON.hs"
+      T.isInfixOf "json-ast-versioning" src `shouldBe` False
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec
