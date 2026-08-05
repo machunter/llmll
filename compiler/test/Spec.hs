@@ -14703,6 +14703,48 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "wasi_fs_read path = llmll_publish_io" preambleText `shouldBe` True
       T.isInfixOf "evaluate (length contents)" preambleText `shouldBe` True
 
+    -- FS-ENCODING-1. Both text bodies pin UTF-8 instead of inheriting the
+    -- ambient locale. MEASURED before the fix: under a POSIX locale a read of a
+    -- valid UTF-8 file failed on the lead byte (0xC2 for U+00A7) and a write of
+    -- any non-ASCII string failed to encode. Neither CRASHED, because
+    -- llmll_publish_io's `try` already made the failure a value, so the defect
+    -- was availability rather than crash-freedom and a test written against the
+    -- crash framing would have passed throughout.
+    --
+    -- The end-to-end oracle is scripts/build_smoke.sh stage 5b, which runs the
+    -- round trip under LC_ALL=C. This block only pins that the pin is present.
+    it "FS-ENCODING-1: wasi_fs_read pins UTF-8 rather than the locale" $ do
+      T.isInfixOf "bracket (openFile path ReadMode) hClose" preambleText `shouldBe` True
+      T.isInfixOf "hSetEncoding h utf8" preambleText `shouldBe` True
+      -- readFile would reintroduce locale decoding through the back door.
+      T.isInfixOf "contents <- readFile path" preambleText `shouldBe` False
+
+    it "FS-ENCODING-1: wasi_fs_write pins UTF-8 rather than the locale" $ do
+      T.isInfixOf "bracket (openFile path WriteMode) hClose" preambleText `shouldBe` True
+      T.isInfixOf "hPutStr h contents" preambleText `shouldBe` True
+      T.isInfixOf "writeFile path contents" preambleText `shouldBe` False
+
+    -- The trap the bracket introduces, and the reason `evaluate` is now
+    -- load-bearing for a SECOND reason. hGetContents is lazy and hClose runs on
+    -- the way out of bracket, so a force placed after the bracket reads a
+    -- CLOSED handle and yields truncated or empty contents with no error at
+    -- all. That failure publishes a well-formed RText and is invisible to any
+    -- assertion that only checks the arm. Ordering is the whole property, so it
+    -- is asserted as ordering rather than as presence.
+    it "FS-ENCODING-1: the force sits INSIDE the bracket, not after it" $ do
+      let afterOpen = snd (T.breakOn "bracket (openFile path ReadMode)" preambleText)
+          body      = fst (T.breakOn "wasi_fs_sha256" afterOpen)
+          idxOf s   = T.length (fst (T.breakOn s body))
+      -- evaluate must appear before the body ends and after hSetEncoding.
+      T.isInfixOf "evaluate (length contents)" body `shouldBe` True
+      (idxOf "hSetEncoding" < idxOf "evaluate (length contents)") `shouldBe` True
+      (idxOf "evaluate (length contents)" < idxOf "return (RText contents)") `shouldBe` True
+
+    -- FS-COPY-1. copyFile moves bytes and never decodes, which is the entire
+    -- reason the operation exists: read-then-write cannot express a copy of a
+    -- binary artifact, because wasi.fs.read of one returns RErr under UTF-8 as
+    -- much as under any other encoding.
+
     -- removeFile on a missing path throws, and an uncaught exception inside a
     -- Command breaks the no-crash property LLMLL.md:1747 relies on.
     it "wasi_fs_delete guards with doesFileExist, so a missing path is a no-op" $ do
