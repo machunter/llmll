@@ -5942,6 +5942,42 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io.stdout"
           diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
 
+    -- FS-COPY-1. A new builtin that is DECLARED but not GATED would grant
+    -- filesystem authority to a module that never imported wasi.fs. The name
+    -- lands under the existing capability because extractWasiNamespace takes
+    -- the first two dotted segments, so this asserts that the reuse actually
+    -- reaches the enforcement path rather than merely looking like it should.
+    it "FS-COPY-1: wasi.fs.copy with no import produces missing-capability error" $ do
+      let src = T.pack $ unlines
+            [ "(def-shell backup [src: string dst: string]"
+            , "  (wasi.fs.copy src dst))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+              capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                                 (reportDiagnostics report)
+          length capErrors `shouldBe` 1
+
+    -- The positive half. Without this the assertion above could pass because
+    -- the name is rejected for some unrelated reason, which is the shape a
+    -- gate-that-never-admits takes.
+    it "FS-COPY-1: wasi.fs.copy with (import wasi.fs ...) is accepted" $ do
+      -- AST built directly, on the CAP-1e precedent: parseStatements takes a
+      -- statement list, not a (module ...) wrapper.
+      let stmts =
+            [ SImport (Import "wasi.fs" Nothing (Just (Capability CapWrite "/tmp" True)))
+            , SDefLogic "backup" [("src", TString), ("dst", TString)]
+                (Just (TCustom "Command"))
+                (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+                (EApp "wasi.fs.copy" [EVar "src", EVar "dst"])
+            ]
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
+          capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                             (reportDiagnostics report)
+      capErrors `shouldBe` []
+
     -- CAP-1d: wasi.io.stdout inside a let binding with no import → error
     it "CAP-1d: wasi.io.stdout nested in let binding still caught" $ do
       let src = T.pack $ unlines
@@ -14440,6 +14476,25 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       primEffect "wasi.fs.sha256"
         `shouldBe` Just (Caps (Set.fromList [EFsRead, ECrypto]))
 
+    -- FS-COPY-1. Reads one path and writes another, so it carries both labels
+    -- on the sha256 precedent. Dropping either would UNDER-approximate, which
+    -- is the unsound direction on a join-semilattice; the wasi.* fallthrough
+    -- would give ⊤ and merely over-approximate, so a missing clause degrades
+    -- quietly rather than loudly. That is what this pins.
+    it "FS-COPY-1: wasi.fs.copy carries BOTH EFsRead and EFsWrite" $
+      primEffect "wasi.fs.copy"
+        `shouldBe` Just (Caps (Set.fromList [EFsRead, EFsWrite]))
+
+    -- The authority argument for admitting the builtin at all: it grants
+    -- exactly what a read-then-write composition already grants, so no caller's
+    -- effect row widens by using it. If this ever fails, the soundness argument
+    -- in the design record no longer holds.
+    it "FS-COPY-1: wasi.fs.copy grants no authority read+write does not" $ do
+      let copyEff  = primEffect "wasi.fs.copy"
+          readWrite = Just (Caps (Set.union (Set.singleton EFsRead)
+                                            (Set.singleton EFsWrite)))
+      copyEff `shouldBe` readWrite
+
     -- NOT bottomEff. For a name in builtinEnv, calleeEff tests knownPure before
     -- primEffect and bottomEff is joinEffs' identity, so Just bottomEff is
     -- observationally the "pure builtin" case — false for an operation that
@@ -14676,8 +14731,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- that would have caught WASI-RT four names earlier. Only the count may
     -- move, and it moves only when a name is added with a preamble body to
     -- match.
-    it "builtinEnv declares exactly the twelve wasi.* names this block covers" $
-      length wasiNames `shouldBe` 12
+    -- 12 -> 13 with FS-COPY-1's wasi.fs.copy.
+    it "builtinEnv declares exactly the thirteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 13
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
@@ -14702,6 +14758,61 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "wasi_fs_read forces the read with evaluate, so it is not a lazy no-op" $ do
       T.isInfixOf "wasi_fs_read path = llmll_publish_io" preambleText `shouldBe` True
       T.isInfixOf "evaluate (length contents)" preambleText `shouldBe` True
+
+    -- FS-ENCODING-1. Both text bodies pin UTF-8 instead of inheriting the
+    -- ambient locale. MEASURED before the fix: under a POSIX locale a read of a
+    -- valid UTF-8 file failed on the lead byte (0xC2 for U+00A7) and a write of
+    -- any non-ASCII string failed to encode. Neither CRASHED, because
+    -- llmll_publish_io's `try` already made the failure a value, so the defect
+    -- was availability rather than crash-freedom and a test written against the
+    -- crash framing would have passed throughout.
+    --
+    -- The end-to-end oracle is scripts/build_smoke.sh stage 5b, which runs the
+    -- round trip under LC_ALL=C. This block only pins that the pin is present.
+    it "FS-ENCODING-1: wasi_fs_read pins UTF-8 rather than the locale" $ do
+      T.isInfixOf "bracket (openFile path ReadMode) hClose" preambleText `shouldBe` True
+      T.isInfixOf "hSetEncoding h utf8" preambleText `shouldBe` True
+      -- readFile would reintroduce locale decoding through the back door.
+      T.isInfixOf "contents <- readFile path" preambleText `shouldBe` False
+
+    it "FS-ENCODING-1: wasi_fs_write pins UTF-8 rather than the locale" $ do
+      T.isInfixOf "bracket (openFile path WriteMode) hClose" preambleText `shouldBe` True
+      T.isInfixOf "hPutStr h contents" preambleText `shouldBe` True
+      T.isInfixOf "writeFile path contents" preambleText `shouldBe` False
+
+    -- The trap the bracket introduces, and the reason `evaluate` is now
+    -- load-bearing for a SECOND reason. hGetContents is lazy and hClose runs on
+    -- the way out of bracket, so a force placed after the bracket reads a
+    -- CLOSED handle and yields truncated or empty contents with no error at
+    -- all. That failure publishes a well-formed RText and is invisible to any
+    -- assertion that only checks the arm. Ordering is the whole property, so it
+    -- is asserted as ordering rather than as presence.
+    it "FS-ENCODING-1: the force sits INSIDE the bracket, not after it" $ do
+      let afterOpen = snd (T.breakOn "bracket (openFile path ReadMode)" preambleText)
+          body      = fst (T.breakOn "wasi_fs_sha256" afterOpen)
+          idxOf s   = T.length (fst (T.breakOn s body))
+      -- evaluate must appear before the body ends and after hSetEncoding.
+      T.isInfixOf "evaluate (length contents)" body `shouldBe` True
+      (idxOf "hSetEncoding" < idxOf "evaluate (length contents)") `shouldBe` True
+      (idxOf "evaluate (length contents)" < idxOf "return (RText contents)") `shouldBe` True
+
+    -- FS-COPY-1. copyFile moves bytes and never decodes, which is the entire
+    -- reason the operation exists: read-then-write cannot express a copy of a
+    -- binary artifact, because wasi.fs.read of one returns RErr under UTF-8 as
+    -- much as under any other encoding.
+    --
+    -- The import lives in emitLibHs rather than in runtimePreamble and is not
+    -- exported, so it is NOT asserted here. Its oracle is BUILD-GATE-1, which
+    -- compiles the fixture through GHC; exporting an internal binding to
+    -- restate what the compiler already proves would be the worse trade.
+    it "FS-COPY-1: wasi_fs_copy uses copyFile, not a text round trip" $ do
+      T.isInfixOf "wasi_fs_copy src dst = llmll_publish_io (copyFile src dst" preambleText
+        `shouldBe` True
+      -- RNone, never RText: a copy that published contents would be routing
+      -- bytes through the text channel, which is the thing it exists to avoid.
+      let copyBody = fst (T.breakOn "\n" (snd (T.breakOn "wasi_fs_copy src dst =" preambleText)))
+      T.isInfixOf "RNone" copyBody `shouldBe` True
+      T.isInfixOf "RText" copyBody `shouldBe` False
 
     -- removeFile on a missing path throws, and an uncaught exception inside a
     -- Command breaks the no-crash property LLMLL.md:1747 relies on.

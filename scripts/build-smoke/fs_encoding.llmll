@@ -1,0 +1,92 @@
+;; BUILD-GATE-1 fixture, built AND RUN by scripts/build_smoke.sh.
+;;
+;; Two claims that only a running program can settle, both of which were
+;; asserted from source before they were measured:
+;;
+;;   FS-ENCODING-1. wasi.fs.write / wasi.fs.read pin UTF-8 rather than
+;;   inheriting the ambient locale. Before the pin, a POSIX-locale run failed to
+;;   ENCODE any non-ASCII string on write and failed to DECODE a valid UTF-8
+;;   file on read (measured: lead byte 0xC2 for U+00A7), surfacing both as a
+;;   spurious RErr on input the program was right about. Nothing crashed: the
+;;   `try` in llmll_publish_io already made it a value. The defect was
+;;   availability, not crash-freedom, which is why this fixture asserts a
+;;   SUCCESSFUL round trip rather than the absence of a traceback.
+;;
+;;   FS-COPY-1. wasi.fs.copy is byte-faithful. Proven the only way that is
+;;   checkable from inside the language: hash both files and compare. A text
+;;   round trip cannot reproduce this, because wasi.fs.read of a file carrying
+;;   byte 0xFF returns RErr under UTF-8 as much as under any other encoding.
+;;   driver-spec section 8:336-337 requires the checking copy to be the
+;;   ORIGINAL, UNMODIFIED subject, so this is conformance rather than ergonomics.
+;;
+;; The shell half of the fixture creates the binary input (a .llmll string
+;; literal cannot carry a lone 0xFF) and compares the two digests this prints.
+
+(module fs_encoding
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.fs (capability read-write "/tmp"))
+
+  ;; Same shape as capproc_exec.llmll:31. An RErr arm that is DISTINGUISHABLE in
+  ;; the output matters here more than it does there: the failure this fixture
+  ;; guards against surfaces as RErr rather than as a crash, so a helper that
+  ;; collapsed RErr into the text arm would print a plausible line for a run
+  ;; that failed.
+  (def-shell resp-text [r: Response] -> string
+    (match r
+      ((RNone)    "none")
+      ((RText t)  t)
+      ((RCode n)  (int-to-string n))
+      ((RErr e)   (string-concat "ERR:" e))
+      ((RList ns) (int-to-string (list-length ns)))))
+
+  (def-shell fsenc-init [] -> (int, Command)
+    (pair 0 (wasi.fs.mkdir "/tmp/llmll-fsenc")))
+
+  ;; One operation per step; the response arrives at the following step. RC-4
+  ;; means the command of the step satisfying done? is NOT performed, so the
+  ;; chain ends on a throwaway rather than on a real assertion.
+  (def-shell fsenc-step [s: int input: string r: Response] -> (int, Command)
+    ;; U+00A7 is the character 45 files in this repository's own corpus carry,
+    ;; so the round trip below is over the exact shape that motivated the fix.
+    (if (= s 0)
+        (pair 1 (wasi.fs.write "/tmp/llmll-fsenc/text.txt" "section § marker"))
+    (if (= s 1)
+        (pair 2 (wasi.fs.read "/tmp/llmll-fsenc/text.txt"))
+    ;; If the write encoded through a POSIX locale this step never runs: the
+    ;; write itself would have published RErr and resp-text would carry the
+    ;; error rather than the contents.
+    (if (= s 2)
+        (pair 3 (wasi.io.stdout (string-concat "text=" (resp-text r))))
+    (if (= s 3)
+        (pair 4 (wasi.fs.sha256 "/tmp/llmll-fsenc/bin.dat"))
+    (if (= s 4)
+        (pair 5 (wasi.io.stdout (string-concat "src=" (resp-text r))))
+    (if (= s 5)
+        (pair 6 (wasi.fs.copy "/tmp/llmll-fsenc/bin.dat"
+                              "/tmp/llmll-fsenc/bin.copy"))
+    (if (= s 6)
+        (pair 7 (wasi.fs.sha256 "/tmp/llmll-fsenc/bin.copy"))
+    ;; Equal digests are the byte-faithfulness claim. The shell compares them
+    ;; rather than the program, because a program that decided its own verdict
+    ;; would be asserting the thing under test.
+    (if (= s 7)
+        (pair 8 (wasi.io.stdout (string-concat "dst=" (resp-text r))))
+    ;; TRUNCATION GUARD. hGetContents is lazy and bracket closes the handle on
+    ;; the way out, so a force placed AFTER the bracket reads a closed handle
+    ;; and yields truncated or empty contents with no error at all: it publishes
+    ;; a well-formed RText and every arm-shaped assertion still passes. A short
+    ;; string fits in one buffer and would survive that bug, so the shell half
+    ;; supplies a multi-buffer file and compares the round trip byte for byte.
+    (if (= s 8)
+        (pair 9 (wasi.fs.read "/tmp/llmll-fsenc/big.txt"))
+    (if (= s 9)
+        (pair 10 (wasi.fs.write "/tmp/llmll-fsenc/big.copy" (resp-text r)))
+        (pair 11 (wasi.io.stdout "")))))))))))))
+
+  (def-shell fsenc-done? [s: int] -> bool (>= s 11))
+
+  (def-main
+    :mode    console
+    :init    (fsenc-init)
+    :step    fsenc-step
+    :done?   fsenc-done?))

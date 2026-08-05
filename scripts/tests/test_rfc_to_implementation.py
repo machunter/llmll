@@ -21,7 +21,16 @@ drv = importlib.util.module_from_spec(spec)
 sys.modules["rfc_to_implementation"] = drv
 spec.loader.exec_module(drv)
 
+# The two halt channels of driver-spec section 4, kept distinct on purpose.
+# `Stop` is a condition the SPECIFICATION defines (recorded stopped, sec
+# 4:125-127); `Fail` is a stage-contract failure, a driver invariant, or a tool
+# that had to succeed (recorded failed, sec 4:129-131). Which alias a test names
+# IS the assertion: before the split every site raised StopCondition, so a
+# malformed agent output and a fired gate were indistinguishable, and these
+# tests could not have told them apart either.
 Stop = drv.StopCondition
+Fail = drv.StageFailure
+Partial = drv.PartialHalt
 
 
 def row(cid, cls="C1", disposition="Encoded", core=False, barrier=None,
@@ -101,9 +110,9 @@ def test_extraction_accepts_the_shape_reconcile_consumes():
 def test_extraction_requires_integer_line_spans():
     """reconcile.py matches by line-span overlap; a string span silently becomes
     a coverage disagreement that never happened."""
-    with pytest.raises(Stop, match="non-integer line_start/line_end"):
+    with pytest.raises(Fail, match="non-integer line_start/line_end"):
         drv.check_extraction(_extraction(line_start="93", line_end="94"), "a")
-    with pytest.raises(Stop, match="line_start > line_end"):
+    with pytest.raises(Fail, match="line_start > line_end"):
         drv.check_extraction(_extraction(line_start=94, line_end=93), "a")
 
 
@@ -114,24 +123,24 @@ def test_extraction_accepts_a_rule_set_numbered_from_zero():
     with "N0. The document's own declaration" and 28 rows cite it."""
     drv.check_extraction(_extraction(rule="N0"), "a")
     drv.check_extraction(_extraction(rule="N12"), "a")
-    with pytest.raises(Stop, match="expected N followed by digits"):
+    with pytest.raises(Fail, match="expected N followed by digits"):
         drv.check_extraction(_extraction(rule="R3"), "a")
-    with pytest.raises(Stop, match="expected N followed by digits"):
+    with pytest.raises(Fail, match="expected N followed by digits"):
         drv.check_extraction(_extraction(rule="N"), "a")
 
 
 def test_extraction_rejects_a_bare_array():
     """The old, wrong shape. reconcile.py reads {"normative": [...]}."""
-    with pytest.raises(Stop, match="not a bare array"):
+    with pytest.raises(Fail, match="not a bare array"):
         drv.check_extraction([], "a")
 
 
 def test_extraction_rejects_missing_fields_and_an_empty_census():
-    with pytest.raises(Stop, match="missing"):
+    with pytest.raises(Fail, match="missing"):
         drv.check_extraction({"normative": [{"id": "A1"}], "excluded": []}, "a")
-    with pytest.raises(Stop, match="'normative' is empty"):
+    with pytest.raises(Fail, match="'normative' is empty"):
         drv.check_extraction({"normative": [], "excluded": []}, "a")
-    with pytest.raises(Stop, match="missing or non-list 'excluded'"):
+    with pytest.raises(Fail, match="missing or non-list 'excluded'"):
         drv.check_extraction({"normative": [_extraction()["normative"][0]]}, "a")
 
 
@@ -142,9 +151,9 @@ def test_disposition_requires_a_barrier_on_every_exclusion():
 
 
 def test_disposition_rejects_an_unknown_disposition_or_class():
-    with pytest.raises(Stop, match="expected one of"):
+    with pytest.raises(Fail, match="expected one of"):
         drv.check_dispositioned({"rows": [row("T1", disposition="Probably fine")]})
-    with pytest.raises(Stop, match="expected C1..C6"):
+    with pytest.raises(Fail, match="expected C1..C6"):
         drv.check_dispositioned({"rows": [row("T1", cls="C9")]})
 
 
@@ -156,13 +165,13 @@ def test_agent_that_exits_zero_without_writing_output_is_a_hard_failure(tmp_path
     """Silently skipping an agent stage would hollow out the denominator and the
     citations, which are the only things making the claim checkable."""
     runner = drv.AgentRunner("true")
-    with pytest.raises(Stop, match="wrote no result.json"):
+    with pytest.raises(Fail, match="wrote no result.json"):
         runner.run(tmp_path / "wd", "prompt", "result.json", "test")
 
 
 def test_agent_nonzero_exit_stops_the_run(tmp_path):
     runner = drv.AgentRunner("exit 3")
-    with pytest.raises(Stop, match="exited 3"):
+    with pytest.raises(Fail, match="exited 3"):
         runner.run(tmp_path / "wd", "prompt", "result.json", "test")
 
 
@@ -179,7 +188,7 @@ def test_agent_output_is_accepted_when_the_contract_is_met(tmp_path):
 def test_unfilled_prompt_placeholder_is_a_hard_failure(tmp_path):
     """A half-rendered prompt silently drops an instruction; better to stop."""
     c = ctx(tmp_path)
-    with pytest.raises(Stop, match="unfilled placeholders"):
+    with pytest.raises(Fail, match="unfilled placeholders"):
         c.prompt("stage-D-extract.md", rfc_text="x")  # rubric/extractor missing
 
 
@@ -282,7 +291,7 @@ def test_an_agent_that_exceeds_its_budget_stops_cleanly(tmp_path):
     TimeoutExpired propagated out of main(), so nothing was recorded and the run
     was left mid-stage rather than resumable."""
     runner = drv.AgentRunner("sleep 30", timeout=1)
-    with pytest.raises(Stop, match="exceeded its 1s budget"):
+    with pytest.raises(Fail, match="exceeded its 1s budget"):
         runner.run(tmp_path / "wd", "prompt", "out.json", "slow")
 
 
@@ -465,23 +474,23 @@ def test_audit_records_a_non_core_flag_without_stopping(tmp_path):
 def test_audit_catalogue_must_cover_every_subject():
     """An audit that may quietly omit its hardest row reports the same thing as
     one that found nothing."""
-    with pytest.raises(Stop, match="no verdict for"):
+    with pytest.raises(Fail, match="no verdict for"):
         drv.check_audit({"audited": [{"cid": "A1", "verdict": "matches"}]},
                         ["A1", "A2"])
 
 
 def test_audit_catalogue_rejects_a_duplicate_and_an_unknown_subject():
-    with pytest.raises(Stop, match="two verdicts"):
+    with pytest.raises(Fail, match="two verdicts"):
         drv.check_audit({"audited": [{"cid": "A1", "verdict": "matches"},
                                      {"cid": "A1", "verdict": "misreads",
                                       "quote_phrase": "x", "reason_phrase": "y"}]},
                         ["A1"])
-    with pytest.raises(Stop, match="not among the subjects"):
+    with pytest.raises(Fail, match="not among the subjects"):
         drv.check_audit({"audited": [{"cid": "ZZ", "verdict": "matches"}]}, ["A1"])
 
 
 def test_audit_catalogue_requires_evidence_on_a_flag():
-    with pytest.raises(Stop, match="carries no quote_phrase"):
+    with pytest.raises(Fail, match="carries no quote_phrase"):
         drv.check_audit({"audited": [{"cid": "A1", "verdict": "misreads"}]}, ["A1"])
 
 

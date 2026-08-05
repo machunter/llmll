@@ -162,6 +162,14 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
+  -- FS-COPY-1. Byte-faithful copy, delivering RNone. No new Response arm and no
+  -- new capability namespace: extractWasiNamespace takes the first two segments,
+  -- so this lands under the existing `wasi.fs` capability with exactly the
+  -- authority the read/write pair already grants. It exists because the text
+  -- channel LOSES bytes that are not valid UTF-8, so read-then-write cannot
+  -- express a copy of a binary artifact at all (measured: RErr on byte 0xFF
+  -- under UTF-8). Design record: `docs/design/driver-ll-phase4-proposal.md` §8.
+  , ("wasi.fs.copy",       TFn [TString, TString] (TCustom "Command"))
   -- CAP-PROC (first operation, pulled forward into EFFECT-RESP's release): a
   -- directory listing. It is here rather than in Phase 2 because it is the sole
   -- producer of the RList arm below, and an arm no command can produce would be

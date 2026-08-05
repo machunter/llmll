@@ -4,6 +4,76 @@
 
 <a id="Latest"></a>
 
+## v0.14.84: the bytes the text channel could not carry (2026-08-04)
+
+Two filesystem gaps that DRIVER-LL Phase 4 needed, and the halt distinction the Python driver had
+been unable to express.
+
+### Fixed, `wasi.fs.read` / `wasi.fs.write` (`FS-ENCODING-1`)
+
+Both went through `readFile`/`writeFile`, which decode and encode via the ambient locale. Under a
+POSIX locale a read of a **valid** UTF-8 file fails on the lead byte, and a write of any non-ASCII
+string fails to encode. Both bodies now open the handle explicitly and pin `utf8`, so the byte image
+of a read or a write is a property of the program rather than of the shell that launched it.
+
+The design record stated the mechanism wrong and this release corrects it. The claim was that a
+decode failure throws inside a `Command` and is therefore a crash-freedom hazard. Nothing throws:
+`llmll_publish_io`'s `try` and the existing `evaluate` already made it a value. The defect was
+**availability**, a spurious `RErr` on input the program was right about, and the tests are written
+against that. A gate asserting the absence of a traceback would have passed before and after.
+
+Measured with a forced ASCII handle encoding, which is what `localeEncoding` yields under `LANG=C`
+on Linux. macOS GHC uses UTF-8 regardless of `LC_ALL`, so the simulation is faithful at the encoding
+layer and **is not a Linux run**; the new gate below is what will confirm it on CI.
+
+One behaviour change worth naming: a non-UTF-8 locale that *could* encode a string previously wrote
+locale bytes and now writes UTF-8. Under a POSIX locale those writes failed outright, so nothing
+that worked stops working.
+
+### Added, `wasi.fs.copy` (`FS-COPY-1`)
+
+    wasi.fs.copy : string -> string -> Command
+
+The text channel loses bytes that are not valid UTF-8, so read-then-write cannot express a copy of a
+binary artifact at all: `wasi.fs.read` of one returns `RErr` under UTF-8 as much as under any other
+encoding. Carries `Caps {EFsRead, EFsWrite}`, exactly what a read-then-write composition already
+carries, so no caller's effect row widens by using it, and that is now a test rather than an
+argument. No new `Response` arm, no seventh effect label, no new capability namespace, no schema
+change.
+
+Known limitation, recorded beside the clause: the label set cannot distinguish an operation that
+moves arbitrary bytes from one bounded by the text channel's UTF-8 domain. `Σ_eff` names operation
+occurrence, not payload shape, which is the same asymmetry already recorded for `wasi.fs.list`.
+
+### Fixed, the driver's halt channels
+
+`scripts/rfc_to_implementation.py` had two manifest writers and rendered all four `driver-spec` §4
+statuses, but only one way to reach them: every `require()` raised `StopCondition`, so a malformed
+agent output and a fired gate recorded the same status. §4:135-137 names that as the one confusion
+the pipeline cannot afford. Three raising forms now replace one, `require()` defaults to `failed` so
+a site added later is wrong only in the safe direction, and both `stopped` forms take the
+driver-spec clause as a **required** argument. 37 sites moved; nine stay `stopped` and are
+enumerated by clause.
+
+### Also
+
+- **A new build gate, `scripts/build-smoke/fs_encoding.llmll`**, built and run under `LC_ALL=C`. It
+  hashes a source and its copy and compares them, which is the only byte-faithfulness check
+  expressible from inside the language, and it round-trips a multi-buffer file. The second is not
+  decoration: `hGetContents` is lazy and `bracket` closes the handle on the way out, so a force
+  placed after the bracket returns truncated contents with no error and publishes a well-formed
+  `RText`. Mutation-checked by moving the force: the gate reports "178890 bytes in, 93 out". A short
+  string survives that bug.
+- **DRIVER-LL Phase 4 is specified**, [`docs/design/driver-ll-phase4-proposal.md`](docs/design/driver-ll-phase4-proposal.md)
+  Rev 5. Its §3.6 is the one that changed the code: `stage.record-outcome` proves four `Outcome`
+  constructors and the classification rule used two, so the port would have lost `PartialThenHalt`,
+  which `driver-spec` §4:146-147 requires for a stage that wrote an artifact and then halted.
+- **`llmll` gains no new command or flag.** The command table is unchanged.
+
+**Tests:** 1616 Haskell, 115 Python.
+
+---
+
 ## v0.14.83: four stages of the driver, and the replay that could not check them (2026-08-04)
 
 DRIVER-LL Phase 3's porting work finishes. `tools/llmll-driver/spine.llmll` runs stages **E, J, L

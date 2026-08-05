@@ -52,20 +52,52 @@ Trailing prose.
 # --- the stub agent -------------------------------------------------------------
 # Produces schema-valid output for every delegated stage. The disposition it emits is
 # controlled by STUB_MODE so a test can drive a specific gate into firing.
+#
+# ARGV, NOT ENV, for the two paths the driver supplies. `wasi.proc.run` takes
+# (executable, argv, cwd, stdout-path, stderr-path, timeout) and has NO env
+# parameter (TypeCheck.hs:192-193), so the LLMLL driver cannot set
+# RFC_PIPELINE_OUT / RFC_PIPELINE_PROMPT and a stub that reads them is not
+# portable across the two drivers this harness has to check. The template
+# placeholders {out} and {prompt} are the channel both drivers can drive
+# (DRIVER-LL Phase 4 proposal §5). STUB_MODE stays on the environment: it is the
+# RIG's control channel, set on the driver process and inherited, not something
+# either driver injects.
 STUB_AGENT = r'''
 import json, os, sys, pathlib
-out  = pathlib.Path(os.environ["RFC_PIPELINE_OUT"])
-mode = os.environ.get("STUB_MODE", "ok")
-name = out.name
+out    = pathlib.Path(sys.argv[1])
+prompt = pathlib.Path(sys.argv[2])
+mode   = os.environ.get("STUB_MODE", "ok")
+name   = out.name
 
 def rows(tag):
     return [{"id": f"{tag}{i}", "source": "SPEC", "line_start": 2 + i, "line_end": 2 + i,
              "quote": "q", "rule": "N1", "strength": "must",
              "obligation": f"obligation {i}"} for i in range(2)]
 
-if name == "extraction.json":
-    tag = "A" if "(extractor A)" in pathlib.Path(os.environ["RFC_PIPELINE_PROMPT"]).read_text() else "B"
-    json.dump({"extractor": tag, "normative": rows(tag),
+if name == "body.json":
+    # Stage M: the AST node that replaces the hole. The stub `llmll` decides
+    # whether a fill verifies, so the body only has to be well-formed JSON.
+    #
+    # STUB_MODE=agent-flaky: exit 0 on the FIRST attempt without writing the
+    # output, which is the "silence is not success" condition (driver-spec sec
+    # 7:279). Inside the wave that must spend one attempt for this hole and
+    # retry, never halt the run. The marker lives in the hole's own working
+    # directory, which is stable across attempts.
+    marker = out.parent / ".flaky-fired"
+    if mode == "agent-flaky" and not marker.exists():
+        marker.write_text("1")
+        sys.exit(0)
+    json.dump({"kind": "int_lit", "value": 1}, out.open("w"))
+elif name == "extraction.json":
+    tag = "A" if "(extractor A)" in prompt.read_text() else "B"
+    norm = rows(tag)
+    if mode == "bad-extraction":
+        # A DELEGATED-OUTPUT DEFECT, not a gate condition: the span is a string
+        # where reconcile.py matches on integers. driver-spec sec 4:129 records
+        # this `failed`, because the declared shape belongs to the stage
+        # contract rather than to the specification (proposal sec 3.2).
+        norm[0]["line_start"] = "2"
+    json.dump({"extractor": tag, "normative": norm,
                "excluded": [{"id": f"{tag}x", "source": "SPEC", "line_start": 1,
                              "line_end": 1, "quote": "q", "rule": "X1",
                              "reason": "preamble"}]}, out.open("w"))
@@ -101,12 +133,79 @@ else:
 # `check` succeeds. `verify` reports SAFE and body-faithful for probes and NOT SAFE for
 # mutants, which is what stage H requires. `--trust-report --json` emits one entry per
 # citation found in roots.llmll, so stage L's coverage lint has something real to check.
+#
+# `build --emit`, `checkout`, `patch` and a tree-aware `verify` exist so that STAGE M
+# CAN RUN AT ALL. Before they did, no test in this file executed the wave: stage M
+# appeared only in an assertion that it had NOT run after a halted gate L. The wave
+# carries the fill protocol, the two retry budgets and the token discipline, which is
+# the largest untested surface in the pipeline and the same shape as the defect class
+# BUILD-GATE-1 was created for.
+#
+# Under STUB_MODE=wave the stub injects, in order: a STALE first patch (contention,
+# which `_apply` must retry WITHOUT consulting the agent and WITHOUT spending the
+# error budget) and then one unfaithful verify (a wrong body, which DOES spend it).
+# Contention is unreachable under a serial wave by construction -- one writer, and
+# `_apply` re-checkouts under the lock immediately before patching -- so injecting it
+# here is the only way the branch fires at all.
 STUB_LLMLL = r'''#!/usr/bin/env python3
-import json, re, sys, pathlib
+import json, os, re, sys, pathlib
+
+MODE = os.environ.get("STUB_MODE", "ok")
+
+def state(tree):
+    p = pathlib.Path(str(tree) + ".stub.json")
+    return p, (json.loads(p.read_text()) if p.exists() else {"patch": 0, "treeverify": 0})
+
+def bump(tree, key):
+    p, st = state(tree)
+    st[key] = st.get(key, 0) + 1
+    p.write_text(json.dumps(st))
+    return st[key]
+
+def resolve(doc, pointer):
+    node, segs = doc, pointer.strip("/").split("/")
+    for seg in segs[:-1]:
+        node = node[int(seg)] if seg.isdigit() else node[seg]
+    return node, segs[-1]
+
 argv = sys.argv[1:]
 cmd  = argv[0] if argv else ""
+
 if cmd == "check":
     print("OK"); sys.exit(0)
+
+if cmd == "build":
+    outdir = pathlib.Path(argv[argv.index("-o") + 1])
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "roots.ast.json").write_text(json.dumps(
+        {"module": "roots",
+         "statements": [{"kind": "def", "name": "fn0", "body": {"kind": "hole"}}]}))
+    print("emitted"); sys.exit(0)
+
+if cmd == "checkout":
+    tree = pathlib.Path(argv[1])
+    if "--release" in argv:
+        sys.exit(0)
+    n = bump(tree, "checkout")
+    print(json.dumps({"token": f"tok-{n}", "pointer": argv[2],
+                      "function": "fn0", "expected_return_type": "int"}))
+    sys.exit(0)
+
+if cmd == "patch":
+    tree = pathlib.Path(argv[1])
+    n = bump(tree, "patch")
+    if MODE == "wave" and n == 1:
+        print("PatchAuthError: obligation context is stale", file=sys.stderr)
+        sys.exit(1)
+    req = json.loads(pathlib.Path(argv[2]).read_text())
+    doc = json.loads(tree.read_text())
+    for op in req["patch"]:
+        if op["op"] == "replace":
+            node, last = resolve(doc, op["path"])
+            node[int(last) if last.isdigit() else last] = op["value"]
+    tree.write_text(json.dumps(doc))
+    print("PatchSuccess"); sys.exit(0)
+
 if cmd == "verify":
     target = pathlib.Path(argv[1])
     if "--trust-report" in argv:
@@ -115,8 +214,29 @@ if cmd == "verify":
             {"name": f"fn{i}", "post_sources": [f"[{c}] SPEC line"]}
             for i, c in enumerate(cites)]}))
         sys.exit(0)
+    if target.name.endswith(".ast.json"):
+        n = bump(target, "treeverify")
+        doc = json.loads(target.read_text())
+        filled = [st["name"] for st in doc["statements"]
+                  if not str(st.get("body", {}).get("kind", "")).startswith("hole")]
+        # The wrong body: reported SAFE but NOT body-faithful, which is what the
+        # per-fill bar rejects. Deliberately not the word "refuted", so the test
+        # exercises the faithfulness half rather than the refutation half.
+        if MODE == "wave" and n == 1:
+            filled = []
+        print(f"   body-faithful: {', '.join(filled) if filled else '(none)'}")
+        print(f"OK {target} - SAFE (liquid-fixpoint)")
+        sys.exit(0)
     if "mutant" in target.read_text():
-        print("error: body verification failed"); sys.exit(1)
+        # STUB_MODE=probe-survives: the mutant verifies SAFE, so stage H's
+        # acceptance bar (probe body-faithful AND mutant refuted) is not met and
+        # `:866` fires. That halt lands AFTER feasibility.json is written, which
+        # is driver-spec sec 4:146-147 and the one site where the two
+        # classification axes disagree (proposal sec 3.6).
+        if MODE != "probe-survives":
+            print("error: body verification failed"); sys.exit(1)
+        print("   body-faithful: mutant")
+        print(f"OK {target} - SAFE (liquid-fixpoint)"); sys.exit(0)
     print(f"   body-faithful: {target.stem}")
     print(f"OK {target} - SAFE (liquid-fixpoint)")
     sys.exit(0)
@@ -144,7 +264,9 @@ def rig(tmp_path):
         cmd = [sys.executable, str(DRIVER),
                "--rfc-url", spec.resolve().as_uri(),
                "--workdir", str(wd),
-               "--agent-cmd", f"{sys.executable} {agent}",
+               # {out} and {prompt} are AgentRunner template placeholders, and they
+               # are the whole channel: the stub reads argv, not the environment.
+               "--agent-cmd", f"{sys.executable} {agent} {{out}} {{prompt}}",
                "--llmll-cmd", str(llmll),   # a single executable: the driver uses it as argv[0]
                # pytest's tmp_path lives under /var/folders, which the driver
                # refuses as a run directory. These runs really are throwaway,
@@ -201,6 +323,63 @@ def test_exclusion_outside_the_barrier_list_halts_the_run(rig):
     m = manifest(wd)
     assert m["G"]["status"] == "stopped"
     assert "H" not in m and "J" not in m
+
+
+# ---------------------------------------------------------------------------
+# The two halt channels of driver-spec section 4
+#
+# Section 4:133-137: "A stopped stage is a verdict the method reached, and is a
+# result of the run. A failed stage is an accident, and is not." Before the
+# split every require() raised StopCondition, so these two tests could not have
+# been written: a malformed agent output and a fired gate recorded the same
+# status. The transition cover (proposal sec 2.3) named this exact hole, having
+# coverage for absent-to-failed only via a host-language crash.
+# ---------------------------------------------------------------------------
+
+def test_a_delegated_output_defect_records_failed_not_stopped(rig):
+    """The repair's headline case. A malformed extraction is an ACCIDENT: nothing
+    about the target document was learned, so recording it `stopped` would file
+    it beside a gate that fired."""
+    p, wd = rig(mode="bad-extraction", stages="A,B,C,D")
+    assert p.returncode != 0
+    m = manifest(wd)
+    assert m["D"]["status"] == "failed", (m.get("D"), p.stdout)
+    assert m["D"]["outcome"] == "Errored"
+    assert "non-integer line_start/line_end" in m["D"]["detail"]
+    # A deliberate halt must not reach the operator as a host-language error
+    # (sec 4:139-143). The generic-crash path prints one; this path must not.
+    assert "Traceback" not in p.stderr, p.stderr
+
+
+def test_a_spec_defined_halt_records_stopped_and_names_its_clause(rig):
+    """`stopped` rows carry the driver-spec clause that authorised them, so the
+    disposition is auditable from the manifest rather than only from the code.
+    Section 4:126 asks for "a detail string naming the condition"."""
+    p, wd = rig(mode="core-excluded")
+    assert p.returncode != 0
+    j = manifest(wd)["J"]
+    assert j["status"] == "stopped"
+    assert j["outcome"] == "ConditionUnmet"
+    assert j["clause"] == "driver-spec sec 6:222-224"
+
+
+def test_stage_H_records_partial_then_halt_after_writing_its_output(rig):
+    """The one site in 46 where the two classification axes disagree. The
+    clause-source axis says `failed` (the acceptance bar is the driver's own,
+    not driver-spec's); the artifact-state axis says `stopped` (sec 4:146-147,
+    the declared output was already written). Proposal sec 3.6 takes the
+    artifact-state reading, which is also the value the site already had, so
+    this test pins the CONSERVATIVE outcome under both readings."""
+    p, wd = rig(mode="probe-survives", stages="A,B,C,D,E,F,G,H")
+    assert p.returncode != 0
+    h = manifest(wd)["H"]
+    assert h["status"] == "stopped", (h, p.stdout)
+    assert h["outcome"] == "PartialThenHalt"
+    assert h["clause"] == "driver-spec sec 4:146-147"
+    # The premise of the whole disposition: the declared output really is on
+    # disk when the halt lands. If this ever stops holding, sec 4:146-147 no
+    # longer applies and the site reverts to the clause-source axis.
+    assert (wd / "07-feasibility" / "feasibility.json").exists()
 
 
 def test_gate_J_halts_on_a_bad_barrier_it_is_handed_directly(rig, tmp_path):
@@ -417,3 +596,125 @@ def test_a_crashing_stage_is_recorded_rather_than_escaping_as_a_traceback(rig, t
     st = subprocess.run([sys.executable, str(DRIVER), "--status", "--workdir", str(wd)],
                         capture_output=True, text=True, cwd=REPO)
     assert "! FAILED" in st.stdout and "STOPPED" not in st.stdout
+
+
+# ---------------------------------------------------------------------------
+# Section 9: the wave, the fill protocol, and the two retry budgets
+#
+# No test in this file ran stage M before these. It appeared once, in an
+# assertion that it had NOT run after a halted gate L, and once in the
+# artifact-declaration check. The wave carries the fill protocol, the separated
+# budgets and the token discipline -- the largest untested surface here.
+# ---------------------------------------------------------------------------
+
+# G2 is absent, and deliberately, matching the stage list every test above uses.
+# Driving it surfaced a SECOND never-executed stage: with G2 in the list the run
+# reaches it and reports "unresolved: 2" before stopping on the stub's audit shape,
+# because the stub's rows quote "q" against SPEC lines that do not contain it, so
+# `_span_coverage` scores every citation below CITATION_RESOLVES_AT. Making G2 pass
+# needs stub rows whose quotes are drawn from the pinned bytes, which is its own
+# item; it is not the wave's premise and is filed rather than bundled here.
+ALL_STAGES = "A,B,C,D,E,F,G,H,I,J,K,L,M"
+
+
+def _wave(wd):
+    return json.loads((wd / "12-wave" / "wave.json").read_text())
+
+
+def test_the_wave_fills_a_hole(rig, tmp_path):
+    """The PREMISE for the contention test below. If the wave cannot fill a hole
+    with no injection at all, a later assertion about WHY it took two attempts
+    says nothing."""
+    p, wd = rig(stages=ALL_STAGES, workdir=tmp_path / "wave-ok")
+    assert p.returncode == 0, p.stdout + p.stderr
+    w = _wave(wd)
+    assert [f["status"] for f in w["fills"]] == ["filled"], w
+    assert w["fills"][0]["attempts"] == 1, "no injection, so no retry"
+    assert w["whole_tree"]["safe"], w["whole_tree"]
+
+
+def test_an_agent_failure_inside_the_wave_retries_the_hole_and_never_halts(rig, tmp_path):
+    """Inside the wave an agent timeout, a non-zero exit, or a missing body is a
+    RETRY for that hole, not a halt for the run.
+
+    This is a regression guard with a specific history: the three AgentRunner
+    raises became StageFailure when the halt channels were split, and the fill
+    loop's handler named only StopCondition. Left that way, one agent timeout
+    would have propagated out of the per-hole worker and recorded the whole of
+    stage M `failed`, discarding every sibling hole's completed work. Mutation
+    check: reverting that handler to `except StopCondition` leaves the rest of
+    this suite green, so nothing else covers it."""
+    p, wd = rig(mode="agent-flaky", stages=ALL_STAGES,
+                workdir=tmp_path / "wave-flaky")
+    assert p.returncode == 0, p.stdout + p.stderr
+    w = _wave(wd)
+    assert [f["status"] for f in w["fills"]] == ["filled"], w
+    assert w["fills"][0]["attempts"] == 2, "the failed attempt must be spent, not free"
+    assert manifest(wd)["M"]["status"] == "complete"
+
+
+def test_contention_does_not_consume_the_error_budget(rig, tmp_path):
+    """driver-spec section 9: "Two retry budgets MUST be counted separately...
+    Contention MUST NOT consume the budget for error."
+
+    The stub rejects the first `patch` with PatchAuthError and reports the first
+    filled tree as not body-faithful. So the hole sees one CONTENTION event and
+    one SEMANTIC failure, and finishes on attempt 2 rather than attempt 3: the
+    contention retry re-submitted the SAME body against a fresh checkout without
+    consulting the agent, and cost nothing.
+
+    This is the only route by which the branch fires. Under a serial wave there
+    is one writer and `_apply` re-checkouts under the lock immediately before
+    patching, so `contention = true` is unreachable by construction and
+    `fill.next-error-budget`'s proved separation is never exercised at run time.
+    """
+    p, wd = rig(mode="wave", stages=ALL_STAGES, workdir=tmp_path / "wave-contended")
+    assert p.returncode == 0, p.stdout + p.stderr
+    w = _wave(wd)
+    assert [f["status"] for f in w["fills"]] == ["filled"], w
+    assert w["fills"][0]["attempts"] == 2, (
+        "one semantic failure spends one attempt; the contention retry must spend "
+        "none. attempts==3 would mean contention ate the error budget: " + str(w))
+
+    # The premise, checked rather than assumed: contention really did happen.
+    st = json.loads((wd / "12-wave" / "roots.ast.json.stub.json").read_text())
+    assert st["patch"] == 3, (
+        "expected patch calls: 1 stale, 1 accepted-then-reverted, 1 accepted. "
+        f"got {st['patch']}")
+
+
+# ---------------------------------------------------------------------------
+# Transition cover: the two manifest transitions nothing above reaches
+# ---------------------------------------------------------------------------
+
+def test_a_failed_stage_is_re_run_on_resume(rig, tmp_path):
+    """Spec section 5: "A stage recorded stopped or failed MUST be run, however many
+    artifacts a previous attempt left behind." The stopped half is covered by the
+    gate-L regression above; this is the failed half."""
+    wd = tmp_path / "failed-resume"
+    p1, _ = rig(workdir=wd, stages="A", extra=["--rfc-url", "http://127.0.0.1:9/x.txt"])
+    assert p1.returncode == 3
+    assert manifest(wd)["A"]["status"] == "failed"
+
+    p2, _ = rig(workdir=wd, stages="A")          # good URL this time
+    assert p2.returncode == 0, p2.stdout + p2.stderr
+    assert "already complete, skipping" not in p2.stdout
+    assert manifest(wd)["A"]["status"] == "complete"
+
+
+def test_force_re_runs_a_stage_the_manifest_records_complete(rig, tmp_path):
+    """Spec section 5: "When the operator requests a forced re-run, the driver MUST
+    run the stage regardless of its record." The proved core says so too, as the
+    [S5-FORCE] post on skip.may-skip."""
+    wd = tmp_path / "forced"
+    p1, _ = rig(workdir=wd, stages="A,B,C")
+    assert p1.returncode == 0
+    assert "already complete, skipping" not in p1.stdout
+
+    p2, _ = rig(workdir=wd, stages="A,B,C")
+    assert "already complete, skipping" in p2.stdout, "premise: a warm run skips"
+
+    p3, _ = rig(workdir=wd, stages="A,B,C", extra=["--force"])
+    assert p3.returncode == 0, p3.stdout + p3.stderr
+    assert "already complete, skipping" not in p3.stdout, "--force must override the record"
+    assert "stage C [agent] normativity rubric" in p3.stdout

@@ -166,10 +166,16 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   [ "import Data.List (isPrefixOf, intercalate, nub, sort)"
   , "import Data.Char (ord, chr)"
   , "import qualified Data.Map.Strict as Map"
-  , "import System.IO (hPutStr, hPutStrLn, stderr, openFile, hClose, IOMode(..))"
+  -- FS-ENCODING-1: hSetEncoding + utf8 + hGetContents pin the fs text bodies to
+  -- UTF-8 instead of the ambient locale. Measured: under a POSIX locale a READ
+  -- of a valid UTF-8 file fails on the lead byte (0xC2 for U+00A7) and a WRITE
+  -- of any non-ASCII string fails to encode, both surfacing as a spurious RErr
+  -- on input the program was right about.
+  , "import System.IO (hPutStr, hPutStrLn, stderr, openFile, hClose, IOMode(..)"
+  , "                 , hSetEncoding, utf8, hGetContents)"
   , "import Test.QuickCheck (quickCheck, property)"
   , "import qualified Control.Concurrent.Async as Async"
-  , "import Control.Exception (try, evaluate, onException, SomeException, IOException)"
+  , "import Control.Exception (try, evaluate, onException, SomeException, IOException, bracket)"
   -- EFFECT-RESP: the response slot is an IORef built once at load time with
   -- unsafePerformIO (already imported below for regex-match).
   , "import Data.IORef (IORef, newIORef, readIORef, writeIORef)"
@@ -180,7 +186,7 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- listDirectory, not getDirectoryContents: it already omits "." and "..",
   -- so the exclusion is a property of the primitive rather than a filter that
   -- would need its own test.
-  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing)"
+  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing, copyFile)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
@@ -503,9 +509,38 @@ runtimePreamble =
   -- Keep this block in sync with the builtinEnv list: the Spec.hs describe
   -- block "codegen: wasi preamble completeness" iterates the wasi. prefix of
   -- builtinEnv and fails if any declared name has no definition here.
+  -- FS-ENCODING-1. writeFile encodes through the ambient locale, so a string
+  -- carrying any character outside it fails with "cannot encode character",
+  -- caught by llmll_publish_io and surfaced as RErr. That is a spurious failure
+  -- on a string the program constructed legitimately, and it makes the same
+  -- program succeed or fail depending on the shell that launched it. UTF-8 is
+  -- pinned so the byte image of a write is a property of the program.
+  --
+  -- This is a real behaviour change for a non-UTF-8 locale that could encode
+  -- the string: those writes previously produced locale bytes and now produce
+  -- UTF-8. Under a POSIX locale they failed outright, so nothing that worked
+  -- stops working; what changes is which bytes land for latin1-style locales.
   , "wasi_fs_write :: String -> String -> IO ()"
-  , "wasi_fs_write path contents ="
-  , "  llmll_publish_io (writeFile path contents >> return RNone)"
+  , "wasi_fs_write path contents = llmll_publish_io $"
+  , "  bracket (openFile path WriteMode) hClose $ \\h -> do"
+  , "    hSetEncoding h utf8"
+  , "    hPutStr h contents"
+  , "    return RNone"
+  , ""
+  -- FS-COPY-1. copyFile moves BYTES and never decodes, which is the whole
+  -- point: read-then-write cannot express a copy of a binary artifact, because
+  -- wasi.fs.read of one yields RErr under any encoding, UTF-8 included. Measured
+  -- against a file carrying byte 0xFF. driver-spec section 8:336-337 requires
+  -- that where an agent needs a copy of the subject to check its own work, the
+  -- copy be the ORIGINAL, UNMODIFIED subject, so a lossy text round trip fails
+  -- a MUST rather than merely being inconvenient.
+  --
+  -- Overwrites an existing destination and raises on a missing source
+  -- directory, both inherited from copyFile and both surfacing as RErr through
+  -- llmll_publish_io. The overwrite behaviour matches wasi_fs_write above
+  -- rather than introducing a second convention.
+  , "wasi_fs_copy :: String -> String -> IO ()"
+  , "wasi_fs_copy src dst = llmll_publish_io (copyFile src dst >> return RNone)"
   , ""
   -- Idempotent by design. removeFile on a missing path throws, and an uncaught
   -- exception inside a Command breaks the no-crash property LLMLL.md:1747
@@ -523,18 +558,34 @@ runtimePreamble =
   -- because Command is IO () and there was no channel to return them on. Now
   -- there is: the contents are published as RText and an IO failure as RErr.
   --
-  -- `evaluate` is not decoration. readFile is lazy, so a body that does not
-  -- force the string performs no read at all: it compiles, runs, raises nothing
-  -- on an unreadable path, and passes every string-shape test. It matters more
-  -- here than it did under WASI-RT, because the unforced thunk would now escape
-  -- into the slot and be forced later, OUTSIDE the try, where the exception
-  -- becomes a crash instead of an RErr. `evaluate (length s)` inside the
-  -- try is what keeps the failure a value. Spec.hs pins it.
+  -- `evaluate` is not decoration, and under FS-ENCODING-1 it guards TWO
+  -- distinct failures rather than one.
+  --
+  -- (1) The original reason: hGetContents is lazy, so a body that does not
+  -- force the string performs no read at all. It compiles, runs, raises nothing
+  -- on an unreadable path, and passes every string-shape test. Unforced, the
+  -- thunk escapes into the response slot and is forced later, OUTSIDE the try,
+  -- where a decode failure becomes a crash instead of an RErr.
+  --
+  -- (2) New with the bracket: hClose runs on the way out. If the force moves
+  -- outside the bracket the handle is already closed when the string is
+  -- demanded, and the read yields TRUNCATED OR EMPTY contents with no error at
+  -- all. That failure publishes a well-formed RText and is invisible to any
+  -- test that only checks the arm, which is why Spec.hs pins a read larger than
+  -- one buffer rather than only a short one.
+  --
+  -- FS-ENCODING-1: hSetEncoding pins UTF-8. Measured, a POSIX-locale read of a
+  -- valid UTF-8 file fails on the lead byte (0xC2 for U+00A7). A file that is
+  -- genuinely not UTF-8 still yields RErr, and that is correct: bytes that are
+  -- not text do not belong on the text channel. wasi.fs.sha256 (below) and
+  -- wasi.fs.copy are the byte-level paths.
   , "wasi_fs_read :: String -> IO ()"
-  , "wasi_fs_read path = llmll_publish_io $ do"
-  , "  contents <- readFile path"
-  , "  _ <- evaluate (length contents)"
-  , "  return (RText contents)"
+  , "wasi_fs_read path = llmll_publish_io $"
+  , "  bracket (openFile path ReadMode) hClose $ \\h -> do"
+  , "    hSetEncoding h utf8"
+  , "    contents <- hGetContents h"
+  , "    _ <- evaluate (length contents)"
+  , "    return (RText contents)"
   , ""
   -- CAP-PROC, first operation. The `sort` is not cosmetic: listDirectory's
   -- order is filesystem-dependent, and an unsorted listing makes the event log
