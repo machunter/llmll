@@ -395,3 +395,245 @@ after `reconcile.stdout.txt` is written, but the stage registry declares only `S
 proposal §3.6 settles "its artifacts" as declared outputs. Under an any-file-written reading it would
 have moved. Recorded because the two readings differ on exactly this site and on no other, which is
 what makes the reading checkable rather than stipulated.
+
+---
+
+# Session 2026-08-05: the sub-phase 4a harness leg
+
+> Harness at `c4c07f5` (`main`), compiler **v0.14.84**.
+> Brief: [`../../docs/design/driver-ll-phase4-proposal.md`](../../docs/design/driver-ll-phase4-proposal.md)
+> **Rev 6**, §2.3 (the eleven-cell cover) and §10 cases 15 through 17. Task #9 of the restart record.
+> Surface: the same two files.
+
+## Headline finding
+
+Rev 6 predicted five things about sub-phase 4a's cover and **four held**. T7 (a complete record with
+one declared artifact deleted) re-runs the stage and prints no reason line for it, both measured.
+The sequencer crashes on a corrupt manifest, measured on two shapes and on **a third Rev 6 did not
+name**. The one prediction that failed is Rev 6's account of *why* T7 matters: it claimed the
+reference can reach the cell through its own write path, and it cannot, because
+`AgentRunner.run` asserts the declared output exists on every delegated call. Rev 6's derivation
+grepped `stage.outputs`, the declared list on the `Stage` record, and the check is written against
+`out_name` one level down. **T7 is reachable by deletion and not by the reference recording complete
+over a missing artifact**, at least for the eleven of sixteen stages that check covers.
+
+Suite goes 23 to 28 tests in this file, 115 to 120 across `scripts/tests/`, all passing.
+
+## Sample composition
+
+| | Before | After |
+|---|---|---|
+| Tests in `test_rfc_pipeline_integration.py` | 23 | 28 |
+| Tests across `scripts/tests/` | 115 | 120 |
+| Passing | all | all |
+| Wall clock, this file | 15.6 s | 17.8 s |
+| Transition-cover cells with a test | 10 of 11 | **11 of 11** |
+| `STUB_MODE` values | 6 | 7 (`silent-scope` added) |
+
+Compiler v0.14.84 (`llmll version`). Hermetic: `file://` source, stub agent, stub `llmll`. Every
+measurement below is deterministic and was reproduced by a standalone probe script before any test
+was written, so the assertions are chosen from observed behaviour rather than predicted behaviour.
+
+## Verified findings
+
+### F-9. T7 is real, re-runs the stage, and reports nothing
+
+**Priority:** High
+**Consumer:** language-team (confirms Rev 6 §2.3), compiler-engineer (4a acceptance)
+
+#### Evidence
+
+Probe: run stages `A,B,C` to completion, `unlink` stage B's `scope.md` under its `01-scope`
+directory, resume with the same workdir
+and no `--force`. Per-stage grep of the resume's stdout:
+
+| Stage | ran | skip line | digest line | no-record line |
+|---|---|---|---|---|
+| A | no | yes | no | no |
+| **B** | **yes** | **no** | **no** | **no** |
+| C | no | yes | no | no |
+
+`scope.md` restored, `B` re-recorded `complete`. The only stdout lines naming B are its own stage
+line, `agent[scope] -> …`, and `agent[scope] ok`. Now pinned by
+`test_a_declared_artifact_deleted_from_a_complete_stage_forces_a_rerun`.
+
+#### Why we saw what we saw
+
+`mismatched` is computed under `if recorded and artifacts` (`rfc_to_implementation.py:1880`), so with
+`artifacts` false it stays empty and the `if mismatched` reason branch (`:1890`) does not fire; the
+`elif artifacts and not recorded` branch (`:1894`) is false for the other half of the conjunction.
+The skip test at `:1887` still fails on `artifacts`, so the stage runs. Detection works; reporting
+was never written for this cell.
+
+#### Implication
+
+Implication for language-team: Rev 6 §2.3's T7 row stands as written, and the eleven-cell count is
+now a measured cover rather than a derived one. §5 attaches a MUST-report to T6 and a SHOULD to T8
+and nothing to T7, so the silence is conformant and the test does not pin it. Rev 6's instruction to
+the port to *reproduce* the silence was already withdrawn; nothing here reopens it.
+
+#### Acceptance
+
+Closed. The cell has a test and the test asserts the decision.
+
+### F-10. Rev 6's T7-reachability derivation is refuted: the reference already enforces §7:279
+
+**Priority:** High
+**Consumer:** language-team
+
+#### Evidence
+
+Rev 6 §2.3 finding 3: "`stage.outputs` is consulted at exactly three sites (`:1877`, `:1881`,
+`:1955`) and none asserts presence before recording complete." The grep is accurate and the
+conclusion does not follow. `AgentRunner.run` (`rfc_to_implementation.py:274-277`):
+
+```
+if not out_path.exists():
+    raise StageFailure(f"agent[{label}] exited 0 but wrote no {out_name}; "
+                       f"the stage contract was not met …")
+```
+
+Probe with a stub agent that exits 0 without writing `scope.md`: `rc=3`, `B.status = failed`,
+`B.outcome = Errored`, detail `agent[scope] exited 0 but wrote no scope.md`. Stage C never attempted.
+Now pinned by `test_an_agent_that_exits_zero_without_writing_records_failed`.
+
+Coverage of the check, by stage kind (measured from the registry): **11 agent** stages
+(B, C, D, F, G, H, I, K, M, N, O) route every delegated output through `AgentRunner.run` and reach
+it; **2 mechanical** (A, E) and **3 gate** (G2, J, L) write their outputs in driver code and have no
+generic equivalent. After a green twelve-stage run, zero declared artifacts were missing and zero
+`outputs` maps were short.
+
+#### Why we saw what we saw
+
+The obligation is enforced per delegated *call*, against `out_name`, rather than per declared
+*output*, against `Stage.outputs`. Both are the same requirement; only one is reachable by grepping
+the registry field. This is the third time in this phase that a claim was right about a defect and
+wrong about its mechanism.
+
+#### Implication
+
+Implication for language-team: Rev 6 §2.3's third T7 finding should be struck and replaced. T7's
+reachability rests on deletion, not on the reference's own write path, and the argument that the
+cell is "reachable without operator interference" does not survive for the eleven agent stages. The
+residue is narrower and worth stating precisely: the five mechanical and gate stages have no generic
+presence check, so for those the own-write-path route is **unmeasured** rather than closed. This
+harness cannot construct that case without editing a stage body, which would change the subject.
+
+Also: §10 case 3 ("declared output absent, agent exit 0 → failed") describes behaviour the reference
+already has. It is not a divergence and should not be counted as one.
+
+#### Acceptance
+
+Closed on the agent side by the new test. The mechanical and gate residue closes if and when a
+generic post-stage presence assertion is added, which is a driver change nobody has asked for.
+
+### F-11. The sequencer crashes on three manifest shapes, at three sites, and Rev 6 named two
+
+**Priority:** High
+**Consumer:** language-team, compiler-engineer (4a must handle all three)
+
+#### Evidence
+
+Measured before the guard, all three exiting **1** with a traceback and writing nothing:
+
+| Manifest content | Exception | Site |
+|---|---|---|
+| `{"stages": {"A": ` | `json.decoder.JSONDecodeError` | `read_json`, `:208-209`, called at `:1856` |
+| `[]` | `AttributeError: 'list' object has no attribute 'setdefault'` | `:1857`, the line after the read |
+| `{"stages": [], "rfc_url": "x"}` | `AttributeError: 'list' object has no attribute 'get'` | **`:1875`, inside the stage loop** |
+
+Rev 6 §10 named the first two. The third survives both a JSON-decode guard and an object-type guard,
+because `{"stages": []}` is an object and `setdefault` on it succeeds; it crashes later, on the first
+stage's resume check, which is the shape the resume gate actually indexes.
+
+#### Why we saw what we saw
+
+`read_json` is a bare `json.loads` and the top-level handler catches `Halt` only (`:1969-1976`), so
+anything that is not a deliberate halt escapes. The three shapes fail at three different depths
+because each survives the previous guard.
+
+#### Implication
+
+Implication for language-team: Rev 6 §10 cases 16 and 17 are confirmed and a **third case is owed**,
+`stages` present but not an object. Rev 6's classification is upheld on the point it argued against
+the professor: this is **not** a §4 violation, §4's MUSTs being scoped to "a stage that halts"
+(`driver-spec.txt:125-143`) and this read preceding every stage. The reference-repair routing is the
+one taken here.
+
+Implication for compiler-engineer: the port needs a defined transition for all three, not two. The
+LLMLL side reaches the first through `RErr` on `wasi.fs.read`; the second and third are shape checks
+after a successful read and need a decision each.
+
+#### Acceptance
+
+Closed by `read_manifest` and three tests. Positive witness recorded below.
+
+## Withdrawn items
+
+- **"The reference can record `complete` over a missing declared output."** Rev 6 §2.3 finding 3.
+  Refuted by F-10 for the eleven agent stages; unmeasured for the five mechanical and gate stages.
+  The claim as stated is withdrawn, not narrowed by the author's own choice: the probe disconfirmed
+  it on the first stage tried.
+- **F-5's "the cover is complete at nine"** (2026-08-04 session, this file) is superseded. Nine was
+  right about what §2.3 then listed and wrong as a claim about the state space: T4 and T7 were both
+  missing. The count is eleven and every cell now has a test.
+
+## Null results
+
+- **Hypothesis: T7's silence is a §5 violation.** No support. §5:182-183 attaches a MUST-report to
+  the digest case and §5:189-191 a SHOULD to the no-record case; the text imposes nothing on skip
+  condition (b) failing alone. n = 1 spec reading, and the required evidence would have been a
+  reporting clause covering the cell. There is none, so the silence is conformant and the test does
+  not assert it.
+- **Hypothesis: a green twelve-stage run leaves at least one short `outputs` map**, via `:1955`'s
+  existence filter. No support: zero missing artifacts and zero short maps across 12 recorded stages.
+  The filter is reachable in principle and unreached in practice under the stub configuration.
+
+## Priority matrix
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---|---|---|---|
+| F-9 | T7 re-runs, silently; cell now covered | language-team, engineer | High | done |
+| F-10 | §7:279 already enforced at `AgentRunner.run`; Rev 6 derivation refuted | language-team | High | Rev 7 text |
+| F-11 | Three corrupt-manifest shapes, not two | language-team, engineer | High | done + Rev 7 text |
+
+## Changes made this session
+
+- `scripts/rfc_to_implementation.py`: `read_manifest()` added beside `read_json()` and called at the
+  resume read. Guards all three shapes, raises `StageFailure`, and names a remedy in the message
+  (deleting the manifest is not data loss, since §5:189-191 re-runs any stage whose artifacts are
+  gone). `StageFailure` rather than `StopCondition` because a corrupt manifest is not a condition
+  driver-spec defines; the top-level handler collapses both to exit 2 regardless.
+- `scripts/tests/test_rfc_pipeline_integration.py`: one `STUB_MODE` added (`silent-scope`, the
+  stage-level sibling of `agent-flaky`'s per-hole behaviour) and five tests.
+
+### Measured
+
+| | Before | After |
+|---|---|---|
+| Tests, whole `scripts/tests/` | 115 | 120 |
+| Passing | 115 | 120 |
+| Cover cells with a test | 10 of 11 | 11 of 11 |
+| Corrupt-manifest shapes handled as decisions | 0 of 3 | 3 of 3 |
+
+### Positive witness
+
+Required by the project's positive-witness discipline: a guard green on both sides of its patch has
+not been shown to observe anything. The driver change was stashed and the four sequencer-level tests
+re-run against the unguarded tree.
+
+| Test | Guard removed | Guard restored |
+|---|---|---|
+| `…truncated_manifest_halts_as_a_decision_not_a_traceback` | **FAILED** (`assert 1 == 2`) | passed |
+| `…manifest_that_is_not_an_object_halts_as_a_decision` | **FAILED** (`assert 1 == 2`) | passed |
+| `…manifest_whose_stages_key_is_not_an_object_halts` | **FAILED** (`AttributeError … 'get'` at `:1875`) | passed |
+| `…agent_that_exits_zero_without_writing_records_failed` | passed | passed |
+
+The fourth passing on both sides is correct and is the point of F-10: it pins behaviour that already
+existed, so no patch of this session's should be able to change it. The other three are the guard's
+witness.
+
+### Gates
+
+`pytest scripts/tests/` 120 passed; `scripts/doc_path_lint.py` 754 citations all resolve;
+`rfc_to_implementation.py --self-test` PASS (RFC-COV-1: 46/46 Encoded rows cited, 15/15 core rows).

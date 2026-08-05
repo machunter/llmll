@@ -209,6 +209,62 @@ def read_json(p: Path) -> Any:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def read_manifest(p: Path) -> dict:
+    """Read MANIFEST.json for the resume decision, or halt as a DECISION.
+
+    Section 4:139-143 is about a stage that halts and does not reach here: this
+    read happens before the stage loop, so no status can be assigned and the
+    stopped/failed distinction has nothing to attach to (see the `except Halt`
+    handler at the foot of this file, which says the same about out-of-stage
+    halts). The specification is SILENT on an unreadable manifest.
+
+    It is a defect anyway, and the reason is the one section 4:141-143 gives for
+    the in-stage case: a halt reaching the operator as an unhandled error of the
+    host language is indistinguishable from a crash of the driver itself. That
+    argument does not stop being true one line above the loop. Measured before
+    the guard: a truncated manifest exited 1 on a `json.decoder.JSONDecodeError`
+    traceback, and a manifest holding `[]` exited 1 on
+    `AttributeError: 'list' object has no attribute 'setdefault'` from the
+    `setdefault` on the next line. Neither wrote anything, and neither read as a
+    decision.
+
+    Two failure modes, one guard, because the second is not a JSON error at all:
+    `[]` and `"x"` parse. What the resume gate needs is an OBJECT with an object
+    at `stages`, and anything else is unusable however well-formed.
+
+    StageFailure rather than StopCondition: a corrupt manifest is not a
+    condition driver-spec defines, and section 4:150-153's safe-direction
+    argument applies. The top-level handler collapses both to exit 2 anyway,
+    which is the point of catching `Halt` there rather than either subclass.
+
+    The remedy named in the message is deliberate. driver-spec section 5:189-191
+    already says a stage whose artifacts are present but whose record is absent
+    MUST be run, so deleting an unreadable manifest is not data loss: it costs
+    exactly the stages whose artifacts are gone, and the rest re-run and report
+    why.
+    """
+    if not p.exists():
+        return {"stages": {}}
+    try:
+        m = read_json(p)
+    except json.JSONDecodeError as e:
+        raise StageFailure(
+            f"{p} is not readable JSON ({e}). The run cannot decide which "
+            "stages to skip without it. Delete it to re-run every stage whose "
+            "artifacts are missing, or restore it from a copy.") from None
+    if not isinstance(m, dict):
+        raise StageFailure(
+            f"{p} parses but holds {type(m).__name__}, not an object. The run "
+            "cannot decide which stages to skip without it. Delete it to "
+            "re-run every stage whose artifacts are missing.")
+    stages = m.setdefault("stages", {})
+    if not isinstance(stages, dict):
+        raise StageFailure(
+            f"{p} holds {type(stages).__name__} at 'stages', not an object. "
+            "Delete it to re-run every stage whose artifacts are missing.")
+    return m
+
+
 # ---------------------------------------------------------------------------
 # Agent invocation
 # ---------------------------------------------------------------------------
@@ -1853,7 +1909,7 @@ def main(argv: list[str] | None = None) -> int:
               protocol_retries=a.protocol_retries, force=a.force)
     ctx.workdir.mkdir(parents=True, exist_ok=True)
     manifest_path = ctx.workdir / "MANIFEST.json"
-    manifest = read_json(manifest_path) if manifest_path.exists() else {"stages": {}}
+    manifest = read_manifest(manifest_path)
     manifest.setdefault("rfc_url", a.rfc_url)
 
     for stage in STAGES:

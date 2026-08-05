@@ -74,6 +74,16 @@ def rows(tag):
              "quote": "q", "rule": "N1", "strength": "must",
              "obligation": f"obligation {i}"} for i in range(2)]
 
+# STUB_MODE=silent-scope: exit 0 without writing, at a STAGE-level delegated
+# output rather than inside the wave. `agent-flaky` does the same thing for
+# stage M's per-hole body.json, where the wave retries; here there is no retry
+# loop and the stage contract is what catches it (AgentRunner.run). The two
+# modes exercise the same agent behaviour at the two levels that handle it
+# differently, which is why this is a second mode and not a widening of the
+# first.
+if mode == "silent-scope" and name == "scope.md":
+    sys.exit(0)
+
 if name == "body.json":
     # Stage M: the AST node that replaces the hole. The stub `llmll` decides
     # whether a fill verifies, so the body only has to be well-formed JSON.
@@ -523,6 +533,132 @@ def test_a_manifest_without_digests_is_not_trusted(rig, tmp_path):
 
     p2, _ = rig(workdir=wd)
     assert "artifact(s) changed since this stage recorded completion" in p2.stdout
+
+
+def test_a_declared_artifact_deleted_from_a_complete_stage_forces_a_rerun(rig, tmp_path):
+    """Spec §5:174-177, skip condition (b) failing ALONE. Transition T7.
+
+    The third of the three skip conditions is the digest match, and
+    `test_a_modified_artifact_forces_a_rerun` covers it. The FIRST is the
+    completion record, and `test_artifacts_without_a_completion_record...`
+    covers it. Nothing covered the SECOND on its own until this test: a stage
+    the manifest records complete, one of whose declared artifacts is simply
+    gone.
+
+    It is the only witness for `may-skip`'s `artifacts-present` conjunct
+    (`tools/llmll-driver/skip.llmll:19-21`, `[S5-SKIP]`). The proof holds over
+    all inputs and says nothing about whether the running program ever supplies
+    the input that distinguishes the branch, which is what this test supplies.
+
+    NO ASSERTION ON SILENCE. Measured: the re-run prints no reason line for this
+    stage, because `mismatched` is computed under `if recorded and artifacts`
+    and is therefore empty, and the `elif artifacts and not recorded` branch is
+    false. §5 attaches a MUST-report to the digest case and a SHOULD to the
+    no-record case and says nothing here, so the silence is conformant and
+    pinning it would break on the next diagnostic anyone adds. What is asserted
+    is the DECISION: the stage ran.
+    """
+    wd = tmp_path / "artifact-gone"
+    p1, _ = rig(workdir=wd, stages="A,B,C")
+    assert p1.returncode == 0
+    assert manifest(wd)["B"]["status"] == "complete"
+    assert (wd / "01-scope" / "scope.md").exists()
+
+    (wd / "01-scope" / "scope.md").unlink()
+
+    p2, _ = rig(workdir=wd, stages="A,B,C")
+    assert p2.returncode == 0, p2.stdout + p2.stderr
+    assert "stage B [agent] scope decision" in p2.stdout, \
+        "the stage whose artifact is gone must RUN"
+    assert "stage B (scope decision): already complete, skipping" not in p2.stdout, \
+        "presence of the record is not presence of the artifact"
+    assert (wd / "01-scope" / "scope.md").exists(), "the re-run must rewrite it"
+    assert manifest(wd)["B"]["status"] == "complete"
+    # The untouched siblings still skip, so the check did not disable resumption.
+    assert "stage C (normativity rubric): already complete, skipping" in p2.stdout
+
+
+# ---------------------------------------------------------------------------
+# The sequencer's own state. Above the per-stage machine, and reached before
+# any stage runs, so §4's MUSTs (which are scoped to "a stage that halts") do
+# not govern it. A crash here is a defect for §4:141-143's REASON rather than
+# under its letter: a halt reaching the operator as an unhandled host-language
+# error is indistinguishable from a crash of the driver itself.
+# ---------------------------------------------------------------------------
+
+def test_a_truncated_manifest_halts_as_a_decision_not_a_traceback(rig, tmp_path):
+    """Measured before the guard: exit 1 on a bare `json.decoder.JSONDecodeError`
+    traceback out of `read_json`, with nothing written and no stage attempted."""
+    wd = tmp_path / "truncated"
+    p1, _ = rig(workdir=wd, stages="A,B,C")
+    assert p1.returncode == 0
+
+    (wd / "MANIFEST.json").write_text('{"stages": {"A": ')
+
+    p2, _ = rig(workdir=wd, stages="A,B,C")
+    assert p2.returncode == 2, "a deliberate halt exits 2, a crash exits 1"
+    assert "Traceback" not in p2.stderr, p2.stderr
+    assert "not readable JSON" in p2.stdout
+    assert "Delete it to re-run" in p2.stdout, "the halt must name a remedy"
+    assert "stage A [" not in p2.stdout, "no stage runs on an undecidable resume"
+
+
+def test_a_manifest_that_is_not_an_object_halts_as_a_decision(rig, tmp_path):
+    """`[]` and `"x"` PARSE, so a JSON-decode guard alone does not catch them.
+    Measured before the guard: exit 1 on `AttributeError: 'list' object has no
+    attribute 'setdefault'`, one line below the read."""
+    wd = tmp_path / "notanobject"
+    p1, _ = rig(workdir=wd, stages="A,B,C")
+    assert p1.returncode == 0
+
+    (wd / "MANIFEST.json").write_text("[]")
+
+    p2, _ = rig(workdir=wd, stages="A,B,C")
+    assert p2.returncode == 2
+    assert "Traceback" not in p2.stderr, p2.stderr
+    assert "not an object" in p2.stdout
+    assert "stage A [" not in p2.stdout
+
+
+def test_a_manifest_whose_stages_key_is_not_an_object_halts(rig, tmp_path):
+    """The shape the resume gate actually indexes is `manifest["stages"][key]`,
+    so a well-formed object with a list at `stages` is the remaining hole."""
+    wd = tmp_path / "badstages"
+    p1, _ = rig(workdir=wd, stages="A,B,C")
+    assert p1.returncode == 0
+
+    (wd / "MANIFEST.json").write_text('{"stages": [], "rfc_url": "x"}')
+
+    p2, _ = rig(workdir=wd, stages="A,B,C")
+    assert p2.returncode == 2
+    assert "Traceback" not in p2.stderr, p2.stderr
+    assert "at 'stages'" in p2.stdout
+
+
+def test_an_agent_that_exits_zero_without_writing_records_failed(rig, tmp_path):
+    """Spec §7:279, "Silence is not success", and it is ALREADY ENFORCED.
+
+    Pinning it because the Phase 4 proposal's Rev 6 §2.3 derived the opposite
+    from a grep over `stage.outputs`, which is the DECLARED list on the Stage
+    record and is consulted at three sites, none of which asserts presence. The
+    check is real and lives one level down, per delegated call rather than per
+    declared output, in `AgentRunner.run`: `if not out_path.exists(): raise
+    StageFailure(...)`. Eleven of the sixteen stages are agent-delegated and
+    reach it; the two mechanical and three gate stages write their outputs in
+    driver code and have no generic equivalent.
+
+    Consequence for the cover: T7 is reachable by deleting an artifact and NOT
+    by the reference recording complete over a missing one, at least for the
+    eleven stages this check covers.
+    """
+    wd = tmp_path / "silent-agent"
+    p, _ = rig(workdir=wd, stages="A,B,C", mode="silent-scope")
+    assert p.returncode == 3, "a stage-contract failure exits 3"
+    m = manifest(wd)
+    assert m["B"]["status"] == "failed"
+    assert m["B"]["outcome"] == "Errored"
+    assert "wrote no scope.md" in m["B"]["detail"]
+    assert "C" not in m, "no stage after a failed one is attempted"
 
 
 def test_every_stage_declares_the_artifact_that_carries_its_result(rig):
