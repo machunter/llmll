@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.83)
+# LLMLL: Large Language Model Logical Language (v0.14.84)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.83.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.84.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2453,6 +2453,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.list` | `string -> Command` | `(import wasi.fs (capability read PATH))` | List directory entries at path, sorted |
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
+| `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds |
 | `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order |
@@ -2466,6 +2467,12 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > `wasi.fs.list` delivers entries as `RList`, an empty directory as `RList` with zero entries, and a
 > missing directory as `RErr`. The `cli` and `http` harnesses perform no command and deliver no
 > response.
+
+> **The text commands are pinned to UTF-8**, not to the ambient locale, so the byte image of a read
+> or a write is a property of the program rather than of the environment that launched it.
+> `wasi.fs.read` of a file that is not valid UTF-8 delivers `RErr`, and `wasi.fs.write` encodes as
+> UTF-8 regardless of `LANG`. Bytes that are not text do not belong on this channel: `wasi.fs.sha256`
+> hashes them and `wasi.fs.copy` moves them, neither decoding on the way through.
 >
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as
