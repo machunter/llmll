@@ -2334,6 +2334,8 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 
 These functions and operators are **always in scope**. They are provided by the LLMLL runtime and do not require a `capability` import, except for the command constructors in §13.9 which require the matching capability.
 
+**Where a builtin takes two or more parameters of the same type, its row states the call form explicitly.** At such a signature a transposed call type-checks and `llmll check` reports OK, so nothing before execution catches it and the mistake surfaces only in the output. The orders are given per row because they are **not** uniform across this section: §13.6 alone holds three builtins that disagree about whether the subject or the operand comes first. Take the order from the row rather than from a neighbour.
+
 ### 13.1 Arithmetic Operators
 
 | Operator | Signature | Notes |
@@ -2427,17 +2429,20 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 
 ### 13.6 String Operations
 
+> [!IMPORTANT]
+> **The two-argument string builtins do not share an argument-order convention.** Each is `string string`, so a reversed call type-checks and `llmll check` reports OK. `string-contains` takes the **subject** first, `string-split` takes the **separator** first, and `regex-match` takes the **pattern** first. A reader who infers a rule from two of them will be wrong about the third, so take the order from the row.
+
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | `string-length` | `string -> int` | Length in characters |
-| `string-contains` | `string string -> bool` | Substring / character test |
-| `string-concat` | `string string -> string` | Concatenation |
-| `string-slice` | `string int int -> string` | `[start, end)` half-open slice |
+| `string-contains` | `string string -> bool` | `(string-contains subject needle)` tests whether `needle` occurs in `subject`. The **subject comes first**, the opposite of `string-split` below; a reversed call type-checks. |
+| `string-concat` | `string string -> string` | `(string-concat left right)` yields `left` followed by `right`. The **left operand comes first**; a reversed call type-checks and transposes the result. |
+| `string-slice` | `string int int -> string` | `(string-slice s start end)` takes the `[start, end)` half-open slice. The **start comes first**; both indices are `int`, so a transposed pair type-checks and returns `""`. |
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string). Returns `""` for negative or out-of-bounds indices. |
 | `string-split` | `string string -> list[string]` | `(string-split sep subject)` splits `subject` on `sep`. The **separator comes first**; both parameters are `string`, so a reversed call type-checks and fails only in its output. |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
 | `string-concat-many` | `list[string] -> string` | Concatenate a list of strings (variadic join without separator) |
-| `regex-match` | `string string -> bool` | POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total). |
+| `regex-match` | `string string -> bool` | `(regex-match pattern subject)` matches `subject` against `pattern`. The **pattern comes first**, the opposite of `string-contains` above; a reversed call type-checks. POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total). |
 | `string-empty?` | `string -> bool` | True when string has length 0 |
 
 > [!NOTE]
@@ -2516,18 +2521,18 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.io.stdout` | `string -> Command` | `(import wasi.io (capability stdout ...))` | Write text to standard output |
 | `wasi.io.stderr` | `string -> Command` | `(import wasi.io (capability stderr ...))` | Write text to standard error |
 | `wasi.http.response` | `int string -> Command` | `(import wasi.http (capability serve PORT))` | Return HTTP response (status, body) |
-| `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | POST body to URL |
+| `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | POST body to URL: `(wasi.http.post url body)`, the **URL first**. Both parameters are `string`, so a reversed call type-checks |
 | `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
-| `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path |
+| `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path: `(wasi.fs.write path contents)`, the **path first**. A reversed call type-checks and treats the contents as the filename |
 | `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below) |
 | `wasi.fs.list` | `string -> Command` | `(import wasi.fs (capability read PATH))` | List directory entries at path, sorted |
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
-| `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes |
+| `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes. `(wasi.fs.copy src dst)` puts the **source first**; a reversed call type-checks and overwrites the source instead |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
-| `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds |
-| `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order |
+| `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs)`. The three trailing `string` parameters are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks |
+| `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order: `(seq-commands first second)` runs `first`, then `second`. Both parameters are `Command`, so a reversed call type-checks and silently inverts the order |
 
 > **What a `Command` returns.** A `Command` value is not the result of an effect; it is a request to
 > perform one. `(string-length (wasi.fs.read p))` is a type error, because `wasi.fs.read` evaluates to
@@ -2655,7 +2660,7 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 
 | Function | Signature | RFC Reference | Notes |
 |----------|-----------|---------------|-------|
-| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 (HMAC) | Key and message are both `bytes[20]`. Returns 20-byte MAC. |
+| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 (HMAC) | `(hmac-sha1 key message)`: the **key comes first**. Key and message are both `bytes[20]`, so a reversed call type-checks and returns a different MAC. Returns 20-byte MAC. |
 | `sha1` | `bytes[20] → bytes[20]` | FIPS 180-4 (SHA-1) | Input is `bytes[20]`, output is 20-byte hash. |
 
 > [!IMPORTANT]
@@ -2704,7 +2709,7 @@ Operations over the compound types `bytes[n]` and `map[k,v]` (§3.2). Reads carr
 |----------|-----------|--------------|-------|
 | `bytes-length` | `bytes[n] → int` | — | Returns `n`. |
 | `bytes-get` | `bytes[n] int → int` | `0 ≤ i < n` | The byte at index `i` (`0–255`). |
-| `bytes-set` | `bytes[n] int int → bytes[n]` | `0 ≤ i < n` | Functional update; length-preserving. |
+| `bytes-set` | `bytes[n] int int → bytes[n]` | `0 ≤ i < n` | `(bytes-set b i v)` writes value `v` at index `i`: the **index comes first**. Functional update; length-preserving. Both trailing parameters are `int`, so a transposed call type-checks and is caught only by the runtime precondition, and only when the swapped values violate it. |
 | `bytes-zero` | `→ bytes[n]` | — | All-zero buffer. Legal only as the whole body of a `def`/`def-shell` whose declared return is a literal `bytes[n]` — the return type determines `n`. **The same annotation gives the constructor its length in verification, not only at runtime:** the body VC assumes the axiom `bytesLen(result) = n` alongside the constant-zero array, so `(bytes-length result)` is derivable of a constructed buffer. Without it the length is not derivable at all, since the const array is a total function in the array theory and carries no length. `n` is read from the declared return and never from the `post`; a `post` declaring a different length is refuted, not believed. The axiom is a claim about a sealed builtin whose validity rides the `codegen_semantics_version` stamp (§3.5), the same category as `bytes-set`'s length preservation, and it is not a solver discharge. |
 | `map-has` | `map[k,v] k → bool` | — | Key-presence test. |
 | `map-get` | `map[k,v] k → v` | `(map-has m k)` | Read of a present key. |
@@ -2728,7 +2733,7 @@ Operations over the sealed opaque type `Json` (§3.2). All fourteen are **`def-s
 | `json-get-number` | `Json string → Result[string,string]` | The member's **source lexeme**, unparsed. |
 | `json-array` | `Json → Result[list[Json],string]` | The bridge to `list[t]`, for iteration. |
 | `json-object` | `Json` | The empty object. A **value**, not a call. |
-| `json-set` | `Json string Json → Result[Json,string]` | Functional update: replace in place, append when absent. |
+| `json-set` | `Json string Json → Result[Json,string]` | `(json-set obj name value)`: the **receiver comes first** and the new value last. Functional update: replace in place, append when absent. Both `Json` positions share a type, so a transposed call type-checks. |
 | `json-of-string` | `string → Json` | |
 | `json-of-int` | `int → Json` | |
 | `json-of-bool` | `bool → Json` | |
