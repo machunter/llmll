@@ -1,0 +1,148 @@
+;; DRIVER-LL Phase 4, sub-phase 4b: the delegated-output validation facility.
+;;
+;; driver-spec.txt section 7:283-291 states two obligations over a delegated
+;; output, and the Phase 4 proposal section 6.1 items 1 and 2 carry them into
+;; this phase. Both are here, in one module with two proved functions, because
+;; three stages owe them and three near-copies of the same decision is the
+;; failure mode section 9's 4b row exists to prevent.
+;;
+;; ------------------------------------------------------------------
+;; 1. VALIDATION IS MANDATORY, NON-DOWNGRADABLE, NON-SKIPPABLE (:283-286).
+;;
+;;    verdict-outcome is the ONE mapping from what the driver learned about a
+;;    delegated output to the Outcome constructor the stage records. Three
+;;    call sites in sequencer.llmll reach it and none of them re-decides:
+;;    the delegated-output check of stages B, C and I, the guarded
+;;    precondition reads of section 9.1 item 1, and the agent-invocation
+;;    contract of section 5.
+;;
+;;    [V7-MANDATORY] is what makes "non-downgradable" false-if-violated: a
+;;    body that answered Finished on a rejected output -- the warning
+;;    downgrade section 7 forbids -- is refuted. crux-validate-downgrade.llmll
+;;    is that body.
+;;
+;;    [V7-ONLY-TWO] is section 9.1 item 3 as a proof rather than as a
+;;    convention: 4b constructs exactly two of Outcome's four constructors, so
+;;    a `stopped` anywhere in this sub-phase is wrong by construction. The two
+;;    stopped constructors are named separately as well, because the
+;;    disjunction alone would be satisfied by a body that never returned
+;;    Errored at all.
+;;
+;; ------------------------------------------------------------------
+;; 2. A VALIDATOR MUST NOT HARDCODE ONE SUBJECT'S CONVENTIONS (:288-291).
+;;
+;;    "a validator that hardcodes the values seen in one run will silently
+;;    report emptiness on the next." Proposal section 6.1 calls this "the item
+;;    most likely to be lost", and a comment saying "do not hardcode" is not a
+;;    check. Two things carry it here instead.
+;;
+;;    THE SIGNATURE. verdict-of takes `bool int int` and no string. No byte of
+;;    the subject document, of the agent's output, or of any run's conventions
+;;    is in scope, so none can be read. scripts/tests/test_driver_ll_4b.py
+;;    pins the arity and the parameter types, so widening the decision to take
+;;    content is a red test rather than a silent drift.
+;;
+;;    THE POSTCONDITION. [V7-NO-HARDCODE] says EVERY present output above the
+;;    declared floor passes. A body fitted to the sizes one committed run
+;;    happened to produce -- `(if (= size 1234) Passed ...)` -- satisfies every
+;;    other post here and is refuted by this one.
+;;    crux-validate-subject-hardcoded.llmll is that body.
+;;
+;;    The floor is a STAGE-CONTRACT constant supplied by registry.llmll, not a
+;;    value measured from a run. That is the distinction section 7:288-291
+;;    draws: a declared bar is the contract, an observed value is the fitting.
+;;
+;; ------------------------------------------------------------------
+;; 3. WHAT THIS FACILITY DOES NOT COVER, AT 4b.
+;;
+;;    Only presence and a declared byte floor. The content-shape validators
+;;    (check_extraction at rfc_to_implementation.py:386, check_dispositioned
+;;    at :481, check_audit at :447) belong to stages D, G and G2 and land at
+;;    4c; they decide over strings and will need a second channel into this
+;;    module rather than a widening of verdict-of, whose whole property above
+;;    is that it takes no string. Recorded here so the absence reads as scope.
+;;
+;;    STAGE I HAS NO VALIDATOR AND ONE IS NOT INVENTED HERE. Proposal section
+;;    9.1 item 2: measured, stage I holds zero halt calls and a 0-byte
+;;    PRE-REGISTRATION.md records `complete` at exit 0. registry.llmll gives
+;;    stage I a floor of -1, and [V7-NO-FLOOR] proves that a negative floor
+;;    passes every present output. What a negative floor does NOT do is
+;;    disable the presence check: that one is AgentRunner's, per delegated
+;;    call rather than per declared floor (rfc_to_implementation.py:331-334),
+;;    and [V7-PRESENCE] holds for every floor including a negative one.
+
+(module validate
+  (import stage) (open stage)
+
+  ;; What the driver learned about a delegated output, before any status is
+  ;; assigned. The three arms are the three the section 9 acceptance clause
+  ;; names, minus the one that is not a property of a single output:
+  ;; "subject-hardcoded" is a property of the VALIDATOR and is carried by
+  ;; [V7-NO-HARDCODE] below rather than by an arm.
+  (type Verdict (| Absent) (| Malformed) (| Passed))
+
+  ;; The single mapping. Section 7:283-286.
+  ;;
+  ;; ARM ORDER DECIDES WHETHER THIS VERIFIES, and it was measured rather than
+  ;; chosen for style. `Passed` is
+  ;; tested FIRST because [V7-MANDATORY]'s antecedent is a NEGATION over a
+  ;; three-constructor enum. Measured at v0.14.86: with `Passed` last the
+  ;; else-branch of the lowered match carries only the disequalities of the
+  ;; arms above it and no exhaustiveness fact, so the solver cannot conclude
+  ;; `v = Passed` there and the post fails with "else-branch does not satisfy
+  ;; postcondition". The same three arms with `Passed` first is SAFE, and a
+  ;; TWO-constructor enum is SAFE in either order because one disequality
+  ;; determines the value. Recorded in the 4b plan as a compiler-surface
+  ;; finding.
+  (def verdict-outcome [v: Verdict] -> Outcome
+
+    (post (=> (= v Passed) (= result Finished))
+      :source "[V7-PASS] driver-spec.txt sec 7 - an output meeting its declared shape does not halt its stage")
+
+    (post (=> (not (= v Passed)) (= result Errored))
+      :source "[V7-MANDATORY] driver-spec.txt sec 7:283-286 - output that fails validation MUST fail the stage; there is no warning downgrade")
+
+    (post (=> (not (= v Passed)) (not (= result ConditionUnmet)))
+      :source "[V7-NO-STOP] proposal sec 9.1 item 3 - no reachable halt in B, C or I is a condition driver-spec defines, so none records stopped")
+
+    (post (=> (not (= v Passed)) (not (= result PartialThenHalt)))
+      :source "[V7-NO-PARTIAL] proposal sec 9.1 item 3 - the other stopped constructor, named separately so the disjunction below cannot be satisfied vacuously")
+
+    (post (or (= result Errored) (= result Finished))
+      :source "[V7-ONLY-TWO] proposal sec 9.1 item 3 - sub-phase 4b constructs exactly two of Outcome's four constructors")
+
+    (match v
+      ((Passed)    Finished)
+      ((Absent)    Errored)
+      ((Malformed) Errored)))
+
+  ;; The delegated-output decision. Section 7:283-291.
+  ;;
+  ;; `present` is what the read of the declared output said; `size` is its
+  ;; measured length; `floor` is the bar the STAGE CONTRACT declares, from
+  ;; registry.llmll's stage-floor. A negative floor means the stage contract
+  ;; declares no floor, which is stage I (proposal sec 9.1 item 2).
+  ;;
+  ;; The precondition is not decoration: it is what makes [V7-NO-FLOOR]
+  ;; provable, and it is true of every caller because a length is never
+  ;; negative.
+  (def verdict-of [present: bool size: int floor: int] -> Verdict
+
+    (pre (>= size 0)
+      :source "[V7-SIZE-NONNEG] a measured length is never negative; the callers pass string-length of the output or 0 when the read failed")
+
+    (post (=> (not present) (= result Absent))
+      :source "[V7-PRESENCE] driver-spec.txt sec 7:279 - silence is not success; an absent declared output is a rejection whatever the floor, including a negative one")
+
+    (post (=> (and present (<= size floor)) (= result Malformed))
+      :source "[V7-FLOOR] driver-spec.txt sec 7:283-286 - an output below the floor its stage contract declares does not meet that contract")
+
+    (post (=> (and present (> size floor)) (= result Passed))
+      :source "[V7-NO-HARDCODE] driver-spec.txt sec 7:288-291 - EVERY output above the declared floor passes, so a validator fitted to the values one run produced is refuted rather than merely discouraged")
+
+    (post (=> (and present (< floor 0)) (= result Passed))
+      :source "[V7-NO-FLOOR] proposal sec 9.1 item 2 - a stage whose contract declares no floor accepts every present output, which is what stage I does and what 4b must not silently improve on")
+
+    (if present
+        (if (> size floor) Passed Malformed)
+        Absent)))

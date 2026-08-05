@@ -85,23 +85,62 @@ shell demonstrates the tier's discipline over a handful of operations.
 
 [`spine.llmll`](spine.llmll) ports stages E, J, L and G2 over the committed TFTP data
 (DRIVER-LL Phase 3), and [`sequencer.llmll`](sequencer.llmll) ports the stage loop above them
-(Phase 4, sub-phase 4a): the sixteen-stage registry, the resume gate over `skip.may-skip`, the
-manifest row schema, and two halt channels over `stage.record-outcome`. It runs **no stage
-bodies**. A stage that runs writes a stub to each artifact it declares, which is enough for
-every resume and outcome transition to be decided over real digests and a real completion
-record. It receives `--workdir`, `--only`, `--force` and the 4a fault injector through
-`wasi.proc.args`, and it exits 0, 2 or 3 through the `:status` projection, so no shell sits
-between the acceptance criterion and the program.
+(Phase 4, sub-phases 4a and 4b): the sixteen-stage registry, the resume gate over
+`skip.may-skip`, the manifest row schema, two halt channels over `stage.record-outcome`, and
+the delegated-output validation of `validate.verdict-of` / `validate.verdict-outcome`. It
+receives its flags through `wasi.proc.args` and exits 0, 2 or 3 through the `:status`
+projection, so no shell sits between the acceptance criterion and the program.
+
+**Three of the sixteen stage bodies are real.** B (scope), C (rubric) and I (pre-registration)
+read their inputs, render their prompt, spawn the agent through `wasi.proc.run`, and validate
+the declared output. The other thirteen write a stub to each artifact they declare, which is
+enough for every resume and outcome transition to be decided over real digests and a real
+completion record; `registry.stage-ported?` is the switch and carries the retirement schedule.
+
+The agent channel is `--agent-exe` plus repeatable `--agent-arg`, with `{prompt}`, `{out}` and
+`{workdir}` substituted per argument. It is deliberately **not** a shell template: passing the
+operator's string to `/bin/sh -c` would restore shell semantics through a granted binary and
+void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no environment
+channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
 `scripts/build_smoke.sh`; the checks that need no toolchain are in
-[`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py).
+[`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py) and
+[`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py).
+
+## The validation facility
+
+[`validate.llmll`](validate.llmll) is where driver-spec section 7:283-291 lives, and it is one
+module rather than three copies of an `if` because three stages owe the same two obligations.
+
+- **Mandatory, non-downgradable, non-skippable.** `verdict-outcome` is the single mapping from
+  what the driver learned about a delegated output to the `Outcome` its stage records.
+  `[V7-MANDATORY]` refutes the warning downgrade; `[V7-ONLY-TWO]` proves the sub-phase
+  constructs exactly two of `Outcome`'s four constructors, so a `stopped` here is wrong by
+  construction rather than merely unexpected.
+- **No hardcoding of one subject's conventions.** `verdict-of` takes `bool int int` and no
+  string, so no byte of any subject is in scope, and `[V7-NO-HARDCODE]` says every output above
+  the declared floor passes, so a body fitted to the sizes one run produced is refuted. The
+  floor is a registry constant a reader can check against the reference's own `require` call,
+  and `test_driver_ll_4b.py` relates the two by AST.
+
+Stage I gets a **negative** floor, meaning its stage contract declares none. That is measured:
+`stage_I_prereg` holds zero halt calls, and a 0-byte `PRE-REGISTRATION.md` records `complete`.
+A validator where the reference has none is new behaviour and does not ride in on a port; stage
+I joins stage O and lands at 4f. `[V7-PRESENCE]` is what keeps "no floor" from becoming "no
+validation": an absent output is a rejection whatever the floor.
 
 ## The cruxes
 
-[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes ten refuting mutants and one good
-twin. **Six of the ten are not invented.** They are defects that shipped in the Python driver,
-or behaviour it still has, or behaviour every LLMLL console program had:
+[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes 27 cases at v0.14.86: **thirteen**
+refuting mutants, one capability rejection, and thirteen `safe` verdicts of which one is the
+good twin. **Six of the thirteen mutants are not invented.** They are defects that shipped in
+the Python driver, or behaviour it still has, or behaviour every LLMLL console program had:
+
+(The counts above were taken from the file rather than incremented from the previous sentence,
+which said ten and was already short by one before sub-phase 4b touched it. A count stated
+without its epoch reads as current, and this is the third instance the DRIVER-LL line has
+recorded of exactly that.)
 
 - `crux-skip-presence-only`: a stage was skipped whenever its outputs existed, so a failed
   freeze gate was bypassed by its own report.
@@ -117,6 +156,18 @@ or behaviour it still has, or behaviour every LLMLL console program had:
   PROC-BOUNDARY-1, since the harness had no status channel: exit 0 on the `:done?` path
   whatever the run decided, so a driver that halted at a gate and one that finished every stage
   were indistinguishable to a shell.
+
+The two 4b cruxes are invented, and the second is worth its file for what it does **not**
+refute:
+
+- `crux-validate-downgrade`: an output that failed validation let through as though it had
+  passed. Measured: it refutes `[V7-MANDATORY]` **alone**, the same body carrying every other
+  post being SAFE, because `Finished` is one of the two constructors `[V7-ONLY-TWO]` admits.
+- `crux-validate-subject-hardcoded`: a validator accepting exactly the one size a committed run
+  produced. Its `(> size floor)` guard is what makes it discriminating: with the guard it
+  satisfies `[V7-PRESENCE]` and `[V7-FLOOR]` and refutes `[V7-NO-HARDCODE]`; without it, it also
+  refutes `[V7-FLOOR]` and would be a mutant about floors wearing an anti-hardcoding label.
+  Both directions measured.
 
 The good twin, `twin-skip-reassociated`, is the same skip decision with its conjunction
 reassociated. It guards against a contract so strong that only one phrasing satisfies it.

@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
-"""DRIVER-LL sub-phase 4a acceptance cover.
+"""DRIVER-LL sub-phase 4a and 4b acceptance cover.
 
 Drives the BUILT `sequencer` binary through the eleven-cell transition cover of
-`docs/design/driver-ll-phase4-proposal.md` section 2.3 and the three
-corrupt-manifest shapes of its section 10 cases 16, 17 and 18, and asserts the
-same decisions `scripts/tests/test_rfc_pipeline_integration.py` asserts against
-the Python reference.
+`docs/design/driver-ll-phase4-proposal.md` section 2.3, the three
+corrupt-manifest shapes of its section 10 cases 16, 17 and 18, and the
+delegated-output conditions of its section 9's 4b row, and asserts the same
+decisions `scripts/tests/test_rfc_pipeline_integration.py` asserts against the
+Python reference.
 
 WHY THIS IS A SECOND HARNESS RATHER THAN THE RIG WITH A DIFFERENT `DRIVER`.
 The rig invokes `scripts/rfc_to_implementation.py` with an agent command, an
 llmll command and an RFC URL, and drives real stage bodies through a stub
-agent. Sub-phase 4a lands NO stage bodies, so there is nothing for those three
-flags to reach. What the two harnesses share is the DECISION under test and the
-name of the test that pins it: every scenario below carries the name of the
-Python-side test whose decision it reproduces, and
-`scripts/tests/test_driver_ll_4a_cover.py` fails if a name here does not exist
-there. That check is what keeps the two covers from drifting into two different
-questions; it is cheaper than structural sharing and it is the whole mitigation
-for the mirror risk.
+agent. Sub-phase 4b lands three of the sixteen stage bodies, so the rig's
+`--llmll-cmd` and `--rfc-url` still reach nothing here. What the two harnesses
+share is the DECISION under test and the name of the test that pins it: every
+scenario below carries the name of the Python-side test whose decision it
+reproduces, and `scripts/tests/test_driver_ll_4a_cover.py` fails if a name here
+does not exist there. That check is what keeps the two covers from drifting
+into two different questions; it is cheaper than structural sharing and it is
+the whole mitigation for the mirror risk.
+
+THE AGENT STUB MIRRORS THE RIG'S, and the correspondence is checked rather than
+promised. Both take `{out}` as argv[1] and `{prompt}` as argv[2] and read
+STUB_MODE from the environment, which is the channel proposal section 5 item 2
+settles (`wasi.proc.run` has no env parameter, so the driver cannot inject one;
+STUB_MODE is the RIG's control channel, set on the driver process and
+inherited). `test_driver_ll_4a_cover.py` asserts the rig still reads argv in
+that order, so a change there reddens rather than silently splitting the two
+harnesses.
 
 THE STDIN BUDGET IS NOT DATA. The console harness consumes one line per step
 (`CodegenHs.hs` emitMainBody, the ModeConsole loop). Since PROC-BOUNDARY-1 an
@@ -36,18 +46,62 @@ import argparse
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-# One line per step. A full sixteen-stage run is about 110 steps; every
-# scenario below selects at most four stages. Generous on purpose: the failure
-# mode of a tight budget is exit 70, which is loud, but it is not the property
-# under test.
+# One line per step. A full sixteen-stage run is about 140 steps once B, C and
+# I have real bodies; every scenario below selects at most four stages.
+# Generous on purpose: the failure mode of a tight budget is exit 70, which is
+# loud, but it is not the property under test.
 BUDGET = 800
 
 REPO = Path(__file__).resolve().parent.parent
+PROMPTS = REPO / "experiments" / "rfc-swarm" / "prompts"
+
+# The stub agent. argv[1] is {out} and argv[2] is {prompt}, matching the rig's
+# STUB_AGENT. Every mode writes a byte count chosen against a STAGE CONTRACT
+# floor (200 for B, 400 for C, none for I) rather than against a size any
+# committed run produced, which is the distinction driver-spec section 7:288-291
+# draws and the reason `short-rubric` writes 300: it CLEARS stage B's floor and
+# FAILS stage C's, so a driver reading one stage's floor for another is caught.
+AGENT_STUB = r'''
+import os, pathlib, sys
+out    = pathlib.Path(sys.argv[1])
+prompt = pathlib.Path(sys.argv[2])
+mode   = os.environ.get("STUB_MODE", "ok")
+name   = out.name
+
+# "Silence is not success" (driver-spec sec 7:279) at a STAGE-level delegated
+# output: exit 0 having written nothing. AgentRunner.run is what catches it in
+# the reference (rfc_to_implementation.py:331-334).
+if mode == "silent-scope" and name == "scope.md":
+    sys.exit(0)
+if mode == "short-scope" and name == "scope.md":
+    out.write_text("too short\n")
+    sys.exit(0)
+if mode == "short-rubric" and name == "rubric.md":
+    out.write_text("-" * 300)
+    sys.exit(0)
+if mode == "empty-prereg" and name == "PRE-REGISTRATION.md":
+    out.write_text("")
+    sys.exit(0)
+# A VALID declared output AND a non-zero exit. Proposal sec 3.1 row 3 and sec
+# 10 case 4 both say `complete`; the reference records `failed`, because
+# AgentRunner.run raises on the exit status BEFORE it checks for the output.
+if mode == "nonzero-scope" and name == "scope.md":
+    out.write_text("-" * 900)
+    sys.exit(7)
+
+# The prompt is read so that a stub which never opened it would differ
+# observably from one that did; the driver's contract is that {prompt} names a
+# file the agent can read.
+body = "stub output for %s from a prompt of %d bytes\n" % (
+    name, len(prompt.read_text(encoding="utf-8")))
+out.write_text(body + "-" * (5000 if mode == "big" else 900) + "\n")
+'''
 
 
 class Failure(Exception):
@@ -71,20 +125,74 @@ class Run:
         return self.manifest().get("stages", {})
 
 
+def prepare(wd: Path, *, sources: dict[str, str] | None = None,
+            provenance: str | None = None) -> None:
+    """What stage A would have left behind.
+
+    Stage A is not ported at 4b (it needs HTTP-GET-1) and is not listed in any
+    of proposal section 9's sub-phase rows, so its outputs are laid down here.
+    They are the real shapes: PROVENANCE.json as `write_json` writes it, and
+    the pinned bytes as `00-source/*.txt`, which is what `_sources_text` globs.
+    """
+    src = wd / "00-source"
+    src.mkdir(parents=True, exist_ok=True)
+    for name, text in (sources if sources is not None
+                       else {"rfc.txt": "1. Introduction\nA sender MUST ack.\n"}).items():
+        (src / name).write_text(text, encoding="utf-8")
+    (src / "PROVENANCE.json").write_text(
+        provenance if provenance is not None
+        else json.dumps({"sources": [{"url": "file:///spec.txt", "file": "rfc.txt",
+                                      "sha256": "0" * 64, "lines": 2}]}, indent=1) + "\n",
+        encoding="utf-8")
+
+
+def _stub(root: Path) -> Path:
+    p = root / "stub_agent.py"
+    if not p.exists():
+        p.write_text(AGENT_STUB)
+        p.chmod(p.stat().st_mode | stat.S_IXUSR)
+    return p
+
+
 def drive(binary: Path, workdir: Path, only: str, *,
-          force: bool = False, halt_at: str = "", halt_kind: str = "") -> Run:
-    cmd = [str(binary), "--workdir", str(workdir), "--only", only]
+          force: bool = False, halt_at: str = "", halt_kind: str = "",
+          mode: str = "ok", prompts: Path | str | None = None,
+          agent_exe: str | None = None, timeout: int | None = None) -> Run:
+    stub = _stub(workdir.parent)
+    cmd = [str(binary), "--workdir", str(workdir), "--only", only,
+           # Proposal section 5 item 1: --agent-exe plus repeatable
+           # --agent-arg, with {prompt}/{out}/{workdir} substituted per
+           # argument. NOT a shell template, because passing one to /bin/sh -c
+           # restores shell semantics through a granted binary.
+           "--agent-exe", agent_exe if agent_exe is not None else sys.executable,
+           "--agent-arg", str(stub),
+           "--agent-arg", "{out}",
+           "--agent-arg", "{prompt}",
+           "--prompts-dir", str(prompts if prompts is not None else PROMPTS)]
+    if timeout is not None:
+        cmd += ["--timeout", str(timeout)]
     if force:
         cmd.append("--force")
     if halt_at:
         cmd += ["--halt-at", halt_at, "--halt-kind", halt_kind]
     proc = subprocess.run(cmd, input="x\n" * BUDGET, capture_output=True,
-                          text=True, cwd=str(workdir.parent))
+                          text=True, cwd=str(workdir.parent),
+                          env=dict(os.environ, STUB_MODE=mode))
     if proc.returncode == 70:
         raise Failure(
             f"the run exited 70: stdin was exhausted before :done? fired, so "
             f"the step budget of {BUDGET} is too small for this scenario. "
             f"This is a harness error, not a driver decision.\n{proc.stdout}")
+    return Run(proc, workdir)
+
+
+def drive_bare(binary: Path, workdir: Path, *args: str) -> Run:
+    """No --agent-exe and no --prompts-dir. The reference makes --agent-cmd a
+    required argparse argument (:1888-1891) and exits 2 through ap.error before
+    any stage exists."""
+    proc = subprocess.run([str(binary), "--workdir", str(workdir), *args],
+                          input="x\n" * BUDGET, capture_output=True, text=True,
+                          cwd=str(workdir.parent))
     return Run(proc, workdir)
 
 
@@ -147,6 +255,24 @@ SCENARIOS = []
 def scenario(cell: str, mirrors: str):
     def deco(fn):
         SCENARIOS.append((cell, mirrors, fn))
+        return fn
+    return deco
+
+
+def local(cell: str, why: str):
+    """A cell with NO Python-side counterpart, and the reason is the cell.
+
+    Sub-phase 4b's conditions divide in two. Some the reference also decides,
+    and those use `@scenario` and name the test that pins the decision there.
+    The rest are conditions the reference reaches as a TRACEBACK (proposal
+    section 9.1 item 1's guarded reads), or are flags the port has and the
+    reference does not (--prompts-dir), or are properties of the port's own
+    facility (the per-stage floor, subject neutrality). A mirror name would be
+    a fiction for those, and inventing one would weaken the invariant
+    `test_every_cover_scenario_mirrors_a_test_that_exists` exists to hold.
+    """
+    def deco(fn):
+        SCENARIOS.append((cell, "(4b, no reference counterpart) " + why, fn))
         return fn
     return deco
 
@@ -322,6 +448,224 @@ def c18(b, wd):
 
 
 # ---------------------------------------------------------------------------
+# Sub-phase 4b. Proposal section 9's row: "A delegated output that is absent,
+# malformed, or subject-hardcoded fails the stage and is never skipped. Every
+# reachable halt in B, C and I records `failed`/`Errored`; a `stopped` anywhere
+# in 4b is wrong by construction."
+#
+# EVERY cell below asserts `clause` ABSENT as well as the status, because a
+# `clause` member is what the halt-row shape writes on the STOPPED path and
+# nowhere else. That assertion is the acceptance clause's "a stopped anywhere
+# in 4b is wrong by construction" made observable at the manifest.
+# ---------------------------------------------------------------------------
+
+def want_failed(r: Run, key: str, needle: str) -> None:
+    want_rc(r, 3)
+    row = r.stages().get(key)
+    want(row is not None, f"stage {key} recorded no row at all:\n{r.out}")
+    want_halt_row(row, "failed", "Errored", clause=False)
+    want(needle in row["detail"],
+         f"expected {needle!r} in the detail, got {row['detail']!r}")
+    want("FAILED at stage " + key in r.out,
+         f"driver-spec sec 4:139-143 requires the reason ON THE OUTPUT too:\n{r.out}")
+
+
+@scenario("B0", "test_an_agent_that_exits_zero_without_writing_records_failed")
+def b0(b, wd):
+    """Silence is not success (sec 7:279), at a stage-level delegated output."""
+    r = drive(b, wd, "B,C", mode="silent-scope")
+    want_failed(r, "B", "wrote no scope.md")
+    want_not_in("stage C [", r)
+    want("C" not in r.stages(), "no stage after a failed one is attempted")
+
+
+@local("B1", "the happy path; without it every negative cell below is vacuous")
+def b1(b, wd):
+    r = drive(b, wd, "B,C,I")
+    want_rc(r, 0)
+    for key in ("B", "C", "I"):
+        want_complete_row(r.stages()[key], "agent")
+    for rel in ("01-scope/scope.md", "02-rubric/rubric.md",
+                "08-prereg/PRE-REGISTRATION.md"):
+        want((wd / rel).exists(), f"{rel} was not written")
+    # The delegation actually happened, through the channel section 5 settles.
+    for d in ("01-scope", "02-rubric", "08-prereg"):
+        p = wd / d / "PROMPT.md"
+        want(p.exists(), f"{d}/PROMPT.md was not written")
+        want("{{" not in p.read_text(),
+             f"{d}/PROMPT.md still carries an unsubstituted placeholder")
+        want((wd / d / "agent.stdout.log").exists(),
+             f"{d}: the agent's stdout was not captured to a file")
+    # _sources_text's numbering, byte for byte against the reference's format.
+    want("    1| 1. Introduction" in (wd / "01-scope" / "PROMPT.md").read_text(),
+         "the pinned bytes must reach the agent with EXPLICIT line numbers; "
+         "extraction rows cite spans and reconciliation matches on them")
+
+
+@local("B2", "a delegated output below the floor its stage contract declares")
+def b2(b, wd):
+    r = drive(b, wd, "B,C", mode="short-scope")
+    want_failed(r, "B", "scope.md is too short to state a boundary")
+    want("C" not in r.stages(), "no stage after a failed one is attempted")
+
+
+@local("B3", "the floor is PER STAGE CONTRACT: 300 bytes clears B and fails C")
+def b3(b, wd):
+    """The discriminating cell for the validation facility.
+
+    One output size, two stages, two decisions. A driver holding a single
+    global floor, or reading stage B's floor while validating stage C, passes
+    every other cell here and fails this one.
+    """
+    r = drive(b, wd, "B,C", mode="short-rubric")
+    want_complete_row(r.stages()["B"], "agent")
+    want_failed(r, "C", "rubric.md is too short")
+
+
+@local("B4", "valid output AND non-zero exit: the reference records failed, "
+             "where proposal sec 3.1 row 3 and sec 10 case 4 say complete")
+def b4(b, wd):
+    r = drive(b, wd, "B,C", mode="nonzero-scope")
+    want_failed(r, "B", "exited 7")
+    want((wd / "01-scope" / "scope.md").exists(),
+         "the premise: the agent DID write a valid declared output")
+    want((wd / "01-scope" / "scope.md").stat().st_size > 200,
+         "the premise: and it clears the floor, so validation would have passed")
+
+
+@local("B5", "sec 9.1 item 1: PROVENANCE.json absent is a DECISION, not a traceback")
+def b5(b, wd):
+    (wd / "00-source" / "PROVENANCE.json").unlink()
+    r = drive(b, wd, "B")
+    want_failed(r, "B", "00-source/PROVENANCE.json")
+    want("is absent" in r.stages()["B"]["detail"], "the reason names the shape")
+
+
+@local("B6", "sec 9.1 item 1: PROVENANCE.json that does not parse")
+def b6(b, wd):
+    (wd / "00-source" / "PROVENANCE.json").write_text('{"sources": ')
+    r = drive(b, wd, "B")
+    want_failed(r, "B", "does not parse as JSON")
+
+
+@local("B7", "the pinned sources are gone; sec 7:279 for an INPUT")
+def b7(b, wd):
+    (wd / "00-source" / "rfc.txt").unlink()
+    r = drive(b, wd, "B")
+    want_failed(r, "B", "no pinned RFC text found; run stage A first")
+
+
+@local("B8", "sec 9.1 item 1: stage I's read of stage B's scope.md")
+def b8(b, wd):
+    r = drive(b, wd, "I")
+    want_failed(r, "I", "01-scope/scope.md")
+
+
+@local("B9", "sec 9.1 item 2: stage I has NO validator and one is not invented")
+def b9(b, wd):
+    """A 0-byte PRE-REGISTRATION.md records `complete` at exit 0.
+
+    Measured against the reference before it was ported: stage I holds zero
+    halt calls. This cell is the disclosure made executable, so a later
+    sub-phase that adds a validator to stage I has to delete a green test
+    rather than quietly improving on the reference.
+    """
+    r = drive(b, wd, "B,I", mode="empty-prereg")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["I"], "agent")
+    p = wd / "08-prereg" / "PRE-REGISTRATION.md"
+    want(p.exists() and p.stat().st_size == 0,
+         f"the premise: a 0-byte declared output, got "
+         f"{p.stat().st_size if p.exists() else 'nothing'}")
+
+
+@local("B10", "the prompt template is not under --prompts-dir")
+def b10(b, wd):
+    r = drive(b, wd, "B", prompts=wd / "no-such-prompts")
+    want_failed(r, "B", "not readable under --prompts-dir")
+
+
+@local("B11", "a template placeholder no keyword fills (Ctx.prompt's require)")
+def b11(b, wd):
+    d = wd / "prompts"
+    d.mkdir()
+    for src in PROMPTS.glob("*.md"):
+        shutil.copy2(src, d / src.name)
+    (d / "stage-B-scope.md").write_text(
+        (d / "stage-B-scope.md").read_text() + "\n\nUnknown: {{not_a_keyword}}\n")
+    r = drive(b, wd, "B", prompts=d)
+    want_failed(r, "B", "unfilled placeholders")
+
+
+@local("B12", "the agent executable does not exist; the RErr arm of proc.run")
+def b12(b, wd):
+    r = drive(b, wd, "B", agent_exe=str(wd / "no-such-agent"))
+    want_failed(r, "B", "could not be started")
+
+
+@local("B13", "'and is never skipped': a stage whose output failed validation "
+              "is re-run, and one whose output passed is skipped")
+def b13(b, wd):
+    r1 = drive(b, wd, "B,C", mode="short-scope")
+    want_failed(r1, "B", "too short")
+    want((wd / "01-scope" / "scope.md").exists(),
+         "the premise: the failing stage LEFT AN ARTIFACT behind, which is what "
+         "would let a presence-only resume gate skip it")
+    r2 = drive(b, wd, "B,C")
+    want_rc(r2, 0)
+    want_not_in("stage B (scope decision): already complete, skipping", r2)
+    want_in("stage B [agent] scope decision", r2)
+    want_complete_row(r2.stages()["B"], "agent")
+    r3 = drive(b, wd, "B,C")
+    want_rc(r3, 0)
+    want(r3.out.count("already complete, skipping") == 2,
+         f"a validated stage IS skipped on the next resume:\n{r3.out}")
+
+
+@local("B14", "sec 7:288-291: the same driver over TWO different subjects")
+def b14(b, wd):
+    """Subject neutrality, measured rather than promised.
+
+    A validator that hardcoded the values one run produced passes its own
+    subject and reports emptiness on the next. Two subjects here differ in
+    every dimension a fitted validator could have latched onto: the source
+    filename, the byte count, the line count, the provenance, and the size of
+    what the agent writes. Both must reach the same verdicts.
+    """
+    r1 = drive(b, wd, "B,C,I")
+    want_rc(r1, 0)
+    first = {k: v["status"] for k, v in r1.stages().items()}
+
+    other = wd.parent / (wd.name + "-subject2")
+    other.mkdir()
+    prepare(other,
+            sources={"rfc9999.txt": "".join(
+                f"{i:4d} A receiver SHOULD ignore an unknown option.\n"
+                for i in range(200))},
+            provenance=json.dumps(
+                {"sources": [{"url": "https://example.invalid/rfc9999.txt",
+                              "file": "rfc9999.txt", "sha256": "f" * 64,
+                              "lines": 200}]}, indent=1) + "\n")
+    r2 = drive(b, other, "B,C,I", mode="big")
+    want_rc(r2, 0)
+    second = {k: v["status"] for k, v in r2.stages().items()}
+    want(first == second == {"B": "complete", "C": "complete", "I": "complete"},
+         f"the two subjects disagree: {first} vs {second}")
+    want((other / "01-scope" / "scope.md").stat().st_size
+         != (wd / "01-scope" / "scope.md").stat().st_size,
+         "the premise: the two subjects really did produce different outputs")
+
+
+@local("B15", "--agent-exe is required, as the reference requires --agent-cmd")
+def b15(b, wd):
+    r = drive_bare(b, wd, "--only", "B")
+    want_rc(r, 2)
+    want_in("STOP:", r)
+    want_in("--agent-exe is required", r)
+    want(not r.stages(), "an argument fault assigns no stage status")
+
+
+# ---------------------------------------------------------------------------
 # Not a cover cell: the registry's own drift guard. stage-out and stage-out-dir
 # are two hand-written tables and nothing in the language relates them, so a
 # path whose directory is wrong writes into the wrong place and every digest
@@ -373,6 +717,11 @@ def main() -> int:
         for cell, mirrors, fn in SCENARIOS + [("registry", "-", registry_drift)]:
             wd = root / cell
             wd.mkdir(parents=True)
+            # What stage A would have left behind. Every scenario gets it and
+            # the ones testing its absence remove what they need to; stage A is
+            # not ported at 4b, so without this the three ported stages would
+            # all halt on a missing input and no other cell would be reachable.
+            prepare(wd)
             try:
                 fn(binary, wd)
             except Failure as e:
@@ -387,7 +736,7 @@ def main() -> int:
         else:
             print(f"  workdirs kept under {root}")
 
-    print(f"DRIVER-LL 4a cover: {npass} passed, {nfail} failed")
+    print(f"DRIVER-LL 4a+4b cover: {npass} passed, {nfail} failed")
     return 1 if nfail else 0
 
 

@@ -1,8 +1,8 @@
 {
  "family": "llmll-driver",
- "frozen_at": "v0.14.69",
- "frozen_date": "2026-07-27",
- "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). driver-spec.txt section 15.1 (proved tier) and section 15.2 (asserted tier). Six of the cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. This suite is addressed by repo-relative path and each case is verified against a copy of the whole directory, because shell.llmll and crux-shell-undeclared-authority.llmll import sibling modules; `verify` still checks only the named file, so the extra siblings change no verdict. The `capability` expectation is the third verdict kind: a capability violation is neither `safe` nor `refuted`, and grading it as `refuted` meant a program rejected at type-check stood in for one the solver disproved. Extended at v0.14.82 by the DRIVER-LL Phase 3 port with spine.llmll and crux-stage-j-coverage-pin.llmll: before that pair neither stage E's nor stage J's verify verdict was frozen anywhere, so the ported spine was the only unprotected artifact in a directory whose whole point is frozen verdicts. Extended again by DRIVER-LL Phase 4 sub-phase 4a with registry.llmll, manifest.llmll, sequencer.llmll and two cruxes. crux-exit-code-halt-as-zero.llmll is what raises the shipped-behaviour count from five to six: exiting 0 on a halted run is what EVERY LLMLL console program did before PROC-BOUNDARY-1, since the harness had no status channel at all. crux-skip-digest-dropped.llmll is an INVENTED mutant and is the discriminating half of proposal section 10 case 19: it refutes [S5-SKIP] and NOT [S5-PRESENCE], where crux-skip-presence-only.llmll refutes both, so the pair makes the entailment observable in the gate rather than only argued.",
+ "frozen_at": "v0.14.86",
+ "frozen_date": "2026-08-05",
+ "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields, the standing A3-churn guard). driver-spec.txt section 15.1 (proved tier) and section 15.2 (asserted tier). Six of the cruxes are defects that actually shipped or behaviour the Python driver still has, not invented mutants; each names its provenance in `why`. This suite is addressed by repo-relative path and each case is verified against a copy of the whole directory, because shell.llmll and crux-shell-undeclared-authority.llmll import sibling modules; `verify` still checks only the named file, so the extra siblings change no verdict. The `capability` expectation is the third verdict kind: a capability violation is neither `safe` nor `refuted`, and grading it as `refuted` meant a program rejected at type-check stood in for one the solver disproved. Extended at v0.14.82 by the DRIVER-LL Phase 3 port with spine.llmll and crux-stage-j-coverage-pin.llmll: before that pair neither stage E's nor stage J's verify verdict was frozen anywhere, so the ported spine was the only unprotected artifact in a directory whose whole point is frozen verdicts. Extended again by DRIVER-LL Phase 4 sub-phase 4a with registry.llmll, manifest.llmll, sequencer.llmll and two cruxes. crux-exit-code-halt-as-zero.llmll is what raises the shipped-behaviour count from five to six: exiting 0 on a halted run is what EVERY LLMLL console program did before PROC-BOUNDARY-1, since the harness had no status channel at all. crux-skip-digest-dropped.llmll is an INVENTED mutant and is the discriminating half of proposal section 10 case 19: it refutes [S5-SKIP] and NOT [S5-PRESENCE], where crux-skip-presence-only.llmll refutes both, so the pair makes the entailment observable in the gate rather than only argued. Extended again by sub-phase 4b with validate.llmll and two cruxes. validate.llmll is the delegated-output validation facility of driver-spec section 7:283-291, and its verdict is frozen because both of its functions are body-faithful and both carry postconditions that a later widening could silently drop. crux-validate-downgrade.llmll is the WARNING DOWNGRADE section 7:283-286 forbids, and it refutes through [V7-MANDATORY] ALONE: measured, the same body carrying [V7-PASS] plus [V7-ONLY-TWO] is SAFE, because Finished is one of the two constructors [V7-ONLY-TWO] admits. crux-validate-subject-hardcoded.llmll is an INVENTED MUTANT and the discriminating half of section 7:288-291: its `(> size floor)` guard is what keeps it from ALSO refuting [V7-FLOOR], measured, so the mutant refutes through the anti-hardcoding post and not through a post about floors.",
  "cases": [
   {
    "file": "stage.llmll",
@@ -191,6 +191,13 @@
    "why": "DRIVER-LL Phase 4a, the stage loop. The frozen verdict protects the split: exit-code is body-faithful and carries the five posts that tie the process status to the proved halt classification, while the orchestration around it is def-shell at body-fallback. No --strict-verified-core, on spine.llmll's precedent, because the shell layer is the asserted tier by construction; what this guards is that the proved centre stays SAFE and that the module keeps importing skip and stage rather than reimplementing their decisions"
   },
   {
+   "file": "validate.llmll",
+   "flags": [],
+   "expect_exit": 0,
+   "expect": "safe",
+   "why": "DRIVER-LL Phase 4b, the delegated-output validation facility. Both verdict-of and verdict-outcome are body-faithful. Frozen because the acceptance clause of sub-phase 4b -- an output that is absent, malformed or subject-hardcoded fails the stage -- is carried by these two functions' postconditions and by nothing else in the port; a widening that dropped one would leave every cover cell green, since the cover drives the same code it would be checking."
+  },
+  {
    "file": "crux-skip-digest-dropped.llmll",
    "flags": [
     "--strict-verified-core"
@@ -218,6 +225,26 @@
    "cross_module": true,
    "why": "section 15.2: writes the filesystem while importing only wasi.io. Fails at TYPE-CHECK, not at the solver, which is the point: authority is enforced rather than declared. Graded under the `capability` expectation, which matches the missing-capability diagnostic; `refuted` would have accepted any error at all and is now explicitly rejected for this case.",
    "localized": "wasi.fs"
+  },
+  {
+   "file": "crux-validate-downgrade.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localizes": "verdict-outcome",
+   "why": "THE WARNING DOWNGRADE driver-spec section 7:283-286 forbids: an output that failed validation let through as though it had passed. Absent, the arm section 7:279 names ('silence is not success'), is mapped to Finished. Refutes [V7-MANDATORY] alone; measured, the same body carrying every other post is SAFE."
+  },
+  {
+   "file": "crux-validate-subject-hardcoded.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localizes": "verdict-of",
+   "why": "INVENTED MUTANT: the validator driver-spec section 7:288-291 warns about, accepting exactly the one size a committed run produced. The (> size floor) guard makes it discriminating: with the guard it satisfies [V7-PRESENCE] and [V7-FLOOR] and refutes [V7-NO-HARDCODE] and its named consequence [V7-NO-FLOOR]; without it, it also refutes [V7-FLOOR] and would have been a mutant about floors wearing an anti-hardcoding label. Measured both ways."
   }
  ]
 }

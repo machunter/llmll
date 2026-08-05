@@ -1,0 +1,38 @@
+(module crux-validate-subject-hardcoded)
+;; THE VALIDATOR driver-spec.txt section 7:288-291 warns about, written out:
+;; "a validator that hardcodes the values seen in one run will silently report
+;; emptiness on the next."
+;;
+;; The body accepts exactly one size above the floor, 1638, which is the byte
+;; length of experiments/rfc-swarm/prompts/stage-B-scope.md in this tree. A
+;; validator fitted to one committed run looks like this: it passes every
+;; regression the run it was fitted to produces and rejects the next subject
+;; entirely. Proposal section 6.1 calls this "the item most likely to be lost",
+;; and a comment is not a check.
+;;
+;; THE GUARD `(> size floor)` IS WHAT MAKES THIS A DISCRIMINATING MUTANT, and
+;; it was measured, not assumed. Without it the body ALSO refutes [V7-FLOOR],
+;; because 1638 sits below some floors and the unguarded body would pass an
+;; undersized output whenever the floor exceeded 1638; the mutant would then
+;; have refuted through a post that has nothing to do with subject hardcoding.
+;; Measured at v0.14.86 over this body:
+;;
+;;   [V7-PRESENCE] + [V7-FLOOR] alone   -> SAFE
+;;   [V7-NO-HARDCODE] alone             -> REFUTED
+;;   [V7-NO-FLOOR] alone                -> REFUTED
+;;
+;; [V7-NO-FLOOR] is a NAMED CONSEQUENCE of [V7-NO-HARDCODE] rather than an
+;; independent obligation -- a negative floor is below every non-negative size
+;; -- so no body can break one and keep the other. It is stated separately in
+;; validate.llmll because it is the stage-I disposition of proposal section 9.1
+;; item 2 and a reader should be able to find it by name.
+(type Verdict (| Absent) (| Malformed) (| Passed))
+(def verdict-of [present: bool size: int floor: int] -> Verdict
+  (pre (>= size 0))
+  (post (=> (not present) (= result Absent)))
+  (post (=> (and present (<= size floor)) (= result Malformed)))
+  (post (=> (and present (> size floor)) (= result Passed)))
+  (post (=> (and present (< floor 0)) (= result Passed)))
+  (if present
+      (if (and (> size floor) (= size 1638)) Passed Malformed)
+      Absent))

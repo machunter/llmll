@@ -1,0 +1,30 @@
+(module crux-validate-downgrade)
+;; THE WARNING DOWNGRADE driver-spec.txt section 7:283-286 forbids: an output
+;; that failed validation is let through as though it had passed.
+;;
+;; This is not an invented shape. Proposal section 6.1 item 1 records that
+;; check_extraction and check_dispositioned "exist" and that section 7 makes
+;; validating a specification obligation "rather than defensive coding and
+;; forbids the warning downgrade" -- the clause exists because the downgrade is
+;; the natural thing an implementer reaches for when a validator is noisy.
+;; Here Absent, the one arm section 7:279 calls out by name ("silence is not
+;; success"), is mapped to Finished and the stage records complete over an
+;; output nobody wrote.
+;;
+;; Refutes [V7-MANDATORY] ALONE, and that was measured rather than asserted:
+;; at v0.14.86 the same body carrying [V7-MANDATORY] only is REFUTED, and
+;; carrying [V7-PASS] plus [V7-ONLY-TWO] and neither stopped-constructor post
+;; is SAFE. Finished is one of the two constructors [V7-ONLY-TWO] admits, so
+;; the downgrade passes that post; nothing but the mandatory clause catches it.
+(type Outcome (| ConditionUnmet) (| Errored) (| PartialThenHalt) (| Finished))
+(type Verdict (| Absent) (| Malformed) (| Passed))
+(def verdict-outcome [v: Verdict] -> Outcome
+  (post (=> (= v Passed) (= result Finished)))
+  (post (=> (not (= v Passed)) (= result Errored)))
+  (post (=> (not (= v Passed)) (not (= result ConditionUnmet))))
+  (post (=> (not (= v Passed)) (not (= result PartialThenHalt))))
+  (post (or (= result Errored) (= result Finished)))
+  (match v
+    ((Passed)    Finished)
+    ((Absent)    Finished)
+    ((Malformed) Errored)))

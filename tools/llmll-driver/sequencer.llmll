@@ -1,15 +1,93 @@
-;; DRIVER-LL Phase 4, sub-phase 4a: the sequencer.
+;; DRIVER-LL Phase 4, sub-phases 4a and 4b: the sequencer.
 ;;
 ;; The stage loop of scripts/rfc_to_implementation.py:1915-2015 ported as
-;; def-shell orchestration around two proved cores: skip.may-skip decides
-;; resumption and stage.record-outcome classifies a halt. Neither decision is
-;; re-implemented here, which is Phase 3's standing rule (spine.llmll:12-16).
+;; def-shell orchestration around three proved cores: skip.may-skip decides
+;; resumption, stage.record-outcome classifies a halt, and (4b)
+;; validate.verdict-of / validate.verdict-outcome decide and classify a
+;; delegated output. None of the three is re-implemented here, which is Phase
+;; 3's standing rule (spine.llmll:12-16).
 ;;
-;; NO STAGE BODIES. Proposal section 9's 4a row. A stage that runs writes a
-;; stub byte-string to each artifact it declares and nothing else; the eleven
-;; resume and outcome transitions of section 2.3 are decided over those stubs
-;; exactly as they would be over real artifacts, because the resume gate reads
-;; digests and a completion record and never the content.
+;; THIRTEEN OF THE SIXTEEN STAGES HAVE NO BODY. Proposal section 9's 4a row
+;; held all sixteen at a stub; the 4b row lands B, C and I. A stage that is
+;; not ported writes a stub byte-string to each artifact it declares and
+;; nothing else; the eleven resume and outcome transitions of section 2.3 are
+;; decided over those stubs exactly as they would be over real artifacts,
+;; because the resume gate reads digests and a completion record and never the
+;; content. registry.stage-ported? is the switch and carries the retirement
+;; schedule.
+;;
+;; ------------------------------------------------------------------
+;; SECTION 7 STATEMENT 3 OF 3 [DISCLOSURE validate.verdict-of], NEW AT 4b
+;;
+;; verdict-of is proved over `present: bool`, `size: int` and `floor: int`.
+;; The floor is a registry constant a reader can check against the reference's
+;; require() call. The other two are computed HERE, in unproved shell code,
+;; from ONE wasi.fs.read of the declared output, and three decisions inside
+;; that computation are invisible at the proved boundary:
+;;
+;;   1. PRESENCE AND DECODABILITY ARE COLLAPSED. wasi.fs.read opens with a
+;;      UTF-8 encoding and yields RErr both for a path that does not exist and
+;;      for one whose bytes are not valid UTF-8 (CodegenHs.hs wasi_fs_read).
+;;      Every RErr is read as `present = false`, so an output that exists and
+;;      cannot be decoded records the reference's "wrote no <file>" detail
+;;      rather than a decoding one. The DECISION is the same under both -- the
+;;      stage records `failed` either way, and section 7:283-286 wants exactly
+;;      that of an output not meeting its declared shape -- so this costs the
+;;      reason string and not the status. Distinguishing them needs a second
+;;      command (wasi.fs.sha256 reads bytes and would answer RText), and that
+;;      arm is not spent here.
+;;
+;;   2. `size` IS CODE POINTS, NOT BYTES. The reference tests
+;;      `out.stat().st_size`, which is bytes; the port tests string-length of
+;;      the decoded text. They agree on ASCII and disagree on any multi-byte
+;;      character, in the direction of the port measuring SMALLER, so a
+;;      non-ASCII scope.md of 201 bytes can fail a floor the reference passes.
+;;      There is no wasi.fs.stat and FS-STAT-1 is filed for the mtime half of
+;;      the same gap; a size accessor would close this one.
+;;
+;;   3. A RESPONSE ARM THAT IS NEITHER RText NOR RErr is read as absent, on
+;;      the same reasoning as the 4a statement's item 4: no wasi.fs.read
+;;      produces those arms, so the branch is unreachable rather than untaken,
+;;      and it fails in the direction that forces a re-run.
+;;
+;; The three AgentRunner conditions (:221 timeout, :227 non-zero exit, :230
+;; declared output absent) do NOT go through verdict-of. A budget overrun is
+;; not a fact about an output's shape, and forcing it into a Verdict would be
+;; a category error; those two construct Errored directly and reach
+;; stage.record-outcome, whose [S4-FAILED] and [S4-NOT-STOPPED] are the proved
+;; mapping. The THIRD of them, an absent declared output, does go through
+;; verdict-of as `Absent`, because it is a fact about the output.
+;;
+;; ------------------------------------------------------------------
+;; THREE UNGUARDED READS IN THE REFERENCE, PORTED AS DECISIONS.
+;;
+;; Proposal section 9.1 item 1 settles two: read_json on PROVENANCE.json in
+;; stage B (:573) and read_text on stage B's scope.md in stage I (:1062).
+;; Both traceback out at exit 1 in the reference. The port HAS NO HOST
+;; EXCEPTION TO FALL THROUGH, so it could not reproduce that even if that were
+;; wanted; both are guarded and record `failed`/`Errored` at exit 3. Neither
+;; is a MUST over artifact content identifiable by clause, so section 3.5's
+;; rule gives `failed` directly. read_manifest set the precedent at 4a.
+;;
+;; A THIRD, WHICH THE CENSUS BEHIND SECTION 9.1 DID NOT NAME:
+;; `(PROMPTS / name).read_text(encoding="utf-8")` in Ctx.prompt (:536). It is
+;; shared by every delegated stage rather than owned by one, which is likely
+;; why a per-stage census missed it. Same disposition, same reasoning, and it
+;; is recorded here as a finding against section 9.1's enumeration rather than
+;; folded in silently. A fourth sits at :625, `f.read_text(errors="replace")`
+;; inside _sources_text; that one cannot raise on a decode error because of
+;; the replace, so it is unguarded and also unreachable in the reference,
+;; while the port's read of the same file yields RErr on undecodable bytes and
+;; records `failed`. Divergence, disclosed, and it fails toward re-running.
+;;
+;; ------------------------------------------------------------------
+;; 4b CONSTRUCTS NO `stopped` SITE. Proposal section 9.1 item 3. Every
+;; reachable halt in B, C and I records `failed`/`Errored`, and validate's
+;; [V7-NO-STOP], [V7-NO-PARTIAL] and [V7-ONLY-TWO] make that a proof rather
+;; than a convention over the delegated-output path. The 4a fault injector
+;; still constructs ConditionUnmet and PartialThenHalt on the --halt-kind
+;; flag; that is 4a scaffolding with a retirement schedule and is not a 4b
+;; stage-body site.
 ;;
 ;; ------------------------------------------------------------------
 ;; SECTION 7 STATEMENT 1 OF 2 [DISCLOSURE skip.may-skip]
@@ -114,6 +192,7 @@
   (import skip)     (open skip)
   (import registry) (open registry)
   (import manifest) (open manifest)
+  (import validate) (open validate)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -154,11 +233,31 @@
   ;; State
   ;; ------------------------------------------------------------------
 
-  ;; workdir, (only-selection, (halt-at, (halt-kind, forced))). The selection
-  ;; travels as the raw comma-separated string rather than as a list, because
-  ;; an empty string has to mean "every stage" and an empty list would mean
-  ;; "no stage": string-split with an empty subject yields [""], measured.
-  (type Cfg (| Cfg (string, (string, (string, (string, bool))))))
+  ;; The agent-invocation contract of proposal section 5, settled there as
+  ;; "--agent-exe plus repeatable --agent-arg, with {prompt}/{out}/{workdir}
+  ;; substituted per argument". exe, (args, (prompts-dir, timeout-seconds)).
+  ;;
+  ;; NOT a shell template. wasi.proc.run takes an executable and an argument
+  ;; vector and does no shell interpretation, and passing the operator's
+  ;; string to /bin/sh -c would restore shell semantics through a granted
+  ;; binary and void the auditability the split delivers (section 5 item 1).
+  ;;
+  ;; NO ENV CHANNEL. wasi.proc.run has no env parameter, so LLMLL_CMD,
+  ;; RFC_PIPELINE_PROMPT and RFC_PIPELINE_OUT are not exported; the two paths
+  ;; reach the agent through argv (section 5 item 2, PROC-ENV-1).
+  ;;
+  ;; --prompts-dir has NO reference counterpart: PROMPTS is a module constant
+  ;; the reference derives from __file__ (:81) and a compiled binary has no
+  ;; __file__. It is required for the same reason --agent-cmd is, and the
+  ;; added flag is disclosed rather than defaulted to a guess about the tree.
+  (type AgentCfg (| AgentCfg (string, (list[string], (string, int)))))
+
+  ;; workdir, (only-selection, (halt-at, (halt-kind, (forced, agent)))). The
+  ;; selection travels as the raw comma-separated string rather than as a
+  ;; list, because an empty string has to mean "every stage" and an empty list
+  ;; would mean "no stage": string-split with an empty subject yields [""],
+  ;; measured.
+  (type Cfg (| Cfg (string, (string, (string, (string, (bool, AgentCfg)))))))
 
   ;; The run-common record of proposal section 4: config, the live manifest,
   ;; and the selected stage indices in registry order.
@@ -183,11 +282,34 @@
   ;; RETURNS and the terminating step's command is DROPPED, so a state that
   ;; must still say something cannot be terminal. Recorded needs no such arm,
   ;; the manifest write having already been performed on entry to it.
+  ;;
+  ;; The six 4b arms are the ported stage body, and they all carry the SAME
+  ;; payload type. Six arms with six differently-shaped tuples is six
+  ;; projection sites where proposal section 13 risk 6 bites (a wrong
+  ;; projection over a pair chain TYPECHECKS); one Body type is one accessor
+  ;; set to get right.
+  ;;
+  ;;   Pre        r is the read of the stage's precondition artifact
+  ;;   Srcs       r is the listing of 00-source
+  ;;   Src        r is the read of pinned source `idx`
+  ;;   Tmpl       r is the read of the prompt template
+  ;;   Delegate   r is wasi.proc.run's exit status
+  ;;   Outp       r is the read of the declared output
+  ;;
+  ;; k, (start, (pre-text, (idx, (source-names, accumulated-source-text)))).
+  (type Body (| Body (int, (int, (string, (int, (list[string], string)))))))
+
   (type Phase
     (| Boot     int)
     (| Digest   (int, (int, (bool, (bool, string)))))
     (| Started  int)
     (| Made     (int, (int, int)))
+    (| Pre      Body)
+    (| Srcs     Body)
+    (| Src      Body)
+    (| Tmpl     Body)
+    (| Delegate Body)
+    (| Outp     Body)
     (| Summed   (int, (int, (int, Json))))
     (| Stamped  (int, (int, Json)))
     (| Recorded (int, int))
@@ -209,7 +331,18 @@
   (def-shell cfg-halt-kind [c: Cfg] -> string
     (match c ((Cfg p) (first (second (second (second p)))))))
   (def-shell cfg-forced [c: Cfg] -> bool
-    (match c ((Cfg p) (second (second (second (second p)))))))
+    (match c ((Cfg p) (first (second (second (second (second p))))))))
+  (def-shell cfg-agent [c: Cfg] -> AgentCfg
+    (match c ((Cfg p) (second (second (second (second (second p))))))))
+
+  (def-shell ag-exe [a: AgentCfg] -> string
+    (match a ((AgentCfg q) (first q))))
+  (def-shell ag-args [a: AgentCfg] -> list[string]
+    (match a ((AgentCfg q) (first (second q)))))
+  (def-shell ag-prompts [a: AgentCfg] -> string
+    (match a ((AgentCfg q) (first (second (second q))))))
+  (def-shell ag-timeout [a: AgentCfg] -> int
+    (match a ((AgentCfg q) (second (second (second q))))))
 
   (def-shell cfg-of [rn: Run] -> Cfg
     (match rn ((Run p) (first p))))
@@ -237,6 +370,31 @@
     (second (second (second (second d)))))
   (def-shell mk-dg [k: int j: int present: bool matched: bool names: string] -> Phase
     (Digest (pair k (pair j (pair present (pair matched names))))))
+
+  ;; The 4b body payload. Written once, per the note on the Phase type.
+  (def-shell b-k [b: Body] -> int
+    (match b ((Body p) (first p))))
+  (def-shell b-start [b: Body] -> int
+    (match b ((Body p) (first (second p)))))
+  (def-shell b-pre [b: Body] -> string
+    (match b ((Body p) (first (second (second p))))))
+  (def-shell b-idx [b: Body] -> int
+    (match b ((Body p) (first (second (second (second p)))))))
+  (def-shell b-names [b: Body] -> list[string]
+    (match b ((Body p) (first (second (second (second (second p))))))))
+  (def-shell b-acc [b: Body] -> string
+    (match b ((Body p) (second (second (second (second (second p))))))))
+
+  (def-shell mk-body [k: int start: int pretext: string idx: int
+                      names: list[string] acc: string] -> Body
+    (Body (pair k (pair start (pair pretext (pair idx (pair names acc)))))))
+
+  (def-shell b-with-pre [b: Body pretext: string] -> Body
+    (mk-body (b-k b) (b-start b) pretext (b-idx b) (b-names b) (b-acc b)))
+  (def-shell b-with-names [b: Body names: list[string]] -> Body
+    (mk-body (b-k b) (b-start b) (b-pre b) 0 names (b-acc b)))
+  (def-shell b-advance [b: Body acc: string] -> Body
+    (mk-body (b-k b) (b-start b) (b-pre b) (+ (b-idx b) 1) (b-names b) acc))
 
   (def-shell md-k [d: (int, (int, int))] -> int (first d))
   (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
@@ -280,15 +438,53 @@
                    (pair a false)
                    (if (= a f) (pair (first acc) true) acc))))))
 
+  ;; EVERY element following an occurrence of `f`, in order. --agent-arg is
+  ;; repeatable (proposal section 5 item 1), so the FIRST-wins rule flag-value
+  ;; states above is exactly wrong for it and a second fold is owed rather
+  ;; than a reinterpretation of the first.
+  (def-shell flag-values [as: list[string] f: string] -> list[string]
+    (first (list-fold as (pair (list-empty) false)
+             (fn [acc: (list[string], bool) a: string]
+               (if (second acc)
+                   (pair (list-append (first acc) a) false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
   (def-shell dflt [s: string d: string] -> string
     (if (string-empty? s) d s))
+
+  ;; 1800 is the reference's --timeout default (:1866). A value that does not
+  ;; parse falls back to the default rather than halting, which is where this
+  ;; differs from argparse's `type=int`; the flag is an operator's and a
+  ;; malformed one is not a stage condition.
+  (def-shell int-flag [as: list[string] f: string d: int] -> int
+    (unwrap-or (string-to-int (flag-value as f)) d))
+
+  (def-shell parse-agent [as: list[string]] -> AgentCfg
+    (AgentCfg (pair (flag-value as "--agent-exe")
+                    (pair (flag-values as "--agent-arg")
+                          (pair (flag-value as "--prompts-dir")
+                                (int-flag as "--timeout" 1800))))))
 
   (def-shell parse-cfg [as: list[string]] -> Cfg
     (Cfg (pair (dflt (flag-value as "--workdir") ".")
                (pair (flag-value as "--only")
                      (pair (flag-value as "--halt-at")
                            (pair (flag-value as "--halt-kind")
-                                 (list-contains as "--force")))))))
+                                 (pair (list-contains as "--force")
+                                       (parse-agent as))))))))
+
+  ;; "" when the required flags are present. The reference makes --agent-cmd
+  ;; required at argparse (:1888-1891) and exits 2 through ap.error, BEFORE
+  ;; any stage exists, so no stage status attaches; the same is true here and
+  ;; the exit code is the literal 2 on the corrupt-manifest path's reasoning.
+  ;; Required unconditionally, as the reference requires --agent-cmd
+  ;; unconditionally, and not only when a delegated stage is selected.
+  (def-shell missing-flags [c: Cfg] -> string
+    (if (string-empty? (ag-exe (cfg-agent c)))
+        "--agent-exe is required (the executable each delegated stage runs)"
+        (if (string-empty? (ag-prompts (cfg-agent c)))
+            "--prompts-dir is required (the directory holding the stage prompt templates)"
+            "")))
 
   (def-shell argv-of [r: Response] -> list[string]
     (match r
@@ -330,11 +526,122 @@
   (def-shell art-dir [c: Cfg i: int j: int] -> string
     (string-concat-many [(cfg-workdir c) "/" (stage-out-dir i j)]))
 
-  ;; No stage bodies at 4a. The content is per-artifact so that two stubs never
-  ;; share a digest, which would make a cross-stage digest confusion invisible.
+  ;; No body for the thirteen stages 4b does not port. The content is
+  ;; per-artifact so that two stubs never share a digest, which would make a
+  ;; cross-stage digest confusion invisible.
+  ;;
+  ;; A `.json` artifact gets a JSON stub, NEW AT 4b and for a reason 4a could
+  ;; not have. Stage B is now real and reads stage A's PROVENANCE.json through
+  ;; json-parse; stage A is not ported (it needs HTTP-GET-1) and is not listed
+  ;; in any of proposal section 9's sub-phase rows, so its stub is what a run
+  ;; selecting A,B hands to stage B. With the flat text stub every such run
+  ;; halted at B on "does not parse as JSON", which is a correct decision over
+  ;; a wrong input rather than a decision about the pipeline. The distinctness
+  ;; property is unchanged: the stage key and the artifact path are both still
+  ;; in the body, so no two stubs share a digest.
+  (def-shell json-artifact? [p: string] -> bool
+    (let [(k (string-length p))]
+      (and (> k 5) (= (string-slice p (- k 5) k) ".json"))))
+
   (def-shell stub-body [i: int j: int] -> string
-    (string-concat-many
-      ["driver-ll 4a stub\nstage=" (stage-key i) "\nartifact=" (stage-out i j) "\n"]))
+    (if (json-artifact? (stage-out i j))
+        (string-concat-many
+          ["{\n \"driver-ll\": \"4a stub\",\n \"stage\": \"" (stage-key i)
+           "\",\n \"artifact\": \"" (stage-out i j) "\"\n}\n"])
+        (string-concat-many
+          ["driver-ll 4a stub\nstage=" (stage-key i)
+           "\nartifact=" (stage-out i j) "\n"])))
+
+  ;; ---- 4b paths and string helpers -----------------------------------
+
+  (def-shell wd-path [c: Cfg rel: string] -> string
+    (string-concat-many [(cfg-workdir c) "/" rel]))
+
+  ;; The agent's directory IS the directory of the stage's first declared
+  ;; output, measured against the reference at every ported stage: B writes
+  ;; 01-scope/scope.md and delegates in 01-scope (:575-578), C 02-rubric
+  ;; (:590-592), I 08-prereg (:1060-1065).
+  (def-shell agent-dir [c: Cfg i: int] -> string
+    (art-dir c i 0))
+
+  (def-shell prompt-file [c: Cfg i: int] -> string
+    (string-concat (agent-dir c i) "/PROMPT.md"))
+
+  (def-shell tmpl-file [c: Cfg i: int] -> string
+    (string-concat-many [(ag-prompts (cfg-agent c)) "/" (stage-prompt i)]))
+
+  ;; The last path segment. `stage-out` is workdir-relative and the reference's
+  ;; messages name the BASENAME ("wrote no scope.md", :333).
+  (def-shell base-of [p: string] -> string
+    (let [(ps (split-on "/" p))]
+      (unwrap-or (list-nth ps (- (list-length ps) 1)) p)))
+
+  ;; Every occurrence of `needle` replaced by `repl`. There is no
+  ;; string-replace builtin, so this is split-then-rejoin: the fold emits the
+  ;; first part bare and every later part preceded by the replacement, which
+  ;; is exactly `repl.join(parts)`.
+  (def-shell replace-all [s: string needle: string repl: string] -> string
+    (second (list-fold (split-on needle s) (pair true "")
+              (fn [acc: (bool, string) p: string]
+                (pair false
+                      (if (first acc) p
+                          (string-concat-many [(second acc) repl p])))))))
+
+  ;; Python's f"{n:5d}", built by cases rather than by string-slice so the
+  ;; half-open convention of one more builtin is not on the critical path.
+  (def-shell pad5 [n: int] -> string
+    (let [(s (int-to-string n))]
+      (let [(k (string-length s))]
+        (string-concat
+          (if (>= k 5) ""
+          (if (= k 4) " "
+          (if (= k 3) "  "
+          (if (= k 2) "   "
+          (if (= k 1) "    " "")))))
+          s))))
+
+  ;; _sources_text's numbering (:626-627), and the reason it exists is quoted
+  ;; there: extraction rows cite line spans and reconciliation matches on them,
+  ;; so asking an agent to count lines itself is a silent source of mismatched
+  ;; spans. Lines split on newline ONLY, `wc -l` semantics, because RFC page
+  ;; breaks are form feeds and Python's splitlines() would break on them too.
+  ;;
+  ;; list-nth is O(i), so this is quadratic in the LINE COUNT (not in
+  ;; characters). Measured cost is a list traversal per line; the alternative
+  ;; is a fold that concatenates a growing string, which is quadratic in
+  ;; CHARACTERS and materially worse on an RFC-sized input.
+  (def-shell numbered-lines [raw: string] -> string
+    (let [(ls (split-on "\n" raw))]
+      (string-concat-many
+        (list-map (range 0 (list-length ls))
+          (fn [i: int]
+            (string-concat-many
+              [(if (= i 0) "" "\n") (pad5 (+ i 1)) "| "
+               (unwrap-or (list-nth ls i) "")]))))))
+
+  ;; `sorted((ctx.workdir / "00-source").glob("*.txt"))` (:624). wasi.fs.list
+  ;; already sorts (CodegenHs.hs wasi_fs_list, and the sort is there so the
+  ;; event log is machine-independent), so only the suffix test is owed.
+  (def-shell txt? [n: string] -> bool
+    (let [(k (string-length n))]
+      (and (> k 4) (= (string-slice n (- k 4) k) ".txt"))))
+
+  ;; BARRIERS (:87-96) rendered as `json.dumps(BARRIERS, indent=1)` produces.
+  ;; Embedded as the rendered constant rather than rebuilt through
+  ;; json-serialize: the reference's dict is a module constant in insertion
+  ;; order and LLMLL's serializer neither guarantees that order nor writes
+  ;; indent=1, so re-serializing would hand the agent a different string for
+  ;; no gain. It reaches only the prompt and no abstraction-function field.
+  (def-shell barriers-json [] -> string
+    "{\n \"B1\": \"timing / liveness\",\n \"B2\": \"transport binding\",\n \"B3\": \"trace-level property\",\n \"B4\": \"opaque transform\",\n \"B5\": \"string structure\",\n \"B6\": \"superseded / deprecated\",\n \"B7\": \"entailed by the model or by a named sibling row\",\n \"B8\": \"outside any tool\"\n}")
+
+  ;; AgentRunner's template expansion (:301-303), applied per ARGUMENT rather
+  ;; than to one shell string (proposal section 5 item 1). {workdir} is the
+  ;; AGENT's directory, which is what the reference passes: `workdir` there is
+  ;; the first parameter of AgentRunner.run, i.e. ctx.d("01-scope").
+  (def-shell subst-arg [a: string prompt: string out: string wd: string] -> string
+    (replace-all (replace-all (replace-all a "{prompt}" prompt) "{out}" out)
+                 "{workdir}" wd))
 
   ;; ---- response projections ------------------------------------------
 
@@ -471,9 +778,16 @@
   (def-shell boot-step [rn: Run n: int r: Response] -> ((Run, Phase), Command)
     (if (= n 0)
         (let [(c (parse-cfg (argv-of r)))]
-          (go (with-cfg rn c) (Boot 1)
-              (seq-commands (wasi.fs.mkdir (cfg-workdir c))
-                            (wasi.fs.read (manifest-path c)))))
+          (if (string-empty? (missing-flags c))
+              (go (with-cfg rn c) (Boot 1)
+                  (seq-commands (wasi.fs.mkdir (cfg-workdir c))
+                                (wasi.fs.read (manifest-path c))))
+              ;; Before any stage exists, so no Status attaches and
+              ;; record-outcome is not called: the same reasoning the
+              ;; corrupt-manifest path carries, and the same literal 2.
+              (go (with-cfg rn c) (Ending 2)
+                  (wasi.io.stdout
+                    (string-concat "[driver-ll] STOP: " (missing-flags c))))))
         (boot-read rn r)))
 
   ;; The resume decision. Nothing here re-implements it: the four booleans go
@@ -537,25 +851,310 @@
 
   ;; The manifest write and the halt report leave in one seq-commands, so the
   ;; response the next arm receives is the WRITE's. RC-2 is discard-left.
-  (def-shell halt-now [rn: Run k: int o: Outcome start: int] -> ((Run, Phase), Command)
+  ;;
+  ;; ONE HALT SITE. Every halt in this module reaches record-outcome here and
+  ;; nowhere else, so the Outcome-to-Status mapping is proved once for the 4a
+  ;; injector and for all nine 4b stage-body conditions alike.
+  (def-shell halt-with [rn: Run k: int o: Outcome detail: string clause: string]
+      -> ((Run, Phase), Command)
     (let [(i (idx-at rn k))]
       (let [(st (record-outcome o))]
         (let [(m2 (put-row (man-of rn) (stage-key i)
-                           (halt-row st o (halt-detail rn k) (halt-clause o))))]
+                           (halt-row st o detail clause)))]
           (go (with-man rn m2) (mk-rc k (exit-code st))
               (seq-commands
-                (wasi.io.stdout (halt-line st i (halt-detail rn k)))
+                (wasi.io.stdout (halt-line st i detail))
                 (wasi.fs.write (manifest-path (cfg-of rn)) (json-serialize m2))))))))
+
+  (def-shell halt-now [rn: Run k: int o: Outcome start: int] -> ((Run, Phase), Command)
+    (halt-with rn k o (halt-detail rn k) (halt-clause o)))
+
+  ;; THE 4b HALT CHANNEL, and the reason validate.llmll is a module rather
+  ;; than three copies of an if. A Verdict goes to verdict-outcome and the
+  ;; Outcome it returns goes to record-outcome; the clause is "" because
+  ;; [V7-NO-STOP] and [V7-NO-PARTIAL] PROVE the result is not a stopped
+  ;; constructor, so there is no clause to cite and nothing here decides that.
+  (def-shell halt-verdict [rn: Run k: int v: Verdict detail: string]
+      -> ((Run, Phase), Command)
+    (halt-with rn k (verdict-outcome v) detail ""))
+
+  ;; The two AgentRunner conditions that are NOT facts about an output's
+  ;; shape: a budget overrun and a non-zero exit. See the header's statement 3
+  ;; for why they do not go through a Verdict.
+  (def-shell halt-errored [rn: Run k: int detail: string] -> ((Run, Phase), Command)
+    (halt-with rn k Errored detail ""))
 
   (def-shell write-cmd [rn: Run k: int j: int] -> Command
     (seq-commands (wasi.fs.mkdir (art-dir (cfg-of rn) (idx-at rn k) j))
                   (wasi.fs.write (art-path (cfg-of rn) (idx-at rn k) j)
                                  (stub-body (idx-at rn k) j))))
 
+  ;; ------------------------------------------------------------------
+  ;; 4b: the ported body of a delegated stage.
+  ;;
+  ;; The ORDER reproduces the reference's, and the order is what decides
+  ;; WHICH condition a broken workdir reports. Stage B reads PROVENANCE.json
+  ;; (:573) before it reads the pinned sources (:574), so a workdir missing
+  ;; both names the provenance; reversing them would still record `failed` and
+  ;; would name the wrong cause, which is the difference section 4:129-131's
+  ;; detail requirement is there to keep.
+  ;;
+  ;;   B   Pre(PROVENANCE.json, must parse) -> Srcs -> Src* -> Tmpl
+  ;;         -> Delegate -> Outp(floor 200)
+  ;;   C   Srcs -> Src* -> Tmpl -> Delegate -> Outp(floor 400)
+  ;;   I   Pre(01-scope/scope.md, presence only) -> Tmpl -> Delegate
+  ;;         -> Outp(floor -1, which passes every present output)
+  ;; ------------------------------------------------------------------
+
+  (def-shell to-srcs [rn: Run b: Body] -> ((Run, Phase), Command)
+    (go rn (Srcs b) (wasi.fs.list (wd-path (cfg-of rn) "00-source"))))
+
+  (def-shell to-tmpl [rn: Run b: Body] -> ((Run, Phase), Command)
+    (go rn (Tmpl b)
+        (wasi.fs.read (tmpl-file (cfg-of rn) (idx-at rn (b-k b))))))
+
+  (def-shell after-pre [rn: Run b: Body] -> ((Run, Phase), Command)
+    (if (stage-needs-src? (idx-at rn (b-k b)))
+        (to-srcs rn b)
+        (to-tmpl rn b)))
+
+  (def-shell fresh-body [k: int start: int] -> Body
+    (mk-body k start "" 0 (list-empty) ""))
+
+  ;; A stage with no precondition artifact goes straight past Pre.
+  (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn k))]
+      (if (string-empty? (stage-pre-path i))
+          (after-pre rn (fresh-body k start))
+          (go rn (Pre (fresh-body k start))
+              (wasi.fs.read (wd-path (cfg-of rn) (stage-pre-path i)))))))
+
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Phase), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
-        (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0))))
+        (if (stage-ported? (idx-at rn k))
+            (begin-body rn k (ns-of r))
+            (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0)))))
+
+  ;; ---- Pre -------------------------------------------------------------
+  ;;
+  ;; The two guarded reads of proposal section 9.1 item 1. Absent covers a
+  ;; path that is not there and one whose bytes do not decode; Malformed is
+  ;; stage B's parse, which the reference performs with read_json and which
+  ;; therefore fails there too, as a traceback rather than as a decision.
+
+  (def-shell pre-detail [i: int what: string] -> string
+    (string-concat-many
+      ["stage " (stage-key i) ": " (stage-pre-path i) " " what
+       ". The stage cannot be delegated without it; run the stage that "
+       "produces it, or delete its manifest row to re-run."]))
+
+  (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (match r
+        ((RText t)
+          (if (and (stage-pre-json? i) (not (is-ok (json-parse t))))
+              (halt-verdict rn (b-k b) Malformed
+                            (pre-detail i "does not parse as JSON"))
+              (after-pre rn (b-with-pre b t))))
+        ((RErr _)  (halt-verdict rn (b-k b) Absent
+                                 (pre-detail i "is absent or is not readable text")))
+        ((RNone)   (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable")))
+        ((RCode _) (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable")))
+        ((RList _) (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable"))))))
+
+  ;; ---- Srcs and Src ----------------------------------------------------
+
+  (def-shell names-of [r: Response] -> list[string]
+    (match r
+      ((RList xs) (list-filter xs (fn [n: string] (txt? n))))
+      ((RText _)  (list-empty))
+      ((RErr _)   (list-empty))
+      ((RNone)    (list-empty))
+      ((RCode _)  (list-empty))))
+
+  (def-shell src-path [c: Cfg n: string] -> string
+    (wd-path c (string-concat "00-source/" n)))
+
+  ;; `require(parts, "no pinned RFC text found; run stage A first")` (:629),
+  ;; verbatim. An RErr from the listing (no 00-source directory at all) lands
+  ;; on the same condition, which is what the reference's empty glob does.
+  (def-shell srcs-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (let [(ns (names-of r))]
+      (if (= (list-length ns) 0)
+          (halt-verdict rn (b-k b) Absent
+                        "no pinned RFC text found; run stage A first")
+          (go rn (Src (b-with-names b ns))
+              (wasi.fs.read (src-path (cfg-of rn) (unwrap-or (list-nth ns 0) "")))))))
+
+  (def-shell src-piece [name: string raw: string leading: string] -> string
+    (string-concat-many
+      [leading "===== " name " =====\n" (numbered-lines raw)]))
+
+  (def-shell src-name [b: Body] -> string
+    (unwrap-or (list-nth (b-names b) (b-idx b)) ""))
+
+  (def-shell src-next [rn: Run b2: Body] -> ((Run, Phase), Command)
+    (if (< (b-idx b2) (list-length (b-names b2)))
+        (go rn (Src b2) (wasi.fs.read (src-path (cfg-of rn) (src-name b2))))
+        (to-tmpl rn b2)))
+
+  (def-shell src-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (match r
+      ((RText t)
+        (src-next rn (b-advance b (string-concat (b-acc b)
+                       (src-piece (src-name b) t
+                                  (if (= (b-idx b) 0) "" "\n\n"))))))
+      ((RErr e)  (halt-verdict rn (b-k b) Absent
+                   (string-concat-many
+                     ["pinned source " (src-name b) " is not readable text ("
+                      e "). The reference reads it with errors=\"replace\" and "
+                      "cannot reach this; the port has no such channel and "
+                      "records the stage failed rather than substituting bytes "
+                      "no agent can cite."])))
+      ((RNone)   (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
+      ((RCode _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
+      ((RList _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))))
+
+  ;; ---- Tmpl ------------------------------------------------------------
+  ;;
+  ;; Ctx.prompt (:535-541): substitute each keyword, then reject any
+  ;; placeholder left behind. The substitution ORDER is the reference's
+  ;; keyword order, because a value carrying a later placeholder would be
+  ;; expanded by it: rfc_text then provenance for B (:576-577), rfc_text for C
+  ;; (:591), scope then barriers for I (:1062-1064).
+
+  (def-shell render [i: int tpl: string src: string pretext: string] -> string
+    (let [(t1 (if (stage-needs-src? i) (replace-all tpl "{{rfc_text}}" src) tpl))]
+      (let [(t2 (if (string-empty? (stage-pre-key i))
+                    t1
+                    (replace-all t1 (stage-pre-key i) pretext)))]
+        (if (stage-needs-barriers? i)
+            (replace-all t2 "{{barriers}}" (barriers-json))
+            t2))))
+
+  ;; The prompt write, then the agent, in one seq-commands. RC-2 is
+  ;; discard-left, so the response the Delegate arm receives is the RUN's and
+  ;; the write's is dropped -- which mirrors the reference, whose
+  ;; prompt_path.write_text (:299) is likewise unchecked.
+  (def-shell delegate-cmd [rn: Run i: int rendered: string] -> Command
+    (let [(c (cfg-of rn))]
+      (let [(dir (agent-dir c i))]
+        (seq-commands
+          (wasi.fs.mkdir dir)
+          (seq-commands
+            (wasi.fs.write (prompt-file c i) rendered)
+            (wasi.proc.run
+              (ag-exe (cfg-agent c))
+              (list-map (ag-args (cfg-agent c))
+                (fn [a: string] (subst-arg a (prompt-file c i)
+                                             (art-path c i 0) dir)))
+              dir
+              (string-concat dir "/agent.stdout.log")
+              (string-concat dir "/agent.stderr.log")
+              (ag-timeout (cfg-agent c))))))))
+
+  (def-shell tmpl-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (match r
+        ((RText tpl)
+          (let [(rendered (render i tpl (b-acc b) (b-pre b)))]
+            (if (string-contains rendered "{{")
+                (halt-verdict rn (b-k b) Malformed
+                  (string-concat-many
+                    ["prompt " (stage-prompt i) ": unfilled placeholders remain "
+                     "after substitution"]))
+                (go rn (Delegate b) (delegate-cmd rn i rendered)))))
+        ((RErr _)  (halt-verdict rn (b-k b) Absent
+                     (string-concat-many
+                       ["prompt " (stage-prompt i) ": not readable under "
+                        "--prompts-dir " (ag-prompts (cfg-agent (cfg-of rn)))])))
+        ((RNone)   (halt-verdict rn (b-k b) Absent "prompt template unreadable"))
+        ((RCode _) (halt-verdict rn (b-k b) Absent "prompt template unreadable"))
+        ((RList _) (halt-verdict rn (b-k b) Absent "prompt template unreadable")))))
+
+  ;; ---- Delegate --------------------------------------------------------
+  ;;
+  ;; AgentRunner.run's two non-output conditions. RErr carries BOTH the budget
+  ;; overrun (:317-326) and a spawn that never started, which the reference
+  ;; would see as exit 127 from the shell; the port cannot tell them apart at
+  ;; the response and says so in the detail rather than picking one.
+  ;;
+  ;; Rev 9 settles what section 3.1's row 3 and section 10 case 4 do not say:
+  ;; the non-zero-exit raise at :328-330 runs BEFORE the output-existence
+  ;; check at :331-334, so a stage that produced a valid declared output and
+  ;; exited non-zero records `failed`, not `complete`. Measured; see the 4b
+  ;; plan. This arm reproduces the reference and not the proposal's table.
+
+  (def-shell delegate-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (match r
+        ((RCode c)
+          (if (= c 0)
+              (go rn (Outp b) (wasi.fs.read (art-path (cfg-of rn) i 0)))
+              (halt-errored rn (b-k b)
+                (string-concat-many
+                  ["agent[" (stage-agent-label i) "] exited " (int-to-string c)
+                   "; see " (agent-dir (cfg-of rn) i) "/agent.stderr.log"]))))
+        ((RErr e)
+          (halt-errored rn (b-k b)
+            (string-concat-many
+              ["agent[" (stage-agent-label i) "] did not complete within its "
+               (int-to-string (ag-timeout (cfg-agent (cfg-of rn))))
+               "s budget, or could not be started (" e "). Its partial work is "
+               "in " (agent-dir (cfg-of rn) i) ". Re-run this stage with a "
+               "larger --timeout, or treat the overrun as a finding."])))
+        ((RText _) (halt-errored rn (b-k b) "agent produced no exit status"))
+        ((RNone)   (halt-errored rn (b-k b) "agent produced no exit status"))
+        ((RList _) (halt-errored rn (b-k b) "agent produced no exit status")))))
+
+  ;; ---- Outp ------------------------------------------------------------
+  ;;
+  ;; THE ACCEPTANCE CLAUSE OF SUB-PHASE 4b LANDS HERE. `present` and `size`
+  ;; are handed to validate.verdict-of together with the floor the STAGE
+  ;; CONTRACT declares, and the Verdict is handed to verdict-outcome. Nothing
+  ;; in this function decides what a failing output does; it decides what the
+  ;; operator is told it was.
+
+  (def-shell floor-detail [i: int] -> string
+    (if (= i 1)
+        "stage B: scope.md is too short to state a boundary"
+        (if (= i 2)
+            "stage C: rubric.md is too short"
+            (string-concat-many
+              ["stage " (stage-key i) ": " (base-of (stage-out i 0))
+               " is below the floor its stage contract declares"]))))
+
+  (def-shell absent-detail [c: Cfg i: int] -> string
+    (string-concat-many
+      ["agent[" (stage-agent-label i) "] exited 0 but wrote no "
+       (base-of (stage-out i 0)) "; the stage contract was not met (see "
+       (agent-dir c i) "/agent.stdout.log)"]))
+
+  (def-shell outp-detail [c: Cfg i: int v: Verdict] -> string
+    (match v
+      ((Absent)    (absent-detail c i))
+      ((Malformed) (floor-detail i))
+      ((Passed)    "")))
+
+  (def-shell outp-decide [rn: Run b: Body present: bool size: int]
+      -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (let [(v (verdict-of present size (stage-floor i)))]
+        (match v
+          ((Passed)
+            (go rn (mk-sm (b-k b) 0 (b-start b) json-object)
+                (wasi.fs.sha256 (art-path (cfg-of rn) i 0))))
+          ((Absent)    (halt-verdict rn (b-k b) v (outp-detail (cfg-of rn) i v)))
+          ((Malformed) (halt-verdict rn (b-k b) v (outp-detail (cfg-of rn) i v)))))))
+
+  (def-shell outp-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (match r
+      ((RText t)  (outp-decide rn b true (string-length t)))
+      ((RErr _)   (outp-decide rn b false 0))
+      ((RNone)    (outp-decide rn b false 0))
+      ((RCode _)  (outp-decide rn b false 0))
+      ((RList _)  (outp-decide rn b false 0))))
 
   (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Phase), Command)
     (if (< (+ (md-j d) 1) (stage-out-count (idx-at rn (md-k d))))
@@ -599,7 +1198,11 @@
         (go rn (Done (rc-code d)) (wasi.io.stdout ""))))
 
   (def-shell drv-init [] -> ((Run, Phase), Command)
-    (pair (pair (Run (pair (Cfg (pair "." (pair "" (pair "" (pair "" false)))))
+    (pair (pair (Run (pair (Cfg (pair "."
+                                 (pair "" (pair "" (pair ""
+                                   (pair false
+                                     (AgentCfg (pair "" (pair (list-empty)
+                                                        (pair "" 1800))))))))))
                            (pair (empty-manifest) (list-empty))))
                 (Boot 0))
           wasi.proc.args))
@@ -611,6 +1214,12 @@
       ((Digest d)   (digest-step (run-of s) d r))
       ((Started k)  (started-step (run-of s) k r))
       ((Made d)     (made-step   (run-of s) d r))
+      ((Pre b)      (pre-step    (run-of s) b r))
+      ((Srcs b)     (srcs-step   (run-of s) b r))
+      ((Src b)      (src-step    (run-of s) b r))
+      ((Tmpl b)     (tmpl-step   (run-of s) b r))
+      ((Delegate b) (delegate-step (run-of s) b r))
+      ((Outp b)     (outp-step   (run-of s) b r))
       ((Summed d)   (summed-step (run-of s) d r))
       ((Stamped d)  (stamped-step (run-of s) d r))
       ((Recorded d) (recorded-step (run-of s) d))
@@ -623,6 +1232,12 @@
       ((Digest _)   false)
       ((Started _)  false)
       ((Made _)     false)
+      ((Pre _)      false)
+      ((Srcs _)     false)
+      ((Src _)      false)
+      ((Tmpl _)     false)
+      ((Delegate _) false)
+      ((Outp _)     false)
       ((Summed _)   false)
       ((Stamped _)  false)
       ((Recorded _) false)
@@ -635,6 +1250,12 @@
       ((Digest _)   1)
       ((Started _)  1)
       ((Made _)     1)
+      ((Pre _)      1)
+      ((Srcs _)     1)
+      ((Src _)      1)
+      ((Tmpl _)     1)
+      ((Delegate _) 1)
+      ((Outp _)     1)
       ((Summed _)   1)
       ((Stamped _)  1)
       ((Recorded _) 1)
@@ -667,6 +1288,12 @@
       ((Digest d)   1)
       ((Started k)  1)
       ((Made m)     1)
+      ((Pre pb)     1)
+      ((Srcs sb)    1)
+      ((Src cb)     1)
+      ((Tmpl tb)    1)
+      ((Delegate g) 1)
+      ((Outp ob)    1)
       ((Summed u)   1)
       ((Stamped t)  1)
       ((Recorded v) 1)

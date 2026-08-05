@@ -114,6 +114,88 @@
   (if (= i 15) "REPORT.md"
       "?")))))))))))))))))
 
+;; ------------------------------------------------------------------
+;; Sub-phase 4b: the three stages that have real bodies, and the four
+;; constants each one's body reads out of this table.
+;;
+;; WHY THE TABLE AND NOT THE STAGE BODY. A per-stage constant written inside
+;; a stage body is a value only that body's author can enumerate; written
+;; here it is a row a reader checks against rfc_to_implementation.py's
+;; corresponding stage function. stage-floor in particular is the constant
+;; driver-spec.txt section 7:288-291 turns on: it is the bar the STAGE
+;; CONTRACT declares, which is what makes validate.verdict-of subject-neutral,
+;; and it must not become a value measured from a run.
+;; ------------------------------------------------------------------
+
+;; True for the three stages sub-phase 4b lands. Every other stage keeps the
+;; 4a stub write. This is scaffolding with a schedule, exactly as the 4a
+;; injector is: 4c retires D, F and G from the false half, 4d retires H, K and
+;; N, 4e M, 4f O. A and E are mechanical and are blocked on HTTP-GET-1 and on
+;; a reconcile.py invocation respectively; neither is listed in proposal
+;; section 9's sub-phase table at all.
+(def-shell stage-ported? [i: int] -> bool
+  (if (= i 1) true (if (= i 2) true (if (= i 9) true false))))
+
+;; The byte floor the stage contract declares for the stage's declared output.
+;; NEGATIVE means the contract declares no floor.
+;;
+;;   B  200  rfc_to_implementation.py:579-580, `out.stat().st_size > 200`
+;;   C  400  :593, `out.stat().st_size > 400`
+;;   I   -1  NO VALIDATOR. Proposal section 9.1 item 2, measured: stage I
+;;           (:1053-1065) holds zero halt calls, and a 0-byte and a 28-byte
+;;           PRE-REGISTRATION.md both record `complete` at exit 0. A validator
+;;           where the reference has none is new behaviour and must not ride
+;;           in on a port; it lands at 4f beside stage O's.
+;;
+;; A negative floor does NOT disable the presence check. That one is
+;; AgentRunner's (:331-334), per delegated call rather than per declared
+;; floor, and validate's [V7-PRESENCE] holds for every floor.
+(def-shell stage-floor [i: int] -> int
+  (if (= i 1) 200 (if (= i 2) 400 (- 0 1))))
+
+;; The prompt template, by basename under --prompts-dir.
+(def-shell stage-prompt [i: int] -> string
+  (if (= i 1) "stage-B-scope.md"
+  (if (= i 2) "stage-C-rubric.md"
+  (if (= i 9) "stage-I-prereg.md"
+      ""))))
+
+;; The label AgentRunner.run prints and the log line quotes (:309, :335).
+(def-shell stage-agent-label [i: int] -> string
+  (if (= i 1) "scope" (if (= i 2) "rubric" (if (= i 9) "prereg" ""))))
+
+;; The workdir-relative artifact the stage reads BEFORE delegating, or "".
+;; Both are unguarded reads in the reference and both are guarded decisions
+;; here; see proposal section 9.1 item 1 and the sequencer's disclosure block.
+;;
+;;   B  00-source/PROVENANCE.json   :573, read_json, must also PARSE
+;;   C  (none)                      :590-592 reads only the pinned sources
+;;   I  01-scope/scope.md           :1062-1063, read_text, presence only
+(def-shell stage-pre-path [i: int] -> string
+  (if (= i 1) "00-source/PROVENANCE.json"
+  (if (= i 9) "01-scope/scope.md"
+      "")))
+
+;; Whether the precondition artifact must parse as JSON. Only stage B's does:
+;; the reference calls read_json on it and json.dumps the result back into the
+;; prompt, so a file that does not parse cannot reach the agent either way.
+(def-shell stage-pre-json? [i: int] -> bool
+  (= i 1))
+
+;; The prompt placeholder the precondition artifact fills.
+(def-shell stage-pre-key [i: int] -> string
+  (if (= i 1) "{{provenance}}" (if (= i 9) "{{scope}}" "")))
+
+;; Whether the stage's prompt carries {{rfc_text}}, and so whether the stage
+;; reads the pinned sources through _sources_text (:613-630). B and C do; I
+;; carries {{scope}} and {{barriers}} and does not.
+(def-shell stage-needs-src? [i: int] -> bool
+  (if (= i 1) true (if (= i 2) true false)))
+
+;; Whether the stage's prompt carries {{barriers}}. Stage I only (:1064).
+(def-shell stage-needs-barriers? [i: int] -> bool
+  (= i 9))
+
 ;; The directory of stage-out i j, workdir-relative. "." for a top-level
 ;; artifact: wasi.fs.mkdir creates parents (measured) and is RNone on a
 ;; directory that already exists (measured), so mkdir "." is a no-op rather
