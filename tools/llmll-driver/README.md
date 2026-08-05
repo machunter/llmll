@@ -79,14 +79,29 @@ Section 15.3 disclaims three things outright: the content of any prompt given to
 agent, that agent's internal behaviour, and the guarantees of the operating system.
 
 **This still is not the driver.** Section 15.2 is satisfied in shape rather than in coverage: the
-shell demonstrates the tier's discipline over a handful of operations, and the orchestration that
-would actually run fifteen stages is not written.
+shell demonstrates the tier's discipline over a handful of operations.
+
+## What the driver does today
+
+[`spine.llmll`](spine.llmll) ports stages E, J, L and G2 over the committed TFTP data
+(DRIVER-LL Phase 3), and [`sequencer.llmll`](sequencer.llmll) ports the stage loop above them
+(Phase 4, sub-phase 4a): the sixteen-stage registry, the resume gate over `skip.may-skip`, the
+manifest row schema, and two halt channels over `stage.record-outcome`. It runs **no stage
+bodies**. A stage that runs writes a stub to each artifact it declares, which is enough for
+every resume and outcome transition to be decided over real digests and a real completion
+record. It receives `--workdir`, `--only`, `--force` and the 4a fault injector through
+`wasi.proc.args`, and it exits 0, 2 or 3 through the `:status` projection, so no shell sits
+between the acceptance criterion and the program.
+
+The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
+`scripts/build_smoke.sh`; the checks that need no toolchain are in
+[`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py).
 
 ## The cruxes
 
-[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes eight refuting mutants and one good
-twin. **Five of the eight are not invented.** They are defects that shipped in the Python driver,
-or behaviour it still has:
+[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes ten refuting mutants and one good
+twin. **Six of the ten are not invented.** They are defects that shipped in the Python driver,
+or behaviour it still has, or behaviour every LLMLL console program had:
 
 - `crux-skip-presence-only`: a stage was skipped whenever its outputs existed, so a failed
   freeze gate was bypassed by its own report.
@@ -98,6 +113,10 @@ or behaviour it still has:
   by [`rfc-swarm-coverage-review.md`](../../docs/design/rfc-swarm-coverage-review.md) F-1.
 - `crux-gate-single-remedy`: what the driver does **today**: one remedy string for every barrier
   class. This crux refutes the shipped implementation, which is the spec being ahead of the code.
+- `crux-exit-code-halt-as-zero`: what **every** LLMLL console program did before
+  PROC-BOUNDARY-1, since the harness had no status channel: exit 0 on the `:done?` path
+  whatever the run decided, so a driver that halted at a gate and one that finished every stage
+  were indistinguishable to a shell.
 
 The good twin, `twin-skip-reassociated`, is the same skip decision with its conjunction
 reassociated. It guards against a contract so strong that only one phrasing satisfies it.

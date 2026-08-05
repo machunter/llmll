@@ -529,4 +529,49 @@ if [ -f "$PB_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: argv on RList; :done? exits 42; starved exits 70; no-:done? exits 0"
 fi
 
+# --- 8. DRIVER-LL sub-phase 4a acceptance cover. -----------------------------
+#
+# The eleven-cell transition cover of docs/design/driver-ll-phase4-proposal.md
+# section 2.3 plus the three corrupt-manifest shapes of its section 10 cases 16
+# to 18, driven against the BUILT sequencer. It is here rather than in pytest
+# because it needs a toolchain: the thing under test is a compiled binary, and
+# the properties are exit codes and a manifest on disk, neither of which any
+# check-only gate can settle.
+#
+# Campaign section 3a requires the Phase 4 artifact to enter the build gate.
+# The three static checks that need no binary (cover-to-rig name
+# correspondence, the two section 7 disclosures, and registry agreement with
+# the Python STAGES list) live in scripts/tests/test_driver_ll_4a_cover.py and
+# run under pytest.
+#
+# The sequencer imports four sibling modules, so it is built from its own
+# directory; `llmll build` resolves imports relative to the source file.
+DRV_SRC="$REPO_ROOT/tools/llmll-driver/sequencer.llmll"
+DRV_OUTDIR="$OUTDIR/driverll"
+
+if [ -f "$DRV_SRC" ]; then
+  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4a cover"
+  DRV_LOG="$OUTDIR/.driverll-build.log"
+  if ! ( cd "$REPO_ROOT/tools/llmll-driver" \
+           && "${LLMLL_CMD[@]}" build sequencer.llmll -o "$DRV_OUTDIR" ) \
+         > "$DRV_LOG" 2>&1; then
+    cat "$DRV_LOG" >&2
+    fail "the DRIVER-LL sequencer does not build."
+  fi
+
+  DRV_EXE="$(find "$DRV_OUTDIR/.stack-work/install" -type f -name 'sequencer' -perm -111 2>/dev/null | head -1)"
+  [ -n "$DRV_EXE" ] || fail "built the DRIVER-LL sequencer but found no
+  sequencer binary under $DRV_OUTDIR/.stack-work/install. Without running it
+  this stage observes nothing, which is the failure mode it exists to prevent."
+
+  if ! python3 "$REPO_ROOT/scripts/driver_ll_cover.py" --driver "$DRV_EXE" > "$OUTDIR/.driverll-cover.log" 2>&1; then
+    cat "$OUTDIR/.driverll-cover.log" >&2
+    fail "the DRIVER-LL 4a acceptance cover did not pass. Every scenario is a
+  DECISION the Python reference makes and this port must make identically; the
+  log above names the cell and the assertion."
+  fi
+  cat "$OUTDIR/.driverll-cover.log"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a cover (11 cells + 3 manifest shapes + registry)"
+fi
+
 exit 0

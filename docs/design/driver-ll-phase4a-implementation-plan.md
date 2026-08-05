@@ -1,13 +1,195 @@
 ---
 name: driver-ll-phase4a-implementation-plan
 title: "DRIVER-LL Phase 4, sub-phase 4a: implementation plan"
-status: "DRAFT, awaiting approval. Written against proposal Rev 7 (SETTLED) at compiler v0.14.84. Eight measured findings, four of which change what 4a can deliver: the port has no argv channel and no process exit-status channel, a starved stdin budget is a silent success, and three of the eleven cover cells have no producer without a declared fault injector. Two findings improve on the proposal: the three corrupt-manifest shapes are constructor-decidable in the port where the reference discriminates by Python exception site, and section 4's sum encoding makes :on-done usable, which retires the RC-4 workaround Phase 3 had to carry."
+status: "IMPLEMENTED. Written against proposal Rev 7 (SETTLED) at v0.14.84; executed against v0.14.85 after PROC-BOUNDARY-1 shipped. Findings A and B are CLOSED by that capability and the shim this plan recommended was NOT built: the port receives its flags through wasi.proc.args and exits 0, 2 or 3 through the :status projection, so nothing sits between the rig's assertions and the program. Three modules, two cruxes, a fifteen-scenario cover and three static tests landed; the eleven-cell cover passes with T7 included, the three corrupt-manifest shapes are decisions, and section 4's row asymmetry is reproduced. Four new findings, two of which are disagreements with a settled document: PROC-BOUNDARY-1 section 4.4's range refinement is provable only where :status takes a SCALAR state, and T7 did not discriminate its own conjunct until the digests-match boolean was gated the way the reference gates it."
 date: 2026-08-05
 author: compiler-engineer
 consumers: [user, language-team, experiment-lead, documentation-lead, professor]
 ---
 
 # DRIVER-LL sub-phase 4a: implementation plan
+
+## Implementation record
+
+Everything below the horizontal rule is the plan as written before
+`PROC-BOUNDARY-1` shipped. This section records what was built against it, what
+was measured, and where the port disagreed with a settled document. Read it
+first; the plan's findings A, B and C and its shim recommendation are superseded
+here and are annotated in place.
+
+### What landed
+
+| Artifact | What it is |
+|---|---|
+| `tools/llmll-driver/registry.llmll` | the sixteen-stage table as five `if`-chains over an index |
+| `tools/llmll-driver/manifest.llmll` | the row schema carrying section 4's asymmetry, and the one-predicate corrupt-manifest guard |
+| `tools/llmll-driver/sequencer.llmll` | section 4's `Phase` sum, the step machine, the resume gate, the two halt channels, argv parsing, and `exit-code` |
+| `tools/llmll-driver/crux-skip-digest-dropped.llmll` | section 10 case 19's second mutant |
+| `tools/llmll-driver/crux-exit-code-halt-as-zero.llmll` | `Stopped` mapped to exit 0 |
+| `scripts/driver_ll_cover.py` | the acceptance cover: eleven cells, three manifest shapes, one registry-drift scenario |
+| `scripts/tests/test_driver_ll_4a_cover.py` | the three checks that need no toolchain, plus the cover behind a skip |
+
+Modified: `tools/llmll-driver/EXPECTED_VERDICTS.json` (five cases, and the
+shipped-defect count moves from five to six), `scripts/build_smoke.sh` (stage 8),
+`tools/llmll-driver/README.md` (crux counts and a "what the driver does today"
+section). **No compiler source was touched**, so section 12's last line holds
+without the shim it was read as needing.
+
+### The shim was not built, and that is the whole difference
+
+The plan's finding B concluded that `returncode == 2` could not be met by an
+LLMLL program and recommended twenty lines of shell. `PROC-BOUNDARY-1` closed
+both halves before this was executed. `:init` issues `wasi.proc.args` and the
+argument vector arrives as `r0` on the existing `RList` arm; `:status` names a
+projection from the final state and the process exits with its result. The
+cover therefore invokes the binary directly with `--workdir`, `--only`,
+`--force`, `--halt-at` and `--halt-kind`, and asserts on the returncode.
+
+Two consequences the plan's risk 1 and open question 1 asked about are settled
+rather than mitigated: the exit status is the program's, not a shim's, and there
+is no unverified shell mediating an acceptance result.
+
+### Acceptance, clause by clause, with how each was measured
+
+| Clause (proposal section 9) | Measured |
+|---|---|
+| the eleven-cell cover passes, T7 included | `scripts/driver_ll_cover.py`, **15 passed, 0 failed** against the built binary, one scenario per cell plus the three shapes plus a registry check. Every scenario carries the name of the Python-side test whose decision it reproduces |
+| section 10 cases 16, 17, 18 handled as decisions | three scenarios; each asserts **exit 2**, the reason substring, `STOP:` on stdout, that no stage ran, and that `MANIFEST.json` is byte-identical to the corrupt bytes written |
+| section 4's manifest-row asymmetry reproduced | `want_complete_row` asserts `outcome`, `detail` and `clause` are ABSENT from a complete row; `want_halt_row` asserts `kind` and `seconds` are absent from a halt row. **Refuted:** adding `"outcome": "Finished"` to `complete-row`, rebuilding, and re-running turned **T1, T8, T9 and T10 red** and left the other eleven green |
+| section 7's two 4a statements written | both are in the sequencer header behind the anchors `[DISCLOSURE skip.may-skip]` and `[DISCLOSURE stage.record-outcome]`; `test_the_sequencer_carries_both_section_7_disclosures` fails if either is dropped. **Refuted:** renaming one anchor turned that test red |
+| both proved cores acquire a caller | `may-skip` is called once per stage from `decide`; `record-outcome` is called from `halt-now`. `llmll verify sequencer.llmll` is **SAFE**, `exit-code` body-faithful, and the verdict is frozen in `EXPECTED_VERDICTS.json` |
+
+The `skip.may-skip` statement grew from the three items the plan predicted to
+**four**: a response arm that is neither `RText` nor `RErr` is also read as
+absent, and that branch is unreachable rather than merely untaken.
+
+### Refute-crux measurements
+
+Five perturbations were built and run rather than argued. Each names what went
+red and, as much to the point, what stayed green.
+
+| Perturbation | Result |
+|---|---|
+| `complete-row` gains `"outcome": "Finished"` | T1, T8, T9, T10 red; 11 green. This is section 4's stated decision, measured |
+| `manifest-fault` drops the `stages`-is-an-object arm | **case18 alone** red, exit 0 where 2 is owed, and the run proceeded into stage A |
+| the call site drops the digest conjunct, `(and (not forced) (and recorded present))` | **T6 alone** red; T5 stayed green, so the mutation did not simply disable resumption |
+| `artifacts-present` hardcoded `true` at the call site, BEFORE the repair below | **nothing red, 15 of 15 green.** See the finding |
+| the same, AFTER the repair | **T7 alone** red |
+| `registry.llmll` `ROOTS.txt` renamed to `roots.txt` | `test_the_llmll_registry_agrees_with_the_python_registry` red, naming stage L |
+
+Separately, and this is what makes `crux-skip-digest-dropped` worth its file:
+the same digest-dropped body carrying **only** `[S5-PRESENCE]` verifies **SAFE**.
+So the new crux refutes through `[S5-SKIP]` and not through `[S5-PRESENCE]`,
+where `crux-skip-presence-only` refutes through both. The entailment section 11
+records is now observable in the gate rather than argued, which is what
+`CLAUSE-INDEP-1` is filed against.
+
+### Where the port disagreed with a settled document
+
+**1. `PROC-BOUNDARY-1` section 4.4's range refinement is provable only for a
+scalar state.** The proposal puts `{v : int | 0 <= v && v <= 255}` on "the
+declared contract of whatever function `:status` names" and its verification
+mapping calls it "QF-LIA, auto-discharged". **Executed:** a `def` whose body
+applies `first` to a pair falls back from body-faithful verification, measured
+on `[s: (int, int)]` as much as on this driver's state type, while the same
+arithmetic over a bare `int` parameter is body-faithful. Since `:status` is
+applied to the state and every driver's state is a product, its range post is
+**contract-checked, not proved**, for any program that is not the fixture. The
+fixture `scripts/build-smoke/proc_boundary.llmll` takes `[s: int]`, which is the
+provable case, so the fixture cannot exhibit the limit.
+
+The port carries the weight elsewhere instead: `exit-code : Status -> int` is
+body-faithful and carries the range plus three per-constructor mappings plus
+`[EXIT-NOVACUOUS]`, and `drv-status` clamps, so a state carrying 256 exits 255
+rather than exiting 0 and reporting success. Routed to language-team as a
+correction to section 4.4 and to section 5's mapping row, not repaired here.
+
+**2. T7 was not discriminating its own conjunct.** Proposal section 2.3 defines
+T7 as "condition (b) alone", and the reference makes that true by computing
+`mismatched` under `if recorded and artifacts` (`:1934`), so when an artifact is
+absent the mismatch list is empty and only presence prevents the skip. The
+port's probe collapses presence and digest into one `wasi.fs.sha256` (finding D),
+so an absent artifact answers `RErr`, its hex is `""`, and `""` differs from the
+recorded digest: **(b) and (c) failed together and (c) masked (b)**. Measured by
+hardcoding `artifacts-present = true` at the call site, which left all fifteen
+scenarios green including T7.
+
+Repaired in the port rather than filed: `digests-match` is now
+`(if (and recorded present) matched true)`, which is exactly the reference's
+`not mismatched` rather than an approximation of it. The same perturbation now
+turns T7 red alone. The decision was never wrong under either form, `[S5-SKIP]`
+holding in both; what changed is what the cover can observe.
+
+**3. `:866` is not reached at 4a.** The restart record asks the port to report a
+disagreement if it finds one. 4a lands no stage bodies, so it constructs no halt
+at a stage-H acceptance bar and has nothing to say about the site. Recorded so
+its absence reads as scope rather than as agreement.
+
+### Two compiler-surface findings, neither a defect
+
+**`string-split` takes the SEPARATOR first.** `LLMLL.md:2433` gives the type as
+`string string -> list[string]` with no argument names and the note "Split on
+delimiter"; the generated body is `string_split sep str`
+(`CodegenHs.hs:359-366`); and there is **not one call site in the tree** to read
+the order off. Getting it backwards splits the separator by the subject and
+yields `[","]`, which type-checks and passes every check-time gate. Measured,
+and the sequencer wraps it as `split-on` with the order stated at the wrapper.
+This is a documentation gap in `LLMLL.md`, doc-lead's slot, not a compiler bug.
+
+**A `def` cannot call a same-module `def` on a cold check.**
+`checkCalleeAdmissibility` admits a non-builtin callee only on a persisted,
+hash-valid, fully-verified `EvidenceRecord` (`TypeCheck.hs:893-921`), and on a
+first `llmll check` of a new file there is no sidecar, so
+`(def a … (b …))` with `b` defined two lines above is rejected cold with
+"not body-faithful and not in the trusted prelude". The port has one proved
+`def` calling nothing and one calling only builtins, so nothing is blocked;
+recorded because the diagnostic's own remedy ("verify `b` first") is not
+reachable in a single command for a new module.
+
+### Two syntax gotchas that cost a cycle each
+
+- A `match` arm inside a `def` must **bind** its payload. `isCoreBodySyntactic`'s
+  payload-constructor leg (`Syntax.hs:810`) admits only
+  `PConstructor n [PVar _]`, so a `_` wildcard payload makes the whole match
+  non-core and the `def` is rejected at `check` with "unrestricted match". Eight
+  arms of `drv-status` bind a name they never use for exactly this reason.
+- `wasi.fs.mkdir` creates parents and is `RNone` on a directory that already
+  exists, and `wasi.fs.write` does **not** create parents. Every artifact write
+  in the port is `(seq-commands (mkdir dir) (write path body))`, which also
+  confirms RC-2 in a running program: the composite delivers the write's
+  response and drops the mkdir's.
+
+### Gates, measured at v0.14.85
+
+The version pin moved from 0.14.84 to 0.14.85 under this session, doc-lead's
+slot. The two toolchain gates were re-run against the rebuilt binary.
+
+| Gate | Baseline | After |
+|---|---|---|
+| `stack build` | clean | **clean**, no new warnings |
+| `stack test` | 1638 examples | **1638 examples, 0 failures** (no Haskell added) |
+| `bash scripts/build_smoke.sh` | 5 PASS | **6 PASS**, the new one being the 4a cover at 15 of 15 |
+| `python3 -m pytest scripts/tests/ -q` | 120 passed | **123 passed, 1 skipped** |
+| `python3 scripts/doc_path_lint.py` | 796 in 159 files | **824 in 160 files, all resolve** |
+| `bash scripts/refute-crux-gate.sh` | 63 passed | **68 passed, 0 failed** |
+
+The doc-lint delta is not all this change: the concurrent doc-lead pass moved it
+too. The one file this change adds to the lint's population is
+`tools/llmll-driver/README.md`, which was already in it.
+
+### Not done
+
+- **Stage G2 under the stub** stays broken (harness finding F-4) and was not
+  touched. It does not reach 4a: the cover runs no stage bodies.
+- **`rfc_url`** is not written into the manifest. The reference does
+  `manifest.setdefault("rfc_url", a.rfc_url)`; the port has no RFC URL until
+  stage A lands at 4b, and it preserves any existing top-level member because
+  every write is a `json-set` into the parsed manifest.
+- **`seconds` is an integer**, from two real `wasi.clock.monotonic` readings.
+  `json-of-int` is the only numeric injection, so the reference's one-decimal
+  float is not expressible. The abstraction function discards the field.
+
+---
 
 ## Restatement
 
@@ -73,6 +255,13 @@ and are not proposed for the tree.
 
 ### A. There is no argv channel and no environment channel
 
+**CLOSED by `PROC-BOUNDARY-1`, shipped at `4e5ff29`.** `wasi.proc.args` delivers
+the argument vector on the existing `RList` arm through RC-3. The environment
+half is untouched and stays filed as `PROC-ENV-1`, blocking nothing: the port
+needs no environment variable, `--workdir`, `--only` and `--force` all being
+flags. Everything below is the measurement as taken at v0.14.84 and is retained
+because the argument for the capability rests on it.
+
 `builtinEnv` declares fourteen `wasi.*` names
 ([`TypeCheck.hs:158-215`](../../compiler/src/LLMLL/TypeCheck.hs)) and none of them reads a
 command line or an environment variable. **Executed** rather than grepped, because the grep is
@@ -96,6 +285,15 @@ the rig cannot be parameterized over `DRIVER` alone.
 
 ### B. There is no process exit-status channel
 
+**CLOSED by `PROC-BOUNDARY-1`, and this section's recommendation is WITHDRAWN.**
+`def-main` takes an optional `:status`, a total projection from the state type to
+`int`, applied when `:done?` holds. The shim recommended below was not built and
+must not be. `PROC-EXIT-1` was never filed and is not owed. One residue, and it
+is a finding against the capability rather than against this plan: the range
+refinement is provable only where `:status` takes a scalar state, which no driver
+does; see the implementation record. Everything below is the measurement as taken
+at v0.14.84.
+
 `emitMainBody` for `ModeConsole` emits `main :: IO ()`
 ([`CodegenHs.hs:1574-1580`](../../compiler/src/LLMLL/CodegenHs.hs)) and `System.Exit` is
 imported at `:202` only so that `wasi.proc.run` can *read* a child's status into `RCode`
@@ -112,6 +310,13 @@ as `PROC-EXIT-1`, unscheduled, on the `PROC-ENV-1` precedent
 exists, and a gap with no blocker dilutes the roadmap's Active Items table.
 
 ### C. A starved stdin budget is a silent success
+
+**CLOSED by `PROC-BOUNDARY-1`.** With `:done?` DECLARED, exhaustion exits 70 and
+`:status` is not consulted, so the terminal-marker check this section demanded is
+no longer the whole mitigation. The port keeps a terminal marker anyway,
+`[driver-ll] end status=N` through `:on-done`, and the cover reports 70 as a
+budget error rather than as a decision. Everything below is the measurement as
+taken at v0.14.84.
 
 The loop reads `eof <- hIsEOF stdin; if eof then return () else …`
 ([`CodegenHs.hs:1585-1587`](../../compiler/src/LLMLL/CodegenHs.hs)). **Executed:** the same
@@ -267,11 +472,15 @@ resolves backticked paths that contain a slash:
 tools/llmll-driver/manifest.llmll        row schema (§4 asymmetry) + corrupt-shape guard
 tools/llmll-driver/registry.llmll        the sixteen-stage static table
 tools/llmll-driver/sequencer.llmll       Phase sum, step machine, resume gate, halt channels
-tools/llmll-driver/run-4a.sh             invocation shim: config, budget, exit-status mapping
 tools/llmll-driver/crux-skip-digest-dropped.llmll   §10 case 19's second mutant
+tools/llmll-driver/crux-exit-code-halt-as-zero.llmll  Stopped mapped to exit 0
 scripts/driver_ll_cover.py               the eleven-cell + three-shape cover
 scripts/tests/test_driver_ll_4a_cover.py pytest wrapper, skips when the binary is absent
 ```
+
+`run-4a.sh` appeared in this list and was NOT built: `PROC-BOUNDARY-1` retired
+it. `crux-exit-code-halt-as-zero.llmll` was added in its place, freezing the
+behaviour that capability closed.
 
 Modified:
 
@@ -534,14 +743,24 @@ and is the correct direction.
 
 ## Open questions for the professor
 
-1. **Does the shim's exit-status mapping fall inside clause 1b or outside it?** §2.2 puts the
-   §4:139-143 output obligation inside clause 1b and outside α by construction. The status byte
-   is neither the manifest nor standard output. If it is inside 1b, the port's conformance claim
-   depends on unverified shell; if it is outside both, the phase close must say which tier
-   §15.1:504-505 assigns it, and a deferred obligation still has to be tiered.
+1. ~~**Does the shim's exit-status mapping fall inside clause 1b or outside it?**~~
+   **MOOT.** There is no shim. The status byte is the program's own, produced by
+   a `:status` projection over the state, so nothing unverified mediates it. What
+   survives is narrower and is question 3 below.
 
 2. **Is finding E's `is-object?` construction admissible as a total predicate, given that it is
    built from a partial operation's success?** `json-set` is `Json -> string -> Json -> Result`,
    and the port reads `Success` as "the argument was an object". Measured true over all seven
    JSON shapes, but it is a claim about the builtin's error discipline rather than about its
    type, and it is the predicate the whole corrupt-manifest guard rests on.
+
+3. **Where does the exit-status obligation sit, now that its range post is
+   contract-checked rather than proved?** `PROC-BOUNDARY-1` §5 places
+   `0 <= status <= 255` in the contract channel, "QF-LIA, auto-discharged". For
+   any `:status` over a product state it is not discharged, `first` sending the
+   body to fallback; the port makes it true by clamping instead. Is a clamped
+   projection over an unproved component the right discharge for a §15.1 tier
+   statement, or does the obligation belong on `exit-code`, where it IS proved,
+   with the projection disclosed as asserted? The two readings assign the same
+   behaviour and different tiers, and §15.1:504-505 requires every obligation to
+   sit in exactly one.

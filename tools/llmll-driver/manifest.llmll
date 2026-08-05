@@ -1,0 +1,175 @@
+;; DRIVER-LL Phase 4, sub-phase 4a: the manifest row schema and the
+;; corrupt-manifest guard.
+;;
+;; Two jobs, and they are in one module because both are decisions about the
+;; SHAPE of MANIFEST.json rather than about the sequence of stages.
+;;
+;; ------------------------------------------------------------------
+;; 1. THE ROW SCHEMA IS NOT UNIFORM, and reproducing the asymmetry is an
+;;    acceptance clause (Phase 4 proposal section 4).
+;;
+;;    complete-row emits {status, kind, seconds, outputs} and NEVER an
+;;    `outcome` member. halt-row emits {status, detail, outcome} plus `clause`
+;;    on the stopped path and NEVER `kind` or `seconds`. That is measured at
+;;    the reference's four write sites (rfc_to_implementation.py:1965-1971,
+;;    :1982-1987, :1999-2004, :2006-2013).
+;;
+;;    The natural port emits "outcome": "Finished" on the complete row for
+;;    uniformity. That breaks clause 1a on T1, the most frequent transition in
+;;    any run, because the abstraction function of proposal section 2.1
+;;    RETAINS `outcome`. The serialization of Outcome into a manifest row is
+;;    total and Finished maps to the ABSENCE of the field. Stated in the type
+;;    of these two constructors rather than as a runtime condition, so a caller
+;;    cannot reach the uniform shape by passing a different argument.
+;;
+;;    `seconds` is an INTEGER here and a one-decimal float in the reference
+;;    (`round(time.monotonic() - started, 1)`). json-of-int is the only numeric
+;;    injection LLMLL has, so the field cannot carry a float at all. The
+;;    abstraction function DISCARDS `seconds` (section 2.1: "the reference is
+;;    not identical to itself under it"), so clause 1a is unaffected; the
+;;    difference is recorded here rather than left for a reader to re-derive.
+;;
+;; ------------------------------------------------------------------
+;; 2. THE THREE CORRUPT SHAPES ARE DECIDED BY ONE TOTAL PREDICATE.
+;;
+;;    manifest-fault covers proposal section 10 cases 16, 17 and 18. The
+;;    reference discriminates them at three Python exception sites at three
+;;    depths, each shape failing past the guard that catches the one before it
+;;    (:212's read_manifest, after two repairs). This module has one predicate
+;;    over WHAT THE READER INDEXES, which is the lesson case 18 records:
+;;
+;;      usable(j) = is-object?(j)
+;;                  and (json-get(j,"stages") is absent or is an object)
+;;
+;;    is-object? is `json-set` succeeding. MEASURED at v0.14.84 over all seven
+;;    JSON shapes: json-set on {} and {"A":1} is Success; on [], "x", 5, true
+;;    and null it is Error. So json-set is a total, constructor-decidable
+;;    is-object?, and no substring test appears anywhere in this guard.
+;;
+;;    That matters for what section 7 owes. json-get's two failure messages
+;;    ("no member 'A'" on a legitimately empty object, "not an object (looking
+;;    for 'A')" on a corrupt one) share the Error constructor, so
+;;    discriminating on them would be an unproved abstraction over compiler
+;;    wording. json-set avoids it, and this guard therefore owes no section 7
+;;    disclosure.
+;;
+;;    An ABSENT `stages` member is usable, not a fault. The reference's
+;;    `m.setdefault("stages", {})` (:260) inserts one, so `{}` and
+;;    `{"rfc_url": "x"}` are both live manifests there; manifest-of does the
+;;    same insertion here.
+
+(module manifest
+  (import stage) (open stage)
+
+  ;; json-set returns a Result and the failure is a non-object receiver, which
+  ;; every caller below has already excluded or does not care about.
+  (def-shell jset [o: Json k: string v: Json] -> Json
+    (unwrap-or (json-set o k v) o))
+
+  ;; See the header. The probe key is never read back: the value returned by
+  ;; json-set is discarded and only its constructor is consulted.
+  (def-shell is-object? [j: Json] -> bool
+    (is-ok (json-set j "__manifest-shape-probe__" (json-of-int 0))))
+
+  (def-shell empty-manifest [] -> Json
+    (jset json-object "stages" json-object))
+
+  ;; "" when the manifest is usable. Otherwise the operator-facing reason,
+  ;; which the sequencer prints and then halts on. Each message names the same
+  ;; remedy the reference names (:251-264), for the reason its docstring gives:
+  ;; section 5:189-191 already says a stage whose artifacts are present but
+  ;; whose record is absent MUST be run, so deleting an unreadable manifest is
+  ;; not data loss.
+  (def-shell manifest-fault [body: string] -> string
+    (match (json-parse body)
+      ((Error e)
+        (string-concat-many
+          ["MANIFEST.json is not readable JSON (" e
+           "). The run cannot decide which stages to skip without it. "
+           "Delete it to re-run every stage whose artifacts are missing, "
+           "or restore it from a copy."]))
+      ((Success j)
+        (if (not (is-object? j))
+            (string-concat-many
+              ["MANIFEST.json parses but holds a value that is not an object. "
+               "The run cannot decide which stages to skip without it. "
+               "Delete it to re-run every stage whose artifacts are missing."])
+            (match (json-get j "stages")
+              ((Error _) "")
+              ((Success sj)
+                (if (is-object? sj)
+                    ""
+                    (string-concat-many
+                      ["MANIFEST.json holds a value that is not an object "
+                       "at 'stages'. Delete it to re-run every stage whose "
+                       "artifacts are missing."]))))))))
+
+  ;; Only ever called where manifest-fault returned "". The Error arm and the
+  ;; non-object arm are therefore unreachable, and they yield an empty manifest
+  ;; rather than a partial one: a guard that falls through to "no stages
+  ;; recorded" re-runs everything, which is section 5:189-191's safe direction.
+  (def-shell manifest-of [body: string] -> Json
+    (match (json-parse body)
+      ((Error _) (empty-manifest))
+      ((Success j)
+        (if (not (is-object? j))
+            (empty-manifest)
+            (match (json-get j "stages")
+              ((Error _) (jset j "stages" json-object))
+              ((Success sj) (if (is-object? sj) j (jset j "stages" json-object))))))))
+
+  (def-shell stages-of [m: Json] -> Json
+    (unwrap-or (json-get m "stages") json-object))
+
+  (def-shell stage-row [m: Json k: string] -> Json
+    (unwrap-or (json-get (stages-of m) k) json-object))
+
+  ;; "" for a stage with no record. The sequencer compares this against
+  ;; "complete"; every other string, including "", is manifest-complete =
+  ;; false, which is section 5:189-191's reading and is disclosed as a shell
+  ;; reading in the sequencer's section 7 block.
+  (def-shell row-status [m: Json k: string] -> string
+    (unwrap-or (json-get-string (stage-row m k) "status") ""))
+
+  ;; "" when the digest was never recorded. The reference treats a recorded
+  ;; digest of None as a MISMATCH (:1941, reason at :1939-1940); "" compares
+  ;; unequal to every hex string, so the same decision falls out of string
+  ;; equality rather than out of a None test.
+  (def-shell recorded-digest [m: Json k: string out: string] -> string
+    (unwrap-or
+      (json-get-string
+        (unwrap-or (json-get (stage-row m k) "outputs") json-object) out) ""))
+
+  (def-shell put-row [m: Json k: string row: Json] -> Json
+    (jset m "stages" (jset (stages-of m) k row)))
+
+  (def-shell status-word [s: Status] -> string
+    (match s
+      ((Pending)  "pending")
+      ((Complete) "complete")
+      ((Stopped)  "stopped")
+      ((Failed)   "failed")))
+
+  (def-shell outcome-word [o: Outcome] -> string
+    (match o
+      ((ConditionUnmet)   "ConditionUnmet")
+      ((Errored)          "Errored")
+      ((PartialThenHalt)  "PartialThenHalt")
+      ((Finished)         "Finished")))
+
+  ;; NO `outcome` MEMBER. See the header; this is the asymmetry, and it is a
+  ;; specified decision rather than an omission.
+  (def-shell complete-row [kind: string seconds: int outs: Json] -> Json
+    (jset (jset (jset (jset json-object "status" (json-of-string "complete"))
+                      "kind" (json-of-string kind))
+                "seconds" (json-of-int seconds))
+          "outputs" outs))
+
+  ;; NO `kind` AND NO `seconds` MEMBER. `clause` appears only when non-empty,
+  ;; mirroring the reference, which sets it on the stopped path and not on the
+  ;; failed one.
+  (def-shell halt-row [st: Status o: Outcome detail: string clause: string] -> Json
+    (let [(base (jset (jset (jset json-object "status" (json-of-string (status-word st)))
+                            "detail" (json-of-string detail))
+                      "outcome" (json-of-string (outcome-word o))))]
+      (if (string-empty? clause) base (jset base "clause" (json-of-string clause))))))

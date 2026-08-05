@@ -1,0 +1,138 @@
+;; DRIVER-LL Phase 4, sub-phase 4a: the stage registry.
+;;
+;; The sixteen stages of scripts/rfc_to_implementation.py's STAGES list
+;; (:1507-1545), as if-chains over an index rather than as data read from a
+;; file. The reason is the one wasi.proc.run's argv split rests on
+;; (TypeCheck.hs builtinEnv, the wasi.proc.run entry): a table written as
+;; syntax is a constant a reader enumerates from the source, where a table read
+;; from an artifact is whatever the artifact happened to say. The Python
+;; registry has the same property for the same reason.
+;;
+;; FIELD ORDER, because the Python dataclass and its log line disagree.
+;; Stage(key, name, kind, fn, outputs) is the constructor (:1499-1505), so
+;; Stage("A", "intake and provenance pinning", "mechanical", ...) has kind
+;; THIRD. The log line is `stage {key} [{kind}] {name}` (:1953). Reading the
+;; constructor as (key, kind, name) puts the stage's prose where its kind
+;; belongs in every line the cover asserts on.
+;;
+;; DECLARED OUTPUTS, not written ones. driver-spec.txt section 5's skip
+;; conditions quantify over "every artifact the stage declares", and section
+;; 3.6 of the Phase 4 proposal settles the same reading for the
+;; PartialThenHalt axis. Nineteen declared outputs over sixteen stages; three
+;; stages declare two (D, L, M) and the rest declare one.
+;;
+;; stage-out-dir is declared rather than derived. There is no string operation
+;; that splits a path at its last separator, and deriving it with string-split
+;; and a fold would put a parser between the registry and the filesystem for a
+;; value that is a constant. The cost is that a path and its directory can
+;; drift apart; scripts/driver_ll_cover.py asserts every declared output
+;; actually appears under the workdir after a run, which is what catches it.
+
+(module registry)
+
+(def-shell stage-count [] -> int 16)
+
+(def-shell stage-key [i: int] -> string
+  (if (= i 0)  "A"
+  (if (= i 1)  "B"
+  (if (= i 2)  "C"
+  (if (= i 3)  "D"
+  (if (= i 4)  "E"
+  (if (= i 5)  "F"
+  (if (= i 6)  "G"
+  (if (= i 7)  "G2"
+  (if (= i 8)  "H"
+  (if (= i 9)  "I"
+  (if (= i 10) "J"
+  (if (= i 11) "K"
+  (if (= i 12) "L"
+  (if (= i 13) "M"
+  (if (= i 14) "N"
+  (if (= i 15) "O"
+      "?")))))))))))))))))
+
+(def-shell stage-kind [i: int] -> string
+  (if (= i 0)  "mechanical"
+  (if (= i 1)  "agent"
+  (if (= i 2)  "agent"
+  (if (= i 3)  "agent"
+  (if (= i 4)  "mechanical"
+  (if (= i 5)  "agent"
+  (if (= i 6)  "agent"
+  (if (= i 7)  "gate"
+  (if (= i 8)  "agent"
+  (if (= i 9)  "agent"
+  (if (= i 10) "gate"
+  (if (= i 11) "agent"
+  (if (= i 12) "gate"
+  (if (= i 13) "agent"
+  (if (= i 14) "agent"
+  (if (= i 15) "agent"
+      "?")))))))))))))))))
+
+(def-shell stage-name [i: int] -> string
+  (if (= i 0)  "intake and provenance pinning"
+  (if (= i 1)  "scope decision"
+  (if (= i 2)  "normativity rubric"
+  (if (= i 3)  "dual blind extraction"
+  (if (= i 4)  "mechanical reconciliation"
+  (if (= i 5)  "characteristic core"
+  (if (= i 6)  "disposition pass"
+  (if (= i 7)  "artifact audit"
+  (if (= i 8)  "feasibility probes"
+  (if (= i 9)  "pre-registration"
+  (if (= i 10) "the gate"
+  (if (= i 11) "root contract authoring"
+  (if (= i 12) "coverage lint and freeze"
+  (if (= i 13) "the swarm"
+  (if (= i 14) "kill matrix"
+  (if (= i 15) "writeup"
+      "?")))))))))))))))))
+
+(def-shell stage-out-count [i: int] -> int
+  (if (= i 3) 2 (if (= i 12) 2 (if (= i 13) 2 1))))
+
+(def-shell stage-out [i: int j: int] -> string
+  (if (= i 0)  "00-source/PROVENANCE.json"
+  (if (= i 1)  "01-scope/scope.md"
+  (if (= i 2)  "02-rubric/rubric.md"
+  (if (= i 3)  (if (= j 0) "03-extraction/a/extraction.json"
+                           "03-extraction/b/extraction.json")
+  (if (= i 4)  "04-reconcile/SUMMARY.json"
+  (if (= i 5)  "05-core/core.json"
+  (if (= i 6)  "06-disposition/inventory-dispositioned.json"
+  (if (= i 7)  "06b-audit/audit.json"
+  (if (= i 8)  "07-feasibility/feasibility.json"
+  (if (= i 9)  "08-prereg/PRE-REGISTRATION.md"
+  (if (= i 10) "09-gate/gate.json"
+  (if (= i 11) "10-roots/roots.llmll"
+  (if (= i 12) (if (= j 0) "11-freeze/rfc-cov-1.txt"
+                           "11-freeze/ROOTS.txt")
+  (if (= i 13) (if (= j 0) "12-wave/wave.json"
+                           "12-wave/roots.ast.json")
+  (if (= i 14) "13-kill-matrix/kill-matrix.json"
+  (if (= i 15) "REPORT.md"
+      "?")))))))))))))))))
+
+;; The directory of stage-out i j, workdir-relative. "." for a top-level
+;; artifact: wasi.fs.mkdir creates parents (measured) and is RNone on a
+;; directory that already exists (measured), so mkdir "." is a no-op rather
+;; than a special case the caller has to avoid.
+(def-shell stage-out-dir [i: int j: int] -> string
+  (if (= i 0)  "00-source"
+  (if (= i 1)  "01-scope"
+  (if (= i 2)  "02-rubric"
+  (if (= i 3)  (if (= j 0) "03-extraction/a" "03-extraction/b")
+  (if (= i 4)  "04-reconcile"
+  (if (= i 5)  "05-core"
+  (if (= i 6)  "06-disposition"
+  (if (= i 7)  "06b-audit"
+  (if (= i 8)  "07-feasibility"
+  (if (= i 9)  "08-prereg"
+  (if (= i 10) "09-gate"
+  (if (= i 11) "10-roots"
+  (if (= i 12) "11-freeze"
+  (if (= i 13) "12-wave"
+  (if (= i 14) "13-kill-matrix"
+  (if (= i 15) "."
+      ".")))))))))))))))))

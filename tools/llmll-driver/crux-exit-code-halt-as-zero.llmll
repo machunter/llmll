@@ -1,0 +1,37 @@
+(module crux-exit-code-halt-as-zero)
+;; CURRENT BEHAVIOUR OF EVERY LLMLL CONSOLE PROGRAM BEFORE v0.14.84, not an
+;; invented mutant: with no :status field the harness exits 0 on the :done?
+;; path whatever the run decided (CodegenHs.hs, emitMainBody's statusExpr
+;; defaulting to 0). A driver that halted at a gate and a driver that finished
+;; every stage were indistinguishable to a shell.
+;;
+;; The mutant maps Stopped to 0 and leaves every other arm alone, which is that
+;; behaviour narrowed to the one arm where it matters. [EXIT-STOPPED] refutes
+;; it, and so does [EXIT-NOVACUOUS], which is the point of writing the second
+;; post: a body could satisfy the three per-constructor implications and still
+;; report success for an unclassified halt, and [EXIT-NOVACUOUS] is what closes
+;; that over the whole non-Complete side of the sum.
+(type Status (| Pending) (| Complete) (| Stopped) (| Failed))
+
+(def exit-code [s: Status] -> int
+
+  (post (and (>= result 0) (<= result 255))
+    :source "[EXIT-RANGE] PROC-BOUNDARY-1 sec 4.4 - a status outside 0..255 is truncated by POSIX")
+
+  (post (=> (= s Complete) (= result 0))
+    :source "[EXIT-COMPLETE] a run whose stages all completed exits 0")
+
+  (post (=> (= s Stopped) (= result 2))
+    :source "[EXIT-STOPPED] driver-spec.txt sec 4 - a stage that halted on a defined condition exits 2")
+
+  (post (=> (= s Failed) (= result 3))
+    :source "[EXIT-FAILED] driver-spec.txt sec 4 - a stage that halted for any other reason exits 3")
+
+  (post (=> (not (= s Complete)) (> result 0))
+    :source "[EXIT-NOVACUOUS] a run that did not complete MUST NOT report success")
+
+  (match s
+    ((Complete) 0)
+    ((Stopped)  0)
+    ((Failed)   3)
+    ((Pending)  1)))

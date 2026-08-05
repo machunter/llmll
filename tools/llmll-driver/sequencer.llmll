@@ -1,0 +1,682 @@
+;; DRIVER-LL Phase 4, sub-phase 4a: the sequencer.
+;;
+;; The stage loop of scripts/rfc_to_implementation.py:1915-2015 ported as
+;; def-shell orchestration around two proved cores: skip.may-skip decides
+;; resumption and stage.record-outcome classifies a halt. Neither decision is
+;; re-implemented here, which is Phase 3's standing rule (spine.llmll:12-16).
+;;
+;; NO STAGE BODIES. Proposal section 9's 4a row. A stage that runs writes a
+;; stub byte-string to each artifact it declares and nothing else; the eleven
+;; resume and outcome transitions of section 2.3 are decided over those stubs
+;; exactly as they would be over real artifacts, because the resume gate reads
+;; digests and a completion record and never the content.
+;;
+;; ------------------------------------------------------------------
+;; SECTION 7 STATEMENT 1 OF 2 [DISCLOSURE skip.may-skip]
+;;
+;; may-skip is proved over four booleans. Three of the four are computed HERE,
+;; in unproved shell code, and the proof says nothing about whether they are
+;; the right booleans. Four shell-side decisions, one more than proposal Rev 7
+;; lists:
+;;
+;;   1. A recorded digest of None arrives as "" (manifest.recorded-digest) and
+;;      compares unequal to every hex string, so an artifact whose integrity
+;;      was never recorded is a MISMATCH. Mirrors the reference at :1941.
+;;
+;;   2. An unknown `status` string parses to manifest-complete = false. That is
+;;      conformant with driver-spec section 5:189-191 and it is a shell reading
+;;      of a spec sentence, not a proved mapping.
+;;
+;;   3. artifacts-present and digests-match are BOTH derived from one
+;;      wasi.fs.sha256 per declared artifact. MEASURED at v0.14.84: sha256 on a
+;;      missing path yields RErr and on a present one RText hex, so presence and
+;;      digest collapse into one command distinguished by CONSTRUCTOR. Every
+;;      RErr is read as "absent", so an unreadable but present artifact is
+;;      indistinguishable from a missing one at the proved boundary. The
+;;      collapse is conservative: it can only force a re-run, never permit a
+;;      skip, so it cannot violate [S5-SKIP]. It violates no clause and can
+;;      still be wrong, which is why it is disclosed rather than argued away.
+;;
+;;   4. A response arm that is neither RText nor RErr (RNone, RCode, RList)
+;;      is also read as "absent". No wasi.fs.sha256 produces those arms, so the
+;;      branch is unreachable rather than merely untaken, and it fails in the
+;;      same safe direction.
+;;
+;; ------------------------------------------------------------------
+;; SECTION 7 STATEMENT 2 OF 2 [DISCLOSURE stage.record-outcome]
+;;
+;; record-outcome proves Outcome -> Status over all four constructors. WHICH
+;; constructor a site builds is chosen here, in unproved shell code, and it is
+;; the discrimination the Python driver lost (proposal section 3.4).
+;;
+;; At 4a the choice is FULLY ENUMERABLE and narrower than what 4b onward will
+;; owe: two flags, --halt-at naming a stage key and --halt-kind naming a
+;; constructor, and nothing else in this module constructs a halt. There is no
+;; 46-site table to audit yet because there are no stage bodies. When the
+;; bodies land, this statement widens to proposal section 3.5's rule plus
+;; section 3.6's artifact-state axis, and the gap inventory must not read as
+;; though 4a had closed something it deferred.
+;;
+;; ------------------------------------------------------------------
+;; THE FAULT INJECTOR, AND WHY 4a NEEDS ONE.
+;;
+;; Section 9 demands all four Outcome arms with no stage bodies. With no
+;; bodies only Finished has a producer, so ConditionUnmet, Errored and
+;; PartialThenHalt need a declared injector, which is this port's counterpart
+;; to the rig's STUB_MODE. It is 4a-ONLY SCAFFOLDING and its retirement is
+;; scheduled: 4b retires Errored (a delegated output absent or malformed), 4c
+;; through 4e retire ConditionUnmet at the gates, and 4f retires
+;; PartialThenHalt at stage O's perturbation-omission check per section 6.2.
+;; The injected halt's `clause` is "4a-injector" and is NOT a driver-spec
+;; clause; a real clause identifier arrives with the stage that owns it.
+;;
+;; ------------------------------------------------------------------
+;; THE PROCESS BOUNDARY (PROC-BOUNDARY-1, shipped v0.14.84).
+;;
+;; argv arrives as :init's command on the RList arm through RC-3, and the exit
+;; status is the :status projection. Both halves are used as specified. One
+;; measured LIMIT, and it is a finding against the proposal's section 4.4
+;; rather than a defect:
+;;
+;;   the range refinement {v : int | 0 <= v <= 255} is proved only where the
+;;   function :status names is BODY-FAITHFUL, and a projection out of a
+;;   structured state is not. MEASURED at v0.14.84: a def whose body applies
+;;   `first` to a pair falls back, for (int, int) as much as for this state
+;;   type, so drv-status is contract-checked rather than proved. The
+;;   proc_boundary.llmll fixture takes `[s: int]` and is the provable case; no
+;;   driver with a product state is.
+;;
+;; What carries the weight instead is exit-code below, which IS body-faithful
+;; and whose [EXIT-NOVACUOUS] post is the eliminative one: a run that did not
+;; complete cannot exit 0. drv-status then clamps, so a state carrying 256
+;; exits 255 rather than exiting 0 and reporting success.
+;;
+;; ------------------------------------------------------------------
+;; TWO OUT-OF-STAGE HALTS CARRY NO STAGE STATUS.
+;;
+;; A corrupt MANIFEST.json (proposal section 10 cases 16 to 18) is decided
+;; before any stage exists, so no Status attaches to it and record-outcome is
+;; not called. The exit code is the literal 2, mirroring the reference's
+;; top-level `except Halt` handler (rfc_to_implementation.py:2027-2032), and
+;; the manifest is NOT written. Calling exit-code with a manufactured Stopped
+;; would assert a stage disposition that driver-spec section 4 does not reach.
+
+(module sequencer
+  (import wasi.io   (capability stdout :deterministic false))
+  ;; CAP-1-REAL: the verb and the path are documentation, not a bound.
+  (import wasi.fs   (capability read-write "/"))
+  ;; wasi.proc.args shares the wasi.proc namespace with wasi.proc.run
+  ;; (extractWasiNamespace takes the first two segments), so this clause grants
+  ;; the argument vector.
+  (import wasi.proc (capability exec :deterministic false))
+
+  (import stage)    (open stage)
+  (import skip)     (open skip)
+  (import registry) (open registry)
+  (import manifest) (open manifest)
+
+  ;; ------------------------------------------------------------------
+  ;; The proved centre this module adds
+  ;; ------------------------------------------------------------------
+
+  ;; The process exit status of a run whose disposition is `s`. Body-faithful,
+  ;; so the range and the three mappings are proved rather than asserted.
+  ;;
+  ;; 0 / 2 / 3 mirror the reference's three return paths (:1978, :1994, :2015
+  ;; and the final :2019). Pending is 1 and is unreachable: nothing here builds
+  ;; Pending, and [S4-ATTEMPTED] forbids record-outcome from returning it.
+  (def exit-code [s: Status] -> int
+
+    (post (and (>= result 0) (<= result 255))
+      :source "[EXIT-RANGE] PROC-BOUNDARY-1 sec 4.4 - a status outside 0..255 is truncated by POSIX, so 256 would exit 0 and report success")
+
+    (post (=> (= s Complete) (= result 0))
+      :source "[EXIT-COMPLETE] a run whose stages all completed exits 0")
+
+    (post (=> (= s Stopped) (= result 2))
+      :source "[EXIT-STOPPED] driver-spec.txt sec 4 - a stage that halted on a defined condition exits 2, as rfc_to_implementation.py:1978 does")
+
+    (post (=> (= s Failed) (= result 3))
+      :source "[EXIT-FAILED] driver-spec.txt sec 4 - a stage that halted for any other reason exits 3, as rfc_to_implementation.py:1994 does")
+
+    ;; The eliminative one. A body that returned 0 for a halted run passes
+    ;; every implication above that does not mention it and is refuted here.
+    (post (=> (not (= s Complete)) (> result 0))
+      :source "[EXIT-NOVACUOUS] a run that did not complete MUST NOT report success")
+
+    (match s
+      ((Complete) 0)
+      ((Stopped)  2)
+      ((Failed)   3)
+      ((Pending)  1)))
+
+  ;; ------------------------------------------------------------------
+  ;; State
+  ;; ------------------------------------------------------------------
+
+  ;; workdir, (only-selection, (halt-at, (halt-kind, forced))). The selection
+  ;; travels as the raw comma-separated string rather than as a list, because
+  ;; an empty string has to mean "every stage" and an empty list would mean
+  ;; "no stage": string-split with an empty subject yields [""], measured.
+  (type Cfg (| Cfg (string, (string, (string, (string, bool))))))
+
+  ;; The run-common record of proposal section 4: config, the live manifest,
+  ;; and the selected stage indices in registry order.
+  (type Run (| Run (Cfg, (Json, list[int]))))
+
+  ;; Proposal section 4's sum over phases. Each arm names the RESPONSE it is
+  ;; about to receive, since the console loop delivers the response to the
+  ;; command issued on entry to the arm.
+  ;;
+  ;;   Boot 0     r is the argument vector
+  ;;   Boot 1     r is the MANIFEST.json read
+  ;;   Digest     r is wasi.fs.sha256 of declared artifact j, on the resume probe
+  ;;   Started    r is the clock reading taken when the stage started
+  ;;   Made       r is the write of artifact j
+  ;;   Summed     r is wasi.fs.sha256 of artifact j, for the outputs map
+  ;;   Stamped    r is the clock reading taken at record time
+  ;;   Recorded   r is the manifest write
+  ;;   Ending     r is the last report; the next state is terminal
+  ;;   Done       terminal; :status reads the code out of this arm
+  ;;
+  ;; Ending exists because of RC-4: done? is evaluated on the state a step
+  ;; RETURNS and the terminating step's command is DROPPED, so a state that
+  ;; must still say something cannot be terminal. Recorded needs no such arm,
+  ;; the manifest write having already been performed on entry to it.
+  (type Phase
+    (| Boot     int)
+    (| Digest   (int, (int, (bool, (bool, string)))))
+    (| Started  int)
+    (| Made     (int, (int, int)))
+    (| Summed   (int, (int, (int, Json))))
+    (| Stamped  (int, (int, Json)))
+    (| Recorded (int, int))
+    (| Ending   int)
+    (| Done     int))
+
+  ;; ---- accessors, written once ---------------------------------------
+  ;;
+  ;; Proposal section 13 risk 6: a wrong projection over a pair chain
+  ;; TYPECHECKS. Every projection in this module is in one of the functions
+  ;; below and no use site writes a bare (first (second ...)).
+
+  (def-shell cfg-workdir [c: Cfg] -> string
+    (match c ((Cfg p) (first p))))
+  (def-shell cfg-only [c: Cfg] -> string
+    (match c ((Cfg p) (first (second p)))))
+  (def-shell cfg-halt-at [c: Cfg] -> string
+    (match c ((Cfg p) (first (second (second p))))))
+  (def-shell cfg-halt-kind [c: Cfg] -> string
+    (match c ((Cfg p) (first (second (second (second p)))))))
+  (def-shell cfg-forced [c: Cfg] -> bool
+    (match c ((Cfg p) (second (second (second (second p)))))))
+
+  (def-shell cfg-of [rn: Run] -> Cfg
+    (match rn ((Run p) (first p))))
+  (def-shell man-of [rn: Run] -> Json
+    (match rn ((Run p) (first (second p)))))
+  (def-shell sel-of [rn: Run] -> list[int]
+    (match rn ((Run p) (second (second p)))))
+
+  (def-shell with-cfg [rn: Run c: Cfg] -> Run
+    (Run (pair c (pair (man-of rn) (sel-of rn)))))
+  (def-shell with-man [rn: Run m: Json] -> Run
+    (Run (pair (cfg-of rn) (pair m (sel-of rn)))))
+  (def-shell with-sel [rn: Run xs: list[int]] -> Run
+    (Run (pair (cfg-of rn) (pair (man-of rn) xs))))
+
+  (def-shell dg-k [d: (int, (int, (bool, (bool, string))))] -> int
+    (first d))
+  (def-shell dg-j [d: (int, (int, (bool, (bool, string))))] -> int
+    (first (second d)))
+  (def-shell dg-present [d: (int, (int, (bool, (bool, string))))] -> bool
+    (first (second (second d))))
+  (def-shell dg-match [d: (int, (int, (bool, (bool, string))))] -> bool
+    (first (second (second (second d)))))
+  (def-shell dg-names [d: (int, (int, (bool, (bool, string))))] -> string
+    (second (second (second (second d)))))
+  (def-shell mk-dg [k: int j: int present: bool matched: bool names: string] -> Phase
+    (Digest (pair k (pair j (pair present (pair matched names))))))
+
+  (def-shell md-k [d: (int, (int, int))] -> int (first d))
+  (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
+  (def-shell md-start [d: (int, (int, int))] -> int (second (second d)))
+  (def-shell mk-md [k: int j: int start: int] -> Phase
+    (Made (pair k (pair j start))))
+
+  (def-shell sm-k [d: (int, (int, (int, Json)))] -> int (first d))
+  (def-shell sm-j [d: (int, (int, (int, Json)))] -> int (first (second d)))
+  (def-shell sm-start [d: (int, (int, (int, Json)))] -> int (first (second (second d))))
+  (def-shell sm-outs [d: (int, (int, (int, Json)))] -> Json (second (second (second d))))
+  (def-shell mk-sm [k: int j: int start: int outs: Json] -> Phase
+    (Summed (pair k (pair j (pair start outs)))))
+
+  (def-shell st-k [d: (int, (int, Json))] -> int (first d))
+  (def-shell st-start [d: (int, (int, Json))] -> int (first (second d)))
+  (def-shell st-outs [d: (int, (int, Json))] -> Json (second (second d)))
+  (def-shell mk-st [k: int start: int outs: Json] -> Phase
+    (Stamped (pair k (pair start outs))))
+
+  (def-shell rc-k [d: (int, int)] -> int (first d))
+  (def-shell rc-code [d: (int, int)] -> int (second d))
+  (def-shell mk-rc [k: int code: int] -> Phase
+    (Recorded (pair k code)))
+
+  (def-shell run-of [s: (Run, Phase)] -> Run (first s))
+  (def-shell phase-of [s: (Run, Phase)] -> Phase (second s))
+  (def-shell go [rn: Run p: Phase c: Command] -> ((Run, Phase), Command)
+    (pair (pair rn p) c))
+
+  ;; ---- argv ----------------------------------------------------------
+
+  ;; The element following `f`, or "". One left-to-right fold carrying
+  ;; (value-so-far, take-the-next-one); a repeated flag keeps the FIRST value,
+  ;; which is the opposite of argparse and is stated because nothing enforces
+  ;; it.
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell dflt [s: string d: string] -> string
+    (if (string-empty? s) d s))
+
+  (def-shell parse-cfg [as: list[string]] -> Cfg
+    (Cfg (pair (dflt (flag-value as "--workdir") ".")
+               (pair (flag-value as "--only")
+                     (pair (flag-value as "--halt-at")
+                           (pair (flag-value as "--halt-kind")
+                                 (list-contains as "--force")))))))
+
+  (def-shell argv-of [r: Response] -> list[string]
+    (match r
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  ;; MEASURED at v0.14.84, and the spec does not say which way round it goes:
+  ;; string-split takes the SEPARATOR FIRST. LLMLL.md:2433 gives the type as
+  ;; `string string -> list[string]` with no argument names, the generated
+  ;; body is `string_split sep str` (CodegenHs.hs:359-366), and there is not
+  ;; one call site in the tree to read it off. Getting it backwards splits the
+  ;; separator by the subject and yields [","], which type-checks and passes
+  ;; every check-time gate.
+  (def-shell split-on [sep: string s: string] -> list[string]
+    (string-split sep s))
+
+  (def-shell key-selected? [c: Cfg i: int] -> bool
+    (if (string-empty? (cfg-only c))
+        true
+        (list-contains (split-on "," (cfg-only c)) (stage-key i))))
+
+  (def-shell sel-indices [c: Cfg] -> list[int]
+    (list-filter (range 0 (stage-count)) (fn [i: int] (key-selected? c i))))
+
+  (def-shell idx-at [rn: Run k: int] -> int
+    (unwrap-or (list-nth (sel-of rn) k) 0))
+
+  ;; ---- paths and stub bodies -----------------------------------------
+
+  (def-shell manifest-path [c: Cfg] -> string
+    (string-concat (cfg-workdir c) "/MANIFEST.json"))
+
+  (def-shell art-path [c: Cfg i: int j: int] -> string
+    (string-concat-many [(cfg-workdir c) "/" (stage-out i j)]))
+
+  (def-shell art-dir [c: Cfg i: int j: int] -> string
+    (string-concat-many [(cfg-workdir c) "/" (stage-out-dir i j)]))
+
+  ;; No stage bodies at 4a. The content is per-artifact so that two stubs never
+  ;; share a digest, which would make a cross-stage digest confusion invisible.
+  (def-shell stub-body [i: int j: int] -> string
+    (string-concat-many
+      ["driver-ll 4a stub\nstage=" (stage-key i) "\nartifact=" (stage-out i j) "\n"]))
+
+  ;; ---- response projections ------------------------------------------
+
+  ;; "" for every arm but RText. wasi.fs.sha256 answers RText on a present path
+  ;; and RErr on a missing one, measured; the other three arms are unreachable
+  ;; and land on the same safe side. See [DISCLOSURE skip.may-skip] item 4.
+  (def-shell hex-of [r: Response] -> string
+    (match r
+      ((RText t)  t)
+      ((RErr _)   "")
+      ((RNone)    "")
+      ((RCode _)  "")
+      ((RList _)  "")))
+
+  (def-shell ns-of [r: Response] -> int
+    (match r
+      ((RCode n)  n)
+      ((RText _)  0)
+      ((RErr _)   0)
+      ((RNone)    0)
+      ((RList _)  0)))
+
+  ;; Whole seconds. json-of-int is the only numeric injection, so the field
+  ;; cannot carry the reference's one-decimal float; see manifest.llmll's
+  ;; header. Negative is impossible from a monotonic clock and is clamped
+  ;; anyway, since a negative duration in an artifact is worse than a zero.
+  (def-shell secs-between [start: int end: int] -> int
+    (if (< end start) 0 (/ (- end start) 1000000000)))
+
+  ;; ---- the injector --------------------------------------------------
+
+  (def-shell injected-kind [rn: Run k: int] -> string
+    (if (= (cfg-halt-at (cfg-of rn)) (stage-key (idx-at rn k)))
+        (cfg-halt-kind (cfg-of rn))
+        ""))
+
+  (def-shell halts-pre? [rn: Run k: int] -> bool
+    (or (= (injected-kind rn k) "ConditionUnmet")
+        (= (injected-kind rn k) "Errored")))
+
+  (def-shell halts-post? [rn: Run k: int] -> bool
+    (= (injected-kind rn k) "PartialThenHalt"))
+
+  (def-shell injected-outcome [rn: Run k: int] -> Outcome
+    (if (= (injected-kind rn k) "ConditionUnmet") ConditionUnmet
+    (if (= (injected-kind rn k) "PartialThenHalt") PartialThenHalt
+        Errored)))
+
+  (def-shell halt-detail [rn: Run k: int] -> string
+    (string-concat-many
+      ["injected halt at stage " (stage-key (idx-at rn k))
+       " (--halt-kind " (injected-kind rn k) ")"]))
+
+  ;; ConditionUnmet and PartialThenHalt are the stopped path and carry a
+  ;; clause; Errored is the failed path and carries none, mirroring the
+  ;; reference's two halt-row shapes.
+  (def-shell halt-clause [o: Outcome] -> string
+    (match o
+      ((ConditionUnmet)  "4a-injector")
+      ((PartialThenHalt) "4a-injector")
+      ((Errored)         "")
+      ((Finished)        "")))
+
+  ;; ---- report lines --------------------------------------------------
+
+  (def-shell skip-line [i: int] -> string
+    (string-concat-many
+      ["[driver-ll] stage " (stage-key i) " (" (stage-name i)
+       "): already complete, skipping"]))
+
+  ;; The reference computes `mismatched` under `if recorded and artifacts`
+  ;; (:1934), so a stage with a missing declared artifact reports NOTHING and
+  ;; re-runs silently. That is transition T7, it is conformant (section 5
+  ;; attaches a MUST-report to T6 and a SHOULD to T8 and is silent here), and
+  ;; the same gate is written here rather than inherited by accident.
+  (def-shell reason-line [i: int recorded: bool present: bool names: string] -> string
+    (if (and recorded (and present (not (string-empty? names))))
+        (string-concat-many
+          ["[driver-ll] stage " (stage-key i)
+           ": artifact(s) changed since this stage recorded completion ("
+           names "); re-running. An artifact modified outside the protocol is "
+           "not that stage's output.\n"])
+        (if (and present (not recorded))
+            (string-concat-many
+              ["[driver-ll] stage " (stage-key i)
+               ": artifacts present but no completion record (interrupted, or "
+               "a previous attempt failed); re-running\n"])
+            "")))
+
+  (def-shell run-lines [i: int recorded: bool present: bool names: string] -> string
+    (string-concat-many
+      [(reason-line i recorded present names)
+       "[driver-ll] stage " (stage-key i) " [" (stage-kind i) "] " (stage-name i)]))
+
+  (def-shell halt-line [st: Status i: int detail: string] -> string
+    (string-concat-many
+      ["[driver-ll] " (if (= st Failed) "FAILED" "STOP") " at stage "
+       (stage-key i) ": " detail]))
+
+  ;; ------------------------------------------------------------------
+  ;; The step machine
+  ;; ------------------------------------------------------------------
+
+  ;; Issue stage k's first digest probe, or finish the run. Every site that
+  ;; would advance to the next stage calls this, so "past the last stage" is
+  ;; decided in one place.
+  (def-shell enter [rn: Run k: int] -> ((Run, Phase), Command)
+    (if (>= k (list-length (sel-of rn)))
+        (go rn (Ending 0)
+            (wasi.io.stdout
+              (string-concat "[driver-ll] done. manifest: " (manifest-path (cfg-of rn)))))
+        (go rn (mk-dg k 0 true true "")
+            (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 0)))))
+
+  (def-shell start-run [rn: Run] -> ((Run, Phase), Command)
+    (enter (with-sel rn (sel-indices (cfg-of rn))) 0))
+
+  ;; An ABSENT manifest is an empty one, not a fault: the reference returns
+  ;; {"stages": {}} when the path does not exist (:246-247). Only a manifest
+  ;; that IS there and cannot be used halts.
+  (def-shell boot-read [rn: Run r: Response] -> ((Run, Phase), Command)
+    (match r
+      ((RText body)
+        (if (string-empty? (manifest-fault body))
+            (start-run (with-man rn (manifest-of body)))
+            (go rn (Ending 2)
+                (wasi.io.stdout
+                  (string-concat "[driver-ll] STOP: " (manifest-fault body))))))
+      ((RErr _)   (start-run (with-man rn (empty-manifest))))
+      ((RNone)    (start-run (with-man rn (empty-manifest))))
+      ((RCode _)  (start-run (with-man rn (empty-manifest))))
+      ((RList _)  (start-run (with-man rn (empty-manifest))))))
+
+  (def-shell boot-step [rn: Run n: int r: Response] -> ((Run, Phase), Command)
+    (if (= n 0)
+        (let [(c (parse-cfg (argv-of r)))]
+          (go (with-cfg rn c) (Boot 1)
+              (seq-commands (wasi.fs.mkdir (cfg-workdir c))
+                            (wasi.fs.read (manifest-path c)))))
+        (boot-read rn r)))
+
+  ;; The resume decision. Nothing here re-implements it: the four booleans go
+  ;; to skip.may-skip and its answer is the branch.
+  ;;
+  ;; `digests-match` IS THE REFERENCE'S `not mismatched`, AND THE GATE ON IT IS
+  ;; NOT DECORATION. The reference computes `mismatched` under
+  ;; `if recorded and artifacts` (:1934), so when a declared artifact is absent
+  ;; the list is EMPTY and the skip is prevented by condition (b) alone. The
+  ;; accumulated `matched` below cannot say that on its own: an absent artifact
+  ;; answers RErr, hex is "", and "" differs from the recorded digest, so
+  ;; presence and match fail TOGETHER and (c) masks (b).
+  ;;
+  ;; MEASURED, and this is why the gate is here rather than left implicit. With
+  ;; the raw `matched`, passing a hardcoded `true` for artifacts-present left
+  ;; ALL FIFTEEN cover scenarios green, T7 included: the cell proposal section
+  ;; 2.3 defines as "condition (b) alone" was being decided by (c). With the
+  ;; gate, the same perturbation turns T7 red. The decision is unchanged either
+  ;; way, [S5-SKIP] holding in both, so this is about what the cover can
+  ;; OBSERVE rather than about what the driver does.
+  (def-shell decide [rn: Run k: int present: bool matched: bool names: string]
+      -> ((Run, Phase), Command)
+    (let [(i (idx-at rn k))]
+      (let [(recorded (= (row-status (man-of rn) (stage-key i)) "complete"))]
+        (if (may-skip recorded present
+                      (if (and recorded present) matched true)
+                      (cfg-forced (cfg-of rn)))
+            (let [(e (enter rn (+ k 1)))]
+              (pair (first e)
+                    (seq-commands (wasi.io.stdout (skip-line i)) (second e))))
+            (go rn (Started k)
+                (seq-commands
+                  (wasi.io.stdout (run-lines i recorded present names))
+                  wasi.clock.monotonic))))))
+
+  (def-shell digest-step [rn: Run d: (int, (int, (bool, (bool, string)))) r: Response]
+      -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (dg-k d)))]
+      (let [(hex (hex-of r))]
+        (let [(want (recorded-digest (man-of rn) (stage-key i) (stage-out i (dg-j d))))]
+          (let [(here (not (string-empty? hex)))]
+            (let [(same (and here (= hex want)))]
+              (let [(names (if same
+                               (dg-names d)
+                               (if here
+                                   (string-concat-many
+                                     [(dg-names d)
+                                      (if (string-empty? (dg-names d)) "" ", ")
+                                      (stage-out i (dg-j d))])
+                                   (dg-names d))))]
+                (if (< (+ (dg-j d) 1) (stage-out-count i))
+                    (go rn (mk-dg (dg-k d) (+ (dg-j d) 1)
+                                  (and (dg-present d) here)
+                                  (and (dg-match d) same)
+                                  names)
+                        (wasi.fs.sha256 (art-path (cfg-of rn) i (+ (dg-j d) 1))))
+                    (decide rn (dg-k d)
+                            (and (dg-present d) here)
+                            (and (dg-match d) same)
+                            names)))))))))
+
+  ;; The manifest write and the halt report leave in one seq-commands, so the
+  ;; response the next arm receives is the WRITE's. RC-2 is discard-left.
+  (def-shell halt-now [rn: Run k: int o: Outcome start: int] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn k))]
+      (let [(st (record-outcome o))]
+        (let [(m2 (put-row (man-of rn) (stage-key i)
+                           (halt-row st o (halt-detail rn k) (halt-clause o))))]
+          (go (with-man rn m2) (mk-rc k (exit-code st))
+              (seq-commands
+                (wasi.io.stdout (halt-line st i (halt-detail rn k)))
+                (wasi.fs.write (manifest-path (cfg-of rn)) (json-serialize m2))))))))
+
+  (def-shell write-cmd [rn: Run k: int j: int] -> Command
+    (seq-commands (wasi.fs.mkdir (art-dir (cfg-of rn) (idx-at rn k) j))
+                  (wasi.fs.write (art-path (cfg-of rn) (idx-at rn k) j)
+                                 (stub-body (idx-at rn k) j))))
+
+  (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Phase), Command)
+    (if (halts-pre? rn k)
+        (halt-now rn k (injected-outcome rn k) (ns-of r))
+        (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0))))
+
+  (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Phase), Command)
+    (if (< (+ (md-j d) 1) (stage-out-count (idx-at rn (md-k d))))
+        (go rn (mk-md (md-k d) (+ (md-j d) 1) (md-start d))
+            (write-cmd rn (md-k d) (+ (md-j d) 1)))
+        (go rn (mk-sm (md-k d) 0 (md-start d) json-object)
+            (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn (md-k d)) 0)))))
+
+  ;; The reference's outputs map is comprehended over the declared outputs THAT
+  ;; EXIST (:2010-2011), so a missing artifact yields a SHORT map rather than a
+  ;; null. An RErr here is that filter.
+  (def-shell summed-step [rn: Run d: (int, (int, (int, Json))) r: Response]
+      -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (sm-k d)))]
+      (let [(outs (if (string-empty? (hex-of r))
+                      (sm-outs d)
+                      (jset (sm-outs d) (stage-out i (sm-j d))
+                            (json-of-string (hex-of r)))))]
+        (if (< (+ (sm-j d) 1) (stage-out-count i))
+            (go rn (mk-sm (sm-k d) (+ (sm-j d) 1) (sm-start d) outs)
+                (wasi.fs.sha256 (art-path (cfg-of rn) i (+ (sm-j d) 1))))
+            (go rn (mk-st (sm-k d) (sm-start d) outs) wasi.clock.monotonic)))))
+
+  (def-shell stamped-step [rn: Run d: (int, (int, Json)) r: Response]
+      -> ((Run, Phase), Command)
+    (if (halts-post? rn (st-k d))
+        (halt-now rn (st-k d) PartialThenHalt (st-start d))
+        (let [(i (idx-at rn (st-k d)))]
+          (let [(m2 (put-row (man-of rn) (stage-key i)
+                             (complete-row (stage-kind i)
+                                           (secs-between (st-start d) (ns-of r))
+                                           (st-outs d))))]
+            (go (with-man rn m2) (mk-rc (st-k d) 0)
+                (wasi.fs.write (manifest-path (cfg-of rn)) (json-serialize m2)))))))
+
+  ;; The manifest write has already happened on entry here, so a halt can go
+  ;; straight to Done: the command this arm returns is the one RC-4 drops.
+  (def-shell recorded-step [rn: Run d: (int, int)] -> ((Run, Phase), Command)
+    (if (= (rc-code d) 0)
+        (enter rn (+ (rc-k d) 1))
+        (go rn (Done (rc-code d)) (wasi.io.stdout ""))))
+
+  (def-shell drv-init [] -> ((Run, Phase), Command)
+    (pair (pair (Run (pair (Cfg (pair "." (pair "" (pair "" (pair "" false)))))
+                           (pair (empty-manifest) (list-empty))))
+                (Boot 0))
+          wasi.proc.args))
+
+  (def-shell drv-step [s: (Run, Phase) input: string r: Response]
+      -> ((Run, Phase), Command)
+    (match (phase-of s)
+      ((Boot n)     (boot-step   (run-of s) n r))
+      ((Digest d)   (digest-step (run-of s) d r))
+      ((Started k)  (started-step (run-of s) k r))
+      ((Made d)     (made-step   (run-of s) d r))
+      ((Summed d)   (summed-step (run-of s) d r))
+      ((Stamped d)  (stamped-step (run-of s) d r))
+      ((Recorded d) (recorded-step (run-of s) d))
+      ((Ending c)   (go (run-of s) (Done c) (wasi.io.stdout "")))
+      ((Done c)     (go (run-of s) (Done c) (wasi.io.stdout "")))))
+
+  (def-shell drv-done? [s: (Run, Phase)] -> bool
+    (match (phase-of s)
+      ((Boot _)     false)
+      ((Digest _)   false)
+      ((Started _)  false)
+      ((Made _)     false)
+      ((Summed _)   false)
+      ((Stamped _)  false)
+      ((Recorded _) false)
+      ((Ending _)   false)
+      ((Done _)     true)))
+
+  (def-shell done-code [s: (Run, Phase)] -> int
+    (match (phase-of s)
+      ((Boot _)     1)
+      ((Digest _)   1)
+      ((Started _)  1)
+      ((Made _)     1)
+      ((Summed _)   1)
+      ((Stamped _)  1)
+      ((Recorded _) 1)
+      ((Ending _)   1)
+      ((Done c)     c)))
+
+  ;; The terminal marker. It leaves through :on-done rather than through a
+  ;; step, because RC-4 drops the terminating step's command and a halt report
+  ;; that is constructed and not performed fails driver-spec section 4:139-143
+  ;; SILENTLY. spine.llmll:673-679 records :on-done as unusable and is right
+  ;; for an int state; section 4's sum carries the reason, so it becomes
+  ;; available here.
+  (def-shell drv-final [s: (Run, Phase)] -> Command
+    (wasi.io.stdout
+      (string-concat "[driver-ll] end status=" (int-to-string (done-code s)))))
+
+  ;; :status. Contract-checked, not body-faithful; see the header. The clamp is
+  ;; what makes the declared range true by construction rather than by
+  ;; assertion, and it fails in the safe direction: 256 exits 255, not 0.
+  ;;
+  ;; EVERY ARM BINDS ITS PAYLOAD, including the eight that ignore it. A `_`
+  ;; there is PWildcard, and isCoreBodySyntactic's payload-constructor leg
+  ;; (Syntax.hs:810) admits only PConstructor n [PVar _], so a wildcard turns
+  ;; the whole match into non-core syntax and the def is rejected at `check`.
+  (def drv-status [s: (Run, Phase)] -> int
+    (post (and (>= result 0) (<= result 255))
+      :source "[EXIT-RANGE] PROC-BOUNDARY-1 sec 4.4 - the declared range on the function :status names")
+    (match (second s)
+      ((Boot b)     1)
+      ((Digest d)   1)
+      ((Started k)  1)
+      ((Made m)     1)
+      ((Summed u)   1)
+      ((Stamped t)  1)
+      ((Recorded v) 1)
+      ((Ending e)   1)
+      ((Done c)     (if (< c 0) 1 (if (> c 255) 255 c)))))
+
+  (def-main
+    :mode    console
+    :init    (drv-init)
+    :step    drv-step
+    :done?   drv-done?
+    :on-done drv-final
+    :status  drv-status))
