@@ -85,7 +85,10 @@ caller since v0.14.70.
 | 4 | **Sub-phase 4a: sequencer, manifest, resume gate, two halt channels. No stage bodies** | compiler-engineer | **done, SHIPPED** (`2b82464`). No shim. 15/15 cover, 6 refute-crux perturbations |
 | 13 | Does the Python T7 mask like the port's did? | experiment-lead | **done**, answered NO by mutation. F-12/F-13. Cover is separable |
 | 14 | Rev 8: settle the four held findings | language-team | **done**, all three predictions confirmed |
-| **5** | **Sub-phases 4b–4f. 4b is next: stages B, C, I and §6's validation obligations as a shared facility** | **compiler-engineer** | **PENDING, UNBLOCKED. This is next** |
+| 15 | Re-measure §3.5 at HEAD; it generated 4b's queue | experiment-lead | **done**, F-14–F-17. Refuted Rev 8's own stamp. Landed as Rev 9 |
+| 5b | **Sub-phase 4b: stages B, C, I and the shared validation facility** | compiler-engineer | **done, SHIPPED** (`ba2f93d`). Cover 15 → 31 cells; `validate.llmll` SAFE |
+| **16** | **RELEASE v0.14.87 + three doc repairs + two roadmap rows. OWED, NOT DONE (§9)** | **documentation-lead** | **PENDING. This is next** |
+| **5c** | **Sub-phase 4c: stages D, F, G** | compiler-engineer | pending, unblocked once #16 lands |
 | 6b | Doc-lead pass at each sub-phase | documentation-lead | pending, runs after each |
 
 ## 4. The next action
@@ -230,6 +233,42 @@ being filed in proposal §14 and absent here.
 - **An LLMLL binding named `show` passes `llmll check` and fails GHC** with `Ambiguous occurrence
   'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
   the 4a plan; it wants a roadmap row and has none yet.
+
+## 9. A release is OWED and was not done. Read this before anything else
+
+**`main` is at `ba2f93d`, pushed, CI green, and the version pins say v0.14.86 while the tree has
+moved past it.** Nothing is broken: `version_gate.sh` checks that the five pins agree with **each
+other**, not that the version reflects the content, so the gate passes and CI is green. The bump is
+owed, not missing-and-failing. It did not happen because the documentation-lead run hit a session
+quota, and the work is mechanical and fully specified rather than undecided.
+
+**What v0.14.87 owes**, all of it committed and gate-verified at `ba2f93d`:
+
+1. **The bump itself**, five pinned files, then `scripts/version_gate.sh`.
+2. **A `CHANGELOG.md` entry** covering `1e33d69` and `ba2f93d`. The `string-slice` half must say the
+   old bug was a wrong **length**, not a wrong offset: the unclamped form fed a negative `start` into
+   the `take` count while `drop` no-opped on it, so `(string-slice "abc" -3 0)` returned the whole
+   string for a window ending at zero. Tests 1642 → 1651 Haskell, 123 → 131 Python.
+3. **Three doc repairs**, all handed off by the engineer that found them. `LLMLL.md`'s `string-slice`
+   row needs the clamp behaviour, in the register its sibling `string-char-at` already uses. Its
+   `wasi.http.post` row says "POST body to URL" and the implementation discards the body and
+   publishes `RErr`, with no HTTP client in the generated package, so the cell must point at §13.9's
+   existing disclosure rather than assert a request that never happens; **do not delete the row**.
+   And `llmll-ast.schema.json`'s `description` enumerates 0.11.0 back to 0.7.0 while
+   `acceptedSchemaVersions` includes `0.6.0`, which now matters because the new rejection message
+   routes users to that field.
+4. **Two roadmap rows.** A new one for the compiler defect 4b found: **`wasi.proc.run`'s timeout does
+   not fire in a built program** (`--timeout 1` against a 30-second agent exits 0 with
+   `seconds: 30`; the binary reports `RTS way: rts_v`). **The row must record that adding
+   `ghc-options: -threaded` to the generated package did NOT move the RTS way**, or the next person
+   will spend the afternoon on the one-line fix that does not work. And `PROC-BOUNDARY-1`'s owed-items
+   list wants checking against proposal Rev 4.
+5. **The `DRIVER-LL` row is stale.** It was made current this morning when 4a was blocked. 4a and 4b
+   have both shipped since.
+
+**Do not renumber a bare version mention while doing this.** `docs/UPDATE-PROTOCOL.md` carries the
+rule and the precedent: a release pass once refreshed a bare `1.2.0` to `1.4.0` in place and
+destroyed a true attribution. A version gets an arrival verb or it is a currency claim.
 
 ## 8. Rev 8: SETTLED, and what it cost to wait
 
