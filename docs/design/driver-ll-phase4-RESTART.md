@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE. Current as of 2026-08-06, third session. Sub-phases 4a and 4b are SHIPPED and SUB-PHASE 4c IS IMPLEMENTED AND MERGED to main: stages D, F and G ported, arriving as four commits on driver-ll-4c/stages-d-f-g and fast-forwarded onto main from 0d3242b. 4c HAD NEVER BEEN THROUGH CI at the branch tip, zero runs, and pushing a branch runs nothing: version-gate.yml fires only on push to main and on pull requests targeting main. THE PR WAS DECLINED and 4c merged to main directly, AND THE MERGE PUSH PRODUCED NO ACTIONS RUN AT ALL: 6ecd68e is on main with zero workflow runs against it, so 4c IS ON MAIN AND STILL HAS NEVER BEEN THROUGH CI. Section 1 gives the measurement and the hypothesis. The proposal stands at Rev 10 and 4c does not move it. A RELEASE CEREMONY IS NOW DUE: nothing was owed while 4c sat on a branch and the merge is what makes it owed. Four items are open (§6): REGEX-LOWER-1, a new compiler defect with no roadmap row; §9.2 item 1's silence on 4c constructing ConditionUnmet; the driver README unupdated for D, F and G; and the v0.14.85 shipped row's uncorrected 120. Still untouched: 4d through 4f, and the largest owed item in the phase is still a fresh census for proposal §3.6's table, whose keys are knowingly stale. Delete when Phase 4 closes."
+status: "LIVE. Current as of 2026-08-06, third session. Sub-phases 4a and 4b are SHIPPED and SUB-PHASE 4c IS IMPLEMENTED AND MERGED to main: stages D, F and G ported, arriving as four commits on driver-ll-4c/stages-d-f-g and fast-forwarded onto main from 0d3242b. 4c HAD NEVER BEEN THROUGH CI at the branch tip, zero runs, and pushing a branch runs nothing: version-gate.yml fires only on push to main and on pull requests targeting main. THE PR WAS DECLINED and 4c merged to main directly, AND NO ACTIONS RUN FIRED: 4c IS ON MAIN AND HAS NEVER BEEN THROUGH CI, because GitHub Actions is in a MAJOR OUTAGE measured at 2026-08-06 ~18:50Z. That is external and nothing in this repository is implicated, but the outage does not make the merge safe, it makes it unverified. THE RELEASE CEREMONY IS HELD until a run lands, since its tag push feeds docker-publish and that cannot run either. Section 1 gives the measurement. The proposal stands at Rev 10 and 4c does not move it. A RELEASE CEREMONY IS NOW DUE: nothing was owed while 4c sat on a branch and the merge is what makes it owed. Four items are open (§6): REGEX-LOWER-1, a new compiler defect with no roadmap row; §9.2 item 1's silence on 4c constructing ConditionUnmet; the driver README unupdated for D, F and G; and the v0.14.85 shipped row's uncorrected 120. Still untouched: 4d through 4f, and the largest owed item in the phase is still a fresh census for proposal §3.6's table, whose keys are knowingly stale. Delete when Phase 4 closes."
 date: 2026-08-06
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -37,16 +37,22 @@ GitHub Actions suite at all**. Actions is enabled on the repository with `allowe
 is `push` to `main`, it declares no `workflow_dispatch`, and the head commit message carries no
 `[skip ci]`-family token. Every precondition for a run holds and no run exists.
 
-**The hypothesis, at n=1, and the test.** The one thing distinguishing this push from every green
-push before it is that **the same SHA had been pushed to `driver-ll-4c/stages-d-f-g` ninety seconds
-earlier**, where no workflow matches `branches: [main]`. So: Actions may evaluate a SHA once, and a
-second push of that same SHA to another ref does not re-evaluate it. **The commit carrying this
-paragraph is the test**, being a SHA that has never been a branch head, pushed to `main` alone. Its
-result belongs in the next commit that touches this file, stated as a result and not as a
-confirmation.
+**The cause is a GitHub Actions outage, and the first hypothesis was refuted by its own test.** The
+guess was that the same SHA having been pushed to `driver-ll-4c/stages-d-f-g` ninety seconds earlier
+left Actions unwilling to re-evaluate it on the `main` push. **That is wrong.** `a474e26`, a fresh
+SHA that had never been a branch head, was pushed to `main` alone and produced **zero runs across two
+minutes of polling**, which eliminates the push shape entirely. `githubstatus.com` then gives the
+actual cause: at 2026-08-06 ~18:50Z, **`Actions` and `Pages` are both in `major_outage`**. Nothing
+about this repository, this branch or this merge is implicated.
 
-**Do not repeat the shape.** Pushing a branch and then fast-forwarding `main` onto the same SHA is
-what produced an unexercised `main`. Push the branch or push `main`, not the same commit to both.
+**The operational consequence stands regardless of the cause.** `main` carries an unexercised 4c and
+will keep carrying it until Actions recovers and a fresh SHA is pushed. **The outage does not make
+the merge safe; it makes it unverified**, and those are different claims.
+
+**What this cost, and it is a method point rather than an incident.** The record asserted "4c's first
+CI run is the push that merged it" one commit before this one. That was an inference from a trigger
+declaration, not an observation of a run, and it was wrong within ten minutes. A declared trigger is
+not a run, in the same way `build_smoke.sh` stage 5b printing PASS was not an encoding test.
 
 **When a run does land, `build_smoke.sh` stage 8 is the one to read**: it builds the sequencer and
 drives the acceptance cover against the **built binary**, 4c moved its banner and its cover count
@@ -148,7 +154,7 @@ caller since v0.14.70.
 | 18 | **Rev 10**: fold F-18/F-19/F-20, new §3.6.1 and §9.2, replace 4c's acceptance clause | language-team | **done** (`43ddb95`) |
 | 19 | Reconcile `INDEX.md:74` and two roadmap rows to Rev 10 | documentation-lead | **done** (`8cd05ee`). `PROC-TIMEOUT-1`'s closure note discharged; it was half-discharged already |
 | **5c** | **Sub-phase 4c: stages D, F, G** | compiler-engineer | **done, IMPLEMENTED ON A BRANCH, NOT MERGED** (`36f6476`, `3dc0162`, `40d5958`, `b9904a6`). Cover 31 → 39 cells; `shape.llmll` SAFE first attempt; four findings, three of which corrected the plan or its predecessor |
-| **21** | **CI on 4c** | user | **STILL PENDING, and now the sharpest item in the queue.** The PR was declined and the merge push produced **no Actions run at all** (§1, measured). 4c is on `main` unexercised. The next push of a fresh SHA to `main` is what will produce a run |
+| **21** | **CI on 4c** | user | **STILL PENDING and BLOCKED EXTERNALLY.** The PR was declined, the merge push produced **no Actions run at all**, and the cause is a **GitHub Actions major outage** measured at 2026-08-06 ~18:50Z, not the push shape (§1). 4c is on `main` unexercised. Re-check `githubstatus.com`, then push a fresh SHA to `main` |
 | **22** | **The release ceremony 4c owes**: version bump, CHANGELOG entry, DRIVER-LL roadmap row | documentation-lead | **PENDING and now DUE, 4c being merged** (§9). No compiler change in it, so it records a driver sub-phase and not a language movement |
 | **23** | **`REGEX-LOWER-1` roadmap row** | documentation-lead | **PENDING.** A new compiler defect with no row anywhere; it exists in the 4c plan and one `sequencer.llmll` comment and nowhere else |
 | **24** | **§9.2 item 1 amendment** (4c constructs `ConditionUnmet`) plus the F-20 three-site amendment | language-team | **PENDING.** Neither changes 4c's code; both are document repairs the port earned |
@@ -158,10 +164,16 @@ caller since v0.14.70.
 
 ## 4. The next action
 
-**Get a CI run on `main` at all, then read stage 8, then do the release ceremony 4c owes.** 4c
-merged with no PR in front of it and the merge push produced no run (§1), so `main` currently carries
-an unexercised sub-phase. The next fresh SHA pushed to `main` is what produces the run, and until one
-lands, every statement about 4c's correctness rests on local gates alone.
+**Wait out the Actions outage, get a run on `main`, read stage 8, then do the release ceremony.** 4c
+merged with no PR in front of it, the merge push produced no run, and the cause is external (§1), so
+`main` currently carries an unexercised sub-phase and every statement about 4c's correctness rests on
+local gates alone.
+
+**The ceremony is held on purpose and not merely deferred.** Its last step is a `vX.Y.Z` tag push,
+which is what `docker-publish`'s publish job triggers on, and during the outage that job cannot run
+either. Tagging a release into an outage produces a tag with no published image and no gate behind
+it, which is a worse record than a release that waited. Order when Actions returns: fresh SHA to
+`main`, read the run, **then** ceremony.
 
 **The ceremony.** 4c is a feature and the pins are still 0.14.87 with no compiler change in them, so
 it owes a version bump, a CHANGELOG entry and the DRIVER-LL roadmap row. One fact about it, checked
@@ -360,13 +372,15 @@ merge.**
   'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
   the 4a plan. **It has a roadmap row now, `RESERVED-NAME-1`, OPEN**; this bullet said it had none,
   which was true when written and is not true at HEAD.
-- **Pushing a SHA to a branch and then fast-forwarding `main` onto it can leave `main` with no CI
-  run.** Measured once, on `6ecd68e`: branch push, then `main` push ninety seconds later, then zero
-  Actions runs against the commit while Actions was enabled, the workflow active, the trigger
-  matching and no skip token present (§1). Whatever the cause turns out to be, the safe habit is to
-  push the branch **or** push `main`, never the same commit to both, and to **check that a run exists
-  after any push to `main`** rather than assuming the trigger fired. `gh run list --branch main` is
-  the check, and `total_count` from `actions/runs?head_sha=` is the one that cannot be misread.
+- **A push to `main` is not a CI run, and the gap is checkable in one call.** Two pushes on
+  2026-08-06 produced zero runs while Actions was enabled, the workflow active, the trigger matching
+  and no skip token present; the cause was a GitHub Actions **major outage**, not anything in the
+  repository (§1). **Check that a run exists after any push to `main`** rather than assuming the
+  trigger fired: `total_count` from `actions/runs?head_sha=<sha>` is the reading that cannot be
+  misinterpreted, and `githubstatus.com/api/v2/components.json` distinguishes an outage from a
+  repository-side cause. The first hypothesis here, that pushing a SHA to a branch and then
+  fast-forwarding `main` onto it suppresses the run, was **refuted**: a fresh SHA pushed to `main`
+  alone behaved identically. Do not re-derive it.
 - **Running the driver drops `sequencer.event-log.jsonl` in the working directory.** It is untracked
   debris, not an artifact, and nothing reads it back. Delete it; do not commit it and do not reason
   from it.
