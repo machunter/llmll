@@ -377,7 +377,7 @@ merge.**
   and no skip token present; the cause was a GitHub Actions **major outage**, not anything in the
   repository (§1). **Check that a run exists after any push to `main`** rather than assuming the
   trigger fired: `total_count` from `actions/runs?head_sha=<sha>` is the reading that cannot be
-  misinterpreted, and `githubstatus.com/api/v2/components.json` distinguishes an outage from a
+  misinterpreted, and githubstatus.com's `components.json` endpoint distinguishes an outage from a
   repository-side cause. The first hypothesis here, that pushing a SHA to a branch and then
   fast-forwarding `main` onto it suppresses the run, was **refuted**: a fresh SHA pushed to `main`
   alone behaved identically. Do not re-derive it.
