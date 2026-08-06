@@ -85,17 +85,40 @@ shell demonstrates the tier's discipline over a handful of operations.
 
 [`spine.llmll`](spine.llmll) ports stages E, J, L and G2 over the committed TFTP data
 (DRIVER-LL Phase 3), and [`sequencer.llmll`](sequencer.llmll) ports the stage loop above them
-(Phase 4, sub-phases 4a and 4b): the sixteen-stage registry, the resume gate over
-`skip.may-skip`, the manifest row schema, two halt channels over `stage.record-outcome`, and
-the delegated-output validation of `validate.verdict-of` / `validate.verdict-outcome`. It
-receives its flags through `wasi.proc.args` and exits 0, 2 or 3 through the `:status`
-projection, so no shell sits between the acceptance criterion and the program.
+(Phase 4, sub-phases 4a, 4b and 4c): the sixteen-stage registry, the resume gate over
+`skip.may-skip`, the manifest row schema, two halt channels over `stage.record-outcome`, the
+delegated-output validation of `validate.verdict-of` / `validate.verdict-outcome`, and the
+content-shape validation of `shape.llmll`. It receives its flags through `wasi.proc.args` and
+exits 0, 2 or 3 through the `:status` projection, so no shell sits between the acceptance
+criterion and the program.
 
-**Three of the sixteen stage bodies are real.** B (scope), C (rubric) and I (pre-registration)
-read their inputs, render their prompt, spawn the agent through `wasi.proc.run`, and validate
-the declared output. The other thirteen write a stub to each artifact they declare, which is
-enough for every resume and outcome transition to be decided over real digests and a real
-completion record; `registry.stage-ported?` is the switch and carries the retirement schedule.
+**Six of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
+returns true for exactly six indices. B (scope), C (rubric) and I (pre-registration) landed at
+4b; D (extraction), F (core) and G (dispositions) at 4c. All six read their inputs, render their
+prompt, spawn the agent through `wasi.proc.run`, and validate the declared output. The other ten
+write a stub to each artifact they declare, which is enough for every resume and outcome
+transition to be decided over real digests and a real completion record;
+`registry.stage-ported?` is the switch and carries the retirement schedule.
+
+**Stage D is the first stage that delegates more than once**, which is why the registry tables
+take an invocation index and the run state grew a tag. It declares two outputs and runs two blind
+extractors over an identical isolated input set. The blindness is a driver-spec section 8 MUST
+and `audit_blindness` is what checks it, so provisioning that quietly differs between the two
+invocations defeats the obligation without failing anything. It did, twice, in this port, and
+neither `llmll check` nor `llmll verify` nor the cover as it stood could see either one. Only
+running the built driver did.
+
+**A third `Outcome` arm appears at 4c, and it is not a widening.** `check_dispositioned`'s
+barrier check is `require_spec` where its five siblings are `require`, so that halt is
+spec-defined and records `stopped` rather than `failed`. It routes through the sequencer's
+`halt-with … ConditionUnmet` channel and deliberately **not** through `validate.verdict-outcome`,
+which `[V7-NO-STOP]` forbids for the stages 4b ported, none of which has a spec-defined halt.
+`[V7-ONLY-TWO]` is a statement about `verdict-outcome`'s codomain rather than an invariant of the
+port, so it stays true as written and no proved post moved.
+
+**Three more budget-overrun halts are written and unreachable.** D, F and G each invoke an agent,
+and `wasi.proc.run`'s timeout does not fire in a built program (`PROC-TIMEOUT-1`, open). No cover
+cell claims to exercise them, which is the disclosure rather than the fix.
 
 The agent channel is `--agent-exe` plus repeatable `--agent-arg`, with `{prompt}`, `{out}` and
 `{workdir}` substituted per argument. It is deliberately **not** a shell template: passing the
@@ -104,9 +127,18 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh`; the checks that need no toolchain are in
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **39 cells** at 4c, from 31,
+the eight new ones being the content-shape family C1 through C7 plus C6b. The checks that need no
+toolchain are in
 [`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py) and
 [`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py).
+
+**4c added nothing to the no-toolchain tier, and that is disclosed rather than explained.** Its
+plan listed a `test_driver_ll_4c.py`; no such file exists and the Python suite is unchanged at
+132. Every check 4c added therefore needs a toolchain and a built binary, so on a machine without
+one, or while CI is unavailable, 4c has no automated coverage at all. The two provisioning
+defects above are cover cells C1 and C2, which is the same tier: the things only a run can catch
+are checked only by a run.
 
 ## The validation facility
 
@@ -130,17 +162,50 @@ A validator where the reference has none is new behaviour and does not ride in o
 I joins stage O and lands at 4f. `[V7-PRESENCE]` is what keeps "no floor" from becoming "no
 validation": an absent output is a rejection whatever the floor.
 
+## The content-shape channel
+
+[`shape.llmll`](shape.llmll) is 4c's proved module and the other half of the delegated-output
+obligation: `validate.llmll` decides presence and a declared byte floor, and this one decides
+whether the content has the shape the stage contract names, plus the barrier condition stage G
+enforces. Four defs, `extraction-conforms?`, `core-conforms?`, `dispositions-conform?` and
+`barrier-condition-met?`, all four body-faithful and SAFE on the first attempt.
+
+**Every parameter is a bool or an int, and that is the design rather than an accident of what was
+convenient.** `verdict-of` earns subject-neutrality structurally by taking no string; a content
+validator taking `Json` would forfeit it, since every row of every census would be in scope and
+nothing but review would stop a body from reading one. Passing facts instead of documents keeps
+the subject's bytes out of the proved core and keeps that core in QF-LIA. The extraction happens
+in the `def-shell` caller, where it is asserted rather than proved, and the split is the point.
+
+**`-1` in the floor table now means two different things and a reader must not collapse them.**
+For I and O it means the reference declares no validator at all, which is why neither gets one
+here. For D, F and G it means the stage contract declares a **shape** instead of a byte floor,
+carried through `stage-shape` rather than through the floor. 4c adds no floors, and that absence
+is measured off the reference rather than assumed from the pattern the earlier stages set.
+
+**`regex-match` is not used, and the reason is a compiler defect rather than a style choice.**
+`check_extraction`'s `^N\d+$` and `check_dispositioned`'s `^C[1-6]$` would port verbatim:
+`regex-match` exists, is typed, is documented, and its preamble implementation is emitted. A
+program calling it passes `check` and `verify` and then does not build. Both patterns are
+hand-rolled from `string-char-at` instead, exactly equivalent on their domains and using only
+Σ_auto-safe builtins, and the disclosure sits at the call site rather than in a commit message.
+Filed as `REGEX-LOWER-1`, whose roadmap row records that the affected population is larger than
+the one name and that only that one has been executed.
+
 ## The cruxes
 
-[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes 27 cases at v0.14.86: **thirteen**
-refuting mutants, one capability rejection, and thirteen `safe` verdicts of which one is the
-good twin. **Six of the thirteen mutants are not invented.** They are defects that shipped in
-the Python driver, or behaviour it still has, or behaviour every LLMLL console program had:
+[`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) freezes **31** cases: **sixteen** refuting
+mutants, one capability rejection, and fourteen `safe` verdicts of which one is the good twin.
+**Six of the sixteen mutants are not invented.** They are defects that shipped in the Python
+driver, or behaviour it still has, or behaviour every LLMLL console program had:
 
 (The counts above were taken from the file rather than incremented from the previous sentence,
-which said ten and was already short by one before sub-phase 4b touched it. A count stated
-without its epoch reads as current, and this is the third instance the DRIVER-LL line has
-recorded of exactly that.)
+which said ten and was already short by one before sub-phase 4b touched it, then said
+twenty-seven and was short by four once 4c added `shape.llmll` and its three cruxes. A count
+stated without its epoch reads as current, and this is the **fourth** instance the DRIVER-LL line
+has recorded of exactly that. The file's own `frozen_at` field is the same defect one level in:
+it reads `v0.14.86` while four cases were added after that release, and it cannot be corrected
+until 4c has a release of its own.)
 
 - `crux-skip-presence-only`: a stage was skipped whenever its outputs existed, so a failed
   freeze gate was bypassed by its own report.
@@ -168,6 +233,24 @@ refute:
   satisfies `[V7-PRESENCE]` and `[V7-FLOOR]` and refutes `[V7-NO-HARDCODE]`; without it, it also
   refutes `[V7-FLOOR]` and would be a mutant about floors wearing an anti-hardcoding label.
   Both directions measured.
+
+The three 4c cruxes guard the content-shape channel, and the first is the one worth the file:
+
+- `crux-shape-row-count-fitted`: a validator fitted to the census size one extractor produced.
+  Measured: four forward posts **SAFE**, `[D7-NO-HARDCODE]` **alone** refutes. **It needs no
+  second run to fail**, which is what distinguishes it from its `validate` cousin. Stage D runs
+  two blind extractors and the committed pair disagrees on census size, 119 normative rows
+  against 125, so a validator fitted to A rejects B inside the **same run**, on the stage whose
+  whole point is that neither extractor can see the other. Section 7:288-291's "the next run"
+  arrives one loop iteration later.
+- `crux-shape-accepts-malformed`: the converse direction, and the pair is why both exist. All
+  posts **SAFE** including the converse, `[D7-ROWS]` alone refutes. No forward post catches a
+  validator that rejects conforming input, and no converse post catches one that accepts too
+  much, so neither mutant alone would have shown the gap.
+- `crux-shape-barrier-vacuous`: refutes through **both** its posts and **does not claim to
+  discriminate**, `[G6-CLOSED]` being an equality between two booleans and so determining the
+  result entirely. `[G6-NOVACUOUS]` is a named consequence in the sense `[V7-NO-FLOOR]` is one,
+  stated separately for findability rather than as an independent obligation.
 
 The good twin, `twin-skip-reassociated`, is the same skip decision with its conjunction
 reassociated. It guards against a contract so strong that only one phrasing satisfies it.
