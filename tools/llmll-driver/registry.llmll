@@ -143,14 +143,13 @@
 ;; "smallest first" ordering was an authoring argument and shape.llmll already
 ;; discharged it; the landing order follows the pipeline.
 ;;
-;; THIS ROW IS STILL 4b's, DELIBERATELY. The tables below it are 4c's and are
-;; complete; the sequencer bodies that read them are not written yet. Flipping D,
-;; F and G here before those bodies exist would mark three stages ported whose
-;; delegation path does not know about tags, three-artifact preconditions, or
-;; content-shape checks -- a tree that compiles and lies. The flip is one line
-;; and it belongs in the same change as the bodies.
 (def-shell stage-ported? [i: int] -> bool
-  (if (= i 1) true (if (= i 2) true (if (= i 9) true false))))
+  (if (= i 1) true
+  (if (= i 2) true
+  (if (= i 3) true
+  (if (= i 5) true
+  (if (= i 6) true
+  (if (= i 9) true false)))))))
 
 ;; The byte floor the stage contract declares for the stage's declared output.
 ;; NEGATIVE means the contract declares no floor.
@@ -224,6 +223,31 @@
 
 (def-shell stage-tag-count [i: int] -> int
   (if (= i 3) 2 1))
+
+;; Whether the stage provisions an ISOLATED input set into each invocation's
+;; directory before delegating. Stage D only (:648-651), and its docstring is why:
+;; "Each extractor gets its own directory holding the pinned bytes and the rubric
+;; and nothing else." Named rather than derived from stage-tag-count, because
+;; provisioning and multiple invocations are different properties that happen to
+;; coincide at the one stage that has either.
+(def-shell stage-provision? [i: int] -> bool
+  (= i 3))
+
+;; Where the stage copies declared output j after validating it, or "".
+;;
+;; Stage D stages the pair "where reconcile.py expects them" (:662-665), which is
+;; a SECOND location for the same bytes: the declared outputs stay under
+;; 03-extraction and the copies are what stage E reads. Stage F and stage G then
+;; read the A-side copy (:706, :737-739), so this table is what makes the rest of
+;; the pipeline reachable at all -- F halts on an absent precondition without it,
+;; measured.
+(def-shell stage-stage-dir [i: int] -> string
+  (if (= i 3) "04-reconcile/data" ""))
+
+(def-shell stage-stage-dest [i: int j: int] -> string
+  (if (= i 3) (if (= j 0) "04-reconcile/data/extraction-a.json"
+                          "04-reconcile/data/extraction-b.json")
+      ""))
 
 ;; The extractor letter the prompt's {{extractor}} placeholder carries
 ;; (:654, `extractor=tag.upper()`). Empty for every stage that delegates once.

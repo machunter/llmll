@@ -60,16 +60,23 @@ def test_every_cover_scenario_mirrors_a_test_that_exists():
     """
     rig_tests = set(re.findall(r"^def (test_\w+)", RIG.read_text(), re.M))
     mirrored = _mirrored_names()
-    # Eleven transition cells, three corrupt-manifest shapes, and ONE 4b cell.
-    # The other fifteen 4b cells use `@local` rather than `@scenario`, because
-    # the reference reaches their conditions as a traceback, or does not have
-    # the flag, or the property is the port's facility's own; naming a mirror
-    # for those would be a fiction and would weaken this check rather than
-    # extend it. See `local()`'s docstring in the cover.
-    assert len(mirrored) == 15, (
-        "eleven transition cells, three corrupt-manifest shapes, and the one "
-        f"4b cell the reference also decides; found {len(mirrored)}")
-    assert len(set(mirrored)) == 15, "two scenarios claim the same mirror"
+    # Eleven transition cells, three corrupt-manifest shapes, ONE 4b cell, and
+    # TWO 4c cells. The other 4b and 4c cells use `@local` / `@local4c` rather
+    # than `@scenario`, because the reference reaches their conditions as a
+    # traceback, or does not have the flag, or the property is the port's
+    # facility's own; naming a mirror for those would be a fiction and would
+    # weaken this check rather than extend it. See `local()`'s docstring in the
+    # cover.
+    #
+    # The two 4c mirrors are the sub-phase's discriminating pair: the tag-b
+    # defect whose sibling is already valid (proposal section 3.6.1) and the
+    # closed-barrier condition, which is the one spec-defined halt in stage G and
+    # therefore the only `stopped` the sub-phase constructs.
+    assert len(mirrored) == 17, (
+        "eleven transition cells, three corrupt-manifest shapes, the one 4b "
+        "cell the reference also decides, and the two 4c cells it decides; "
+        f"found {len(mirrored)}")
+    assert len(set(mirrored)) == 17, "two scenarios claim the same mirror"
     missing = [n for n in mirrored if n not in rig_tests]
     assert not missing, (
         f"the cover mirrors tests that do not exist in {RIG.name}: {missing}")

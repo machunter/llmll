@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DRIVER-LL sub-phase 4a and 4b acceptance cover.
+"""DRIVER-LL sub-phase 4a, 4b and 4c acceptance cover.
 
 Drives the BUILT `sequencer` binary through the eleven-cell transition cover of
 `docs/design/driver-ll-phase4-proposal.md` section 2.3, the three
@@ -68,11 +68,64 @@ PROMPTS = REPO / "experiments" / "rfc-swarm" / "prompts"
 # draws and the reason `short-rubric` writes 300: it CLEARS stage B's floor and
 # FAILS stage C's, so a driver reading one stage's floor for another is caught.
 AGENT_STUB = r'''
-import os, pathlib, sys
+import json, os, pathlib, sys
 out    = pathlib.Path(sys.argv[1])
 prompt = pathlib.Path(sys.argv[2])
 mode   = os.environ.get("STUB_MODE", "ok")
 name   = out.name
+
+# Sub-phase 4c: D, F and G declare a SHAPE rather than a byte floor
+# (registry.stage-shape), so their stubs write schema-valid JSON and the padding
+# below would fail them for the wrong reason. The shapes mirror the rig's stub
+# (test_rfc_pipeline_integration.py:101-121) so both drivers are driven by the
+# same inputs and a divergence between them is a driver difference rather than a
+# harness one.
+def _rows(tag):
+    return [{"id": "%s%d" % (tag, i), "source": "SPEC",
+             "line_start": 2 + i, "line_end": 2 + i, "quote": "q",
+             "rule": "N%d" % (i + 1), "obligation": "obligation %d" % i}
+            for i in range(2)]
+
+if name == "extraction.json":
+    tag = "A" if "(extractor A)" in prompt.read_text(encoding="utf-8") else "B"
+    rows = _rows(tag)
+    # A DELEGATED-OUTPUT DEFECT: the span is a string where reconcile.py matches
+    # on integers. `bad-extraction-b` corrupts the SECOND extractor only, which
+    # is the only way to reach the halt with a valid SIBLING already on disk
+    # (proposal sec 3.6.1).
+    if mode == "bad-extraction" or (mode == "bad-extraction-b" and tag == "B"):
+        rows[0]["line_start"] = "2"
+    if mode == "empty-extraction":
+        rows = []
+    out.write_text(json.dumps(
+        {"extractor": tag, "normative": rows,
+         "excluded": [{"id": tag + "x", "source": "SPEC", "line_start": 1,
+                       "line_end": 1, "quote": "q", "rule": "X1",
+                       "reason": "preamble"}]}))
+    sys.exit(0)
+
+if name == "core.json":
+    # `bare-core` is the shape the reference TOLERATES and the port narrows away
+    # (finding F-20: no producer in the tree emits it).
+    out.write_text(json.dumps(["A0"] if mode == "bare-core"
+                              else {"core_ids": ["A0"],
+                                    "rationale": "the first obligation defines it"}))
+    sys.exit(0)
+
+if name == "inventory-dispositioned.json":
+    row = {"cid": "A0", "class": "C1", "disposition": "Encoded",
+           "reason": "encoded directly"}
+    if mode == "bad-barrier":
+        # driver-spec sec 6:229-231, the ONE spec-defined condition in stage G.
+        row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+               "barrier": "B9", "reason": "outside the closed list"}
+    if mode == "listed-barrier":
+        row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+               "barrier": "B5", "reason": "string structure"}
+    if mode == "bad-class":
+        row["class"] = "C9"
+    out.write_text(json.dumps({"rows": [row]}))
+    sys.exit(0)
 
 # "Silence is not success" (driver-spec sec 7:279) at a STAGE-level delegated
 # output: exit 0 having written nothing. AgentRunner.run is what catches it in
@@ -276,6 +329,14 @@ def local(cell: str, why: str):
         return fn
     return deco
 
+
+
+def local4c(cell: str, why: str):
+    """The 4c sibling of `local`, so the printed provenance stays accurate."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(4c, no reference counterpart) " + why, fn))
+        return fn
+    return deco
 
 @scenario("T1", "test_pipeline_runs_through_both_gates")
 def t1(b, wd):
@@ -696,6 +757,151 @@ def registry_drift(b, wd) -> None:
          f"{sorted(recorded ^ set(DECLARED))}")
 
 
+# ---------------------------------------------------------------------------
+# Sub-phase 4c: stages D, F and G.
+#
+# Section 9's 4c row, as replaced at Rev 10: the already-ported downstream stages
+# RUN over 4c's own output rather than pinned values reproducing over it. The
+# acceptance is therefore that E, and G2 and J, can run at all, which they cannot
+# unless D stages its pair where they read it.
+#
+# THE THIRD Outcome ARM APPEARS HERE. Every 4b cell asserts `clause` ABSENT
+# because no 4b halt is spec-defined. Stage G has one: check_dispositioned's
+# require_spec (:493) citing driver-spec sec 6:229-231. C5 asserts the clause
+# PRESENT, and C5b asserts the same check passes on a LISTED barrier, so the
+# condition is discriminating rather than always-firing.
+# ---------------------------------------------------------------------------
+
+def want_stopped(r: Run, key: str, clause: str) -> None:
+    want_rc(r, 2)
+    row = r.stages().get(key)
+    want(row is not None, f"stage {key} recorded no row at all:\n{r.out}")
+    want_halt_row(row, "stopped", "ConditionUnmet", clause=True)
+    want(row.get("clause") == clause,
+         f"a stopped row names the clause that authorised it: expected "
+         f"{clause!r}, got {row.get('clause')!r}")
+
+
+@local4c("C1", "stage D delegates TWICE and both extractors get an identical, "
+               "complete isolated input set; blindness is structural")
+def c1(b, wd):
+    r = drive(b, wd, "B,C,D")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["D"], "agent")
+    # The port logs STAGE lines, not per-delegation agent lines, so the evidence
+    # that two distinct invocations happened is the two rendered prompts: each
+    # carries its own extractor letter through {{extractor}} (:654).
+    for tag, letter in (("a", "A"), ("b", "B")):
+        pr = (wd / "03-extraction" / tag / "PROMPT.md").read_text(encoding="utf-8")
+        want("(extractor %s)" % letter in pr,
+             f"extractor {tag}'s prompt must be rendered with {letter!r}; "
+             f"a single rendering reused for both tags is the failure this "
+             f"catches")
+    sets = {}
+    for tag in ("a", "b"):
+        d = wd / "03-extraction" / tag
+        want(d.exists(), f"extractor {tag} has no directory at all")
+        sets[tag] = sorted(x.name for x in d.iterdir())
+    want(sets["a"] == sets["b"],
+         f"the two extractors must receive the SAME input set, got {sets}")
+    # Every FILE under 00-source, not just the .txt ones: the reference globs `*`
+    # and copies each file (:648-650), and audit_blindness's allowed set
+    # (:1836-1837) lists PROVENANCE.json among the legitimate inputs, so a
+    # .txt-only filter would drop an input the blindness audit expects.
+    pinned = sorted(x.name for x in (wd / "00-source").iterdir() if x.is_file())
+    want(len(pinned) > 1,
+         f"the premise: 00-source must hold more than one file for the unfiltered "
+         f"copy to be observable at all, got {pinned}")
+    for tag in ("a", "b"):
+        for need in pinned + ["rubric.md", "PROMPT.md"]:
+            want(need in sets[tag],
+                 f"extractor {tag} is missing {need}; it holds {sets[tag]} while "
+                 f"00-source holds {pinned}")
+
+
+@local4c("C2", "stage D stamps the extractor and the counts into its own "
+               "declared output, which check_extraction's mutation produces")
+def c2(b, wd):
+    r = drive(b, wd, "B,C,D")
+    want_rc(r, 0)
+    for tag, letter in (("a", "A"), ("b", "B")):
+        doc = json.loads((wd / "03-extraction" / tag / "extraction.json").read_text())
+        want(doc.get("extractor") == letter,
+             f"extractor {tag} output must be stamped {letter!r} (:657), got "
+             f"{doc.get('extractor')!r}")
+        want(doc.get("counts") == {"normative": len(doc["normative"]),
+                                   "excluded": len(doc["excluded"])},
+             f"check_extraction sets counts from the lists it validated "
+             f"(:425-427); got {doc.get('counts')!r}")
+
+
+@local4c("C3", "stage D stages the pair where the reconciler reads it, which is "
+               "what makes F and G reachable at all")
+def c3(b, wd):
+    r = drive(b, wd, "B,C,D,F,G")
+    want_rc(r, 0)
+    for tag in ("a", "b"):
+        f = wd / "04-reconcile" / "data" / ("extraction-%s.json" % tag)
+        want(f.exists(),
+             f"stage D copies its pair to the reconcile data directory "
+             f"(:662-665); without it stage F halts on an absent precondition")
+    for key in ("D", "F", "G"):
+        want_complete_row(r.stages()[key], "agent")
+
+
+@scenario("C4", "test_stage_D_records_failed_when_the_valid_sibling_is_already_written")
+def c4(b, wd):
+    """The second site where the two classification axes disagree.
+
+    A tag-B defect halts with extractor A's output present AND past validation,
+    so section 4:146's "wrote some of its artifacts" is satisfied by a valid
+    SIBLING. The artifact-state axis says `stopped`; the reference says `failed`,
+    and so does this port. Proposal section 3.6.1.
+    """
+    r = drive(b, wd, "B,C,D", mode="bad-extraction-b")
+    want_failed(r, "D", "does not meet the shape")
+    sib = json.loads((wd / "03-extraction" / "a" / "extraction.json").read_text())
+    want(len(sib.get("normative", [])) > 0 and sib.get("extractor") == "A",
+         "the premise that makes this cell differ from the tag-a case: the "
+         f"sibling is present AND valid when the halt lands, got {sib!r}")
+
+
+@local4c("C5", "stage F rejects the bare-array core the reference tolerates; the "
+               "narrowing of finding F-20, which has no producer in the tree")
+def c5(b, wd):
+    r = drive(b, wd, "B,C,D,F", mode="bare-core")
+    want_failed(r, "F", "non-empty core_ids list")
+
+
+@scenario("C6", "test_exclusion_outside_the_barrier_list_halts_the_run")
+def c6(b, wd):
+    """4c's THIRD Outcome arm, and the only spec-defined halt in the sub-phase.
+
+    check_dispositioned raises this one through require_spec rather than require
+    (:493), so it records `stopped` with its clause where the other five record
+    `failed`. It does NOT route through validate.verdict-outcome, whose
+    [V7-NO-STOP] forbids ConditionUnmet.
+    """
+    r = drive(b, wd, "B,C,D,F,G", mode="bad-barrier")
+    want_stopped(r, "G", "driver-spec sec 6:229-231")
+    want_in("not in the closed list", r)
+
+
+@local4c("C6b", "the barrier condition is DISCRIMINATING: a LISTED barrier "
+                "completes where an unlisted one stops")
+def c6b(b, wd):
+    r = drive(b, wd, "B,C,D,F,G", mode="listed-barrier")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["G"], "agent")
+
+
+@local4c("C7", "a disposition row whose class is outside C1..C6 records failed, "
+               "not stopped; five of check_dispositioned's six are `require`")
+def c7(b, wd):
+    r = drive(b, wd, "B,C,D,F,G", mode="bad-class")
+    want_failed(r, "G", "class C1 through C6")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--driver", default=os.environ.get("DRIVER_LL_BIN", ""))
@@ -736,7 +942,7 @@ def main() -> int:
         else:
             print(f"  workdirs kept under {root}")
 
-    print(f"DRIVER-LL 4a+4b cover: {npass} passed, {nfail} failed")
+    print(f"DRIVER-LL 4a+4b+4c cover: {npass} passed, {nfail} failed")
     return 1 if nfail else 0
 
 

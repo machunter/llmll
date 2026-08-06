@@ -193,6 +193,7 @@
   (import registry) (open registry)
   (import manifest) (open manifest)
   (import validate) (open validate)
+  (import shape)    (open shape)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -296,8 +297,25 @@
   ;;   Delegate   r is wasi.proc.run's exit status
   ;;   Outp       r is the read of the declared output
   ;;
-  ;; k, (start, (pre-text, (idx, (source-names, accumulated-source-text)))).
-  (type Body (| Body (int, (int, (string, (int, (list[string], string)))))))
+  ;; The two 4c arms provision stage D's isolated input set:
+  ;;
+  ;;   Prov       r is the UNFILTERED listing of 00-source
+  ;;   Copy       r is the copy of provisioned file `idx`
+  ;;
+  ;; k, (start, (pre-values, (idx, (names, (accumulated-source-text, tag))))).
+  ;;
+  ;; TWO 4c CHANGES, and both are smaller than they look.
+  ;;
+  ;; `pre-text: string` becomes `pre-values: list[string]`, so the arity grows by
+  ;; the tag alone rather than by two fields. Stage G reads THREE precondition
+  ;; artifacts where 4b's three stages read one, and no separate precondition
+  ;; index is needed either: the number read so far is (list-length pre-values).
+  ;;
+  ;; `tag` is the invocation index. Only stage D has more than one (:645-659).
+  ;; The Copy loop REUSES `names` and `idx`, which is sound because it runs after
+  ;; the Src loop has finished with them and left its result in the accumulator;
+  ;; `acc` and `pre-values` are what survive into rendering.
+  (type Body (| Body (int, (int, (list[string], (int, (list[string], (string, int))))))))
 
   (type Phase
     (| Boot     int)
@@ -307,6 +325,8 @@
     (| Pre      Body)
     (| Srcs     Body)
     (| Src      Body)
+    (| Prov     Body)
+    (| Copy     Body)
     (| Tmpl     Body)
     (| Delegate Body)
     (| Outp     Body)
@@ -371,30 +391,44 @@
   (def-shell mk-dg [k: int j: int present: bool matched: bool names: string] -> Phase
     (Digest (pair k (pair j (pair present (pair matched names))))))
 
-  ;; The 4b body payload. Written once, per the note on the Phase type.
+  ;; The body payload. Written once, per the note on the Phase type.
   (def-shell b-k [b: Body] -> int
     (match b ((Body p) (first p))))
   (def-shell b-start [b: Body] -> int
     (match b ((Body p) (first (second p)))))
-  (def-shell b-pre [b: Body] -> string
+  (def-shell b-pvals [b: Body] -> list[string]
     (match b ((Body p) (first (second (second p))))))
   (def-shell b-idx [b: Body] -> int
     (match b ((Body p) (first (second (second (second p)))))))
   (def-shell b-names [b: Body] -> list[string]
     (match b ((Body p) (first (second (second (second (second p))))))))
   (def-shell b-acc [b: Body] -> string
-    (match b ((Body p) (second (second (second (second (second p))))))))
+    (match b ((Body p) (first (second (second (second (second (second p)))))))))
+  (def-shell b-tag [b: Body] -> int
+    (match b ((Body p) (second (second (second (second (second (second p)))))))))
 
-  (def-shell mk-body [k: int start: int pretext: string idx: int
-                      names: list[string] acc: string] -> Body
-    (Body (pair k (pair start (pair pretext (pair idx (pair names acc)))))))
+  (def-shell mk-body [k: int start: int pvals: list[string] idx: int
+                      names: list[string] acc: string tag: int] -> Body
+    (Body (pair k (pair start (pair pvals (pair idx (pair names (pair acc tag))))))))
 
-  (def-shell b-with-pre [b: Body pretext: string] -> Body
-    (mk-body (b-k b) (b-start b) pretext (b-idx b) (b-names b) (b-acc b)))
+  ;; How many precondition artifacts this body has read. The Pre loop's index.
+  (def-shell b-pcount [b: Body] -> int
+    (list-length (b-pvals b)))
+
+  (def-shell b-add-pval [b: Body v: string] -> Body
+    (mk-body (b-k b) (b-start b) (list-append (b-pvals b) v)
+             (b-idx b) (b-names b) (b-acc b) (b-tag b)))
   (def-shell b-with-names [b: Body names: list[string]] -> Body
-    (mk-body (b-k b) (b-start b) (b-pre b) 0 names (b-acc b)))
+    (mk-body (b-k b) (b-start b) (b-pvals b) 0 names (b-acc b) (b-tag b)))
   (def-shell b-advance [b: Body acc: string] -> Body
-    (mk-body (b-k b) (b-start b) (b-pre b) (+ (b-idx b) 1) (b-names b) acc))
+    (mk-body (b-k b) (b-start b) (b-pvals b) (+ (b-idx b) 1) (b-names b) acc (b-tag b)))
+
+  ;; The next invocation of the same stage. Stage D only. `acc` and the
+  ;; precondition values are KEPT: the reference reads the pinned sources and the
+  ;; rubric once, before the loop (:642-643), and re-reads only the prompt
+  ;; template per tag, which is what re-entering Tmpl does.
+  (def-shell b-next-tag [b: Body] -> Body
+    (mk-body (b-k b) (b-start b) (b-pvals b) 0 (b-names b) (b-acc b) (+ (b-tag b) 1)))
 
   (def-shell md-k [d: (int, (int, int))] -> int (first d))
   (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
@@ -561,11 +595,14 @@
   ;; output, measured against the reference at every ported stage: B writes
   ;; 01-scope/scope.md and delegates in 01-scope (:575-578), C 02-rubric
   ;; (:590-592), I 08-prereg (:1060-1065).
-  (def-shell agent-dir [c: Cfg i: int] -> string
-    (art-dir c i 0))
+  ;; Takes the invocation index for stage D, whose two extractors delegate in
+  ;; 03-extraction/a and 03-extraction/b (:646). For every stage that delegates
+  ;; once this is art-dir c i 0, unchanged.
+  (def-shell agent-dir [c: Cfg i: int j: int] -> string
+    (art-dir c i j))
 
-  (def-shell prompt-file [c: Cfg i: int] -> string
-    (string-concat (agent-dir c i) "/PROMPT.md"))
+  (def-shell prompt-file [c: Cfg i: int j: int] -> string
+    (string-concat (agent-dir c i j) "/PROMPT.md"))
 
   (def-shell tmpl-file [c: Cfg i: int] -> string
     (string-concat-many [(ag-prompts (cfg-agent c)) "/" (stage-prompt i)]))
@@ -913,21 +950,48 @@
     (go rn (Tmpl b)
         (wasi.fs.read (tmpl-file (cfg-of rn) (idx-at rn (b-k b))))))
 
+  ;; Stage D provisions its extractor's isolated input set before delegating
+  ;; (:648-651). Every other stage goes straight to the template.
+  ;; THE MKDIR IS NOT OPTIONAL AND ITS ABSENCE IS SILENT. The reference creates
+  ;; the extractor's directory with ctx.dir (:646) BEFORE copying into it. The
+  ;; copies and the rubric write are unchecked here, as shutil.copy2 is there, so
+  ;; a missing directory does not halt: it leaves the agent an empty working
+  ;; directory and the run continues. Measured at v0.14.87 -- without this mkdir
+  ;; both extractor directories held only PROMPT.md and the two logs, because
+  ;; delegate-cmd's own mkdir runs after the provisioning rather than before it.
+  ;; mkdir creates parents and is RNone on an existing directory, both measured,
+  ;; so it is a no-op on the second tag's re-entry.
+  (def-shell prov-cmd [rn: Run i: int j: int] -> Command
+    (seq-commands
+      (wasi.fs.mkdir (agent-dir (cfg-of rn) i j))
+      (wasi.fs.list (wd-path (cfg-of rn) "00-source"))))
+
+  (def-shell to-prov [rn: Run b: Body] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (if (stage-provision? i)
+          (go rn (Prov b) (prov-cmd rn i (b-tag b)))
+          (to-tmpl rn b))))
+
   (def-shell after-pre [rn: Run b: Body] -> ((Run, Phase), Command)
     (if (stage-needs-src? (idx-at rn (b-k b)))
         (to-srcs rn b)
-        (to-tmpl rn b)))
+        (to-prov rn b)))
 
   (def-shell fresh-body [k: int start: int] -> Body
-    (mk-body k start "" 0 (list-empty) ""))
+    (mk-body k start (list-empty) 0 (list-empty) "" 0))
 
-  ;; A stage with no precondition artifact goes straight past Pre.
+  ;; A stage with no precondition artifact goes straight past Pre. One with
+  ;; several re-enters Pre until it has read them all; see pre-step.
+  (def-shell to-pre [rn: Run b: Body] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (if (>= (b-pcount b) (stage-pre-count i))
+          (after-pre rn b)
+          (go rn (Pre b)
+              (wasi.fs.read (wd-path (cfg-of rn)
+                                     (stage-pre-path i (b-pcount b))))))))
+
   (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Phase), Command)
-    (let [(i (idx-at rn k))]
-      (if (string-empty? (stage-pre-path i 0))
-          (after-pre rn (fresh-body k start))
-          (go rn (Pre (fresh-body k start))
-              (wasi.fs.read (wd-path (cfg-of rn) (stage-pre-path i 0)))))))
+    (to-pre rn (fresh-body k start)))
 
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Phase), Command)
     (if (halts-pre? rn k)
@@ -943,25 +1007,53 @@
   ;; stage B's parse, which the reference performs with read_json and which
   ;; therefore fails there too, as a traceback rather than as a decision.
 
-  (def-shell pre-detail [i: int what: string] -> string
+  (def-shell pre-detail [i: int j: int what: string] -> string
     (string-concat-many
-      ["stage " (stage-key i) ": " (stage-pre-path i 0) " " what
+      ["stage " (stage-key i) ": " (stage-pre-path i j) " " what
        ". The stage cannot be delegated without it; run the stage that "
        "produces it, or delete its manifest row to re-run."]))
 
+  ;; What the artifact contributes to the prompt, per stage-pre-mode. RAW is the
+  ;; text; PARSE re-serializes the whole document, which is what the reference's
+  ;; json.dumps(prov) does (:577); PROJECT re-serializes one named member, which
+  ;; is what read_json(...)["normative"] and ["core_ids"] do (:710, :731-732).
+  ;;
+  ;; An empty result means REJECTED, and no legitimate projection is empty: a
+  ;; serialized JSON value is at minimum two characters, and mode RAW is only
+  ;; reached for artifacts whose absence is already a separate condition.
+  (def-shell pre-project [i: int j: int t: string] -> string
+    (if (= (stage-pre-mode i j) 0)
+        t
+        (match (json-parse t)
+          ((Success v)
+            (if (= (stage-pre-mode i j) 1)
+                (json-serialize v)
+                (match (json-get v (stage-pre-proj i j))
+                  ((Success m) (json-serialize m))
+                  ((Error _)   ""))))
+          ((Error _) ""))))
+
+  (def-shell pre-why [i: int j: int] -> string
+    (if (= (stage-pre-mode i j) 1)
+        "does not parse as JSON"
+        (string-concat-many
+          ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
+           "\" member"])))
+
   (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
     (let [(i (idx-at rn (b-k b)))]
-      (match r
-        ((RText t)
-          (if (and (= (stage-pre-mode i 0) 1) (not (is-ok (json-parse t))))
-              (halt-verdict rn (b-k b) Malformed
-                            (pre-detail i "does not parse as JSON"))
-              (after-pre rn (b-with-pre b t))))
-        ((RErr _)  (halt-verdict rn (b-k b) Absent
-                                 (pre-detail i "is absent or is not readable text")))
-        ((RNone)   (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable")))
-        ((RCode _) (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable")))
-        ((RList _) (halt-verdict rn (b-k b) Absent (pre-detail i "was not readable"))))))
+      (let [(j (b-pcount b))]
+        (match r
+          ((RText t)
+            (let [(v (pre-project i j t))]
+              (if (string-empty? v)
+                  (halt-verdict rn (b-k b) Malformed (pre-detail i j (pre-why i j)))
+                  (to-pre rn (b-add-pval b v)))))
+          ((RErr _)  (halt-verdict rn (b-k b) Absent
+                       (pre-detail i j "is absent or is not readable text")))
+          ((RNone)   (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))
+          ((RCode _) (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))
+          ((RList _) (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))))))
 
   ;; ---- Srcs and Src ----------------------------------------------------
 
@@ -997,7 +1089,7 @@
   (def-shell src-next [rn: Run b2: Body] -> ((Run, Phase), Command)
     (if (< (b-idx b2) (list-length (b-names b2)))
         (go rn (Src b2) (wasi.fs.read (src-path (cfg-of rn) (src-name b2))))
-        (to-tmpl rn b2)))
+        (to-prov rn b2)))
 
   (def-shell src-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
     (match r
@@ -1016,6 +1108,68 @@
       ((RCode _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
       ((RList _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))))
 
+  ;; ---- Prov and Copy ---------------------------------------------------
+  ;;
+  ;; Stage D's isolated input set (:648-651): the pinned bytes and the rubric
+  ;; and nothing else, per extractor. Its docstring calls blindness STRUCTURAL,
+  ;; and this is the structure.
+  ;;
+  ;; THE LISTING IS UNFILTERED, and reusing names-of here would be a defect.
+  ;; That function keeps only `.txt` (:970) because _sources_text globs `*.txt`
+  ;; (:624). The reference's provisioning loop globs `*` and copies every FILE
+  ;; (:648-650), and audit_blindness's allowed set (:1836-1837) lists
+  ;; PROVENANCE.json among the legitimate inputs, so filtering would drop an
+  ;; input the blindness audit expects to find.
+  ;;
+  ;; The copy is unchecked, like the reference's shutil.copy2. A failure surfaces
+  ;; at the agent, which cannot cite bytes that are not there, and then at the
+  ;; stage's own output validation. Guarding it would invent a halt the reference
+  ;; does not have.
+  ;;
+  ;; audit_blindness itself is NOT ported: FS-ISOLATION-1, disclosed in
+  ;; proposal section 14, so nothing here re-checks that the copy was faithful.
+
+  (def-shell prov-names [r: Response] -> list[string]
+    (match r
+      ((RList xs) xs)
+      ((RText _)  (list-empty))
+      ((RErr _)   (list-empty))
+      ((RNone)    (list-empty))
+      ((RCode _)  (list-empty))))
+
+  ;; The rubric write that closes the provisioning (:651). Stage D's single
+  ;; precondition value IS the rubric text, mode RAW.
+  (def-shell rubric-cmd [rn: Run b: Body] -> Command
+    (let [(i (idx-at rn (b-k b)))]
+      (wasi.fs.write
+        (string-concat (agent-dir (cfg-of rn) i (b-tag b)) "/rubric.md")
+        (unwrap-or (list-nth (b-pvals b) 0) ""))))
+
+  (def-shell copy-next [rn: Run b: Body] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (if (< (b-idx b) (list-length (b-names b)))
+          (go rn (Copy b)
+              (wasi.fs.copy
+                (src-path (cfg-of rn) (src-name b))
+                (string-concat-many [(agent-dir (cfg-of rn) i (b-tag b)) "/"
+                                     (src-name b)])))
+          ;; The rubric write closes the provisioning and the template read is
+          ;; what the Tmpl arm is waiting for. seq-commands is discard-left, so
+          ;; the response delivered is the READ's and the write's is dropped,
+          ;; exactly as delegate-cmd pairs the prompt write with the agent run.
+          (go rn (Tmpl b)
+              (seq-commands (rubric-cmd rn b)
+                            (wasi.fs.read (tmpl-file (cfg-of rn) i)))))))
+
+  ;; The directory has to exist before anything is copied into it. mkdir creates
+  ;; parents and is RNone on an existing directory, both measured, so this is a
+  ;; no-op on the second tag's re-entry.
+  (def-shell prov-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (copy-next rn (b-with-names b (prov-names r))))
+
+  (def-shell copy-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+    (copy-next rn (b-advance b (b-acc b))))
+
   ;; ---- Tmpl ------------------------------------------------------------
   ;;
   ;; Ctx.prompt (:535-541): substitute each keyword, then reject any
@@ -1023,32 +1177,44 @@
   ;; keyword order, because a value carrying a later placeholder would be
   ;; expanded by it: rfc_text then provenance for B (:576-577), rfc_text for C
   ;; (:591), scope then barriers for I (:1062-1064).
+  ;;
+  ;; 4c: the barriers CONSTANT is substituted before the precondition values
+  ;; rather than fourth of five as stage G's keyword order has it (:735-742).
+  ;; That cannot change a result: barriers-json is a compile-time constant
+  ;; carrying no placeholder, so no ordering of it against the artifact values
+  ;; can expand one of them. Strictly safer than the reference's order, and
+  ;; disclosed rather than silent.
 
-  (def-shell render [i: int tpl: string src: string pretext: string] -> string
+  (def-shell render [i: int j: int tpl: string src: string
+                     pvals: list[string]] -> string
     (let [(t1 (if (stage-needs-src? i) (replace-all tpl "{{rfc_text}}" src) tpl))]
-      (let [(t2 (if (string-empty? (stage-pre-key i 0))
-                    t1
-                    (replace-all t1 (stage-pre-key i 0) pretext)))]
-        (if (stage-needs-barriers? i)
-            (replace-all t2 "{{barriers}}" (barriers-json))
-            t2))))
+      (let [(t2 (if (stage-needs-barriers? i)
+                    (replace-all t1 "{{barriers}}" (barriers-json))
+                    t1))]
+        (let [(t3 (if (string-empty? (stage-tag-upper i j))
+                      t2
+                      (replace-all t2 "{{extractor}}" (stage-tag-upper i j))))]
+          (list-fold (range 0 (stage-pre-count i)) t3
+            (fn [acc: string n: int]
+              (replace-all acc (stage-pre-key i n)
+                           (unwrap-or (list-nth pvals n) ""))))))))
 
   ;; The prompt write, then the agent, in one seq-commands. RC-2 is
   ;; discard-left, so the response the Delegate arm receives is the RUN's and
   ;; the write's is dropped -- which mirrors the reference, whose
   ;; prompt_path.write_text (:299) is likewise unchecked.
-  (def-shell delegate-cmd [rn: Run i: int rendered: string] -> Command
+  (def-shell delegate-cmd [rn: Run i: int j: int rendered: string] -> Command
     (let [(c (cfg-of rn))]
-      (let [(dir (agent-dir c i))]
+      (let [(dir (agent-dir c i j))]
         (seq-commands
           (wasi.fs.mkdir dir)
           (seq-commands
-            (wasi.fs.write (prompt-file c i) rendered)
+            (wasi.fs.write (prompt-file c i j) rendered)
             (wasi.proc.run
               (ag-exe (cfg-agent c))
               (list-map (ag-args (cfg-agent c))
-                (fn [a: string] (subst-arg a (prompt-file c i)
-                                             (art-path c i 0) dir)))
+                (fn [a: string] (subst-arg a (prompt-file c i j)
+                                             (art-path c i j) dir)))
               dir
               (string-concat dir "/agent.stdout.log")
               (string-concat dir "/agent.stderr.log")
@@ -1058,13 +1224,13 @@
     (let [(i (idx-at rn (b-k b)))]
       (match r
         ((RText tpl)
-          (let [(rendered (render i tpl (b-acc b) (b-pre b)))]
+          (let [(rendered (render i (b-tag b) tpl (b-acc b) (b-pvals b)))]
             (if (string-contains rendered "{{")
                 (halt-verdict rn (b-k b) Malformed
                   (string-concat-many
                     ["prompt " (stage-prompt i) ": unfilled placeholders remain "
                      "after substitution"]))
-                (go rn (Delegate b) (delegate-cmd rn i rendered)))))
+                (go rn (Delegate b) (delegate-cmd rn i (b-tag b) rendered)))))
         ((RErr _)  (halt-verdict rn (b-k b) Absent
                      (string-concat-many
                        ["prompt " (stage-prompt i) ": not readable under "
@@ -1091,22 +1257,181 @@
       (match r
         ((RCode c)
           (if (= c 0)
-              (go rn (Outp b) (wasi.fs.read (art-path (cfg-of rn) i 0)))
+              (go rn (Outp b) (wasi.fs.read (art-path (cfg-of rn) i (b-tag b))))
               (halt-errored rn (b-k b)
                 (string-concat-many
-                  ["agent[" (stage-agent-label i 0) "] exited " (int-to-string c)
-                   "; see " (agent-dir (cfg-of rn) i) "/agent.stderr.log"]))))
+                  ["agent[" (stage-agent-label i (b-tag b)) "] exited "
+                   (int-to-string c)
+                   "; see " (agent-dir (cfg-of rn) i (b-tag b))
+                   "/agent.stderr.log"]))))
         ((RErr e)
           (halt-errored rn (b-k b)
             (string-concat-many
-              ["agent[" (stage-agent-label i 0) "] did not complete within its "
+              ["agent[" (stage-agent-label i (b-tag b))
+               "] did not complete within its "
                (int-to-string (ag-timeout (cfg-agent (cfg-of rn))))
                "s budget, or could not be started (" e "). Its partial work is "
-               "in " (agent-dir (cfg-of rn) i) ". Re-run this stage with a "
+               "in " (agent-dir (cfg-of rn) i (b-tag b))
+               ". Re-run this stage with a "
                "larger --timeout, or treat the overrun as a finding."])))
         ((RText _) (halt-errored rn (b-k b) "agent produced no exit status"))
         ((RNone)   (halt-errored rn (b-k b) "agent produced no exit status"))
         ((RList _) (halt-errored rn (b-k b) "agent produced no exit status")))))
+
+  ;; ---- content-shape extraction (4c) -----------------------------------
+  ;;
+  ;; The shell half of shape.llmll. Everything that touches a string or a Json
+  ;; is here; the four proved decisions take only bool and int. That split is
+  ;; what keeps the regexes out of the proved core, which LLMLL.md:326 and :356
+  ;; require: regex-match is outside Sigma_auto, so a proved def calling it
+  ;; would fall to erBodyFallback and forfeit the body-faithful claim.
+  ;;
+  ;; THE TWO PATTERN CHECKS ARE HAND-ROLLED, AND NOT BY CHOICE. `regex-match` is
+  ;; a documented builtin (LLMLL.md:326), is in the type environment
+  ;; (TypeCheck.hs:143), and its preamble implementation is emitted
+  ;; (CodegenHs.hs:395-396) -- and a program calling it DOES NOT BUILD. Measured
+  ;; at v0.14.87: `llmll check` and `llmll verify` both pass, then GHC fails with
+  ;; "Variable not in scope: regex". Parser.hs:943 lists regex-match among the
+  ;; OPERATORS beside and/or/=>, so it is parsed as an operator and emitted
+  ;; infix with its hyphen unmangled, and unlike and/or it has no infix
+  ;; lowering. Its in-tree firing population was ZERO before this module, which
+  ;; is why a typed, documented, preamble-backed builtin was never code-generated
+  ;; once. Filed as `REGEX-LOWER-1`; 4c does not work around it silently.
+  ;;
+  ;; Both replacements are EXACTLY equivalent on their domains, not
+  ;; approximations. `^C[1-6]$` is a six-element membership test, which is the
+  ;; pattern's extension. `^N\d+$` is the letter N followed by at least one
+  ;; digit, checked position by position; `\d` and `[0-9]` agree on every rule
+  ;; identifier stage C authors, and the scan uses only Sigma_auto-safe builtins,
+  ;; so these predicates could move into a proved def where a regex could not.
+
+  (def-shell arr-of [v: Json k: string] -> list[Json]
+    (match (json-get v k)
+      ((Success a) (unwrap-or (json-array a) (list-empty)))
+      ((Error _)   (list-empty))))
+
+  (def-shell has-arr? [v: Json k: string] -> bool
+    (match (json-get v k)
+      ((Success a) (is-ok (json-array a)))
+      ((Error _)   false)))
+
+  (def-shell key-there? [r: Json k: string] -> bool
+    (is-ok (json-get r k)))
+
+  (def-shell str-at [r: Json k: string] -> string
+    (unwrap-or (json-get-string r k) ""))
+
+  (def-shell nonempty-str? [r: Json k: string] -> bool
+    (not (string-empty? (str-at r k))))
+
+  ;; `^N\d+$` (:422), position by position. The length guard is the `+`: a bare
+  ;; "N" has no digits and the fold over an empty range would otherwise answer
+  ;; true.
+  (def-shell digit-at? [s: string n: int] -> bool
+    (string-contains "0123456789" (string-char-at s n)))
+
+  (def-shell rule-ok? [s: string] -> bool
+    (and (> (string-length s) 1)
+         (and (= (string-char-at s 0) "N")
+              (list-fold (range 1 (string-length s)) true
+                (fn [acc: bool n: int] (and acc (digit-at? s n)))))))
+
+  ;; `^C[1-6]$` (:490) as its extension, which is six strings.
+  (def-shell class-ok? [s: string] -> bool
+    (list-contains
+      (list-prepend "C1" (list-prepend "C2" (list-prepend "C3"
+        (list-prepend "C4" (list-prepend "C5" (list-prepend "C6" (list-empty)))))))
+      s))
+
+  ;; check_extraction's five per-row clauses (:403-424) as one predicate. The
+  ;; seven required keys, integer line bounds, the bounds in order, and the rule
+  ;; pattern. A non-string `rule` is rejected here where the reference would
+  ;; str() it first (:422); disclosed, and no producer in the tree emits one.
+  (def-shell extr-row-ok? [r: Json] -> bool
+    (and (key-there? r "id")
+    (and (key-there? r "source")
+    (and (key-there? r "quote")
+    (and (key-there? r "obligation")
+    (and (is-ok (json-get-int r "line_start"))
+    (and (is-ok (json-get-int r "line_end"))
+    (and (<= (unwrap-or (json-get-int r "line_start") 0)
+             (unwrap-or (json-get-int r "line_end") 0))
+         (rule-ok? (str-at r "rule"))))))))))
+
+  ;; DISPOSITIONS (:98), the closed four.
+  (def-shell dispositions [] -> list[string]
+    (list-prepend "Encoded"
+      (list-prepend "Deployment-modeled"
+        (list-prepend "Vectored"
+          (list-prepend "Dispositioned out" (list-empty))))))
+
+  ;; BARRIERS' keys (:87-96), the closed eight.
+  (def-shell barrier-keys [] -> list[string]
+    (list-prepend "B1" (list-prepend "B2" (list-prepend "B3"
+      (list-prepend "B4" (list-prepend "B5" (list-prepend "B6"
+        (list-prepend "B7" (list-prepend "B8" (list-empty))))))))))
+
+  (def-shell row-cid [r: Json] -> string
+    (if (nonempty-str? r "cid") (str-at r "cid") (str-at r "id")))
+
+  ;; check_dispositioned's five `require` clauses (:486-499). NOT its
+  ;; require_spec (:493), which is the barrier condition and records `stopped`.
+  (def-shell disp-row-ok? [r: Json] -> bool
+    (and (not (string-empty? (row-cid r)))
+    (and (list-contains (dispositions) (str-at r "disposition"))
+    (and (class-ok? (str-at r "class"))
+         (nonempty-str? r "reason")))))
+
+  (def-shell excluded? [r: Json] -> bool
+    (= (str-at r "disposition") "Dispositioned out"))
+
+  (def-shell cites-listed-barrier? [r: Json] -> bool
+    (list-contains (barrier-keys) (str-at r "barrier")))
+
+  (def-shell is-passed [v: Verdict] -> bool
+    (match v ((Passed) true) ((Absent) false) ((Malformed) false)))
+
+  ;; The stage's content-shape verdict, per registry.stage-shape. Passed when the
+  ;; stage declares no shape, which is every stage 4b ported.
+  (def-shell shape-verdict [i: int t: string] -> Verdict
+    (if (= (stage-shape i) 0)
+        Passed
+        (match (json-parse t)
+          ((Error _) Malformed)
+          ((Success v)
+            (if (= (stage-shape i) 1)
+                (let [(rows (arr-of v "normative"))]
+                  (if (extraction-conforms? (is-ok (json-get v "normative"))
+                                            (has-arr? v "normative")
+                                            (has-arr? v "excluded")
+                                            (list-length rows)
+                                            (list-length (list-filter rows (fn [r: Json] (extr-row-ok? r)))))
+                      Passed Malformed))
+            (if (= (stage-shape i) 2)
+                (if (core-conforms? (has-arr? v "core_ids")
+                                    (list-length (arr-of v "core_ids")))
+                    Passed Malformed)
+                (let [(rows (arr-of v "rows"))]
+                  (if (dispositions-conform? (has-arr? v "rows")
+                                             (list-length rows)
+                                             (list-length (list-filter rows (fn [r: Json] (disp-row-ok? r)))))
+                      Passed Malformed))))))))
+
+  ;; Stage G's ONE spec-defined condition (:493), driver-spec sec 6:229-231.
+  ;; Separate from shape-verdict because its disposition is `stopped`, and it
+  ;; therefore does NOT go through validate.verdict-outcome, whose [V7-NO-STOP]
+  ;; forbids ConditionUnmet. Proposal section 9.2 item 1 does not record that 4c
+  ;; constructs this arm; shape.llmll's header does.
+  (def-shell barrier-met? [i: int t: string] -> bool
+    (if (not (= (stage-shape i) 3))
+        true
+        (match (json-parse t)
+          ((Error _) true)
+          ((Success v)
+            (let [(ex (list-filter (arr-of v "rows") (fn [r: Json] (excluded? r))))]
+              (barrier-condition-met?
+                (list-length ex)
+                (list-length (list-filter ex (fn [r: Json] (cites-listed-barrier? r))))))))))
 
   ;; ---- Outp ------------------------------------------------------------
   ;;
@@ -1115,46 +1440,152 @@
   ;; CONTRACT declares, and the Verdict is handed to verdict-outcome. Nothing
   ;; in this function decides what a failing output does; it decides what the
   ;; operator is told it was.
+  ;;
+  ;; 4c adds the content-shape verdict beside the floor verdict and the barrier
+  ;; condition beside both. The three combine here rather than inside any of
+  ;; them: a stage fails validation if EITHER verdict rejects, and stops if the
+  ;; barrier condition is unmet.
+
+  (def-shell shape-detail [i: int] -> string
+    (if (= (stage-shape i) 1)
+        (string-concat-many
+          ["stage " (stage-key i) ": " (base-of (stage-out i 0))
+           " does not meet the shape reconcile.py consumes: it must be an object "
+           "carrying non-empty `normative` and `excluded` lists, and every "
+           "normative row must carry the seven required keys with integer line "
+           "bounds in order and a rule matching N followed by digits"])
+    (if (= (stage-shape i) 2)
+        (string-concat-many
+          ["stage " (stage-key i) ": expected a non-empty core_ids list"])
+        (string-concat-many
+          ["stage " (stage-key i) ": dispositions: expected rows, each carrying a "
+           "cid, a disposition from the closed four, a class C1 through C6, and "
+           "a reason"]))))
 
   (def-shell floor-detail [i: int] -> string
     (if (= i 1)
         "stage B: scope.md is too short to state a boundary"
         (if (= i 2)
             "stage C: rubric.md is too short"
-            (string-concat-many
-              ["stage " (stage-key i) ": " (base-of (stage-out i 0))
-               " is below the floor its stage contract declares"]))))
+            (if (> (stage-shape i) 0)
+                (shape-detail i)
+                (string-concat-many
+                  ["stage " (stage-key i) ": " (base-of (stage-out i 0))
+                   " is below the floor its stage contract declares"])))))
 
-  (def-shell absent-detail [c: Cfg i: int] -> string
+  (def-shell absent-detail [c: Cfg i: int j: int] -> string
     (string-concat-many
-      ["agent[" (stage-agent-label i 0) "] exited 0 but wrote no "
-       (base-of (stage-out i 0)) "; the stage contract was not met (see "
-       (agent-dir c i) "/agent.stdout.log)"]))
+      ["agent[" (stage-agent-label i j) "] exited 0 but wrote no "
+       (base-of (stage-out i j)) "; the stage contract was not met (see "
+       (agent-dir c i j) "/agent.stdout.log)"]))
 
-  (def-shell outp-detail [c: Cfg i: int v: Verdict] -> string
+  (def-shell outp-detail [c: Cfg i: int j: int v: Verdict] -> string
     (match v
-      ((Absent)    (absent-detail c i))
+      ((Absent)    (absent-detail c i j))
       ((Malformed) (floor-detail i))
       ((Passed)    "")))
 
-  (def-shell outp-decide [rn: Run b: Body present: bool size: int]
+  ;; The barrier condition's detail, which must name its clause: `stopped` rows
+  ;; carry the driver-spec sentence that authorised them (section 4:126).
+  (def-shell barrier-detail [i: int] -> string
+    (string-concat-many
+      ["stage " (stage-key i) ": a row dispositioned out cites a barrier that is "
+       "not in the closed list. An exclusion outside the list is a STOP "
+       "(playbook stage J)."]))
+
+  ;; check_extraction mutates its argument (:425-427) and stage D then stamps the
+  ;; extractor and rewrites its own declared output (:657-658); its log line reads
+  ;; the counts that mutation produced (:660-661). The committed extraction-a.json
+  ;; carries counts {normative: 119, excluded: 85}, so the write-back is
+  ;; observable in the artifact and is not optional.
+  (def-shell stamped-doc [i: int j: int t: string] -> string
+    (match (json-parse t)
+      ((Error _) t)
+      ((Success v)
+        (json-serialize
+          (jset
+            (jset v "extractor" (json-of-string (stage-tag-upper i j)))
+            "counts"
+            (jset
+              (jset json-object "normative"
+                    (json-of-int (list-length (arr-of v "normative"))))
+              "excluded"
+              (json-of-int (list-length (arr-of v "excluded")))))))))
+
+  ;; Whether this stage rewrites its own output after validating it. Stage D only.
+  (def-shell restamps? [i: int] -> bool
+    (= (stage-shape i) 1))
+
+  ;; What follows a passing output: the next invocation if the stage has one, and
+  ;; otherwise the digest sweep over its declared outputs. Stage D's write-back
+  ;; rides in front of either command with seq-commands, which is discard-left, so
+  ;; the response delivered is the one the next arm expects.
+  ;; The staging copies of registry.stage-stage-dest, in front of `tail`.
+  ;; seq-commands is discard-left, so tail's response is what the next arm
+  ;; receives however many copies precede it. The destination directory is
+  ;; created first: mkdir creates parents and is RNone on an existing directory,
+  ;; both measured.
+  (def-shell stage-copies [rn: Run i: int tail: Command] -> Command
+    (if (string-empty? (stage-stage-dir i))
+        tail
+        (seq-commands
+          (wasi.fs.mkdir (wd-path (cfg-of rn) (stage-stage-dir i)))
+          (list-fold (range 0 (stage-out-count i)) tail
+            (fn [acc: Command j: int]
+              (if (string-empty? (stage-stage-dest i j))
+                  acc
+                  (seq-commands
+                    (wasi.fs.copy (art-path (cfg-of rn) i j)
+                                  (wd-path (cfg-of rn) (stage-stage-dest i j)))
+                    acc)))))))
+
+  (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Phase), Command)
+    (let [(i (idx-at rn (b-k b)))]
+      (let [(c (cfg-of rn))]
+        (let [(last? (>= (+ (b-tag b) 1) (stage-tag-count i)))]
+          ;; The next invocation re-enters at PROVISIONING, not at Tmpl: each
+          ;; extractor gets its own isolated input set, so tag b needs the same
+          ;; mkdir, copies and rubric write tag a got. Measured at v0.14.87 --
+          ;; re-entering Tmpl left extractor B's directory holding only PROMPT.md
+          ;; and the logs, which is precisely the blindness stage D exists to
+          ;; make structural, defeated by a phase transition.
+          (let [(nxt (if last?
+                         (pair (mk-sm (b-k b) 0 (b-start b) json-object)
+                               (stage-copies rn i (wasi.fs.sha256 (art-path c i 0))))
+                         (pair (Prov (b-next-tag b))
+                               (prov-cmd rn i (+ (b-tag b) 1)))))]
+            (go rn (first nxt)
+                (if (restamps? i)
+                    (seq-commands
+                      (wasi.fs.write (art-path c i (b-tag b))
+                                     (stamped-doc i (b-tag b) t))
+                      (second nxt))
+                    (second nxt))))))))
+
+  (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Phase), Command)
     (let [(i (idx-at rn (b-k b)))]
-      (let [(v (verdict-of present size (stage-floor i)))]
+      (let [(v (if (is-passed (verdict-of present size (stage-floor i)))
+                   (shape-verdict i t)
+                   (verdict-of present size (stage-floor i))))]
         (match v
           ((Passed)
-            (go rn (mk-sm (b-k b) 0 (b-start b) json-object)
-                (wasi.fs.sha256 (art-path (cfg-of rn) i 0))))
-          ((Absent)    (halt-verdict rn (b-k b) v (outp-detail (cfg-of rn) i v)))
-          ((Malformed) (halt-verdict rn (b-k b) v (outp-detail (cfg-of rn) i v)))))))
+            (if (barrier-met? i t)
+                (outp-pass rn b t)
+                (halt-with rn (b-k b) ConditionUnmet (barrier-detail i)
+                           "driver-spec sec 6:229-231")))
+          ((Absent)    (halt-verdict rn (b-k b) v
+                         (outp-detail (cfg-of rn) i (b-tag b) v)))
+          ((Malformed) (halt-verdict rn (b-k b) v
+                         (outp-detail (cfg-of rn) i (b-tag b) v)))))))
 
   (def-shell outp-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
     (match r
-      ((RText t)  (outp-decide rn b true (string-length t)))
-      ((RErr _)   (outp-decide rn b false 0))
-      ((RNone)    (outp-decide rn b false 0))
-      ((RCode _)  (outp-decide rn b false 0))
-      ((RList _)  (outp-decide rn b false 0))))
+      ((RText t)  (outp-decide rn b true (string-length t) t))
+      ((RErr _)   (outp-decide rn b false 0 ""))
+      ((RNone)    (outp-decide rn b false 0 ""))
+      ((RCode _)  (outp-decide rn b false 0 ""))
+      ((RList _)  (outp-decide rn b false 0 ""))))
 
   (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Phase), Command)
     (if (< (+ (md-j d) 1) (stage-out-count (idx-at rn (md-k d))))
@@ -1217,6 +1648,8 @@
       ((Pre b)      (pre-step    (run-of s) b r))
       ((Srcs b)     (srcs-step   (run-of s) b r))
       ((Src b)      (src-step    (run-of s) b r))
+      ((Prov b)     (prov-step   (run-of s) b r))
+      ((Copy b)     (copy-step   (run-of s) b r))
       ((Tmpl b)     (tmpl-step   (run-of s) b r))
       ((Delegate b) (delegate-step (run-of s) b r))
       ((Outp b)     (outp-step   (run-of s) b r))
@@ -1235,6 +1668,8 @@
       ((Pre _)      false)
       ((Srcs _)     false)
       ((Src _)      false)
+      ((Prov _)     false)
+      ((Copy _)     false)
       ((Tmpl _)     false)
       ((Delegate _) false)
       ((Outp _)     false)
@@ -1253,6 +1688,8 @@
       ((Pre _)      1)
       ((Srcs _)     1)
       ((Src _)      1)
+      ((Prov _)     1)
+      ((Copy _)     1)
       ((Tmpl _)     1)
       ((Delegate _) 1)
       ((Outp _)     1)
@@ -1291,6 +1728,8 @@
       ((Pre pb)     1)
       ((Srcs sb)    1)
       ((Src cb)     1)
+      ((Prov vb)    1)
+      ((Copy yb)    1)
       ((Tmpl tb)    1)
       ((Delegate g) 1)
       ((Outp ob)    1)

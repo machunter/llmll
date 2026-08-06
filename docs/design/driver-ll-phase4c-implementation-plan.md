@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4c-implementation-plan
 title: "DRIVER-LL sub-phase 4c: implementation plan and running record"
-status: "PARTIALLY IMPLEMENTED on branch `driver-ll-4c/stages-d-f-g`. Two increments landed and pushed, both green: `36f6476` shape.llmll (the proved content-shape channel, four body-faithful defs, three cruxes, refute-crux gate 71 to 75) and `3dc0162` the registry tables (behaviour-preserving, `stage-ported?` deliberately unchanged). THE SEQUENCER BODIES ARE NOT WRITTEN and are the remaining half; stages D, F and G are still stubbed, so the sub-phase is not acceptance-testable yet. Three findings came back, two of them correcting this plan's own predecessor: `regex-match` EXISTS so no narrowing is needed, the landing order INVERTS (D before F before G, by data dependency), and 4c constructs ConditionUnmet which proposal section 9.2 item 1 does not say. Delete or fold when 4c closes."
+status: "IMPLEMENTED on branch `driver-ll-4c/stages-d-f-g`, not yet merged. Stages D, F and G are ported and the acceptance cover runs them: **39 passed, 0 failed** (31 before), 132 pytest, refute-crux 75, every driver module SAFE. Four increments: `36f6476` shape.llmll (the proved channel, four body-faithful defs), `3dc0162` the registry tables (behaviour-preserving), `40d5958` this plan, and the sequencer bodies. FOUR FINDINGS, three of which corrected this plan or its predecessor. `REGEX-LOWER-1` IS A NEW COMPILER DEFECT: `regex-match` typechecks and verifies and then DOES NOT BUILD, because Parser.hs:943 lists it among the operators so codegen emits it infix with its hyphen unmangled; its in-tree firing population was zero, which is why a typed, documented, preamble-backed builtin had never been code-generated once. The landing order INVERTED (D before F before G, by data dependency). 4c constructs ConditionUnmet, which proposal section 9.2 item 1 does not say. And TWO defects in this port were found only by running it: the provisioning mkdir was described in a comment and never issued, and the second extractor re-entered Tmpl rather than provisioning, so extractor B got an empty working directory -- the exact blindness stage D exists to make structural, defeated by a phase transition. Delete or fold when 4c closes."
 date: 2026-08-06
 author: compiler-engineer
 consumers: [compiler-engineer, language-team, experiment-lead, documentation-lead, user]
@@ -105,7 +105,8 @@ ported, none of which has a spec-defined halt. It uses the sequencer's existing
 ### 2. The landing order inverts
 
 The plan said F, then G, then D, smallest first. The **data dependency runs the
-other way**: F reads `04-reconcile/data/extraction-a.json`, which D stages there
+other way**: F reads `extraction-a.json` under the reconcile stage's data
+directory, which D stages there
 (`:663-665`), and G reads the core F writes. A tree with D stubbed cannot
 exercise F or G end to end, because the 4a stub writes each stage's own declared
 outputs and not the directory the next stage reads. "Smallest first" was an
@@ -147,9 +148,47 @@ silently keeps the tolerance. **Language-team**, as an F-20 amendment.
    on purpose (`test_rfc_pipeline_integration.py:325-329`). Retires at 4f, where
    the two programs unify.
 
-## Not done: the sequencer bodies
+## The sequencer bodies, as built
 
-The remaining half, with the design settled so it is not re-derived.
+All of the below landed. Two of the design predictions were wrong in ways only
+running the thing exposed, and both are recorded in the source at the site.
+
+**`REGEX-LOWER-1`, a new compiler defect, found by building.** `regex-match` is
+in the type environment ([`TypeCheck.hs:143`](../../compiler/src/LLMLL/TypeCheck.hs)),
+documented at `LLMLL.md:326`, and its preamble implementation is emitted
+([`CodegenHs.hs:395-396`](../../compiler/src/LLMLL/CodegenHs.hs)) — and a program
+calling it does not build. `llmll check` and `llmll verify` both pass, then GHC
+reports `Variable not in scope: regex`.
+[`Parser.hs:943`](../../compiler/src/LLMLL/Parser.hs) lists `regex-match` among
+the **operators** beside `and`/`or`/`=>`, so it is parsed as an operator and
+emitted infix with its hyphen unmangled; unlike `and`/`or` it has no infix
+lowering. **Its in-tree firing population was zero**, which is why a typed,
+documented, preamble-backed builtin had never been code-generated once. Both
+pattern checks are hand-rolled instead, exactly equivalent on their domains and
+using only Σ_auto-safe builtins. **Routed to compiler-engineer as its own row;
+4c does not fix it and does not work around it silently.**
+
+**Two port defects that only running found.** The provisioning `mkdir` was
+described in a comment and never issued, so the copies and the rubric write
+targeted a directory that `delegate-cmd` created afterwards; since both are
+unchecked, as `shutil.copy2` is, nothing halted and both extractor directories
+held only `PROMPT.md` and the logs. And the second invocation re-entered `Tmpl`
+rather than provisioning, so extractor B got an empty working directory — the
+blindness stage D exists to make structural, defeated by a phase transition.
+Neither is reachable through `llmll check`, `llmll verify` or the cover as it
+stood; both are now cover cells C1 and C2.
+
+**What the phases became.** `Body` grew one field, as designed: `pvals` replaced
+`pre-text` and `tag` was appended, with the precondition index derived as
+`(list-length pvals)`. `Pre` loops, mirroring `Src`. Two new arms, `Prov` and
+`Copy`, provision the isolated input set; the listing is deliberately unfiltered,
+since `names-of`'s `txt?` would drop `PROVENANCE.json`, which `audit_blindness`
+lists as legitimate. `stage-copies` stages D's pair where the reconciler reads
+it, without which stage F halts on an absent precondition, measured. D's
+write-back rides in front of the next command with `seq-commands`, which is
+discard-left, so no extra phase was needed for it.
+
+## The design as planned, for the record
 
 **The `Body` type change.** Today
 (`sequencer.llmll:299-300`): `(k, (start, (pre-text, (idx, (names, acc)))))`.

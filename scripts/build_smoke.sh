@@ -617,7 +617,7 @@ if [ -f "$PB_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: argv on RList; :done? exits 42; starved exits 70; no-:done? exits 0"
 fi
 
-# --- 8. DRIVER-LL sub-phase 4a + 4b acceptance cover. ------------------------
+# --- 8. DRIVER-LL sub-phase 4a + 4b + 4c acceptance cover. -------------------
 #
 # The eleven-cell transition cover of docs/design/driver-ll-phase4-proposal.md
 # section 2.3, the three corrupt-manifest shapes of its section 10 cases 16 to
@@ -657,12 +657,12 @@ if [ -f "$DRV_SRC" ]; then
 
   if ! python3 "$REPO_ROOT/scripts/driver_ll_cover.py" --driver "$DRV_EXE" > "$OUTDIR/.driverll-cover.log" 2>&1; then
     cat "$OUTDIR/.driverll-cover.log" >&2
-    fail "the DRIVER-LL 4a+4b acceptance cover did not pass. Every scenario is a
+    fail "the DRIVER-LL 4a+4b+4c acceptance cover did not pass. Every scenario is a
   DECISION the Python reference makes and this port must make identically; the
   log above names the cell and the assertion."
   fi
   cat "$OUTDIR/.driverll-cover.log"
-  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + registry)"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + registry)"
 fi
 
 exit 0
