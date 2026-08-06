@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE. Current as of 2026-08-05 end of session. Sub-phases 4a and 4b are SHIPPED, the proposal stands at Rev 9, three releases went out (v0.14.85, v0.14.86, v0.14.87), and the phase runs at 4c. The last three commits are unpushed. Delete when Phase 4 closes."
+status: "LIVE. Current as of 2026-08-05, second session, end of session. Sub-phases 4a and 4b are SHIPPED, the proposal stands at Rev 10, three releases went out (v0.14.85, v0.14.86, v0.14.87), and the phase runs at 4c. NOTHING IS UNPUSHED: main == origin at 8cd05ee and CI is green. What is NOT done: 4c is UNSTARTED (though now specified, proposal §9.2), 4d through 4f are untouched, and the largest owed item in the phase is a fresh census for proposal §3.6's table, whose keys are knowingly stale. Delete when Phase 4 closes."
 date: 2026-08-05
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -9,16 +9,27 @@ consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
 
 # DRIVER-LL Phase 4 — restart record
 
-Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (**Rev 9**,
+Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (**Rev 10**,
 SETTLED). Everything else is downstream of those two.
 
 **Thirty-second version.** **Sub-phases 4a and 4b are SHIPPED** (`2b82464` v0.14.85, `ba2f93d`
-v0.14.87) and the phase now runs at **4c**, stages D, F and G. The proposal stands at **Rev 9**. The
-2026-08-05 session took it from Rev 5 to Rev 9, ran the harness leg, found 4a blocked at the process
-boundary, specified and shipped the capability that unblocked it (`PROC-BOUNDARY-1`, v0.14.85),
-ported 4a against it **with no shim**, re-measured §3.5, and ported 4b. Three releases shipped:
-v0.14.85, v0.14.86 and v0.14.87. Everything is committed; the last three commits are **unpushed**
-(§1).
+v0.14.87) and the phase now runs at **4c**, stages D, F and G, which is **specified** as of Rev 10
+rather than merely named. The proposal stands at **Rev 10**. The first 2026-08-05 session took it from
+Rev 5 to Rev 9, ran the harness leg, found 4a blocked at the process boundary, specified and shipped
+the capability that unblocked it (`PROC-BOUNDARY-1`, v0.14.85), ported 4a against it **with no shim**,
+re-measured §3.5, and ported 4b. Three releases shipped: v0.14.85, v0.14.86 and v0.14.87. The second
+session pushed the backlog, ran the 4c harness leg, and folded Rev 10.
+
+**The one number that matters at restart: nothing is unpushed.** `main` == `origin` at `8cd05ee`,
+working tree clean, CI green.
+
+**Rev 10 replaced 4c's acceptance clause, and a restarting session must not re-derive the old one.**
+The clause "stage E's Phase 3 pins reproduce over D's own output" was **measured unsatisfiable under
+both readings**: 7 for 7 over the committed pair, **0 for 7 over stub-D**, and unpinnable in principle
+over live output, the pins being agreement statistics between two stochastic extractions. §9's table
+now carries the replacement, which inverts the direction of the check: the already-ported downstream
+stages **run** over 4c's output rather than pinned values reproducing over it. §9.2 item 3 gives the
+measurement.
 
 **The one thing not to re-derive.** Closing the capability before porting is what bought the no-shim
 result. A shim would have sat between the rig and the thing under test and mediated every 4a
@@ -27,31 +38,40 @@ settles what 4b may and may not invent.
 
 ## 1. Where the work is
 
-**`main` is at `1bc2965`, working tree clean.** `origin` is at `ba2f93d`, so **the last three commits
-are unpushed**: the v0.14.87 pins, the v0.14.87 release docs, and this record. CI was green at
-`ba2f93d`.
+**`main` == `origin` at `8cd05ee`, working tree clean, nothing unpushed.** The four commits that were
+outstanding at the second session's start (`ba2f93d..d15b2ff`) were pushed first, and **CI came back
+green on both `version-gate` and `docker-publish` at `d15b2ff`**. Two commits landed after:
+`43ddb95` (Rev 10 plus the new rig cell) and `8cd05ee` (doc-lead reconciliation of `INDEX.md` and two
+roadmap rows).
 
-**Push early.** The one thing this session proved the hard way is that local gates are not the gates.
-`main` sat red for two days on a defect no macOS run could reach, because `build_smoke.sh` stage 5b
-is a structural no-op here: GHC on this platform returns UTF-8 from `getLocaleEncoding` under every
-locale. The stage now prints **NOT EXERCISED** on Darwin instead of a PASS it has not earned, so a
-green local run no longer implies the encoding claim was tested.
+**Push early anyway.** The lesson that produced this paragraph still stands and is not retired by one
+green run: local gates are not the gates. `main` sat red for two days on a defect no macOS run could
+reach, because `build_smoke.sh` stage 5b is a structural no-op here, GHC on this platform returning
+UTF-8 from `getLocaleEncoding` under every locale. The stage now prints **NOT EXERCISED** on Darwin
+instead of a PASS it has not earned, so a green local run no longer implies the encoding claim was
+tested.
 
-**The installed binary is STALE.** Pins say 0.14.87; the binary was built at 0.14.86. Rebuild before
-trusting any CLI result.
+**The installed binary was stale at 0.14.86 and has been rebuilt to 0.14.87.** The block below is now
+a **verification step rather than a pending action**, and it is still worth running first: the failure
+it guards against recurs whenever the pins move and the binary does not.
 
 ```
 (cd compiler && stack build)
 export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH
-llmll version                          # expect 0.14.87 AFTER the rebuild
-python3 -m pytest scripts/tests/ -q    # expect 131 passed, 1 skipped
-python3 scripts/doc_path_lint.py       # expect 865 citations, all resolve
+llmll version                          # expect 0.14.87
+python3 -m pytest scripts/tests/ -q    # expect 132 passed, 1 skipped
+python3 scripts/doc_path_lint.py       # expect ~860 citations, all resolve
 bash scripts/version_gate.sh           # expect PASS at v0.14.87
 ```
 
-Heavier gates, all green at `ba2f93d` and unaffected by the docs commits since: Haskell **1651
-examples**, `build_smoke.sh` **6 stages** (the `LC_ALL=C` half NOT EXERCISED on macOS, which is not a
-failure), `refute-crux-gate.sh` **71 passed**.
+The pytest figure moved 131 → 132 at `43ddb95` (the new stage-D cell, §7). **The citation count in
+this block was wrong before Rev 10 and is approximate on purpose**: it read 865, measured 859 at the
+second session's start and 860 after Rev 10. Treat "all resolve" as the gate and the count as
+informational, since any prose edit anywhere moves it.
+
+Heavier gates, all green at `ba2f93d` and unaffected by the docs and test commits since: Haskell
+**1651 examples**, `build_smoke.sh` **6 stages** (the `LC_ALL=C` half NOT EXERCISED on macOS, which is
+not a failure), `refute-crux-gate.sh` **71 passed**.
 
 ## 2. What Phase 4 is, in four sentences
 
@@ -82,7 +102,11 @@ caller since v0.14.70.
 | 15 | Re-measure §3.5 at HEAD; it generated 4b's queue | experiment-lead | **done**, F-14–F-17. Refuted Rev 8's own stamp. Landed as Rev 9 |
 | 5b | **Sub-phase 4b: stages B, C, I and the shared validation facility** | compiler-engineer | **done, SHIPPED** (`ba2f93d`). Cover 15 → 31 cells; `validate.llmll` SAFE |
 | 16 | Release v0.14.87 + three doc repairs + two roadmap rows | documentation-lead | **done** (`5a4832c`, `1bc2965`). `PROC-TIMEOUT-1` filed, not fixed (§9) |
-| **5c** | **Sub-phase 4c: stages D, F, G** | **compiler-engineer** | **PENDING, UNBLOCKED. This is next** |
+| 17 | **4c harness leg: three measurements** | experiment-lead | **done**. F-18/F-19/F-20. F-18 **refuted the brief that commissioned it**; F-19 eliminated §3.6's artifact-state reading; new rig cell, 131 → 132 |
+| 18 | **Rev 10**: fold F-18/F-19/F-20, new §3.6.1 and §9.2, replace 4c's acceptance clause | language-team | **done** (`43ddb95`) |
+| 19 | Reconcile `INDEX.md:74` and two roadmap rows to Rev 10 | documentation-lead | **done** (`8cd05ee`). `PROC-TIMEOUT-1`'s closure note discharged; it was half-discharged already |
+| **5c** | **Sub-phase 4c: stages D, F, G** | **compiler-engineer** | **PENDING, UNBLOCKED, and now SPECIFIED. This is next.** §9.2 settles it in five items |
+| 20 | **Re-census proposal §3.6's table** | experiment-lead | **PENDING. The largest owed item in the phase** (§4) |
 | 6b | Doc-lead pass at each sub-phase | documentation-lead | pending, runs after each |
 
 ## 4. The next action
@@ -95,19 +119,36 @@ own output.
 produces the input to G2 and to both of gate J's disposition conditions, so it is not optional and
 its absence is why the stage enumeration was corrected in the first place.
 
-**Four things 4b settled that 4c inherits, so do not re-derive them:**
+**Start at proposal §9.2.** Rev 10 settles 4c in five items, so the entry point is that section rather
+than this record's summary of it. In short: D's iteration-`b` halt is `failed` (measured, §3.6.1);
+`[V7-NO-PARTIAL]` and `[V7-ONLY-TWO]` are **sound for 4c unchanged** and must not be widened, because
+`verdict-of` takes no artifact set so the sibling-state question belongs at the call site; the
+acceptance clause is replaced; the guarded-read population is **five, not two**; and the B-side
+extraction has no downstream consumer, which the port reproduces rather than repairing.
+
+**Four things 4b settled that 4c also inherits, so do not re-derive them:**
 
 1. **The shared validation facility exists**, in `validate.llmll`. `verdict-of` takes **no string**,
    which is the property that keeps a subject's conventions out of the validator, and
    `[V7-NO-HARDCODE]` refutes a validator fitted to one run's sizes. 4c extends it rather than
-   writing a second one.
+   writing a second one, and per §9.2 item 2 it extends it **without touching a proved post**.
 2. **Cite §3.5's halt sites by CONDITION, never by line number** (§3.5.1). Two of the nine
    spec-defined line numbers now point at sites with the **opposite** disposition, so a reader keying
    on the number lands on a plausible-looking site and nothing signals the miss.
 3. **A validator where the reference has none is new behaviour and does not ride in on a port.**
    Stages I and O both have none; both are disclosed and both land at 4f.
 4. **`PROC-TIMEOUT-1` is open** (§9). `wasi.proc.run`'s timeout does not fire, so any budget-overrun
-   path 4c writes is unreachable through the timeout the same way 4b's is.
+   path 4c writes is unreachable through the timeout the same way 4b's is. Rev 10 named the
+   population: **D, F and G each invoke an agent**, so 4c inherits three more unreachable overrun
+   halts, and the roadmap row records it.
+
+**The largest owed item in the phase is a census, not a port.** Proposal **§3.6's table is knowingly
+stale and is filed rather than broken**: its keys are line numbers, `:809` is now a `for` statement
+inside `_pinned_sources`, and two conditions it files as post-write fire **before** their stage writes
+anything. Rev 10 did not renumber it, because renumbering by inspection is exactly what produced the
+bad Rev 8 stamp. Re-deriving it needs a fresh census over the write-before-halt ordering of every
+stage. **This is owed work and not a trap**: a restarting session should read the table's argument (two
+orthogonal axes that disagree somewhere) and distrust every line number in it.
 
 **The method that has paid every time, six for six.** Every refuted mechanism claim in this phase was
 a grep over the name a design document uses, where the code enforces the same obligation under a
@@ -117,7 +158,15 @@ the port disagrees with the proposal, execute the disagreement before writing th
 
 **Run experiment-lead before compiler-engineer.** Harness work generates the engineer's queue rather
 than following it: it produced §3.5, then §3.6, then refuted Rev 6, then refuted Rev 8 and settled
-what 4b needed. Four times, four findings the port would otherwise have hit mid-build.
+what 4b needed, and then refuted the 4c acceptance clause. **Five times, five findings the port would
+otherwise have hit mid-build.**
+
+**The fifth was the strongest form, and it is a new failure shape for §5.** F-18 did not refute a claim
+inside a document; **it refuted the brief that commissioned it.** The leg was sent out to decide
+*which* of two readings of 4c's acceptance clause was satisfiable, and the answer was **neither**, so
+the question presupposed a false dichotomy. A brief can be wrong in the same checkable way a design
+claim can, and the same remedy applies: state the alternatives as measurable and let a null on all of
+them be a permitted outcome. Recorded in proposal §15 rather than quietly replaced.
 
 ## 5. Sequencing lesson, paid for three times now
 
@@ -152,12 +201,22 @@ being filed in proposal §14 and absent here.
 | `FS-ISOLATION-1` | `audit_blindness` implements driver-spec §8:330-332 and the port defers it | **Same**, plus the phase-close disclosure under §15.1:504-505 |
 | `F-7` | Stage O is the only delegated stage with no validator; driver-spec §13 is its specification | Lands at sub-phase 4f. Unchanged |
 | `F-4` | Stage G2's citation check scores every stub citation below threshold | Experiment-lead. Unchanged, still open |
+| **§3.6 census** | **New at Rev 10, and the largest owed item in the phase.** Proposal §3.6's table is line-keyed and its keys are stale at HEAD: `:809` is a `for` statement inside `_pinned_sources`, and the two G2 conditions the first row files as post-write fire before G2 writes anything. Needs a fresh census over the write-before-halt ordering of every stage, **not** a renumbering, renumbering by inspection being what produced the bad Rev 8 stamp | **Experiment-lead.** Does not block 4c: §9.2 settles what 4c needs, and §3.6.1 carries the one site 4c touches |
+| **F-20 live half** | Whether a live agent can emit a bare-list `core.json`. Dead in-tree at n=0 live runs, so the port's narrowing to the dict shape is measured over every observed producer and unmeasured against a live one | Experiment-lead, and only when a live run happens for another reason. The port rejects rather than tolerates, so a surprise is loud |
 
 ## 7. Gotchas
 
 - **Stale binary.** `stack exec` from the repo root runs the wrong compiler. Before any compiler
   work: `export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH` and check
-  `llmll version` reports **0.14.87**, which needs a rebuild: the pins moved and the binary did not.
+  `llmll version` reports **0.14.87**. The rebuild this gotcha called for **has been done**; the
+  gotcha stays because the condition recurs every time the pins move and the binary does not, and it
+  bit once already in this phase.
+- **A rig cell exists now for stage D's second extractor.** Mode `bad-extraction-b` plus
+  `test_stage_D_records_failed_when_the_valid_sibling_is_already_written`. **Nothing reached that halt
+  before it**: `bad-extraction` corrupts whichever tag runs first and tag `a` always runs first, so
+  every prior run halted with no sibling artifact on disk. The cell is the only one that exercises
+  §4:146 being satisfied by a valid **sibling**, and stage D is the only agent-delegated stage where
+  that state is reachable at all, being the only one declaring two outputs.
 - **The doc path lint gates CI.** `scripts/tests/test_doc_path_lint.py::test_clean_on_live_repo`
   runs in `version-gate.yml`, so an unresolved prose citation leaves `main` red. Only citations
   **containing a slash** are checked (`doc_path_lint.py:150-151`), so a bare filename is safe and a
@@ -217,12 +276,15 @@ it deliberately did not:
   `RTS way: rts_v`. **Adding `ghc-options: -threaded` to the generated package did NOT move the RTS
   way**, so the one-line fix measures identically to no change. The roadmap row says so in bold.
   Consequence: 4b's budget-overrun halt is written and unreachable through the timeout path.
-- **A closure note is owed to compiler-engineer.** `PROC-TIMEOUT-1` originates in a finding inside
-  `driver-ll-phase4b-implementation-plan.md`, which doc-lead does not edit. The row is its
-  destination.
+- **The closure note owed to compiler-engineer is DISCHARGED** (`8cd05ee`), and it turned out to have
+  been **half-discharged already**: the roadmap row has cited its originating plan since v0.14.87, so
+  what was actually owed was only the new population. The row now names `AgentRunner.run` as the
+  reference's own overrun path and D, F and G as the three stages 4c adds. Do not file it a third time.
 - **The v0.14.85 shipped row records 120 Python where the figure was 123.** Left alone deliberately:
   shipped rows are append-only, and silently correcting one is how a release record stops being a
-  record. Its own pass if wanted.
+  record. **Still open.** Its own pass if wanted. Note the same principle already applies once more:
+  the v0.14.87 row records 131 Python and the 132nd test landed after that release, which is correct
+  and must not be "fixed."
 
 ## 8. Rev 8: SETTLED, and what it cost to wait
 
