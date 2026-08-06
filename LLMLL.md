@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.86)
+# LLMLL: Large Language Model Logical Language (v0.14.87)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.86.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.87.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2437,7 +2437,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-length` | `string -> int` | Length in characters |
 | `string-contains` | `string string -> bool` | `(string-contains subject needle)` tests whether `needle` occurs in `subject`. The **subject comes first**, the opposite of `string-split` below; a reversed call type-checks. |
 | `string-concat` | `string string -> string` | `(string-concat left right)` yields `left` followed by `right`. The **left operand comes first**; a reversed call type-checks and transposes the result. |
-| `string-slice` | `string int int -> string` | `(string-slice s start end)` takes the `[start, end)` half-open slice. The **start comes first**; both indices are `int`, so a transposed pair type-checks and returns `""`. |
+| `string-slice` | `string int int -> string` | `(string-slice s start end)` takes the `[start, end)` half-open slice. The **start comes first**; both indices are `int`, so a transposed pair type-checks and returns `""`. Out-of-range indices **clamp**: `start` and `end` are each clamped into `[0, string-length s]`, so a negative `start` reads from 0 and an `end` past the end reads to the end. This matches `string-char-at`'s out-of-range convention below. |
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string). Returns `""` for negative or out-of-bounds indices. |
 | `string-split` | `string string -> list[string]` | `(string-split sep subject)` splits `subject` on `sep`. The **separator comes first**; both parameters are `string`, so a reversed call type-checks and fails only in its output. |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
@@ -2521,7 +2521,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.io.stdout` | `string -> Command` | `(import wasi.io (capability stdout ...))` | Write text to standard output |
 | `wasi.io.stderr` | `string -> Command` | `(import wasi.io (capability stderr ...))` | Write text to standard error |
 | `wasi.http.response` | `int string -> Command` | `(import wasi.http (capability serve PORT))` | Return HTTP response (status, body) |
-| `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | POST body to URL: `(wasi.http.post url body)`, the **URL first**. Both parameters are `string`, so a reversed call type-checks |
+| `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | Constructs a POST of `body` to `url`: `(wasi.http.post url body)`, the **URL first**. Both parameters are `string`, so a reversed call type-checks. **No network runtime in the Haskell backend**: the body is discarded and the command publishes `RErr`. See the note below this table |
 | `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path: `(wasi.fs.write path contents)`, the **path first**. A reversed call type-checks and treats the contents as the filename |
 | `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below) |

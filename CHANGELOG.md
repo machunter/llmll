@@ -4,6 +4,53 @@
 
 <a id="Latest"></a>
 
+## v0.14.87: a slice that clamps, and a validator the subject cannot reach into (2026-08-05)
+
+### Fixed — `string-slice` returned the wrong LENGTH, not the wrong offset
+
+`string_slice s from to` was `take (to - from) (drop from s)`. Haskell's `drop` no-ops on a negative
+count while `take` does not, so a negative `start` inflated the window instead of shifting it:
+
+- `(string-slice "abc" -1 1)` returned `"ab"`, two characters for a one-character window
+- `(string-slice "abc" -3 0)` returned `"abc"`, the whole string for a window ending at zero
+
+Both endpoints now clamp into `[0, string-length s]`. A transposed pair still yields `""`. The
+convention is not new: the sibling **`string-char-at`** already returns `""` for negative and
+out-of-bounds indices, and this brings the family into agreement. Reachable from ordinary surface
+syntax, a program with literal negative starts passes `llmll check` and builds. Nothing in the tree
+depended on the old behaviour; the one in-tree caller guards its negative case and is byte-identical
+under the clamp. No verification impact: `string-slice` is uninterpreted, and of the string builtins
+only `string-length` reaches the SMT layer.
+
+### Fixed — the schema-version rejection cited a file that never existed
+
+`schema-version-mismatch` told users to see `docs/json-ast-versioning.md`. There is no such file and
+there never was; old run artifacts under `experiments/cdp-0` have the message frozen, so users did
+hit it. Both sites now point at the `description` field of
+[`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json), which is the canonical source rather than
+a second one. **`doc_path_lint` cannot catch this class**: it reads prose in tracked markdown, so a
+citation compiled into the binary and printed to users is invisible to it. A new test scans the
+rejection message for `docs/` paths and asserts each resolves on disk.
+
+### Added — DRIVER-LL sub-phase 4b
+
+Stages B, C and I, and §6's validation obligations as one shared facility. **`verdict-of` takes no
+string**, so no subject's filename or byte-count conventions are in scope, and its `[V7-NO-HARDCODE]`
+clause states that every present output above the declared floor passes, which refutes a validator
+fitted to one run's sizes rather than merely avoiding one. Floors are stage-contract constants. The
+cover goes 15 to 31 cells; `[V7-ONLY-TWO]`, `[V7-NO-STOP]` and `[V7-NO-PARTIAL]` **prove** that 4b
+constructs exactly two of `Outcome`'s four arms, where the design had asserted it.
+
+- **`llmll` gains no new command or flag**, and the JSON-AST schema does not move.
+- **`LLMLL.md` §13.6** documents `string-slice`'s clamp; **§13.9**'s `wasi.http.post` row now points
+  at the disclosure that the body is discarded and the command publishes `RErr`.
+- Filed and not fixed: **`wasi.proc.run`'s timeout does not fire in a built program**
+  (`PROC-TIMEOUT-1`), found by the 4b port.
+
+**Tests:** 1651 Haskell, 131 Python.
+
+---
+
 ## v0.14.86: the program wrote the bytes correctly, then died printing them (2026-08-05)
 
 `main` had been red on CI since 2026-08-04, on four gate failures plus a missing file. There was one
