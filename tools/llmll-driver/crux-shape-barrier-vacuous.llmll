@@ -1,0 +1,42 @@
+(module crux-shape-barrier-vacuous)
+;; THE CLOSED-BARRIER CONDITION, NOT ENFORCED. driver-spec.txt section 6:229-231
+;; requires every dispositioned-out row to cite a barrier from the closed list,
+;; and rfc_to_implementation.py:493 raises it through `require_spec` rather than
+;; `require`, which is what makes it the one spec-defined halt in stage G and
+;; therefore `stopped` rather than `failed` (proposal section 3.5's rule). This
+;; body answers `true` whatever the counts, so an exclusion citing a barrier
+;; outside the list passes and the run continues to gate J.
+;;
+;; WHAT IT COSTS IN THE REFERENCE, which is why the condition is enforced twice.
+;; Stage G rejects the disposition output and gate J re-checks a resumed run's
+;; inventory (scripts/tests/test_rfc_pipeline_integration.py:325-329, and the
+;; redundancy is called deliberate there). A vacuous stage-G check does not make
+;; the run unsafe on its own, because J still holds; it makes the STAGE-LEVEL
+;; halt disappear, so a run stops at J with no record of which stage produced
+;; the offending row, on a pipeline whose whole output is an audit trail.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [G6-CLOSED]    -> REFUTED
+;;   [G6-NOVACUOUS] -> REFUTED
+;;
+;; BOTH refute, and that is expected rather than a defect in the mutant.
+;; [G6-CLOSED] is an equality between two booleans, so it determines `result`
+;; entirely and every other post about this function is a consequence of it.
+;; [G6-NOVACUOUS] is stated separately in shape.llmll for the reason
+;; [V7-NO-FLOOR] is stated separately in validate.llmll: a reader looking for
+;; "an unlisted barrier must fail" should find it by name rather than derive it.
+;; gate.llmll sets the same precedent with [S6-CORE] and [S6-REPORTED]. No body
+;; can break one of a determining post and its consequence while keeping the
+;; other, so this crux is not the discriminating kind and does not claim to be.
+(def barrier-condition-met? [excluded-count: int listed-count: int] -> bool
+
+  (pre (and (>= excluded-count 0)
+            (and (>= listed-count 0)
+                 (<= listed-count excluded-count))))
+
+  (post (= result (= excluded-count listed-count)))
+
+  (post (=> (< listed-count excluded-count) (not result)))
+
+  true)

@@ -1,0 +1,240 @@
+;; DRIVER-LL Phase 4, sub-phase 4c: the content-shape validation channel.
+;;
+;; validate.llmll:56-63 reserved this module by name. Its verdict-of decides
+;; PRESENCE and a declared byte FLOOR, and it takes no string, which is the
+;; property that keeps a subject's conventions out of the decision. The three
+;; content-shape validators of rfc_to_implementation.py -- check_extraction
+;; (:386, stage D), the core check (:713-714, stage F) and check_dispositioned
+;; (:481, stage G) -- decide over the CONTENT of a delegated artifact, so they
+;; cannot be a widening of verdict-of. They are a second channel, and this is
+;; it.
+;;
+;; ------------------------------------------------------------------
+;; 1. WHY EVERY PARAMETER HERE IS A bool OR AN int.
+;;
+;;    The obvious shape for a content validator takes the artifact. That shape
+;;    is wrong twice over, and the second reason was measured rather than
+;;    reasoned:
+;;
+;;    SUBJECT-NEUTRALITY. Section 7:288-291 forbids a validator that hardcodes
+;;    one run's conventions. verdict-of earns that structurally by taking no
+;;    string. A content validator taking Json would forfeit it, because every
+;;    row of every census would be in scope and nothing but review would stop a
+;;    body from reading one.
+;;
+;;    FRAGMENT PRESERVATION. Both regexes these validators need are portable:
+;;    `regex-match` is a compiler builtin (TypeCheck.hs:143, Syntax.hs:502), so
+;;    `^C[1-6]$` (:490) and `^N\d+$` (:422) port verbatim with no narrowing.
+;;    But LLMLL.md:326 puts regex-match in the boolean-builtin class, "never
+;;    auto", and LLMLL.md:356 states the consequence: a predicate outside
+;;    Sigma_auto still erases, but the carrying function falls to
+;;    erBodyFallback and the body-faithful claim is withdrawn. A proved def
+;;    calling regex-match would therefore lose exactly the property that makes
+;;    validate.llmll worth having.
+;;
+;;    Both reasons point the same way. The def-shell extractor in
+;;    sequencer.llmll reads the artifact, runs the regexes, and reduces each
+;;    check to a count or a flag. The proved defs below decide over those
+;;    scalars and stay in QF-LIA. No string reaches this module.
+;;
+;; ------------------------------------------------------------------
+;; 2. WHY EACH DECISION CARRIES A CONVERSE POSTCONDITION.
+;;
+;;    The forward posts are eliminative one clause at a time: a body ignoring
+;;    any single conjunct is refuted by the post naming it. They do not,
+;;    together, forbid a body that rejects a CONFORMING artifact -- the failure
+;;    mode section 7:288-291 actually describes, where a validator fitted to
+;;    one run reports emptiness on the next.
+;;
+;;    So each decision states the converse: every conforming artifact passes.
+;;    That is [V7-NO-HARDCODE]'s analogue, and it is what refutes a body
+;;    comparing a row count to a literal drawn from the committed TFTP census.
+;;    crux-shape-row-count-fitted.llmll is that body.
+;;
+;; ------------------------------------------------------------------
+;; 3. WHAT THIS MODULE DOES NOT DECIDE.
+;;
+;;    THE BARRIER CONDITION IS HERE BUT IS NOT A SHAPE CHECK, and conflating
+;;    the two is the specific error this module is arranged to prevent. Five of
+;;    check_dispositioned's six checks are `require` and record `failed`
+;;    (:483, :486, :487, :490, :499). The sixth is `require_spec` (:493) citing
+;;    driver-spec sec 6:229-231, so proposal section 3.5's rule makes it
+;;    spec-defined and it records `stopped`.
+;;
+;;    That is why barrier-condition-met? is a SEPARATE def from
+;;    dispositions-conform?. Routing it through validate.verdict-outcome would
+;;    be refuted by [V7-NO-STOP], which forbids ConditionUnmet for any failing
+;;    verdict -- correctly, for the three stages 4b ported, none of which has a
+;;    spec-defined halt. Stage G has one. Its call site uses the sequencer's
+;;    halt-with channel with the clause, not halt-verdict.
+;;
+;;    CONSEQUENCE FOR THE SUB-PHASE, and it corrects a settled document:
+;;    proposal section 9.2 item 1 records that 4c constructs no
+;;    PartialThenHalt, which holds. It does not say that 4c constructs
+;;    ConditionUnmet, which it does, here. 4c therefore builds THREE of
+;;    Outcome's four arms where 4b built two. [V7-ONLY-TWO] remains true as
+;;    stated, being a property of verdict-outcome's codomain rather than an
+;;    invariant of the port; its :source prose is scoped to 4b and is left
+;;    alone rather than edited, a shipped proved module not being the place to
+;;    record a later sub-phase's arithmetic.
+;;
+;;    check_audit (:447, stage G2) is NOT here. G2 is a gate, Phase 3 ported
+;;    it, and its citation half cannot be replayed in this repository at all
+;;    (harness finding F-4). No 4c stage reaches it.
+
+(module shape
+
+  ;; ------------------------------------------------------------------
+  ;; Stage D: check_extraction (:386-428)
+  ;;
+  ;; Eight clauses over the artifact, reduced to five scalars. The four
+  ;; per-row clauses (:403 object, :405 seven required keys, :407 integer line
+  ;; bounds, :410 bounds in order, :422 N-prefixed rule) collapse into ONE
+  ;; conforming-row count, because they are conjuncts of a single per-row
+  ;; predicate and the reference halts on the first row that fails any of
+  ;; them. Which clause failed changes the detail string, not the disposition,
+  ;; and the detail is the shell's to build.
+  ;;
+  ;; rows-conforming <= normative-count is a precondition rather than a
+  ;; discovered fact: the extractor counts conforming rows AMONG the normative
+  ;; rows, so the subset relation holds by construction at every call site,
+  ;; and it is what makes the converse post provable.
+  (def extraction-conforms? [is-object: bool
+                             has-normative: bool
+                             has-excluded: bool
+                             normative-count: int
+                             rows-conforming: int] -> bool
+
+    (pre (and (>= normative-count 0)
+              (and (>= rows-conforming 0)
+                   (<= rows-conforming normative-count)))
+      :source "[D7-DOM] both counts are json-array lengths, so non-negative, and the conforming rows are counted among the normative rows")
+
+    (post (=> result is-object)
+      :source "[D7-OBJECT] rfc_to_implementation.py:394 - a bare array is not an extraction; the object is what carries normative and excluded")
+
+    (post (=> result (and has-normative has-excluded))
+      :source "[D7-LISTS] :397-399 - both keys are required and both must be lists; excluded is the evidence that the rubric was applied to the non-normative text rather than skipped")
+
+    (post (=> result (> normative-count 0))
+      :source "[D7-NONEMPTY] :400 - an empty normative census is a rejection, not an extraction with nothing in it")
+
+    (post (=> result (= rows-conforming normative-count))
+      :source "[D7-ROWS] :403-424 - EVERY normative row is an object carrying the seven required keys, with integer line bounds in order and a rule matching N followed by digits (N0 included; stage C authors the rule set)")
+
+    (post (=> (and is-object
+                   (and has-normative
+                        (and has-excluded
+                             (and (> normative-count 0)
+                                  (= rows-conforming normative-count))))) result)
+      :source "[D7-NO-HARDCODE] driver-spec.txt sec 7:288-291 - EVERY conforming extraction passes whatever its census size, so a validator fitted to the row count one run produced is refuted rather than merely discouraged")
+
+    (and is-object
+         (and has-normative
+              (and has-excluded
+                   (and (> normative-count 0)
+                        (= rows-conforming normative-count))))))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage F: the core check (:712-714)
+  ;;
+  ;; The reference tolerates two shapes: `core["core_ids"] if isinstance(core,
+  ;; dict) else core` accepts an object carrying core_ids OR a bare array.
+  ;; Harness finding F-20 measured the bare-array arm to have NO producer in
+  ;; the tree -- the stub emits an object, the sole committed core.json is an
+  ;; object, and the stage-F prompt template's own worked example is an object.
+  ;; Proposal section 9.2 item 4 settles the port on the object shape as a
+  ;; total predicate over what the reader indexes, REJECTING a bare array with
+  ;; `failed` rather than accepting it silently, on 4a's corrupt-manifest
+  ;; precedent.
+  ;;
+  ;; has-core-ids is therefore false for a bare array, and that is a
+  ;; narrowing, disclosed. It is not measured against a live agent: F-20 is a
+  ;; null result at n=0 live runs on whether one ever emits the bare shape.
+  (def core-conforms? [has-core-ids: bool core-count: int] -> bool
+
+    (pre (>= core-count 0)
+      :source "[F7-DOM] the count is a json-array length and is never negative")
+
+    (post (=> result has-core-ids)
+      :source "[F7-KEY] :713 - the core arrives as an object carrying core_ids; the bare-array arm is narrowed away and the narrowing is disclosed (finding F-20)")
+
+    (post (=> result (> core-count 0))
+      :source "[F7-NONEMPTY] :714 - expected a non-empty core_ids list; the characteristic core is the set whose loss would mean the protocol was not implemented, and an empty one names nothing")
+
+    (post (=> (and has-core-ids (> core-count 0)) result)
+      :source "[F7-NO-HARDCODE] driver-spec.txt sec 7:288-291 - EVERY non-empty core passes whatever its length, so a validator fitted to the fifteen rows one run produced is refuted")
+
+    (and has-core-ids (> core-count 0)))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage G: check_dispositioned's five `failed` clauses (:483-499)
+  ;;
+  ;; :483 rows is a non-empty list; :486 every row has a cid; :487 every
+  ;; disposition is one of the four; :490 every class matches ^C[1-6]$; :499
+  ;; every row has a reason. The four per-row clauses collapse for the same
+  ;; reason stage D's do.
+  ;;
+  ;; The SIXTH check is not here. See the header, item 3.
+  (def dispositions-conform? [has-rows: bool
+                              row-count: int
+                              rows-conforming: int] -> bool
+
+    (pre (and (>= row-count 0)
+              (and (>= rows-conforming 0)
+                   (<= rows-conforming row-count)))
+      :source "[G7-DOM] both counts are json-array lengths, and the conforming rows are counted among the rows")
+
+    (post (=> result has-rows)
+      :source "[G7-ROWS-KEY] :482-483 - the dispositioned inventory arrives as an object carrying rows")
+
+    (post (=> result (> row-count 0))
+      :source "[G7-NONEMPTY] :483 - dispositions: expected rows; an empty inventory dispositions nothing")
+
+    (post (=> result (= rows-conforming row-count))
+      :source "[G7-ROWS] :486-499 - EVERY row carries a cid, a disposition from the closed four, a class matching C1 through C6, and a reason")
+
+    (post (=> (and has-rows
+                   (and (> row-count 0)
+                        (= rows-conforming row-count))) result)
+      :source "[G7-NO-HARDCODE] driver-spec.txt sec 7:288-291 - EVERY conforming inventory passes whatever its size, so a validator fitted to the 124 rows one run produced is refuted")
+
+    (and has-rows
+         (and (> row-count 0)
+              (= rows-conforming row-count))))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage G: check_dispositioned's ONE spec-defined clause (:493)
+  ;;
+  ;; require_spec, citing driver-spec sec 6:229-231. Every row dispositioned
+  ;; out MUST cite a barrier from the closed list; an exclusion outside the
+  ;; list is a STOP. Proposal section 3.5's rule makes this ConditionUnmet and
+  ;; `stopped`, which is the disposition the reference records and the rig
+  ;; already asserts (test_rfc_pipeline_integration.py:334, mode bad-barrier).
+  ;;
+  ;; The counts are over the DISPOSITIONED-OUT rows only, which is what makes
+  ;; the subset precondition hold: a row citing a listed barrier is one of the
+  ;; excluded rows.
+  ;;
+  ;; This is the stage-level twin of gate.gate-halts' bad-barrier parameter.
+  ;; The reference enforces the condition TWICE on purpose -- stage G rejects
+  ;; the disposition output and gate J re-checks a resumed run's inventory
+  ;; (test_rfc_pipeline_integration.py:325-329) -- so a second call site is
+  ;; faithful rather than redundant. The row-level Json predicate that feeds
+  ;; both lives in spine.llmll for gate J and in sequencer.llmll for stage G;
+  ;; that duplication is disclosed and retires at 4f, where the two programs
+  ;; unify.
+  (def barrier-condition-met? [excluded-count: int listed-count: int] -> bool
+
+    (pre (and (>= excluded-count 0)
+              (and (>= listed-count 0)
+                   (<= listed-count excluded-count)))
+      :source "[G6-DOM] counts over the dispositioned-out rows; a row citing a listed barrier is one of them")
+
+    (post (= result (= excluded-count listed-count))
+      :source "[G6-CLOSED] driver-spec.txt sec 6:229-231 - every dispositioned-out row MUST cite a barrier from the closed list")
+
+    (post (=> (< listed-count excluded-count) (not result))
+      :source "[G6-NOVACUOUS] a row citing an unlisted barrier MUST fail the condition, so a body answering true unconditionally is refuted rather than merely unproved")
+
+    (= excluded-count listed-count)))

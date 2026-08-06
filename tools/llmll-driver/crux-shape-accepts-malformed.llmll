@@ -1,0 +1,53 @@
+(module crux-shape-accepts-malformed)
+;; THE PER-ROW CHECK DROPPED. rfc_to_implementation.py's check_extraction runs
+;; five clauses over EVERY normative row (:403 the row is an object, :405 it
+;; carries all seven required keys, :407 its line bounds are integers, :410 they
+;; are in order, :422 its rule matches N followed by digits). This body keeps
+;; the whole-document clauses and drops the per-row conjunct, so an extraction
+;; whose rows are arbitrary passes as long as the envelope is right.
+;;
+;; WHY THIS IS THE FAILURE THAT MATTERS AND NOT A COSMETIC ONE. The rows are
+;; what reconcile.py consumes, and it matches by LINE SPAN: :407's own message
+;; says "reconciliation matches by line span, so these must be numbers". A
+;; census that passes this validator with a string line_start reaches stage E,
+;; which shells out to a tool that will do arithmetic on it. The clause is a
+;; guard on the next stage's input, not a tidiness check on this one's output,
+;; which is why dropping it is worth freezing a verdict against.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [D7-OBJECT] + [D7-LISTS] + [D7-NONEMPTY] + [D7-NO-HARDCODE]  -> SAFE
+;;   [D7-ROWS] alone                                              -> REFUTED
+;;
+;; [D7-NO-HARDCODE] survives, and that is the interesting half. This mutant is
+;; strictly WEAKER than the honest decision, so the converse implication still
+;; holds: every conforming extraction does pass. An anti-hardcoding post cannot
+;; catch a validator that accepts too much, and a forward post cannot catch one
+;; that accepts too little. The pair is what covers both directions, and this
+;; crux and crux-shape-row-count-fitted.llmll are the two halves that make that
+;; observable in the gate rather than only argued in a comment.
+(def extraction-conforms? [is-object: bool
+                           has-normative: bool
+                           has-excluded: bool
+                           normative-count: int
+                           rows-conforming: int] -> bool
+
+  (pre (and (>= normative-count 0)
+            (and (>= rows-conforming 0)
+                 (<= rows-conforming normative-count))))
+
+  (post (=> result is-object))
+  (post (=> result (and has-normative has-excluded)))
+  (post (=> result (> normative-count 0)))
+  (post (=> result (= rows-conforming normative-count)))
+
+  (post (=> (and is-object
+                 (and has-normative
+                      (and has-excluded
+                           (and (> normative-count 0)
+                                (= rows-conforming normative-count))))) result))
+
+  (and is-object
+       (and has-normative
+            (and has-excluded
+                 (> normative-count 0)))))

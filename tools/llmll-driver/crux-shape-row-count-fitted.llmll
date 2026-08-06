@@ -1,0 +1,54 @@
+(module crux-shape-row-count-fitted)
+;; THE CONTENT VALIDATOR driver-spec.txt section 7:288-291 warns about, at row
+;; granularity: "a validator that hardcodes the values seen in one run will
+;; silently report emptiness on the next."
+;;
+;; The body accepts exactly one census size, 119, which is the normative row
+;; count of experiments/rfc-swarm/data/extraction-a.json in this tree, and its
+;; `counts` field records the same figure.
+;;
+;; THIS MUTANT DOES NOT NEED A SECOND RUN TO FAIL, which is what makes it worth
+;; freezing. Stage D runs TWO blind extractors over identical bytes, and the
+;; committed pair disagrees on census size: A has 119 normative rows and B has
+;; 125. A validator fitted to A therefore rejects extractor B's output inside
+;; the SAME run, on the very stage whose docstring says blindness is structural.
+;; The failure the spec describes as "the next run" arrives one loop iteration
+;; later.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [D7-OBJECT] + [D7-LISTS] + [D7-ROWS] + [D7-NONEMPTY]  -> SAFE
+;;   [D7-NO-HARDCODE] alone                                -> REFUTED
+;;
+;; The four forward posts survive because the body still requires every one of
+;; their consequents: it is strictly STRONGER than the honest decision, not
+;; weaker. That is the shape an anti-hardcoding mutant has to have, and it is
+;; why the converse post exists at all -- no forward post can catch a validator
+;; that rejects conforming input, because every forward post is of the form
+;; result implies something.
+(def extraction-conforms? [is-object: bool
+                           has-normative: bool
+                           has-excluded: bool
+                           normative-count: int
+                           rows-conforming: int] -> bool
+
+  (pre (and (>= normative-count 0)
+            (and (>= rows-conforming 0)
+                 (<= rows-conforming normative-count))))
+
+  (post (=> result is-object))
+  (post (=> result (and has-normative has-excluded)))
+  (post (=> result (> normative-count 0)))
+  (post (=> result (= rows-conforming normative-count)))
+
+  (post (=> (and is-object
+                 (and has-normative
+                      (and has-excluded
+                           (and (> normative-count 0)
+                                (= rows-conforming normative-count))))) result))
+
+  (and is-object
+       (and has-normative
+            (and has-excluded
+                 (and (= normative-count 119)
+                      (= rows-conforming normative-count))))))

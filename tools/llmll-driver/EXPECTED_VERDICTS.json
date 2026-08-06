@@ -245,6 +245,45 @@
    "expect": "refuted",
    "localizes": "verdict-of",
    "why": "INVENTED MUTANT: the validator driver-spec section 7:288-291 warns about, accepting exactly the one size a committed run produced. The (> size floor) guard makes it discriminating: with the guard it satisfies [V7-PRESENCE] and [V7-FLOOR] and refutes [V7-NO-HARDCODE] and its named consequence [V7-NO-FLOOR]; without it, it also refutes [V7-FLOOR] and would have been a mutant about floors wearing an anti-hardcoding label. Measured both ways."
+  },
+  {
+   "file": "shape.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 0,
+   "expect": "safe",
+   "why": "DRIVER-LL Phase 4c, the content-shape validation channel validate.llmll:56-63 reserved by name. All FOUR functions are body-faithful, which is the property the frozen verdict protects and which is not free: both regexes these validators need are portable (regex-match is a compiler builtin) but LLMLL.md:326 puts regex-match outside Sigma_auto and LLMLL.md:356 states the consequence, that the carrying function falls to erBodyFallback. Every parameter here is a bool or an int precisely so the regexes stay in the def-shell extractor and the proved core stays in QF-LIA. A later widening that let a Json or a string into any of these signatures would silently forfeit the body-faithful claim for the whole module, and this verdict is what catches it. Takes --strict-verified-core, unlike sequencer.llmll and spine.llmll, because there is no shell layer here at all."
+  },
+  {
+   "file": "crux-shape-row-count-fitted.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localizes": "extraction-conforms?",
+   "why": "INVENTED MUTANT, and the anti-hardcoding half of the 4c pair. Fitted to 119, the normative row count of the committed experiments/rfc-swarm/data/extraction-a.json. It needs no second run to fail: stage D runs TWO blind extractors and the committed pair disagrees on census size, A having 119 rows and B having 125, so a validator fitted to A rejects extractor B inside the SAME run. MEASURED at v0.14.87: the four forward posts together are SAFE over this body, because it is strictly STRONGER than the honest decision, and [D7-NO-HARDCODE] alone refutes. No forward post can catch a validator that rejects conforming input, which is why the converse post exists."
+  },
+  {
+   "file": "crux-shape-accepts-malformed.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localizes": "extraction-conforms?",
+   "why": "INVENTED MUTANT, and the other half of the pair: check_extraction's five per-row clauses dropped while the envelope clauses stay. The clause guards the NEXT stage's input rather than this stage's tidiness, since reconcile.py matches by line span and :407's own message says so, and a census with a string line_start reaching stage E gets arithmetic done on it. MEASURED at v0.14.87: everything except [D7-ROWS], INCLUDING [D7-NO-HARDCODE], is SAFE over this body, because it is strictly WEAKER than the honest decision; [D7-ROWS] alone refutes. The pair is what covers both directions, a forward post catching a validator that accepts too much and the converse catching one that accepts too little."
+  },
+  {
+   "file": "crux-shape-barrier-vacuous.llmll",
+   "flags": [
+    "--strict-verified-core"
+   ],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localizes": "barrier-condition-met?",
+   "why": "driver-spec section 6:229-231 not enforced: a body answering true whatever the counts, so an exclusion citing a barrier outside the closed list reaches gate J. This is the ONE spec-defined halt in stage G (rfc_to_implementation.py:493 raises it through require_spec, not require), which is why it records `stopped` and why it does not route through validate.verdict-outcome, whose [V7-NO-STOP] forbids ConditionUnmet. NOT a discriminating mutant and does not claim to be: MEASURED at v0.14.87, both [G6-CLOSED] and [G6-NOVACUOUS] refute, because [G6-CLOSED] is an equality between two booleans and so determines result entirely, making the other a named consequence in the sense [V7-NO-FLOOR] is one and gate.llmll's [S6-REPORTED] is one. The cost of a vacuous check here is auditability rather than safety: gate J still holds, but the stage-level halt disappears and a run stops at J with no record of which stage produced the row."
   }
  ]
 }
