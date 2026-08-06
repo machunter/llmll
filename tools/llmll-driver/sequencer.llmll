@@ -924,10 +924,10 @@
   ;; A stage with no precondition artifact goes straight past Pre.
   (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Phase), Command)
     (let [(i (idx-at rn k))]
-      (if (string-empty? (stage-pre-path i))
+      (if (string-empty? (stage-pre-path i 0))
           (after-pre rn (fresh-body k start))
           (go rn (Pre (fresh-body k start))
-              (wasi.fs.read (wd-path (cfg-of rn) (stage-pre-path i)))))))
+              (wasi.fs.read (wd-path (cfg-of rn) (stage-pre-path i 0)))))))
 
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Phase), Command)
     (if (halts-pre? rn k)
@@ -945,7 +945,7 @@
 
   (def-shell pre-detail [i: int what: string] -> string
     (string-concat-many
-      ["stage " (stage-key i) ": " (stage-pre-path i) " " what
+      ["stage " (stage-key i) ": " (stage-pre-path i 0) " " what
        ". The stage cannot be delegated without it; run the stage that "
        "produces it, or delete its manifest row to re-run."]))
 
@@ -953,7 +953,7 @@
     (let [(i (idx-at rn (b-k b)))]
       (match r
         ((RText t)
-          (if (and (stage-pre-json? i) (not (is-ok (json-parse t))))
+          (if (and (= (stage-pre-mode i 0) 1) (not (is-ok (json-parse t))))
               (halt-verdict rn (b-k b) Malformed
                             (pre-detail i "does not parse as JSON"))
               (after-pre rn (b-with-pre b t))))
@@ -1026,9 +1026,9 @@
 
   (def-shell render [i: int tpl: string src: string pretext: string] -> string
     (let [(t1 (if (stage-needs-src? i) (replace-all tpl "{{rfc_text}}" src) tpl))]
-      (let [(t2 (if (string-empty? (stage-pre-key i))
+      (let [(t2 (if (string-empty? (stage-pre-key i 0))
                     t1
-                    (replace-all t1 (stage-pre-key i) pretext)))]
+                    (replace-all t1 (stage-pre-key i 0) pretext)))]
         (if (stage-needs-barriers? i)
             (replace-all t2 "{{barriers}}" (barriers-json))
             t2))))
@@ -1094,12 +1094,12 @@
               (go rn (Outp b) (wasi.fs.read (art-path (cfg-of rn) i 0)))
               (halt-errored rn (b-k b)
                 (string-concat-many
-                  ["agent[" (stage-agent-label i) "] exited " (int-to-string c)
+                  ["agent[" (stage-agent-label i 0) "] exited " (int-to-string c)
                    "; see " (agent-dir (cfg-of rn) i) "/agent.stderr.log"]))))
         ((RErr e)
           (halt-errored rn (b-k b)
             (string-concat-many
-              ["agent[" (stage-agent-label i) "] did not complete within its "
+              ["agent[" (stage-agent-label i 0) "] did not complete within its "
                (int-to-string (ag-timeout (cfg-agent (cfg-of rn))))
                "s budget, or could not be started (" e "). Its partial work is "
                "in " (agent-dir (cfg-of rn) i) ". Re-run this stage with a "
@@ -1127,7 +1127,7 @@
 
   (def-shell absent-detail [c: Cfg i: int] -> string
     (string-concat-many
-      ["agent[" (stage-agent-label i) "] exited 0 but wrote no "
+      ["agent[" (stage-agent-label i 0) "] exited 0 but wrote no "
        (base-of (stage-out i 0)) "; the stage contract was not met (see "
        (agent-dir c i) "/agent.stdout.log)"]))
 

@@ -127,12 +127,28 @@
 ;; and it must not become a value measured from a run.
 ;; ------------------------------------------------------------------
 
-;; True for the three stages sub-phase 4b lands. Every other stage keeps the
+;; True for the stages sub-phases 4b and 4c land. Every other stage keeps the
 ;; 4a stub write. This is scaffolding with a schedule, exactly as the 4a
 ;; injector is: 4c retires D, F and G from the false half, 4d retires H, K and
 ;; N, 4e M, 4f O. A and E are mechanical and are blocked on HTTP-GET-1 and on
 ;; a reconcile.py invocation respectively; neither is listed in proposal
 ;; section 9's sub-phase table at all.
+;;
+;; 4c LANDS D, F AND G TOGETHER rather than in its plan's stated order, and the
+;; reason is a data dependency the plan did not weigh. F reads
+;; 04-reconcile/data/extraction-a.json, which stage D stages there (:663-665),
+;; and G reads the core F writes. A tree with D still stubbed cannot exercise F
+;; or G end to end at all, because the 4a stub writes to the stage's own
+;; declared outputs and not to the directory the next stage reads. The plan's
+;; "smallest first" ordering was an authoring argument and shape.llmll already
+;; discharged it; the landing order follows the pipeline.
+;;
+;; THIS ROW IS STILL 4b's, DELIBERATELY. The tables below it are 4c's and are
+;; complete; the sequencer bodies that read them are not written yet. Flipping D,
+;; F and G here before those bodies exist would mark three stages ported whose
+;; delegation path does not know about tags, three-artifact preconditions, or
+;; content-shape checks -- a tree that compiles and lies. The flip is one line
+;; and it belongs in the same change as the bodies.
 (def-shell stage-ported? [i: int] -> bool
   (if (= i 1) true (if (= i 2) true (if (= i 9) true false))))
 
@@ -150,51 +166,184 @@
 ;; A negative floor does NOT disable the presence check. That one is
 ;; AgentRunner's (:331-334), per delegated call rather than per declared
 ;; floor, and validate's [V7-PRESENCE] holds for every floor.
+;;
+;; 4c ADDS NO FLOORS, and the absence is a measurement rather than an
+;; oversight. D, F and G declare no byte floor at all: their stage contracts
+;; declare a SHAPE, checked by check_extraction (:386), the core-ids clause
+;; (:714) and check_dispositioned (:481). So all three keep -1 here and carry
+;; their contract through stage-shape instead.
+;;
+;; -1 THEREFORE MEANS TWO DIFFERENT THINGS and a reader must not collapse
+;; them. For stage I it means the contract declares no validation at all
+;; (proposal section 9.1 item 2, measured: zero halt calls). For D, F and G it
+;; means no BYTE floor while a shape check applies. stage-shape is what
+;; separates the two, and stage I is 0 there.
 (def-shell stage-floor [i: int] -> int
   (if (= i 1) 200 (if (= i 2) 400 (- 0 1))))
+
+;; Which content-shape validator the stage contract declares, as the tag
+;; shape.llmll's four proved decisions are keyed by. 0 is none.
+;;
+;;   1  extraction    check_extraction (:386-428), stage D
+;;   2  core          the core-ids clause (:712-714), stage F
+;;   3  dispositions  check_dispositioned (:481-500), stage G
+;;
+;; Stage G's validator holds a FOURTH decision this tag does not name: the
+;; closed-barrier condition of :493, which is `require_spec` and therefore
+;; spec-defined and `stopped` where the other five are `require` and `failed`.
+;; It is not a shape check and does not route through validate.verdict-outcome;
+;; see shape.llmll's header, item 3. Keying it here would have put a stopped
+;; disposition behind a table entry named for a shape.
+(def-shell stage-shape [i: int] -> int
+  (if (= i 3) 1 (if (= i 5) 2 (if (= i 6) 3 0))))
 
 ;; The prompt template, by basename under --prompts-dir.
 (def-shell stage-prompt [i: int] -> string
   (if (= i 1) "stage-B-scope.md"
   (if (= i 2) "stage-C-rubric.md"
+  (if (= i 3) "stage-D-extract.md"
+  (if (= i 5) "stage-F-core.md"
+  (if (= i 6) "stage-G-disposition.md"
   (if (= i 9) "stage-I-prereg.md"
-      ""))))
+      "")))))))
+
+;; ------------------------------------------------------------------
+;; Sub-phase 4c: the invocation dimension.
+;;
+;; Every stage 4b ported delegates ONCE. Stage D delegates TWICE, to two blind
+;; extractors over identical bytes (:645-659), and it is the only
+;; agent-delegated stage that does.
+;;
+;; WHY THIS IS NOT stage-out-count. D's two invocations happen to correspond
+;; one-to-one with its two declared outputs, and encoding that correspondence
+;; as a rule would be wrong twice: stage L declares two outputs and is a gate
+;; that delegates nothing, and stage M declares two while delegating once per
+;; HOLE, which is neither one nor two. The correspondence is a coincidence at D
+;; and a separate table is what keeps it from being read as a law.
+;; ------------------------------------------------------------------
+
+(def-shell stage-tag-count [i: int] -> int
+  (if (= i 3) 2 1))
+
+;; The extractor letter the prompt's {{extractor}} placeholder carries
+;; (:654, `extractor=tag.upper()`). Empty for every stage that delegates once.
+;; The lowercase form is not here: it is already in stage-out-dir, which gives
+;; 03-extraction/a and 03-extraction/b, and the agent's directory IS that
+;; directory.
+(def-shell stage-tag-upper [i: int j: int] -> string
+  (if (= i 3) (if (= j 0) "A" "B") ""))
 
 ;; The label AgentRunner.run prints and the log line quotes (:309, :335).
-(def-shell stage-agent-label [i: int] -> string
-  (if (= i 1) "scope" (if (= i 2) "rubric" (if (= i 9) "prereg" ""))))
+;; Takes the invocation index because stage D's is per-tag,
+;; `f"extract-{tag}"` (:655).
+(def-shell stage-agent-label [i: int j: int] -> string
+  (if (= i 1) "scope"
+  (if (= i 2) "rubric"
+  (if (= i 3) (if (= j 0) "extract-a" "extract-b")
+  (if (= i 5) "core"
+  (if (= i 6) "disposition"
+  (if (= i 9) "prereg" "")))))))
 
-;; The workdir-relative artifact the stage reads BEFORE delegating, or "".
-;; Both are unguarded reads in the reference and both are guarded decisions
-;; here; see proposal section 9.1 item 1 and the sequencer's disclosure block.
+;; The workdir-relative artifacts the stage reads BEFORE delegating. All are
+;; unguarded reads in the reference and all are guarded decisions here; see
+;; proposal section 9.1 item 1, section 9.2 item 4, and the sequencer's
+;; disclosure block. The population was two at 4b and is FIVE at 4c.
 ;;
-;;   B  00-source/PROVENANCE.json   :573, read_json, must also PARSE
-;;   C  (none)                      :590-592 reads only the pinned sources
-;;   I  01-scope/scope.md           :1062-1063, read_text, presence only
-(def-shell stage-pre-path [i: int] -> string
+;;   B  00-source/PROVENANCE.json              :573, read_json, must PARSE
+;;   C  (none)                                 :590-592 reads only pinned sources
+;;   D  02-rubric/rubric.md                    :642, read_text, raw
+;;   F  04-reconcile/data/extraction-a.json    :706-710, read_json + ["normative"]
+;;   G  04-reconcile/data/extraction-a.json    :737-739, same projection
+;;      05-core/core.json                      :731-732, read_json + ["core_ids"]
+;;      01-scope/scope.md                      :742, read_text, raw
+;;   I  01-scope/scope.md                      :1062-1063, read_text, raw
+;;
+;; STAGE G READS THE SAME extraction-a.json STAGE F DOES, and both read the
+;; A-SIDE census rather than anything reconciled. F's local name for it is
+;; `merged` (:706) and nothing merges it: reconcile.py reads the pair and writes
+;; only reconciliation.json (:75-76, :155-156). Proposal section 9.2 item 5
+;; records the consequence, that the B-side extraction has no downstream
+;; consumer, and forbids the port from inventing a merge. The name `merged` is
+;; deliberately not carried into any binding here.
+;;
+;; ORDER IS THE REFERENCE'S KEYWORD ORDER (:735-742), which matters because a
+;; substituted value carrying a later placeholder would be expanded by it. For G
+;; that is inventory, then core_ids, then scope.
+;; ------------------------------------------------------------------
+
+(def-shell stage-pre-count [i: int] -> int
+  (if (= i 1) 1
+  (if (= i 3) 1
+  (if (= i 5) 1
+  (if (= i 6) 3
+  (if (= i 9) 1 0))))))
+
+(def-shell stage-pre-path [i: int j: int] -> string
   (if (= i 1) "00-source/PROVENANCE.json"
+  (if (= i 3) "02-rubric/rubric.md"
+  (if (= i 5) "04-reconcile/data/extraction-a.json"
+  (if (= i 6) (if (= j 0) "04-reconcile/data/extraction-a.json"
+              (if (= j 1) "05-core/core.json"
+                          "01-scope/scope.md"))
   (if (= i 9) "01-scope/scope.md"
+      ""))))))
+
+;; What the driver does with the artifact's bytes before substitution.
+;;
+;;   0  RAW      the text, verbatim. D's rubric, G's scope, I's scope.
+;;   1  PARSE    must parse as JSON; the whole document is re-serialized. B's
+;;               provenance, which the reference json.dumps back into the prompt
+;;               (:577), so a file that does not parse cannot reach the agent
+;;               either way.
+;;   2  PROJECT  must parse, then a named member is re-serialized. F's and G's
+;;               inventory (["normative"]) and G's core_ids (["core_ids"]).
+;;
+;; MODE 2 IS WHERE THE PORT'S PROMPT BYTES DIVERGE, disclosed, and it is below
+;; the oracle. The reference emits json.dumps(..., indent=1) and, for core_ids,
+;; json.dumps(sorted(set)); LLMLL has json-serialize and no sort builtin, so the
+;; port's prompt carries the same members with different whitespace and, for
+;; core_ids, in the artifact's own order. Section 2.1's abstraction function
+;; retains a field when some specification obligation mentions it, and no
+;; obligation mentions prompt whitespace or the element order of a prompt blob.
+;; The same disclosure already covers barriers-json (sequencer.llmll:631).
+(def-shell stage-pre-mode [i: int j: int] -> int
+  (if (= i 1) 1
+  (if (= i 3) 0
+  (if (= i 5) 2
+  (if (= i 6) (if (= j 0) 2 (if (= j 1) 2 0))
+  (if (= i 9) 0 0))))))
+
+;; The member mode 2 projects, or "".
+(def-shell stage-pre-proj [i: int j: int] -> string
+  (if (= i 5) "normative"
+  (if (= i 6) (if (= j 0) "normative" (if (= j 1) "core_ids" ""))
       "")))
 
-;; Whether the precondition artifact must parse as JSON. Only stage B's does:
-;; the reference calls read_json on it and json.dumps the result back into the
-;; prompt, so a file that does not parse cannot reach the agent either way.
-(def-shell stage-pre-json? [i: int] -> bool
-  (= i 1))
-
 ;; The prompt placeholder the precondition artifact fills.
-(def-shell stage-pre-key [i: int] -> string
-  (if (= i 1) "{{provenance}}" (if (= i 9) "{{scope}}" "")))
+(def-shell stage-pre-key [i: int j: int] -> string
+  (if (= i 1) "{{provenance}}"
+  (if (= i 3) "{{rubric}}"
+  (if (= i 5) "{{inventory}}"
+  (if (= i 6) (if (= j 0) "{{inventory}}"
+              (if (= j 1) "{{core_ids}}" "{{scope}}"))
+  (if (= i 9) "{{scope}}"
+      ""))))))
 
 ;; Whether the stage's prompt carries {{rfc_text}}, and so whether the stage
-;; reads the pinned sources through _sources_text (:613-630). B and C do; I
-;; carries {{scope}} and {{barriers}} and does not.
+;; reads the pinned sources through _sources_text (:613-630). B, C, D, F and G
+;; do (:576, :591, :653, :708, :736); I carries {{scope}} and {{barriers}} and
+;; does not.
 (def-shell stage-needs-src? [i: int] -> bool
-  (if (= i 1) true (if (= i 2) true false)))
+  (if (= i 1) true
+  (if (= i 2) true
+  (if (= i 3) true
+  (if (= i 5) true
+  (if (= i 6) true false))))))
 
-;; Whether the stage's prompt carries {{barriers}}. Stage I only (:1064).
+;; Whether the stage's prompt carries {{barriers}}. Stage G (:741) and stage I
+;; (:1064).
 (def-shell stage-needs-barriers? [i: int] -> bool
-  (= i 9))
+  (if (= i 6) true (= i 9)))
 
 ;; The directory of stage-out i j, workdir-relative. "." for a top-level
 ;; artifact: wasi.fs.mkdir creates parents (measured) and is RNone on a
