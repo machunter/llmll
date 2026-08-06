@@ -55,6 +55,17 @@ DRIVER = REPO / "scripts" / "rfc_to_implementation.py"
 HALT_HELPERS = {"require", "require_spec", "require_written"}
 SPEC_DEFINED = {"require_spec"}
 
+# Attribute calls the census follows into, keyed by the UNPARSED receiver text
+# rather than by method name. F-24 closed. The name-only shortcut is wrong here
+# and measurably so: `run` would also match `subprocess.run`, which the stage
+# handlers call five times and which halts nothing. Both entries below are
+# methods that raise, so a stage reaching one reaches a halt the earlier census
+# could not see; every agent-delegated stage reaches both.
+METHOD_CALLS = {
+    "ctx.agent.run": ("AgentRunner", "run"),
+    "ctx.prompt": ("Ctx", "prompt"),
+}
+
 # Any file the process puts on disk.
 WRITE_ANY = {"write_json", "write_text", "write_bytes", "copy2", "copytree"}
 # The subset that plausibly lands a stage's DECLARED output. PROMPT.md, run
@@ -89,6 +100,12 @@ class Census:
         self.declared_only = declared_only
         self.fns = {n.name: n for n in tree.body
                     if isinstance(n, ast.FunctionDef)}
+        self.methods: dict[str, ast.FunctionDef] = {}
+        for c in tree.body:
+            if isinstance(c, ast.ClassDef):
+                for m in c.body:
+                    if isinstance(m, ast.FunctionDef):
+                        self.methods[f"{c.name}.{m.name}"] = m
         self.hits: list[dict] = []
         self._seen: dict[tuple, dict] = {}
         self._stage = "?"
@@ -129,6 +146,10 @@ class Census:
         f = node.func
         if isinstance(f, ast.Name) and f.id in self.fns:
             return f.id
+        if isinstance(f, ast.Attribute):
+            hit = METHOD_CALLS.get(ast.unparse(f))
+            if hit and f"{hit[0]}.{hit[1]}" in self.methods:
+                return f"{hit[0]}.{hit[1]}"
         return None
 
     # -- the walk --------------------------------------------------------
@@ -218,8 +239,10 @@ class Census:
 
         callee = self._local_call(node)
         if callee and callee not in self._stack and callee not in HALT_HELPERS:
+            body = self.fns[callee].body if callee in self.fns \
+                else self.methods[callee].body
             self._stack.append(callee)
-            out = self.walk_body(self.fns[callee].body, state)
+            out = self.walk_body(body, state)
             self._stack.pop()
             return out
         return state

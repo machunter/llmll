@@ -1223,6 +1223,14 @@ tree. Recorded because `stack build` ran against that tree; nothing above depend
 
 # Session 2026-08-06: the §3.6 write-before-halt census, computed
 
+> **REVISED IN THE SAME SESSION, after F-24 was closed.** The first pass of this leg reported
+> **n = 44** and could not see halts reached through attribute calls. Closing that gap **doubled the
+> population to n = 88** and moved three of the four findings below. Every number in this section is
+> the post-closure figure; the pre-closure figures are named where they moved, and one claim the
+> first pass made as instrument validation is **withdrawn** below. Correcting in place rather than
+> appending, because a findings section whose earlier numbers are known-wrong is the exact hazard
+> this leg exists to remove.
+
 ## Headline finding
 
 **§3.6's argument survives, one of its numbers survives, and its disagreement count is short by a
@@ -1235,15 +1243,16 @@ predicts for a line-keyed table and the reason this census exists.
 
 **The instrument reproduced F-19 without being told about it, and generalized it.** F-19 found one
 source line carrying two artifact-state dispositions, one per loop iteration. Under the reading that
-counts only a stage's own declared outputs, **all eight of stage D's content halts are that shape**,
-not one. A per-site enumeration cannot represent any of them.
+counts only a stage's own declared outputs, **twelve of stage D's halts are that shape**, not
+one: its eight `check_extraction` halts plus the four it reaches through `Ctx.prompt` and
+`AgentRunner.run`. A per-site enumeration cannot represent any of them.
 
 ## Sample composition
 
 - Subject: `scripts/rfc_to_implementation.py` at `bddfc64`, the whole 16-entry `STAGES` list.
 - Instrument: `experiments/rfc-swarm/tools/halt_census.py`, written for this leg. Interprocedural
   abstract interpretation over a three-value lattice, keyed by (stage, call chain, site).
-- n = **44 halt sites** reachable from a stage handler. Not comparable to §3.5's "39 `require` and
+- n = **88 halt sites** reachable from a stage handler (44 before F-24 was closed). Not comparable to §3.5's "39 `require` and
   ten raises": that denominator counts source sites, this one counts (stage, site) pairs, so a helper
   called by one stage contributes once and a site no stage reaches contributes zero.
 - Compiler 0.14.87. `pytest scripts/tests/` 141 passed, 1 skipped.
@@ -1264,56 +1273,62 @@ Three write definitions are computed side by side, because "wrote some artifacts
 directory has not "written artifacts" in any sense that should turn a defect into a method verdict.
 It is a **heuristic** over the unparsed path expression, not a proof, and it is auditable per stage.
 
-**Three disclosed limitations, one of which is a population gap rather than an imprecision.**
+**Two disclosed limitations. The third, which was a population gap rather than an imprecision, is
+closed.**
 
-1. **Method calls are not followed, so the census misses `AgentRunner.run`'s three raises**, which
-   every one of the eleven agent-delegated stages inherits through `ctx.agent.run(...)`. This is the
-   reference's own overrun and non-zero-exit path. It is invisible here because the call is an
-   attribute call on an instance rather than a module-level function. F-24 below.
-2. Ten bare `raise` statements exist in the module and **none appears in the census**: three are the
-   halt helpers' own implementations, three are `AgentRunner.run` (see 1), three are `read_manifest`
-   and one is `require_durable_workdir`, none of which a stage handler reaches.
-3. Branch conditions are evaluated for their effects but not for feasibility, so an unreachable
+1. Attribute calls are followed only for the two receivers named in `METHOD_CALLS`, matched on the
+   **unparsed receiver text** rather than on the method name. The name-only shortcut is wrong here
+   and measurably so: `run` also matches `subprocess.run`, which the stage handlers call five times
+   and which halts nothing.
+2. Branch conditions are evaluated for their effects but not for feasibility, so an unreachable
    branch would still contribute a site. No such branch was identified.
+3. **CLOSED (was F-24).** `ctx.agent.run` and `ctx.prompt` are now resolved, so `AgentRunner.run`'s
+   three raises and `Ctx.prompt`'s one `require` are in the population. Of the module's ten bare
+   `raise` statements the census now reaches three; the other seven are the halt helpers' own
+   implementations (three), `read_manifest` (three) and `require_durable_workdir` (one), none of
+   which a stage handler reaches.
 
 ## The census at HEAD, `own-declared` reading
 
-| Stage | Halts | `require_spec` | Artifact-state |
-|---|---|---|---|
-| B | 2 | 0 | 2 pre-write |
-| C | 1 | 0 | 1 pre-write |
-| **D** | 9 | 0 | 1 pre-write, **8 BOTH** |
-| E | 1 | 0 | 1 pre-write |
-| F | 1 | 0 | 1 pre-write |
-| G | 6 | 1 | 6 pre-write |
-| G2 | 14 | 5 | 11 pre-write, 3 post-write |
-| H | 3 | 0 | 2 pre-write, 1 post-write |
-| J | 2 | 2 | 2 post-write |
-| K | 1 | 0 | 1 pre-write |
-| L | 1 | 1 | 1 post-write |
-| M | 2 | 0 | 2 pre-write |
-| N | 1 | 0 | 1 pre-write |
+| Stage | Halts | own body | via helper/method | `require_spec` | Artifact-state |
+|---|---|---|---|---|---|
+| B | 6 | 1 | 5 | 0 | 6 pre-write |
+| C | 5 | 1 | 4 | 0 | 5 pre-write |
+| **D** | 13 | 0 | 13 | 0 | 1 pre-write, **12 BOTH** |
+| E | 1 | 1 | 0 | 0 | 1 pre-write |
+| F | 5 | 1 | 4 | 0 | 5 pre-write |
+| G | 10 | 0 | 10 | 1 | 10 pre-write |
+| G2 | 18 | 5 | 13 | 5 | 15 pre-write, 3 post-write |
+| H | 7 | 3 | 4 | 0 | 6 pre-write, 1 post-write |
+| I | 4 | **0** | 4 | 0 | 4 pre-write |
+| J | 2 | 2 | 0 | 2 | 2 post-write |
+| K | 5 | 1 | 4 | 0 | 5 pre-write |
+| L | 1 | 1 | 0 | 1 | 1 post-write |
+| M | 2 | 2 | 0 | 0 | 2 pre-write |
+| N | 5 | 1 | 4 | 0 | 5 pre-write |
+| O | 4 | **0** | 4 | 0 | 4 pre-write |
 
-A, I and O contribute zero halts. **I and O reproduce two facts established independently**: proposal
-§9.1 item 2 measured stage I at zero halt calls, and F-7 records stage O as the only delegated stage
-with no validator. Those two are instrument validation, not findings.
+Stage A contributes zero: it is mechanical and delegates to no agent. **Stages I and O hold zero
+halts in their own bodies and four each through the runner**, which is the distinction the first pass
+of this leg could not draw and drew wrongly. See the withdrawal below.
 
 ## Verified findings
 
-### F-21. The axes disagree at nine sites, not one
+### F-21. The axes disagree at thirteen sites, not one
 
 **Priority:** High · **Consumer:** language-team
 
 #### Evidence
 
-Under `own-declared`, 15 of the 44 sites are post-write or BOTH. Six of those are `require_spec`
-(the axes agree) and **nine are plain `require`** (the axes disagree): stage D's eight
-`check_extraction` halts, and stage H's single `require_written` halt. §3.6 states "exactly one site
-is contradicted".
+Under `own-declared`, 19 of the 88 sites are post-write or BOTH. Six of those are `require_spec`
+(the axes agree) and **thirteen are not** (the axes disagree): stage D's eight `check_extraction`
+halts, the four D reaches through `Ctx.prompt` and `AgentRunner.run`, and stage H's single
+`require_written` halt. §3.6 states "exactly one site is contradicted". Before F-24 closed this read
+nine of 15 of 44.
 
 #### Why we saw what we saw
 
-The table enumerated post-write sites by hand and found eight of them; the census finds fifteen. Its
+The table enumerated post-write sites by hand and found eight of them; the census finds nineteen. Its
 enumeration was not wrong about the sites it listed, it was short. The largest missed cluster is
 stage D, which the table does not mention at all and which alone contributes eight.
 
@@ -1330,15 +1345,17 @@ port implements", which §3.5 answers for the port and §4:146-147 answers for t
 §3.6 restated over the computed census, or the census re-run showing the disagreement population has
 changed.
 
-### F-22. Stage D's eight content halts each carry two dispositions, and F-19 was one of a family
+### F-22. Twelve of stage D's halts each carry two dispositions, and F-19 was one of a family
 
 **Priority:** High · **Consumer:** language-team
 
 #### Evidence
 
-Under `own-declared`, all eight `check_extraction` halts reached from `stage_D_extract` are **BOTH**:
-reached at pre-write on the first extractor and at post-write on the second. Under the two looser
-readings the same eight sites read `post-write`, because D's provisioning copies precede the loop.
+Under `own-declared`, **twelve** of the thirteen halts reached from `stage_D_extract` are **BOTH**:
+the eight `check_extraction` halts, the one `Ctx.prompt` halt and the three `AgentRunner.run` raises,
+each reached at pre-write on the first extractor and at post-write on the second. Under the two
+looser readings the `check_extraction` eight read `post-write`, because D's provisioning copies
+precede the loop.
 
 #### Why we saw what we saw
 
@@ -1350,23 +1367,24 @@ represent. The census shows the shape is not one site but every content halt the
 #### Implication
 
 Implication for language-team: §3.6.1's rule ("hold the existing value" rather than
-"artifact-state-wins") was settled on one instance and now has eight. That strengthens it, and it
+"artifact-state-wins") was settled on one instance and now has twelve. That strengthens it, and it
 also means the port's `failed` disposition for D's iteration-`b` halt is a **choice against the
-artifact-state axis made eight times**, not once.
+artifact-state axis made twelve times**, not once.
 
 #### Acceptance
 
-Any restatement of §3.6.1 that names the population as eight rather than one.
+Any restatement of §3.6.1 that names the population as twelve rather than one.
 
-### F-23. The reading of "wrote some artifacts" moves fifteen of forty-four sites
+### F-23. The reading of "wrote some artifacts" moves twenty-nine of eighty-eight sites
 
 **Priority:** Medium · **Consumer:** language-team
 
 #### Evidence
 
-Comparing `any` against `own-declared`, the artifact-state value differs at **15 sites**: D's eight
-(post-write → BOTH), E's one (post-write → pre-write), and H, K, M and N (BOTH or post-write →
-pre-write). Six of nine `require_spec` sites are post-write under **all three** readings.
+Comparing `any` against `own-declared`, the artifact-state value differs at **29 of the 88 sites**.
+Six of nine `require_spec` sites are post-write under **all three** readings, and that split did not
+move when the population doubled, which is the strongest thing this leg can say about any number in
+§3.6.
 
 #### Why we saw what we saw
 
@@ -1376,17 +1394,17 @@ them.
 
 #### Implication
 
-Implication for language-team: §3.6 does not state which reading it used, and the choice moves more
-sites than the table contains. The spec-defined sites' 6-of-9 split is the one quantity immune to it,
+Implication for language-team: §3.6 does not state which reading it used, and the choice moves
+three times as many sites as the table contains rows. The spec-defined sites' 6-of-9 split is the one quantity immune to it,
 which is why that number survived a table whose keys did not.
 
 #### Acceptance
 
 §3.6 naming its reading explicitly.
 
-### F-24. The census cannot see the halts every agent stage inherits from `AgentRunner.run`
+### F-24. The census could not see the halts every agent stage inherits — CLOSED
 
-**Priority:** Medium · **Consumer:** experiment-lead, then compiler-engineer
+**Priority:** Medium · **Consumer:** experiment-lead · **Status: CLOSED in the same session**
 
 #### Evidence
 
@@ -1405,9 +1423,13 @@ non-zero-exit and timeout paths, and they fire after the agent may have written 
 output, which is precisely the artifact-state question. Any claim of the form "the census covers
 every halt a stage can reach" is false until the instrument resolves `ctx.agent` and `ctx.prompt`.
 
-#### Acceptance
+#### Resolution
 
-The instrument resolving those two receivers, and the census re-run with the resulting sites included.
+Both receivers are resolved, matched on unparsed receiver text rather than method name because `run`
+also matches `subprocess.run`. **The population doubled, 44 → 88.** What moved: disagreements 9 → 13,
+BOTH sites 8 → 12, and stages I and O went from contributing zero halts to four each. What did not
+move: the nine `require_spec` sites and their 6-post-write / 3-pre-write split, unchanged through a
+doubling of the population, which is the one quantity in §3.6 this leg can call robust.
 
 ## Cannot decide
 
@@ -1418,6 +1440,16 @@ is **not** evidence the row was wrong when written; it is evidence the keys cann
 is confirmed and no row is refuted. The census replaces the table rather than correcting it.
 
 ## Withdrawn items
+
+**"Stages I and O contributing zero halts is instrument validation."** The first pass of this leg
+offered I's zero halts (against proposal §9.1 item 2) and O's (against F-7) as evidence the
+instrument was working. **Withdrawn.** Closing F-24 gives both stages four halts each, so the zeros
+were the population gap and not a signal: a broken instrument produced exactly the same zeros a
+working one would have. This is the failure the phase's own claim discipline names, made by the
+author of the discipline's most recent restatement. **The underlying facts stand and were always
+narrower than the use made of them:** §9.1 item 2 says stage I holds zero halt calls *in its own
+body*, which the post-closure census confirms (I and O both show 0 own-body halts), and F-7 says
+stage O has no *validator*. Neither claim was ever about what the stage reaches.
 
 **"`:809` is the write the first row's sites follow."** Rev 10 recorded that `:809` is now a `for`
 statement inside `_pinned_sources`. The census neither confirms nor uses this: under a computed
@@ -1440,13 +1472,14 @@ disagreement it would have corroborated the table's arithmetic as well as its ar
 | F-21 | Nine disagreeing sites, not one | language-team | High | §3.6 restatement |
 | F-22 | D's eight halts each carry two dispositions | language-team | High | §3.6.1 population edit |
 | F-23 | The write reading moves 15 of 44 sites | language-team | Medium | one sentence naming the reading |
-| F-24 | `AgentRunner.run`'s halts are outside the census | experiment-lead | Medium | instrument change, then re-run |
+| F-24 | `AgentRunner.run`'s halts were outside the census | experiment-lead | **CLOSED** | done this session |
 
 ## Changes made this session
 
-`experiments/rfc-swarm/tools/halt_census.py`, new, the instrument. It is durable and re-runnable
-rather than a one-off, because the census's whole failure mode was that it had been done once by hand
-and keyed to an epoch.
+`experiments/rfc-swarm/tools/halt_census.py`, new, the instrument, then extended in the same session
+to close F-24. It is durable and re-runnable rather than a one-off, because the census's whole
+failure mode was that it had been done once by hand and keyed to an epoch. Re-running it after the
+extension is what produced the withdrawal above, which a one-off would not have.
 
 **No edit to `docs/design/driver-ll-phase4-proposal.md`.** §3.6 is language-team's to restate.
 
