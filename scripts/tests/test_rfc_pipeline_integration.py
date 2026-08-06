@@ -107,6 +107,15 @@ elif name == "extraction.json":
         # this `failed`, because the declared shape belongs to the stage
         # contract rather than to the specification (proposal sec 3.2).
         norm[0]["line_start"] = "2"
+    if mode == "bad-extraction-b" and tag == "B":
+        # The SAME defect, on the SECOND extractor only. Tag `a` runs first
+        # (rfc_to_implementation.py:645), so `bad-extraction` above always halts
+        # on the first iteration, where no sibling output exists yet. This mode
+        # is the only way to reach the halt with a declared, contract-valid
+        # SIBLING already on disk, and stage D is the only agent-delegated stage
+        # with two declared outputs (:1513), so it is the only stage where that
+        # state is reachable at all.
+        norm[0]["line_start"] = "2"
     json.dump({"extractor": tag, "normative": norm,
                "excluded": [{"id": f"{tag}x", "source": "SPEC", "line_start": 1,
                              "line_end": 1, "quote": "q", "rule": "X1",
@@ -390,6 +399,41 @@ def test_stage_H_records_partial_then_halt_after_writing_its_output(rig):
     # disk when the halt lands. If this ever stops holding, sec 4:146-147 no
     # longer applies and the site reverts to the clause-source axis.
     assert (wd / "07-feasibility" / "feasibility.json").exists()
+
+
+def test_stage_D_records_failed_when_the_valid_sibling_is_already_written(rig):
+    """The SECOND site where the two classification axes disagree, and it
+    resolves the OPPOSITE way from stage H above.
+
+    Stage D declares two outputs (rfc_to_implementation.py:1513) and runs its
+    extractors in order, so a tag-B defect halts with
+    03-extraction/a/extraction.json already on disk AND already past
+    check_extraction. Section 4:146's "wrote some of its artifacts" is satisfied
+    by a valid SIBLING, so the artifact-state axis would say `stopped`. The
+    reference says `failed`.
+
+    That matters beyond this cell: proposal sec 3.6 claimed exactly one site in
+    46 where the axes disagree, and took the artifact-state reading there. With
+    two sites resolving in opposite directions, the rule that fits both is
+    hold-the-existing-value rather than artifact-state-wins.
+    """
+    p, wd = rig(mode="bad-extraction-b", stages="A,B,C,D")
+    assert p.returncode != 0
+    d = manifest(wd)["D"]
+    assert d["status"] == "failed", (d, p.stdout)
+    assert d["outcome"] == "Errored"
+    assert "extraction-b" in d["detail"], d["detail"]
+    # The premise that makes this cell differ from the tag-a case: the sibling is
+    # present AND meets its contract when the halt lands. Checked with the
+    # driver's OWN validator rather than a restatement of it, so a change to the
+    # schema cannot leave this test asserting a stale shape. If either half stops
+    # holding, this is just the ordinary delegated-output defect above.
+    sibling = wd / "03-extraction" / "a" / "extraction.json"
+    assert sibling.exists()
+    drv.check_extraction(json.loads(sibling.read_text()), "extraction-a")
+    # A deliberate halt must not reach the operator as a host-language error
+    # (sec 4:139-143), which is the same guard the tag-a case carries.
+    assert "Traceback" not in p.stderr, p.stderr
 
 
 def test_gate_J_halts_on_a_bad_barrier_it_is_handed_directly(rig, tmp_path):
