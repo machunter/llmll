@@ -1220,3 +1220,238 @@ any claim above.
 touched by it.
 Their mtimes fall inside this session's window, so a second writer was active in the same working
 tree. Recorded because `stack build` ran against that tree; nothing above depends on the build.
+
+# Session 2026-08-06: the §3.6 write-before-halt census, computed
+
+## Headline finding
+
+**§3.6's argument survives, one of its numbers survives, and its disagreement count is short by a
+factor of nine.** The table states that exactly one site of 46 has the two axes disagreeing. Computed
+over HEAD, **nine sites disagree**: eight in stage D and one in stage H. The table's "six of the nine
+spec-defined sites are corroborated" reproduces exactly and is invariant under all three readings of
+"wrote some artifacts", so that figure is the durable part. Every line key in the table is unusable
+and none of its five rows can be confirmed or refuted on its own terms, which is the outcome §3.5.1
+predicts for a line-keyed table and the reason this census exists.
+
+**The instrument reproduced F-19 without being told about it, and generalized it.** F-19 found one
+source line carrying two artifact-state dispositions, one per loop iteration. Under the reading that
+counts only a stage's own declared outputs, **all eight of stage D's content halts are that shape**,
+not one. A per-site enumeration cannot represent any of them.
+
+## Sample composition
+
+- Subject: `scripts/rfc_to_implementation.py` at `bddfc64`, the whole 16-entry `STAGES` list.
+- Instrument: `experiments/rfc-swarm/tools/halt_census.py`, written for this leg. Interprocedural
+  abstract interpretation over a three-value lattice, keyed by (stage, call chain, site).
+- n = **44 halt sites** reachable from a stage handler. Not comparable to §3.5's "39 `require` and
+  ten raises": that denominator counts source sites, this one counts (stage, site) pairs, so a helper
+  called by one stage contributes once and a site no stage reaches contributes zero.
+- Compiler 0.14.87. `pytest scripts/tests/` 141 passed, 1 skipped.
+- No agent runs, no API spend. This leg is static analysis over committed source.
+
+## The instrument, and what it cannot see
+
+Three write definitions are computed side by side, because "wrote some artifacts" (driver-spec
+§4:146-147) is a reading rather than a measurement:
+
+| Reading | Counts as a write |
+|---|---|
+| `any` | any `write_json` / `write_text` / `write_bytes` / `copy2` / `copytree` |
+| `any-file` | the same minus provisioning copies |
+| `own-declared` | only writes whose path names one of **this stage's** declared outputs, or the `out` binding for them |
+
+`own-declared` is the reading §4:146-147 needs, since a stage that copied its inputs into a working
+directory has not "written artifacts" in any sense that should turn a defect into a method verdict.
+It is a **heuristic** over the unparsed path expression, not a proof, and it is auditable per stage.
+
+**Three disclosed limitations, one of which is a population gap rather than an imprecision.**
+
+1. **Method calls are not followed, so the census misses `AgentRunner.run`'s three raises**, which
+   every one of the eleven agent-delegated stages inherits through `ctx.agent.run(...)`. This is the
+   reference's own overrun and non-zero-exit path. It is invisible here because the call is an
+   attribute call on an instance rather than a module-level function. F-24 below.
+2. Ten bare `raise` statements exist in the module and **none appears in the census**: three are the
+   halt helpers' own implementations, three are `AgentRunner.run` (see 1), three are `read_manifest`
+   and one is `require_durable_workdir`, none of which a stage handler reaches.
+3. Branch conditions are evaluated for their effects but not for feasibility, so an unreachable
+   branch would still contribute a site. No such branch was identified.
+
+## The census at HEAD, `own-declared` reading
+
+| Stage | Halts | `require_spec` | Artifact-state |
+|---|---|---|---|
+| B | 2 | 0 | 2 pre-write |
+| C | 1 | 0 | 1 pre-write |
+| **D** | 9 | 0 | 1 pre-write, **8 BOTH** |
+| E | 1 | 0 | 1 pre-write |
+| F | 1 | 0 | 1 pre-write |
+| G | 6 | 1 | 6 pre-write |
+| G2 | 14 | 5 | 11 pre-write, 3 post-write |
+| H | 3 | 0 | 2 pre-write, 1 post-write |
+| J | 2 | 2 | 2 post-write |
+| K | 1 | 0 | 1 pre-write |
+| L | 1 | 1 | 1 post-write |
+| M | 2 | 0 | 2 pre-write |
+| N | 1 | 0 | 1 pre-write |
+
+A, I and O contribute zero halts. **I and O reproduce two facts established independently**: proposal
+§9.1 item 2 measured stage I at zero halt calls, and F-7 records stage O as the only delegated stage
+with no validator. Those two are instrument validation, not findings.
+
+## Verified findings
+
+### F-21. The axes disagree at nine sites, not one
+
+**Priority:** High · **Consumer:** language-team
+
+#### Evidence
+
+Under `own-declared`, 15 of the 44 sites are post-write or BOTH. Six of those are `require_spec`
+(the axes agree) and **nine are plain `require`** (the axes disagree): stage D's eight
+`check_extraction` halts, and stage H's single `require_written` halt. §3.6 states "exactly one site
+is contradicted".
+
+#### Why we saw what we saw
+
+The table enumerated post-write sites by hand and found eight of them; the census finds fifteen. Its
+enumeration was not wrong about the sites it listed, it was short. The largest missed cluster is
+stage D, which the table does not mention at all and which alone contributes eight.
+
+#### Implication
+
+Implication for language-team: §3.6's "profile of an eliminative check" argument gets **stronger**,
+not weaker, since the disagreement is a population rather than an anomaly. But the sentence "exactly
+one site is contradicted" cannot be restated with a different number and left otherwise intact: at
+nine sites the question stops being "which reading wins at this one site" and becomes "which axis the
+port implements", which §3.5 answers for the port and §4:146-147 answers for the spec.
+
+#### Acceptance
+
+§3.6 restated over the computed census, or the census re-run showing the disagreement population has
+changed.
+
+### F-22. Stage D's eight content halts each carry two dispositions, and F-19 was one of a family
+
+**Priority:** High · **Consumer:** language-team
+
+#### Evidence
+
+Under `own-declared`, all eight `check_extraction` halts reached from `stage_D_extract` are **BOTH**:
+reached at pre-write on the first extractor and at post-write on the second. Under the two looser
+readings the same eight sites read `post-write`, because D's provisioning copies precede the loop.
+
+#### Why we saw what we saw
+
+D is the only stage that declares two outputs and loops over them. The first iteration halts with
+nothing of D's own on disk; the second halts with extractor A's `extraction.json` written. F-19 found
+this at one site by hand and recorded it as a granularity failure no per-site enumeration could
+represent. The census shows the shape is not one site but every content halt the stage has.
+
+#### Implication
+
+Implication for language-team: §3.6.1's rule ("hold the existing value" rather than
+"artifact-state-wins") was settled on one instance and now has eight. That strengthens it, and it
+also means the port's `failed` disposition for D's iteration-`b` halt is a **choice against the
+artifact-state axis made eight times**, not once.
+
+#### Acceptance
+
+Any restatement of §3.6.1 that names the population as eight rather than one.
+
+### F-23. The reading of "wrote some artifacts" moves fifteen of forty-four sites
+
+**Priority:** Medium · **Consumer:** language-team
+
+#### Evidence
+
+Comparing `any` against `own-declared`, the artifact-state value differs at **15 sites**: D's eight
+(post-write → BOTH), E's one (post-write → pre-write), and H, K, M and N (BOTH or post-write →
+pre-write). Six of nine `require_spec` sites are post-write under **all three** readings.
+
+#### Why we saw what we saw
+
+The loose readings count provisioning copies, prompt files and run logs. Every stage that provisions
+inputs before delegating therefore reads as post-write from its first copy onward, which is most of
+them.
+
+#### Implication
+
+Implication for language-team: §3.6 does not state which reading it used, and the choice moves more
+sites than the table contains. The spec-defined sites' 6-of-9 split is the one quantity immune to it,
+which is why that number survived a table whose keys did not.
+
+#### Acceptance
+
+§3.6 naming its reading explicitly.
+
+### F-24. The census cannot see the halts every agent stage inherits from `AgentRunner.run`
+
+**Priority:** Medium · **Consumer:** experiment-lead, then compiler-engineer
+
+#### Evidence
+
+`AgentRunner.run` holds three `raise` statements and is reached by all eleven agent-delegated stages
+through `ctx.agent.run(...)`. The census follows module-level function calls only, so those halts
+appear nowhere in the 44. `Ctx.prompt` is a second halting method with the same invisibility.
+
+#### Why we saw what we saw
+
+Attribute calls on instances are not resolvable without type inference the instrument does not do.
+
+#### Implication
+
+This is a **population gap, not an imprecision**: the sites are real, they are the reference's own
+non-zero-exit and timeout paths, and they fire after the agent may have written a partial declared
+output, which is precisely the artifact-state question. Any claim of the form "the census covers
+every halt a stage can reach" is false until the instrument resolves `ctx.agent` and `ctx.prompt`.
+
+#### Acceptance
+
+The instrument resolving those two receivers, and the census re-run with the resulting sites included.
+
+## Cannot decide
+
+**All five rows of §3.6's table.** Its keys are line numbers into an older epoch and §3.5.1's hazard
+applies in full: `:811` and `:815` at HEAD are plain `require` calls inside `_pinned_sources` at
+pre-write, which is the opposite of the first row's `stopped`/`stopped`/post-write on both axes. That
+is **not** evidence the row was wrong when written; it is evidence the keys cannot be followed. No row
+is confirmed and no row is refuted. The census replaces the table rather than correcting it.
+
+## Withdrawn items
+
+**"`:809` is the write the first row's sites follow."** Rev 10 recorded that `:809` is now a `for`
+statement inside `_pinned_sources`. The census neither confirms nor uses this: under a computed
+census the identity of the preceding write is not a key, and the claim was only ever needed to
+explain why the line-keyed row had stopped making sense.
+
+## Null results
+
+**Hypothesis: the two axes agree everywhere except at sites the table already names.** Not supported.
+n = 44 sites, nine disagreements, one of which the table names. Had the census returned one
+disagreement it would have corroborated the table's arithmetic as well as its argument.
+
+**Hypothesis: the `require_spec` population moved since Rev 9.** Not supported. The census finds nine
+`require_spec` sites reachable from a stage handler, which is what §3.5 states. n = 44.
+
+## Priority matrix
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---|---|---|---|
+| F-21 | Nine disagreeing sites, not one | language-team | High | §3.6 restatement |
+| F-22 | D's eight halts each carry two dispositions | language-team | High | §3.6.1 population edit |
+| F-23 | The write reading moves 15 of 44 sites | language-team | Medium | one sentence naming the reading |
+| F-24 | `AgentRunner.run`'s halts are outside the census | experiment-lead | Medium | instrument change, then re-run |
+
+## Changes made this session
+
+`experiments/rfc-swarm/tools/halt_census.py`, new, the instrument. It is durable and re-runnable
+rather than a one-off, because the census's whole failure mode was that it had been done once by hand
+and keyed to an epoch.
+
+**No edit to `docs/design/driver-ll-phase4-proposal.md`.** §3.6 is language-team's to restate.
+
+### Gates
+
+`pytest scripts/tests/` 141 passed, 1 skipped, unchanged by this leg. `scripts/doc_path_lint.py` run
+separately, all citations resolve. GitHub Actions was in a major outage for the whole session, so
+nothing here has been through CI.
