@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE. Rewritten 2026-08-04 after the phase's first three tasks merged as v0.14.84; updated 2026-08-05 for proposal Rev 7; the harness leg ran and sub-phase 4a is unblocked. Delete when Phase 4 closes."
+status: "LIVE. Current as of 2026-08-05 end of session. Sub-phases 4a and 4b are SHIPPED, the proposal stands at Rev 9, three releases went out (v0.14.85, v0.14.86, v0.14.87), and the phase runs at 4c. The last three commits are unpushed. Delete when Phase 4 closes."
 date: 2026-08-05
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -9,55 +9,49 @@ consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
 
 # DRIVER-LL Phase 4 — restart record
 
-Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (Rev 7,
+Read this first, then [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md) (**Rev 9**,
 SETTLED). Everything else is downstream of those two.
 
-**Thirty-second version.** **Sub-phase 4a is SHIPPED** (`2b82464`, v0.14.85) and the phase now runs
-at **4b**. The 2026-08-05 session took the proposal from Rev 5 to **Rev 8**, ran the harness leg,
-found 4a blocked at the process boundary, specified and shipped the capability that unblocked it
-(`PROC-BOUNDARY-1`, v0.14.85), then ported 4a against it **with no shim**. Rev 8 settles all four
-findings Rev 7 held: three were predictions and all three are confirmed by execution. Everything is
-committed and every gate is green (§1). The one thing not to re-derive: **closing the capability
-before porting is what bought the no-shim result**, and a shim would have mediated every 4a
-acceptance result, which is the one property 4a exists to establish.
+**Thirty-second version.** **Sub-phases 4a and 4b are SHIPPED** (`2b82464` v0.14.85, `ba2f93d`
+v0.14.87) and the phase now runs at **4c**, stages D, F and G. The proposal stands at **Rev 9**. The
+2026-08-05 session took it from Rev 5 to Rev 9, ran the harness leg, found 4a blocked at the process
+boundary, specified and shipped the capability that unblocked it (`PROC-BOUNDARY-1`, v0.14.85),
+ported 4a against it **with no shim**, re-measured §3.5, and ported 4b. Three releases shipped:
+v0.14.85, v0.14.86 and v0.14.87. Everything is committed; the last three commits are **unpushed**
+(§1).
+
+**The one thing not to re-derive.** Closing the capability before porting is what bought the no-shim
+result. A shim would have sat between the rig and the thing under test and mediated every 4a
+acceptance result, which is the one property 4a exists to establish. The same instinct is why §9.1
+settles what 4b may and may not invent.
 
 ## 1. Where the work is
 
-**Committed and merged:** `main` at `c4c07f5`, released as v0.14.84. The `driver-ll/phase-4` branch
-is merged and can be deleted. **Nothing is pushed**; `origin` is still at v0.14.83, so `main` is ten
-commits ahead.
+**`main` is at `1bc2965`, working tree clean.** `origin` is at `ba2f93d`, so **the last three commits
+are unpushed**: the v0.14.87 pins, the v0.14.87 release docs, and this record. CI was green at
+`ba2f93d`.
 
-**All of the 2026-08-05 session's work is committed.** Rev 6 and Rev 7 plus Task #9's harness leg
-landed as `766be6e` and `c10081d`. The table below records who wrote what, since the split is not
-recoverable from the diff.
+**Push early.** The one thing this session proved the hard way is that local gates are not the gates.
+`main` sat red for two days on a defect no macOS run could reach, because `build_smoke.sh` stage 5b
+is a structural no-op here: GHC on this platform returns UTF-8 from `getLocaleEncoding` under every
+locale. The stage now prints **NOT EXERCISED** on Darwin instead of a PASS it has not earned, so a
+green local run no longer implies the encoding claim was tested.
 
-| File | What changed | Role that wrote it |
-|---|---|---|
-| `docs/design/driver-ll-phase4-proposal.md` | Rev 5 → **Rev 7**. The big one, roughly 460 lines | language-team |
-| `docs/design/driver-ll-phase4-RESTART.md` | this file | language-team |
-| `docs/design/driver-ll-open-work.md` | R-14 (`PROC-ENV-1`) and R-15 (`STATE-PROD-1`) | language-team |
-| `experiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md` | new session block, findings F-9/F-10/F-11 | experiment-lead |
-| `scripts/rfc_to_implementation.py` | `read_manifest()` at `:212`, called at the resume read | experiment-lead |
-| `scripts/tests/test_rfc_pipeline_integration.py` | one `STUB_MODE` (`silent-scope`) and five tests | experiment-lead |
-
-**Verify the tree before trusting any of it:**
+**The installed binary is STALE.** Pins say 0.14.87; the binary was built at 0.14.86. Rebuild before
+trusting any CLI result.
 
 ```
+(cd compiler && stack build)
 export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH
-llmll version                      # expect 0.14.84
-python3 -m pytest scripts/tests/ -q   # expect 120 passed (was 115)
-python3 scripts/doc_path_lint.py      # expect 764 citations, all resolve
-python3 scripts/rfc_to_implementation.py --self-test   # expect PASS
+llmll version                          # expect 0.14.87 AFTER the rebuild
+python3 -m pytest scripts/tests/ -q    # expect 131 passed, 1 skipped
+python3 scripts/doc_path_lint.py       # expect 865 citations, all resolve
+bash scripts/version_gate.sh           # expect PASS at v0.14.87
 ```
 
-The Haskell suite (1616 examples) and `build_smoke.sh` were **not** re-run this session and did not
-need to be: no compiler source changed. Re-run them before any commit that touches `compiler/`.
-
-**If the uncommitted work is to be committed**, it splits cleanly in two and should: the three
-`docs/design/` files are one commit (the Rev 6 and Rev 7 specification work), and the three
-`scripts/` plus `experiments/` files are another (Task #9's harness leg, which has its own positive
-witness recorded in the findings). No version bump is owed, because no compiler source changed and
-the pins are already at 0.14.84.
+Heavier gates, all green at `ba2f93d` and unaffected by the docs commits since: Haskell **1651
+examples**, `build_smoke.sh` **6 stages** (the `LC_ALL=C` half NOT EXERCISED on macOS, which is not a
+failure), `refute-crux-gate.sh` **71 passed**.
 
 ## 2. What Phase 4 is, in four sentences
 
@@ -78,7 +72,7 @@ caller since v0.14.70.
 | 8 | Python-side §3.5/§3.6 repair | experiment-lead | **done**, v0.14.84 (`aa08051`) |
 | 3 | `FS-ENCODING-1` + `wasi.fs.copy` | compiler-engineer | **done**, v0.14.84 (`82a0772`, `0f2c22f`) |
 | 6a | Release ceremony v0.14.84 | documentation-lead | **done** (`a182638`) |
-| 9 | Harness leg for 4a: T7 test, the guarded manifest read, §10 cases 16–18 | experiment-lead | **done**, uncommitted. 115 → 120 Python tests; findings F-9/F-10/F-11 |
+| 9 | Harness leg for 4a: T7 test, the guarded manifest read, §10 cases 16–18 | experiment-lead | **done** (`c10081d`). 115 → 120 Python tests; findings F-9/F-10/F-11 |
 | 10 | Two roadmap rows (`FS-STAT-1` re-scoped, `MATCH-CATCHALL-1`), `CLAUSE-INDEP-1` under the layer-3 row, two DRIVER-LL notes additions, one stale internal cross-reference | documentation-lead | **done** 2026-08-05, `docs/compiler-team-roadmap.md` + `INDEX.md` |
 | 11 | Sub-phase 4a **plan**: module decomposition, acceptance instrumentation, eight measured findings | compiler-engineer | **done**, `driver-ll-phase4a-implementation-plan.md`. It found #4 blocked |
 | 12 | `PROC-BOUNDARY-1`: `wasi.proc.args` + `def-main :status`. Proposal, row, ship, release | language-team → compiler-engineer → documentation-lead | **done, SHIPPED v0.14.85**. Proposal at Rev 3; no breaking change |
@@ -87,70 +81,43 @@ caller since v0.14.70.
 | 14 | Rev 8: settle the four held findings | language-team | **done**, all three predictions confirmed |
 | 15 | Re-measure §3.5 at HEAD; it generated 4b's queue | experiment-lead | **done**, F-14–F-17. Refuted Rev 8's own stamp. Landed as Rev 9 |
 | 5b | **Sub-phase 4b: stages B, C, I and the shared validation facility** | compiler-engineer | **done, SHIPPED** (`ba2f93d`). Cover 15 → 31 cells; `validate.llmll` SAFE |
-| **16** | **RELEASE v0.14.87 + three doc repairs + two roadmap rows. OWED, NOT DONE (§9)** | **documentation-lead** | **PENDING. This is next** |
-| **5c** | **Sub-phase 4c: stages D, F, G** | compiler-engineer | pending, unblocked once #16 lands |
+| 16 | Release v0.14.87 + three doc repairs + two roadmap rows | documentation-lead | **done** (`5a4832c`, `1bc2965`). `PROC-TIMEOUT-1` filed, not fixed (§9) |
+| **5c** | **Sub-phase 4c: stages D, F, G** | **compiler-engineer** | **PENDING, UNBLOCKED. This is next** |
 | 6b | Doc-lead pass at each sub-phase | documentation-lead | pending, runs after each |
 
 ## 4. The next action
 
-**Task #12, the process-boundary capability.** The 4a plan is written and its acceptance
-instrumentation holds, but it cannot run: the port has no way to receive `--workdir`, `--only` or
-`--force`, and no way to exit 2. Both were measured, not inferred, and both are in the compiler
-rather than in the port.
+**Sub-phase 4c: stages D, F and G.** 4a and 4b are shipped and their plans are in the design folder.
+§9 of the proposal gives 4c's row; its acceptance is that stage E's Phase 3 pins reproduce over D's
+own output.
 
-1. **`ModeCli` has argv and performs no `Command`.** `emitMainBody` generates
-   `args <- getArgs; print (step args)` (`CodegenHs.hs:1659-1663`). It can read the flags and cannot
-   act on them.
-2. **`ModeConsole` performs `Command`s and never sees argv**, and its loop ends at
-   `if eof then return ()` (`:1587-1588`), so a starved stdin exits **0** having written partial
-   state, with no diagnostic. There is no terminal-marker check.
-3. **Neither mode can set an exit status.** The rig asserts `returncode == 2` at four sites in
-   `test_rfc_pipeline_integration.py`, and no entry mode can produce it.
+**Stage G is on the critical path and was omitted from the campaign's original list** (§2). It
+produces the input to G2 and to both of gate J's disposition conditions, so it is not optional and
+its absence is why the stage enumeration was corrected in the first place.
 
-**The adjudication is close the capability first, then port 4a against it**, rather than bridging it
-with a shim. The reason is that a shim would sit between the rig and the thing under test and
-mediate every 4a acceptance result, which is the one property 4a exists to establish.
+**Four things 4b settled that 4c inherits, so do not re-derive them:**
 
-R-14 states the promotion rule this fires: an R-item becomes a roadmap row **the moment something is
-blocked on it**, which is how R-11 became `HTTP-GET-1`. Something is now blocked on it.
+1. **The shared validation facility exists**, in `validate.llmll`. `verdict-of` takes **no string**,
+   which is the property that keeps a subject's conventions out of the validator, and
+   `[V7-NO-HARDCODE]` refutes a validator fitted to one run's sizes. 4c extends it rather than
+   writing a second one.
+2. **Cite §3.5's halt sites by CONDITION, never by line number** (§3.5.1). Two of the nine
+   spec-defined line numbers now point at sites with the **opposite** disposition, so a reader keying
+   on the number lands on a plausible-looking site and nothing signals the miss.
+3. **A validator where the reference has none is new behaviour and does not ride in on a port.**
+   Stages I and O both have none; both are disclosed and both land at 4f.
+4. **`PROC-TIMEOUT-1` is open** (§9). `wasi.proc.run`'s timeout does not fire, so any budget-overrun
+   path 4c writes is unreachable through the timeout the same way 4b's is.
 
-Sub-phase 4a resumes unchanged once #12 ships. Proposal §9 gives its row, and its acceptance cell is
-Rev 7 text, not Rev 5 text; the count moved twice. What the harness leg changed for the port, beyond
-the tests:
+**The method that has paid every time, six for six.** Every refuted mechanism claim in this phase was
+a grep over the name a design document uses, where the code enforces the same obligation under a
+different name one call frame away. The most recent was this proposal's own Rev 8 stamp, which used a
+grep to correct a stale count and produced a wrong one. If a claim rests on a grep, execute it. If
+the port disagrees with the proposal, execute the disagreement before writing the correction.
 
-1. **`read_manifest`** (`rfc_to_implementation.py:212`) guards three corrupt-manifest shapes and
-   raises `StageFailure`, which the top-level `except Halt` renders as exit 2. The port needs a
-   defined transition for all three, not two: the third is a well-formed object with a list at
-   `stages`, and it dies at the resume gate's own indexing expression rather than at the read.
-2. **`AgentRunner.run:331-334` already enforces §7:279.** Rev 6 said the reference could record
-   `complete` over a missing declared output and it cannot, for the eleven agent-delegated stages.
-   The port is matching behaviour here, not correcting it.
-3. **T7 is measured**: the stage re-runs and prints no reason line. The test asserts the decision,
-   not the silence, and the port is free to report or not.
-
-Five things Rev 5, Rev 6 and Rev 7 settled that 4a depends on, so do not re-derive them:
-
-1. **The halt model is three-way, not two-way.** `stage.record-outcome` proves four `Outcome`
-   constructors; §3.5's clause-source rule and §3.6's artifact-state axis together decide which one
-   a site constructs. The Python reference now encodes this and its manifest rows carry an
-   `outcome` field naming the constructor, so the port has a worked example to check against rather
-   than a rule to re-interpret.
-2. **The transition cover is eleven, and all eleven now have a test.** Rev 6 derives it as a product
-   over three axes instead of enumerating it, because the count moved at every revision. T4 (a halt
-   after writing output) and T7 (complete record, declared artifact absent) were both missing.
-3. **Clause 1a needs the abstraction function α of §2.1 and is unsatisfiable without it.** A complete
-   row carries a wall-clock `seconds`; the halt rows carry Python exception text as `detail`. α
-   discards the first and weakens the second to a non-emptiness predicate.
-4. **`:866` is held at `stopped` deliberately.** Two derivations point opposite ways; §3.6 records
-   both and takes the conservative one. If 4a's port disagrees, that is a finding, not a bug.
-5. **A grep over a design document's vocabulary is not a code audit.** Four mechanism claims in this
-   phase have been refuted the same way, most recently Rev 6's, and all four were caught by running
-   something. Proposal risk 3c. If 4a's port disagrees with the proposal, execute the disagreement
-   before writing the correction.
-
-**Do not emit `"outcome": "Finished"` on a complete manifest row.** The reference emits no `outcome`
-field there (`:1950-1956`), α retains `outcome`, and the uniform port breaks clause 1a on the most
-frequent transition in any run. §4 states it as a specified decision.
+**Run experiment-lead before compiler-engineer.** Harness work generates the engineer's queue rather
+than following it: it produced §3.5, then §3.6, then refuted Rev 6, then refuted Rev 8 and settled
+what 4b needed. Four times, four findings the port would otherwise have hit mid-build.
 
 ## 5. Sequencing lesson, paid for three times now
 
@@ -190,7 +157,7 @@ being filed in proposal §14 and absent here.
 
 - **Stale binary.** `stack exec` from the repo root runs the wrong compiler. Before any compiler
   work: `export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH` and check
-  `llmll version` reports **0.14.84**.
+  `llmll version` reports **0.14.87**, which needs a rebuild: the pins moved and the binary did not.
 - **The doc path lint gates CI.** `scripts/tests/test_doc_path_lint.py::test_clean_on_live_repo`
   runs in `version-gate.yml`, so an unresolved prose citation leaves `main` red. Only citations
   **containing a slash** are checked (`doc_path_lint.py:150-151`), so a bare filename is safe and a
@@ -204,9 +171,14 @@ being filed in proposal §14 and absent here.
   section 9 because sections 10 and up use a single space. §10 through §15.4 exist and carry
   conditions this proposal originally missed; the Rev 5 sweep read them, and §6.2 through §6.5 are
   the result.
-- **macOS cannot reproduce the FS-ENCODING-1 condition.** GHC on macOS uses UTF-8 regardless of
-  `LC_ALL`, so `build_smoke.sh` stage 5b is truthful on Linux and a no-op locally. The first CI run
-  on `main` at v0.14.84 is the confirming test, and it has not happened.
+- **macOS cannot reproduce the FS-ENCODING-1 condition, and the confirming CI run FAILED.** GHC here
+  returns UTF-8 from `getLocaleEncoding` under every locale, so stage 5b was a structural no-op
+  locally while reporting PASS. Its first real execution, on `main` after the 2026-08-05 push, failed
+  on four assertions from **one** defect: `FS-ENCODING-1` pinned the filesystem handles and left the
+  generated program's **standard** handles on the ambient locale, so a program wrote non-ASCII to
+  disk correctly and then died printing it. Fixed at v0.14.86, verified red-to-green in a Linux
+  container. **Stage 5b now prints NOT EXERCISED on Darwin** rather than a PASS it has not earned, so
+  a green local run no longer implies the encoding claim was tested.
 - **The doc lint bit twice on 2026-08-05**, both times in exactly the way the bullet above predicts,
   and the second time was *while writing this bullet*. A findings file named a workdir-relative
   artifact by joining its stage directory and filename with a slash inside backticks, so the lint
@@ -234,41 +206,23 @@ being filed in proposal §14 and absent here.
   'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
   the 4a plan; it wants a roadmap row and has none yet.
 
-## 9. A release is OWED and was not done. Read this before anything else
+## 9. The release that was owed is DONE
 
-**`main` is at `ba2f93d`, pushed, CI green, and the version pins say v0.14.86 while the tree has
-moved past it.** Nothing is broken: `version_gate.sh` checks that the five pins agree with **each
-other**, not that the version reflects the content, so the gate passes and CI is green. The bump is
-owed, not missing-and-failing. It did not happen because the documentation-lead run hit a session
-quota, and the work is mechanical and fully specified rather than undecided.
+v0.14.87 shipped (`5a4832c` pins, `1bc2965` docs). It carried the two builtin fixes, sub-phase 4b,
+three doc repairs, and two roadmap rows. This section is kept only to record what it closed and what
+it deliberately did not:
 
-**What v0.14.87 owes**, all of it committed and gate-verified at `ba2f93d`:
-
-1. **The bump itself**, five pinned files, then `scripts/version_gate.sh`.
-2. **A `CHANGELOG.md` entry** covering `1e33d69` and `ba2f93d`. The `string-slice` half must say the
-   old bug was a wrong **length**, not a wrong offset: the unclamped form fed a negative `start` into
-   the `take` count while `drop` no-opped on it, so `(string-slice "abc" -3 0)` returned the whole
-   string for a window ending at zero. Tests 1642 → 1651 Haskell, 123 → 131 Python.
-3. **Three doc repairs**, all handed off by the engineer that found them. `LLMLL.md`'s `string-slice`
-   row needs the clamp behaviour, in the register its sibling `string-char-at` already uses. Its
-   `wasi.http.post` row says "POST body to URL" and the implementation discards the body and
-   publishes `RErr`, with no HTTP client in the generated package, so the cell must point at §13.9's
-   existing disclosure rather than assert a request that never happens; **do not delete the row**.
-   And `llmll-ast.schema.json`'s `description` enumerates 0.11.0 back to 0.7.0 while
-   `acceptedSchemaVersions` includes `0.6.0`, which now matters because the new rejection message
-   routes users to that field.
-4. **Two roadmap rows.** A new one for the compiler defect 4b found: **`wasi.proc.run`'s timeout does
-   not fire in a built program** (`--timeout 1` against a 30-second agent exits 0 with
-   `seconds: 30`; the binary reports `RTS way: rts_v`). **The row must record that adding
-   `ghc-options: -threaded` to the generated package did NOT move the RTS way**, or the next person
-   will spend the afternoon on the one-line fix that does not work. And `PROC-BOUNDARY-1`'s owed-items
-   list wants checking against proposal Rev 4.
-5. **The `DRIVER-LL` row is stale.** It was made current this morning when 4a was blocked. 4a and 4b
-   have both shipped since.
-
-**Do not renumber a bare version mention while doing this.** `docs/UPDATE-PROTOCOL.md` carries the
-rule and the precedent: a release pass once refreshed a bare `1.2.0` to `1.4.0` in place and
-destroyed a true attribution. A version gets an arrival verb or it is a currency claim.
+- **`PROC-TIMEOUT-1` is filed and NOT fixed.** `wasi.proc.run`'s timeout does not fire in a built
+  program: `--timeout 1` against a 30-second agent exits 0 with `seconds: 30`, and the binary reports
+  `RTS way: rts_v`. **Adding `ghc-options: -threaded` to the generated package did NOT move the RTS
+  way**, so the one-line fix measures identically to no change. The roadmap row says so in bold.
+  Consequence: 4b's budget-overrun halt is written and unreachable through the timeout path.
+- **A closure note is owed to compiler-engineer.** `PROC-TIMEOUT-1` originates in a finding inside
+  `driver-ll-phase4b-implementation-plan.md`, which doc-lead does not edit. The row is its
+  destination.
+- **The v0.14.85 shipped row records 120 Python where the figure was 123.** Left alone deliberately:
+  shipped rows are append-only, and silently correcting one is how a release record stops being a
+  record. Its own pass if wanted.
 
 ## 8. Rev 8: SETTLED, and what it cost to wait
 
