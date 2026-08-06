@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE. Current as of 2026-08-06, third session. Sub-phases 4a and 4b are SHIPPED and SUB-PHASE 4c IS IMPLEMENTED AND MERGED to main: stages D, F and G ported, arriving as four commits on driver-ll-4c/stages-d-f-g and fast-forwarded onto main from 0d3242b. 4c HAD NEVER BEEN THROUGH CI at the branch tip, zero runs, and pushing a branch runs nothing: version-gate.yml fires only on push to main and on pull requests targeting main. THE PR WAS DECLINED and 4c merges to main directly, so ITS FIRST CI RUN IS THE PUSH THAT MERGES IT and lands after the merge rather than in front of it. A restarting session's first move is to read that run: if main is red, that is 4c. The proposal stands at Rev 10 and 4c does not move it. A RELEASE CEREMONY IS NOW DUE: nothing was owed while 4c sat on a branch and the merge is what makes it owed. Four items are open (§6): REGEX-LOWER-1, a new compiler defect with no roadmap row; §9.2 item 1's silence on 4c constructing ConditionUnmet; the driver README unupdated for D, F and G; and the v0.14.85 shipped row's uncorrected 120. Still untouched: 4d through 4f, and the largest owed item in the phase is still a fresh census for proposal §3.6's table, whose keys are knowingly stale. Delete when Phase 4 closes."
+status: "LIVE. Current as of 2026-08-06, third session. Sub-phases 4a and 4b are SHIPPED and SUB-PHASE 4c IS IMPLEMENTED AND MERGED to main: stages D, F and G ported, arriving as four commits on driver-ll-4c/stages-d-f-g and fast-forwarded onto main from 0d3242b. 4c HAD NEVER BEEN THROUGH CI at the branch tip, zero runs, and pushing a branch runs nothing: version-gate.yml fires only on push to main and on pull requests targeting main. THE PR WAS DECLINED and 4c merged to main directly, AND THE MERGE PUSH PRODUCED NO ACTIONS RUN AT ALL: 6ecd68e is on main with zero workflow runs against it, so 4c IS ON MAIN AND STILL HAS NEVER BEEN THROUGH CI. Section 1 gives the measurement and the hypothesis. The proposal stands at Rev 10 and 4c does not move it. A RELEASE CEREMONY IS NOW DUE: nothing was owed while 4c sat on a branch and the merge is what makes it owed. Four items are open (§6): REGEX-LOWER-1, a new compiler defect with no roadmap row; §9.2 item 1's silence on 4c constructing ConditionUnmet; the driver README unupdated for D, F and G; and the v0.14.85 shipped row's uncorrected 120. Still untouched: 4d through 4f, and the largest owed item in the phase is still a fresh census for proposal §3.6's table, whose keys are knowingly stale. Delete when Phase 4 closes."
 date: 2026-08-06
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -25,18 +25,32 @@ unblocked it (`PROC-BOUNDARY-1`, v0.14.85), ported 4a against it **with no shim*
 and ported 4b. Three releases shipped: v0.14.85, v0.14.86 and v0.14.87. The second session pushed the
 backlog, ran the 4c harness leg, and folded Rev 10. The third session built 4c and merged it.
 
-**The number that matters at restart: 4c's first CI run is the push that merged it.** At the branch
-tip it had zero runs. `main` was untouched at `0d3242b` and an ancestor of the tip, so the merge was a
-clean fast-forward.
+**The number that matters at restart: 4c is on `main` and has zero CI runs.** Not zero green runs,
+zero runs. The merge was a clean fast-forward of `main` from `0d3242b` onto `6ecd68e` and **GitHub
+Actions never evaluated it.**
 
-**CI on a branch is not a push away, and this is the mechanism rather than an inference from one.**
-[`version-gate.yml`](../../.github/workflows/version-gate.yml)`:34-38` fires on push to `main` and on
-pull requests **targeting** `main`, and it declares no `workflow_dispatch`. Pushing a branch runs
-nothing at all, so a PR was the only pre-merge path and **the PR was declined**: 4c went to `main`
-directly and the run lands after the merge. The stage that matters is `build_smoke.sh` **stage 8**,
-which builds the sequencer and drives the acceptance cover against the **built binary**; 4c moved its
-banner and its cover count (`b9904a6`) and that stage had never run in CI in that state. **If `main`
-is red at restart, read stage 8 first.**
+**The measurement, because this is the second time in one phase that a gate was assumed rather than
+observed.** For `6ecd68e`, `actions/runs?head_sha=` returns `total_count: 0`. The only check suites
+on the commit are the Cursor app's and GitHub Pages', both created at 18:24:34Z, and **there is no
+GitHub Actions suite at all**. Actions is enabled on the repository with `allowed_actions: all`,
+[`version-gate.yml`](../../.github/workflows/version-gate.yml) is `active`, its trigger at `:34-38`
+is `push` to `main`, it declares no `workflow_dispatch`, and the head commit message carries no
+`[skip ci]`-family token. Every precondition for a run holds and no run exists.
+
+**The hypothesis, at n=1, and the test.** The one thing distinguishing this push from every green
+push before it is that **the same SHA had been pushed to `driver-ll-4c/stages-d-f-g` ninety seconds
+earlier**, where no workflow matches `branches: [main]`. So: Actions may evaluate a SHA once, and a
+second push of that same SHA to another ref does not re-evaluate it. **The commit carrying this
+paragraph is the test**, being a SHA that has never been a branch head, pushed to `main` alone. Its
+result belongs in the next commit that touches this file, stated as a result and not as a
+confirmation.
+
+**Do not repeat the shape.** Pushing a branch and then fast-forwarding `main` onto the same SHA is
+what produced an unexercised `main`. Push the branch or push `main`, not the same commit to both.
+
+**When a run does land, `build_smoke.sh` stage 8 is the one to read**: it builds the sequencer and
+drives the acceptance cover against the **built binary**, 4c moved its banner and its cover count
+(`b9904a6`), and no CI run has ever seen that stage in that state.
 
 **Rev 10 replaced 4c's acceptance clause, and a restarting session must not re-derive the old one.**
 The clause "stage E's Phase 3 pins reproduce over D's own output" was **measured unsatisfiable under
@@ -65,8 +79,10 @@ then (`ba2f93d..d15b2ff`) were pushed and **CI came back green on both `version-
 reconciliation of `INDEX.md` and two roadmap rows) landed after; `0d3242b` is the restart record's own
 Rev 10 commit.
 
-**The pre-merge CI question was put and answered: no PR, merge.** The consequence is recorded rather
-than softened. `main` sat red for two days earlier in this phase on a defect no macOS run could
+**The pre-merge CI question was put and answered: no PR, merge. The consequence arrived immediately
+and is worse than the one that was weighed.** The risk discussed was a red `main`; what happened is
+an **unexercised** `main`, which is the same failure wearing the costume of success. `main` sat red
+for two days earlier in this phase on a defect no macOS run could
 reach, because `build_smoke.sh` stage 5b is a structural no-op here, GHC on this platform returning
 UTF-8 from `getLocaleEncoding` under every locale; the stage now prints **NOT EXERCISED** on Darwin
 instead of a PASS it has not earned. And the 4c port then produced two defects that no static gate
@@ -132,7 +148,7 @@ caller since v0.14.70.
 | 18 | **Rev 10**: fold F-18/F-19/F-20, new §3.6.1 and §9.2, replace 4c's acceptance clause | language-team | **done** (`43ddb95`) |
 | 19 | Reconcile `INDEX.md:74` and two roadmap rows to Rev 10 | documentation-lead | **done** (`8cd05ee`). `PROC-TIMEOUT-1`'s closure note discharged; it was half-discharged already |
 | **5c** | **Sub-phase 4c: stages D, F, G** | compiler-engineer | **done, IMPLEMENTED ON A BRANCH, NOT MERGED** (`36f6476`, `3dc0162`, `40d5958`, `b9904a6`). Cover 31 → 39 cells; `shape.llmll` SAFE first attempt; four findings, three of which corrected the plan or its predecessor |
-| **21** | **CI on 4c** | user | **taken by merging rather than by PR.** The pre-merge PR was put and declined, so 4c's first run is the push that merged it. **Read that run: if `main` is red, that is 4c** |
+| **21** | **CI on 4c** | user | **STILL PENDING, and now the sharpest item in the queue.** The PR was declined and the merge push produced **no Actions run at all** (§1, measured). 4c is on `main` unexercised. The next push of a fresh SHA to `main` is what will produce a run |
 | **22** | **The release ceremony 4c owes**: version bump, CHANGELOG entry, DRIVER-LL roadmap row | documentation-lead | **PENDING and now DUE, 4c being merged** (§9). No compiler change in it, so it records a driver sub-phase and not a language movement |
 | **23** | **`REGEX-LOWER-1` roadmap row** | documentation-lead | **PENDING.** A new compiler defect with no row anywhere; it exists in the 4c plan and one `sequencer.llmll` comment and nowhere else |
 | **24** | **§9.2 item 1 amendment** (4c constructs `ConditionUnmet`) plus the F-20 three-site amendment | language-team | **PENDING.** Neither changes 4c's code; both are document repairs the port earned |
@@ -142,9 +158,10 @@ caller since v0.14.70.
 
 ## 4. The next action
 
-**Read 4c's first CI run, then do the release ceremony it owes.** 4c is merged to `main` with no PR
-in front of it, so the run that gates it is the push that merged it and its result is the first thing
-to check. Whatever it says is a fact about 4c and not about the merge procedure.
+**Get a CI run on `main` at all, then read stage 8, then do the release ceremony 4c owes.** 4c
+merged with no PR in front of it and the merge push produced no run (§1), so `main` currently carries
+an unexercised sub-phase. The next fresh SHA pushed to `main` is what produces the run, and until one
+lands, every statement about 4c's correctness rests on local gates alone.
 
 **The ceremony.** 4c is a feature and the pins are still 0.14.87 with no compiler change in them, so
 it owes a version bump, a CHANGELOG entry and the DRIVER-LL roadmap row. One fact about it, checked
@@ -343,6 +360,13 @@ merge.**
   'show'` against generated prelude code. Same family as the reserved `check`. Found incidentally by
   the 4a plan. **It has a roadmap row now, `RESERVED-NAME-1`, OPEN**; this bullet said it had none,
   which was true when written and is not true at HEAD.
+- **Pushing a SHA to a branch and then fast-forwarding `main` onto it can leave `main` with no CI
+  run.** Measured once, on `6ecd68e`: branch push, then `main` push ninety seconds later, then zero
+  Actions runs against the commit while Actions was enabled, the workflow active, the trigger
+  matching and no skip token present (§1). Whatever the cause turns out to be, the safe habit is to
+  push the branch **or** push `main`, never the same commit to both, and to **check that a run exists
+  after any push to `main`** rather than assuming the trigger fired. `gh run list --branch main` is
+  the check, and `total_count` from `actions/runs?head_sha=` is the one that cannot be misread.
 - **Running the driver drops `sequencer.event-log.jsonl` in the working directory.** It is untracked
   debris, not an artifact, and nothing reads it back. Delete it; do not commit it and do not reason
   from it.
