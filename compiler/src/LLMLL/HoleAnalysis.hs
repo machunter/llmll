@@ -33,6 +33,9 @@ module LLMLL.HoleAnalysis
   , enclosingFunc
     -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)
   , isNonLinear
+    -- * HOLE-STATUS-SIBLING: body-hole traversal (shared with Checkout, which
+    -- classifies a sibling function's fill state from its body's holes)
+  , collectHolesExprPath
   ) where
 
 import Data.Text (Text)

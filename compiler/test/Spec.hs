@@ -10537,6 +10537,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "(def quadruple [x: int]"
           , "  (post (= result (+ (+ x x) (+ x x))))"
           , "  (double (double x)))" ]
+        -- HOLE-STATUS-SIBLING: one genuinely filled def and two whose bodies
+        -- are still holes, so DC-8b/c can tell a filled sibling apart from an
+        -- unfilled one. All three are contracted, so all three reach the brief.
+        siblingHoleSrc =
+          [ "(def really-filled [x: int] -> int (post (= result (+ x x))) (+ x x))"
+          , "(def hole-one [x: int] -> int (post (> result x)) ?body-a)"
+          , "(def hole-two [x: int] -> int (post (> result x)) ?body-b)" ]
         withdrawTwiceSrc =
           [ "(type PositiveInt (where [x: int] (> x 0)))"
           , "(def-shell withdraw [balance: int amount: PositiveInt]"
@@ -10656,6 +10663,60 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- No enclosing function (contract-position hole): everything is "filled".
       let entries' = buildCheckoutFuncs stmts Map.empty Map.empty Nothing Map.empty []
       map (snd . nameStatus) entries' `shouldBe` ["filled", "filled"]
+
+    -- HOLE-STATUS-SIBLING: v0.14.21 (DC-8 above) fixed only the 'mEnclosing'
+    -- self-call case. A SIBLING whose body is still a hole was unconditionally
+    -- "filled", so the brief — the sole information channel to a fill agent —
+    -- advertised an unwritten function as an available callable with a
+    -- discharged contract. It now reads the additive "unfilled" enum value.
+    it "DC-8b (HOLE-STATUS-SIBLING): a sibling whose body is a hole reads unfilled, not filled" $ do
+      let nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs (parse siblingHoleSrc)
+                      Map.empty Map.empty (Just "hole-one") Map.empty []
+      -- Pre-fix this read [("really-filled","filled"),("hole-one","hole"),
+      -- ("hole-two","filled")] — 'hole-two' was indistinguishable from the
+      -- genuinely filled function.
+      map nameStatus entries `shouldBe`
+        [ ("really-filled", "filled")
+        , ("hole-one",      "hole")
+        , ("hole-two",      "unfilled") ]
+
+    it "DC-8c (HOLE-STATUS-SIBLING): with no enclosing function BOTH holes read unfilled" $ do
+      let nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs (parse siblingHoleSrc)
+                      Map.empty Map.empty Nothing Map.empty []
+      map nameStatus entries `shouldBe`
+        [ ("really-filled", "filled")
+        , ("hole-one",      "unfilled")
+        , ("hole-two",      "unfilled") ]
+
+    -- The single exception, and the reason the predicate matches on the hole
+    -- KIND rather than on 'holeStatus''. '?proof-required' is a deliberate
+    -- terminal annotation, not an unwritten body: code compiles with a runtime
+    -- assertion fallback. Without this filter a blanket "body contains a hole"
+    -- test would silently reclassify every proof-required body as unfilled.
+    it "DC-8d (HOLE-STATUS-SIBLING): a ?proof-required body stays filled, whole or nested" $ do
+      let proofReqSrc =
+            [ "(def pr-whole [x: int] -> int (post (>= result 0)) ?proof-required)"
+            , "(def pr-inner [x: int] -> int (post (>= result 0)) (+ x ?proof-required))" ]
+          nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs (parse proofReqSrc)
+                      Map.empty Map.empty Nothing Map.empty []
+      map nameStatus entries `shouldBe`
+        [("pr-whole", "filled"), ("pr-inner", "filled")]
+
+    -- Deep, not root-only: a body-fallback body asserts its post rather than
+    -- proving it wherever the hole sits, so a root-only predicate (body IS an
+    -- EHole) misses exactly these two arms.
+    it "DC-8e (HOLE-STATUS-SIBLING): a hole under a let or in an if arm reads unfilled" $ do
+      let deepHoleSrc =
+            [ "(def let-hole [x: int] -> int (post (> result x)) (let [(y 1)] ?h))"
+            , "(def if-hole  [x: int] -> int (post (> result x)) (if (> x 0) ?h x))" ]
+          nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs (parse deepHoleSrc)
+                      Map.empty Map.empty Nothing Map.empty []
+      map nameStatus entries `shouldBe`
+        [("let-hole", "unfilled"), ("if-hole", "unfilled")]
 
     -- OHT (OBLIG-HOLE-TYPE): the obligation report's per-hole 'expected_type'
     -- must carry the SKETCH-inferred type when the structural hole analyzer

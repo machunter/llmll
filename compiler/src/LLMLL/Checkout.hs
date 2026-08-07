@@ -76,7 +76,8 @@ import Data.Maybe (mapMaybe)
 
 import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
-import LLMLL.Syntax (Span(..), Type(..), Expr(..), Name, typeLabel, Statement, ModuleCache, Contract(..), normalizeDefStmt)
+import LLMLL.Syntax (Span(..), Type(..), Expr(..), HoleKind(..), Name, typeLabel, Statement, ModuleCache, Contract(..), normalizeDefStmt)
+import LLMLL.HoleAnalysis (collectHolesExprPath, holeKind)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
 import LLMLL.TrustReport (TrustEntry)
 import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr, substExpr)
@@ -114,7 +115,8 @@ data FuncEntry = FuncEntry
   { feName   :: Text           -- ^ function name
   , feParams :: [(Text, Text)] -- ^ [(paramName, typeName)]
   , feReturn :: Text           -- ^ return type label
-  , feStatus :: Text           -- ^ "filled" | "hole" | "builtin" | "imported" (XMOD-SCOPE-BRIEF)
+  , feStatus :: Text           -- ^ "filled" | "unfilled" | "hole" | "builtin" | "imported"
+                               --   ("imported" XMOD-SCOPE-BRIEF; "unfilled" HOLE-STATUS-SIBLING)
   , fePre    :: Maybe Text     -- ^ DEMO-COMP: precondition (rendered), null if pre-free
   , fePost   :: Maybe Text     -- ^ DEMO-COMP: postcondition (rendered), null if absent
   , feTier   :: Maybe Text     -- ^ DEMO-COMP: effective trust tier, null for builtins
@@ -268,8 +270,12 @@ instance ToJSON CheckoutToken where
 -- brief surface gains fields.
 -- XMOD-SCOPE-BRIEF: 0.12.1 → 0.12.2 (additive: "imported" status value on
 -- available_functions entries; imported names in in_scope / available_functions).
+-- HOLE-STATUS-SIBLING: 0.12.2 → 0.12.3 (additive: "unfilled" status value on
+-- available_functions entries — a sibling whose body still holds a hole. No
+-- field is added, removed or retyped; a reader that does not know "unfilled"
+-- sees the same key set it saw at 0.12.2).
 briefVersion :: Text
-briefVersion = "0.12.2"
+briefVersion = "0.12.3"
 
 hubSugToJson :: QueryResult -> Value
 hubSugToJson qr = object
@@ -1095,6 +1101,20 @@ buildFuncEntries sigs =
 -- vacuously). Observed live: a blind fill agent answered the alert-admit brief
 -- with (alert-admit latched sev). "hole" is the documented-but-never-emitted
 -- third enum value of 'feStatus'.
+--
+-- HOLE-STATUS-SIBLING: v0.14.21 fixed exactly the 'mEnclosing' case — the
+-- degenerate SELF-call. The same rationale reaches one indirection out: a
+-- SIBLING whose body is still a hole was unconditionally "filled", so the
+-- brief told the agent that an unwritten function was an available callable
+-- with a discharged contract. Such a body is body-fallback — its post is
+-- asserted, not proved — so the callee is exactly as unreliable to a caller
+-- as the enclosing hole is. It now reads "unfilled".
+--
+-- Marked, NOT removed: 'refine' deliberately spawns contracted sub-holes that
+-- are MEANT to be called under assume-guarantee, so removing them would break
+-- cascading decomposition. The enclosing function stays on "hole" rather than
+-- folding into "unfilled" because the brief carries no 'enclosing_function'
+-- field — "hole" is the only in-brief identification of the target BY NAME.
 buildCheckoutFuncs
   :: [Statement] -> ModuleCache -> Map.Map Name TrustEntry -> Maybe Name
   -> Map.Map Name Type   -- ^ alias map (LEVER-A3: array-op relevance resolution)
@@ -1105,13 +1125,15 @@ buildCheckoutFuncs stmts cache trustMap mEnclosing aliasMap scopeTys =
       { feName   = fname
       , feParams = map (\(n,t) -> (n, typeLabel t)) ps
       , feReturn = maybe "?" typeLabel mRet
-      , feStatus = if Just fname == mEnclosing then "hole" else "filled"
+      , feStatus = if Just fname == mEnclosing
+                     then "hole"
+                     else if bodyUnfilled body then "unfilled" else "filled"
       , fePre    = fmap exprToSExpr (contractPre c)
       , fePost   = fmap exprToSExpr (contractPost c)
       , feTier   = Just (trustLabel trustMap fname)
       }
   | stmt <- stmts
-  , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
+  , Just (fname, ps, mRet, c, body) <- [normalizeDefStmt stmt]
   , contractPre c /= Nothing || contractPost c /= Nothing
   ]
   ++
@@ -1119,6 +1141,11 @@ buildCheckoutFuncs stmts cache trustMap mEnclosing aliasMap scopeTys =
       { feName   = dname
       , feParams = map (\(n,t) -> (n, typeLabel t)) ps
       , feReturn = maybe "?" typeLabel mRet
+      -- HOLE-STATUS-SIBLING does NOT reach imported entries: they stay
+      -- "imported" because no body is available to inspect. The tuple from
+      -- 'importedContractedFns' is (Name, [(Name,Type)], Maybe Type, Contract),
+      -- sourced from 'meContracts', which carries no body. The omission is
+      -- scoped, not missed.
       , feStatus = "imported"
       , fePre    = fmap exprToSExpr (contractPre c)
       , fePost   = fmap exprToSExpr (contractPost c)
@@ -1129,6 +1156,34 @@ buildCheckoutFuncs stmts cache trustMap mEnclosing aliasMap scopeTys =
   ++
   -- LEVER-A3: array-op builtin vocabulary, type-relevance gated.
   arrayOpFuncEntries aliasMap scopeTys
+
+-- | HOLE-STATUS-SIBLING: does this function body still hold a hole, anywhere?
+--
+-- Deep, not root-only: a hole in ANY subexpression makes the body
+-- body-fallback, so a caller gets an asserted post rather than a proved one.
+-- The traversal is 'collectHolesExprPath' (shared with the hole analyzer)
+-- rather than a hand-rolled 'Expr' walk, which would silently miss a
+-- constructor and fail open to the pre-fix answer ("filled").
+--
+-- 'HProofRequired' is the ONE exception. It is a deliberate terminal
+-- annotation, not an unwritten body: it is documented non-blocking, code
+-- compiles with a runtime-assertion fallback, and it is legal in pre/post
+-- position where there is no body at all. Every other 'HoleKind' means the
+-- body's behaviour is not yet determined by written, verifiable code, so a
+-- caller cannot rely on a proof of the contract — including 'HDelegate' /
+-- 'HDelegateAsync' (behaviour is an agent's, at runtime) and
+-- 'HDelegatePending' / 'HConflictResolution' (mid-protocol states).
+--
+-- Matched on the KIND, positively, so the single exception is visible here.
+-- Deliberately NOT phrased as a negation of 'holeStatus'': that classifier
+-- ends in a catch-all ('HoleAnalysis.hs': @holeStatus' _ = NonBlocking@) which
+-- collapses 'HNamed' into the same bucket as 'HProofRequired', and a filter
+-- built on it would never fire for an ordinary named hole.
+bodyUnfilled :: Expr -> Bool
+bodyUnfilled body = any (isUnfilled . holeKind) (collectHolesExprPath "" "" body)
+  where
+    isUnfilled HProofRequired{} = False
+    isUnfilled _                = True
 
 -- | LEVER-A3 (proposal §10 A3 row): the eight bytes/map builtins as brief
 -- vocabulary, listed only when a bytes/map type is visible at the hole
