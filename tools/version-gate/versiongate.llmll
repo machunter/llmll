@@ -1,0 +1,455 @@
+;; DRIFT-CI-1, the version gate, in LLMLL.
+;;
+;; A port of scripts/version_gate.sh, criteria C1..C4 from
+;; docs/design/critique-2026-05-23-triage.md row :111. Same criteria, same
+;; order, same messages, same exit codes.
+;;
+;; THIS IS THE FIRST LLMLL PROGRAM IN THIS REPOSITORY THAT IS INFRASTRUCTURE
+;; RATHER THAN A TEST SUBJECT. Every other program with an entry point exists
+;; to exercise the compiler; this one decides whether a release is
+;; self-consistent, and CI is red when it says no. That is the whole point of
+;; the exercise: 3,938 driver lines answered "can LLMLL reach the OS" and left
+;; "does an LLMLL program do work anyone needs done" unanswered.
+;;
+;; IT DOES NOT REPLACE THE SHELL SCRIPT, AND THE REASON IS A PROPERTY OF THE
+;; GATE RATHER THAN A LACK OF NERVE. .github/workflows/version-gate.yml runs
+;; the shell version in a job that checks out, installs jq, and runs. There is
+;; no Stack and no GHC there, deliberately: the workflow's own header says it
+;; does not run `stack test`, and it is named version-gate.yml rather than
+;; ci.yml to avoid implying a broader signal. A compiled LLMLL binary needs a
+;; toolchain, so putting this one in that job would trade a fast gate for a
+;; slow one. It runs instead from scripts/build_smoke.sh stage 10, inside the
+;; spec-roundtrip job that already has Stack warm, and it FAILS THAT JOB when a
+;; criterion breaks. Two implementations, two jobs, both deciding.
+;;
+;; NO REGEX, AND NOT BY PREFERENCE. `regex-match` is a documented builtin, is
+;; in the type environment, has a preamble body emitted, and a program calling
+;; it DOES NOT BUILD (REGEX-LOWER-1, measured at v0.14.87 and recorded at
+;; sequencer.llmll:1324-1334). The shell version leans on `grep -oE` in three
+;; places, so the port owes a scanner. `leading-run` below is it.
+;;
+;; `string-split` WITH AN EMPTY SEPARATOR DOES NOT TERMINATE, so there is no
+;; per-character decomposition to fold over. Measured from the emitted body:
+;; `string_split sep str` guards on ``sep `isPrefixOf` s``, which is always
+;; True for an empty separator, so `go` recurses on `drop 0 s` forever. It
+;; type-checks and it verifies. That is why the scanner is a fold over a
+;; LITERAL index list and not over the characters of the string.
+
+(module versiongate
+  (import wasi.io (capability stdout :deterministic false))
+  ;; `read` and not `read-write`: this program writes nothing. The verb is
+  ;; documentation rather than a bound (checkWasiCapability tests namespace
+  ;; membership and never reads the verb, CAP-1-REAL), which is exactly why it
+  ;; should state the truth.
+  (import wasi.fs (capability read "/"))
+  ;; For `wasi.proc.args` in vg-init. DECLARED THOUGH NOTHING ENFORCES IT: this
+  ;; module type-checked without it, because `checkWasiCapability` is called
+  ;; only from `inferExpr (EApp ...)` and a nullary builtin is an `EVar` that
+  ;; never becomes an application. Filed as CAP-NULLARY-1; the import is here
+  ;; because the authority is real whether or not the compiler asks for it.
+  (import wasi.proc (capability args :deterministic false))
+
+  ;; ---- the scanner ---------------------------------------------------------
+  ;;
+  ;; The leading run of characters drawn from `alphabet`, and the bound is
+  ;; twenty-four. A bound is not a limitation here so much as the shape the
+  ;; language asks for: there is no recursion to write and no character list to
+  ;; fold, so the fold is over a literal index list and the run cannot outlive
+  ;; it. Twenty-four is far past any semver this repository will carry, and
+  ;; `run-saturated?` below is what keeps the bound from failing silently if it
+  ;; ever is not.
+  ;;
+  ;; `string-char-at` answers "" out of range (measured from the emitted body),
+  ;; and `string-contains alphabet ""` is TRUE, because `isInfixOf "" s` is.
+  ;; So the empty test has to come FIRST in the conjunction; without it the run
+  ;; never stops at the end of the string and every scan returns the bound.
+  (def-shell in-alphabet? [alphabet: string c: string] -> bool
+    (and (not (string-empty? c))
+         (string-contains alphabet c)))
+
+  (def-shell leading-run [s: string alphabet: string] -> string
+    (first (list-fold [0 1 2 3 4 5 6 7 8 9 10 11
+                       12 13 14 15 16 17 18 19 20 21 22 23]
+                      (pair "" true)
+                      (fn [acc: (string, bool) i: int]
+                        (if (second acc)
+                            (let [(c (string-char-at s i))]
+                              (if (in-alphabet? alphabet c)
+                                  (pair (string-concat (first acc) c) true)
+                                  (pair (first acc) false)))
+                            acc)))))
+
+  ;; The character one past the bound is still in the alphabet, so the run was
+  ;; cut off rather than ended. A saturated run is discarded rather than
+  ;; returned truncated: a truncation of "0.14.876543210123456789" is still a
+  ;; well-formed semver, which is the failure mode a bound has and a scanner
+  ;; does not.
+  (def-shell run-saturated? [s: string alphabet: string] -> bool
+    (in-alphabet? alphabet (string-char-at s 24)))
+
+  (def-shell digits [] -> string "0123456789")
+  (def-shell digits-and-dots [] -> string "0123456789.")
+
+  ;; Non-empty and every character a digit. Written as "the leading digit run
+  ;; is the whole thing" rather than with `string-to-int`, whose tolerance for
+  ;; trailing junk this port would then depend on.
+  (def-shell all-digits? [p: string] -> bool
+    (and (not (string-empty? p))
+         (= p (leading-run p (digits)))))
+
+  (def-shell semver? [v: string] -> bool
+    (let [(parts (string-split "." v))]
+      (and (= (list-length parts) 3)
+           (and (all-digits? (unwrap-or (list-nth parts 0) ""))
+                (and (all-digits? (unwrap-or (list-nth parts 1) ""))
+                     (all-digits? (unwrap-or (list-nth parts 2) "")))))))
+
+  ;; ---- extraction ----------------------------------------------------------
+
+  ;; string-split takes the SEPARATOR FIRST (measured at v0.14.84, recorded at
+  ;; sequencer.llmll:566-572). Getting it backwards yields [sep], which
+  ;; type-checks and passes every check-time gate.
+  (def-shell split-on [sep: string s: string] -> list[string]
+    (string-split sep s))
+
+  (def-shell lines-of [s: string] -> list[string]
+    (split-on "\n" s))
+
+  (def-shell first-line [s: string] -> string
+    (unwrap-or (list-nth (lines-of s) 0) ""))
+
+  ;; `grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" | head -1`, without the regex.
+  ;;
+  ;; Split on "v" and take the leading digit-and-dot run of each piece AFTER
+  ;; the first. Dropping the first piece is what makes this an occurrence of
+  ;; "v" and not merely a semver somewhere in the line: a banner reading
+  ;; "0.1.2 ... v0.14.87" would otherwise answer v0.1.2, having found a version
+  ;; that carries no `v` at all.
+  (def-shell version-in [line: string] -> string
+    (list-fold (unwrap-or (list-tail (split-on "v" line)) (list-empty))
+               ""
+               (fn [acc: string piece: string]
+                 (if (string-empty? acc)
+                     (let [(cand (leading-run piece (digits-and-dots)))]
+                       (if (and (semver? cand)
+                                (not (run-saturated? piece (digits-and-dots))))
+                           (string-concat "v" cand)
+                           ""))
+                     acc))))
+
+  ;; The first line beginning `## v`, with the `## ` dropped. The shell anchors
+  ;; the same way (`grep -m1 -oE "^## v..."`), so a `## vX.Y.Z` inside a prose
+  ;; paragraph is not a heading here either.
+  (def-shell heading-version [s: string] -> string
+    (list-fold (lines-of s) ""
+               (fn [acc: string line: string]
+                 (if (string-empty? acc)
+                     (if (= (string-slice line 0 4) "## v")
+                         (version-in (string-slice line 3 (string-length line)))
+                         "")
+                     acc))))
+
+  ;; `awk '/^version:/{print $2; exit}'`, with the `v` the shell prepends.
+  ;; Anchored at the start of the line, so a `version:` inside a nested YAML
+  ;; block or a comment is not the package version.
+  (def-shell field-version [s: string] -> string
+    (list-fold (lines-of s) ""
+               (fn [acc: string line: string]
+                 (if (string-empty? acc)
+                     (if (= (string-slice line 0 8) "version:")
+                         (let [(v (string-trim
+                                    (string-slice line 8 (string-length line))))]
+                           (if (semver? v) (string-concat "v" v) ""))
+                         "")
+                     acc))))
+
+  ;; `expectedSchemaVersion = "0.11.0"`. Three conjuncts on the LINE before the
+  ;; quotes are split, so a type signature (`expectedSchemaVersion :: Text`) and
+  ;; a mention in a comment are both excluded, which is what the shell's
+  ;; `expectedSchemaVersion[[:space:]]*=` does.
+  (def-shell quoted-version [s: string] -> string
+    (list-fold (lines-of s) ""
+               (fn [acc: string line: string]
+                 (if (string-empty? acc)
+                     (if (and (string-contains line "expectedSchemaVersion")
+                              (and (string-contains line "=")
+                                   (string-contains line "\"")))
+                         (let [(v (unwrap-or (list-nth (split-on "\"" line) 1) ""))]
+                           (if (semver? v) v ""))
+                         "")
+                     acc))))
+
+  ;; ---- the JSON schema fields ---------------------------------------------
+
+  (def-shell jget [v: Json k: string] -> Json
+    (match (json-get v k)
+      ((Success x) x)
+      ((Error _)   json-object)))
+
+  (def-shell jstr [v: Json k: string] -> string
+    (unwrap-or (json-get-string v k) ""))
+
+  ;; ."$defs".Program.properties.schemaVersion.const
+  (def-shell schema-const [doc: Json] -> string
+    (jstr (jget (jget (jget (jget doc "$defs") "Program") "properties")
+                "schemaVersion")
+          "const"))
+
+  (def-shell schema-id [doc: Json] -> string
+    (jstr doc "$id"))
+
+  (def-shell parse-json [s: string] -> Json
+    (match (json-parse s)
+      ((Success v) v)
+      ((Error _)   json-object)))
+
+  ;; C4's derivation: v<MAJOR>.<MINOR> from the schemaVersion.
+  (def-shell major-minor [sv: string] -> string
+    (let [(parts (split-on "." sv))]
+      (string-concat-many
+        ["v" (unwrap-or (list-nth parts 0) "")
+         "." (unwrap-or (list-nth parts 1) "")])))
+
+  (def-shell id-segment [sv: string] -> string
+    (string-concat-many ["/schemas/" (major-minor sv) "/"]))
+
+  ;; ---- the run record ------------------------------------------------------
+  ;;
+  ;; The facts travel as a Json object and not as a pair chain, and that is a
+  ;; deliberate answer to proposal section 13 risk 6, that a wrong projection
+  ;; over a pair chain TYPECHECKS. Here a wrong key answers "" and the
+  ;; criterion it feeds fails with a message naming the file, which is loud.
+  ;; Nine positional fields would have given nine chances to read the cabal
+  ;; version out of the changelog slot and never notice.
+
+  (type Vg (| Vg (string, Json)))
+
+  (def-shell root-of [v: Vg] -> string (match v ((Vg p) (first p))))
+  (def-shell facts-of [v: Vg] -> Json (match v ((Vg p) (second p))))
+
+  (def-shell fact [v: Vg k: string] -> string (jstr (facts-of v) k))
+
+  (def-shell with-fact [v: Vg k: string s: string] -> Vg
+    (Vg (pair (root-of v)
+              (unwrap-or (json-set (facts-of v) k (json-of-string s))
+                         (facts-of v)))))
+
+  ;; Each arm names the RESPONSE it is about to receive, since the console loop
+  ;; delivers the response to the command issued on entry to the arm.
+  (type VCtl
+    (| Boot      int)
+    (| Readme)
+    (| Spec)
+    (| Changelog)
+    (| Package)
+    (| Cabal)
+    (| Schema)
+    (| Parser)
+    (| Ending    int)
+    (| Done      int))
+
+  (def-shell vg-of [s: (Vg, VCtl)] -> Vg (first s))
+  (def-shell ctl-of [s: (Vg, VCtl)] -> VCtl (second s))
+  (def-shell go [v: Vg p: VCtl c: Command] -> ((Vg, VCtl), Command)
+    (pair (pair v p) c))
+
+  (def-shell text-of [r: Response] -> string
+    (match r
+      ((RText t) t)
+      ((RErr _)  "")
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RList _) "")))
+
+  (def-shell argv-of [r: Response] -> list[string]
+    (match r
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell at [v: Vg path: string] -> string
+    (string-concat-many [(root-of v) "/" path]))
+
+  ;; ---- the criteria --------------------------------------------------------
+  ;;
+  ;; IN THE SHELL SCRIPT'S ORDER, and the order is part of the port: it exits
+  ;; on the FIRST failure, so a tree that breaks two criteria has to report the
+  ;; same one either way. The one behavioural difference is that this program
+  ;; reads all seven files before deciding, where the shell stops reading at
+  ;; the first failure. Same verdict, same message, same exit code, more reads.
+  ;;
+  ;; A MISSING FILE IS AN EXTRACTION FAILURE and not a separate arm, in both
+  ;; implementations: `head -n 1` on an absent README leaves the variable empty
+  ;; and the shell reports "could not extract", and here RErr yields "" and the
+  ;; same message follows.
+
+  ;; The shell script's exact wording, `C1 README.md banner (v0.14.86) !=
+  ;; LLMLL.md banner (v0.14.87)`, and the two labels straddle the values rather
+  ;; than sitting in front of them. A port whose message merely CONTAINS the
+  ;; same facts is not the same gate to anyone reading a CI log, and the cover
+  ;; compares the two implementations byte for byte.
+  (def-shell mismatch [tag: string lhs: string a: string rhs: string b: string] -> string
+    (string-concat-many [tag " " lhs " (" a ") != " rhs " (" b ")"]))
+
+  (def-shell verdict [v: Vg] -> string
+    (let [(readme (fact v "readme"))]
+      (let [(spec (fact v "spec"))]
+        (let [(chg (fact v "changelog"))]
+          (let [(pkg (fact v "package"))]
+            (let [(cab (fact v "cabal"))]
+              (let [(ssv (fact v "schema_sv"))]
+                (let [(psv (fact v "parser_sv"))]
+                  (let [(sid (fact v "schema_id"))]
+                    (if (string-empty? readme)
+                        "C1 could not extract vX.Y.Z from README.md line 1"
+                    (if (string-empty? spec)
+                        "C1 could not extract vX.Y.Z from LLMLL.md line 1"
+                    (if (string-empty? chg)
+                        "C2 could not extract top-level '## vX.Y.Z' from CHANGELOG.md"
+                    (if (string-empty? pkg)
+                        "C1 could not extract version from compiler/package.yaml"
+                    (if (string-empty? cab)
+                        "C1 could not extract version from compiler/llmll.cabal"
+                    (if (not (= readme spec))
+                        (mismatch "C1" "README.md banner" readme "LLMLL.md banner" spec)
+                    (if (not (= spec chg))
+                        (mismatch "C2" "LLMLL.md banner" spec "CHANGELOG.md top heading" chg)
+                    (if (not (= spec pkg))
+                        (mismatch "C1" "LLMLL.md banner" spec "compiler/package.yaml version" pkg)
+                    (if (not (= spec cab))
+                        (mismatch "C1" "LLMLL.md banner" spec "compiler/llmll.cabal version" cab)
+                    (if (string-empty? ssv)
+                        "C3 could not read schemaVersion const from docs/llmll-ast.schema.json"
+                    (if (string-empty? psv)
+                        "C3 could not read expectedSchemaVersion from compiler/src/LLMLL/ParserJSON.hs"
+                    (if (not (= ssv psv))
+                        (mismatch "C3" "schema schemaVersion" ssv "ParserJSON.expectedSchemaVersion" psv)
+                    (if (string-empty? sid)
+                        "C4 could not read $id from docs/llmll-ast.schema.json"
+                    (if (not (string-contains sid (id-segment ssv)))
+                        (string-concat-many
+                          ["C4 schema $id URL (" sid ") lacks " (id-segment ssv)
+                           " (derived from schemaVersion " ssv ")"])
+                        "")))))))))))))))))))))))
+
+  (def-shell pass-report [v: Vg] -> string
+    (string-concat-many
+      ["DRIFT-CI-1 PASS:\n  banner       " (fact v "spec")
+       "   (README, LLMLL.md, CHANGELOG, package.yaml, llmll.cabal)\n"
+       "  schemaVer    " (fact v "schema_sv")
+       " (schema.const == ParserJSON.expectedSchemaVersion)\n"
+       "  $id          " (fact v "schema_id")
+       " (URL contains " (id-segment (fact v "schema_sv")) ")"]))
+
+  ;; ---- the machine ---------------------------------------------------------
+
+  (def-shell read-at [v: Vg path: string] -> Command
+    (wasi.fs.read (at v path)))
+
+  (def-shell decide [v: Vg] -> ((Vg, VCtl), Command)
+    (let [(why (verdict v))]
+      (if (string-empty? why)
+          (go v (Ending 0) (wasi.io.stdout (pass-report v)))
+          (go v (Ending 1)
+              (wasi.io.stderr (string-concat "DRIFT-CI-1 FAIL: " why))))))
+
+  (def-shell boot-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(root (let [(f (flag-value (argv-of r) "--root"))]
+                  (if (string-empty? f) "." f)))]
+      (let [(v2 (Vg (pair root (facts-of v))))]
+        (go v2 (Readme) (read-at v2 "README.md")))))
+
+  (def-shell readme-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(v2 (with-fact v "readme" (version-in (first-line (text-of r)))))]
+      (go v2 (Spec) (read-at v2 "LLMLL.md"))))
+
+  (def-shell spec-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(v2 (with-fact v "spec" (version-in (first-line (text-of r)))))]
+      (go v2 (Changelog) (read-at v2 "CHANGELOG.md"))))
+
+  (def-shell changelog-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(v2 (with-fact v "changelog" (heading-version (text-of r))))]
+      (go v2 (Package) (read-at v2 "compiler/package.yaml"))))
+
+  (def-shell package-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(v2 (with-fact v "package" (field-version (text-of r))))]
+      (go v2 (Cabal) (read-at v2 "compiler/llmll.cabal"))))
+
+  (def-shell cabal-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(v2 (with-fact v "cabal" (field-version (text-of r))))]
+      (go v2 (Schema) (read-at v2 "docs/llmll-ast.schema.json"))))
+
+  (def-shell schema-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (let [(doc (parse-json (text-of r)))]
+      (let [(v2 (with-fact (with-fact v "schema_sv" (schema-const doc))
+                           "schema_id" (schema-id doc)))]
+        (go v2 (Parser) (read-at v2 "compiler/src/LLMLL/ParserJSON.hs")))))
+
+  (def-shell parser-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
+    (decide (with-fact v "parser_sv" (quoted-version (text-of r)))))
+
+  (def-shell vg-init [] -> ((Vg, VCtl), Command)
+    (pair (pair (Vg (pair "." json-object)) (Boot 0)) wasi.proc.args))
+
+  (def-shell vg-step [s: (Vg, VCtl) input: string r: Response]
+      -> ((Vg, VCtl), Command)
+    (match (ctl-of s)
+      ((Boot n)      (boot-step      (vg-of s) r))
+      ((Readme)      (readme-step    (vg-of s) r))
+      ((Spec)        (spec-step      (vg-of s) r))
+      ((Changelog)   (changelog-step (vg-of s) r))
+      ((Package)     (package-step   (vg-of s) r))
+      ((Cabal)       (cabal-step     (vg-of s) r))
+      ((Schema)      (schema-step    (vg-of s) r))
+      ((Parser)      (parser-step    (vg-of s) r))
+      ((Ending c)    (go (vg-of s) (Done c) (wasi.io.stdout "")))
+      ((Done c)      (go (vg-of s) (Done c) (wasi.io.stdout "")))))
+
+  (def-shell vg-done? [s: (Vg, VCtl)] -> bool
+    (match (ctl-of s)
+      ((Boot _)      false)
+      ((Readme)      false)
+      ((Spec)        false)
+      ((Changelog)   false)
+      ((Package)     false)
+      ((Cabal)       false)
+      ((Schema)      false)
+      ((Parser)      false)
+      ((Ending _)    false)
+      ((Done _)      true)))
+
+  (def-shell done-code [s: (Vg, VCtl)] -> int
+    (match (ctl-of s)
+      ((Boot _)      1)
+      ((Readme)      1)
+      ((Spec)        1)
+      ((Changelog)   1)
+      ((Package)     1)
+      ((Cabal)       1)
+      ((Schema)      1)
+      ((Parser)      1)
+      ((Ending _)    1)
+      ((Done c)      c)))
+
+  ;; The clamp fails in the safe direction: 256 exits 255, not 0. This gate has
+  ;; only two codes, so the clamp is a guard against a future third rather than
+  ;; a live concern.
+  (def-shell vg-status [s: (Vg, VCtl)] -> int
+    (let [(c (done-code s))]
+      (if (< c 0) 1 (if (> c 255) 255 c))))
+
+  (def-main
+    :mode    console
+    :init    (vg-init)
+    :step    vg-step
+    :done?   vg-done?
+    :status  vg-status))

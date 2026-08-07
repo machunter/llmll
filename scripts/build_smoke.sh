@@ -713,4 +713,73 @@ if [ -f "$WAVE_SRC" ]; then
   echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (7 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree)"
 fi
 
+# --- 10. DRIFT-CI-1, decided by an LLMLL program. ----------------------------
+#
+# tools/version-gate/versiongate.llmll is a port of scripts/version_gate.sh:
+# the same C1..C4 criteria, the same order, the same messages, the same exit
+# codes. This stage builds it and RUNS IT AS THE GATE, so a banner that drifts
+# out of step fails this job because an LLMLL program said so.
+#
+# IT DOES NOT REPLACE THE SHELL SCRIPT AND IS NOT MEANT TO. The shell version
+# runs in .github/workflows/version-gate.yml, a job with no Stack and no GHC,
+# deliberately fast. This one runs here, where Stack is already warm. Two
+# implementations, two jobs, both deciding.
+#
+# The cover is the check rather than a single invocation, because agreement on
+# a passing tree is not evidence: twelve of its fourteen cells are mutants, and
+# each is asserted to FAIL under BOTH implementations before their messages are
+# compared. A battery where both pass everything agrees perfectly and detects
+# nothing. The gate is then also run once against the live tree, so the banner
+# under test appears in the log rather than only in a temporary copy.
+VG_SRC="$REPO_ROOT/tools/version-gate/versiongate.llmll"
+VG_OUTDIR="$OUTDIR/versiongate"
+
+if [ -f "$VG_SRC" ]; then
+  echo "BUILD-GATE-1: building and RUNNING the LLMLL version gate (DRIFT-CI-1)"
+  VG_LOG="$OUTDIR/.versiongate-build.log"
+  if ! ( cd "$REPO_ROOT/tools/version-gate" \
+           && "${LLMLL_CMD[@]}" build versiongate.llmll -o "$VG_OUTDIR" ) \
+         > "$VG_LOG" 2>&1; then
+    cat "$VG_LOG" >&2
+    fail "the LLMLL version gate does not build."
+  fi
+
+  VG_EXE="$(find "$VG_OUTDIR/.stack-work/install" -type f -name 'versiongate' -perm -111 2>/dev/null | head -1)"
+  [ -n "$VG_EXE" ] || fail "built the LLMLL version gate but found no
+  versiongate binary under $VG_OUTDIR/.stack-work/install. Without running it
+  this stage observes nothing, which is the failure mode it exists to prevent."
+
+  if ! python3 "$REPO_ROOT/scripts/version_gate_cover.py" --gate "$VG_EXE" \
+         > "$OUTDIR/.versiongate-cover.log" 2>&1; then
+    cat "$OUTDIR/.versiongate-cover.log" >&2
+    fail "the LLMLL version gate does not agree with scripts/version_gate.sh.
+  The shell script is the reference: a divergence is the port's defect until
+  argued otherwise, and the log above names the cell and the two messages."
+  fi
+  cat "$OUTDIR/.versiongate-cover.log"
+
+  # The deciding invocation, against the real tree.
+  #
+  # The step budget comes from python3 and NOT from `yes x | head -n 60`. This
+  # script sets `pipefail` (line 45), and `yes` dies of SIGPIPE the moment
+  # `head` has taken its sixty lines, so that pipeline reports 141 no matter
+  # what the gate decided. Measured: the gate printed its PASS report and this
+  # stage failed anyway. A console program's step budget is not worth a
+  # pipeline whose leftmost member is designed to be killed.
+  # RUN FROM $OUTDIR AND NOT FROM THE REPO ROOT, with --root absolute. A
+  # console program writes <module>.event-log.jsonl into its working
+  # directory, so running this from the repo root drops an untracked file into
+  # the tree on every build. `--root` exists precisely so the gate's subject
+  # and its working directory can be different places.
+  if ! ( cd "$OUTDIR" \
+           && python3 -c "import sys; sys.stdout.write('x\n' * 60)" \
+                | "$VG_EXE" --root "$REPO_ROOT" ) \
+         > "$OUTDIR/.versiongate-live.log" 2>&1; then
+    cat "$OUTDIR/.versiongate-live.log" >&2
+    fail "the LLMLL version gate rejected this tree."
+  fi
+  grep -v '^$' "$OUTDIR/.versiongate-live.log" || true
+  echo "BUILD-GATE-1 PASS: DRIFT-CI-1 decided by an LLMLL program (14 cover cells + the live tree)"
+fi
+
 exit 0

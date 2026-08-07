@@ -39,6 +39,12 @@ tools/llmll-orchestra/fixtures/**/*.verified.json
 # llmll-driver crux suite: `make refute-crux-gate` verifies a copy, but a local
 # `llmll verify` in the suite dir drops sidecars here. No canonical exceptions.
 tools/llmll-driver/**/*.verified.json
+tools/version-gate/**/*.verified.json
+
+# Console-mode programs write <module>.event-log.jsonl into their working
+# directory (LLMLL.md §10a). The covers now run them from scratch directories,
+# but an interactive run from the repo root still drops one here.
+*.event-log.jsonl
 
 # DRIFT-CT-2 fixtures: since v0.14.68 the gate runs `verify` on one of them
 # (open-after-def-verify), so every local gate run drops a sidecar here.

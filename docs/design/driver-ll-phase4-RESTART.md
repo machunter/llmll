@@ -95,9 +95,24 @@ deliberately does not make the swarm run, and that was accepted consciously.
 what it turned into. The caveat below has only strengthened: the harness leg
 discharged the contention justification from outside LLMLL, and 4e's cover then
 produced contention from inside a program without a stub, so what 4e uniquely
-demonstrated is the protocol and the linear token discipline. The dogfooding
-question, whether LLMLL programs run in practical settings, is still open and
-is exactly what the CI-gate port answers.
+demonstrated is the protocol and the linear token discipline.
+
+**The CI-gate port has started, and DRIFT-CI-1 is the first one.**
+[`tools/version-gate/versiongate.llmll`](../../tools/version-gate/versiongate.llmll)
+ports [`scripts/version_gate.sh`](../../scripts/version_gate.sh) criteria C1 to
+C4: same order, same messages, same exit codes, checked against the shell
+version over fourteen trees by
+[`scripts/version_gate_cover.py`](../../scripts/version_gate_cover.py) and run
+from [`build_smoke.sh`](../../scripts/build_smoke.sh) stage 10. It is the first
+LLMLL program in this repository that is infrastructure rather than a test
+subject, so the sentence above about zero lines of LLMLL in the repo's own
+tooling stops being true with it.
+
+**It does not replace the shell script and the reason is structural.**
+`version-gate.yml` runs the shell version in a job with no Stack and no GHC,
+deliberately; a compiled binary there would trade a fast gate for a slow one.
+Two implementations, two jobs, both deciding. Retiring the shell one is a
+separate decision that costs the no-toolchain property.
 
 **Why 4e before the CI gates.** Twelve proved defs have no reachable caller,
 asserted by name in
