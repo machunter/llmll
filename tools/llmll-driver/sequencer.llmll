@@ -258,7 +258,15 @@
   ;; list, because an empty string has to mean "every stage" and an empty list
   ;; would mean "no stage": string-split with an empty subject yields [""],
   ;; measured.
-  (type Cfg (| Cfg (string, (string, (string, (string, (bool, AgentCfg)))))))
+  ;; Sub-phase 4d WIDENS THIS AT THE TAIL, not in the middle. The innermost
+  ;; pair goes from `AgentCfg` to `(AgentCfg, string)`, carrying the compiler
+  ;; command stages H, K and N invoke. Appending is what keeps the change to
+  ;; ONE existing projection: every cfg-* accessor above cfg-agent reaches its
+  ;; field through the same chain it did before, and only cfg-agent gains a
+  ;; `first`. Inserting the field anywhere else would reproject all six, and
+  ;; proposal section 13 risk 6 is that a wrong projection over a pair chain
+  ;; TYPECHECKS.
+  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, string))))))))
 
   ;; The run-common record of proposal section 4: config, the live manifest,
   ;; and the selected stage indices in registry order.
@@ -353,7 +361,15 @@
   (def-shell cfg-forced [c: Cfg] -> bool
     (match c ((Cfg p) (first (second (second (second (second p))))))))
   (def-shell cfg-agent [c: Cfg] -> AgentCfg
-    (match c ((Cfg p) (second (second (second (second (second p))))))))
+    (match c ((Cfg p) (first (second (second (second (second (second p)))))))))
+
+  ;; The compiler command, for the stages whose acceptance oracle IS the
+  ;; compiler: K runs `llmll check` on the authored roots and halts on its exit
+  ;; code, H and N run `llmll verify` per probe and per mutant. Added at 4d
+  ;; with the --llmll-cmd flag; see parse-cfg for why it is a flag and not a
+  ;; default.
+  (def-shell cfg-llmll [c: Cfg] -> string
+    (match c ((Cfg p) (second (second (second (second (second (second p)))))))))
 
   (def-shell ag-exe [a: AgentCfg] -> string
     (match a ((AgentCfg q) (first q))))
@@ -499,13 +515,24 @@
                           (pair (flag-value as "--prompts-dir")
                                 (int-flag as "--timeout" 1800))))))
 
+  ;; --llmll-cmd is REQUIRED and is NOT defaulted to "llmll", on the precedent
+  ;; --prompts-dir set. The reference defaults it from the LLMLL_CMD
+  ;; environment variable and falls back to the bare name
+  ;; (rfc_to_implementation.py:1859), and neither half of that is available
+  ;; here: wasi.proc.run has no env parameter (PROC-ENV-1), and defaulting to a
+  ;; bare name is a guess about the operator's PATH of exactly the kind
+  ;; --prompts-dir refuses to make about the tree. A driver whose verification
+  ;; oracle silently resolved to whichever llmll came first on PATH could
+  ;; report a probe SAFE against a different compiler than the one under test,
+  ;; which is the stale-binary failure this project has already paid for once.
   (def-shell parse-cfg [as: list[string]] -> Cfg
     (Cfg (pair (dflt (flag-value as "--workdir") ".")
                (pair (flag-value as "--only")
                      (pair (flag-value as "--halt-at")
                            (pair (flag-value as "--halt-kind")
                                  (pair (list-contains as "--force")
-                                       (parse-agent as))))))))
+                                       (pair (parse-agent as)
+                                             (flag-value as "--llmll-cmd")))))))))
 
   ;; "" when the required flags are present. The reference makes --agent-cmd
   ;; required at argparse (:1888-1891) and exits 2 through ap.error, BEFORE
@@ -1632,8 +1659,9 @@
     (pair (pair (Run (pair (Cfg (pair "."
                                  (pair "" (pair "" (pair ""
                                    (pair false
-                                     (AgentCfg (pair "" (pair (list-empty)
-                                                        (pair "" 1800))))))))))
+                                     (pair (AgentCfg (pair "" (pair (list-empty)
+                                                              (pair "" 1800))))
+                                           "")))))))
                            (pair (empty-manifest) (list-empty))))
                 (Boot 0))
           wasi.proc.args))
