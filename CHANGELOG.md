@@ -4,6 +4,82 @@
 
 <a id="Latest"></a>
 
+## v0.14.88: the sibling holes the brief called filled, and six gates that had to be found before they could be ported (2026-08-07)
+
+### Fixed — a checkout brief reported every sibling as `filled`, including the ones that were holes
+
+`HOLE-STATUS-SIBLING`, a follow-on to `HOLE-STATUS` (v0.14.21). That fix made the brief tell the
+truth about the function whose hole is being checked out; it left every OTHER function reading
+`filled` unconditionally. A sibling whose body still holds a hole was therefore presented to a
+fill agent as an available callable carrying a discharged contract, and **the brief is the sole
+information channel to that agent**. Measured on a three-def fixture, checking out `hole-one`:
+`hole-two` read `filled` while genuinely being a hole, indistinguishable from a real one.
+
+`status` becomes three-way: the enclosing function keeps `hole`, a body containing a hole reads the
+new **`unfilled`**, everything else stays `filled`. The enclosing function deliberately does NOT
+fold into `unfilled`: the brief carries no `enclosing_function` field, so `hole` is its only
+identification of the target by name, and collapsing it would destroy a live affordance.
+
+**Unfilled siblings are marked, not withheld.** `refine` deliberately spawns contracted sub-holes
+meant to be called before they are filled, and a caller may rely on an unfilled sibling's contract
+under assume-guarantee. Withholding would break cascading decomposition.
+
+The predicate is a positive match on `HoleKind`, not a negation of `holeStatus'`: that classifier
+ends in a catch-all that collapses `HNamed` into the same bucket as `HProofRequired`, so filtering
+on it is a no-op on exactly the holes this ticket is about. That was the first implementation
+attempt and it was caught by measuring rather than by reading.
+
+`brief_version` moves to **0.12.3**.
+
+### Added — DRIVER-LL sub-phase 4e
+
+The `def-main` state machine for `wave.llmll`, with tier-4e cover and its documentation closure.
+
+### Added — TOOL-LL, the campaign to port the six CI gates to LLMLL
+
+A standard ([`docs/design/llmll-tooling-campaign.md`](docs/design/llmll-tooling-campaign.md)), an
+eight-section RFC template, and a pytest gate that enforces both. Scope, distribution and retirement
+are settled; the gap discipline requires every gap to take exactly one of BLOCKS, SHAPES or
+COSMETIC, and every SHAPES row to state what the design would have been and cite a roadmap tag.
+
+- **`TOOL-RFC-001`** records the already-shipped version-gate port **retroactively**, and its §8 says
+  which decisions that cost: three of four were made at the keyboard and reported afterwards.
+- **`TOOL-RFC-002`** is the first port **written before its code**, for the refute-crux gate. Its
+  feasibility read found no BLOCKS gap and no new gap. It records a split the first port did not
+  have: the harness and the compiler it grades are two different binaries, and conflating them
+  would make all 41 refuted cases vacuously green.
+- Three previously unknown language defects were filed from the first port: **`MODE-CLI-1`**
+  (`:mode cli` emits a pure `print`, so it can neither do IO nor set an exit status),
+  **`SPLIT-EMPTY-1`** (`string-split ""` does not terminate, and typechecks, and verifies), and
+  **`FS-WALK-1`** (`wasi.fs.list` is flat).
+
+### Fixed — `refute-crux-gate.sh` froze 80 verify verdicts and no workflow ran it
+
+It was a `make` target only, despite its own header calling itself a CI gate. It now runs in
+`version-gate.yml`'s `spec-roundtrip` job, which is the Stack-bearing one. **The regression class it
+exists to catch was itself uncaught**: refutation of the `tcp_rfc793` and `session-pay` wrong twins
+was silently lost for twenty versions (v0.14.12 to v0.14.31, `ENUM-EQ-FALLBACK`) because no gate
+froze those verdicts. The gate was then written in response to exactly that, and never wired into a
+workflow, so the answer to the incident ran only when someone typed `make`.
+
+Found by applying the campaign's own §1 to the port before any code was written, which is what the
+RFC-first order is for.
+
+### Release hygiene — v0.14.84 through v0.14.87 are now tagged and published
+
+Those four releases shipped with **no git tag and no ghcr image**; the newest tag on origin was
+`v0.14.83` while all five banner sites read `0.14.87`. `version_gate.sh` compares the banners to
+each other and to no tag, so nothing in CI could catch it. The four tags are backfilled from their
+release-doc commits, each verified to carry a banner matching its own tag, and each says in its
+message that it was tagged after the fact.
+
+- **`llmll` gains no new command or flag**, and the JSON-AST schema does not move: `$id` stays at
+  `v0.11` and `schemaVersion` at `0.11.0`.
+- The brief's `status` field gains a third value, which is a **behaviour change for any consumer
+  that treats it as a two-valued flag**.
+
+---
+
 ## v0.14.87: a slice that clamps, and a validator the subject cannot reach into (2026-08-05)
 
 ### Fixed — `string-slice` returned the wrong LENGTH, not the wrong offset

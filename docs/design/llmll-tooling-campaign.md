@@ -85,16 +85,23 @@ sharing artifacts, over giving every job a toolchain, and over keeping a shell
 fallback per gate. The last of those is what DRIFT-CI-1 does today and it is
 explicitly a transitional state, not the pattern.
 
-**This blocks the campaign at its second port and the block is not technical.**
+**Blocked the campaign at its second port until 2026-08-07; now cleared.**
+Prerequisite P1 is done: `v0.14.84` through `v0.14.87` are tagged and their
+images published to ghcr.io, so a job that pulls an image no longer pulls one
+predating every tool in this campaign. The paragraph below is kept because it
+states the constraint that made distribution the settled question it is.
+
+
 [`docker-publish.yml`](../../.github/workflows/docker-publish.yml) builds and
 publishes on a `vX.Y.Z` tag push, and the newest tag on origin is `v0.14.83`
 while the five banner sites read `0.14.87`. Four releases have no image. Until
 that clears, a job that pulls an image pulls one that predates every tool in
 this campaign.
 
-**Prerequisite P1: clear the tag debt.** Targets are derived and recorded in
-[`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §10. This is the
-first thing the campaign needs and it is release hygiene, not language work.
+**Prerequisite P1: clear the tag debt. DONE 2026-08-07.** Targets were derived
+in [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §10 and
+re-verified before each push. This was the first thing the campaign needed and
+it was release hygiene, not language work.
 
 ## 4. Retirement, settled
 
@@ -202,7 +209,8 @@ no toolchain required:
 
 ## 8. Sequence
 
-- **P1** clear the tag debt (§3). Blocks every port's distribution step.
+- **P1** clear the tag debt (§3). **Done 2026-08-07**: `v0.14.84` to `v0.14.87`
+  tagged and published. It blocked every port's distribution step.
 - **P2** file the unfiled gaps (§5). **Done 2026-08-07**: `MODE-CLI-1`,
   `SPLIT-EMPTY-1`, `FS-WALK-1`.
 - **P3** wire `refute-crux-gate.sh` into a workflow, in shell (§2). **Done

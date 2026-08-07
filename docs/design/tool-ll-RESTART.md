@@ -28,17 +28,18 @@ and was stale within the hour. If `HEAD` is not `0299a41`, re-measure rather
 than reading on:
 `git rev-list --count main..HEAD` and `git rev-list --count origin/main..main`.
 
-**The branch name is wrong and this is the first thing to fix.** It was cut for
-one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and now carries four unrelated
-bodies of work: theory-question records, a doc-frontmatter fix, all of DRIVER-LL
-sub-phase 4e, and the TOOL-LL campaign. Verify this section before trusting it.
+**The branch was renamed 2026-08-07**, from `hole-status-sibling/brief-unfilled-status`.
+It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries four
+unrelated bodies of work: theory-question records, a doc-frontmatter fix, all of
+DRIVER-LL sub-phase 4e, and the TOOL-LL campaign. The name now says so.
 
-**A shipped compiler behaviour change is sitting unreleased on it.** `6547de4`
-changes `Checkout.hs` and `HoleAnalysis.hs` so a sibling whose body still holds
-a hole reads `status: "unfilled"`, and moves `brief_version` to 0.12.3. The
-CHANGELOG still reads 0.14.87. So the branch changes compiler behaviour with no
-version bump, and the gate that would catch that cannot, because the five banner
-sites still agree with each other at the old version.
+**The compiler behaviour change it carried is released, 2026-08-07: v0.14.88.**
+`6547de4` changes `Checkout.hs` and `HoleAnalysis.hs` so a sibling whose body
+still holds a hole reads `status: "unfilled"`, and moves `brief_version` to
+0.12.3. That shipped with no version bump, and the gate that would catch it
+could not, because the five banner sites still agreed with each other at the old
+version. All five now read 0.14.88 and `version_gate.sh` passes. **The tag is
+not pushed**: it is owed at merge, and this branch has not merged.
 
 ## 2. What is settled, and must not be re-litigated
 
@@ -56,14 +57,13 @@ User adjudications, 2026-08-07:
 
 ## 3. The next action, and it needs the user
 
-**P1, clear the tag debt, is blocked on a decision only the user can take.**
-Newest tag on origin is `v0.14.83`; banners read `0.14.87`. The chosen
-distribution mechanism is a published image, and no image exists for the last
-four releases, so every port's distribution step is blocked behind this.
+**P1 is DONE, 2026-08-07. The tag debt is cleared and the images are
+published.** The user authorized it; it was not taken unilaterally.
 
-Targets **verified 2026-08-07**: each is the release-doc commit, each has all
-five banner sites consistent at its own version, and each is already an ancestor
-of `origin/main`, so tagging needs no branch push.
+Each target was re-verified before its push: banner matching its own tag,
+`version_gate.sh` exit 0 at that commit in a detached worktree, and already an
+ancestor of `origin/main`, so no branch push was needed. All four tags are
+annotated and each says in its message that it was backfilled after the fact.
 
 | Tag | Commit |
 |---|---|
@@ -72,20 +72,43 @@ of `origin/main`, so tagging needs no branch push.
 | v0.14.86 | `6e92dd0` |
 | v0.14.87 | `1bc2965` |
 
-**Three things stand in front of it:**
+**The three hazards, and how each was discharged:**
 
 1. **Pushing a `v*` tag publishes.** It triggers `docker-publish.yml`'s
    `publish` job, which runs `version_gate.sh` at the tag and pushes an image to
-   ghcr.io. This is outward-facing and needs explicit authorization.
-2. **An unverifiable mechanism.** `on.push` carries both `paths:` filters and
-   `tags: ['v*']`. Whether a tag on an already-pushed commit satisfies the path
-   filter cannot be settled by reading. If it does not fire, the tags land with
-   no images, which is worse than the present state because it looks released.
-   **Mitigation: push `v0.14.84` alone, observe, then decide.**
-3. **`origin/main`'s most recent CI run did not complete.** 2026-08-06 20:42,
-   `cancelled` after 15m, as was one earlier that evening, with a 2-minute
-   success between them. The workflow has no `timeout-minutes` and no
-   `concurrency` group, so its own config does not explain it. **Unresolved.**
+   ghcr.io. Outward-facing, so it needed explicit authorization. **Given.**
+2. **The mechanism was called unverifiable, and it was verifiable after all,
+   from history rather than from the file.** `on.push` carries both `paths:`
+   filters and `tags: ['v*']`, and whether a tag satisfies the path filter
+   cannot be settled by reading the YAML. It can be settled by looking at what
+   already happened: the run list shows `headBranch=v0.14.82` and `v0.14.83`,
+   both `push`, both `success`, with `build-test` skipped and `publish` run.
+   **Tag pushes have been firing this workflow all along.**
+
+   The mitigation was followed anyway: `v0.14.84` alone, observed to green
+   (run `31222612126`, `Build + push (amd64)` success, 17m59s), then the rest.
+   The doubt was correct to record; the wrong tool was reached for to answer it.
+   A question about what a workflow does is answered by what it did, and that
+   evidence was three commands away the whole time.
+3. **`origin/main`'s most recent CI run did not complete. RESOLVED 2026-08-07,
+   and it is not the workflow.** Both runs (2026-08-06 19:21 and 20:42) are
+   `failure` at the run level and `cancelled` at the job level, at 15:02 and
+   15:03. **Both jobs in each run executed ZERO steps** and share start and end
+   timestamps to the second, so they never received a runner: they sat queued
+   and were cancelled at 15 minutes.
+
+   That rules out the workflow's own config, and it also rules out the fix that
+   looks obvious. **Adding `timeout-minutes` would not have prevented it**, since
+   a job that never starts has no step for a timeout to bound. It is not quota
+   or billing either: the repository is public, so Actions minutes are free, and
+   a 2m05s success at 19:56 sits between the two failures, which no persistent
+   account-level block would allow.
+
+   What remains is a transient runner-assignment problem upstream on that
+   evening. Nothing in this repository is actionable; the response to a
+   recurrence is to re-run, not to edit the workflow. Recorded so the next
+   reader does not spend the time again, and so nobody "fixes" it with a
+   `timeout-minutes` that cannot fire.
 
 **P3 is DONE, 2026-08-07, and needed no authorization.**
 `refute-crux-gate.sh` now runs in `version-gate.yml`'s `spec-roundtrip` job:
@@ -105,7 +128,7 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 | **003** doc-claims, **004** doc-archive | not started |
 | **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
 | **006** build-smoke | last; it runs the others |
-| **P1** tag debt | **BLOCKED on the user**, §3 |
+| **P1** tag debt | **DONE**, §3: four tags pushed, four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE**, §3 |
 
@@ -181,7 +204,9 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 
 ## 8. Debt, deferred and unrelated
 
-- The branch (§1), and the release ceremony its compiler change owes.
+- The branch is renamed and its compiler change is released as v0.14.88 (§1).
+  **The `v0.14.88` tag is not pushed and should not be until this branch merges**,
+  since the tag's own gate compares it to the banner on `main`.
 - **No parse gate over design-doc frontmatter.**
 - `HDelegate`, `HDelegateAsync`, `HDelegatePending`, `HConflictResolution` reach
   the HOLE-STATUS-SIBLING catch-all unpinned by any test.
