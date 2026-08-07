@@ -3,7 +3,7 @@ name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
 status: "Rev 1, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). One is ported and running (DRIFT-CI-1, TOOL-RFC-001, filed retroactively because it shipped before this standard existed). The campaign is BLOCKED at its distribution step until the tag debt clears: the chosen mechanism is a published release image and the newest tag is v0.14.83 against banners reading 0.14.87, so the image four releases of tooling would pull does not exist."
 date: 2026-08-07
-author: language-team
+author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
 ---
 
@@ -16,7 +16,8 @@ language question rather than worked around.
 
 This document is the standard. [`TOOL-RFC-TEMPLATE.md`](TOOL-RFC-TEMPLATE.md)
 is what you copy; [`scripts/tests/test_tool_rfc_standard.py`](../../scripts/tests/test_tool_rfc_standard.py)
-is what enforces it, because a standard no gate reads is a preference.
+is what enforces it, because a standard no gate reads is a preference. §9 says
+whose decision each finding is.
 
 ---
 
@@ -54,7 +55,7 @@ including every driver refute crux and the wave's, and it runs when a human
 types `make`.
 
 That matters to this campaign more than to the gate. Porting a gate CI does not
-run produces an LLMLL program CI does not run, which is exactly the §9 failure
+run produces an LLMLL program CI does not run, which is exactly the §10 failure
 mode. **So prerequisite P3: wire it into a workflow first, in shell, as a
 one-line change.** Only then is porting it a port of something that decides.
 Found by applying this standard's §1 to it, before any code was written, which
@@ -155,7 +156,7 @@ became 278 of LLMLL. It is a language-surface question, not a bug.
 a true recursive walk and it is the one scheduled last; `doc_archive_gate.sh`
 needs a two-level enumeration that composes from flat lists. Recorded because
 the census is the deliverable, and a census that inflates its own blast radius
-is the failure this campaign's §9 warns about in the other direction.
+is the failure this campaign's §10 warns about in the other direction.
 
 ## 6. The workflow
 
@@ -208,7 +209,31 @@ no toolchain required:
   it is an LLMLL program orchestrating LLMLL programs, and it should inherit
   five ports' worth of settled pattern rather than invent it.
 
-## 9. What would make this campaign a failure
+## 9. Roles: who decides what
+
+**This campaign is experiment-lead work, and the distinction is not
+bookkeeping.** It runs a loop (port a gate, observe what the language cannot do,
+file the gap) and its analytical authority ends at surfacing. It offers two
+shapes for `MODE-CLI-1` and picks neither. Deciding is downstream, and the
+routing is:
+
+| Work | Whose | Note |
+|---|---|---|
+| the campaign, the RFCs, the ports | **nobody's role skill** | plain engineering; the RFC author is whoever ports |
+| `MODE-CLI-1`: complete `:mode cli` or withdraw it | **language-team**, then compiler-engineer | a language-surface question; a fixture is owed before either fix |
+| `SPLIT-EMPTY-1`: what `string-split ""` answers | **language-team** first | the value chosen decides whether the no-decomposition half closes with it, so the order matters |
+| `SPLIT-EMPTY-1`: the divergence itself | **compiler-engineer** | one equation |
+| `FS-WALK-1` | **language-team**, held | an unbounded walk in a bounded idiom is a design question |
+| `CAP-NULLARY-1` | **compiler-engineer** | sits under `CAP-1-REAL` |
+| P1 (tags, images) | **the user** | outward-facing |
+
+**The first version of this document was stamped `author: language-team`** by
+copying the DRIVER-LL campaign's frontmatter rather than deciding it. That
+implied the campaign had authority over the spec questions it raises, which is
+exactly what it must not have: a loop that both finds gaps and rules on them has
+no independent check on either.
+
+## 10. What would make this campaign a failure
 
 Recorded now, while it is cheap to say:
 

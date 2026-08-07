@@ -3,7 +3,7 @@ name: tool-rfc-NNN-slug
 title: "TOOL-RFC-NNN: <the gate>, in LLMLL"
 status: "Rev 0, DRAFT. State: blocked | oracle | retired."
 date: YYYY-MM-DD
-author: language-team
+author: <whoever ports it; not a role skill>
 consumers: [compiler-engineer, documentation-lead, user]
 tool_state: blocked
 subject_script: scripts/<the script this replaces>

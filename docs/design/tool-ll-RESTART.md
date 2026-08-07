@@ -3,7 +3,7 @@ name: tool-ll-restart
 title: "TOOL-LL: session restart record"
 status: "LIVE, written 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL, one port of six landed, blocked at P1 on a decision only the user can take."
 date: 2026-08-07
-author: language-team
+author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 ---
 

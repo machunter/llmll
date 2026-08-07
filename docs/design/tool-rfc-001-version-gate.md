@@ -3,7 +3,7 @@ name: tool-rfc-001-version-gate
 title: "TOOL-RFC-001: DRIFT-CI-1, the version gate, in LLMLL"
 status: "Rev 1, RETROACTIVE. The port shipped at 7d1de03 BEFORE this standard existed, so this document records decisions already taken rather than proposing them. That is a defect in the sequence and §8 says which decisions it cost. State: oracle."
 date: 2026-08-07
-author: language-team
+author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
 tool_state: oracle
 subject_script: scripts/version_gate.sh
