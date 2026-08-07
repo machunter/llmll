@@ -85,14 +85,17 @@ This is the transitional state, not the pattern. It resolves when P1 clears.
 | Gap | Disposition | Roadmap tag | What the design would have been |
 |---|---|---|---|
 | `regex-match` typechecks, verifies, does not build | SHAPES | `REGEX-LOWER-1` | Three `grep -oE` equivalents. Instead: a hand-rolled scanner. |
-| `string-split ""` does not terminate | SHAPES | **unfiled, owed** | A fold over the string's characters. Instead: a fold over a *literal index list* bounded at 24, with a saturation check so the bound cannot fail silently. |
-| no character decomposition, no ranges | SHAPES | **unfiled, owed** (one row with the entry above) | A character fold. Instead: the same bounded index-list fold. Filed as one row because a `string-split ""` that terminated would also be the decomposition. |
-| `:mode cli` emits `print (step args)`: no IO, no exit status, zero in-tree users | SHAPES | **unfiled, owed** | A straight-line program: read seven files, decide, exit. Instead: a nine-arm console state machine driven by stdin. This is the single largest contributor to 58 code lines becoming 278. |
+| `string-split ""` does not terminate | SHAPES | `SPLIT-EMPTY-1` | A fold over the string's characters. Instead: a fold over a *literal index list* bounded at 24, with a saturation check so the bound cannot fail silently. |
+| no character decomposition, no ranges | SHAPES | `SPLIT-EMPTY-1` (one row with the entry above) | A character fold. Instead: the same bounded index-list fold. Filed as one row because a `string-split ""` that terminated would also be the decomposition. |
+| `:mode cli` emits `print (step args)`: no IO, no exit status, zero in-tree users | SHAPES | `MODE-CLI-1` | A straight-line program: read seven files, decide, exit. Instead: a nine-arm console state machine driven by stdin. This is the single largest contributor to 58 code lines becoming 278. |
 | nullary `wasi.*` builtins bypass capability enforcement | COSMETIC | `CAP-NULLARY-1` | Found by tripping over it: the module typechecked while using `wasi.proc.args` with no `wasi.proc` import. Filed 2f38d3a. Import added anyway. |
 | no env access | COSMETIC | **unfiled** | `REPO_ROOT` became `--root`. All four env uses in scope are config argv can carry, so nothing was lost. |
 
 **Two of these were previously unknown**, and one is a divergent stdlib function
 that typechecks and verifies. That is the yield the gap discipline exists for.
+Both were filed as roadmap rows on 2026-08-07 (campaign prerequisite P2), so
+this table cites tags rather than admissions; the gate that reads it caught the
+staleness the moment the rows landed.
 
 ## 6. Differential plan
 

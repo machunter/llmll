@@ -38,14 +38,27 @@ why the scope is gates rather than the larger and more impressive number.
 **The six CI gates, and nothing else.** Measured at 2026-08-07, code lines
 excluding comments and blanks:
 
-| Gate | Code | Status |
-|---|---|---|
-| [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | **PORTED**, TOOL-RFC-001 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | next |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | |
-| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | blocked, `REGEX-LOWER-1` |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | last, it runs the others |
+| Gate | Code | In CI? | Status |
+|---|---|---|---|
+| [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | **NO** | next; see below |
+| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | |
+| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
+
+**`refute-crux-gate.sh` is not invoked by any workflow.** It is a `make` target
+only, despite its own header calling itself a CI gate, and
+`build_smoke.sh:393` says so in passing. It freezes 80 verify verdicts,
+including every driver refute crux and the wave's, and it runs when a human
+types `make`.
+
+That matters to this campaign more than to the gate. Porting a gate CI does not
+run produces an LLMLL program CI does not run, which is exactly the §9 failure
+mode. **So prerequisite P3: wire it into a workflow first, in shell, as a
+one-line change.** Only then is porting it a port of something that decides.
+Found by applying this standard's §1 to it, before any code was written, which
+is what the RFC-first order is for.
 
 **Deliberately out of scope**, each for a stated reason rather than by omission:
 
@@ -120,21 +133,29 @@ ports are worth doing even where the shell script was fine.
 
 **Known gaps, at v0.14.87.** Leverage order for the six gates in scope:
 
-| Gap | Disposition | Blocks | Status |
+| Gap | Disposition | Blocks, of the six in scope | Status |
 |---|---|---|---|
-| `REGEX-LOWER-1` | BLOCKS | `doc_path_lint`, 4 others touch it | filed, open |
-| no recursive directory walk | BLOCKS | 3 of 6 gates | **not filed** |
-| `string-split` with an empty separator diverges | SHAPES | any scanner | **not filed** |
-| `:mode cli` is a stub (`print (step args)`, no IO, no exit status) | SHAPES | every tool | **not filed** |
-| no character decomposition, no ranges | SHAPES | every scanner | see above |
-| no env access (`wasi.proc.args` exists, no env builtin) | SHAPES | 4 scripts, all config argv can carry | **not filed** |
-| `CAP-NULLARY-1` | COSMETIC here | nothing in scope | filed 2026-08-07 |
-| `FS-STAT-1` | BLOCKS | nothing in scope | filed, open |
+| `MODE-CLI-1` | SHAPES | **every tool** | filed 2026-08-07 |
+| `SPLIT-EMPTY-1` (with the no-character-decomposition half) | SHAPES | every scanner | filed 2026-08-07 |
+| `REGEX-LOWER-1` | BLOCKS | `doc_path_lint` (005) | filed, open |
+| `FS-WALK-1` | BLOCKS | `build_smoke` (006) only | filed 2026-08-07, **not urgent** |
+| no env access (`wasi.proc.args` exists, no env builtin) | COSMETIC | none; argv carries it | unfiled, nothing lost |
+| `CAP-NULLARY-1` | COSMETIC | none | filed 2026-08-07 |
+| `FS-STAT-1` | BLOCKS | none in scope | filed, open |
 
-Three of these have no roadmap row and the discipline above says they must, so
-**filing them is prerequisite P2.** The `:mode cli` one is the largest: it is
-why an 89-line straight-line script became a nine-arm console state machine, and
-it is a language-surface question rather than a bug.
+**`MODE-CLI-1` is the largest and it was invisible before a port existed.**
+`:mode cli` emits `print (step args)`: a pure function, no `Command` performed,
+no exit status, and zero in-tree users. So `console` is the only usable entry
+mode for a program that touches the world, every LLMLL tool is a stdin-driven
+step machine, and that is the single largest reason 58 code lines of shell
+became 278 of LLMLL. It is a language-surface question, not a bug.
+
+**A first count of `FS-WALK-1` said three of six and was wrong.** It measured
+`scripts/` generally rather than the six gates in scope. Exactly one gate needs
+a true recursive walk and it is the one scheduled last; `doc_archive_gate.sh`
+needs a two-level enumeration that composes from flat lists. Recorded because
+the census is the deliverable, and a census that inflates its own blast radius
+is the failure this campaign's §9 warns about in the other direction.
 
 ## 6. The workflow
 
@@ -174,9 +195,12 @@ no toolchain required:
 ## 8. Sequence
 
 - **P1** clear the tag debt (§3). Blocks every port's distribution step.
-- **P2** file the three unfiled gaps (§5). Blocks nothing; owed by the discipline.
+- **P2** file the unfiled gaps (§5). **Done 2026-08-07**: `MODE-CLI-1`,
+  `SPLIT-EMPTY-1`, `FS-WALK-1`.
+- **P3** wire `refute-crux-gate.sh` into a workflow, in shell (§2). Must precede
+  002, or 002 ports something CI does not run.
 - **001** DRIFT-CI-1 version gate. **Ported, state `oracle`.**
-- **002** refute-crux gate. Next, and the first port to be written RFC-first.
+- **002** refute-crux gate. Next after P3, and the first port written RFC-first.
 - **003** doc-claims gate.
 - **004** doc-archive gate.
 - **005** doc-path lint. Gated on `REGEX-LOWER-1`.
