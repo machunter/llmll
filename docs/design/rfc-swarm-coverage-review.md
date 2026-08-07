@@ -1,7 +1,8 @@
 ---
 name: rfc-swarm-coverage-review
 title: "Professor review: Phase 0 STOP verdict and the fragment-widening question"
-status: standalone review (not folded); consumers: user, language-team, experiment-lead
+status: "standalone review (not folded)"
+consumers: [user, language-team, experiment-lead]
 date: 2026-07-24
 reviewer: professor
 ---
