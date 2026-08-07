@@ -19,9 +19,14 @@ repository has gone stale inside a day before.
 
 ## 1. Where the work is
 
-Branch `hole-status-sibling/brief-unfilled-status`, **15 commits ahead of local
-`main`**, local `main` **7 commits ahead of `origin/main`**, **nothing pushed at
-all**, working tree clean.
+Branch `hole-status-sibling/brief-unfilled-status`. At `0299a41`: **17 commits
+ahead of local `main`**, local `main` **7 commits ahead of `origin/main`**,
+**nothing pushed at all**, working tree clean.
+
+The count is stamped with the commit because this file's first version said 15
+and was stale within the hour. If `HEAD` is not `0299a41`, re-measure rather
+than reading on:
+`git rev-list --count main..HEAD` and `git rev-list --count origin/main..main`.
 
 **The branch name is wrong and this is the first thing to fix.** It was cut for
 one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and now carries four unrelated
@@ -102,9 +107,11 @@ something CI does not run.
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | available now |
 
-## 5. Gates, measured on this tree at `1c515ca`
+## 5. Gates, measured at `1c515ca`
 
-**Re-measure, do not assume.**
+**Re-measure, do not assume.** Only documentation changed between `1c515ca` and
+`0299a41`, so these hold at `HEAD`; `pytest` was re-run after each and stayed at
+188.
 
 | Gate | Figure |
 |---|---|
