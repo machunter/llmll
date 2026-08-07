@@ -48,6 +48,14 @@ calls `fill.*` and `token.token-during`, 4d calls `oracle.*` and
 than the registered one. Delete the rows that acquired callers; do not widen
 the assertion.
 
+4e HAS NOW LANDED and its four rows are deleted rather than widened, taking
+the census from twelve to eight. `wave.llmll` is the third program, so `fill`
+and `token` left the orphan set with it. FOUR assertions moved, not one, and
+that is worth stating because the restart record predicted one: the program
+set, the orphan set, the register and the `cfg-llmll` guard all rest on the
+same derivation, so a new `def-main` moves all of them together. The guard
+moved for a different reason than the other three, recorded at its own site.
+
 NOTHING HERE NEEDS A TOOLCHAIN. It reads source text, so it runs on a machine
 with no `llmll` binary, which is the tier `test_driver_ll_4c.py` describes.
 """
@@ -167,28 +175,12 @@ def _orphaned() -> set[str]:
 # ---------------------------------------------------------------------------
 
 CALLERLESS: dict[str, tuple[str, str]] = {
-    # Sub-phase 4e owes these five their first caller. `fill` and `token` are
-    # the wave protocol: acquire a checkout token, let an agent patch a hole,
-    # verify, accept or revert. Nothing in either program runs a wave yet, so
-    # the five proved decisions behind four refute cruxes decide nothing.
-    "fill.fill-accepted": (
-        "4e-owes-caller",
-        "the accept/reject decision for a filled hole; 4e's verify leg is its "
-        "only caller and crux-fill-accepts-assumed is its discriminator"),
-    "fill.next-error-budget": (
-        "4e-owes-caller",
-        "the separated retry budgets; its contention branch is UNREACHABLE "
-        "under a serial wave, so 4e must inject contention or the acceptance "
-        "clause behind crux-fill-contention-eats-budget stays vacuous"),
-    "fill.is-finding": (
-        "4e-owes-caller",
-        "classifies a rejected fill as a finding; the only one of fill's three "
-        "with no refute crux of its own, so a caller is its only evidence"),
-    "token.token-during": (
-        "4e-owes-caller",
-        "the linear checkout protocol, phase indexed rather than ordered "
-        "(proposal section 6.5); crux-token-held-across-call perturbs the arm "
-        "its own post covers, and 4e is the first site that holds a token"),
+    # The four `fill.*` and `token.token-during` rows are DELETED, not widened.
+    # `wave.llmll` (sub-phase 4e, stage M) is their first caller: it consumes
+    # `fill-accepted` as the per-fill bar, `next-error-budget` as the separated
+    # retry budgets, `is-finding` as the finding-versus-protocol-failure
+    # classification, and `token-during` twice, once as the guard that admits
+    # the agent call and once in every log line's token field.
 
     # Sub-phase 4d is parked. These five verified SAFE and body-faithful on
     # the first attempt and then had their caller deferred by the pivot to 4e.
@@ -236,9 +228,12 @@ CALLERLESS: dict[str, tuple[str, str]] = {
 # Which of the callerless set have a refute crux naming them in `localized`.
 # A proved def with neither a caller nor a discriminating mutant is the
 # weakest evidence in this directory, and the point of computing it is that
-# the four are named rather than counted.
+# the three are named rather than counted.
+#
+# `fill.is-finding` left this set by acquiring a caller and not by acquiring a
+# crux, which is the weaker of the two remedies and is why the row said a
+# caller was its only evidence.
 UNCRUXED = {
-    "fill.is-finding",
     "oracle.feasibility-established?",
     "oracle.outcome-as-expected?",
     "shell.status-line",
@@ -249,18 +244,28 @@ UNCRUXED = {
 # 1. The two properties, measured separately
 # ---------------------------------------------------------------------------
 
-def test_the_programs_are_derived_and_are_the_expected_two():
-    """If a third `def-main` appears, the reachability base changes under
-    every assertion below and they must be re-measured rather than trusted."""
-    assert _programs() == {"sequencer", "spine"}
+def test_the_programs_are_derived_and_are_the_expected_three():
+    """If a fourth `def-main` appears, the reachability base changes under
+    every assertion below and they must be re-measured rather than trusted.
+
+    `wave` is the third and it arrived exactly this way: the assertion below
+    was written for two, a `def-main` landed, and every other assertion in
+    this file moved with it."""
+    assert _programs() == {"sequencer", "spine", "wave"}
 
 
-def test_the_orphaned_modules_are_exactly_the_five():
-    """`fill`, `token`, `liveness` and `oracle` are orphaned because their
-    sub-phase has not landed. `shell` is orphaned by construction."""
+def test_the_orphaned_modules_are_exactly_the_three():
+    """`oracle` is orphaned because sub-phase 4d is parked. `liveness` is
+    blocked on FS-STAT-1. `shell` is orphaned by construction.
+
+    `fill` and `token` left this set when `wave.llmll` acquired a `def-main`
+    and imported them, which is the remedy an orphan takes: an import from a
+    program, not a call site. `wave` itself was briefly a sixth member, in the
+    window between its decision layer being written and its state machine
+    landing."""
     live = _reachable()
     assert {m for m in MODULES if m not in live} == {
-        "fill", "liveness", "oracle", "shell", "token"}
+        "liveness", "oracle", "shell"}
 
 
 def test_no_unreferenced_def_hides_in_a_reachable_module():
@@ -290,9 +295,12 @@ def test_the_callerless_proved_defs_are_exactly_the_registered_set():
 
 
 def test_every_callerless_def_carries_a_reason():
+    """`4e-owes-caller` is gone from the class set, which is the shape a
+    discharged remedy leaves: the class disappears with its last row rather
+    than staying behind as an empty bucket."""
     assert all(cls and why for cls, why in CALLERLESS.values())
     assert {cls for cls, _ in CALLERLESS.values()} == {
-        "4e-owes-caller", "4d-parked", "capability-blocked", "deliberate"}
+        "4d-parked", "capability-blocked", "deliberate"}
 
 
 def test_the_register_is_not_vacuous_and_names_real_defs():
@@ -310,9 +318,9 @@ def test_the_register_is_not_vacuous_and_names_real_defs():
 # 3. What the callerless set costs, in evidence
 # ---------------------------------------------------------------------------
 
-def test_the_defs_with_neither_a_caller_nor_a_refute_crux_are_the_four():
+def test_the_defs_with_neither_a_caller_nor_a_refute_crux_are_the_three():
     """A refute crux is the only evidence an uncalled proof has left. These
-    four have neither, so nothing about them would change if their body were
+    three have neither, so nothing about them would change if their body were
     weakened to a constant."""
     verdicts = json.loads((DRIVER_LL / "EXPECTED_VERDICTS.json").read_text())
     localized = {c["localized"] for c in verdicts["cases"] if "localized" in c}
@@ -325,7 +333,23 @@ def test_the_llmll_command_accessor_is_read_nowhere():
     `def-shell`, so no assertion above covers it. 4d widened `Cfg` at the tail
     to carry the compiler command and the stage loop that reads it is the
     parked work; the flag is REQUIRED at parse, so a run supplies a value that
-    reaches nothing."""
+    reaches nothing.
+
+    THE SECOND ASSERTION IS THE ONE THAT NEARLY FAILED SILENTLY.
+    `_reference_count` is repo-wide and matches a BARE name as well as a
+    qualified one, by design, because a caller can live in another module. So
+    any second module defining its own `cfg-llmll` makes this guard read four
+    references to a def that still has none, and the guard stops being
+    falsifiable in the direction it exists for. `wave.llmll` did exactly that
+    and its accessor is named `cfg-compiler` for this reason. Asserting the
+    name is defined once is what keeps the collision loud.
+    """
     assert _reference_count("sequencer", "cfg-llmll") == 0
+    definers = [m for m in MODULES
+                if re.search(r"\(def(?:-shell)?\s+cfg-llmll" + _IDENT_TAIL,
+                             _src(m))]
+    assert definers == ["sequencer"], \
+        f"a second module defines cfg-llmll, so the count above is not about " \
+        f"sequencer's accessor any more: {definers}"
     assert '(flag-value as "--llmll-cmd")' in _uncommented("sequencer"), \
         "the flag is still parsed, so the accessor is unread rather than gone"

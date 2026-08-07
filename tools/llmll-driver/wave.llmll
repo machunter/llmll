@@ -1,0 +1,885 @@
+;; DRIVER-LL sub-phase 4e: the serial wave, stage M.
+;;
+;; This is the module that gives `fill.fill-accepted`, `fill.next-error-budget`,
+;; `fill.is-finding` and `token.token-during` their FIRST CALLER. Before it, all
+;; four were proved, carried four refute cruxes between them, and decided
+;; nothing: `scripts/tests/test_driver_ll_callers.py` asserted twelve such defs
+;; by name. A proof about a function no program calls is still a valid proof,
+;; which is exactly why no gate could catch it, and why stage H's own defect
+;; turned on our own artifacts is what this sub-phase exists to close.
+;;
+;; A SEPARATE PROGRAM, NOT A SEQUENCER ARM, and the reason is structural. The
+;; sequencer's `Ctl` sum carries one `Delegate Body` arm per stage: one
+;; delegation, one exit status. Stage M is holes TIMES attempts, the one stage
+;; with variable multiplicity, which Rev 12 recorded as fitting no
+;; `[i: int] -> int` registry entry. Folding it into the stage loop is a
+;; restructure of a 1760-line module that 4e's acceptance clause does not ask
+;; for; unification stays deferred with 4d, 4f and stage A.
+;;
+;; THE FOUR ABSTRACTION FUNCTIONS ARE THE UNPROVED SEAM, and §7 of the proposal
+;; inventories them as such. They are shell-side observations of another
+;; process's output, so they are outside Sigma_auto and are not Lean candidates
+;; either: there is no proposition for a prover to discharge about what a string
+;; from someone else's stdout means. What the proved cores decide is what
+;; FOLLOWS from those booleans; what nothing checks is that the booleans are
+;; read correctly. Each is written once, here, so the seam is auditable at one
+;; site rather than spread across the state machine.
+
+(module wave
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.fs   (capability read-write "/"))
+  (import wasi.proc (capability exec :deterministic false))
+
+  (import fill)  (open fill)
+  (import token) (open token)
+
+  ;; ---- the shell-side abstraction functions -------------------------------
+  ;;
+  ;; MEASURED against compiler v0.14.87 by the 4e harness leg rather than read
+  ;; off the spec, because two of the four were described wrongly in the
+  ;; proposal until Rev 15.
+
+  ;; `llmll patch` emits JSON on STDOUT with a five-way `result` discriminator
+  ;; (PatchApply.hs's ToJSON instance); stderr was EMPTY on every invocation
+  ;; measured. So this is a test on a structured field and not, as §7 said
+  ;; until Rev 15, a substring test over stderr prose.
+  (def-shell patch-succeeded? [out: string] -> bool
+    (string-contains out "PatchSuccess"))
+
+  ;; CONTENTION IS NARROWER THAN PatchAuthError. `invalid or expired checkout
+  ;; token` carries the same constructor and is NOT contention; only the three
+  ;; `obligation context is stale ...` messages are. The reference's own
+  ;; predicate retries on either token, which charges a non-contention auth
+  ;; failure to the budget [S9-SEPARATE] says never depletes, and the port must
+  ;; not inherit it.
+  ;;
+  ;; Keyed on the ASCII lexeme `stale` and NEVER on the fuller phrase: the
+  ;; compiler's message carries U+2014 EM DASH immediately after it, which is
+  ;; FS-ENCODING-1 territory. The `result` test is what keeps the lexeme from
+  ;; matching a diagnostic that merely mentions staleness.
+  (def-shell contention? [out: string] -> bool
+    (and (string-contains out "PatchAuthError")
+         (string-contains out "stale")))
+
+  ;; `llmll verify` prints `body-faithful: <comma-list>`. Two conjuncts, not
+  ;; one: SAFE alone is a module-level verdict and says nothing about THIS
+  ;; function, which is the distinction the per-fill bar exists to draw.
+  (def-shell verify-safe? [out: string] -> bool
+    (string-contains out "SAFE"))
+
+  ;; DISCLOSURE, and it is sharper than "unproved". Rev 15 measured that this
+  ;; boolean does NOT mean what [S9-FAITHFUL] says it means. A body whose only
+  ;; callee is an UNFILLED hole appears in the body-faithful set, because the
+  ;; line reports that the function's VC was EMITTED body-faithfully, which is
+  ;; compatible with every callee's contract having been assumed. So per-fill
+  ;; acceptance is PROVISIONAL; the closing check is the whole-tree
+  ;; --strict-verified-core after every hole is filled. `crux-fill-accepts-
+  ;; assumed` does not catch this, a refute crux perturbing the proved decision
+  ;; and not the mapping into it.
+  ;; `target` and not `fn`: `fn` is the lambda keyword and is reserved.
+  (def-shell body-faithful? [out: string target: string] -> bool
+    (and (string-contains out "body-faithful:")
+         (string-contains out target)))
+
+  ;; NO PRODUCER EXISTS for the fourth conjunct. The reference's `_verify_fn`
+  ;; computes safe, body_faithful and refuted and NOTHING for termination,
+  ;; despite its own docstring naming `termination_unverified` in the bar. It
+  ;; is passed as a literal here and that is a gap, recorded rather than
+  ;; papered over: passing `true` would make [S9-ACCEPT]'s fourth conjunct
+  ;; vacuous, and passing `false` would reject every fill.
+  (def-shell termination-observed? [out: string] -> bool
+    (not (string-contains out "termination_unverified")))
+
+  ;; THE CLOSING CHECK, and it is the one that is not provisional. Per-fill
+  ;; acceptance cannot see whether a callee's contract was assumed; the
+  ;; whole-tree `--strict-verified-core` can, and it is what Q-005 leaves as
+  ;; the residue of the [S9-FAITHFUL] measurement above.
+  ;;
+  ;; TWO CONJUNCTS BECAUSE THE FAILURE IS SILENT ON ONE. Measured at v0.14.87
+  ;; over this module's own fixture: a tree with holes left in it prints
+  ;; `ERROR: --strict-verified-core: N function(s) fell back from
+  ;; body-faithful verification` and NO `SAFE` line, and a fully filled tree
+  ;; prints `body-faithful:` for every function and then SAFE. Keying on SAFE
+  ;; alone would pass a run that never reached the solver at all.
+  (def-shell seal-holds? [out: string] -> bool
+    (and (string-contains out "SAFE")
+         (not (string-contains out "fell back"))))
+
+  ;; ---- the proved-core call sites -----------------------------------------
+  ;;
+  ;; Four call sites, one per previously-callerless def. Each is a one-line
+  ;; forward so the call is visible to a reader and to the callerless census,
+  ;; rather than buried inside a state-machine arm.
+
+  ;; fill.fill-accepted. The per-fill bar of driver-spec section 9.
+  (def-shell accept-fill? [applied: bool out: string target: string] -> bool
+    (fill-accepted applied
+                   (verify-safe? out)
+                   (body-faithful? out target)
+                   (termination-observed? out)))
+
+  ;; fill.next-error-budget. THE SEPARATED BUDGETS. Contention leaves the error
+  ;; budget alone; a wrong body spends it.
+  (def-shell spend-budget [err: int out: string] -> int
+    (next-error-budget err (contention? out)))
+
+  ;; fill.is-finding. Only an exhausted error budget yields a finding, so a
+  ;; checkout fault or an agent timeout is reported as itself and never as a
+  ;; hole the agent could not fill.
+  (def-shell finding? [err-remaining: int protocol-exhausted: bool] -> bool
+    (is-finding err-remaining protocol-exhausted))
+
+  ;; token.token-during. The linear checkout protocol, phase-indexed.
+  ;;
+  ;; §10:371-373's release-then-obtain-fresh ORDERING is a SHELL OBLIGATION and
+  ;; not something the core proves: token-during is a memoryless function of
+  ;; the current phase, so it constrains each step and says nothing about the
+  ;; sequence of steps. The ordering is discharged HERE, by releasing before
+  ;; the agent call and taking a fresh checkout at submission, and by nothing
+  ;; in token.llmll.
+  (def-shell token-state-now [p: Phase] -> TokenState
+    (token-during p))
+
+  ;; The two obligations that ordering places on this module, stated as
+  ;; predicates over the phase so a reader can check the state machine against
+  ;; them rather than against an intention.
+  (def-shell must-release-before-agent? [p: Phase] -> bool
+    (match (token-state-now p)
+      ((Released) true)
+      ((Held)     false)))
+
+  (def-shell holds-token? [p: Phase] -> bool
+    (match (token-state-now p)
+      ((Released) false)
+      ((Held)     true)))
+
+  ;; ==========================================================================
+  ;; THE WAVE ITSELF
+  ;; ==========================================================================
+  ;;
+  ;; Everything above decides; everything below performs. The split is the same
+  ;; one spine.llmll and sequencer.llmll keep, and it is why this module is the
+  ;; asserted tier throughout: every def here is `def-shell`, and the four
+  ;; proved decisions it consumes live in fill.llmll and token.llmll, which are
+  ;; `--strict-verified-core` clean.
+  ;;
+  ;; THE PROTOCOL, one hole at a time, driver-spec.txt section 9 and section 10:
+  ;;
+  ;;   checkout -> release BEFORE the agent call -> agent -> fresh checkout ->
+  ;;   patch -> verify -> accept or revert
+  ;;
+  ;; The release in position two is the whole point. crux-token-held-across-call
+  ;; is the shipped defect it prevents: a token held across the agent call
+  ;; wedged fourteen holes and lost one fill on the first RFC-SWARM wave.
+  ;;
+  ;; MEASURED AGAINST v0.14.87, because none of it is in the spec. The CLI facts
+  ;; this machine is built on were established by running the compiler over this
+  ;; module's own fixture tree rather than read off a document:
+  ;;
+  ;;   * `checkout` and `patch` take a .ast.json, NOT a .llmll. `llmll build
+  ;;     FILE --emit` writes it to generated/<name>/<name>.ast.json. `--emit` is
+  ;;     a bare flag; `--emit json-ast` is a usage error.
+  ;;   * `holes AST --json` puts an array on stdout, each entry carrying
+  ;;     `pointer` and `module-path` (the latter as "def add-one", so the
+  ;;     function name is its last space-separated field).
+  ;;   * the brief's token field is `token`; the brief also carries `source_hash`
+  ;;     and `ttl`. There is no `hole_node` field, which is why the patch below
+  ;;     is a BARE REPLACE and carries no `test` op: the reference injects the
+  ;;     node itself after reading it out of the tree, and a test op would cost
+  ;;     this module an RFC 6901 pointer walk over the AST for an assertion the
+  ;;     CAS already makes. `parsePatchOp` accepts a patch list of one replace,
+  ;;     measured: PatchSuccess.
+  ;;   * `patch` REWRITES THE TREE IN PLACE, so a rejected fill needs an undo.
+  ;;     The backup is taken per attempt, immediately before the patch, so a
+  ;;     restore returns the tree to the state that attempt found and never
+  ;;     discards a sibling hole's accepted fill.
+  ;;   * A STALE PATCH LEAVES THE LOCK HELD. After a PatchAuthError the hole
+  ;;     cannot be checked out again ("hole at ... is already checked out")
+  ;;     until the stale token is released. That is the same wedge
+  ;;     crux-token-held-across-call is about, reached by a different route, and
+  ;;     it is why the contention path releases before it retries rather than
+  ;;     looping straight back to a checkout.
+
+  ;; ---- the run record ------------------------------------------------------
+  ;;
+  ;; Proposal section 13 risk 6: a wrong projection over a pair chain
+  ;; TYPECHECKS. Every projection in this module is in one of the accessors
+  ;; below and no use site writes a bare (first (second ...)).
+
+  ;; tree, (workdir, (llmll, (agent, (agent-args, (timeout, (err0, proto0))))))
+  (type Cfg (| Cfg (string, (string, (string, (string, (list[string], (int, (int, int)))))))))
+
+  ;; One attempt at one hole: k, (n, (err, (proto, (token, body)))). The token
+  ;; and the body node are per-attempt and are cleared by at-next, so a retry
+  ;; cannot resubmit the previous attempt's token against a re-read tree.
+  (type Att (| Att (int, (int, (int, (int, (string, string)))))))
+
+  ;; cfg, (holes, (accepted, (findings, protocol-failures))). The holes travel
+  ;; as raw list[Json] straight from `llmll holes --json`, on sequencer.llmll's
+  ;; precedent for the manifest: a custom carrier would have to be re-derived
+  ;; from the same fields at every use and would add a decoding step that can
+  ;; disagree with the compiler.
+  (type Wv (| Wv (Cfg, (list[Json], (int, (int, int))))))
+
+  ;; Each arm names the RESPONSE it is about to receive, since the console loop
+  ;; delivers the response to the command issued on entry to the arm. Named
+  ;; WCtl and not Phase or Ctl, and that is not cosmetic: `Phase` is token's
+  ;; nullary sum, opened above, and the type checker CONFLATES same-named sum
+  ;; types across modules (measured at v0.14.87, only an open-shadow-warning
+  ;; fires). Naming this one Phase would let a payload-carrying arm satisfy an
+  ;; annotation resolved to token's Phase. The sequencer's Phase was renamed to
+  ;; Ctl for the same reason.
+  ;;
+  ;;   Boot 0     r is the argument vector
+  ;;   Boot 1     r is the `llmll holes --json` output
+  ;;   Brief      r is the FIRST checkout brief, whose token is released at once
+  ;;   Rel        r is that release
+  ;;   Working    r is the agent's body artifact, read after the agent exits
+  ;;   Fresh      r is the SECOND checkout brief, taken at submission
+  ;;   Applied    r is the `llmll patch` result JSON
+  ;;   Checked    r is the `llmll verify` transcript
+  ;;   Closing    r is the release that follows an accepted fill
+  ;;   Undoing    r is the release that follows a restore
+  ;;   Sealing    r is the whole-tree --strict-verified-core transcript, and
+  ;;              its int payload is the code the per-hole tally alone earned
+  (type WCtl
+    (| Boot    int)
+    (| Brief   Att)
+    (| Rel     Att)
+    (| Working Att)
+    (| Fresh   Att)
+    (| Applied Att)
+    (| Checked Att)
+    (| Closing Att)
+    (| Undoing Att)
+    (| Sealing int)
+    (| Ending  int)
+    (| Done    int))
+
+  ;; ---- accessors, written once ---------------------------------------------
+
+  (def-shell cfg-tree [c: Cfg] -> string
+    (match c ((Cfg p) (first p))))
+  (def-shell cfg-workdir [c: Cfg] -> string
+    (match c ((Cfg p) (first (second p)))))
+  (def-shell cfg-compiler [c: Cfg] -> string
+    (match c ((Cfg p) (first (second (second p))))))
+  (def-shell cfg-agent [c: Cfg] -> string
+    (match c ((Cfg p) (first (second (second (second p)))))))
+  (def-shell cfg-agent-args [c: Cfg] -> list[string]
+    (match c ((Cfg p) (first (second (second (second (second p))))))))
+  (def-shell cfg-timeout [c: Cfg] -> int
+    (match c ((Cfg p) (first (second (second (second (second (second p)))))))))
+  (def-shell cfg-err0 [c: Cfg] -> int
+    (match c ((Cfg p) (first (second (second (second (second (second (second p))))))))))
+  (def-shell cfg-proto0 [c: Cfg] -> int
+    (match c ((Cfg p) (second (second (second (second (second (second (second p))))))))))
+
+  (def-shell at-k [a: Att] -> int
+    (match a ((Att q) (first q))))
+  (def-shell at-n [a: Att] -> int
+    (match a ((Att q) (first (second q)))))
+  (def-shell at-err [a: Att] -> int
+    (match a ((Att q) (first (second (second q))))))
+  (def-shell at-proto [a: Att] -> int
+    (match a ((Att q) (first (second (second (second q)))))))
+  (def-shell at-token [a: Att] -> string
+    (match a ((Att q) (first (second (second (second (second q))))))))
+  (def-shell at-body [a: Att] -> string
+    (match a ((Att q) (second (second (second (second (second q))))))))
+
+  (def-shell mk-att [k: int n: int err: int proto: int tok: string body: string] -> Att
+    (Att (pair k (pair n (pair err (pair proto (pair tok body)))))))
+
+  (def-shell at-with-token [a: Att t: string] -> Att
+    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) t (at-body a)))
+  (def-shell at-with-body [a: Att b: string] -> Att
+    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) (at-token a) b))
+
+  ;; The NEXT attempt at the same hole, carrying the budgets its caller
+  ;; computed and dropping the token and the body. Bumping `n` is what gives
+  ;; every attempt its own directory, so no arm can read a previous attempt's
+  ;; stdout file and mistake it for its own.
+  (def-shell at-next [a: Att err: int proto: int] -> Att
+    (mk-att (at-k a) (+ (at-n a) 1) err proto "" ""))
+
+  (def-shell w-cfg [w: Wv] -> Cfg
+    (match w ((Wv p) (first p))))
+  (def-shell w-holes [w: Wv] -> list[Json]
+    (match w ((Wv p) (first (second p)))))
+  (def-shell w-ok [w: Wv] -> int
+    (match w ((Wv p) (first (second (second p))))))
+  (def-shell w-find [w: Wv] -> int
+    (match w ((Wv p) (first (second (second (second p)))))))
+  (def-shell w-bad [w: Wv] -> int
+    (match w ((Wv p) (second (second (second (second p)))))))
+
+  (def-shell mk-wv [c: Cfg hs: list[Json] ok: int fnd: int bad: int] -> Wv
+    (Wv (pair c (pair hs (pair ok (pair fnd bad))))))
+
+  (def-shell w-of [s: (Wv, WCtl)] -> Wv (first s))
+  (def-shell ctl-of [s: (Wv, WCtl)] -> WCtl (second s))
+  (def-shell go [w: Wv p: WCtl c: Command] -> ((Wv, WCtl), Command)
+    (pair (pair w p) c))
+
+  ;; ---- responses, argv and small helpers -----------------------------------
+
+  (def-shell text-of [r: Response] -> string
+    (match r
+      ((RText t) t)
+      ((RErr _)  "")
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RList _) "")))
+
+  (def-shell argv-of [r: Response] -> list[string]
+    (match r
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell dflt [v: string d: string] -> string
+    (if (string-empty? v) d v))
+
+  (def-shell clamp0 [n: int] -> int (if (< n 0) 0 n))
+
+  ;; string-split takes the SEPARATOR FIRST, measured at v0.14.84 and recorded
+  ;; at sequencer.llmll:566-572. Getting it backwards yields [sep], which
+  ;; type-checks and passes every check-time gate.
+  (def-shell split-on [sep: string s: string] -> list[string]
+    (string-split sep s))
+
+  (def-shell last-field [xs: list[string]] -> string
+    (unwrap-or (list-nth xs (- (list-length xs) 1)) ""))
+
+  ;; The element following `f`, or "". A repeated flag keeps the FIRST value,
+  ;; which is the opposite of argparse and is stated because nothing enforces
+  ;; it. Copied rather than imported: `sequencer` is a program, not a library,
+  ;; and importing it would put its whole stage loop behind this module.
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell flag-values [as: list[string] f: string] -> list[string]
+    (first (list-fold as (pair (list-empty) false)
+             (fn [acc: (list[string], bool) a: string]
+               (if (second acc)
+                   (pair (list-append (first acc) a) false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell int-flag [as: list[string] f: string d: int] -> int
+    (unwrap-or (string-to-int (flag-value as f)) d))
+
+  (def-shell parse-cfg [as: list[string]] -> Cfg
+    (Cfg (pair (flag-value as "--tree")
+               (pair (dflt (flag-value as "--workdir") ".wave")
+                     (pair (flag-value as "--llmll-cmd")
+                           (pair (flag-value as "--agent-cmd")
+                                 (pair (flag-values as "--agent-arg")
+                                       (pair (int-flag as "--timeout" 900)
+                                             (pair (int-flag as "--error-budget" 3)
+                                                   (int-flag as "--protocol-budget" 3))))))))))
+
+  ;; "" when the run is startable.
+  ;;
+  ;; Both budgets must be POSITIVE and not merely non-negative:
+  ;; `next-error-budget` carries `pre (>= err 0)` and every call site below
+  ;; spends before it re-tests, so a zero-valued budget would reach that
+  ;; precondition with -1. The check belongs here, once, rather than as a clamp
+  ;; at four call sites.
+  ;;
+  ;; THE .ast.json CHECK IS NOT PEDANTRY AND THE COVER'S W6 IS WHY IT EXISTS.
+  ;; `holes` accepts a .llmll and answers the real hole list, so a wave pointed
+  ;; at source enumerates two holes and looks healthy; `checkout` then refuses
+  ;; every one of them, and the run burns both budgets to reach two protocol
+  ;; failures and exit 3. The first version of this module claimed instead that
+  ;; a .llmll "reads as zero holes", which is false, and the cover cell written
+  ;; to that claim is what caught it. Stopping at parse turns an eight-step
+  ;; misdiagnosis into one line.
+  (def-shell missing-flags [c: Cfg] -> string
+    (if (string-empty? (cfg-tree c))
+        "--tree is required (the .ast.json the wave fills; llmll build FILE --emit writes it)"
+      (if (not (string-contains (cfg-tree c) ".ast.json"))
+        "--tree must be a .ast.json; checkout and patch refuse .llmll source (llmll build FILE --emit writes generated/<name>/<name>.ast.json, and --emit is a bare flag)"
+        (if (string-empty? (cfg-compiler c))
+            "--llmll-cmd is required (the compiler this wave shells out to)"
+            (if (string-empty? (cfg-agent c))
+                "--agent-cmd is required (the executable that authors one body node)"
+                (if (< (cfg-err0 c) 1)
+                    "--error-budget must be at least 1"
+                    (if (< (cfg-proto0 c) 1)
+                        "--protocol-budget must be at least 1"
+                        "")))))))
+
+  ;; ---- paths ---------------------------------------------------------------
+  ;;
+  ;; One directory per (hole, attempt). Not tidiness: every `llmll` invocation
+  ;; below is folded into ONE arm as `run then read`, so the arm never sees the
+  ;; process exit status and reads the stdout FILE instead. A per-attempt path
+  ;; is what makes an absent file distinguishable from a stale one, and a
+  ;; failed checkout is detected by exactly that -- its stdout is empty, so the
+  ;; token parses as "".
+
+  (def-shell att-dir [c: Cfg a: Att] -> string
+    (string-concat-many [(cfg-workdir c) "/h" (int-to-string (at-k a))
+                         "-a" (int-to-string (at-n a))]))
+
+  (def-shell in-dir [c: Cfg a: Att name: string] -> string
+    (string-concat-many [(att-dir c a) "/" name]))
+
+  (def-shell llmll-run [c: Cfg a: Att args: list[string] out: string err: string] -> Command
+    (wasi.proc.run (cfg-compiler c) args "." (in-dir c a out) (in-dir c a err)
+                   (cfg-timeout c)))
+
+  ;; ---- reading what the compiler said --------------------------------------
+
+  (def-shell holes-in [s: string] -> list[Json]
+    (match (json-parse s)
+      ((Success v) (unwrap-or (json-array v) (list-empty)))
+      ((Error _)   (list-empty))))
+
+  (def-shell token-in [s: string] -> string
+    (match (json-parse s)
+      ((Success v) (unwrap-or (json-get-string v "token") ""))
+      ((Error _)   "")))
+
+  (def-shell hole-at [w: Wv k: int] -> Json
+    (unwrap-or (list-nth (w-holes w) k) json-object))
+
+  (def-shell ptr-of [h: Json] -> string
+    (unwrap-or (json-get-string h "pointer") ""))
+
+  ;; `module-path` reads "def add-one", so the function `verify` will name in
+  ;; its body-faithful list is the last space-separated field. Taking the last
+  ;; and not the second is what keeps this correct for a `def-shell` hole,
+  ;; whose module-path carries a different first field.
+  (def-shell target-of [h: Json] -> string
+    (last-field (split-on " " (unwrap-or (json-get-string h "module-path") ""))))
+
+  ;; ---- the patch request ---------------------------------------------------
+
+  (def-shell jset [o: Json k: string v: Json] -> Json
+    (unwrap-or (json-set o k v) o))
+
+  (def-shell body-node [s: string] -> Json
+    (match (json-parse s)
+      ((Success v) v)
+      ((Error _)   json-object)))
+
+  ;; A ONE-OP PATCH, and the `test` op the reference sends is deliberately
+  ;; absent; see the header. The CAS the compiler runs is over the brief's
+  ;; source_hash and is what produces PatchAuthError, so dropping the test op
+  ;; costs no contention detection.
+  (def-shell patch-request [tok: string ptr: string body: string] -> string
+    (json-serialize
+      (jset (jset json-object "token" (json-of-string tok))
+            "patch"
+            (json-of-list
+              [(jset (jset (jset json-object "op" (json-of-string "replace"))
+                           "path" (json-of-string ptr))
+                     "value" (body-node body))]))))
+
+  ;; ---- lines ---------------------------------------------------------------
+  ;;
+  ;; The token half of every line is `holds-token?`, which is `token-during`.
+  ;; The phase is a real argument and not a constant string, so a log line that
+  ;; disagreed with the proved invariant would be a visible divergence rather
+  ;; than a comment.
+
+  (def-shell phase-line [k: int n: int what: string p: Phase] -> string
+    (string-concat-many
+      ["[wave] hole " (int-to-string k) " attempt " (int-to-string n) " " what
+       " token=" (if (holds-token? p) "held" "released")]))
+
+  (def-shell accept-line [k: int target: string] -> string
+    (string-concat-many
+      ["[wave] hole " (int-to-string k) " ACCEPTED " target]))
+
+  (def-shell reject-line [k: int n: int why: string err: int proto: int] -> string
+    (string-concat-many
+      ["[wave] hole " (int-to-string k) " attempt " (int-to-string n)
+       " rejected: " why
+       " (error-budget " (int-to-string err)
+       ", protocol-budget " (int-to-string proto) ")"]))
+
+  ;; The classification [S9-FINDING] draws and nothing else in this module
+  ;; does: an exhausted ERROR budget is a finding about the hole, and an
+  ;; exhausted protocol budget is a fault of the harness that must not be
+  ;; reported as one.
+  (def-shell close-line [k: int fnd: bool why: string] -> string
+    (string-concat-many
+      ["[wave] hole " (int-to-string k) (if fnd " FINDING: " " PROTOCOL-FAILURE: ")
+       why]))
+
+  ;; LEADING NEWLINE, and it is not decoration. The console harness prints ONE
+  ;; captured block per step, so two `wasi.io.stdout` calls inside one step's
+  ;; command run together with no separator. This is the only place in the
+  ;; module where that happens: `close-hole` emits its classification and then
+  ;; the command `enter` returned, which on the last hole is this summary.
+  (def-shell summary-line [w: Wv] -> string
+    (string-concat-many
+      ["\n[wave] holes " (int-to-string (list-length (w-holes w)))
+       " accepted " (int-to-string (w-ok w))
+       " findings " (int-to-string (w-find w))
+       " protocol-failures " (int-to-string (w-bad w))]))
+
+  ;; ---- the loop ------------------------------------------------------------
+
+  (def-shell final-code [w: Wv] -> int
+    (if (> (w-find w) 0) 1 (if (> (w-bad w) 0) 3 0)))
+
+  ;; Entry to hole k, or the close of the wave.
+  ;;
+  ;; THE LAST HOLE DOES NOT END THE RUN. Rev 15 measured that a fill whose body
+  ;; calls an UNFILLED sibling hole clears the per-fill bar: `patch` returns
+  ;; PatchSuccess, `verify` returns SAFE, and the function appears in the
+  ;; body-faithful list, because that line reports the VC was EMITTED
+  ;; body-faithfully and says nothing about whether its callees were assumed.
+  ;; So per-fill acceptance is PROVISIONAL and the run closes on a whole-tree
+  ;; `--strict-verified-core`, which is the check that can see what the
+  ;; per-fill bar cannot. Q-005 records why this cannot be pushed into the
+  ;; per-fill bar instead.
+  (def-shell enter [w: Wv k: int] -> ((Wv, WCtl), Command)
+    (if (>= k (list-length (w-holes w)))
+        (seal w (final-code w))
+        (begin-attempt w (mk-att k 0 (cfg-err0 (w-cfg w)) (cfg-proto0 (w-cfg w)) "" ""))))
+
+  (def-shell seal [w: Wv code: int] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (go w (Sealing code)
+          (seq-commands
+            (wasi.io.stdout (summary-line w))
+            (seq-commands
+              (wasi.proc.run (cfg-compiler c)
+                             ["verify" (cfg-tree c) "--strict-verified-core"] "."
+                             (string-concat (cfg-workdir c) "/seal.out")
+                             (string-concat (cfg-workdir c) "/seal.err")
+                             (cfg-timeout c))
+              (wasi.fs.read (string-concat (cfg-workdir c) "/seal.out")))))))
+
+  ;; THE SEAL CANNOT RESCUE A RUN AND CAN ONLY CONDEMN ONE. A tally that
+  ;; already reported a finding or a protocol failure keeps its code: the seal
+  ;; was always going to fail on a tree with holes left in it, and reporting
+  ;; that as a separate fault would count one defect twice. Code 5 is reserved
+  ;; for the case the per-fill bar cannot see, every hole accepted and the tree
+  ;; still not proved from its own bodies.
+  (def-shell sealing-step [w: Wv code: int r: Response] -> ((Wv, WCtl), Command)
+    (let [(held (seal-holds? (text-of r)))]
+      (go w (Ending (if (= code 0) (if held 0 5) code))
+          (wasi.io.stdout
+            (string-concat-many
+              ["[wave] whole-tree --strict-verified-core: "
+               (if held "SEALED" "NOT SEALED")])))))
+
+  ;; Step one: the brief. The token this returns is released immediately, and
+  ;; the brief FILE is the agent's only input, which is the checkout-brief-is-
+  ;; the-sole-channel discipline this repository keeps everywhere else.
+  (def-shell begin-attempt [w: Wv a: Att] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (go w (Brief a)
+          (seq-commands
+            (wasi.fs.mkdir (att-dir c a))
+            (seq-commands
+              (llmll-run c a ["checkout" (cfg-tree c) (ptr-of (hole-at w (at-k a)))]
+                         "brief.json" "brief.err")
+              (wasi.fs.read (in-dir c a "brief.json")))))))
+
+  ;; An empty token means the checkout itself failed (it writes prose to stderr
+  ;; and leaves stdout empty, measured). That is a PROTOCOL fault and spends the
+  ;; protocol budget: [S9-SEPARATE]'s reasoning applies to it for the same
+  ;; reason it applies to contention, since neither says anything about whether
+  ;; an agent can fill the hole.
+  (def-shell brief-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(tok (token-in (text-of r)))]
+        (if (string-empty? tok)
+            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1))
+                              "the checkout produced no token")
+            (go w (Rel (at-with-token a tok))
+                (seq-commands
+                  (wasi.io.stdout (phase-line (at-k a) (at-n a) "briefing" Briefing))
+                  (llmll-run c a ["checkout" (cfg-tree c) "--release" tok]
+                             "rel.out" "rel.err")))))))
+
+  ;; THE RELEASE IS ALREADY DONE WHEN THIS ARM RUNS, so the guard is a check on
+  ;; the labelling and not on the effect. `must-release-before-agent?` is
+  ;; `token-during` at AgentWorking, and [S10-NOTHELD] proves it Released, so
+  ;; the false branch is excluded BY THE PROOF rather than by inspection. That
+  ;; is what consuming a proved decision looks like: the branch exists so that
+  ;; the proof is what rules it out, and it exits 4 rather than continuing if
+  ;; the invariant ever stops holding.
+  (def-shell rel-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (if (must-release-before-agent? AgentWorking)
+          (go w (Working a)
+              (seq-commands
+                (wasi.io.stdout (phase-line (at-k a) (at-n a) "agent" AgentWorking))
+                (seq-commands
+                  (wasi.proc.run (cfg-agent c)
+                                 (list-append
+                                   (list-append (cfg-agent-args c) (in-dir c a "brief.json"))
+                                   (in-dir c a "body.json"))
+                                 "." (in-dir c a "agent.out") (in-dir c a "agent.err")
+                                 (cfg-timeout c))
+                  (wasi.fs.read (in-dir c a "body.json")))))
+          (go w (Ending 4)
+              (wasi.io.stdout
+                "[wave] STOP: token-during says a token is held while an agent works")))))
+
+  ;; No token is held on this path, so a failure retries straight into a new
+  ;; brief with no release owed. An absent or empty body artifact is the
+  ;; AGENT's failure and spends the ERROR budget: `spend-budget` is
+  ;; `next-error-budget` with contention false, so the arithmetic is the proved
+  ;; one and not a local subtraction.
+  (def-shell working-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(body (string-trim (text-of r)))]
+        (if (string-empty? body)
+            (retry-or-give-up w (at-next a (spend-budget (at-err a) "") (at-proto a))
+                              "the agent produced no body node")
+            (go w (Fresh (at-with-body a body))
+                (seq-commands
+                  (llmll-run c a ["checkout" (cfg-tree c) (ptr-of (hole-at w (at-k a)))]
+                             "fresh.json" "fresh.err")
+                  (wasi.fs.read (in-dir c a "fresh.json"))))))))
+
+  ;; The fresh token, taken at the moment of submission, which is [S10-FRESH].
+  ;; The backup is taken here and not at boot: `patch` rewrites the tree in
+  ;; place, so the undo has to restore what THIS attempt found, not what the
+  ;; wave started with.
+  (def-shell fresh-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(tok (token-in (text-of r)))]
+        (if (string-empty? tok)
+            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1))
+                              "the resubmission checkout produced no token")
+            (go w (Applied (at-with-token a tok))
+                (seq-commands
+                  (wasi.io.stdout (phase-line (at-k a) (at-n a) "submitting" Submitting))
+                  (seq-commands
+                    (wasi.fs.copy (cfg-tree c) (in-dir c a "tree.bak"))
+                    (seq-commands
+                      (wasi.fs.write (in-dir c a "req.json")
+                                     (patch-request tok
+                                                    (ptr-of (hole-at w (at-k a)))
+                                                    (at-body a)))
+                      (seq-commands
+                        (llmll-run c a ["patch" (cfg-tree c) (in-dir c a "req.json")]
+                                   "patch.out" "patch.err")
+                        (wasi.fs.read (in-dir c a "patch.out")))))))))))
+
+  ;; THE TWO BUDGETS PART HERE, and the arithmetic is `next-error-budget`'s,
+  ;; not this module's: `spend-budget` passes `contention? out`, so [S9-SEPARATE]
+  ;; leaves the error budget alone on contention and [S9-SPEND] takes one from
+  ;; it on anything else. The protocol budget moves in the mirror direction.
+  ;;
+  ;; `contention?` is narrower than PatchAuthError on purpose: `invalid or
+  ;; expired checkout token` carries the same constructor and is NOT contention.
+  ;;
+  ;; WHERE THE CONTENTION BRANCH IS REACHABLE FROM, since a serial wave never
+  ;; holds two of its own briefs at once. The CAS is over the brief's
+  ;; source_hash, so the window is the ONE console step between the fresh
+  ;; checkout issued in `working-step` and the patch issued in `fresh-step`: a
+  ;; tree that changes inside it makes this attempt's brief stale. The console
+  ;; loop takes one line of stdin per step, so a cover cell drives that window
+  ;; by feeding a line, patching the tree from outside, then feeding the next.
+  ;; Rev 15's F-27 is what this rests on -- contention needs a second brief
+  ;; outstanding across a successful patch and not a stub -- and the two-brief
+  ;; cover cell it mandates is owed, not written.
+  (def-shell applied-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(out (text-of r))]
+        (if (patch-succeeded? out)
+            (go w (Checked a)
+                (seq-commands
+                  (llmll-run c a ["verify" (cfg-tree c)] "verify.out" "verify.err")
+                  (wasi.fs.read (in-dir c a "verify.out"))))
+            (undo w a
+                  (spend-budget (at-err a) out)
+                  (if (contention? out) (- (at-proto a) 1) (at-proto a))
+                  (if (contention? out) "contention" "the patch was refused"))))))
+
+  ;; The per-fill bar, section 9, and `applied` is `true` by construction here:
+  ;; this arm is reachable only through `patch-succeeded?`. The other three
+  ;; conjuncts are the shell-side observations at the top of this file, and
+  ;; `fill-accepted` is what combines them.
+  ;;
+  ;; THE RELEASE ON THE ACCEPT PATH IS A NO-OP AND IS ISSUED ANYWAY. Measured:
+  ;; a successful `patch` clears the lock itself, so this release answers
+  ;; `token not found in lock file (may have expired)` on stderr and nothing on
+  ;; stdout. It stays because the invariant this module keeps is that no token
+  ;; outlives its hole, and making that depend on an undocumented side effect
+  ;; of `patch` is how the wedge in crux-token-held-across-call happened. The
+  ;; same call on the `undo` path is NOT a no-op: a patch that was refused
+  ;; leaves the lock held, and that is the case it exists for.
+  (def-shell checked-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(out (text-of r))]
+        (let [(target (target-of (hole-at w (at-k a))))]
+          (if (accept-fill? true out target)
+              (go w (Closing a)
+                  (seq-commands
+                    (wasi.io.stdout (accept-line (at-k a) target))
+                    (llmll-run c a ["checkout" (cfg-tree c) "--release" (at-token a)]
+                               "relok.out" "relok.err")))
+              (undo w a (spend-budget (at-err a) out) (at-proto a)
+                    "the fill did not clear the per-fill bar"))))))
+
+  ;; Restore, then release. IN THAT ORDER and both are owed: the restore undoes
+  ;; a patch that may have landed, and the release is what keeps the next
+  ;; checkout from failing with `already checked out`. Skipping the release
+  ;; wedges the hole, measured.
+  (def-shell undo [w: Wv a: Att err: int proto: int why: string] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (go w (Undoing (at-next a err proto))
+          (seq-commands
+            (wasi.io.stdout (reject-line (at-k a) (at-n a) why err proto))
+            (seq-commands
+              (wasi.fs.copy (in-dir c a "tree.bak") (cfg-tree c))
+              (llmll-run c a ["checkout" (cfg-tree c) "--release" (at-token a)]
+                         "relundo.out" "relundo.err"))))))
+
+  ;; `a` arrives already advanced by at-next, so its budgets are the ones the
+  ;; decision below is about.
+  (def-shell retry-or-give-up [w: Wv a: Att why: string] -> ((Wv, WCtl), Command)
+    (if (and (> (at-err a) 0) (> (at-proto a) 0))
+        (begin-attempt w a)
+        (close-hole w a why)))
+
+  ;; `is-finding` and nothing local decides which counter moves. Only an
+  ;; exhausted ERROR budget is a finding [S9-FINDING]; a hole that ran out of
+  ;; protocol budget while its error budget still had room is NOT one
+  ;; [S9-NOT-FINDING], and reporting it as one would blame the agent for a
+  ;; harness fault. The clamp is because `is-finding` carries `pre (>= err 0)`.
+  (def-shell close-hole [w: Wv a: Att why: string] -> ((Wv, WCtl), Command)
+    (let [(fnd (finding? (clamp0 (at-err a)) (<= (at-proto a) 0)))]
+      (let [(w2 (if fnd
+                    (mk-wv (w-cfg w) (w-holes w) (w-ok w) (+ (w-find w) 1) (w-bad w))
+                    (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (+ (w-bad w) 1))))]
+        (let [(e (enter w2 (+ (at-k a) 1)))]
+          (pair (first e)
+                (seq-commands (wasi.io.stdout (close-line (at-k a) fnd why))
+                              (second e)))))))
+
+  (def-shell undoing-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
+    (retry-or-give-up w a "every attempt at this hole was rejected"))
+
+  (def-shell closing-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
+    (enter (mk-wv (w-cfg w) (w-holes w) (+ (w-ok w) 1) (w-find w) (w-bad w))
+           (+ (at-k a) 1)))
+
+  ;; ---- boot ----------------------------------------------------------------
+
+  (def-shell empty-cfg [] -> Cfg
+    (Cfg (pair "" (pair "" (pair "" (pair "" (pair (list-empty) (pair 0 (pair 0 0)))))))))
+
+  (def-shell boot-step [w: Wv n: int r: Response] -> ((Wv, WCtl), Command)
+    (if (= n 0)
+        (let [(c (parse-cfg (argv-of r)))]
+          (if (string-empty? (missing-flags c))
+              (go (mk-wv c (list-empty) 0 0 0) (Boot 1)
+                  (seq-commands
+                    (wasi.fs.mkdir (cfg-workdir c))
+                    (seq-commands
+                      (wasi.proc.run (cfg-compiler c) ["holes" (cfg-tree c) "--json"] "."
+                                     (string-concat (cfg-workdir c) "/holes.json")
+                                     (string-concat (cfg-workdir c) "/holes.err")
+                                     (cfg-timeout c))
+                      (wasi.fs.read (string-concat (cfg-workdir c) "/holes.json")))))
+              ;; Before any hole exists, so no tally attaches. The literal 2 is
+              ;; sequencer.llmll's usage-stop code.
+              (go (mk-wv c (list-empty) 0 0 0) (Ending 2)
+                  (wasi.io.stdout (string-concat "[wave] STOP: " (missing-flags c))))))
+        (let [(hs (holes-in (text-of r)))]
+          (if (= (list-length hs) 0)
+              ;; A tree with nothing to fill. Not the .llmll mistake, which
+              ;; `missing-flags` now stops at parse: `holes` answers the real
+              ;; list for a .llmll too, so this arm only ever sees a genuinely
+              ;; hole-free tree or a `holes` invocation that failed.
+              (go w (Ending 2)
+                  (wasi.io.stdout
+                    (string-concat-many
+                      ["[wave] STOP: no holes in " (cfg-tree (w-cfg w))
+                       " (nothing to fill, or `llmll holes` did not run; its "
+                       "stderr is in the workdir as holes.err)"])))
+              (enter (mk-wv (w-cfg w) hs 0 0 0) 0)))))
+
+  ;; ---- the console harness -------------------------------------------------
+
+  (def-shell wave-init [] -> ((Wv, WCtl), Command)
+    (pair (pair (mk-wv (empty-cfg) (list-empty) 0 0 0) (Boot 0))
+          wasi.proc.args))
+
+  (def-shell wave-step [s: (Wv, WCtl) input: string r: Response] -> ((Wv, WCtl), Command)
+    (match (ctl-of s)
+      ((Boot n)    (boot-step    (w-of s) n r))
+      ((Brief a)   (brief-step   (w-of s) a r))
+      ((Rel a)     (rel-step     (w-of s) a))
+      ((Working a) (working-step (w-of s) a r))
+      ((Fresh a)   (fresh-step   (w-of s) a r))
+      ((Applied a) (applied-step (w-of s) a r))
+      ((Checked a) (checked-step (w-of s) a r))
+      ((Closing a) (closing-step (w-of s) a))
+      ((Undoing a) (undoing-step (w-of s) a))
+      ((Sealing c) (sealing-step (w-of s) c r))
+      ((Ending c)  (go (w-of s) (Done c) (wasi.io.stdout "")))
+      ((Done c)    (go (w-of s) (Done c) (wasi.io.stdout "")))))
+
+  (def-shell wave-done? [s: (Wv, WCtl)] -> bool
+    (match (ctl-of s)
+      ((Boot _)    false)
+      ((Brief _)   false)
+      ((Rel _)     false)
+      ((Working _) false)
+      ((Fresh _)   false)
+      ((Applied _) false)
+      ((Checked _) false)
+      ((Closing _) false)
+      ((Undoing _) false)
+      ((Sealing _) false)
+      ((Ending _)  false)
+      ((Done _)    true)))
+
+  (def-shell done-code [s: (Wv, WCtl)] -> int
+    (match (ctl-of s)
+      ((Boot _)    1)
+      ((Brief _)   1)
+      ((Rel _)     1)
+      ((Working _) 1)
+      ((Fresh _)   1)
+      ((Applied _) 1)
+      ((Checked _) 1)
+      ((Closing _) 1)
+      ((Undoing _) 1)
+      ((Sealing _) 1)
+      ((Ending _)  1)
+      ((Done c)    c)))
+
+  ;; The terminal report leaves through :on-done rather than through a step,
+  ;; because RC-4 drops the terminating step's command; sequencer.llmll:1738-1743
+  ;; records the same constraint.
+  (def-shell wave-final [s: (Wv, WCtl)] -> Command
+    (wasi.io.stdout
+      (string-concat "[wave] end status=" (int-to-string (done-code s)))))
+
+  ;; def-shell and NOT a proved def, unlike sequencer.llmll's drv-status. That
+  ;; one carries [EXIT-RANGE] because PROC-BOUNDARY-1 section 4.4 declares a
+  ;; range for the driver's exit code; no clause declares one for the wave, and
+  ;; writing a post here would be inventing a contract rather than porting one.
+  ;; The clamp still fails in the safe direction: 256 exits 255, not 0.
+  (def-shell wave-status [s: (Wv, WCtl)] -> int
+    (let [(c (done-code s))]
+      (if (< c 0) 1 (if (> c 255) 255 c))))
+
+  (def-main
+    :mode    console
+    :init    (wave-init)
+    :step    wave-step
+    :done?   wave-done?
+    :on-done wave-final
+    :status  wave-status))

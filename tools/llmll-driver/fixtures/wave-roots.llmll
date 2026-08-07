@@ -1,0 +1,46 @@
+;; DRIVER-LL sub-phase 4e: the hand-authored fixture tree the wave fills.
+;;
+;; This stands in for stage K's `roots.llmll`, which 4d would produce and which
+;; is PARKED. The substitution is the point of the 4e-before-4d ordering: the
+;; wave's protocol is exercisable against any tree with holes, so the unique
+;; diagnostic value of 4e (the agent-authoring protocol driven from inside
+;; LLMLL, and a linear token discipline over mutable external state) is
+;; decoupled from the stub-to-real work of the stages that would produce a real
+;; tree.
+;;
+;; TWO HOLES, AND THAT IS A REQUIREMENT RATHER THAN A ROUND NUMBER. Proposal
+;; Rev 15 replaced §10 case 1's stub-based contention injection with a
+;; construction over the real compiler: the checkout CAS is per-FILE against
+;; the brief's `source_hash`, so any brief outstanding across a successful
+;; patch is stale. One hole cannot produce a second outstanding brief, so a
+;; single-hole fixture makes 4e's acceptance clause ("both retry budgets fire
+;; and are separately counted") VACUOUS -- which is the same clause going
+;; vacuous for a third time, by a third mechanism, after Rev 1 and Rev 2 each
+;; lost it once. The cover cell holds both briefs at once for that reason.
+;;
+;; The two contracts are INDEPENDENT on purpose. Neither function calls the
+;; other, so neither fill needs its sibling filled first. That keeps the
+;; fixture out of the callee-admissibility ordering constraint measured in the
+;; 4e harness leg: a strict-core `def` may not call a sibling lacking persisted
+;; verified evidence, so a fixture whose holes called each other would make the
+;; wave order-dependent and would be measuring that instead of the protocol.
+;;
+;; Both contracts stay in QF-LIA (integer addition against a non-negative
+;; precondition) so `verify` decides them without falling back, and so
+;; `fill-accepted`'s `body-faithful` argument has something to be true OF.
+
+(module wave-roots)
+
+(def add-one [n: int] -> int
+  (pre (>= n 0)
+    :source "[W1-DOM] the wave fixture's domain is the non-negative ints")
+  (post (= result (+ n 1))
+    :source "[W1-SUCC] one more than its input")
+  ?body-add)
+
+(def double-it [m: int] -> int
+  (pre (>= m 0)
+    :source "[W2-DOM] the wave fixture's domain is the non-negative ints")
+  (post (= result (+ m m))
+    :source "[W2-DOUBLE] twice its input")
+  ?body-double)
