@@ -134,3 +134,37 @@ Why it does not block. The proposed patch (HOLE-STATUS-SIBLING, not implemented 
 takes the middle option, which is strictly more information than the status quo under either answer,
 and the enclosing form is available at assembly time if the answer later favours context-dependence.
 An answer would refine an agent-facing affordance, not the compiler's behaviour.
+
+---
+
+## Q-005  (2026-08-07)  Status: OPEN
+
+When a component's proof is discharged relative to a sibling's contract and that sibling is not yet
+realized, is there an established name and discipline for the *retraction* obligation that falls due
+if the sibling is never realized? Assume-guarantee metatheory says what holds once both sides are
+discharged. The question is what the intermediate state is called and what it owes.
+
+Context. The driver's fill protocol accepts a hole's body when a module-level SAFE verdict and a
+per-function body-faithful membership both hold. Measured against the compiler, both can hold for a
+body whose only callee is an unfilled hole: the caller's postcondition is discharged against the
+callee's *contract*, the callee's own post reads asserted, and the trust report says so correctly.
+The acceptance is therefore sound but provisional, and what makes it eventually honest is a
+whole-tree strict-core check after every hole is filled. Between those two moments the wave holds a
+set of fills each of which is individually justified and collectively unclosed.
+
+The per-fill bar cannot see the callee graph by construction: the strict-core check that would see
+it rejects a correct body whose siblings are merely unfinished, which is the strict-sibling wall,
+and gating each fill on it would make the wave order-dependent. So the provisional window is not an
+implementation shortcut that a better bar would remove; it is forced by the interaction between
+modular verification and incremental realization.
+
+The interesting half is whether the literature treats this as a distinct state with its own
+proof-theoretic status, or merely as an incomplete derivation that happens to be observable. If the
+former, there should be a standard obligation attached to the window (something like: every
+provisionally-accepted component names the assumptions whose realization it is waiting on, and the
+set must empty).
+
+Why it does not block. Sub-phase 4e ships the end-of-wave whole-tree check either way, which
+discharges the window by construction whatever it is called, and the per-fill bar's provisional
+reading is disclosed rather than claimed. An answer would tell us whether the disclosure should
+carry a named obligation, not whether to ship the check.
