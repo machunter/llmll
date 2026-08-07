@@ -19,14 +19,18 @@ repository has gone stale inside a day before.
 
 ## 1. Where the work is
 
-Branch `hole-status-sibling/brief-unfilled-status`. At `0299a41`: **17 commits
-ahead of local `main`**, local `main` **7 commits ahead of `origin/main`**,
-**nothing pushed at all**, working tree clean.
+Branch `tool-ll/campaign-4e-hole-status`. At `d6e9f01`: **21 commits ahead of
+local `main`**, local `main` **7 commits ahead of `origin/main`**, **the branch
+has never been pushed**, working tree clean.
 
 The count is stamped with the commit because this file's first version said 15
-and was stale within the hour. If `HEAD` is not `0299a41`, re-measure rather
+and was stale within the hour. If `HEAD` is not `d6e9f01`, re-measure rather
 than reading on:
 `git rev-list --count main..HEAD` and `git rev-list --count origin/main..main`.
+
+**Tags are a separate matter and four of them ARE pushed** (§3). Tags on
+commits already in `origin/main` need no branch push, which is why P1 could
+close while the branch stayed local.
 
 **The branch was renamed 2026-08-07**, from `hole-status-sibling/brief-unfilled-status`.
 It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries four
@@ -55,10 +59,17 @@ User adjudications, 2026-08-07:
   COSMETIC, and a SHAPES row must state what the design would have been and cite
   a roadmap tag.
 
-## 3. The next action, and it needs the user
+## 3. The prerequisites, all three now cleared
 
-**P1 is DONE, 2026-08-07. The tag debt is cleared and the images are
-published.** The user authorized it; it was not taken unilaterally.
+**The next action is writing TOOL-RFC-002's port.** P1, P2 and P3 are done, and
+nothing in the campaign is now blocked on a decision.
+
+**P1 is DONE, 2026-08-07. The tag debt is cleared and all four images are
+published**, each verified at its `Build + push (amd64)` step rather than at the
+run's green check. The user authorized it; it was not taken unilaterally.
+`:latest` points at `v0.14.87`, which is why `v0.14.87` was pushed last and
+alone: concurrent publish runs race, and `:latest` lands on whichever finishes
+last rather than on the highest version.
 
 Each target was re-verified before its push: banner matching its own tag,
 `version_gate.sh` exit 0 at that commit in a detached worktree, and already an
