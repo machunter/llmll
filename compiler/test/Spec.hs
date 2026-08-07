@@ -10718,6 +10718,26 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       map nameStatus entries `shouldBe`
         [("let-hole", "unfilled"), ("if-hole", "unfilled")]
 
+    -- The predicate is 'HProofRequired{} -> False; _ -> True', so eight of
+    -- 'HoleKind's nine constructors reach the catch-all and only 'HNamed' was
+    -- exercised (DC-8b/c/e). These three are decided-unfilled by the same arm
+    -- and nothing pinned them, so a later refactor of the predicate into an
+    -- explicit constructor list could drop one and no test would notice.
+    -- Pinned here BY CONSTRUCTOR rather than by count, for the same reason
+    -- 'DC-8d' pins the single exception by constructor.
+    it "DC-8f (HOLE-STATUS-SIBLING): ?choose, ?request-cap and ?scaffold read unfilled" $ do
+      let otherKindsSrc =
+            [ "(def choose-hole  [x: int] -> int (post (> result x)) (?choose alpha beta))"
+            , "(def reqcap-hole  [x: int] -> int (post (> result x)) (?request-cap wasi.net.connect))"
+            , "(def scaffold-hole [x: int] -> int (post (> result x)) (?scaffold todo-app))" ]
+          nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs (parse otherKindsSrc)
+                      Map.empty Map.empty Nothing Map.empty []
+      map nameStatus entries `shouldBe`
+        [ ("choose-hole", "unfilled")
+        , ("reqcap-hole", "unfilled")
+        , ("scaffold-hole", "unfilled") ]
+
     -- OHT (OBLIG-HOLE-TYPE): the obligation report's per-hole 'expected_type'
     -- must carry the SKETCH-inferred type when the structural hole analyzer
     -- ('analyzeHoles', the 'holes' command) leaves the hole untyped
