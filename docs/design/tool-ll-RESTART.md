@@ -101,7 +101,7 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 | | |
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
-| **002** refute-crux gate | **next**, P3 cleared; first port written RFC-first |
+| **002** refute-crux gate | P3 cleared; **[RFC drafted](tool-rfc-002-refute-crux.md)**, `blocked`, code not written. No BLOCKS gap, no new gap |
 | **003** doc-claims, **004** doc-archive | not started |
 | **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
 | **006** build-smoke | last; it runs the others |

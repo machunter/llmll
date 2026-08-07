@@ -42,7 +42,7 @@ excluding comments and blanks:
 | Gate | Code | In CI? | Status |
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | next; see below |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | RFC drafted, TOOL-RFC-002; see below |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
@@ -209,7 +209,11 @@ no toolchain required:
   2026-08-07**: `version-gate.yml`, `spec-roundtrip` job. It had to precede 002,
   or 002 would have ported something CI does not run.
 - **001** DRIFT-CI-1 version gate. **Ported, state `oracle`.**
-- **002** refute-crux gate. Next after P3, and the first port written RFC-first.
+- **002** refute-crux gate. **RFC drafted 2026-08-07**,
+  [TOOL-RFC-002](tool-rfc-002-refute-crux.md), state `blocked`, code not
+  written: the first port written RFC-first, and its three policy calls were
+  asked before it rather than reported after. Feasibility read found **no BLOCKS
+  gap and no new gap**, so the port is gated on nothing but the writing.
 - **003** doc-claims gate.
 - **004** doc-archive gate.
 - **005** doc-path lint. Gated on `REGEX-LOWER-1`.
