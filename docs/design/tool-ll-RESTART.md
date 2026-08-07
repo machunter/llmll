@@ -87,25 +87,27 @@ of `origin/main`, so tagging needs no branch push.
    success between them. The workflow has no `timeout-minutes` and no
    `concurrency` group, so its own config does not explain it. **Unresolved.**
 
-**P3 needs no authorization and is available now.**
-`refute-crux-gate.sh` is **not invoked by any workflow**; it is a `make` target
-only, despite its own header calling itself a CI gate, and it freezes 80 verify
-verdicts including every driver refute crux. Wiring it into `version-gate.yml`
-is a few lines of shell, and it must precede TOOL-RFC-002 or that port ports
-something CI does not run.
+**P3 is DONE, 2026-08-07, and needed no authorization.**
+`refute-crux-gate.sh` now runs in `version-gate.yml`'s `spec-roundtrip` job:
+that is the Stack-bearing job, and the gate shells out to `stack exec llmll --`,
+so the deliberately toolchain-free job could not host it. It sits after the
+cheap doc-claims gate and before `build_smoke.sh`, keeping the job ordered cheap
+to expensive, and a jq guard was added because the script hard-requires jq and
+the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
+`f555070`. TOOL-RFC-002 now has a wired gate to port.
 
 ## 4. State of the campaign
 
 | | |
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
-| **002** refute-crux gate | next, after P3; first port written RFC-first |
+| **002** refute-crux gate | **next**, P3 cleared; first port written RFC-first |
 | **003** doc-claims, **004** doc-archive | not started |
 | **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
 | **006** build-smoke | last; it runs the others |
 | **P1** tag debt | **BLOCKED on the user**, §3 |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
-| **P3** wire refute-crux into CI | available now |
+| **P3** wire refute-crux into CI | **DONE**, §3 |
 
 ## 5. Gates, measured at `1c515ca`
 
@@ -117,7 +119,7 @@ something CI does not run.
 |---|---|
 | `stack test` | 1656 examples, 0 failures (no Haskell changed this session) |
 | `pytest scripts/tests/` | 188 passed, 1 skipped |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed; re-measured at `f555070`, ~3 min warm |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 910 citations, all resolve |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
@@ -152,8 +154,10 @@ something CI does not run.
    [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §4.
 
 6. **A gate that is not wired in decides nothing.** 4c shipped a cover nothing
-   invoked; `refute-crux-gate.sh` is in that state today. The standard's §1
-   exists to catch it before code is written.
+   invoked; `refute-crux-gate.sh` was in that state until P3 wired it
+   (2026-08-07, §3). The standard's §1 exists to catch it before code is
+   written, and here it did: the finding came from applying §1 to the port,
+   before any of the port was designed.
 
 ## 7. Gotchas that cost real time this session
 

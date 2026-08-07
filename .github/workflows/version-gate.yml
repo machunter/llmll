@@ -8,10 +8,12 @@
 #   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + DRIFT-DOC-4 + pytest
 #                     harness tests. No Stack: no gate in this job has a compiler
 #                     dependency.
-#   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2. Builds
-#                     llmll, runs scripts/doc_claims_gate.sh (doc restriction-
-#                     claims vs compiler behaviour) and scripts/spec_roundtrip.py
-#                     against opt-in spec blocks.
+#   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2 +
+#                     BUILD-GATE-1 + the refute-crux verdict gate. Builds llmll,
+#                     runs scripts/doc_claims_gate.sh (doc restriction-claims vs
+#                     compiler behaviour), scripts/refute-crux-gate.sh (frozen
+#                     verify verdicts), scripts/build_smoke.sh, and
+#                     scripts/spec_roundtrip.py against opt-in spec blocks.
 #
 # Scope discipline: this workflow enforces the four drift gates. DRIFT-CI-1
 # (banner/schema equality) and DRIFT-DOC-3 (archive disposition vs directory) are
@@ -116,6 +118,36 @@ jobs:
         env:
           LLMLL_BIN: stack exec llmll --
         run: bash ../scripts/doc_claims_gate.sh
+
+      # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
+      # image ships it, but this job never asserted that; the script's own
+      # missing-jq message reads "brew install jq", which is the wrong advice on
+      # a Linux runner and would misdirect whoever read the log. Grouped for the
+      # `||`/`&&` precedence reason spelled out in the version-gate job above.
+      - name: Install jq (for frozen-verdict extraction)
+        run: |
+          which jq || (sudo apt-get update && sudo apt-get install -y jq)
+
+      # The refute-crux verdict gate: 80 frozen `llmll verify` verdicts across
+      # twelve suites. Until now it was a `make` target only and no workflow ran
+      # it. So the regression class it exists to catch (refutation silently
+      # lost, as in ENUM-EQ-FALLBACK across v0.14.12 to v0.14.31) was uncaught
+      # in CI for the same reason it was uncaught then.
+      #
+      # Two deviations from its neighbours here, both deliberate. It takes no
+      # `working-directory` because it resolves the repo root from its own path
+      # and cd's into compiler/ itself for `stack build` and every `verify`. It
+      # takes no LLMLL_BIN because it hardcodes the same `stack exec llmll --`
+      # this job passes to the other two gates.
+      #
+      # It re-runs `stack build` as a preflight. That is a no-op after the build
+      # step above, and it is the script's stale-binary guard (finding F-3):
+      # `stack exec` does not rebuild, so without it a compiler change is graded
+      # against the old binary and a lost refutation reads as vacuously SAFE.
+      # Costs ~3 min on top of the build; measured 80 passed / 0 failed at
+      # f555070.
+      - name: Run refute-crux verdict gate
+        run: bash scripts/refute-crux-gate.sh
 
       # BUILD-GATE-1. Belongs in this job and not in version-gate: that job is
       # deliberately Stack-free (see the header), and this gate's oracle is GHC.

@@ -42,24 +42,31 @@ excluding comments and blanks:
 | Gate | Code | In CI? | Status |
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | **NO** | next; see below |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | next; see below |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
-**`refute-crux-gate.sh` is not invoked by any workflow.** It is a `make` target
-only, despite its own header calling itself a CI gate, and
-`build_smoke.sh:393` says so in passing. It freezes 80 verify verdicts,
-including every driver refute crux and the wave's, and it runs when a human
-types `make`.
+**`refute-crux-gate.sh` was not invoked by any workflow.** It was a `make`
+target only, despite its own header calling itself a CI gate. It freezes 80
+verify verdicts, including every driver refute crux and the wave's, and it ran
+only when a human typed `make`.
 
 That matters to this campaign more than to the gate. Porting a gate CI does not
 run produces an LLMLL program CI does not run, which is exactly the §10 failure
-mode. **So prerequisite P3: wire it into a workflow first, in shell, as a
-one-line change.** Only then is porting it a port of something that decides.
-Found by applying this standard's §1 to it, before any code was written, which
-is what the RFC-first order is for.
+mode. **So prerequisite P3: wire it into a workflow first, in shell.** Only then
+is porting it a port of something that decides. Found by applying this
+standard's §1 to it, before any code was written, which is what the RFC-first
+order is for.
+
+**P3 is done, 2026-08-07.** It runs in `version-gate.yml`'s `spec-roundtrip`
+job, which is the Stack-bearing one: the gate shells out to
+`stack exec llmll --` and the other job is deliberately toolchain-free. Placed
+after the cheap doc-claims gate and before `build_smoke.sh`, so the job still
+orders its gates cheap to expensive. It adds ~3 min, and the jq the script
+requires is now asserted rather than assumed. The port, 002, now has a wired
+gate to port.
 
 **Deliberately out of scope**, each for a stated reason rather than by omission:
 
@@ -198,8 +205,9 @@ no toolchain required:
 - **P1** clear the tag debt (§3). Blocks every port's distribution step.
 - **P2** file the unfiled gaps (§5). **Done 2026-08-07**: `MODE-CLI-1`,
   `SPLIT-EMPTY-1`, `FS-WALK-1`.
-- **P3** wire `refute-crux-gate.sh` into a workflow, in shell (§2). Must precede
-  002, or 002 ports something CI does not run.
+- **P3** wire `refute-crux-gate.sh` into a workflow, in shell (§2). **Done
+  2026-08-07**: `version-gate.yml`, `spec-roundtrip` job. It had to precede 002,
+  or 002 would have ported something CI does not run.
 - **001** DRIFT-CI-1 version gate. **Ported, state `oracle`.**
 - **002** refute-crux gate. Next after P3, and the first port written RFC-first.
 - **003** doc-claims gate.
