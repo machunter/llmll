@@ -87,6 +87,20 @@ def _fn(name: str) -> ast.FunctionDef:
     raise AssertionError(f"{name} is not a top-level function of {DRIVER.name}")
 
 
+def _is_agent_run(call: ast.Call) -> bool:
+    """True for `<anything>.agent.run(...)`, false for `subprocess.run(...)`.
+
+    The discriminator is the receiver, not the method name. A predicate keyed
+    on `attr == "run"` alone counts every `subprocess.run` in the file, which
+    is how a census reported four multi-invocation stages where there is one.
+    `test_the_agent_run_receiver_is_never_aliased` carries the side condition
+    that makes this sound.
+    """
+    f = call.func
+    return (isinstance(f, ast.Attribute) and f.attr == "run"
+            and isinstance(f.value, ast.Attribute) and f.value.attr == "agent")
+
+
 def _own_halts(fn: ast.FunctionDef) -> list[tuple[str, str]]:
     """Every halt this function performs in its OWN body, as (helper, clause).
 
@@ -227,10 +241,14 @@ def test_stage_D_runs_two_tagged_extractors_and_the_registry_agrees():
     Authoring this test refuted two plausible readings of what
     `stage-tag-count` counts, and neither is declared outputs and neither is
     static call sites. D declares two outputs and holds ONE `agent.run` call
-    site, executed twice by a loop over `("a", "b")`. K holds two call sites
-    and declares one output. So the relation that actually holds is the loop:
-    D iterates its two extractor tags, and the registry's table is that
-    iteration hoisted into a constant.
+    site, executed twice by a loop over `("a", "b")`. So the relation that
+    actually holds is the loop: D iterates its two extractor tags, and the
+    registry's table is that iteration hoisted into a constant.
+
+    This docstring said "K holds two call sites and declares one output" until
+    the count was split by receiver. K holds ONE `ctx.agent.run` and one
+    `subprocess.run`; see
+    `test_stage_D_is_the_only_multi_invocation_stage_in_the_reference`.
     """
     f = _fn("stage_D_extract")
     tags = set()
@@ -250,21 +268,33 @@ def test_stage_D_runs_two_tagged_extractors_and_the_registry_agrees():
         "stage-tag-count no longer gives stage D (index 3) two invocations")
 
 
-def test_the_tag_table_is_D_only_and_three_later_stages_will_break_it():
-    """A forward hazard, asserted so that it fires when it arrives.
+def test_stage_D_is_the_only_multi_invocation_stage_in_the_reference():
+    """`stage-tag-count`'s D-only shape is correct for the WHOLE pipeline.
 
-    `stage-tag-count` is `(if (= i 3) 2 1)`. That is right for everything
-    ported today, and wrong for three stages that are not: K holds two
-    `agent.run` call sites, M holds two and declares two outputs, and L holds
-    two while being a gate. Whichever of those lands first, its port needs the
-    table widened, and nothing else in the tree would say so.
+    This replaces a forward-hazard tripwire that asserted the opposite. That
+    test classified a stage as multi-invocation on `x.func.attr == "run"`,
+    which counts `subprocess.run` beside `ctx.agent.run`, and these handlers
+    shell out. It therefore reported D, K, L and M, and its docstring recorded
+    two of those wrongly: K holds ONE `ctx.agent.run` plus one
+    `subprocess.run`, and L holds ZERO `ctx.agent.run` plus two, being a
+    `gate`-class stage that delegates to no agent at all.
 
-    This test passes while the hazard is only a hazard. It fails the moment one
-    of the three is marked ported without the table moving, which is the only
-    moment the information is worth anything.
+    Split by receiver, which is the technique `halt_census.py` uses to resolve
+    `ctx.agent.run` and `ctx.prompt`, the answer is that **D is the only
+    genuinely multi-invocation stage**, by way of its `for tag in ("a", "b")`
+    loop over one call site. So `(if (= i 3) 2 1)` is right everywhere and
+    needs no widening when K, M or any other stage ports.
+
+    The invariant this asserts is stable: it does not move as stages are
+    ported, which the tripwire it replaces did. A NEW multi-invocation stage
+    in the reference still fails it, which is the case worth catching.
+
+    M is the one stage whose delegation count is variable rather than static,
+    holes times attempts, and no `[i: int] -> int` entry can carry it; that is
+    a 4e concern and is settled in proposal section 9.3, not here.
     """
     fns = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
-    multi = set()
+    multi, agent_runs = set(), {}
     for c in ast.walk(TREE):
         if not (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
                 and c.func.id == "Stage" and len(c.args) >= 4):
@@ -275,23 +305,53 @@ def test_the_tag_table_is_D_only_and_three_later_stages_will_break_it():
         body = fns.get(handler.id)
         if body is None:
             continue
-        runs = sum(1 for x in ast.walk(body) if isinstance(x, ast.Call)
-                   and isinstance(x.func, ast.Attribute) and x.func.attr == "run")
+        runs = [x for x in ast.walk(body)
+                if isinstance(x, ast.Call) and _is_agent_run(x)]
+        agent_runs[letter.value] = len(runs)
         loops = any(isinstance(x, ast.For) and isinstance(x.iter, ast.Tuple)
                     and len(x.iter.elts) > 1 for x in ast.walk(body))
-        if runs > 1 or loops:
+        if len(runs) > 1 or loops:
             multi.add(letter.value)
-    assert multi == {"D", "K", "L", "M"}, (
-        f"the reference's multi-invocation stages are {sorted(multi)}; the "
-        "expectation was D, K, L and M. A new one is a stage whose extra "
-        "delegation stage-tag-count does not know about.")
 
-    ported_letters = {PORTED[i] for i in PORTED}
-    unported_multi = multi - ported_letters
-    assert unported_multi == {"K", "L", "M"}, (
-        f"{sorted(unported_multi & ported_letters)} is marked ported and "
-        "delegates more than once, but stage-tag-count still gives two "
-        "invocations to D alone. Widen the table with the port, not after it.")
+    assert multi == {"D"}, (
+        f"the reference's multi-invocation stages are {sorted(multi)}; D is "
+        "the only one. If this grew, a stage acquired a delegation "
+        "stage-tag-count does not know about and the table needs the row.")
+    assert agent_runs.get("K") == 1 and agent_runs.get("L") == 0, (
+        f"K holds {agent_runs.get('K')} and L holds {agent_runs.get('L')} "
+        "agent delegations; the expectation is one and zero. These two are "
+        "named because the predicate this test replaced miscounted both.")
+
+    block = REGISTRY.read_text().split("(def-shell stage-tag-count ")[1] \
+                                .split("\n(def-shell ")[0]
+    assert re.search(r"\(if \(= i 3\) 2 1\)", block), (
+        "stage-tag-count is no longer (if (= i 3) 2 1). D is the only stage "
+        "that delegates more than once, so any other shape is either a widening "
+        "for a stage that does not need it or a narrowing that drops D's pair.")
+
+
+def test_the_agent_run_receiver_is_never_aliased():
+    """Receiver-qualified matching is a heuristic; this is its side condition.
+
+    `_is_agent_run` matches on the attribute chain ending `.agent.run`. A stage
+    that bound the runner first, `r = ctx.agent` then `r.run(...)`, would
+    delegate invisibly to every census in this file and to `halt_census.py`.
+    Nothing else in the tree asserts the absence, so the census above is sound
+    only while this holds.
+    """
+    aliases = set()
+    for n in ast.walk(TREE):
+        if not isinstance(n, ast.Assign):
+            continue
+        v = n.value
+        if isinstance(v, ast.Attribute) and v.attr in ("agent", "run"):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    aliases.add(t.id)
+    assert not aliases, (
+        f"{sorted(aliases)} alias the agent runner or its run method, so a "
+        "delegation through them is invisible to receiver-qualified matching. "
+        "Either inline the call or teach _is_agent_run the alias.")
 
 
 # ---------------------------------------------------------------------------
