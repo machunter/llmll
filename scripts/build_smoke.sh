@@ -665,4 +665,52 @@ if [ -f "$DRV_SRC" ]; then
   echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + registry)"
 fi
 
+# --- 9. DRIVER-LL sub-phase 4e acceptance cover: the serial wave. ------------
+#
+# The seven cells of scripts/wave_cover.py, driven against the BUILT `wave`
+# binary and the REAL compiler.
+#
+# THIS STAGE USES NO STUB COMPILER, unlike stage 8. The decisions under test
+# are what `checkout`, `patch` and `verify` answer, so a stub would be testing
+# the stub. Cell W4 is the one the 4e row makes mandatory: it holds TWO BRIEFS
+# SIMULTANEOUSLY against the real per-file CAS and observes the wave's own
+# patch refused as stale, which is proposal Rev 15's F-27 replacing this
+# document's earlier fault-injector design.
+#
+# It is here rather than in pytest for the same reason stage 8 is: the thing
+# under test is a compiled binary, and the properties are exit codes, a tree on
+# disk and a child process the binary actually spawned. The checks that need no
+# binary live in scripts/tests/test_driver_ll_4e.py.
+#
+# The wave imports two sibling modules, so it is built from its own directory.
+WAVE_SRC="$REPO_ROOT/tools/llmll-driver/wave.llmll"
+WAVE_OUTDIR="$OUTDIR/waverun"
+
+if [ -f "$WAVE_SRC" ]; then
+  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4e wave cover"
+  WAVE_LOG="$OUTDIR/.wave-build.log"
+  if ! ( cd "$REPO_ROOT/tools/llmll-driver" \
+           && "${LLMLL_CMD[@]}" build wave.llmll -o "$WAVE_OUTDIR" ) \
+         > "$WAVE_LOG" 2>&1; then
+    cat "$WAVE_LOG" >&2
+    fail "the DRIVER-LL wave does not build."
+  fi
+
+  WAVE_EXE="$(find "$WAVE_OUTDIR/.stack-work/install" -type f -name 'wave' -perm -111 2>/dev/null | head -1)"
+  [ -n "$WAVE_EXE" ] || fail "built the DRIVER-LL wave but found no wave binary
+  under $WAVE_OUTDIR/.stack-work/install. Without running it this stage
+  observes nothing, which is the failure mode it exists to prevent."
+
+  if ! python3 "$REPO_ROOT/scripts/wave_cover.py" \
+         --wave "$WAVE_EXE" --llmll "${LLMLL_CMD[0]}" \
+         > "$OUTDIR/.wave-cover.log" 2>&1; then
+    cat "$OUTDIR/.wave-cover.log" >&2
+    fail "the DRIVER-LL 4e wave cover did not pass. Every cell is a DECISION
+  driver-spec.txt sections 9 and 10 require of the fill protocol; the log above
+  names the cell and the assertion."
+  fi
+  cat "$OUTDIR/.wave-cover.log"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (7 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree)"
+fi
+
 exit 0

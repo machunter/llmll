@@ -309,6 +309,14 @@
    "why": "INVENTED MUTANT. Stage N keeps a pre-registered mutant that turned out unwritable and scores it rather than dropping it, so the denominator stays honest; this body accepts any scored count. Dropping a row leaves the numerator alone and shrinks the denominator, so it RAISES the kill rate without killing anything, and it fails in the flattering direction. MEASURED per post at v0.14.87: BOTH [N13-DENOMINATOR] and [N13-NO-DROP] refute, unlike the two shape cruxes where one post survives. The reason is the shape of the honest decision, matrix-complete?'s forward clause being an EQUALITY rather than an implication, so one post covers both directions and no converse partner is needed."
   },
   {
+   "file": "wave.llmll",
+   "flags": [],
+   "expect_exit": 0,
+   "expect": "safe",
+   "cross_module": true,
+   "why": "DRIVER-LL Phase 4 sub-phase 4e, the serial wave (stage M). NO `def` at all: every function here is the asserted tier by construction, because the module's whole job is to observe another process's stdout and hand the booleans to decisions proved in fill.llmll and token.llmll. So the frozen verdict protects the IMPORT SURFACE and not a proof, which is the same thing registry.llmll's protects and the same reason sequencer.llmll and spine.llmll take no --strict-verified-core: what would break it is this module reimplementing fill-accepted's conjunction or next-error-budget's arithmetic inline, which type-checks, passes every cover cell, and silently returns the callerless census to the twelve rows 4e existed to reduce. The six shell-side predicates it verifies over (patch-succeeded?, contention?, verify-safe?, body-faithful?, termination-observed?, seal-holds?) are the unproved seam by construction and are pinned instead by scripts/tests/test_driver_ll_4e.py, since a string read out of someone else's stdout carries no proposition for a solver to discharge"
+  },
+  {
    "file": "crux-shape-probe-row-lax.llmll",
    "flags": ["--strict-verified-core"],
    "expect_exit": 1,
