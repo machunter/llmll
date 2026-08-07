@@ -1,0 +1,47 @@
+(module crux-shape-probe-row-lax)
+;; THE PER-ROW CHECK DROPPED, on stage H's probe manifest. The envelope clauses
+;; are kept, array and non-empty, and the conjunct requiring every row to carry
+;; the file and mutant_file keys is dropped. A manifest whose rows are
+;; arbitrary passes as long as it is a non-empty list.
+;;
+;; WHY THIS IS THE FAILURE THAT MATTERS AND NOT A TIDINESS CHECK. The reference
+;; indexes `p["file"]` and `p["mutant_file"]` UNGUARDED immediately after this
+;; validation, so a row missing either key is a KeyError and a traceback at
+;; exit 1 rather than a decision. The port has no host exception to fall
+;; through, so the guard is what turns that crash into a recorded
+;; failed/Errored, on the precedent proposal section 9.1 item 1 set for the
+;; unguarded reads in stages B and I. Dropping the conjunct here does not make
+;; the port lenient, it makes the port index a key that is not there.
+;;
+;; The pairing matters as much as the clause. This crux and
+;; crux-probe-polarity-inverted sit on opposite sides of stage H's declared
+;; write: this one feeds the PRE-write halt, which records `failed`, and that
+;; one feeds the POST-write bar, which records `stopped` via the reference's
+;; only require_written. One stage, two halts, two dispositions, two cruxes.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [H7-ARRAY] + [H7-NONEMPTY] + [H7-NO-HARDCODE]  -> SAFE
+;;   [H7-ROWS] alone                                -> REFUTED
+;;
+;; [H7-NO-HARDCODE] survives for the same reason it does in
+;; crux-shape-accepts-malformed: this body is strictly WEAKER than the honest
+;; decision, so the converse implication still holds and an anti-hardcoding
+;; post cannot catch a validator that accepts too much.
+(def probe-rows-conform? [is-array: bool
+                          row-count: int
+                          rows-conforming: int] -> bool
+
+  (pre (and (>= row-count 0)
+            (and (>= rows-conforming 0)
+                 (<= rows-conforming row-count))))
+
+  (post (=> result is-array))
+  (post (=> result (> row-count 0)))
+  (post (=> result (= rows-conforming row-count)))
+
+  (post (=> (and is-array
+                 (and (> row-count 0)
+                      (= rows-conforming row-count))) result))
+
+  (and is-array (> row-count 0)))

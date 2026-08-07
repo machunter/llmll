@@ -1,0 +1,42 @@
+(module crux-oracle-matrix-drops-unwritable)
+;; THE DENOMINATOR SHRUNK. Stage N keeps a pre-registered mutant that turned
+;; out unwritable, nothing in the frozen surface instantiating the behaviour it
+;; would perturb, and scores it `unwritable` rather than dropping it. This body
+;; accepts any scored count at all, so a matrix that silently discarded every
+;; row it could not write passes as complete.
+;;
+;; WHY THIS IS THE FAILURE THAT MATTERS. Dropping an unwritable row does not
+;; change the numerator and does change the denominator, so it RAISES the kill
+;; rate without killing anything. That is the same arithmetic as grading on the
+;; questions you answered, and it fails in the flattering direction, which is
+;; the direction nobody re-checks. The kill matrix is eliminative evidence and
+;; its whole value is the honesty of what it ranged over; a rate over a
+;; denominator that quietly excluded the hard cases is not weak evidence, it is
+;; evidence for a different claim.
+;;
+;; The pre-registration in stage I is what makes the drop detectable at all:
+;; the taxonomy is fixed in writing BEFORE the wave, so a row missing from the
+;; matrix is missing against a committed list rather than against nothing.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [N13-DENOMINATOR]  -> REFUTED
+;;   [N13-NO-DROP]      -> REFUTED
+;;
+;; BOTH refute, unlike crux-probe-polarity-inverted where one post survives.
+;; The reason is the shape of the honest decision: matrix-complete?'s forward
+;; clause is an EQUALITY rather than an implication, so a body that accepts
+;; more is caught by the same post that catches one accepting less. An equality
+;; post needs no converse partner to cover both directions, which is why this
+;; module ships one crux where shape.llmll's row check needed two.
+(def matrix-complete? [row-count: int
+                       scored-count: int] -> bool
+
+  (pre (and (>= row-count 0)
+            (and (>= scored-count 0)
+                 (<= scored-count row-count))))
+
+  (post (= result (= scored-count row-count)))
+  (post (=> (< scored-count row-count) (not result)))
+
+  (>= scored-count 0))

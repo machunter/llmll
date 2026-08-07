@@ -1,0 +1,165 @@
+;; DRIVER-LL Phase 4, sub-phase 4d: the verification-outcome channel.
+;;
+;; 4b's validate.llmll decides PRESENCE and a declared byte FLOOR. 4c's
+;; shape.llmll decides the CONTENT SHAPE of a delegated artifact. Both read
+;; properties of a file the agent wrote. Stages H and N decide something
+;; neither of them can reach: what a run of the COMPILER over that file means
+;; for the stage's bar. `_verify` (rfc_to_implementation.py) shells
+;; `llmll verify --strict-verified-core` and reduces its output to two
+;; booleans, and the stage then scores those booleans against a polarity the
+;; stage contract declares. That scoring is this module.
+;;
+;; ------------------------------------------------------------------
+;; 1. WHY THIS IS A THIRD CHANNEL AND NOT A WIDENING OF THE OTHER TWO.
+;;
+;;    verdict-of takes no string and shape.llmll's defs take only bool and int,
+;;    both so that a subject's conventions cannot enter the decision. The same
+;;    argument applies here and gives the same signatures. But the SUBJECT
+;;    differs: validate and shape decide over an artifact, and these defs
+;;    decide over an outcome the compiler produced. Folding them into
+;;    shape.llmll would put a verification result behind a name that means
+;;    content shape, which is the objection registry.llmll:190-195 already
+;;    raises against keying stage G's spec-defined halt as a shape tag.
+;;
+;; 2. WHAT THE SHELL COMPUTES, AND WHY IT IS NOT PROVED HERE.
+;;
+;;    `probe-safe`, `probe-body-faithful` and `mutant-safe` arrive as booleans
+;;    the shell derived from `llmll verify`'s stdout: "SAFE" present with exit
+;;    zero, and "body-faithful" present with the function absent from the
+;;    comma-separated list after "body-fallback:". That derivation is string
+;;    structure and is outside Sigma_auto (LLMLL.md sec 5.3.5), so it is a
+;;    shell obligation with a proposal section 7 statement owed, exactly as
+;;    fill.next-error-budget's contention classification is. The theorem here
+;;    is about the abstraction; the parse is the abstraction function. If the
+;;    verifier's wording changes, every proof below stays green and every one
+;;    of them means something else.
+;;
+;; 3. THE POLARITY IS THE POINT.
+;;
+;;    A probe that verifies proves the contract shape is satisfiable. It does
+;;    not prove the contract excludes anything, and a contract that excludes
+;;    nothing is decorative. That is why the bar is two-sided: the good body
+;;    must verify body-faithfully AND the mutant must fail to verify. Scoring
+;;    only the good half is the defect crux-probe-polarity-inverted refutes.
+;;
+;; 4. UNWRITABLE IS NOT A KILL, AND THE DENOMINATOR IS WHERE THAT SHOWS.
+;;
+;;    Stage N keeps a pre-registered mutant that turned out unwritable in the
+;;    matrix rather than dropping it, so the denominator stays honest. Dropping
+;;    it would raise the kill RATE by shrinking what the rate is over, which is
+;;    the same arithmetic as grading on the questions you answered.
+;;    matrix-complete? is that property and crux-oracle-matrix-drops-unwritable
+;;    refutes its negation.
+
+(module oracle
+
+  ;; ------------------------------------------------------------------
+  ;; Stage H, per probe: rfc_to_implementation.py, the `ok` binding in
+  ;; stage_H_feasibility.
+  ;;
+  ;; Three booleans, because that is what `_verify` returns twice: the good
+  ;; body's `safe` and `body_faithful`, and the mutant's `safe`. There is no
+  ;; count here and no artifact; a probe either establishes feasibility or it
+  ;; does not.
+  (def probe-established? [probe-safe: bool
+                           probe-body-faithful: bool
+                           mutant-safe: bool] -> bool
+
+    (post (=> result probe-safe)
+      :source "[H9-PROBE-SAFE] stage H - a probe body that does not verify establishes nothing about the contract shape it was written to exercise")
+
+    (post (=> result probe-body-faithful)
+      :source "[H9-PROBE-FAITHFUL] stage H - SAFE via a contract-checked fallback does not show the shape is provable from the body, which is the property the swarm will need")
+
+    (post (=> result (not mutant-safe))
+      :source "[H9-MUTANT-REFUTED] stage H - a contract that cannot refute its own historically-attested bug is decorative; the mutant surviving is the finding, not a detail")
+
+    (post (=> (and probe-safe
+                   (and probe-body-faithful (not mutant-safe))) result)
+      :source "[H9-NO-EXTRA-BAR] driver-spec.txt sec 7:288-291 - the bar is exactly these three and a probe meeting them passes whatever it is a probe OF, so a scorer fitted to one run's probe set is refuted rather than discouraged")
+
+    (and probe-safe
+         (and probe-body-faithful (not mutant-safe))))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage H, the stage bar: the `bad` binding and the require_written above
+  ;; it.
+  ;;
+  ;; THE HALT THIS FEEDS IS `stopped`, NOT `failed`, AND THAT IS AN ORDERING
+  ;; FACT THIS MODULE CANNOT SEE. Stage H writes feasibility.json, its declared
+  ;; output, and only then halts on this bar, so driver-spec sec 4:146-147
+  ;; applies and the reference uses `require_written` rather than `require`.
+  ;; It is the only require_written call site in the reference. A port that
+  ;; halted before writing would record `failed`, satisfy every post below, and
+  ;; be wrong. Write-before-halt is a construction discipline at this site and
+  ;; the cover cell asserts the artifact's presence beside the disposition.
+  ;;
+  ;; probes-passing <= probe-count is a precondition and not a discovered
+  ;; fact: the passing probes are counted among the probes, so the subset
+  ;; relation holds by construction at the one call site, and it is what makes
+  ;; the converse post provable.
+  (def feasibility-established? [probe-count: int
+                                 probes-passing: int] -> bool
+
+    (pre (and (>= probe-count 0)
+              (and (>= probes-passing 0)
+                   (<= probes-passing probe-count)))
+      :source "[H9-DOM] both counts are json-array lengths, so non-negative, and the passing probes are counted among the probes")
+
+    (post (=> result (> probe-count 0))
+      :source "[H9-NONEMPTY] stage H - an empty probe set establishes nothing; the reference rejects it one halt earlier and this post keeps a zero-probe run from reading as feasible here too")
+
+    (post (=> result (= probes-passing probe-count))
+      :source "[H9-ALL] stage H - EVERY probe must pass, since the bar is over the weakest one; a majority of probes establishing feasibility is not the claim")
+
+    (post (=> (and (> probe-count 0)
+                   (= probes-passing probe-count)) result)
+      :source "[H9-NO-HARDCODE] driver-spec.txt sec 7:288-291 - any all-passing non-empty probe set establishes feasibility whatever its size, so a bar fitted to the count one run produced is refuted")
+
+    (and (> probe-count 0)
+         (= probes-passing probe-count)))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage N, per mutant: the `as_expected` binding in stage_N_killmatrix.
+  ;;
+  ;; A good twin is a correct variant expected to stay SAFE, so the expectation
+  ;; is not "refuted" but "matches its declared polarity". Reading this as
+  ;; "killed" would score every good twin as a failure and every over-strong
+  ;; contract as a success, which is the direction that hides the defect good
+  ;; twins exist to catch.
+  (def outcome-as-expected? [verified-safe: bool
+                             good-twin: bool] -> bool
+
+    (post (= result (= verified-safe good-twin))
+      :source "[N13-POLARITY] stage N - a good twin must stay SAFE and a mutant must not; the expectation is agreement with the row's declared polarity, not refutation")
+
+    (post (=> (and good-twin (not verified-safe)) (not result))
+      :source "[N13-TWIN-KILLED] stage N - a good twin that refutes is an OVER-STRONG contract and is a finding, not a kill")
+
+    (post (=> (and (not good-twin) verified-safe) (not result))
+      :source "[N13-SURVIVOR] stage N - a mutant that verifies SAFE means the contract is weak or the row is mis-dispositioned; it is reported as a survivor and never dropped")
+
+    (= verified-safe good-twin))
+
+  ;; ------------------------------------------------------------------
+  ;; Stage N, the denominator: every input row reaches the matrix.
+  ;;
+  ;; The unwritable branch is the reason this is a proved decision rather than
+  ;; an obvious one. A pre-registered mutant that nothing in the frozen surface
+  ;; instantiates is kept and scored `unwritable`, so it stays in the
+  ;; denominator. Dropping it raises the kill rate without killing anything.
+  (def matrix-complete? [row-count: int
+                         scored-count: int] -> bool
+
+    (pre (and (>= row-count 0)
+              (and (>= scored-count 0)
+                   (<= scored-count row-count)))
+      :source "[N13-DOM] both counts are json-array lengths, so non-negative, and a scored row is one of the input rows")
+
+    (post (= result (= scored-count row-count))
+      :source "[N13-DENOMINATOR] stage N - a pre-registered mutant that turned out unwritable is kept and scored rather than dropped, so the denominator stays honest")
+
+    (post (=> (< scored-count row-count) (not result))
+      :source "[N13-NO-DROP] stage N - a row that reached neither a verdict nor the unwritable branch has been silently discarded, which raises the kill rate by shrinking what it is over")
+
+    (= scored-count row-count)))

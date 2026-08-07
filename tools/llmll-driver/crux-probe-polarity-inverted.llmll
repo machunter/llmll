@@ -1,0 +1,39 @@
+(module crux-probe-polarity-inverted)
+;; THE MUTANT HALF DROPPED. Stage H's bar is two-sided: the probe body must
+;; verify body-faithfully AND its mutant must fail to verify. This body keeps
+;; the probe half and drops the mutant conjunct, so a probe whose mutant
+;; SURVIVES is scored as establishing feasibility.
+;;
+;; WHY THIS IS THE FAILURE THAT MATTERS. The probe half alone shows only that
+;; the contract shape is satisfiable. It says nothing about whether the
+;; contract EXCLUDES anything, and a contract that excludes nothing verifies
+;; every implementation including the historically-attested bug it was written
+;; against. Stage H exists to catch exactly that before the swarm spends a wave
+;; authoring bodies against a decorative shape, so scoring only the good half
+;; turns the gate into a formality that always passes.
+;;
+;; This is the same defect class as a test suite with no failing case: the
+;; measurement is real, and it measures nothing about the property claimed.
+;;
+;; DISCRIMINATION, measured at v0.14.87 over this body:
+;;
+;;   [H9-PROBE-SAFE] + [H9-PROBE-FAITHFUL] + [H9-NO-EXTRA-BAR]  -> SAFE
+;;   [H9-MUTANT-REFUTED] alone                                  -> REFUTED
+;;
+;; [H9-NO-EXTRA-BAR] survives and that is the informative half. This mutant is
+;; strictly WEAKER than the honest decision, so the converse implication still
+;; holds: every genuinely established probe does pass. An anti-hardcoding post
+;; cannot catch a scorer that accepts too much, only one that accepts too
+;; little. The forward post is what covers this direction.
+(def probe-established? [probe-safe: bool
+                         probe-body-faithful: bool
+                         mutant-safe: bool] -> bool
+
+  (post (=> result probe-safe))
+  (post (=> result probe-body-faithful))
+  (post (=> result (not mutant-safe)))
+
+  (post (=> (and probe-safe
+                 (and probe-body-faithful (not mutant-safe))) result))
+
+  (and probe-safe probe-body-faithful))

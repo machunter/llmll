@@ -237,4 +237,49 @@
     (post (=> (< listed-count excluded-count) (not result))
       :source "[G6-NOVACUOUS] a row citing an unlisted barrier MUST fail the condition, so a body answering true unconditionally is refuted rather than merely unproved")
 
-    (= excluded-count listed-count)))
+    (= excluded-count listed-count))
+
+  ;; ------------------------------------------------------------------
+  ;; Sub-phase 4d, stage H: the probe manifest's shape.
+  ;;
+  ;; The reference checks `isinstance(probes, list) and probes` and then
+  ;; indexes `p["file"]` and `p["mutant_file"]` unguarded, so a probe row
+  ;; missing either key raises KeyError and tracebacks out at exit 1. The port
+  ;; has no host exception to fall through, so it guards and records
+  ;; failed/Errored, on the precedent proposal section 9.1 item 1 set for the
+  ;; two unguarded reads in stages B and I.
+  ;;
+  ;; THIS IS A PRE-WRITE CHECK AND ITS HALT IS `failed`. Stage H's OTHER halt,
+  ;; the probe-polarity bar in oracle.llmll, fires after feasibility.json is
+  ;; written and records `stopped`. One stage, two halts, two dispositions,
+  ;; and the difference is which side of the declared write they sit on.
+  ;;
+  ;; rows-conforming <= row-count is a precondition rather than a discovered
+  ;; fact, for the same reason it is in extraction-conforms?: the conforming
+  ;; rows are counted among the rows.
+  (def probe-rows-conform? [is-array: bool
+                            row-count: int
+                            rows-conforming: int] -> bool
+
+    (pre (and (>= row-count 0)
+              (and (>= rows-conforming 0)
+                   (<= rows-conforming row-count)))
+      :source "[H7-DOM] both counts are json-array lengths, so non-negative, and the conforming rows are counted among the rows")
+
+    (post (=> result is-array)
+      :source "[H7-ARRAY] stage H - the reference checks isinstance(probes, list); an object here would iterate its keys and index strings")
+
+    (post (=> result (> row-count 0))
+      :source "[H7-NONEMPTY] stage H - an empty probe manifest is a rejection, since a truthiness test on the parsed list is what the reference halts on")
+
+    (post (=> result (= rows-conforming row-count))
+      :source "[H7-ROWS] stage H - EVERY row carries the file and mutant_file keys the stage indexes unguarded; a row missing either is a KeyError in the reference and a guarded failed in the port")
+
+    (post (=> (and is-array
+                   (and (> row-count 0)
+                        (= rows-conforming row-count))) result)
+      :source "[H7-NO-HARDCODE] driver-spec.txt sec 7:288-291 - every conforming manifest passes whatever its probe count, so a validator fitted to the count one run produced is refuted rather than discouraged")
+
+    (and is-array
+         (and (> row-count 0)
+              (= rows-conforming row-count)))))

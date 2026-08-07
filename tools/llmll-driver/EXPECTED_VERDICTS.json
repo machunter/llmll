@@ -284,6 +284,37 @@
    "expect": "refuted",
    "localized": "barrier-condition-met?",
    "why": "driver-spec section 6:229-231 not enforced: a body answering true whatever the counts, so an exclusion citing a barrier outside the closed list reaches gate J. This is the ONE spec-defined halt in stage G (rfc_to_implementation.py:493 raises it through require_spec, not require), which is why it records `stopped` and why it does not route through validate.verdict-outcome, whose [V7-NO-STOP] forbids ConditionUnmet. NOT a discriminating mutant and does not claim to be: MEASURED at v0.14.87, both [G6-CLOSED] and [G6-NOVACUOUS] refute, because [G6-CLOSED] is an equality between two booleans and so determines result entirely, making the other a named consequence in the sense [V7-NO-FLOOR] is one and gate.llmll's [S6-REPORTED] is one. The cost of a vacuous check here is auditability rather than safety: gate J still holds, but the stage-level halt disappears and a run stops at J with no record of which stage produced the row."
+  },
+  {
+   "file": "oracle.llmll",
+   "flags": ["--strict-verified-core"],
+   "expect_exit": 0,
+   "expect": "safe",
+   "why": "Sub-phase 4d's verification-outcome channel, the third after validate's presence-and-floor and shape's content shape. Four defs, all bool and int, so subject-neutrality is structural here as it is there. Its subject is what a run of the COMPILER over a delegated artifact means for a stage's bar, which neither of the other two channels can reach: stages H and N shell `llmll verify` and score its result against a polarity their stage contract declares."
+  },
+  {
+   "file": "crux-probe-polarity-inverted.llmll",
+   "flags": ["--strict-verified-core"],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localized": "probe-established?",
+   "why": "INVENTED MUTANT. Stage H's bar is two-sided and this body drops the mutant half, so a probe whose mutant SURVIVES scores as establishing feasibility. The probe half alone shows the contract shape is satisfiable and says nothing about whether it EXCLUDES anything, which is the property stage H exists to establish before a wave is spent authoring against a decorative shape. MEASURED per post at v0.14.87: [H9-PROBE-SAFE], [H9-PROBE-FAITHFUL] and [H9-NO-EXTRA-BAR] are each SAFE over this body and [H9-MUTANT-REFUTED] alone refutes. The converse post survives because this body is strictly WEAKER than the honest decision, the same asymmetry crux-shape-accepts-malformed documents: an anti-hardcoding post cannot catch a scorer that accepts too much."
+  },
+  {
+   "file": "crux-oracle-matrix-drops-unwritable.llmll",
+   "flags": ["--strict-verified-core"],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localized": "matrix-complete?",
+   "why": "INVENTED MUTANT. Stage N keeps a pre-registered mutant that turned out unwritable and scores it rather than dropping it, so the denominator stays honest; this body accepts any scored count. Dropping a row leaves the numerator alone and shrinks the denominator, so it RAISES the kill rate without killing anything, and it fails in the flattering direction. MEASURED per post at v0.14.87: BOTH [N13-DENOMINATOR] and [N13-NO-DROP] refute, unlike the two shape cruxes where one post survives. The reason is the shape of the honest decision, matrix-complete?'s forward clause being an EQUALITY rather than an implication, so one post covers both directions and no converse partner is needed."
+  },
+  {
+   "file": "crux-shape-probe-row-lax.llmll",
+   "flags": ["--strict-verified-core"],
+   "expect_exit": 1,
+   "expect": "refuted",
+   "localized": "probe-rows-conform?",
+   "why": "INVENTED MUTANT, and the pre-write half of stage H's pair. The envelope clauses stay and the per-row conjunct is dropped, so a manifest whose rows lack the file and mutant_file keys passes. The reference indexes both keys UNGUARDED right after this check, so the clause is what turns a KeyError traceback into a recorded failed/Errored, on proposal section 9.1 item 1's precedent. MEASURED per post at v0.14.87: [H7-ARRAY], [H7-NONEMPTY] and [H7-NO-HARDCODE] are each SAFE and [H7-ROWS] alone refutes. This crux and crux-probe-polarity-inverted sit on opposite sides of stage H's declared write: this one feeds the PRE-write halt recording `failed`, that one the POST-write bar recording `stopped` via the reference's only require_written."
   }
  ]
 }
