@@ -1,7 +1,23 @@
 (module token)
 
-;; driver-spec.txt section 10, Exclusive-Edit Tokens. Per-step; the
-;; closure to a whole wave is a trace induction and is not claimed here.
+;; driver-spec.txt section 10, Exclusive-Edit Tokens. Per-step AND
+;; single-threaded. The closure to a whole wave is NOT a trace induction,
+;; which is what this comment said until 4e.
+;;
+;; token-during proves a PHASE-INDEXED INVARIANT, not an ordering. The body
+;; is a three-case match over a nullary Phase and both posts are guarded
+;; implications over a single arm each; nothing here expresses a sequence, a
+;; transition, or a pair of phases. So a memoryless function of the current
+;; phase yields the whole-wave property POINTWISE once the labelling is
+;; granted. What is missing is therefore not an induction over fills but the
+;; labelling itself: a refinement mapping from the driver's states onto this
+;; Phase, which is a fact about the port rather than a theorem about this
+;; module, and is not Lean-dischargeable.
+;;
+;; SINGLE-THREADED is part of the claim and not a throughput note. The
+;; labelling is a function only while at most one hole is live; with two live
+;; holes one driver state carries two phases and the mapping stops being one.
+;; The serial wave is a PRECONDITION of the abstraction.
 
 (type Phase (| AgentWorking) (| Briefing) (| Submitting))
 (type TokenState (| Released) (| Held))

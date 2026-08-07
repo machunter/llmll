@@ -36,9 +36,18 @@ result entirely to the two enforced conditions, so any body that consulted the c
 would have to disagree with the post on some input. A non-interference property becomes an
 ordinary refinement obligation by fully determining the result from the permitted inputs.
 
-**Section 10 is proved per step, not per trace.** `token-during` says what the token's state is
-in each phase. The closure to "no token is ever held while any agent works, across a whole wave"
-is an induction over an unbounded sequence of fills, and is not claimed here.
+**Section 10 is proved per step and single-threaded, not per trace.** `token-during` says what the
+token's state is in each phase, and that is a phase-indexed invariant rather than an ordering: the
+body is a three-case match over a nullary phase and both posts are guarded implications over one arm
+each. Nothing in the module expresses a sequence, a transition, or a pair of phases.
+
+The closure to "no token is ever held while any agent works, across a whole wave" is therefore **not
+an induction over an unbounded sequence of fills**, which is what this file claimed until 4e. A
+memoryless function of the current phase gives the whole-wave property pointwise once the labelling
+is granted. What is unproved is the labelling itself: a refinement mapping from the driver's states
+onto this phase, which is a fact about the port rather than a theorem about the module, and is not
+Lean-dischargeable. Single-threaded is part of the claim and not a throughput note, because the
+labelling is a function only while at most one hole is live.
 
 ## What is asserted, not proved
 
