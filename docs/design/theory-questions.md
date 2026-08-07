@@ -74,3 +74,63 @@ the transition, in a form that would let a module declare the cardinality it ass
 Why it does not block. Concurrency is deferred by the campaign's own stop condition, and the
 mitigation that matters (recording the single-threaded precondition on the proved module) is already
 settled and needs no literature.
+
+---
+
+## Q-003  (2026-08-07)  Status: OPEN
+
+When a caller must decide whether it may rely on a callee, is reliance a property of the callee's
+postcondition *tier* or of its body's *completeness*? If the former, a fill-state field is redundant
+beside a trust label and the redundancy is a hazard rather than a convenience.
+
+Context. The checkout brief carries two fields per available function: `status`, a fill-state enum,
+and `tier`, the effective-level trust label. HOLE-STATUS-SIBLING makes `status` truthful for
+siblings whose body is still a hole, on the reasoning that such a body is body-fallback and its post
+is asserted rather than proved. But that reasoning derives the fill-state signal *from* the tier,
+which raises the question of whether `status` carries anything `tier` does not. The two come apart
+only if there is a case where a body is complete and the post is still asserted, or incomplete and
+the post is verified. The first is common (a `def-shell` with a complete body). The second should be
+impossible, and if it is impossible then fill-state is a strictly coarser view of the same fact.
+
+The sharper form. Under assume-guarantee a caller relies on the callee's *contract*, never on its
+body, so reliance ought to be tier-indexed by construction and body-completeness ought to be
+irrelevant to soundness while remaining relevant to whether the whole program ever terminates in a
+verified state. If that is right, `status` is a progress signal and not a soundness signal, and it
+should be documented as one. The literature on assume-guarantee decomposition presumably settles
+whether a partially-realized component is distinguishable from an asserted one at the level of the
+proof rule.
+
+Why it does not block. The proposed patch (HOLE-STATUS-SIBLING, not implemented as of this entry)
+would mark unfilled siblings and change nothing about what a caller may assume; both fields are
+already emitted and neither gates anything in the compiler. An answer would tell us which field the
+agent-facing documentation should teach as authoritative, not what to emit.
+
+---
+
+## Q-004  (2026-08-07)  Status: OPEN
+
+Is there an established treatment of vocabulary that is *offered* to a synthesizer but
+*guaranteed-unusable* in the position it is offered for? Specifically, whether the honest move is to
+withhold it, to offer it with an accurate label, or to make the offer depend on the enclosing
+context.
+
+Context. The checkout brief lists available functions for a hole. For a hole inside a strict-core
+`def`, `TypeCheck.checkCalleeAdmissibility` will reject any call to a callee lacking persisted
+verified evidence, so an unfilled sibling in that list is vocabulary the agent cannot use and will
+only discover it cannot use by having its patch rejected. For a hole inside a `def-shell` the same
+call is accepted, and `refine`'s cascading decomposition depends on exactly that: it spawns
+contracted sub-holes which are meant to be called before they are filled. So the same list entry is
+useful in one enclosing context and a guaranteed dead end in the other, and the brief does not
+currently know which context it is assembling for.
+
+Withholding breaks cascading refinement. Offering with a label (the shipped choice) costs the agent
+a rejected attempt against its error budget, which is a real cost because a fill protocol that
+budgets semantic retries separately from protocol retries will charge this to the wrong one.
+Context-dependent offering makes the brief's contents a function of the enclosing definition's form,
+which is more accurate and less predictable. The question is whether synthesis or program-repair
+literature has a name for this trade and a default.
+
+Why it does not block. The proposed patch (HOLE-STATUS-SIBLING, not implemented as of this entry)
+takes the middle option, which is strictly more information than the status quo under either answer,
+and the enclosing form is available at assembly time if the answer later favours context-dependence.
+An answer would refine an agent-facing affordance, not the compiler's behaviour.
