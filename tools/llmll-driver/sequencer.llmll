@@ -325,7 +325,15 @@
   ;; `acc` and `pre-values` are what survive into rendering.
   (type Body (| Body (int, (int, (list[string], (int, (list[string], (string, int))))))))
 
-  (type Phase
+  ;; Named Ctl and not Phase: token.llmll declares a DIFFERENT type named
+  ;; Phase (a three-arm nullary lifecycle sum) and 4e's wave imports both.
+  ;; Measured at v0.14.87, the type checker does NOT distinguish two
+  ;; same-named sum types from two opened modules: a payload-carrying value
+  ;; of one satisfies an annotation resolved to the other, with only an
+  ;; open-shadow warning, while an `int` in the same position is correctly
+  ;; rejected. So the collision would not have been caught here; the rename
+  ;; is what prevents it, not the type system.
+  (type Ctl
     (| Boot     int)
     (| Digest   (int, (int, (bool, (bool, string)))))
     (| Started  int)
@@ -404,10 +412,10 @@
     (first (second (second (second d)))))
   (def-shell dg-names [d: (int, (int, (bool, (bool, string))))] -> string
     (second (second (second (second d)))))
-  (def-shell mk-dg [k: int j: int present: bool matched: bool names: string] -> Phase
+  (def-shell mk-dg [k: int j: int present: bool matched: bool names: string] -> Ctl
     (Digest (pair k (pair j (pair present (pair matched names))))))
 
-  ;; The body payload. Written once, per the note on the Phase type.
+  ;; The body payload. Written once, per the note on the Ctl type.
   (def-shell b-k [b: Body] -> int
     (match b ((Body p) (first p))))
   (def-shell b-start [b: Body] -> int
@@ -449,30 +457,30 @@
   (def-shell md-k [d: (int, (int, int))] -> int (first d))
   (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
   (def-shell md-start [d: (int, (int, int))] -> int (second (second d)))
-  (def-shell mk-md [k: int j: int start: int] -> Phase
+  (def-shell mk-md [k: int j: int start: int] -> Ctl
     (Made (pair k (pair j start))))
 
   (def-shell sm-k [d: (int, (int, (int, Json)))] -> int (first d))
   (def-shell sm-j [d: (int, (int, (int, Json)))] -> int (first (second d)))
   (def-shell sm-start [d: (int, (int, (int, Json)))] -> int (first (second (second d))))
   (def-shell sm-outs [d: (int, (int, (int, Json)))] -> Json (second (second (second d))))
-  (def-shell mk-sm [k: int j: int start: int outs: Json] -> Phase
+  (def-shell mk-sm [k: int j: int start: int outs: Json] -> Ctl
     (Summed (pair k (pair j (pair start outs)))))
 
   (def-shell st-k [d: (int, (int, Json))] -> int (first d))
   (def-shell st-start [d: (int, (int, Json))] -> int (first (second d)))
   (def-shell st-outs [d: (int, (int, Json))] -> Json (second (second d)))
-  (def-shell mk-st [k: int start: int outs: Json] -> Phase
+  (def-shell mk-st [k: int start: int outs: Json] -> Ctl
     (Stamped (pair k (pair start outs))))
 
   (def-shell rc-k [d: (int, int)] -> int (first d))
   (def-shell rc-code [d: (int, int)] -> int (second d))
-  (def-shell mk-rc [k: int code: int] -> Phase
+  (def-shell mk-rc [k: int code: int] -> Ctl
     (Recorded (pair k code)))
 
-  (def-shell run-of [s: (Run, Phase)] -> Run (first s))
-  (def-shell phase-of [s: (Run, Phase)] -> Phase (second s))
-  (def-shell go [rn: Run p: Phase c: Command] -> ((Run, Phase), Command)
+  (def-shell run-of [s: (Run, Ctl)] -> Run (first s))
+  (def-shell phase-of [s: (Run, Ctl)] -> Ctl (second s))
+  (def-shell go [rn: Run p: Ctl c: Command] -> ((Run, Ctl), Command)
     (pair (pair rn p) c))
 
   ;; ---- argv ----------------------------------------------------------
@@ -812,7 +820,7 @@
   ;; Issue stage k's first digest probe, or finish the run. Every site that
   ;; would advance to the next stage calls this, so "past the last stage" is
   ;; decided in one place.
-  (def-shell enter [rn: Run k: int] -> ((Run, Phase), Command)
+  (def-shell enter [rn: Run k: int] -> ((Run, Ctl), Command)
     (if (>= k (list-length (sel-of rn)))
         (go rn (Ending 0)
             (wasi.io.stdout
@@ -820,13 +828,13 @@
         (go rn (mk-dg k 0 true true "")
             (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 0)))))
 
-  (def-shell start-run [rn: Run] -> ((Run, Phase), Command)
+  (def-shell start-run [rn: Run] -> ((Run, Ctl), Command)
     (enter (with-sel rn (sel-indices (cfg-of rn))) 0))
 
   ;; An ABSENT manifest is an empty one, not a fault: the reference returns
   ;; {"stages": {}} when the path does not exist (:246-247). Only a manifest
   ;; that IS there and cannot be used halts.
-  (def-shell boot-read [rn: Run r: Response] -> ((Run, Phase), Command)
+  (def-shell boot-read [rn: Run r: Response] -> ((Run, Ctl), Command)
     (match r
       ((RText body)
         (if (string-empty? (manifest-fault body))
@@ -839,7 +847,7 @@
       ((RCode _)  (start-run (with-man rn (empty-manifest))))
       ((RList _)  (start-run (with-man rn (empty-manifest))))))
 
-  (def-shell boot-step [rn: Run n: int r: Response] -> ((Run, Phase), Command)
+  (def-shell boot-step [rn: Run n: int r: Response] -> ((Run, Ctl), Command)
     (if (= n 0)
         (let [(c (parse-cfg (argv-of r)))]
           (if (string-empty? (missing-flags c))
@@ -873,7 +881,7 @@
   ;; way, [S5-SKIP] holding in both, so this is about what the cover can
   ;; OBSERVE rather than about what the driver does.
   (def-shell decide [rn: Run k: int present: bool matched: bool names: string]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (let [(i (idx-at rn k))]
       (let [(recorded (= (row-status (man-of rn) (stage-key i)) "complete"))]
         (if (may-skip recorded present
@@ -888,7 +896,7 @@
                   wasi.clock.monotonic))))))
 
   (def-shell digest-step [rn: Run d: (int, (int, (bool, (bool, string)))) r: Response]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (dg-k d)))]
       (let [(hex (hex-of r))]
         (let [(want (recorded-digest (man-of rn) (stage-key i) (stage-out i (dg-j d))))]
@@ -920,7 +928,7 @@
   ;; nowhere else, so the Outcome-to-Status mapping is proved once for the 4a
   ;; injector and for all nine 4b stage-body conditions alike.
   (def-shell halt-with [rn: Run k: int o: Outcome detail: string clause: string]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (let [(i (idx-at rn k))]
       (let [(st (record-outcome o))]
         (let [(m2 (put-row (man-of rn) (stage-key i)
@@ -930,7 +938,7 @@
                 (wasi.io.stdout (halt-line st i detail))
                 (wasi.fs.write (manifest-path (cfg-of rn)) (json-serialize m2))))))))
 
-  (def-shell halt-now [rn: Run k: int o: Outcome start: int] -> ((Run, Phase), Command)
+  (def-shell halt-now [rn: Run k: int o: Outcome start: int] -> ((Run, Ctl), Command)
     (halt-with rn k o (halt-detail rn k) (halt-clause o)))
 
   ;; THE 4b HALT CHANNEL, and the reason validate.llmll is a module rather
@@ -939,13 +947,13 @@
   ;; [V7-NO-STOP] and [V7-NO-PARTIAL] PROVE the result is not a stopped
   ;; constructor, so there is no clause to cite and nothing here decides that.
   (def-shell halt-verdict [rn: Run k: int v: Verdict detail: string]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (halt-with rn k (verdict-outcome v) detail ""))
 
   ;; The two AgentRunner conditions that are NOT facts about an output's
   ;; shape: a budget overrun and a non-zero exit. See the header's statement 3
   ;; for why they do not go through a Verdict.
-  (def-shell halt-errored [rn: Run k: int detail: string] -> ((Run, Phase), Command)
+  (def-shell halt-errored [rn: Run k: int detail: string] -> ((Run, Ctl), Command)
     (halt-with rn k Errored detail ""))
 
   (def-shell write-cmd [rn: Run k: int j: int] -> Command
@@ -970,10 +978,10 @@
   ;;         -> Outp(floor -1, which passes every present output)
   ;; ------------------------------------------------------------------
 
-  (def-shell to-srcs [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell to-srcs [rn: Run b: Body] -> ((Run, Ctl), Command)
     (go rn (Srcs b) (wasi.fs.list (wd-path (cfg-of rn) "00-source"))))
 
-  (def-shell to-tmpl [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell to-tmpl [rn: Run b: Body] -> ((Run, Ctl), Command)
     (go rn (Tmpl b)
         (wasi.fs.read (tmpl-file (cfg-of rn) (idx-at rn (b-k b))))))
 
@@ -993,13 +1001,13 @@
       (wasi.fs.mkdir (agent-dir (cfg-of rn) i j))
       (wasi.fs.list (wd-path (cfg-of rn) "00-source"))))
 
-  (def-shell to-prov [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell to-prov [rn: Run b: Body] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (if (stage-provision? i)
           (go rn (Prov b) (prov-cmd rn i (b-tag b)))
           (to-tmpl rn b))))
 
-  (def-shell after-pre [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell after-pre [rn: Run b: Body] -> ((Run, Ctl), Command)
     (if (stage-needs-src? (idx-at rn (b-k b)))
         (to-srcs rn b)
         (to-prov rn b)))
@@ -1009,7 +1017,7 @@
 
   ;; A stage with no precondition artifact goes straight past Pre. One with
   ;; several re-enters Pre until it has read them all; see pre-step.
-  (def-shell to-pre [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell to-pre [rn: Run b: Body] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (if (>= (b-pcount b) (stage-pre-count i))
           (after-pre rn b)
@@ -1017,10 +1025,10 @@
               (wasi.fs.read (wd-path (cfg-of rn)
                                      (stage-pre-path i (b-pcount b))))))))
 
-  (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Phase), Command)
+  (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Ctl), Command)
     (to-pre rn (fresh-body k start)))
 
-  (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Phase), Command)
+  (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Ctl), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
         (if (stage-ported? (idx-at rn k))
@@ -1067,7 +1075,7 @@
           ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
            "\" member"])))
 
-  (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (let [(j (b-pcount b))]
         (match r
@@ -1098,7 +1106,7 @@
   ;; `require(parts, "no pinned RFC text found; run stage A first")` (:629),
   ;; verbatim. An RErr from the listing (no 00-source directory at all) lands
   ;; on the same condition, which is what the reference's empty glob does.
-  (def-shell srcs-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell srcs-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(ns (names-of r))]
       (if (= (list-length ns) 0)
           (halt-verdict rn (b-k b) Absent
@@ -1113,12 +1121,12 @@
   (def-shell src-name [b: Body] -> string
     (unwrap-or (list-nth (b-names b) (b-idx b)) ""))
 
-  (def-shell src-next [rn: Run b2: Body] -> ((Run, Phase), Command)
+  (def-shell src-next [rn: Run b2: Body] -> ((Run, Ctl), Command)
     (if (< (b-idx b2) (list-length (b-names b2)))
         (go rn (Src b2) (wasi.fs.read (src-path (cfg-of rn) (src-name b2))))
         (to-prov rn b2)))
 
-  (def-shell src-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell src-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (match r
       ((RText t)
         (src-next rn (b-advance b (string-concat (b-acc b)
@@ -1172,7 +1180,7 @@
         (string-concat (agent-dir (cfg-of rn) i (b-tag b)) "/rubric.md")
         (unwrap-or (list-nth (b-pvals b) 0) ""))))
 
-  (def-shell copy-next [rn: Run b: Body] -> ((Run, Phase), Command)
+  (def-shell copy-next [rn: Run b: Body] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (if (< (b-idx b) (list-length (b-names b)))
           (go rn (Copy b)
@@ -1191,10 +1199,10 @@
   ;; The directory has to exist before anything is copied into it. mkdir creates
   ;; parents and is RNone on an existing directory, both measured, so this is a
   ;; no-op on the second tag's re-entry.
-  (def-shell prov-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell prov-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (copy-next rn (b-with-names b (prov-names r))))
 
-  (def-shell copy-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell copy-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (copy-next rn (b-advance b (b-acc b))))
 
   ;; ---- Tmpl ------------------------------------------------------------
@@ -1247,7 +1255,7 @@
               (string-concat dir "/agent.stderr.log")
               (ag-timeout (cfg-agent c))))))))
 
-  (def-shell tmpl-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell tmpl-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (match r
         ((RText tpl)
@@ -1279,7 +1287,7 @@
   ;; exited non-zero records `failed`, not `complete`. Measured; see the 4b
   ;; plan. This arm reproduces the reference and not the proposal's table.
 
-  (def-shell delegate-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell delegate-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (match r
         ((RCode c)
@@ -1566,7 +1574,7 @@
                                   (wd-path (cfg-of rn) (stage-stage-dest i j)))
                     acc)))))))
 
-  (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Phase), Command)
+  (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (let [(c (cfg-of rn))]
         (let [(last? (>= (+ (b-tag b) 1) (stage-tag-count i)))]
@@ -1590,7 +1598,7 @@
                     (second nxt))))))))
 
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (let [(v (if (is-passed (verdict-of present size (stage-floor i)))
                    (shape-verdict i t)
@@ -1606,7 +1614,7 @@
           ((Malformed) (halt-verdict rn (b-k b) v
                          (outp-detail (cfg-of rn) i (b-tag b) v)))))))
 
-  (def-shell outp-step [rn: Run b: Body r: Response] -> ((Run, Phase), Command)
+  (def-shell outp-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (match r
       ((RText t)  (outp-decide rn b true (string-length t) t))
       ((RErr _)   (outp-decide rn b false 0 ""))
@@ -1614,7 +1622,7 @@
       ((RCode _)  (outp-decide rn b false 0 ""))
       ((RList _)  (outp-decide rn b false 0 ""))))
 
-  (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Phase), Command)
+  (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Ctl), Command)
     (if (< (+ (md-j d) 1) (stage-out-count (idx-at rn (md-k d))))
         (go rn (mk-md (md-k d) (+ (md-j d) 1) (md-start d))
             (write-cmd rn (md-k d) (+ (md-j d) 1)))
@@ -1625,7 +1633,7 @@
   ;; EXIST (:2010-2011), so a missing artifact yields a SHORT map rather than a
   ;; null. An RErr here is that filter.
   (def-shell summed-step [rn: Run d: (int, (int, (int, Json))) r: Response]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (sm-k d)))]
       (let [(outs (if (string-empty? (hex-of r))
                       (sm-outs d)
@@ -1637,7 +1645,7 @@
             (go rn (mk-st (sm-k d) (sm-start d) outs) wasi.clock.monotonic)))))
 
   (def-shell stamped-step [rn: Run d: (int, (int, Json)) r: Response]
-      -> ((Run, Phase), Command)
+      -> ((Run, Ctl), Command)
     (if (halts-post? rn (st-k d))
         (halt-now rn (st-k d) PartialThenHalt (st-start d))
         (let [(i (idx-at rn (st-k d)))]
@@ -1650,12 +1658,12 @@
 
   ;; The manifest write has already happened on entry here, so a halt can go
   ;; straight to Done: the command this arm returns is the one RC-4 drops.
-  (def-shell recorded-step [rn: Run d: (int, int)] -> ((Run, Phase), Command)
+  (def-shell recorded-step [rn: Run d: (int, int)] -> ((Run, Ctl), Command)
     (if (= (rc-code d) 0)
         (enter rn (+ (rc-k d) 1))
         (go rn (Done (rc-code d)) (wasi.io.stdout ""))))
 
-  (def-shell drv-init [] -> ((Run, Phase), Command)
+  (def-shell drv-init [] -> ((Run, Ctl), Command)
     (pair (pair (Run (pair (Cfg (pair "."
                                  (pair "" (pair "" (pair ""
                                    (pair false
@@ -1666,8 +1674,8 @@
                 (Boot 0))
           wasi.proc.args))
 
-  (def-shell drv-step [s: (Run, Phase) input: string r: Response]
-      -> ((Run, Phase), Command)
+  (def-shell drv-step [s: (Run, Ctl) input: string r: Response]
+      -> ((Run, Ctl), Command)
     (match (phase-of s)
       ((Boot n)     (boot-step   (run-of s) n r))
       ((Digest d)   (digest-step (run-of s) d r))
@@ -1687,7 +1695,7 @@
       ((Ending c)   (go (run-of s) (Done c) (wasi.io.stdout "")))
       ((Done c)     (go (run-of s) (Done c) (wasi.io.stdout "")))))
 
-  (def-shell drv-done? [s: (Run, Phase)] -> bool
+  (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
       ((Boot _)     false)
       ((Digest _)   false)
@@ -1707,7 +1715,7 @@
       ((Ending _)   false)
       ((Done _)     true)))
 
-  (def-shell done-code [s: (Run, Phase)] -> int
+  (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
       ((Boot _)     1)
       ((Digest _)   1)
@@ -1733,7 +1741,7 @@
   ;; SILENTLY. spine.llmll:673-679 records :on-done as unusable and is right
   ;; for an int state; section 4's sum carries the reason, so it becomes
   ;; available here.
-  (def-shell drv-final [s: (Run, Phase)] -> Command
+  (def-shell drv-final [s: (Run, Ctl)] -> Command
     (wasi.io.stdout
       (string-concat "[driver-ll] end status=" (int-to-string (done-code s)))))
 
@@ -1745,7 +1753,7 @@
   ;; there is PWildcard, and isCoreBodySyntactic's payload-constructor leg
   ;; (Syntax.hs:810) admits only PConstructor n [PVar _], so a wildcard turns
   ;; the whole match into non-core syntax and the def is rejected at `check`.
-  (def drv-status [s: (Run, Phase)] -> int
+  (def drv-status [s: (Run, Ctl)] -> int
     (post (and (>= result 0) (<= result 255))
       :source "[EXIT-RANGE] PROC-BOUNDARY-1 sec 4.4 - the declared range on the function :status names")
     (match (second s)
