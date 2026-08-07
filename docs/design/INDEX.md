@@ -65,6 +65,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
+| [tool-ll-RESTART.md](tool-ll-RESTART.md) | Where the TOOL-LL work is: branch state, the P1 decision the user owns, gates measured, findings not to rediscover | **LIVE** — read before the campaign doc; state authority, delegates the standard |
 | [llmll-tooling-campaign.md](llmll-tooling-campaign.md) | TOOL-LL: the six CI gates rewritten in LLMLL and actually deciding, with the RFC standard and the gap discipline | **Rev 1, IN FLIGHT**: scope, distribution and retirement settled 2026-08-07; 1 of 6 ported; blocked at distribution on the tag debt (P1) |
 | [TOOL-RFC-TEMPLATE.md](TOOL-RFC-TEMPLATE.md) | The eight sections every tool port owes before it is written | **Template** — enforced by `scripts/tests/test_tool_rfc_standard.py` |
 | [tool-rfc-001-version-gate.md](tool-rfc-001-version-gate.md) | DRIFT-CI-1 in LLMLL: four criteria, a hand-rolled scanner, four gaps, two of them new | **Rev 1, RETROACTIVE**, state `oracle`: shipped at `7d1de03` before the standard existed |
