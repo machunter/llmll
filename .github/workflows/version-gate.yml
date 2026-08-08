@@ -128,6 +128,39 @@ jobs:
           LLMLL_BIN: stack exec llmll --
         run: bash ../scripts/doc_claims_gate.sh
 
+      # TOOL-RFC-003: the same gate as the step above, in LLMLL, run ADJACENT to
+      # its reference so the `oracle` state is legible in one job log. Both
+      # decide over the same tree in the same run and a reader compares them
+      # without cross-referencing two jobs, which is 002's arrangement and its
+      # reason.
+      #
+      # The differential COVER runs first: it decides whether the port AGREES
+      # with the reference under mutation, which a live green run on its own
+      # does not. It found two real defects in the port before either shipped:
+      # a `warn` observation promoted on the trigger rather than on the whole
+      # match, and a subject probe that SKIPPED where the reference FAILS.
+      #
+      # The absolute path, not `stack exec`: that idiom resolves against
+      # whatever stack project the cwd sits in, and from a tools/ directory it
+      # once installed GHC 9.10.3 on a runner before answering "Executable
+      # named llmll not found".
+      - name: Run doc-claim drift gate (LLMLL port, TOOL-RFC-003)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/docclaims-build"
+          ( cd tools/doc-claims && "$SUBJECT" build docclaims.llmll -o "$OUT" )
+          GATE="$(find "$OUT/.stack-work/install" -type f -name docclaims -perm -111 | head -1)"
+          [ -n "$GATE" ] || { echo "no docclaims binary under $OUT"; exit 1; }
+          python3 scripts/doc_claims_cover.py --gate "$GATE" --llmll "$SUBJECT"
+          mkdir -p "$RUNNER_TEMP/dc-work" "$RUNNER_TEMP/dc-run"
+          ( cd "$RUNNER_TEMP/dc-run" \
+              && python3 -c "import sys; sys.stdout.write('x\n' * 400)" \
+                   | "$GATE" --root "$GITHUB_WORKSPACE" --subject "$SUBJECT" \
+                             --work "$RUNNER_TEMP/dc-work" ) > "$RUNNER_TEMP/dc.log" 2>&1 \
+            || { grep -v '^$' "$RUNNER_TEMP/dc.log" >&2; exit 1; }
+          grep -v '^$' "$RUNNER_TEMP/dc.log"
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on
