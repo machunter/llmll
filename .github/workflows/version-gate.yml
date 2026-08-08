@@ -137,6 +137,64 @@ jobs:
         run: |
           which jq || (sudo apt-get update && sudo apt-get install -y jq)
 
+      # THE SOLVER. `llmll verify` proves nothing by itself: it shells out to
+      # `fixpoint` (liquid-fixpoint), which shells out to z3. Absent either it
+      # exits 3 — "solver unavailable (proof did not run)",
+      # compiler/app/Main.hs:1386 — for every case whose verdict needs a proof.
+      #
+      # This job had Stack and nothing else from the day it was written, and the
+      # reason nothing noticed is worth keeping: no gate in it had ever asked for
+      # a proof. doc_claims_gate.sh, build_smoke.sh and spec_roundtrip.py all
+      # decide without one, so the job ran green in ~2 minutes while being
+      # incapable of verifying a single program. The refute-crux gate wired in at
+      # a23e361 is the first that cannot, and its first run on Linux reported 78
+      # of 80 frozen verdicts as diverged when not one had: all 78 were exit 3.
+      # The two that passed are what identify the cause rather than leaving it
+      # inferred — they are the only two whose verdict is reached BEFORE the
+      # solver (a capability refusal and a coverage threshold).
+      - name: Install z3 (fixpoint shells out to it)
+        run: |
+          which z3 || (sudo apt-get update && sudo apt-get install -y z3)
+          z3 --version
+
+      # Keyed on the pin file alone, and a SEPARATE cache from the Stack one
+      # above on purpose. That key is hashFiles() over the compiler's stack.yaml,
+      # which this pin does not appear in, so a fixpoint built into ~/.stack
+      # would ride a key that cannot express whether it is there. Worse, on an
+      # exact key hit actions/cache skips the save, so the build below would
+      # repeat in full on every run while the cache reported healthy.
+      - name: Cache fixpoint binary
+        id: cache-fixpoint
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/fixpoint
+          key: fixpoint-${{ runner.os }}-${{ hashFiles('scripts/fixpoint.stack.yaml') }}
+
+      # Expensive once, then restored as a single binary. The recipe is copied
+      # from Dockerfile:40-49 rather than invented, which is what makes it a
+      # proven mechanism and not a guess: that Dockerfile builds this exact
+      # version against this exact snapshot, and scripts/tests/docker-acceptance.sh
+      # passing against the resulting image is what says the distro z3 shipped
+      # beside it is adequate for these proofs.
+      - name: Build liquid-fixpoint (fixpoint)
+        if: steps.cache-fixpoint.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          stack --stack-yaml scripts/fixpoint.stack.yaml \
+            install liquid-fixpoint-0.9.6.3.1 --local-bin-path "$HOME/.local/bin"
+
+      # Separate step because GITHUB_PATH takes effect in SUBSEQUENT steps, not
+      # the one that writes it. The assertion is here rather than left to the
+      # gate so an absent solver fails naming itself, instead of 78 cases each
+      # reporting a verdict that did not diverge.
+      - name: Put fixpoint on PATH and assert the toolchain is complete
+        run: |
+          set -euo pipefail
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          test -x "$HOME/.local/bin/fixpoint" \
+            || { echo "fixpoint missing at $HOME/.local/bin/fixpoint"; exit 1; }
+
       # The refute-crux verdict gate: 80 frozen `llmll verify` verdicts across
       # twelve suites. Until now it was a `make` target only and no workflow ran
       # it. So the regression class it exists to catch (refutation silently
@@ -149,12 +207,18 @@ jobs:
       # takes no LLMLL_BIN because it hardcodes the same `stack exec llmll --`
       # this job passes to the other two gates.
       #
-      # It re-runs `stack build` as a preflight. That is a no-op after the build
-      # step above, and it is the script's stale-binary guard (finding F-3):
-      # `stack exec` does not rebuild, so without it a compiler change is graded
-      # against the old binary and a lost refutation reads as vacuously SAFE.
-      # Costs ~3 min on top of the build; measured 80 passed / 0 failed at
-      # f555070.
+      # It does NOT re-run `stack build`, and this comment used to say it did.
+      # The stale-binary guard (finding F-3: `stack exec` does not rebuild, so a
+      # compiler change graded against the old binary makes a lost refutation
+      # read as vacuously SAFE) moved OUT of the script and onto its callers at
+      # a23e361, precisely so the LLMLL port would not inherit a dependency on a
+      # Haskell build system. In this job the guard is the `Build llmll` step
+      # above; in `make` it is the target's own build. Running the script with
+      # neither caller grades whatever `stack exec` finds.
+      #
+      # Measured 80 passed / 0 failed at f555070 — on macOS, where the solver
+      # happened to be on PATH. On Linux the same script scored 2 passed / 78
+      # failed until the solver steps above existed.
       - name: Run refute-crux verdict gate
         run: bash scripts/refute-crux-gate.sh
 

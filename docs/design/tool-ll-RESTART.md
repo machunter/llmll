@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, current at `268df95`, 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. The agreed next action is MERGE (§3), not more porting. 32 commits are unpushed and none of this has run in CI."
+status: "LIVE, 2026-08-07, post-merge. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. THE MERGE IS DONE and its first CI run was RED — the spec-roundtrip job has never had a solver, so the refute-crux gate could not decide a single proof-bearing verdict (finding 12). Fixed forward. The two release tags stay unpushed until a version-gate run on main is green."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -19,23 +19,30 @@ repository has gone stale inside a day before.
 
 ## 1. Where the work is
 
-Branch `tool-ll/campaign-4e-hole-status`. At `268df95`: **25 commits ahead of
-local `main`**, local `main` **7 commits ahead of `origin/main`**, so **32
-commits are unpushed and NONE of this has ever run in CI**. Working tree clean.
+**THE MERGE IS DONE.** `tool-ll/campaign-4e-hole-status` fast-forwarded into
+local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
+`b9cbf00..8bf4ece` on 2026-08-07. The branch still exists and is now identical
+to `main`. The counts this section used to carry are retired: they were a
+property of an unmerged branch and there is no longer one.
 
-**This record's own commit makes it 26 and 33.** Stating that rather than
-quietly being wrong by one: a file that stamps a count cannot stamp the commit
-that writes the stamp, and the previous version of this section was stale by
-four commits for exactly that reason.
+**The first CI run on that push FAILED, and the cause was worth the merge.**
+`version-gate`'s fast job went green on Linux, including all 190 pytest tests
+and the four new suites. `spec-roundtrip` failed at the refute-crux gate with
+**2 passed / 78 failed** — not an encoding failure, not a verdict regression,
+and not anything the port did: the job has never had a solver, so `llmll verify`
+exited 3 on every proof-bearing case. Full diagnosis in finding 12; the fix is
+`scripts/fixpoint.stack.yaml` plus four workflow steps plus a preflight in the
+gate. **`docker-publish` on the same push went green**, so the compiler changes
+in this merge are fine on Linux and the image still builds and verifies.
 
-The count is stamped with the commit because this file's first version said 15
-and was stale within the hour. If `HEAD` is not `268df95`, re-measure rather
-than reading on:
-`git rev-list --count main..HEAD` and `git rev-list --count origin/main..main`.
+**Re-measure, do not read on.** If `git rev-list --count origin/main..main` is
+not 0, or the newest `version-gate` run on `main` is not green, this section is
+describing a world that has moved:
+`gh run list --branch main --limit 3`.
 
-**Tags are a separate matter and four of them ARE pushed** (§3). Tags on
-commits already in `origin/main` need no branch push, which is why P1 could
-close while the branch stayed local.
+**Tags: four ARE pushed, and the two owed ones still are NOT.** `v0.14.88` and
+`v0.14.89` remain unpushed and stay that way until a `version-gate` run on
+`main` is green, for the `docker-publish` reason below.
 
 **The branch was renamed 2026-08-07**, from `hole-status-sibling/brief-unfilled-status`.
 It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries four
@@ -73,11 +80,15 @@ User adjudications, 2026-08-07:
 
 **Agreed with the user 2026-08-07, after 002 landed. Do not re-derive it:**
 
-1. **Merge this branch to `main` and push.** 32 commits, 48 files, 7,664
-   insertions, two compiler behaviour changes, and a workflow step that has
-   never run on Linux. Merging now is right BECAUSE the delta only grows; doing
-   the bug work first makes the first CI run bigger, not safer.
+1. ~~**Merge this branch to `main` and push.**~~ **DONE**, 2026-08-07 (§1).
+   Merging before the bug work was right, and the first run is the evidence: it
+   found a defect that only exists on Linux (finding 12) and that no amount of
+   local work would have surfaced.
 2. **Watch that CI run. Tags only after it is green** (§1 says why).
+   **The first run was RED**, at the refute-crux gate, for an absent solver
+   rather than anything the merge changed. Fixed forward, not reverted. Until a
+   `version-gate` run on `main` is green, this step is still open and the two
+   tags stay unpushed.
 3. **`CAPTURE-ENCODING-1` next**: a `[CT]` bug, and the one 003 would feel,
    since `doc_claims_gate.sh` prints `✔`/`✘`.
 4. **`JSON-SCALAR-1` and `PROC-MERGE-1` behind a language-team shape call**,
@@ -180,8 +191,8 @@ which matters more than usual right now: see finding 10.
 |---|---|
 | `stack test` | 1656 examples, 0 failures |
 | `pytest scripts/tests/` | 190 passed, 1 skipped |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed |
-| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed **on macOS, with a solver on `PATH`**. On Linux CI it scored **2 passed / 78 failed** until the job learned to build one: finding 12 |
+| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s. **Has never run on Linux at all**: its CI step sits after the shell gate, which failed first |
 | [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells, 3 negative controls, ~7 min; needs `--gate` and `--llmll` |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 916 citations, all resolve |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
@@ -271,6 +282,37 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
     comment. "Look back at 001/002" is those two sites, not an audit; 001 is
     untouched by this round, its scanner being `REGEX-LOWER-1`/`SPLIT-EMPTY-1`.
 
+12. **The `spec-roundtrip` job had no solver, and nothing noticed because no
+    gate in it had ever needed one.** `llmll verify` proves nothing by itself:
+    it shells out to `fixpoint`, which shells out to z3, and absent either it
+    exits **3** — "solver unavailable (proof did not run)",
+    [`Main.hs:1386`](../../compiler/app/Main.hs). The job set up Stack and
+    nothing else from the day it was written and ran green in ~2 minutes the
+    whole time, because `doc_claims_gate.sh`, `build_smoke.sh` and
+    `spec_roundtrip.py` all decide without a proof. The refute-crux gate P3
+    wired in is the first that cannot, and its first Linux run scored **2 passed
+    / 78 failed**, every failure exit 3.
+
+    **The two that passed are what identify the cause rather than leaving it
+    inferred**: they are the only two whose verdict is reached BEFORE the solver
+    (a capability refusal and a coverage threshold). So this was an absent
+    toolchain, not a verification regression, and not the encoding failure
+    finding 10 predicted.
+
+    **Sibling of finding 6, one turn further on.** A gate that is not wired in
+    decides nothing; **a gate wired into a job that cannot run it decides
+    nothing either, and says it did.** The script had a `jq` preflight and no
+    `fixpoint`/`z3` one, so it printed `78 frozen verdict(s) diverged` when zero
+    had diverged — the same silent-wrong-answer class as finding 8, in a gate's
+    own summary line. Fixed three ways: the job apt-installs z3 and builds
+    `fixpoint` from [`scripts/fixpoint.stack.yaml`](../../scripts/fixpoint.stack.yaml)
+    (the Dockerfile's pin, cached on that file's hash), and the gate now refuses
+    to grade verdicts it cannot decide.
+
+    **Generalise finding 10 while you are here.** It says every ENCODING
+    measurement in this record is macOS-only. So is every measurement that
+    needed a proof, for the same reason, and this is what that costs.
+
 ## 7. Gotchas that cost real time this session
 
 - **zsh does not word-split unquoted parameters.** `set -- $pair` inside a loop
@@ -295,6 +337,14 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
 
 - **Both release tags (`v0.14.88`, `v0.14.89`) are owed and unpushed**, gated on
   a green CI run after the merge (§1, §3).
+- **The port has no solver preflight and the reference now does.** Finding 12's
+  fix went into `refute-crux-gate.sh` only, so on a host without `fixpoint` or
+  z3 the shell gate refuses by name while `refutecrux.llmll` would still grade
+  80 undecidable cases and report them diverged. That is a real divergence
+  between two implementations declared `oracle`, and it is recorded rather than
+  quietly introduced: it does not fire in CI, because the job now has a solver
+  before either step runs. Close it when the port is next touched — the
+  preflight is `wasi.proc.run` on `which`, not new language surface.
 - **No parse gate over design-doc frontmatter.**
 - `HDelegate`, `HDelegateAsync`, `HDelegatePending`, `HConflictResolution` reach
   the HOLE-STATUS-SIBLING catch-all unpinned by any test.

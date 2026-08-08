@@ -1,0 +1,23 @@
+# The liquid-fixpoint pin that `llmll verify` needs a `fixpoint` binary from.
+#
+# Copied from Dockerfile:40-49, deliberately and not invented. lts-22.43 does
+# not ship smtlib-backends or smtlib-backends-process, so both are supplied as
+# pinned extra-deps; everything else liquid-fixpoint-0.9.6.3.1 needs resolves
+# from the snapshot. The snapshot matches compiler/stack.yaml's resolver, so the
+# GHC that `stack build llmll` already provisioned is reused instead of a second
+# one being downloaded.
+#
+# `packages: []` is not an oversight. This project builds nothing of its own and
+# exists only to give `stack install liquid-fixpoint-0.9.6.3.1` a resolver and an
+# extra-deps set to resolve against.
+#
+# THIS IS A FILE RATHER THAN A HEREDOC FOR ONE REASON: it is hashed into the CI
+# cache key (.github/workflows/version-gate.yml, "Cache fixpoint binary"), so
+# changing the pin invalidates the cached binary. Inlined in the workflow, the
+# pin and the key would drift and a changed pin would silently keep restoring a
+# `fixpoint` built from the old one.
+snapshot: lts-22.43
+packages: []
+extra-deps:
+  - smtlib-backends-0.4@sha256:a7ae228f4464727a8c725341cf9b6690577f5289c80a33e8960264e296fb9a47,1258
+  - smtlib-backends-process-0.3@sha256:bb730a55c5974eeb24112b560d30c49d518d6de45148723435219baa269f8b5e,1676

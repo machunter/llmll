@@ -50,7 +50,35 @@ FAMILIES=(
 )
 
 if ! command -v jq &> /dev/null; then
-  echo "ERROR: jq is required. Install with: brew install jq"
+  echo "ERROR: jq is required."
+  echo "  macOS: brew install jq        Linux: apt-get install jq"
+  exit 1
+fi
+
+# THE SOLVER PREFLIGHT, and it is not tidiness. `llmll verify` shells out to
+# `fixpoint`, which shells out to z3; absent either it exits 3 — "solver
+# unavailable (proof did not run)", compiler/app/Main.hs:1386 — for every case
+# whose verdict needs a proof.
+#
+# Without this check the loop below dutifully records each one as a diverged
+# frozen verdict and the summary prints "N frozen verdict(s) diverged" when
+# nothing diverged at all. That is exactly what this gate's first Linux run
+# printed: 78 failures, one cause, and a closing line pointing whoever read it
+# at a verification regression that did not exist. The verdicts were never
+# decided, so the gate must say so instead of grading them.
+MISSING=""
+command -v fixpoint &> /dev/null || MISSING="$MISSING fixpoint"
+command -v z3 &> /dev/null       || MISSING="$MISSING z3"
+if [ -n "$MISSING" ]; then
+  echo "ERROR: solver toolchain incomplete — missing:$MISSING"
+  echo
+  echo "  \`llmll verify\` exits 3 (solver unavailable) without both, so every"
+  echo "  proof-bearing verdict here would be reported as diverged when the proof"
+  echo "  simply did not run. Refusing to grade verdicts that cannot be decided."
+  echo
+  echo "  macOS: brew install z3 && stack install liquid-fixpoint-0.9.6.3.1"
+  echo "  Linux: apt-get install z3, then build fixpoint from"
+  echo "         scripts/fixpoint.stack.yaml (see .github/workflows/version-gate.yml)"
   exit 1
 fi
 
