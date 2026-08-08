@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-08, post-merge and GREEN. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. THE MERGE IS DONE, main is green at 235da63, and both owed tags are pushed with both images published. Getting there took three fix-forward commits for three defects the merge exposed and macOS could not: no solver in CI (finding 12), `stack exec` outside a stack project (§7), and a version cover that pinned the version it exists to unpin (finding 13). Next is CAPTURE-ENCODING-1, then the two [CT][SPEC] shape calls, then 003 RFC-first."
-date: 2026-08-07
+status: "LIVE, 2026-08-08. Green and fully released. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. THE MERGE IS DONE, main is green at 2d27c0d (v0.14.90), and all three tags are pushed with all three images published (:latest == v0.14.90's digest). Getting the merge green took three fix-forward commits for three defects it exposed and macOS could not: no solver in CI (finding 12), `stack exec` outside a stack project (§7), and a version cover that pinned the version it exists to unpin (finding 13). CAPTURE-ENCODING-1 is then SHIPPED in v0.14.90 and both of its workarounds are gone. Next is the two [CT][SPEC] shape calls, which are language-team's and NOT the porter's, then 003 RFC-first."
+date: 2026-08-08
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 ---
@@ -25,10 +25,11 @@ local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
 to `main`. The counts this section used to carry are retired: they were a
 property of an unmerged branch and there is no longer one.
 
-**`main` IS GREEN, at `235da63`, and it took three fix-forward commits to get
-there.** The merge's first CI run failed, and so did the two after it. **Every
-one of the three was a defect the merge exposed and none was visible from
-macOS**, which is the case for having merged before doing the bug work:
+**`main` IS GREEN, at `2d27c0d` (v0.14.90), and getting the merge itself green
+took three fix-forward commits.** The merge's first CI run failed, and so did
+the two after it. **Every one of the three was a defect the merge exposed and
+none was visible from macOS**, which is the case for having merged before doing
+the bug work:
 
 | Run | Failed at | Cause | Fixed by |
 |---|---|---|---|
@@ -40,12 +41,10 @@ Findings 12, 13 and §7 carry them. **Three of the three are finding 6's class**
 wired but never run, written but never executed, or measured somewhere it could
 not fail.
 
-**Both owed tags are now PUSHED and both images are published.** `v0.14.88`
-(`d6e9f01`) then `v0.14.89` (`c7c057a`), in that order and separately, each
-verified first for banner-matches-tag, `version_gate.sh` exit 0 in a detached
-worktree, and ancestry of `origin/main`; `v0.14.88` was observed green at its
-`Build + push (amd64)` step before `v0.14.89` was pushed, so `:latest` lands on
-the higher version rather than on whichever run finished last.
+**All owed tags are PUSHED and all images are published**, each verified at the
+REGISTRY and not at a run's green check: `v0.14.88` `5c1194d4`, `v0.14.89`
+`92f501d4`, `v0.14.90` `0720f75d`, and `latest` resolving to `0720f75d` — the
+same digest as `v0.14.90`, which is what says the ordering rule below worked.
 
 **Re-measure, do not read on.** If `git rev-list --count origin/main..main` is
 not 0, or the newest `version-gate` run on `main` is not green, this section is
@@ -57,18 +56,26 @@ It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries fou
 unrelated bodies of work: theory-question records, a doc-frontmatter fix, all of
 DRIVER-LL sub-phase 4e, and the TOOL-LL campaign. The name now says so.
 
-**TWO releases sit on it, both untagged.** v0.14.88 (`d6e9f01`) releases
-`6547de4`, which changes `Checkout.hs` and `HoleAnalysis.hs` so a sibling whose
-body still holds a hole reads `status: "unfilled"` and moves `brief_version` to
-0.12.3. v0.14.89 (`c7c057a`) releases `FD-CAPTURE-1` plus TOOL-RFC-002. Banners
-read 0.14.89 and `version_gate.sh` passes.
+**THREE releases came out of this branch and all three are tagged and
+published.** v0.14.88 (`d6e9f01`) releases `6547de4`, which changes
+`Checkout.hs` and `HoleAnalysis.hs` so a sibling whose body still holds a hole
+reads `status: "unfilled"` and moves `brief_version` to 0.12.3. v0.14.89
+(`c7c057a`) releases `FD-CAPTURE-1` plus TOOL-RFC-002. v0.14.90 (`2d27c0d`)
+releases `CAPTURE-ENCODING-1`.
 
-**Neither tag is pushed and neither should be until CI is green on `main`.**
-The tags are owed at merge, and `docker-publish.yml`'s publish job runs
-`version_gate.sh` AT THE TAG and pushes an image, so tagging a red `main`
-publishes an image built from a broken tree. The campaign's settled
-distribution is jobs pulling exactly those images (§2), which is why this
-ordering is a constraint and not a preference.
+**THE ORDERING RULE THAT PRODUCED THAT, KEPT BECAUSE IT STILL BINDS.**
+`docker-publish.yml`'s publish job runs `version_gate.sh` AT THE TAG and pushes
+an image to ghcr.io, so tagging a red `main` publishes from a broken tree, and
+the campaign's settled distribution is jobs pulling exactly those images (§2).
+Tag only after `version-gate` is green on `main`. Push tags SEPARATELY, lowest
+first, each observed green at its `Build + push (amd64)` step before the next:
+concurrent runs race and `:latest` follows whichever finishes last, not the
+highest version.
+
+**v0.14.88 and v0.14.89 were BACKFILLED; v0.14.90 was not.** The first two sat
+untagged across a merge and three red runs. The third was tagged the same day,
+on a commit already green on Linux and whose image had already passed the
+container acceptance gate in the `main` run. That is the shape to repeat.
 
 ## 2. What is settled, and must not be re-litigated
 
@@ -96,8 +103,16 @@ User adjudications, 2026-08-07:
    were red and each named a real defect (§1's table). `main` is green at
    `235da63`, both tags are pushed and both images are published, `:latest`
    resolving to the same digest as `v0.14.89`.
-3. **`CAPTURE-ENCODING-1` next**: a `[CT]` bug, and the one 003 would feel,
-   since `doc_claims_gate.sh` prints `✔`/`✘`.
+3. ~~**`CAPTURE-ENCODING-1` next.**~~ **SHIPPED v0.14.90**, tagged and published
+   the same day. Cause: `System.Posix.IO.fdToHandle` returns a handle in BINARY
+   mode, which is the ABSENCE of a codec rather than a wrong one, so
+   `setLocaleEncoding` had nothing to inform — `hGetEncoding` answers `Nothing`
+   on both pipe ends while the locale reads UTF-8. Fixed by pinning `utf8` on
+   both ends, write end BEFORE the redirect; all four configurations ablated.
+   **Both workarounds are gone** (finding 11), so the port writes a real `→` and
+   the cover compares labels instead of normalising them — which is also how the
+   Linux datapoint arrived, since that comparison cannot pass on Linux unless the
+   fix works there.
 4. **`JSON-SCALAR-1` and `PROC-MERGE-1` behind a language-team shape call**,
    per finding 9.
 5. **Then 003, RFC-first.**
@@ -197,7 +212,7 @@ which matters more than usual right now: see finding 10.
 | Gate | Figure |
 |---|---|
 | `stack test` | 1656 examples, 0 failures |
-| `pytest scripts/tests/` | 190 passed, 1 skipped |
+| `pytest scripts/tests/` | 196 passed, 1 skipped |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed **on macOS, with a solver on `PATH`**. On Linux CI it scored **2 passed / 78 failed** until the job learned to build one: finding 12 |
 | [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s. **Has never run on Linux at all**: its CI step sits after the shell gate, which failed first |
 | [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells, 3 negative controls, ~7 min; needs `--gate` and `--llmll` |
@@ -205,8 +220,8 @@ which matters more than usual right now: see finding 10.
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate`. **The "14 passed" this table used to carry at `268df95` was NOT true at `268df95`**: the cover pinned `v0.14.87` and had been failing 5 cells since `d6e9f01`. Finding 13 |
-| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.89 |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 10. **Also not true at `268df95`** — its last stage runs the cover above, so it had been failing since `d6e9f01` too. Finding 13 |
+| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.90 |
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages including the new capture-encoding one. **Also not true at `268df95`** — its last stage runs the cover above, so it had been failing since `d6e9f01` too. Finding 13 |
 
 **Rebuilding the port**, which several of these need:
 
@@ -282,12 +297,15 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
     `CAPTURE-ENCODING-1`'s `codepoint mod 256` finding has no Linux datapoint,
     and getting one is an argument for merging BEFORE fixing it.
 
-11. **The workarounds for two gaps are pre-marked for removal.** When
-    `JSON-SCALAR-1` closes, `json-string-value` in the port disappears. When
-    `CAPTURE-ENCODING-1` closes, the port's `->` becomes `→` and the
-    normalisation line in `refute_crux_cover.py` goes. Both sites say so in a
-    comment. "Look back at 001/002" is those two sites, not an audit; 001 is
-    untouched by this round, its scanner being `REGEX-LOWER-1`/`SPLIT-EMPTY-1`.
+11. **The workarounds for two gaps were pre-marked for removal, and half of them
+    are now removed.** `CAPTURE-ENCODING-1`'s pair went with v0.14.90: the port
+    writes a real `→` and `refute_crux_cover.py`'s normalisation line is gone, so
+    the two implementations' labels are COMPARED rather than reconciled. **The
+    pre-marking paid off exactly as intended** — closing the row was a two-line
+    edit at sites that named themselves, not an audit. Still outstanding:
+    `json-string-value` in the port disappears when `JSON-SCALAR-1` closes. 001
+    is untouched by this round, its scanner being
+    `REGEX-LOWER-1`/`SPLIT-EMPTY-1`.
 
 12. **The `spec-roundtrip` job had no solver, and nothing noticed because no
     gate in it had ever needed one.** `llmll verify` proves nothing by itself:
@@ -384,7 +402,11 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
   llmll` 1.3, z3 0.2, jq under 5s, job total 16.2. So **jq and z3 are not the
   cost and fixpoint is already solved by the cache** — it only kept rebuilding
   because `actions/cache` does not save on a failed job and no job had yet
-  succeeded. The real arguments for an image are determinism (cache entries
+  succeeded. **CONFIRMED once one did**: the next two runs show
+  `Build liquid-fixpoint: skipped` and the job at **10.9 min against 16.2**, so
+  the image's remaining SPEED case is roughly fifteen seconds (jq plus z3) and
+  should not be argued on that basis. The real arguments for an image are
+  determinism (cache entries
   evict at 7 days, and the Stack key is `hashFiles(compiler/stack.yaml)`, so a
   resolver bump silently restores the 6-minute tail) and baking the lts-22.43
   snapshot db, which would bite into the port step's 5.2 min of
