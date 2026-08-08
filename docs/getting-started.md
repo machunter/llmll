@@ -1715,6 +1715,17 @@ Accessors return `Result`, so match or use `unwrap-or`:
   (unwrap-or (json-get-string j "cid") ""))
 ```
 
+**An element of an array is read with `json-as-*`, not `json-get-*`.** The `json-get-*` family takes a **key** and reads a member of an object; a scalar sitting in an array has no key, so it needs the projection family, which is the same list of types minus the key argument:
+
+```lisp
+(def-shell flags-of [c: Json] -> list[string]
+  (list-map (unwrap-or (json-array (unwrap-or (json-get c "flags") json-object))
+                       (list-empty))
+            (fn [x: Json] (unwrap-or (json-as-string x) "<non-string-flag>"))))
+```
+
+Note the default on the last line. `(unwrap-or ... "")` is a natural habit for a **missing field**, and on a **mis-typed value** it converts a type error into a plausible one: that exact substitution is how a real gate ran its whole corpus with every flag silently dropped. When the `err` means "this document is malformed" rather than "this field is absent", pick a default that fails loudly or match on the `Result` instead.
+
 Building a document is functional; `json-set` returns a new value rather than mutating:
 
 ```lisp

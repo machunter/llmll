@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.90)
+# LLMLL: Large Language Model Logical Language (v0.14.91)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.90.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.91.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2531,7 +2531,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes. `(wasi.fs.copy src dst)` puts the **source first**; a reversed call type-checks and overwrites the source instead |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
-| `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs)`. The three trailing `string` parameters are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks |
+| `wasi.proc.run` | `string list[string] string string string int -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs)`. The three trailing `string` parameters are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks. **Equal stdout and stderr path strings mean MERGE**, the counterpart to a shell's `2>&1`: one handle carries both streams. The test is **string equality, not path identity**, so `"log"` and `"./log"` do not merge. **The interleaving is not specified**: it is the order the child flushes, not the order it writes, so a child that buffers one stream and not the other can emit them out of write order |
 | `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order: `(seq-commands first second)` runs `first`, then `second`. Both parameters are `Command`, so a reversed call type-checks and silently inverts the order |
 
 > **What a `Command` returns.** A `Command` value is not the result of an effect; it is a request to
@@ -2726,7 +2726,7 @@ Operations over the compound types `bytes[n]` and `map[k,v]` (§3.2). Reads carr
 
 ### 13.13 JSON Operations
 
-Operations over the sealed opaque type `Json` (§3.2). All fourteen are **`def-shell`-only**: a `def` body calling one is rejected with `core-excluded-builtin` (§4.1). Every partial operation returns `Result`, because a JSON value's shape is not statically expressible and there is no `match` form to discriminate it.
+Operations over the sealed opaque type `Json` (§3.2). All eighteen are **`def-shell`-only**: a `def` body calling one is rejected with `core-excluded-builtin` (§4.1). Every partial operation returns `Result`, because a JSON value's shape is not statically expressible and there is no `match` form to discriminate it.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
@@ -2738,6 +2738,10 @@ Operations over the sealed opaque type `Json` (§3.2). All fourteen are **`def-s
 | `json-get-bool` | `Json string → Result[bool,string]` | `err` unless the member is a bool. |
 | `json-get-number` | `Json string → Result[string,string]` | The member's **source lexeme**, unparsed. |
 | `json-array` | `Json → Result[list[Json],string]` | The bridge to `list[t]`, for iteration. |
+| `json-as-string` | `Json → Result[string,string]` | `err` unless the value **is** a string. Takes no key. |
+| `json-as-int` | `Json → Result[int,string]` | `err` unless the value is an **integer lexeme**. |
+| `json-as-bool` | `Json → Result[bool,string]` | `err` unless the value is a bool. |
+| `json-as-number` | `Json → Result[string,string]` | The value's **source lexeme**, unparsed. |
 | `json-object` | `Json` | The empty object. A **value**, not a call. |
 | `json-set` | `Json string Json → Result[Json,string]` | `(json-set obj name value)`: the **receiver comes first** and the new value last. Functional update: replace in place, append when absent. Both `Json` positions share a type, so a transposed call type-checks. |
 | `json-of-string` | `string → Json` | |
@@ -2746,6 +2750,8 @@ Operations over the sealed opaque type `Json` (§3.2). All fourteen are **`def-s
 | `json-of-list` | `list[Json] → Json` | |
 
 **Numbers are stored as source lexemes.** `json-parse` keeps a number's original text and `json-serialize` emits it unchanged, so a parsed number survives a round trip byte for byte and a large integer keeps full precision. `json-get-int` is therefore strict: `1.0` denotes an integral value but is not an integer lexeme, and returns `err`. There is no float projection; `json-get-number` returns the lexeme and the program decides what to do with it. Comparing that lexeme against a string literal is also what keeps such a check inside `Σ_auto`, where a float comparison would not be (§5.3.5).
+
+**The `json-as-*` family is the `json-get-*` family minus the key**, and reads a `Json` value directly rather than a member of one. It exists for the element of a `json-array`, which is a scalar with no name to look it up by: `(json-get-string x "")` on such an element is `err`, because `json-get` on a non-object is `err`. Together with `json-array` the five projections partition `Json`, so no value satisfies two of them, and none coerces: `(json-as-string v)` on the number `7` is `err`, not `ok "7"`. `json-as-int` is strict on `1.0` on the same ground as `json-get-int`.
 
 **Duplicate member names are rejected**, compared after unescaping, per RFC 7493 §2.3. RFC 8259 §4 leaves the behaviour to the implementation; rejecting is what makes `json-set` replace-in-place total, so `(json-get (json-set v k x) k)` is `(ok x)` unconditionally.
 

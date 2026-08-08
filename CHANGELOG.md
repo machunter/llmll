@@ -4,6 +4,128 @@
 
 <a id="Latest"></a>
 
+## v0.14.91: two absences, and what the callers did instead (2026-08-08)
+
+Both gaps in this release were filed by the TOOL-LL campaign's second port and
+deliberately left open there, because campaign §9 makes the SHAPE of a
+`[CT][SPEC]` gap language-team's call and not the porter's. Both are the same
+species: an operation the language did not have, whose absence every call site
+worked around locally, so nothing in the toolchain could see a defect.
+
+### Added: a scalar element of a JSON array can be read back as a value
+
+`JSON-SCALAR-1`. `json-array` returns `list[Json]`, and every element accessor
+took a **key** and read a **field of an object**. No operation read a scalar
+`Json` as a value, so `["--strict-verified-core"]` could not be turned back into
+a `string` at all.
+
+Four builtins close it, shaped as the field family minus the key:
+
+| | |
+|---|---|
+| `json-as-string` | `Json → Result[string,string]` |
+| `json-as-int` | `Json → Result[int,string]`, strict on `1.0` |
+| `json-as-bool` | `Json → Result[bool,string]` |
+| `json-as-number` | `Json → Result[string,string]`, the source lexeme |
+
+`json-array` was already a projection of exactly this shape, so this completes a
+family that had one member rather than introducing a new kind of operation.
+Together the five partition `Json`: no input satisfies two of them.
+
+**`Result`-valued rather than `""`-on-failure, and that is the whole
+adjudication.** The entire cost of this defect was that its failure was
+indistinguishable from an empty string.
+
+**The mechanism of that silence, corrected while closing the row.** It was
+recorded that `(json-get-string x "")` on a scalar *answers* `""`. It does not:
+`json-get` on a non-object is `err`, so the accessor is `err` too. The empty
+string came from the **caller**. The refute-crux port's `jstr` wraps every field
+read in `(unwrap-or ... "")`, a reasonable habit for an absent field, which
+turned a type error into a plausible value; the port then invoked its subject
+with no flags at all and reported 30 passed / 50 failed, where 50 is exactly the
+count of flagged cases. The correction strengthens the row: the defect was not
+one builtin answering wrongly, it was a missing operation whose absence every
+caller papered over, which is why no gate could see it.
+
+The workaround this forced (`json-serialize`, then strip the quotes it renders)
+is deleted from the port. It was also **wrong and not merely verbose**: the
+emitted `jsonQuote` escapes every character above `~` as `\uXXXX`, so a flag
+carrying a non-ASCII character came back as six literal characters.
+
+### Added: `wasi.proc.run` can merge a child's stdout and stderr
+
+`PROC-MERGE-1`. **Equal path strings mean merge**: one handle, passed to both
+`std_out` and `std_err`, which is what a shell's `2>&1` does. The signature does
+not change. Passing the same path twice previously opened **two** handles at
+position 0 over one file and they wrote over each other, so no working program
+can depend on the old behaviour and this repairs a silent corruption rather than
+altering a contract.
+
+**The prior question was settled by measurement before the mechanism was
+chosen, and it decided the shape. Ordering is not part of the contract and
+cannot be.** A merged stream's interleaving is the order the **child** flushes,
+not the order it writes: probed directly, a child writing stdout first and
+stderr second lands **stderr first**, because stdout is block-buffered when its
+fd is a file and stderr is not. A port promising byte-identical excerpts would
+have been promising something the child owns.
+
+**The test is string equality, not path identity**, so `"log"` and `"./log"` do
+not merge. Canonicalizing would need a syscall against a file that does not
+exist yet, and a merge convention that depends on the filesystem's state is
+worse than one a reader can settle from the call site.
+
+### Gates: two executed fixtures, each shown to discriminate
+
+Neither defect is visible to a check-only gate: for `JSON-SCALAR-1` the whole
+family was absent, and absence type-checks and verifies; for `PROC-MERGE-1` the
+signature, the effect label and the response arm are all unchanged. So both
+fixtures are **built and run** by `build_smoke.sh`.
+
+`json_scalar.llmll` reads one scalar of each type out of its own single-element
+array, and its assertion is the two **refusals** rather than the three values:
+`1.5` through `json-as-int` and `7` through `json-as-string` must both be `err`.
+`proc_merge.llmll` spawns `/bin/sh` twice, once with equal paths and once with
+unequal ones, and asserts containment in both directions; the second run is what
+stops an unconditional merge from passing.
+
+**Both gates were mutation-checked rather than assumed to work.** Making the
+merge unconditional flips the split control to `OUT=n|ERR=n`; making
+`json-as-string` coerce and `json-as-int` narrow flips exactly the two refusal
+cells while all three value cells stay correct, which is the measured argument
+for why the value cells alone would not have caught either.
+
+### Fixed: the refute-crux port now refuses to grade verdicts it cannot decide
+
+Two implementations of one gate are both declared `oracle`, meaning either is
+supposed to answer for the other. On a host without `fixpoint` or z3 they did
+not. `llmll verify` exits **3** without a solver ("solver unavailable, the proof
+did not run"), and finding 12's fix had gone into the shell reference only, so
+the reference refused by name while `refutecrux.llmll` had no preflight at all.
+
+The port now probes `which fixpoint` and `which z3` before reading its first
+manifest and refuses with the reference's message and exit 1. The discriminator
+is the exit code alone: 0 is found, 1 is `which` running and not finding it, and
+127 is the port's score for a spawn failure, which is what happens if `which`
+itself is absent. Every non-zero case refuses, so an unusual environment fails
+safe. The probe writes to `/dev/null` twice, a path that always exists so the
+check cannot fail for a reason unrelated to the solver.
+
+**The pre-fix behaviour was worse than recorded: it DEADLOCKS.** The restart
+record predicted the port "would still grade 80 undecidable cases and report
+them diverged". Measured against the pre-fix binary with `fixpoint` and z3
+hidden and nothing else changed, it stops dead instead: 1882 bytes of output
+frozen, 1.11s of CPU not moving across a 90-second sample, sleeping. Reproduced
+five times at exactly the same byte count, with stdin from a file and stdout to
+a file and the process detached, so it is not the launching harness. A short run
+completes normally, which puts the deadlock near step 1882 of the ~1997 a full
+run takes: just before the end, with the report never flushed.
+
+So the two `oracle` implementations did not disagree about a number. One refused
+by name in under a second and the other hung indefinitely. The deadlock is left
+unexplained and is now unreachable through the gate.
+
+**Tests:** 1666 Haskell (from 1656), 197 Python.
+
 ## v0.14.90: a handle with no encoding to set (2026-08-08)
 
 ### Fixed — a console program could not put a non-ASCII character on its own stdout

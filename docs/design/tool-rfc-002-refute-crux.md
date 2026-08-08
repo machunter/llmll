@@ -165,9 +165,9 @@ iteration and substring containment, both exist here.
 | no `trap`, no exit hook, so the scratch tree is not removed on abnormal exit | COSMETIC | | The reference's `trap 'rm -rf "$WORKDIR"' EXIT` is a convenience over an ephemeral runner. The port deletes explicitly on the success path via `wasi.fs.delete` and leaves the directory on a crash. `--work` is caller-supplied, so the caller owns the lifetime. Nothing the gate decides depends on it. |
 | capability clause is declarative; `checkWasiCapability` does not read it | COSMETIC | | The port imports `wasi.proc` and `wasi.fs` and would typecheck without them. Already filed as `CAP-1-REAL`; noted here only so the import is understood as discipline rather than enforcement. |
 | `captureStdout` leaks one file descriptor per step | BLOCKS | `FD-CAPTURE-1` | Nothing: a defect with one right answer, not a design fork. The port could not complete its corpus at all, dying at fd 1103 after ~51 of 80 cases. Shipped in the same change, one line; with it the same binary runs all 80 in 71s. **BLOCKS in the strict sense the campaign means: the language work shipped first.** |
-| no accessor for a bare scalar in a JSON array | SHAPES | `JSON-SCALAR-1` | `(json-as-string x)` on each element of `json-array`. Instead: `json-serialize` and strip the quotes it renders, in `json-string-value`. |
-| `wasi.proc.run` cannot merge stdout and stderr | SHAPES | `PROC-MERGE-1` | One capture file, read once, reproducing `2>&1` byte for byte. Instead: two files, read in two steps and concatenated stdout-first. No criterion moves, since all four test containment; the three-line excerpt under a failing case does. |
-| a console program cannot emit a non-ASCII character | SHAPES | `CAPTURE-ENCODING-1` | The reference's label arrow, `→`, in the port's label too, so the two messages match byte for byte. Instead: an ASCII `->`, and the cover normalises the two rather than comparing them. Measured: the literal reaches the generated Haskell intact as `" \8594 "` and the running program emits `c2 92`, U+2192 truncated to its low byte, despite the emitted `main` pinning utf8 on stdout. **Found by the cover on its first green-ish run**, which is the cover earning its place before it ever guarded a regression. |
+| no accessor for a bare scalar in a JSON array | SHAPES | `JSON-SCALAR-1` | **CLOSED in v0.14.91, and the design is what this row asked for**: `(json-as-string x)` on each element of `json-array`, one of a four-name projection family shaped as the field family minus the key. The workaround it forced (`json-serialize`, then strip the quotes, in a `json-string-value` helper) is deleted. That helper was also WRONG and not merely verbose: `json-serialize` escapes every character above `~` as `\uXXXX`, so a flag carrying a non-ASCII character came back as six literal characters. |
+| `wasi.proc.run` cannot merge stdout and stderr | SHAPES | `PROC-MERGE-1` | **CLOSED in v0.14.91**, by the convention that EQUAL PATH STRINGS MEAN MERGE: one handle on both streams, no signature change. The prior question this row did not ask turned out to decide the shape — **ordering is not part of the contract and cannot be**, since a merged stream's interleaving is the child's flush order (measured: a child writing stdout first lands stderr first, stdout being block-buffered to a file). So "reproducing `2>&1` byte for byte" was never available to promise. Containment is what the port asserts, which is also all any criterion here tests. |
+| a console program cannot emit a non-ASCII character | SHAPES | `CAPTURE-ENCODING-1` | **CLOSED in v0.14.90**, and both workarounds are gone: the port writes a real `→` and the cover compares the two labels instead of normalising them. The design is what this row asked for. Measured at the time: the literal reaches the generated Haskell intact as `" \8594 "` and the running program emitted `c2 92`, U+2192 truncated to its low byte, despite the emitted `main` pinning utf8 on stdout; the cause was `fdToHandle` returning a BINARY handle, an absent codec rather than a wrong one. **Found by the cover on its first green-ish run**, which is the cover earning its place before it ever guarded a regression. |
 
 ### What Rev 0 got wrong, and it is the most useful thing in this file
 
@@ -188,10 +188,22 @@ not, and this is the cleanest evidence of that premise the campaign has
 produced.
 
 **The two silent ones are the point.** `FD-CAPTURE-1` at least crashes.
-`JSON-SCALAR-1` type-checks, verifies, and answers `""`, so the port ran its
+`JSON-SCALAR-1` type-checks, verifies, and produces `""`, so the port ran its
 whole corpus with the flags dropped and reported 30 passed / 50 failed, and the
 50 were exactly the 50 cases carrying `--strict-verified-core`. Nothing in the
 toolchain could have told me; the arithmetic did.
+
+**Where the `""` came from, corrected while closing the row, because the short
+version misattributes it.** This section and the roadmap row both read as though
+`(json-get-string x "")` on a scalar answers `""`. It does not: `json-get` on a
+non-object is `err`, so the accessor is `err` too. The empty string came from
+THIS PORT: `jstr` wraps every field read in `(unwrap-or ... "")`, a reasonable
+habit for an absent field, which turned a type error into a plausible value.
+Measured at v0.14.91 by `scripts/build-smoke/json_scalar.llmll`, whose `OLD-GET`
+cell reads `err`. The correction strengthens the row rather than weakening it:
+the defect was not one builtin answering wrongly but a missing operation whose
+absence every caller papered over locally, which is why no gate could see it and
+why the replacement is `Result`-valued.
 
 **On the feasibility table above being right and insufficient.** Every row in §4
 is still accurate. `json-array` does return `list[Json]`; `wasi.proc.run` does
