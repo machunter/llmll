@@ -266,24 +266,19 @@
                  (verdict-reason (c-exp c) out (c-loc c))))
 
   ;; The reference's label is `$FILE${FLAGS:+ $FLAGS} → $EXPECT/exit
-  ;; $EXPECT_EXIT`, with U+2192. THIS PORT WRITES AN ASCII `->` INSTEAD, AND
-  ;; NOT BY PREFERENCE.
+  ;; $EXPECT_EXIT`, with U+2192, and this port now writes the same arrow.
   ;;
-  ;; Measured: with `→` in this literal the compiler carries it correctly all
-  ;; the way into the generated Haskell (`" \8594 "` in Lib.hs), and the running
-  ;; program then emits the bytes `c2 92`, which is U+0092: the codepoint
-  ;; truncated to its low byte and re-encoded. That happens even though the
-  ;; emitted `main` calls `setLocaleEncoding utf8` and pins utf8 on stdin,
-  ;; stdout and stderr, so a console program cannot put a non-ASCII character
-  ;; on its own stdout through the capture path. Filed as `CAPTURE-ENCODING-1`;
-  ;; it is a sibling of `TOOL-ENCODING-1`, one level in.
-  ;;
-  ;; So the cover normalises the arrow rather than comparing it, and says so.
-  ;; Writing `->` here is the visible half of a defect, not a shrug: when the
-  ;; row closes, this literal becomes `→` and the cover's normalisation goes.
+  ;; IT USED TO WRITE AN ASCII `->`, AND THAT WAS THE VISIBLE HALF OF A DEFECT
+  ;; RATHER THAN A STYLE CHOICE. `CAPTURE-ENCODING-1`: a console program emitted
+  ;; U+2192 as the bytes `c2 92`, the codepoint truncated to its low byte and
+  ;; re-encoded, because `System.Posix.IO.fdToHandle` hands back a BINARY handle
+  ;; and `setLocaleEncoding` has no codec there to inform. Closed in v0.14.90 by
+  ;; pinning utf8 on both ends of the capture pipe. The cover's matching
+  ;; normalisation is gone with it, so the two implementations' labels are now
+  ;; compared and not reconciled.
   (def-shell case-label [c: Json] -> string
     (string-concat-many
-      [(c-file c) (flags-label (c-flags c)) " -> " (c-exp c)
+      [(c-file c) (flags-label (c-flags c)) " → " (c-exp c)
        "/exit " (int-to-string (c-exit c))]))
 
   ;; `echo "$OUTPUT" | tail -3 | sed 's/^/     | /'`. The excerpt is the one

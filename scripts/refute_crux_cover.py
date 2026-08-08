@@ -185,11 +185,17 @@ def normalise(out: str) -> list[str]:
         # That is NOT a stylistic choice in the port: measured, a console
         # program emits the bytes `c2 92` for U+2192, the codepoint truncated
         # to its low byte, even though the emitted `main` pins utf8 on stdout.
-        # Filed as CAPTURE-ENCODING-1. Normalised here so the cover compares
-        # the DECISION rather than re-reporting a known encoding defect on
-        # every row; when the row closes, this line goes and the port's label
-        # becomes the arrow.
-        label = m.group(2).strip().replace("→", "->").replace("\u0092", "->")
+        # Filed as CAPTURE-ENCODING-1.
+        #
+        # THAT NORMALISATION IS GONE AS OF v0.14.90, and the labels are now
+        # COMPARED rather than reconciled. System.Posix.IO.fdToHandle returns a
+        # BINARY handle -- no codec for setLocaleEncoding to inform -- so both
+        # ends of the capture pipe are pinned to utf8 in captureStdout, and the
+        # port's label became the real arrow in the same change. If a regression
+        # reintroduces the truncation, the port emits U+0092 here and this
+        # comparison FAILS, which is the point: the line that used to sit below
+        # would have hidden exactly that.
+        label = m.group(2).strip()
         rows.append(f"{mark} {label}")
     return rows
 

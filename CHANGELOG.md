@@ -4,6 +4,70 @@
 
 <a id="Latest"></a>
 
+## v0.14.90: a handle with no encoding to set (2026-08-08)
+
+### Fixed — a console program could not put a non-ASCII character on its own stdout
+
+`CAPTURE-ENCODING-1`. A string literal survived the compiler intact and the
+running program then emitted **the codepoint's low byte**: `→` (U+2192) went out
+as `c2 92`, `✔` as `14`, `✅` as `05`, and an astral character as a **NUL**.
+
+**The cause is that `System.Posix.IO.fdToHandle` returns a handle in BINARY
+mode, and binary mode is the ABSENCE of a text codec rather than a wrong one.**
+That distinction is the whole defect. The emitted `main` already called
+`setLocaleEncoding utf8` and pinned `utf8` on all three standard handles, and
+the source said in a comment that this "covers the event-log handle and the
+createPipe/fdToHandle pair without naming them". The event-log half was right —
+`openFile` creates a text handle and the locale reaches it. The pipe half was
+false, because there is no codec on a binary handle for a locale to inform.
+Measured directly rather than inferred:
+
+```
+setLocaleEncoding utf8 ; getLocaleEncoding   -> UTF-8
+createPipe >>= fdToHandle >>= hGetEncoding   -> Nothing   (both ends)
+... after hSetEncoding h utf8                -> Just UTF-8
+```
+
+Fixed by pinning `utf8` on both ends of the capture pipe in `captureStdout`.
+Both are required and each was ablated: with only the write end pinned the pipe
+carries correct UTF-8 and the unpinned read decodes it as latin-1
+(`c3 a2 c2 86 c2 92`); with only the read end pinned the write truncates and the
+UTF-8 read rejects the lone continuation byte. **Placement is part of the fix
+too, and measured**: the write-end pin must precede `hDuplicateTo writeEnd
+stdout`, because the redirect copies that handle onto stdout — moved one line
+down it fails with `cannot decode byte sequence starting from 146`, and note it
+fails on the READ, so an ordering bug reads as a problem with the other handle.
+
+**Why nothing caught it.** No committed `.llmll` carried a non-ASCII character in
+a string literal that reached stdout, so the firing population was zero. The one
+encoding fixture the repository had, `fs_encoding.llmll`, uses `§` (U+00A7)
+throughout — and **`§` is a fixed point of this bug**: every codepoint below
+U+0100 survives truncate → latin-1 → UTF-8 unchanged. That fixture could not have
+detected this defect no matter how often it ran.
+
+### Added — a fixture and a gate that can fail
+
+`scripts/build-smoke/capture_encoding.llmll`, run by `build_smoke.sh`, which
+compares **bytes** and not characters: the broken output carries control bytes
+and a NUL, which shells and terminals mangle in their own ways, so a corrupted
+string can match a corrupted pattern. Its five BMP characters are chosen so that
+four of them move under the bug and `§` does not, and it emits `string-length`
+beside them so a corrupted WRITE is distinguishable from a literal that never
+survived the front end. Unlike the `LC_ALL=C` half of stage 5, this stage is
+**exercised on every platform** — the defect never depended on the locale.
+
+`scripts/tests/test_codegen_capture_fd.py` gains two source-level pins (both
+handles encoded, write-end pin before the redirect) so a regression fails in the
+toolchain-free job in milliseconds rather than minutes into the Stack job.
+
+### Changed — two workarounds removed
+
+`refutecrux.llmll` writes a real `→` in its case labels, and
+`refute_crux_cover.py`'s matching normalisation is gone: the two
+implementations' labels are now **compared** rather than reconciled. Both sites
+were marked for exactly this moment. If the truncation ever returns, the port
+emits U+0092 and the cover fails — which the normalisation would have hidden.
+
 ## v0.14.89: the gate that could not survive its own corpus (2026-08-07)
 
 ### Fixed — every generated console program leaked a file descriptor per step

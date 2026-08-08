@@ -1,0 +1,84 @@
+;; BUILD-GATE-1 fixture. CAPTURE-ENCODING-1.
+;;
+;; WHAT IT PINS: that a console program can put a non-ASCII character it holds
+;; in a string literal onto its own stdout, as UTF-8.
+;;
+;; WHY IT EXISTS AT ALL. Before this file, NO committed .llmll carried a
+;; non-ASCII character in a string literal that reached stdout. The firing
+;; population was zero, so the defect could not be observed by any gate and
+;; reached v0.14.89 unexamined. A fixture was owed before the fix, not after:
+;; without one, "fixed" and "still broken" produce the same green board.
+;;
+;; THE FIVE BMP CHARACTERS ARE CHOSEN, NOT ARBITRARY. The defect encodes each
+;; character's codepoint MOD 256, so the discriminating question for a probe is
+;; what that truncation produces:
+;;
+;;   →  U+2192  correct e2 86 92   truncates to 0x92  -- above 0x7F, so it
+;;                                                       re-encodes to c2 92
+;;                                                       and looks like "a"
+;;                                                       character, not a fault
+;;   ✔  U+2714  correct e2 9c 94   truncates to 0x14  -- a control byte
+;;   ✘  U+2718  correct e2 9c 98   truncates to 0x18  -- a control byte
+;;   ✅ U+2705  correct e2 9c 85   truncates to 0x05  -- a control byte
+;;   §  U+00A7  correct c2 a7      truncates to 0xa7  -- RE-ENCODES TO c2 a7,
+;;                                                       IDENTICAL TO CORRECT
+;;
+;; That last row is the reason this fixture is five characters and not one. §
+;; is a fixed point of the bug: any codepoint under U+0100 round-trips through
+;; "truncate to low byte, decode as latin-1, encode as UTF-8" unchanged. A
+;; single-character probe using § would have reported the defect as ABSENT. The
+;; repository's own fs_encoding.llmll fixture uses § throughout, which is part
+;; of why this went unseen.
+;;
+;; THE ASTRAL CHARACTER IS THE STRONGEST CASE. 😀 is U+1F600, and 0x1F600 mod
+;; 256 is 0x00 -- the truncation emits a NUL byte. Correct output is the four
+;; bytes f0 9f 98 80. Nothing else in the corpus emits a codepoint above the BMP.
+;;
+;; IT ALSO REPORTS THE LENGTHS, AND THAT IS THE POINT OF THE FIXTURE RATHER
+;; THAN A DECORATION. The defect is EMIT-ONLY: the literal survives the compiler
+;; intact and survives in memory intact, and only the write to stdout is
+;; corrupted. So the fixture emits string-length of both literals alongside
+;; them. LEN=5 and ALEN=1 with mangled characters says the bug is in the WRITE;
+;; wrong lengths would say the literal never made it through the front end, a
+;; different defect with a different fix. A harness comparing only the
+;; characters could not tell those apart.
+;;
+;; Deliberately imports only wasi.io: a gate over the capture path should fail
+;; for capture-path reasons only.
+
+(module capture-encoding
+  (import wasi.io (capability stdout :deterministic false))
+
+  (def-shell ce-init [] -> (int, Command)
+    (pair 0 (wasi.io.stdout "")))
+
+  (def-shell ce-step [s: int input: string r: Response] -> (int, Command)
+    (pair (+ s 1)
+      (wasi.io.stdout
+        (let [(bmp "→✔✘✅§")]
+          (let [(ast "😀")]
+            (string-concat-many
+              ["BMP=" bmp
+               "|AST=" ast
+               "|LEN=" (int-to-string (string-length bmp))
+               "|ALEN=" (int-to-string (string-length ast))]))))))
+
+  ;; >= 2 AND NOT >= 1, and the difference is the whole fixture. RC-4: the
+  ;; console loop is
+  ;;
+  ;;   loop s r = let (s', cmd) = step s line r
+  ;;              in if done? s' then on-done s'      -- cmd is NOT performed
+  ;;                            else loop s' (perform cmd)
+  ;;
+  ;; so the step that TRIPS done? has its command discarded by design. With
+  ;; `>= 1` the single emitting step is exactly that step, and this fixture
+  ;; prints nothing at all -- which reads identically to "the encoding fix
+  ;; worked and there is no output to be wrong". Measured: it emitted zero
+  ;; bytes. `>= 2` lets step one's command be performed and step two settle.
+  (def-shell ce-done? [s: int] -> bool (>= s 2))
+
+  (def-main
+    :mode    console
+    :init    (ce-init)
+    :step    ce-step
+    :done?   ce-done?))

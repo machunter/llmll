@@ -1525,6 +1525,34 @@ emitEventLogPreamble =
   , "  oldStdout <- hDuplicate stdout"
   , "  (readFd, writeFd) <- createPipe"
   , "  writeEnd <- fdToHandle writeFd"
+  -- CAPTURE-ENCODING-1 (v0.14.90). System.Posix.IO.fdToHandle returns a handle
+  -- in BINARY mode, and binary mode is the ABSENCE of a text codec rather than a
+  -- codec that happens to be wrong. That distinction is the whole defect:
+  -- setLocaleEncoding cannot reach a binary handle, because there is nothing for
+  -- the locale to inform. MEASURED, and this is what localizes the row that used
+  -- to say only "the remaining suspect is the capture path":
+  --
+  --   setLocaleEncoding utf8 ; getLocaleEncoding   -> UTF-8
+  --   createPipe >>= fdToHandle >>= hGetEncoding   -> Nothing   (both ends)
+  --   ... after hSetEncoding h utf8                -> Just UTF-8
+  --
+  -- A binary handle writes a Char's LOW BYTE, so `→` (U+2192) went out as 0x92
+  -- and `✅` (U+2705) as 0x05: codepoint mod 256.
+  --
+  -- Both ends are pinned and each is doing work; ablation measured separately:
+  --   writeEnd only -> the pipe carries correct UTF-8 and the unpinned read
+  --                    decodes each byte as latin-1, giving c3 a2 c2 86 c2 92
+  --   readEnd only  -> the write truncates and the UTF-8 read then rejects the
+  --                    lone continuation byte: hGetContents: invalid byte sequence
+  --
+  -- PLACEMENT IS PART OF THE FIX, the way it is for FD-CAPTURE-1's hClose below,
+  -- and it is MEASURED rather than assumed. This line must come BEFORE the
+  -- hDuplicateTo: the redirect copies this handle onto stdout, so pinning it
+  -- afterwards leaves `action` writing through a still-binary stdout. Moving the
+  -- line down by one reproduces
+  --   hGetContents: invalid argument (cannot decode byte sequence starting from 146)
+  -- where 146 is 0x92 -- the truncated U+2192 arriving at a correctly pinned read.
+  , "  hSetEncoding writeEnd utf8"
   , "  hDuplicateTo writeEnd stdout"
   , "  action"
   , "  hFlush stdout"
@@ -1554,6 +1582,13 @@ emitEventLogPreamble =
   , "  hClose oldStdout"
   , "  hClose writeEnd"
   , "  readEnd <- fdToHandle readFd"
+  -- CAPTURE-ENCODING-1 (v0.14.90), the other half. Binary mode decodes each
+  -- byte as a latin-1 Char, which is what turned the truncated 0x92 back into
+  -- U+0092 so the real stdout re-encoded it as c2 92 -- a plausible-looking
+  -- two-byte sequence rather than a visible fault. Pinning only the write end
+  -- does not fix this and does not leave it alone either; see the ablation
+  -- above.
+  , "  hSetEncoding readEnd utf8"
   , "  output <- hGetContents readEnd"
   , "  length output `seq` pure ()   -- force lazy I/O (professor flag #1)"
   -- BUG-1 follow-on (v0.14.3): must be putStrLn, not putStr. Each step's
@@ -1710,10 +1745,19 @@ emitMainHs modName stmts =
 -- the new Handle's codec from getLocaleEncoding, so hDuplicate/hDuplicateTo --
 -- which captureStdout calls three times per step -- RESET the encoding to the
 -- locale's no matter what the source handle carried. Moving the locale itself is
--- what makes those duplicates UTF-8; it also covers the event-log handle and the
--- createPipe/fdToHandle pair without naming them. It is the same reason the
--- existing NoBuffering line in captureStdout has to be re-asserted after a
--- restore rather than inherited.
+-- what makes those duplicates UTF-8; it also covers the event-log handle, which
+-- openFile creates in TEXT mode. It is the same reason the existing NoBuffering
+-- line in captureStdout has to be re-asserted after a restore rather than
+-- inherited.
+--
+-- THIS NOTE USED TO CLAIM IT COVERED "the createPipe/fdToHandle pair without
+-- naming them" TOO, AND THAT WAS FALSE. CAPTURE-ENCODING-1 (v0.14.90):
+-- System.Posix.IO.fdToHandle returns a handle in BINARY mode, and a binary
+-- handle has no codec for the locale to inform -- hGetEncoding answers Nothing
+-- there even with the locale already moved to UTF-8. The two pipe ends are the
+-- one place in a generated program that setLocaleEncoding genuinely cannot
+-- reach, so they are pinned by name in captureStdout above. Every other text
+-- handle here is openFile's and the sentence holds for those.
 --
 -- The three standard handles still need explicit pins: the RTS creates them
 -- before main runs, so setLocaleEncoding cannot reach them retroactively.

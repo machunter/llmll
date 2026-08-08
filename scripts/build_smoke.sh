@@ -387,6 +387,74 @@ the force may have escaped the bracket")
   fi
 fi
 
+# --- 5b. CAPTURE-ENCODING-1 gate. -------------------------------------------
+#
+# Can a console program put a non-ASCII character from its own string literal
+# onto its own stdout?
+#
+# UNLIKE STAGE 5 ABOVE, THIS STAGE IS EXERCISED EVERYWHERE, and the difference
+# matters enough to state. Stage 5 can only decide its encoding claim where the
+# locale reaches GHC, which is not macOS, so it prints NOT EXERCISED there. This
+# defect had nothing to do with the locale: it reproduced under en_US.UTF-8 on
+# macOS and would reproduce under any locale on any platform, because
+# System.Posix.IO.fdToHandle returns a handle in BINARY mode and a binary handle
+# has no codec for a locale to inform. So this verdict is real everywhere.
+#
+# WHY IT EXISTS. Before scripts/build-smoke/capture_encoding.llmll, no committed
+# .llmll carried a non-ASCII character in a string literal that reached stdout.
+# The firing population was zero, so `→` emitting as c2 92 and `✅` as 05 was
+# invisible to every gate in the repository and shipped through v0.14.89.
+#
+# COMPARES BYTES, NOT CHARACTERS, and that is not fastidiousness. The broken
+# output contains control bytes and a NUL, which a shell `case` pattern and a
+# terminal both mangle in their own ways -- comparing a corrupted string against
+# a corrupted pattern can match. Hexing the whole stream and asking for the
+# expected run as a substring is immune to that, and to how the harness frames
+# the surrounding lines.
+CENC_FIXTURE="$REPO_ROOT/scripts/build-smoke/capture_encoding.llmll"
+CENC_OUTDIR="$OUTDIR/capenc"
+
+if [ -f "$CENC_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$CENC_FIXTURE")"
+  CENC_LOG="$OUTDIR/.capenc-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$CENC_FIXTURE" -o "$CENC_OUTDIR" > "$CENC_LOG" 2>&1; then
+    cat "$CENC_LOG" >&2
+    fail "the capture-encoding fixture does not build."
+  fi
+  CENC_EXE="$(find "$CENC_OUTDIR/.stack-work/install" -type f -name 'capture-encoding' -perm -111 2>/dev/null | head -1)"
+  [ -n "$CENC_EXE" ] || fail "built the capture-encoding fixture but found no capture-encoding binary."
+
+  # BMP=→✔✘✅§|AST=<U+1F600>|LEN=5|ALEN=1 as UTF-8. Written as hex because the
+  # point of the assertion is the bytes; a literal here would be checking this
+  # file's own encoding as much as the program's.
+  CENC_WANT="424d503de28692e29c94e29c98e29c85c2a77c4153543df09f98807c4c454e3d357c414c454e3d31"
+  CENC_OUT_FILE="$OUTDIR/.capenc.out"
+  ( cd "$OUTDIR" && printf 'x\n%.0s' $(seq 6) | "$CENC_EXE" ) > "$CENC_OUT_FILE" 2>&1 || true
+  CENC_HEX="$(od -An -tx1 < "$CENC_OUT_FILE" | tr -d ' \n')"
+
+  case "$CENC_HEX" in
+    *"$CENC_WANT"*) ;;
+    *)
+      printf 'BUILD-GATE-1 capture-encoding failure:\n' >&2
+      printf '  want (hex): %s\n' "$CENC_WANT" >&2
+      printf '  got  (hex): %s\n' "$CENC_HEX" >&2
+      # The two signatures worth recognising on sight, so a reader does not have
+      # to decode hex to know which half broke.
+      case "$CENC_HEX" in
+        *c29214*) printf '  diagnosis : codepoint mod 256 -- both pipe ends unpinned (the original defect)\n' >&2 ;;
+        *c3a2c286*) printf '  diagnosis : latin-1 re-decode -- writeEnd pinned, readEnd NOT\n' >&2 ;;
+      esac
+      case "$(cat "$CENC_OUT_FILE")" in
+        *"invalid byte sequence"*) printf '  diagnosis : readEnd pinned, writeEnd NOT -- UTF-8 read rejected a truncated byte\n' >&2 ;;
+      esac
+      printf -- '--- program output ---\n' >&2
+      cat "$CENC_OUT_FILE" >&2
+      fail "a console program cannot put a non-ASCII character on its own stdout (CAPTURE-ENCODING-1)."
+      ;;
+  esac
+  echo "BUILD-GATE-1 PASS: non-ASCII string literals survive captureStdout as UTF-8 (5 BMP + 1 astral)"
+fi
+
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------
 #
 # Before this stage, `llmll replay` was executed by NO gate: not this script,
