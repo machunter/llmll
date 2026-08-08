@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,47 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SHELL_GATE = REPO / "scripts" / "version_gate.sh"
+
+
+def _banner_version() -> str:
+    """The version every C1 cell mutates, read from the tree rather than pinned.
+
+    THIS COVER USED TO HARDCODE `0.14.87` AND THAT IS EXACTLY THE DEFECT V13
+    EXISTS TO CATCH, one level up. V13's own comment says a gate that failed it
+    "would be pinning a literal version rather than checking that the sites
+    agree"; the cover asserting that property pinned a literal version itself.
+
+    The moment the banner moved to 0.14.88 (d6e9f01) five cells could no longer
+    find their anchor. They did not go quietly green — `edit`'s `want` reports a
+    cell that would test nothing, which is the safe direction — but the stage
+    had failed from that commit onward, and `build_smoke.sh` with it.
+
+    LLMLL.md line 1 is the right source because it is where scripts/version_gate.sh
+    takes the banner from: the cover now follows the release the gate is being
+    graded against, instead of a release it was written during.
+    """
+    first = (REPO / "LLMLL.md").read_text().splitlines()[0]
+    m = re.search(r"v(\d+\.\d+\.\d+)", first)
+    if m is None:
+        raise SystemExit(
+            "version_gate_cover: no vX.Y.Z on LLMLL.md line 1, and every C1 "
+            "cell is anchored to it"
+        )
+    return m.group(1)
+
+
+# The banner under test, and two versions that are not it. DISAGREE is what a
+# single site is moved to so it contradicts the others; ALL_TOGETHER is what
+# every site moves to in V13, which must still pass. Both are well-formed and
+# neither can collide with a real banner.
+BANNER = _banner_version()
+DISAGREE = "0.0.0"
+ALL_TOGETHER = "0.99.0"
+
+# `version:` lines carry different padding in package.yaml and llmll.cabal, so
+# the anchor is a pattern rather than a literal with the spacing baked in — the
+# other half of what made the pinned version brittle.
+VERSION_LINE = rf"(?m)^(version:\s*){re.escape(BANNER)}\b"
 
 # Every file the gate reads. Keep in step with versiongate.llmll's read chain.
 INPUTS = [
@@ -84,6 +126,15 @@ def edit(tree: Path, rel: str, old: str, new: str) -> None:
     want(old in s, f"the mutation's anchor {old!r} is not in {rel}, so this "
                    f"cell would test nothing")
     p.write_text(s.replace(old, new, 1))
+
+
+def edit_re(tree: Path, rel: str, pattern: str, repl: str) -> None:
+    """`edit` for anchors whose surrounding whitespace is not worth pinning."""
+    p = tree / rel
+    s, n = re.subn(pattern, repl, p.read_text(), count=1)
+    want(n == 1, f"the mutation's pattern {pattern!r} matches nothing in "
+                 f"{rel}, so this cell would test nothing")
+    p.write_text(s)
 
 
 def verdict_lines(out: str) -> str:
@@ -151,7 +202,7 @@ def v0(tree):
 
 @cell("V1", "C1 README banner disagrees with LLMLL.md")
 def v1(tree):
-    edit(tree, "README.md", "v0.14.87", "v0.14.86")
+    edit(tree, "README.md", f"v{BANNER}", f"v{DISAGREE}")
 
 
 @cell("V2", "C1 README line 1 carries no version at all")
@@ -169,7 +220,7 @@ def v3(tree):
 
 @cell("V4", "C2 the CHANGELOG top heading disagrees with the banner")
 def v4(tree):
-    edit(tree, "CHANGELOG.md", "## v0.14.87", "## v0.14.86")
+    edit(tree, "CHANGELOG.md", f"## v{BANNER}", f"## v{DISAGREE}")
 
 
 @cell("V5", "C2 the CHANGELOG has no `## vX.Y.Z` heading")
@@ -180,8 +231,7 @@ def v5(tree):
 
 @cell("V6", "C1 compiler/package.yaml disagrees with the banner")
 def v6(tree):
-    edit(tree, "compiler/package.yaml", "version:             0.14.87",
-         "version:             0.14.86")
+    edit_re(tree, "compiler/package.yaml", VERSION_LINE, rf"\g<1>{DISAGREE}")
 
 
 @cell("V7", "C1 compiler/package.yaml has no version field")
@@ -193,8 +243,7 @@ def v7(tree):
 
 @cell("V8", "C1 compiler/llmll.cabal disagrees with the banner")
 def v8(tree):
-    edit(tree, "compiler/llmll.cabal", "version:        0.14.87",
-         "version:        0.14.86")
+    edit_re(tree, "compiler/llmll.cabal", VERSION_LINE, rf"\g<1>{DISAGREE}")
 
 
 @cell("V9", "C3 the schema const disagrees with ParserJSON")
@@ -229,13 +278,11 @@ def v13(tree):
     # that failed here would be pinning a literal version rather than checking
     # that the sites agree, which is the anti-hardcoding property
     # crux-validate-subject-hardcoded exists for one directory over.
-    edit(tree, "README.md", "v0.14.87", "v0.99.0")
-    edit(tree, "LLMLL.md", "v0.14.87", "v0.99.0")
-    edit(tree, "CHANGELOG.md", "## v0.14.87", "## v0.99.0")
-    edit(tree, "compiler/package.yaml", "version:             0.14.87",
-         "version:             0.99.0")
-    edit(tree, "compiler/llmll.cabal", "version:        0.14.87",
-         "version:        0.99.0")
+    edit(tree, "README.md", f"v{BANNER}", f"v{ALL_TOGETHER}")
+    edit(tree, "LLMLL.md", f"v{BANNER}", f"v{ALL_TOGETHER}")
+    edit(tree, "CHANGELOG.md", f"## v{BANNER}", f"## v{ALL_TOGETHER}")
+    edit_re(tree, "compiler/package.yaml", VERSION_LINE, rf"\g<1>{ALL_TOGETHER}")
+    edit_re(tree, "compiler/llmll.cabal", VERSION_LINE, rf"\g<1>{ALL_TOGETHER}")
 
 
 def main() -> int:

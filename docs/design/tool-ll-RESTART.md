@@ -197,9 +197,9 @@ which matters more than usual right now: see finding 10.
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 916 citations, all resolve |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
-| [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate` and `--llmll` |
+| [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate`. **The "14 passed" this table used to carry at `268df95` was NOT true at `268df95`**: the cover pinned `v0.14.87` and had been failing 5 cells since `d6e9f01`. Finding 13 |
 | [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.89 |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 10 |
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 10. **Also not true at `268df95`** — its last stage runs the cover above, so it had been failing since `d6e9f01` too. Finding 13 |
 
 **Rebuilding the port**, which several of these need:
 
@@ -312,6 +312,31 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
     **Generalise finding 10 while you are here.** It says every ENCODING
     measurement in this record is macOS-only. So is every measurement that
     needed a proof, for the same reason, and this is what that costs.
+
+13. **A cover that pins a literal version rots at the next release, and §5's
+    own figures rotted with it.** `version_gate_cover.py` hardcoded `v0.14.87`
+    in five cells. The banner moved at `d6e9f01` (v0.14.88) and again at
+    `c7c057a` (v0.14.89), the cover was added at `7d1de03` and never touched
+    since, so from `d6e9f01` onward those cells could not find their anchor —
+    and `build_smoke.sh`, whose LAST stage is that cover, failed with them.
+
+    **§5 claimed both were passing at `268df95` and neither was.** Those figures
+    were carried forward from an earlier measurement rather than taken at the
+    commit they were stamped with, which is the exact failure this record warns
+    about in its own §1 and had already committed twice. **Re-measuring §1 is
+    not enough; §5 is a table of claims and each one rots independently.**
+
+    **The irony is worth keeping.** V13 is the cover's negative control and its
+    comment reads: "A gate that failed here would be pinning a literal version
+    rather than checking that the sites agree, which is the anti-hardcoding
+    property `crux-validate-subject-hardcoded` exists for one directory over."
+    The cover asserting that the gate does not pin a version pinned one itself.
+
+    **The one thing that worked is the thing to keep.** The cells did not go
+    vacuously green: `edit`'s `want` reports "this cell would test nothing" and
+    FAILS. A mutation harness that cannot find its anchor must fail, never skip,
+    or a rotted cover reads as a healthy one. `BANNER` now comes from
+    `LLMLL.md` line 1, the same place `version_gate.sh` reads it.
 
 ## 7. Gotchas that cost real time this session
 
