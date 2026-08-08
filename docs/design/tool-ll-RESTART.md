@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, written 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared, nothing blocked on a decision. Next is 003/004."
+status: "LIVE, current at `268df95`, 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. The agreed next action is MERGE (§3), not more porting. 32 commits are unpushed and none of this has run in CI."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -19,12 +19,17 @@ repository has gone stale inside a day before.
 
 ## 1. Where the work is
 
-Branch `tool-ll/campaign-4e-hole-status`. At `d6e9f01`: **21 commits ahead of
-local `main`**, local `main` **7 commits ahead of `origin/main`**, **the branch
-has never been pushed**, working tree clean.
+Branch `tool-ll/campaign-4e-hole-status`. At `268df95`: **25 commits ahead of
+local `main`**, local `main` **7 commits ahead of `origin/main`**, so **32
+commits are unpushed and NONE of this has ever run in CI**. Working tree clean.
+
+**This record's own commit makes it 26 and 33.** Stating that rather than
+quietly being wrong by one: a file that stamps a count cannot stamp the commit
+that writes the stamp, and the previous version of this section was stale by
+four commits for exactly that reason.
 
 The count is stamped with the commit because this file's first version said 15
-and was stale within the hour. If `HEAD` is not `d6e9f01`, re-measure rather
+and was stale within the hour. If `HEAD` is not `268df95`, re-measure rather
 than reading on:
 `git rev-list --count main..HEAD` and `git rev-list --count origin/main..main`.
 
@@ -37,13 +42,18 @@ It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries fou
 unrelated bodies of work: theory-question records, a doc-frontmatter fix, all of
 DRIVER-LL sub-phase 4e, and the TOOL-LL campaign. The name now says so.
 
-**The compiler behaviour change it carried is released, 2026-08-07: v0.14.88.**
-`6547de4` changes `Checkout.hs` and `HoleAnalysis.hs` so a sibling whose body
-still holds a hole reads `status: "unfilled"`, and moves `brief_version` to
-0.12.3. That shipped with no version bump, and the gate that would catch it
-could not, because the five banner sites still agreed with each other at the old
-version. All five now read 0.14.88 and `version_gate.sh` passes. **The tag is
-not pushed**: it is owed at merge, and this branch has not merged.
+**TWO releases sit on it, both untagged.** v0.14.88 (`d6e9f01`) releases
+`6547de4`, which changes `Checkout.hs` and `HoleAnalysis.hs` so a sibling whose
+body still holds a hole reads `status: "unfilled"` and moves `brief_version` to
+0.12.3. v0.14.89 (`c7c057a`) releases `FD-CAPTURE-1` plus TOOL-RFC-002. Banners
+read 0.14.89 and `version_gate.sh` passes.
+
+**Neither tag is pushed and neither should be until CI is green on `main`.**
+The tags are owed at merge, and `docker-publish.yml`'s publish job runs
+`version_gate.sh` AT THE TAG and pushes an image, so tagging a red `main`
+publishes an image built from a broken tree. The campaign's settled
+distribution is jobs pulling exactly those images (§2), which is why this
+ordering is a constraint and not a preference.
 
 ## 2. What is settled, and must not be re-litigated
 
@@ -59,10 +69,27 @@ User adjudications, 2026-08-07:
   COSMETIC, and a SHAPES row must state what the design would have been and cite
   a roadmap tag.
 
-## 3. The prerequisites, all three now cleared
+## 3. The agreed plan, and the one gate inside it
 
-**The next action is writing TOOL-RFC-002's port.** P1, P2 and P3 are done, and
-nothing in the campaign is now blocked on a decision.
+**Agreed with the user 2026-08-07, after 002 landed. Do not re-derive it:**
+
+1. **Merge this branch to `main` and push.** 32 commits, 48 files, 7,664
+   insertions, two compiler behaviour changes, and a workflow step that has
+   never run on Linux. Merging now is right BECAUSE the delta only grows; doing
+   the bug work first makes the first CI run bigger, not safer.
+2. **Watch that CI run. Tags only after it is green** (§1 says why).
+3. **`CAPTURE-ENCODING-1` next**: a `[CT]` bug, and the one 003 would feel,
+   since `doc_claims_gate.sh` prints `✔`/`✘`.
+4. **`JSON-SCALAR-1` and `PROC-MERGE-1` behind a language-team shape call**,
+   per finding 9.
+5. **Then 003, RFC-first.**
+
+**003 is NOT blocked by any of the three open gaps**; that was measured, not
+assumed. So step 3 and 4 before step 5 is a choice to stop accumulating
+workarounds across four remaining ports, not a dependency.
+
+P1, P2 and P3 are all done and nothing in the campaign is blocked on a
+decision.
 
 **P1 is DONE, 2026-08-07. The tag debt is cleared and all four images are
 published**, each verified at its `Build + push (amd64)` step rather than at the
@@ -143,23 +170,40 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE**, §3 |
 
-## 5. Gates, measured at `1c515ca`
+## 5. Gates, measured at `268df95`
 
-**Re-measure, do not assume.** Only documentation changed between `1c515ca` and
-`0299a41`, so these hold at `HEAD`; `pytest` was re-run after each and stayed at
-188.
+**Re-measure, do not assume.** Every figure below was taken at `268df95` with a
+clean tree. **All of it is macOS/aarch64 and none of it has run on Linux**,
+which matters more than usual right now: see finding 10.
 
 | Gate | Figure |
 |---|---|
-| `stack test` | 1656 examples, 0 failures (no Haskell changed this session) |
-| `pytest scripts/tests/` | 188 passed, 1 skipped |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed; re-measured at `f555070`, ~3 min warm |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 910 citations, all resolve |
+| `stack test` | 1656 examples, 0 failures |
+| `pytest scripts/tests/` | 190 passed, 1 skipped |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed |
+| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s |
+| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells, 3 negative controls, ~7 min; needs `--gate` and `--llmll` |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 916 citations, all resolve |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate` and `--llmll` |
-| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.87 |
+| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.89 |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 10 |
+
+**Rebuilding the port**, which several of these need:
+
+```
+export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH
+cd tools/refute-crux && llmll build refutecrux.llmll -o <outdir>
+```
+
+Then run it from a scratch directory with an absolute `--root`, because a
+console program writes `<module>.event-log.jsonl` into its working directory:
+
+```
+python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
+  | <outdir>/.../refutecrux --root <repo> --subject <llmll binary> --work <scratch>
+```
 
 ## 6. Findings not to rediscover
 
@@ -193,6 +237,40 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
    written, and here it did: the finding came from applying §1 to the port,
    before any of the port was designed.
 
+7. **TOOL-RFC-002's feasibility read was WRONG, and that is the campaign's
+   most useful result so far.** Rev 0 concluded "nothing here is BLOCKS" and "no
+   new gap was discovered". Building it found four defects. **A feasibility
+   table enumerates what the language HAS; the defects are in what it DOES.**
+   Treat any future RFC's §4 as a list of things to go and try, not as a
+   clearance. RFC §5 keeps the wrong conclusion quoted above the correction.
+
+8. **Two of the four fail SILENTLY, and that is what cost the time.**
+   `JSON-SCALAR-1`: `(json-get-string x "")` on a scalar answers `""`, so the
+   port ran its whole corpus with the flags dropped and reported 30 passed / 50
+   failed, where 50 is exactly the count of flagged cases. It type-checks, it
+   verifies, no gate sees it. `CAPTURE-ENCODING-1` is silent in the other
+   direction: output looks present but is wrong bytes.
+
+9. **`bug` vs `language gap` has a repository convention: the roadmap's `[CT]`
+   and `[SPEC]` tags** (legend at roadmap `:13-14`). `[SPEC]` means closing it
+   changes what the language IS. `FD-CAPTURE-1` and `CAPTURE-ENCODING-1` are
+   `[CT]` bugs; `JSON-SCALAR-1` and `PROC-MERGE-1` are `[CT][SPEC]` gaps and
+   campaign §9 makes their SHAPE language-team's call, not the porter's.
+   **Do not settle those two at the keyboard.**
+
+10. **Every encoding measurement in this record is macOS-only.** v0.14.86's
+    history is that macOS GHC resolves UTF-8 under every `LC_ALL`, which is why
+    a gate "could not fail where it ran" and `main` was red for two days. So
+    `CAPTURE-ENCODING-1`'s `codepoint mod 256` finding has no Linux datapoint,
+    and getting one is an argument for merging BEFORE fixing it.
+
+11. **The workarounds for two gaps are pre-marked for removal.** When
+    `JSON-SCALAR-1` closes, `json-string-value` in the port disappears. When
+    `CAPTURE-ENCODING-1` closes, the port's `->` becomes `→` and the
+    normalisation line in `refute_crux_cover.py` goes. Both sites say so in a
+    comment. "Look back at 001/002" is those two sites, not an audit; 001 is
+    untouched by this round, its scanner being `REGEX-LOWER-1`/`SPLIT-EMPTY-1`.
+
 ## 7. Gotchas that cost real time this session
 
 - **zsh does not word-split unquoted parameters.** `set -- $pair` inside a loop
@@ -215,9 +293,8 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 
 ## 8. Debt, deferred and unrelated
 
-- The branch is renamed and its compiler change is released as v0.14.88 (§1).
-  **The `v0.14.88` tag is not pushed and should not be until this branch merges**,
-  since the tag's own gate compares it to the banner on `main`.
+- **Both release tags (`v0.14.88`, `v0.14.89`) are owed and unpushed**, gated on
+  a green CI run after the merge (§1, §3).
 - **No parse gate over design-doc frontmatter.**
 - `HDelegate`, `HDelegateAsync`, `HDelegatePending`, `HConflictResolution` reach
   the HOLE-STATUS-SIBLING catch-all unpinned by any test.
