@@ -1,11 +1,11 @@
 ---
 name: tool-rfc-002-refute-crux
 title: "TOOL-RFC-002: the refute-crux verdict gate, in LLMLL"
-status: "Rev 0, DRAFT. Written BEFORE the port, which is the point: TOOL-RFC-001 was retroactive and its §8 records three decisions made at the keyboard. The three policy calls here were put to the user and answered before this file was written. State: blocked."
+status: "Rev 1, PORTED. Rev 0 was written BEFORE the code, which is the point: TOOL-RFC-001 was retroactive and its §8 records three decisions made at the keyboard. The three policy calls here were put to the user and answered first. Rev 1 records what BUILDING it then found, and §5 is where Rev 0 was wrong. State: oracle."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
-tool_state: blocked
+tool_state: oracle
 subject_script: scripts/refute-crux-gate.sh
 port_module: tools/refute-crux/refutecrux.llmll
 ---
@@ -164,27 +164,107 @@ iteration and substring containment, both exist here.
 | `wasi.proc.run`'s timeout does not fire in a built program | SHAPES | `PROC-TIMEOUT-1` | A per-case budget, so one hung `verify` costs one case and not the run. Instead: the no-limit convention (negative seconds), which matches the reference, since bash `waitForProcess` has no budget either. The port is no worse than what it replaces and no better, and it cannot be made better while the tag is open. |
 | no `trap`, no exit hook, so the scratch tree is not removed on abnormal exit | COSMETIC | | The reference's `trap 'rm -rf "$WORKDIR"' EXIT` is a convenience over an ephemeral runner. The port deletes explicitly on the success path via `wasi.fs.delete` and leaves the directory on a crash. `--work` is caller-supplied, so the caller owns the lifetime. Nothing the gate decides depends on it. |
 | capability clause is declarative; `checkWasiCapability` does not read it | COSMETIC | | The port imports `wasi.proc` and `wasi.fs` and would typecheck without them. Already filed as `CAP-1-REAL`; noted here only so the import is understood as discipline rather than enforcement. |
+| `captureStdout` leaks one file descriptor per step | BLOCKS | `FD-CAPTURE-1` | Nothing: a defect with one right answer, not a design fork. The port could not complete its corpus at all, dying at fd 1103 after ~51 of 80 cases. Shipped in the same change, one line; with it the same binary runs all 80 in 71s. **BLOCKS in the strict sense the campaign means: the language work shipped first.** |
+| no accessor for a bare scalar in a JSON array | SHAPES | `JSON-SCALAR-1` | `(json-as-string x)` on each element of `json-array`. Instead: `json-serialize` and strip the quotes it renders, in `json-string-value`. |
+| `wasi.proc.run` cannot merge stdout and stderr | SHAPES | `PROC-MERGE-1` | One capture file, read once, reproducing `2>&1` byte for byte. Instead: two files, read in two steps and concatenated stdout-first. No criterion moves, since all four test containment; the three-line excerpt under a failing case does. |
+| a console program cannot emit a non-ASCII character | SHAPES | `CAPTURE-ENCODING-1` | The reference's label arrow, `→`, in the port's label too, so the two messages match byte for byte. Instead: an ASCII `->`, and the cover normalises the two rather than comparing them. Measured: the literal reaches the generated Haskell intact as `" \8594 "` and the running program emits `c2 92`, U+2192 truncated to its low byte, despite the emitted `main` pinning utf8 on stdout. **Found by the cover on its first green-ish run**, which is the cover earning its place before it ever guarded a regression. |
 
-**Nothing here is BLOCKS.** That is the finding of this section and it is worth
-stating, because 001's feasibility read is not a guide to this one: the two
-facilities that shaped 001 hardest, array iteration and substring search, are
-present, and the one that could have blocked this port outright, observing a
-nonzero exit as a value, is present and deliberate (`CodegenHs.hs:731-732`).
-**The port is gated on nothing but the writing of it.**
+### What Rev 0 got wrong, and it is the most useful thing in this file
 
-**No new gap was discovered by this feasibility read.** All four rows cite tags
-filed before it. That is a different yield from 001, which surfaced two unknown
-defects, and it is reported rather than dressed up: a campaign whose second port
-finds nothing new is evidence the first port's census was good, not evidence
-this one looked harder.
+Rev 0 ended this section with two claims:
+
+> **Nothing here is BLOCKS.** [...] The port is gated on nothing but the
+> writing of it.
+>
+> **No new gap was discovered by this feasibility read.** All four rows cite
+> tags filed before it.
+
+**Both were false, and writing the code is what showed it.** The feasibility
+read was careful, worked from the reference's behaviour, checked every builtin
+signature against the compiler source, and still missed three defects, one of
+which stops the port dead. Recorded here rather than quietly amended, because
+the campaign's premise is that porting a gate finds things reading about it does
+not, and this is the cleanest evidence of that premise the campaign has
+produced.
+
+**The two silent ones are the point.** `FD-CAPTURE-1` at least crashes.
+`JSON-SCALAR-1` type-checks, verifies, and answers `""`, so the port ran its
+whole corpus with the flags dropped and reported 30 passed / 50 failed, and the
+50 were exactly the 50 cases carrying `--strict-verified-core`. Nothing in the
+toolchain could have told me; the arithmetic did.
+
+**On the feasibility table above being right and insufficient.** Every row in §4
+is still accurate. `json-array` does return `list[Json]`; `wasi.proc.run` does
+take two paths; `RCode` does carry a nonzero exit as a value. The table
+enumerated what the language HAS and the defects are in what it DOES, and no
+amount of reading signatures closes that gap. A future port should treat §4 as a
+list of things to go and try, not as a clearance.
+
+### The three isolation probes
+
+`FD-CAPTURE-1` took four measurements to localize, and the three negative ones
+are why the filing is precise rather than a guess. Each probe is a console
+program doing one thing:
+
+- `wasi.io.stdout` only, 1400 steps: exit 0, no leak.
+- `wasi.fs.copy`, same source and destination, 1400 steps: exit 0, no leak.
+- `wasi.proc.run` spawning `/usr/bin/true`, 400 spawns: exit 0, no leak.
+- `wasi.proc.run` spawning the real `llmll`, 400 spawns: exit 0, no leak.
+
+So it is in none of them individually. `lsof` on a live run of the port then
+showed **139 open write handles to the program's own redirected stdout**,
+growing with the case count (2 case-directories to 11 descriptors, 29 to 353),
+which named `captureStdout`'s `hDuplicate stdout` directly. The leak is a race
+between descriptor creation and GC finalization, which is why a program can win
+it for 1400 steps and lose it at 1100.
+
+**That shape is also why the regression test pins the emitted source rather than
+a step count**: a "run N steps and do not crash" test passes on a broken tree
+whenever the collector keeps up.
 
 ## 6. Differential plan
 
-A new `refute_crux_cover.py` under `scripts/`, following
-[`version_gate_cover.py`](../../scripts/version_gate_cover.py). **It does not
-exist yet, and is deliberately named here without a path**: this RFC precedes
-its code, and DRIFT-DOC-4 correctly reads a backticked `scripts/…` citation as a
-claim that the file is there. Each cell builds
+[`scripts/refute_crux_cover.py`](../../scripts/refute_crux_cover.py), following
+[`version_gate_cover.py`](../../scripts/version_gate_cover.py). Rev 0 named it
+without a path because it did not exist yet and DRIFT-DOC-4 correctly reads a
+backticked `scripts/…` citation as a claim that a file is there; it exists now,
+so the citation is a citation.
+
+**Two things the cover has to do that the table below does not show.**
+
+It runs against a SCRATCH TREE, and how that tree is trimmed took three tries,
+each corrected by the cover failing rather than by review. Trimming every suite
+to its FIRST case left a corpus with no `refuted` and no `capability` case in
+it, because every suite's first case is `safe`. Keeping one case per expectation
+across all twelve suites fixed that and cost twenty-five verifies per run, which
+is half an hour over sixteen cells and two implementations. **What ships keeps
+cases in two suites only** (`examples/gotofail` and `tools/llmll-driver`, which
+between them carry all three expectations, `capability` existing in exactly one
+suite in the whole corpus), and copies the other ten with an EMPTY case list.
+Empty rather than absent, because the reference's `FAMILIES` array is hardcoded
+and a missing directory is a "not found" failure in every cell, which would
+drown the signal. Five verifies per run.
+
+**That is a real bound on what the cells prove, so it is stated rather than
+implied**: the cover tests the CRITERIA, and a criterion does not care which
+suite its case came from. Corpus coverage is what the live 80-case run is for,
+and it runs beside the cover in the same job.
+
+The scratch tree also carries a symlink to the real `compiler/`, because the
+reference derives `REPO_ROOT` from its own location and runs every verify as
+`cd "$REPO_ROOT/compiler" && stack exec llmll -- verify`. The port needs no such
+thing: `--subject` names the binary. That is §8 decision 2 paying for itself in
+the first place it was used, which was not a place it was chosen for.
+
+**The two implementations are not compared byte for byte, and that is a
+deliberate weakening of 001's bar.** The reference streams `✅`/`❌` as it goes;
+the port accumulates and emits once, because a console step performs exactly one
+`Command` and the filesystem work already claims it. What the cover compares is
+the ordered per-case DECISION plus the exit code. Stating the weakening rather
+than describing the cover as "identical output": a reader who assumed byte
+equality would draw a stronger conclusion than the cells support.
+
+Each cell builds
 a tree, runs **both** implementations over it, and compares. **Every mutant is
 asserted to fail under both before their answers are compared**, so agreement on
 a tree that passes is never counted as evidence.
@@ -204,7 +284,7 @@ never mutates `examples/`.
 | 8 | set `expect` to `banana` | unknown expectation | both FAIL, `unknown expectation 'banana'` |
 | 9 | delete a fixture `.llmll` named by a case | fixture presence | both FAIL, `fixture missing` |
 | 10 | delete a suite's `EXPECTED_VERDICTS.json` | manifest presence | both FAIL, `not found` |
-| 11 | drop `--strict-verified-core` from a case's `flags` | flag plumbing | both agree, whatever the verdict becomes |
+| 11 | replace a case's `flags` with `["--not-a-real-flag"]` | flag plumbing | both FAIL, the subject rejecting the flag |
 | 12 | two faults in one case: wrong `expect_exit` AND wrong `expect` | failure order rule 2 | both FAIL and **both report both reasons**, joined `; ` |
 | 13 | break two cases in different suites | failure order rule 1 | both run all 80 and report `2 failed`, not 1 |
 | **N1** | reformat the JSON: reindent, reorder keys within a case | negative control | both PASS |
@@ -216,6 +296,21 @@ that short-circuits would pass cells 1 through 11 while answering a different
 question on a red tree. N2 exists because the manifest carries two fields no
 criterion reads (`why`, `cross_module`), and a port that keyed on them would
 still be green everywhere else.
+
+**Cell 11 was originally the wrong mutation and the cover said so.** It deleted
+`--strict-verified-core`, and neither implementation failed: dropping that flag
+only makes verification *less* strict, so a case that is safe without it stays
+safe, and the cell tested nothing while looking like a cell. It reported a MISS
+rather than an `ok`, which is the "must be caught under both before the answers
+are compared" rule doing exactly its job on the battery itself.
+
+Injecting a flag the subject REJECTS is discriminative in the direction that
+matters, and it is worth noticing which defect that version would have caught:
+with the flag vector silently dropped (`JSON-SCALAR-1`), a bogus flag is dropped
+too and the case passes. **The port that shipped 30 passed / 50 failed would
+have failed this cell rather than sailing through it.** The battery is stronger
+for having been wrong once, and the record of that is why this paragraph is here
+instead of a quietly-edited table row.
 
 ## 7. Retirement
 
@@ -294,3 +389,24 @@ sequence, not only the outcome:
    is not the place to change what a gate decides. If the asymmetry is wrong it
    is wrong in the reference too, and it should be fixed there, under the
    differential cover, in its own commit.
+
+**And one taken at the keyboard that is policy, not implementation, and is
+flagged as such:**
+
+6. **`FD-CAPTURE-1` was FIXED here rather than filed and left.** The campaign's
+   normal discipline is the opposite: `MODE-CLI-1` is offered in two shapes and
+   neither is picked, because experiment-lead's authority ends at surfacing and
+   campaign §9 routes the deciding elsewhere. This one was fixed in the same
+   change, for two reasons stated so the exception does not quietly become the
+   rule. It has **no design content**: a handle that is duplicated and never
+   closed has one right answer, and there is no fork for a downstream role to
+   choose between, which is exactly what distinguishes it from `MODE-CLI-1` and
+   from the other two gaps found here, both of which are filed OPEN and
+   untouched. And it is **BLOCKS**: filing it would have left the port unable to
+   run at all, so the alternative was not "file instead of fix" but "file, and
+   ship a port that cannot decide anything", which is the §10 failure mode the
+   campaign exists to prevent.
+
+   **If that reasoning is wrong, the fix is one line and one test to revert**,
+   and the gap row is already written as though it had been filed rather than
+   fixed, so nothing has to be reconstructed.

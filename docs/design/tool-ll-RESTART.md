@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, written 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL, one port of six landed, blocked at P1 on a decision only the user can take."
+status: "LIVE, written 2026-08-07. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared, nothing blocked on a decision. Next is 003/004."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -135,8 +135,8 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 | | |
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
-| **002** refute-crux gate | P3 cleared; **[RFC drafted](tool-rfc-002-refute-crux.md)**, `blocked`, code not written. No BLOCKS gap, no new gap |
-| **003** doc-claims, **004** doc-archive | not started |
+| **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). 80/80 verdicts, agrees with the reference. Found `FD-CAPTURE-1` (BLOCKS, fixed), `JSON-SCALAR-1`, `PROC-MERGE-1` |
+| **003** doc-claims, **004** doc-archive | not started; **next** |
 | **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
 | **006** build-smoke | last; it runs the others |
 | **P1** tag debt | **DONE**, §3: four tags pushed, four images published |

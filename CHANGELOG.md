@@ -4,6 +4,91 @@
 
 <a id="Latest"></a>
 
+## v0.14.89: the gate that could not survive its own corpus (2026-08-07)
+
+### Fixed — every generated console program leaked a file descriptor per step
+
+`FD-CAPTURE-1`. `captureStdout` duplicates stdout on every step
+(`oldStdout <- hDuplicate stdout`), restores through it, and **never closed it**.
+`writeEnd` is closed explicitly and `readEnd` is closed by `hGetContents` at EOF;
+the duplicate was reclaimed only when GC happened to finalize the `Handle`, which
+is not a bound. Under the non-threaded RTS the program then dies with
+`file descriptor NNNN out of range for select (0--1024)` once descriptor numbers
+pass `FD_SETSIZE`.
+
+**Nothing in the tree had hit it.** `versiongate.llmll` takes nine steps and the
+driver few enough; the first program to need four figures of steps was the first
+to find it, and it found it by dying at fd 1103 partway through its corpus.
+
+**The measurement is what makes it a defect rather than a theory.** `lsof` on a
+live run showed **139 open write handles to the program's own redirected
+stdout**, growing with the run (2 case-directories to 11 descriptors, 29 to 353).
+Three isolation probes each survive and so name what it is *not*: 1400
+stdout-only steps, 1400 `wasi.fs.copy` steps, and 400 `wasi.proc.run` spawns of
+both a trivial binary and the real compiler. The leak is a race between
+descriptor creation and finalization that a long console run loses.
+
+The fix is `hClose oldStdout` after the restore, and **the placement is part of
+it**: closing before the restore would leave stdout pointing at a closed
+descriptor, which no descriptor count would catch. **This changes the emitted
+Haskell for every generated `console` program**, which is why this is a bump and
+not a patch to a gate.
+
+**The regression test deliberately does not run steps and count.** The defect is
+GC-timing dependent, so "N steps and no crash" passes on a broken tree whenever
+the collector keeps up. `scripts/tests/test_codegen_capture_fd.py` pins the
+emitted source instead: every handle `captureStdout` opens is closed, and the
+close follows the restore. Both assertions were checked against the unfixed tree
+and fail there.
+
+### Added — TOOL-RFC-002, the refute-crux gate in LLMLL
+
+[`tools/refute-crux/refutecrux.llmll`](tools/refute-crux/refutecrux.llmll)
+reproduces all **80 frozen verdicts** across twelve suites and agrees with the
+shell reference. `tool_state: oracle`: both now run, as adjacent steps in
+`version-gate.yml`'s `spec-roundtrip` job, so the comparison is legible in one
+job log.
+
+**The port names the compiler it grades explicitly (`--subject`).** The harness
+and the subject are two different binaries, and conflating them is the failure
+this gate exists to catch: once the job pulls a published image instead of
+building, an implicit subject would be the image's compiler and all 41 refuted
+cases would go vacuously green.
+
+`scripts/refute_crux_cover.py` is the differential battery: mutants that must be
+caught under **both** implementations before their answers are compared, plus
+three negative controls. It compares the ordered per-case decision and the exit
+code rather than bytes, because the reference streams and the port emits once;
+the weakening is stated rather than glossed.
+
+### Two gaps the RFC's feasibility read missed, and said it had not
+
+Rev 0 of the RFC concluded "nothing here is BLOCKS" and "no new gap was
+discovered". **Both were false**, and building the thing is what showed it. The
+RFC's §5 keeps the wrong conclusion quoted above the correction rather than
+amending it, because the campaign's premise is that porting a gate finds what
+reading about it does not.
+
+- **`JSON-SCALAR-1`** (new, OPEN): a bare scalar in a JSON array has no
+  accessor. `json-get-string` reads a FIELD of an object, so it answers `""` on
+  the scalar `Json` that `json-array` returns. Measured: the port invoked its
+  subject with **no flags at all**, and the 50 cases carrying
+  `--strict-verified-core` failed while the 30 flagless ones passed. It
+  type-checks, it verifies, and no gate sees it.
+- **`PROC-MERGE-1`** (new, OPEN): `wasi.proc.run` takes separate stdout and
+  stderr paths, so a shell's `2>&1` has no counterpart. No verdict moves, since
+  every criterion tests containment; the three-line excerpt under a failing case
+  does.
+
+- **`llmll` gains no new command or flag**, and the JSON-AST schema does not
+  move.
+- The **Makefile** now builds before `refute-crux-gate`. The stale-binary guard
+  (finding F-3) moved out of the shell gate to the caller that still needs it,
+  so the LLMLL port carries no dependency on a Haskell build system. It is not
+  dropped: CI builds before the gate runs.
+
+---
+
 ## v0.14.88: the sibling holes the brief called filled, and six gates that had to be found before they could be ported (2026-08-07)
 
 ### Fixed — a checkout brief reported every sibling as `filled`, including the ones that were holes

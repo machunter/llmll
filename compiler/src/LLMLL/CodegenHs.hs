@@ -1538,6 +1538,20 @@ emitEventLogPreamble =
   -- the reader blocks on forever). Re-assert NoBuffering after every
   -- restore rather than relying on inherited Handle state.
   , "  hSetBuffering stdout NoBuffering"
+  -- FD-CAPTURE-1 (v0.14.89). `hDuplicate stdout` above allocates a descriptor
+  -- on EVERY step and this is what gives it back. Without it the duplicate is
+  -- reclaimed only when GC finalizes the Handle, which is not a bound: a
+  -- console program that steps faster than the collector accumulates them
+  -- until fd numbers pass FD_SETSIZE, and the non-threaded RTS then dies with
+  -- "file descriptor NNNN out of range for select (0--1024)". Measured before
+  -- the fix at 139 open write handles to the program's own stdout, growing
+  -- with the run; the refute-crux port died at fd 1103 partway through its
+  -- corpus while a 1400-step probe that only wrote to stdout survived, which
+  -- is why the regression test pins this SOURCE and not a step count.
+  --
+  -- Placement is part of the fix: it must follow the hDuplicateTo restore
+  -- above, or stdout is restored from an already-closed descriptor.
+  , "  hClose oldStdout"
   , "  hClose writeEnd"
   , "  readEnd <- fdToHandle readFd"
   , "  output <- hGetContents readEnd"

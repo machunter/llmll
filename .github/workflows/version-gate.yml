@@ -113,6 +113,15 @@ jobs:
         working-directory: compiler
         run: stack build llmll
 
+      # Before the gates and not after them. The refute-crux port's step drives
+      # its console loop from a python3-generated step budget and runs the
+      # differential cover, so python3 is a declared dependency of a gate in
+      # this job rather than something the runner image happens to ship.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Run doc-claim drift gate (DRIFT-CT-2)
         working-directory: compiler
         env:
@@ -149,6 +158,51 @@ jobs:
       - name: Run refute-crux verdict gate
         run: bash scripts/refute-crux-gate.sh
 
+      # TOOL-RFC-002: the same gate, in LLMLL, deciding beside the shell one.
+      # Adjacent steps on purpose (RFC §8 decision 1): `tool_state: oracle`
+      # means both implementations run, and a reader compares their answers in
+      # one job log rather than across two jobs.
+      #
+      # --subject is the freshly-built compiler and is passed EXPLICITLY (RFC
+      # §8 decision 2). The harness and the compiler it grades are two
+      # different binaries: once this job pulls a published image instead of
+      # building, an implicit subject would be the IMAGE's compiler and all 41
+      # refuted cases would go vacuously green. That is the defect this gate
+      # exists to catch, so the port refuses to leave it implicit.
+      #
+      # The step budget comes from python3 and NOT `yes x | head -n N`: this
+      # job inherits no pipefail, but build_smoke.sh does, and `yes` dies of
+      # SIGPIPE by design, which reports 141 no matter what the gate decided.
+      # Run from a scratch dir with an absolute --root, because a console
+      # program writes <module>.event-log.jsonl into its working directory.
+      - name: Run refute-crux verdict gate (LLMLL port, TOOL-RFC-002)
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/refutecrux"
+          ( cd tools/refute-crux && stack exec llmll -- build refutecrux.llmll -o "$OUT" )
+          GATE="$(find "$OUT/.stack-work/install" -type f -name refutecrux -perm -111 | head -1)"
+          [ -n "$GATE" ] || { echo "no refutecrux binary under $OUT"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/rc-work" "$RUNNER_TEMP/rc-run"
+          # The differential cover first: it decides whether the port AGREES
+          # with the reference, which a live green run on its own does not.
+          # Sixteen cells, thirteen mutants that must be caught under BOTH
+          # implementations plus three negative controls, over a scratch tree
+          # whose cases live in two suites. That trim is what keeps this to
+          # minutes rather than half an hour, and it bounds the cover to the
+          # CRITERIA; corpus coverage is the live run below, which is why both
+          # are here and neither is sufficient alone.
+          python3 scripts/refute_crux_cover.py --gate "$GATE" --llmll "$SUBJECT"
+          # Then the live corpus, which is the port deciding: all 80 frozen
+          # verdicts against the compiler this job just built.
+          ( cd "$RUNNER_TEMP/rc-run" \
+              && python3 -c "import sys; sys.stdout.write('x\n' * 4000)" \
+                   | "$GATE" --root "$ROOT" --subject "$SUBJECT" \
+                             --work "$RUNNER_TEMP/rc-work" ) > "$RUNNER_TEMP/rc.log" 2>&1 \
+            || { grep -v '^$' "$RUNNER_TEMP/rc.log" >&2; exit 1; }
+          grep -v '^$' "$RUNNER_TEMP/rc.log"
+
       # BUILD-GATE-1. Belongs in this job and not in version-gate: that job is
       # deliberately Stack-free (see the header), and this gate's oracle is GHC.
       # Cheap here because generated projects pin the same resolver as the
@@ -161,11 +215,6 @@ jobs:
         env:
           LLMLL_BIN: stack exec llmll --
         run: bash ../scripts/build_smoke.sh
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Run spec_roundtrip.py against opt-in LLMLL.md blocks
         working-directory: compiler

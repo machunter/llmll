@@ -54,13 +54,24 @@ if ! command -v jq &> /dev/null; then
   exit 1
 fi
 
-# Preflight (A4 finding F-3): `stack exec` does NOT rebuild — after a compiler
-# change, a stale binary silently checks the frozen verdicts against the OLD
-# compiler (a new-feature refute then reads as vacuously SAFE). Build first so
-# every verdict is checked against the current sources; under `set -e` a failed
-# build aborts the gate loudly instead of gating against a stale binary.
-echo "▸ stack build (preflight — stale-binary guard, finding F-3)"
-(cd "$REPO_ROOT/compiler" && stack build)
+# THE STALE-BINARY GUARD IS NOT HERE ANY MORE, AND IT IS NOT GONE.
+#
+# A4 finding F-3: `stack exec` does NOT rebuild, so after a compiler change a
+# stale binary checks the frozen verdicts against the OLD compiler and a
+# new-feature refute reads as vacuously SAFE. This script used to run
+# `stack build` itself. It now belongs to the callers, because they are what
+# differ:
+#
+#   CI    .github/workflows/version-gate.yml builds llmll before this step
+#         (since a23e361), so the build here was a second no-op.
+#   make  the `refute-crux-gate` target builds first, which is where the guard
+#         moved.
+#
+# The move is TOOL-RFC-002 §8 decision 3 and its point is the LLMLL port: a
+# port that inherited this line would carry a dependency on a Haskell build
+# system into a published image. Running this script directly, with neither
+# caller, now grades whatever binary `stack exec` finds. That is the one case
+# that got weaker, and it is stated rather than left to be discovered.
 
 PASS=0
 FAIL=0

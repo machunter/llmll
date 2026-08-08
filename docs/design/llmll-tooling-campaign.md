@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 1, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). One is ported and running (DRIFT-CI-1, TOOL-RFC-001, filed retroactively because it shipped before this standard existed). The campaign is BLOCKED at its distribution step until the tag debt clears: the chosen mechanism is a published release image and the newest tag is v0.14.83 against banners reading 0.14.87, so the image four releases of tooling would pull does not exist."
+status: "Rev 2, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). TWO are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive) and the refute-crux gate (TOOL-RFC-002, the first written RFC-first). All three prerequisites are cleared, so nothing is blocked on a decision. 002 found three defects its own feasibility read had declared absent, which is the campaign premise landing on the campaign."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -42,7 +42,7 @@ excluding comments and blanks:
 | Gate | Code | In CI? | Status |
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | RFC drafted, TOOL-RFC-002; see below |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
@@ -85,18 +85,12 @@ sharing artifacts, over giving every job a toolchain, and over keeping a shell
 fallback per gate. The last of those is what DRIFT-CI-1 does today and it is
 explicitly a transitional state, not the pattern.
 
-**Blocked the campaign at its second port until 2026-08-07; now cleared.**
-Prerequisite P1 is done: `v0.14.84` through `v0.14.87` are tagged and their
-images published to ghcr.io, so a job that pulls an image no longer pulls one
-predating every tool in this campaign. The paragraph below is kept because it
-states the constraint that made distribution the settled question it is.
-
-
-[`docker-publish.yml`](../../.github/workflows/docker-publish.yml) builds and
-publishes on a `vX.Y.Z` tag push, and the newest tag on origin is `v0.14.83`
-while the five banner sites read `0.14.87`. Four releases have no image. Until
-that clears, a job that pulls an image pulls one that predates every tool in
-this campaign.
+**This blocked the campaign at its second port until 2026-08-07, and the block
+was never technical.** [`docker-publish.yml`](../../.github/workflows/docker-publish.yml)
+builds and publishes on a `vX.Y.Z` tag push, and four releases had shipped with
+no tag, so the newest image predated every tool in this campaign. **Cleared:**
+`v0.14.84` through `v0.14.87` are tagged and published, and `:latest` is
+v0.14.87.
 
 **Prerequisite P1: clear the tag debt. DONE 2026-08-07.** Targets were derived
 in [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §10 and
@@ -217,11 +211,15 @@ no toolchain required:
   2026-08-07**: `version-gate.yml`, `spec-roundtrip` job. It had to precede 002,
   or 002 would have ported something CI does not run.
 - **001** DRIFT-CI-1 version gate. **Ported, state `oracle`.**
-- **002** refute-crux gate. **RFC drafted 2026-08-07**,
-  [TOOL-RFC-002](tool-rfc-002-refute-crux.md), state `blocked`, code not
-  written: the first port written RFC-first, and its three policy calls were
-  asked before it rather than reported after. Feasibility read found **no BLOCKS
-  gap and no new gap**, so the port is gated on nothing but the writing.
+- **002** refute-crux gate. **PORTED 2026-08-07**,
+  [TOOL-RFC-002](tool-rfc-002-refute-crux.md), state `oracle`: the first port
+  written RFC-first, its three policy calls asked before the code rather than
+  reported after. All 80 verdicts reproduced, agreeing with the reference.
+  **Its feasibility read concluded "no BLOCKS gap and no new gap" and was wrong
+  on both counts**, which is the campaign's own premise landing on the campaign:
+  building it found `FD-CAPTURE-1` (BLOCKS, fixed in the same change),
+  `JSON-SCALAR-1` and `PROC-MERGE-1`. §5 keeps the wrong conclusion quoted
+  above the correction rather than amending it.
 - **003** doc-claims gate.
 - **004** doc-archive gate.
 - **005** doc-path lint. Gated on `REGEX-LOWER-1`.

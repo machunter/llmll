@@ -1,0 +1,576 @@
+;; TOOL-RFC-002: the refute-crux verdict gate, in LLMLL.
+;;
+;; A port of scripts/refute-crux-gate.sh. Same criteria, same messages, same
+;; failure order, same exit codes. The RFC is
+;; docs/design/tool-rfc-002-refute-crux.md and it was written BEFORE this file,
+;; which is the campaign's whole point: TOOL-RFC-001 was retroactive and its
+;; section 8 records three decisions made at the keyboard.
+;;
+;; WHAT THIS GATE DOES. It runs `llmll verify` on 80 frozen cases across twelve
+;; suites and compares verdict, exit code and localization against each suite's
+;; EXPECTED_VERDICTS.json. It exists because refutation of the tcp_rfc793 and
+;; session-pay wrong twins was silently lost for twenty versions (v0.14.12 to
+;; v0.14.31, ENUM-EQ-FALLBACK) with no gate freezing those verdicts.
+;;
+;; TWO BINARIES, AND CONFLATING THEM IS THE FAILURE THIS GATE EXISTS TO CATCH.
+;; The harness is this program; the SUBJECT is the `llmll` it grades, named by
+;; --subject. They are deliberately separable. Once the campaign's settled
+;; distribution lands (jobs pull a published release image), an implicit subject
+;; would be the IMAGE's compiler rather than the branch's, and all 41 refuted
+;; cases would go vacuously green: the same defect as ENUM-EQ-FALLBACK with a
+;; larger blast radius. RFC section 8 decision 2.
+;;
+;; NO `stack build` PREFLIGHT, DELIBERATELY. The reference shells out to
+;; `stack build` as a stale-binary guard (finding F-3). That guard moves to the
+;; Makefile target rather than into this program, so an LLMLL tool carries no
+;; dependency on a Haskell build system into the image. It is NOT dropped: CI
+;; builds before this runs, and `make refute-crux-gate` builds first.
+;;
+;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits `print (step
+;; args)`: a pure step, no Command performed, no exit status. So `console` is
+;; the only entry mode that can touch the world, and every LLMLL tool is a
+;; stdin-driven step machine that exits 70 on EOF. This gate needs one command
+;; per step across three nested loops (suite, then case, then file), so it needs
+;; a step budget in the high hundreds where the reference needs a `for`.
+;;
+;; NO COMBINED OUTPUT STREAM. `wasi.proc.run` takes SEPARATE stdout and stderr
+;; paths, so the reference's `2>&1` interleaving cannot be reconstructed; this
+;; program reads both and concatenates, stdout first. No criterion is affected,
+;; because all four test CONTAINMENT and not order. The one place order is
+;; observable is the three-line excerpt on a failing case. Filed as
+;; PROC-MERGE-1; RFC section 5 says what the design would have been.
+
+(module refutecrux
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.fs (capability read-write "/"))
+  ;; For wasi.proc.args and wasi.proc.run. The args half is declared though
+  ;; nothing enforces it (CAP-NULLARY-1: checkWasiCapability runs only from
+  ;; inferExpr on an application, and a nullary builtin is an EVar). The run
+  ;; half IS enforced, and the authority is real either way.
+  (import wasi.proc (capability run :deterministic false))
+
+  ;; ---- small helpers over Json --------------------------------------------
+  ;;
+  ;; Every scalar in the run record travels as a Json field rather than as a
+  ;; positional slot, for RFC section 8 decision 4's reason: a case carries two
+  ;; strings that both hold names (`file` and `localized`), and positional
+  ;; fields would give every call site a chance to swap them and typecheck.
+
+  (def-shell jget [v: Json k: string] -> Json
+    (match (json-get v k)
+      ((Success x) x)
+      ((Error _)   json-object)))
+
+  (def-shell jstr [v: Json k: string] -> string
+    (unwrap-or (json-get-string v k) ""))
+
+  (def-shell jint [v: Json k: string] -> int
+    (unwrap-or (json-get-int v k) 0))
+
+  (def-shell jlist [v: Json k: string] -> list[Json]
+    (unwrap-or (json-array (jget v k)) (list-empty)))
+
+  (def-shell sets [v: Json k: string s: string] -> Json
+    (unwrap-or (json-set v k (json-of-string s)) v))
+
+  (def-shell seti [v: Json k: string n: int] -> Json
+    (unwrap-or (json-set v k (json-of-int n)) v))
+
+  (def-shell setl [v: Json k: string xs: list[Json]] -> Json
+    (unwrap-or (json-set v k (json-of-list xs)) v))
+
+  (def-shell strs-of [xs: list[Json]] -> list[string]
+    (list-map xs (fn [x: Json] (unwrap-or (json-get-string x "v") ""))))
+
+  (def-shell of-strs [xs: list[string]] -> list[Json]
+    (list-map xs (fn [s: string] (sets json-object "v" s))))
+
+  ;; ---- the twelve suites ---------------------------------------------------
+  ;;
+  ;; Repo-relative paths and not bare names under examples/: the driver suite
+  ;; lives under tools/, so a suite is addressed by its path. Same list and same
+  ;; order as the reference's FAMILIES array; the order is observable, because
+  ;; the report is emitted in it.
+
+  (def-shell families [] -> list[string]
+    ["examples/tcp_rfc793"
+     "examples/session-pay"
+     "examples/gotofail"
+     "examples/outcome-totality"
+     "examples/total-recursion"
+     "examples/bytes-bounds"
+     "examples/rfc1982_serial"
+     "examples/token-revocation-emergent"
+     "examples/nested-result"
+     "examples/niw-measure"
+     "examples/banking_ledger"
+     "tools/llmll-driver"])
+
+  (def-shell nth-str [xs: list[string] i: int] -> string
+    (unwrap-or (list-nth xs i) ""))
+
+  (def-shell nth-json [xs: list[Json] i: int] -> Json
+    (unwrap-or (list-nth xs i) json-object))
+
+  ;; ---- paths ---------------------------------------------------------------
+
+  (def-shell join2 [a: string b: string] -> string
+    (string-concat-many [a "/" b]))
+
+  ;; `${FAMILY//\//-}`: every slash becomes a dash, so a suite path is usable as
+  ;; a single directory name. Written as a fold over the split rather than with
+  ;; a replace builtin, there being none.
+  (def-shell dashed [fam: string] -> string
+    (let [(parts (string-split "/" fam))]
+      (list-fold parts ""
+        (fn [acc: string p: string]
+          (if (string-empty? acc) p (string-concat-many [acc "-" p]))))))
+
+  ;; "$WORKDIR/${FAMILY//\//-}-$i", the reference's per-case directory. PER
+  ;; CASE and not per suite, and that is behaviour rather than tidiness: a
+  ;; verify writes a .verified.json sidecar, and a suite-wide scratch would let
+  ;; case N's sidecar reach case N+1.
+  (def-shell case-dir [work: string fam: string i: int] -> string
+    (string-concat-many [work "/" (dashed fam) "-" (int-to-string i)]))
+
+  (def-shell ends-with? [s: string suf: string] -> bool
+    (let [(n (string-length s))]
+      (let [(m (string-length suf))]
+        (and (>= n m) (= (string-slice s (- n m) n) suf)))))
+
+  (def-shell llmll-files [entries: list[string]] -> list[string]
+    (list-filter entries (fn [e: string] (ends-with? e ".llmll"))))
+
+  ;; ---- the run record ------------------------------------------------------
+
+  (type Rc (| Rc Json))
+  (def-shell f-of [r: Rc] -> Json (match r ((Rc j) j)))
+  (def-shell mk [j: Json] -> Rc (Rc j))
+
+  (def-shell root-of    [r: Rc] -> string (jstr (f-of r) "root"))
+  (def-shell subject-of [r: Rc] -> string (jstr (f-of r) "subject"))
+  (def-shell work-of    [r: Rc] -> string (jstr (f-of r) "work"))
+  (def-shell fi-of      [r: Rc] -> int    (jint (f-of r) "fi"))
+  (def-shell ci-of      [r: Rc] -> int    (jint (f-of r) "ci"))
+  (def-shell ki-of      [r: Rc] -> int    (jint (f-of r) "ki"))
+  (def-shell pass-of    [r: Rc] -> int    (jint (f-of r) "pass"))
+  (def-shell fail-of    [r: Rc] -> int    (jint (f-of r) "fail"))
+  (def-shell code-of    [r: Rc] -> int    (jint (f-of r) "code"))
+  (def-shell out-of     [r: Rc] -> string (jstr (f-of r) "out"))
+  (def-shell rep-of     [r: Rc] -> string (jstr (f-of r) "rep"))
+  (def-shell files-of   [r: Rc] -> list[string] (strs-of (jlist (f-of r) "files")))
+  (def-shell cases-of   [r: Rc] -> list[Json]   (jlist (f-of r) "cases"))
+
+  (def-shell fam-of [r: Rc] -> string (nth-str (families) (fi-of r)))
+  (def-shell cur-case [r: Rc] -> Json (nth-json (cases-of r) (ci-of r)))
+
+  (def-shell with-s [r: Rc k: string s: string] -> Rc (mk (sets (f-of r) k s)))
+  (def-shell with-i [r: Rc k: string n: int]    -> Rc (mk (seti (f-of r) k n)))
+  (def-shell with-l [r: Rc k: string xs: list[string]] -> Rc
+    (mk (setl (f-of r) k (of-strs xs))))
+  (def-shell with-cases [r: Rc xs: list[Json]] -> Rc (mk (setl (f-of r) "cases" xs)))
+
+  ;; Append to the accumulated report. The reference streams its lines; this
+  ;; program accumulates and emits once, because a console step performs exactly
+  ;; ONE Command and the fs work already claims it. The BYTES are the same and
+  ;; the order is the same; only the moment differs.
+  (def-shell say [r: Rc line: string] -> Rc
+    (with-s r "rep" (string-concat-many [(rep-of r) line "\n"])))
+
+  ;; ---- case fields ---------------------------------------------------------
+
+  (def-shell c-file  [c: Json] -> string (jstr c "file"))
+  (def-shell c-exp   [c: Json] -> string (jstr c "expect"))
+  (def-shell c-exit  [c: Json] -> int    (jint c "expect_exit"))
+  (def-shell c-loc   [c: Json] -> string (jstr c "localized"))
+  ;; A BARE STRING ELEMENT OF A JSON ARRAY HAS NO ACCESSOR. `json-get-string`
+  ;; reads a FIELD of an object, so it answers "" on the scalar `Json` that
+  ;; `json-array` hands back, and the flags then vanish silently: measured, the
+  ;; 50 cases carrying --strict-verified-core invoked the subject with no flag
+  ;; at all, which printed usage and failed all 50 while the 30 flagless cases
+  ;; passed. Nothing type-checks differently either way. `json-serialize` is the
+  ;; only route to the value, and it renders a string WITH its quotes, so the
+  ;; quotes come back off here. Filed as JSON-SCALAR-1; RFC section 5 says what
+  ;; the design would have been.
+  (def-shell json-string-value [x: Json] -> string
+    (let [(s (json-serialize x))]
+      (let [(n (string-length s))]
+        (if (and (>= n 2) (and (= (string-slice s 0 1) "\"")
+                               (= (string-slice s (- n 1) n) "\"")))
+            (string-slice s 1 (- n 1))
+            s))))
+
+  (def-shell c-flags [c: Json] -> list[string]
+    (list-map (unwrap-or (json-array (jget c "flags")) (list-empty))
+              (fn [x: Json] (json-string-value x))))
+
+  ;; `${FLAGS:+ $FLAGS}` in the reference's label: a leading space only when
+  ;; there are flags at all.
+  (def-shell flags-label [fs: list[string]] -> string
+    (list-fold fs "" (fn [acc: string f: string] (string-concat-many [acc " " f]))))
+
+  ;; ---- the criteria --------------------------------------------------------
+  ;;
+  ;; THE FAILURE ORDER IS PART OF THE BEHAVIOUR, and RFC section 2 states it as
+  ;; four rules. Two of them are visible right here.
+  ;;
+  ;; Rule 2: the exit-code check runs FIRST and does NOT skip the verdict check.
+  ;; Both can fire and the reasons join with "; ". A port that treated them as
+  ;; alternatives would lose half of a two-fault message.
+  ;;
+  ;; Rule 4: inside the refuted arm the checks are an elif chain, so AT MOST ONE
+  ;; reason is reported even when two apply. That asymmetry with rule 2 is the
+  ;; reference's, and it is reproduced rather than tidied.
+
+  (def-shell join-reason [a: string b: string] -> string
+    (if (string-empty? a) b (string-concat-many [a "; " b])))
+
+  ;; The reference greps the localized name WRAPPED IN SINGLE QUOTES on the
+  ;; refuted arm and BARE on the capability arm. The asymmetry is reproduced on
+  ;; purpose: a port is not the place to change what a gate decides. RFC section
+  ;; 8 decision 5.
+  (def-shell refuted-reason [out: string loc: string] -> string
+    (if (not (string-contains out "error:"))
+        "no refutation error in output"
+        (if (string-contains out "requires (import")
+            "capability violation, not a refutation; expect 'capability'"
+            (if (and (not (string-empty? loc))
+                     (not (string-contains out (string-concat-many ["'" loc "'"]))))
+                (string-concat-many ["refutation not localized to '" loc "'"])
+                ""))))
+
+  (def-shell capability-reason [out: string loc: string] -> string
+    (if (not (string-contains out "requires (import"))
+        "no capability diagnostic in output"
+        (if (and (not (string-empty? loc)) (not (string-contains out loc)))
+            (string-concat-many ["capability error does not name '" loc "'"])
+            "")))
+
+  (def-shell verdict-reason [expect: string out: string loc: string] -> string
+    (if (= expect "safe")
+        (if (string-contains out "SAFE") "" "no SAFE verdict in output")
+        (if (= expect "refuted")
+            (refuted-reason out loc)
+            (if (= expect "capability")
+                (capability-reason out loc)
+                (string-concat-many ["unknown expectation '" expect "'"])))))
+
+  (def-shell exit-reason [actual: int expect: int] -> string
+    (if (= actual expect)
+        ""
+        (string-concat-many
+          ["exit " (int-to-string actual) " (expected " (int-to-string expect) ")"])))
+
+  (def-shell case-reason [c: Json actual: int out: string] -> string
+    (join-reason (exit-reason actual (c-exit c))
+                 (verdict-reason (c-exp c) out (c-loc c))))
+
+  ;; The reference's label is `$FILE${FLAGS:+ $FLAGS} → $EXPECT/exit
+  ;; $EXPECT_EXIT`, with U+2192. THIS PORT WRITES AN ASCII `->` INSTEAD, AND
+  ;; NOT BY PREFERENCE.
+  ;;
+  ;; Measured: with `→` in this literal the compiler carries it correctly all
+  ;; the way into the generated Haskell (`" \8594 "` in Lib.hs), and the running
+  ;; program then emits the bytes `c2 92`, which is U+0092: the codepoint
+  ;; truncated to its low byte and re-encoded. That happens even though the
+  ;; emitted `main` calls `setLocaleEncoding utf8` and pins utf8 on stdin,
+  ;; stdout and stderr, so a console program cannot put a non-ASCII character
+  ;; on its own stdout through the capture path. Filed as `CAPTURE-ENCODING-1`;
+  ;; it is a sibling of `TOOL-ENCODING-1`, one level in.
+  ;;
+  ;; So the cover normalises the arrow rather than comparing it, and says so.
+  ;; Writing `->` here is the visible half of a defect, not a shrug: when the
+  ;; row closes, this literal becomes `→` and the cover's normalisation goes.
+  (def-shell case-label [c: Json] -> string
+    (string-concat-many
+      [(c-file c) (flags-label (c-flags c)) " -> " (c-exp c)
+       "/exit " (int-to-string (c-exit c))]))
+
+  ;; `echo "$OUTPUT" | tail -3 | sed 's/^/     | /'`. The excerpt is the one
+  ;; place PROC-MERGE-1 is observable: with two capture files the interleaving
+  ;; of a 2>&1 merge is gone, so these are the last three lines of stdout then
+  ;; stderr rather than of the merged stream.
+  (def-shell last3 [out: string] -> string
+    (let [(ls (list-filter (string-split "\n" out)
+                           (fn [l: string] (not (string-empty? l)))))]
+      (let [(n (list-length ls))]
+        (list-fold [0 1 2] ""
+          (fn [acc: string k: int]
+            (let [(i (+ (- n 3) k))]
+              (if (< i 0) acc
+                  (string-concat-many [acc "     | " (nth-str ls i) "\n"]))))))))
+
+  ;; ---- report --------------------------------------------------------------
+
+  (def-shell rule [] -> string
+    "===========================================================")
+
+  (def-shell header [] -> string
+    (string-concat-many
+      [(rule) "\n Refute-Crux Verdict Gate (frozen verify verdicts)\n" (rule)]))
+
+  (def-shell summary [r: Rc] -> string
+    (string-concat-many
+      ["\n" (rule) "\n Results: " (int-to-string (pass-of r)) " passed, "
+       (int-to-string (fail-of r)) " failed\n" (rule) "\n"
+       (if (> (fail-of r) 0)
+           (string-concat-many
+             ["\nFAIL: refute-crux gate failed - " (int-to-string (fail-of r))
+              " frozen verdict(s) diverged."])
+           "\nOK: refute-crux gate passed.")]))
+
+  ;; ---- scoring -------------------------------------------------------------
+
+  (def-shell score [r: Rc] -> Rc
+    (let [(c (cur-case r))]
+      (let [(why (case-reason c (code-of r) (out-of r)))]
+        (if (string-empty? why)
+            (with-i (say r (string-concat-many ["  PASS " (case-label c)]))
+                    "pass" (+ (pass-of r) 1))
+            (with-i (say (say (say r (string-concat-many ["  FAIL " (case-label c)]))
+                              (string-concat-many ["     " why]))
+                         (last3 (out-of r)))
+                    "fail" (+ (fail-of r) 1))))))
+
+  (def-shell miss [r: Rc line: string] -> Rc
+    (with-i (say r line) "fail" (+ (fail-of r) 1)))
+
+  ;; ---- responses -----------------------------------------------------------
+
+  (def-shell text-of [x: Response] -> string
+    (match x
+      ((RText t) t)
+      ((RErr _)  "")
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RList _) "")))
+
+  ;; A read that failed is "" and a read that succeeded on an empty file is also
+  ;; "", which is right here: both mean the manifest carries nothing usable, and
+  ;; the reference's `[ ! -f "$EXPECTED" ]` reports the same absence.
+  (def-shell list-of [x: Response] -> list[string]
+    (match x
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  ;; RCode carries the child's exit status, and a NONZERO exit is a value rather
+  ;; than an error (CodegenHs.hs:731-732). That is what makes this port possible
+  ;; at all: 41 of the 80 cases EXPECT exit 1, and the reference brackets its
+  ;; call in `set +e` for the same reason. RErr is a spawn failure or a timeout
+  ;; overrun, neither of which is an exit status, so it scores as 127 and the
+  ;; case fails loudly rather than being read as a verdict.
+  (def-shell code-in [x: Response] -> int
+    (match x
+      ((RCode c) c)
+      ((RErr _)  127)
+      ((RNone)   127)
+      ((RText _) 127)
+      ((RList _) 127)))
+
+  (def-shell argv-of [x: Response] -> list[string]
+    (match x
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell flag-or [as: list[string] f: string d: string] -> string
+    (let [(v (flag-value as f))] (if (string-empty? v) d v)))
+
+  ;; ---- the machine ---------------------------------------------------------
+
+  (type Ctl
+    (| Boot)
+    (| Manifest)
+    (| Listing)
+    (| MadeDir)
+    (| Copied)
+    (| Ran)
+    (| ReadOut)
+    (| ReadErr)
+    (| Ending int)
+    (| Done   int))
+
+  (def-shell rc-of  [s: (Rc, Ctl)] -> Rc  (first s))
+  (def-shell ctl-of [s: (Rc, Ctl)] -> Ctl (second s))
+  (def-shell go [r: Rc p: Ctl c: Command] -> ((Rc, Ctl), Command)
+    (pair (pair r p) c))
+
+  (def-shell manifest-at [r: Rc] -> string
+    (string-concat-many [(root-of r) "/" (fam-of r) "/EXPECTED_VERDICTS.json"]))
+
+  (def-shell out-path [r: Rc] -> string (join2 (work-of r) "stdout.txt"))
+  (def-shell err-path [r: Rc] -> string (join2 (work-of r) "stderr.txt"))
+
+  (def-shell finish [r: Rc] -> ((Rc, Ctl), Command)
+    (go r (Ending (if (> (fail-of r) 0) 1 0))
+        (wasi.io.stdout (string-concat-many [(rep-of r) (summary r)]))))
+
+  ;; Advance to the next suite, or decide. Emitting the suite header here keeps
+  ;; the report in the reference's order: a blank line, then the suite path.
+  (def-shell next-family [r: Rc] -> ((Rc, Ctl), Command)
+    (let [(r2 (with-i r "fi" (+ (fi-of r) 1)))]
+      (if (>= (fi-of r2) (list-length (families)))
+          (finish r2)
+          (go (say r2 (string-concat-many ["\n> " (fam-of r2)]))
+              (Manifest)
+              (wasi.fs.read (manifest-at r2))))))
+
+  ;; Start case ci of the current suite, or move on. mkdir creates parents and
+  ;; is idempotent, so a resumed scratch directory is not an error.
+  (def-shell next-case [r: Rc] -> ((Rc, Ctl), Command)
+    (if (>= (ci-of r) (list-length (cases-of r)))
+        (next-family r)
+        (go r (MadeDir)
+            (wasi.fs.mkdir (case-dir (work-of r) (fam-of r) (ci-of r))))))
+
+  ;; Copy the suite's .llmll files one per step. The whole suite is copied and
+  ;; not just the case file, for the reference's reason: a case that imports a
+  ;; sibling cannot resolve it otherwise, and `verify` still checks only the
+  ;; named file, so the extra siblings change no verdict.
+  (def-shell copy-or-run [r: Rc] -> ((Rc, Ctl), Command)
+    (let [(fs (files-of r))]
+      (if (< (ki-of r) (list-length fs))
+          (let [(n (nth-str fs (ki-of r)))]
+            (go (with-i r "ki" (+ (ki-of r) 1)) (Copied)
+                (wasi.fs.copy (string-concat-many [(root-of r) "/" (fam-of r) "/" n])
+                              (join2 (case-dir (work-of r) (fam-of r) (ci-of r)) n))))
+          (let [(c (cur-case r))]
+            (let [(src (join2 (case-dir (work-of r) (fam-of r) (ci-of r)) (c-file c)))]
+              (go r (Ran)
+                  (wasi.proc.run (subject-of r)
+                                 (list-prepend "verify" (list-prepend src (c-flags c)))
+                                 (work-of r)
+                                 (out-path r)
+                                 (err-path r)
+                                 (- 0 1))))))))
+
+  ;; A fixture named by a case but absent from the suite. The reference tests
+  ;; `[ ! -f "$SRC" ]` before copying; here the suite listing is already in
+  ;; hand, so the same question is asked of it.
+  ;;
+  ;; THIS RUNS ONCE PER CASE, from the MadeDir arm, and not once per suite. An
+  ;; earlier shape called it only from `listing-step`, so the check applied to
+  ;; case 0 of each suite and to nothing else: measured against the real
+  ;; manifests it left 10 of 80 cases unchecked, which a passing tree would
+  ;; never have shown. Reaching it through MadeDir costs one mkdir on a case
+  ;; whose fixture is absent, which is a directory nothing is written into.
+  (def-shell start-case [r: Rc] -> ((Rc, Ctl), Command)
+    (let [(c (cur-case r))]
+      (if (list-contains (files-of r) (c-file c))
+          (copy-or-run (with-i r "ki" 0))
+          (next-case (with-i (miss r (string-concat-many
+                                       ["  FAIL " (c-file c) ": fixture missing"]))
+                             "ci" (+ (ci-of r) 1))))))
+
+  (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(as (argv-of x))]
+      (let [(r2 (with-s (with-s (with-s r "root" (flag-or as "--root" "."))
+                                "subject" (flag-or as "--subject" "llmll"))
+                        "work" (flag-or as "--work" ".")))]
+        (go (say (with-i r2 "fi" 0) (string-concat-many [(header) "\n\n> " (fam-of r2)]))
+            (Manifest)
+            (wasi.fs.read (manifest-at r2))))))
+
+  ;; A suite whose manifest is unreadable counts ONE failure and continues, in
+  ;; both implementations. It does not abort the suite or the run.
+  (def-shell manifest-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(t (text-of x))]
+      (if (string-empty? t)
+          (next-family (miss r (string-concat-many
+                                 ["  FAIL " (fam-of r) ": "
+                                  (manifest-at r) " not found"])))
+          (match (json-parse t)
+            ((Error _)
+             (next-family (miss r (string-concat-many
+                                    ["  FAIL " (fam-of r) ": "
+                                     (manifest-at r) " not found"]))))
+            ((Success doc)
+             (go (with-i (with-cases r (jlist doc "cases")) "ci" 0)
+                 (Listing)
+                 (wasi.fs.list (string-concat-many
+                                 [(root-of r) "/" (fam-of r)]))))))))
+
+  (def-shell listing-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (next-case (with-l r "files" (llmll-files (list-of x)))))
+
+  (def-shell ran-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (go (with-i r "code" (code-in x)) (ReadOut) (wasi.fs.read (out-path r))))
+
+  (def-shell readout-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (go (with-s r "out" (text-of x)) (ReadErr) (wasi.fs.read (err-path r))))
+
+  ;; stdout then stderr, which is PROC-MERGE-1's whole visible consequence.
+  (def-shell readerr-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(r2 (with-s r "out" (string-concat-many [(out-of r) "\n" (text-of x)])))]
+      (next-case (with-i (score r2) "ci" (+ (ci-of r2) 1)))))
+
+  (def-shell rc-init [] -> ((Rc, Ctl), Command)
+    (pair (pair (mk (seti (seti (seti (sets json-object "rep" "") "pass" 0)
+                                "fail" 0) "fi" 0))
+                (Boot))
+          wasi.proc.args))
+
+  (def-shell rc-step [s: (Rc, Ctl) input: string x: Response]
+      -> ((Rc, Ctl), Command)
+    (match (ctl-of s)
+      ((Boot)     (boot-step     (rc-of s) x))
+      ((Manifest) (manifest-step (rc-of s) x))
+      ((Listing)  (listing-step  (rc-of s) x))
+      ((MadeDir)  (start-case    (rc-of s)))
+      ((Copied)   (copy-or-run   (rc-of s)))
+      ((Ran)      (ran-step      (rc-of s) x))
+      ((ReadOut)  (readout-step  (rc-of s) x))
+      ((ReadErr)  (readerr-step  (rc-of s) x))
+      ((Ending c) (go (rc-of s) (Done c) (wasi.io.stdout "")))
+      ((Done c)   (go (rc-of s) (Done c) (wasi.io.stdout "")))))
+
+  (def-shell rc-done? [s: (Rc, Ctl)] -> bool
+    (match (ctl-of s)
+      ((Boot)     false)
+      ((Manifest) false)
+      ((Listing)  false)
+      ((MadeDir)  false)
+      ((Copied)   false)
+      ((Ran)      false)
+      ((ReadOut)  false)
+      ((ReadErr)  false)
+      ((Ending _) false)
+      ((Done _)   true)))
+
+  (def-shell done-code [s: (Rc, Ctl)] -> int
+    (match (ctl-of s)
+      ((Boot)     1)
+      ((Manifest) 1)
+      ((Listing)  1)
+      ((MadeDir)  1)
+      ((Copied)   1)
+      ((Ran)      1)
+      ((ReadOut)  1)
+      ((ReadErr)  1)
+      ((Ending _) 1)
+      ((Done c)   c)))
+
+  ;; Clamped, and it fails in the safe direction: 256 exits 255, not 0. This
+  ;; gate has two codes, so the clamp guards a future third.
+  (def-shell rc-status [s: (Rc, Ctl)] -> int
+    (let [(c (done-code s))]
+      (if (< c 0) 1 (if (> c 255) 255 c))))
+
+  (def-main
+    :mode    console
+    :init    (rc-init)
+    :step    rc-step
+    :done?   rc-done?
+    :status  rc-status))
