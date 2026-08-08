@@ -33,12 +33,16 @@
 ;; per step across three nested loops (suite, then case, then file), so it needs
 ;; a step budget in the high hundreds where the reference needs a `for`.
 ;;
-;; NO COMBINED OUTPUT STREAM. `wasi.proc.run` takes SEPARATE stdout and stderr
-;; paths, so the reference's `2>&1` interleaving cannot be reconstructed; this
-;; program reads both and concatenates, stdout first. No criterion is affected,
-;; because all four test CONTAINMENT and not order. The one place order is
-;; observable is the three-line excerpt on a failing case. Filed as
-;; PROC-MERGE-1; RFC section 5 says what the design would have been.
+;; NO COMBINED OUTPUT STREAM HERE, AND THAT IS NOW A CHOICE RATHER THAN A GAP.
+;; PROC-MERGE-1 shipped in v0.14.91, so equal stdout and stderr path strings
+;; merge into one handle and the reference's `2>&1` does have a counterpart.
+;; This program still reads two files and concatenates, stdout first, because
+;; no criterion tests order (all four test CONTAINMENT) and because the merged
+;; interleaving is the CHILD's flush order, which is not something either
+;; implementation controls: measured, a child writing stdout first can land
+;; stderr first. Switching to a merged capture would make the three-line
+;; excerpt track `llmll verify`'s buffering rather than its output. The
+;; preflight below does use the merge, where the output is discarded anyway.
 
 (module refutecrux
   (import wasi.io (capability stdout :deterministic false))
@@ -183,26 +187,26 @@
   (def-shell c-exp   [c: Json] -> string (jstr c "expect"))
   (def-shell c-exit  [c: Json] -> int    (jint c "expect_exit"))
   (def-shell c-loc   [c: Json] -> string (jstr c "localized"))
-  ;; A BARE STRING ELEMENT OF A JSON ARRAY HAS NO ACCESSOR. `json-get-string`
-  ;; reads a FIELD of an object, so it answers "" on the scalar `Json` that
-  ;; `json-array` hands back, and the flags then vanish silently: measured, the
-  ;; 50 cases carrying --strict-verified-core invoked the subject with no flag
-  ;; at all, which printed usage and failed all 50 while the 30 flagless cases
-  ;; passed. Nothing type-checks differently either way. `json-serialize` is the
-  ;; only route to the value, and it renders a string WITH its quotes, so the
-  ;; quotes come back off here. Filed as JSON-SCALAR-1; RFC section 5 says what
-  ;; the design would have been.
-  (def-shell json-string-value [x: Json] -> string
-    (let [(s (json-serialize x))]
-      (let [(n (string-length s))]
-        (if (and (>= n 2) (and (= (string-slice s 0 1) "\"")
-                               (= (string-slice s (- n 1) n) "\"")))
-            (string-slice s 1 (- n 1))
-            s))))
-
+  ;; JSON-SCALAR-1 IS CLOSED, and the workaround it forced is gone with it.
+  ;; This used to be a `json-string-value` helper that serialized the element
+  ;; and stripped the quotes `json-serialize` renders, because no operation
+  ;; read a scalar `Json` as a value at all. That helper was not merely verbose:
+  ;; `json-serialize` escapes every character above '~' as \uXXXX, so a flag
+  ;; carrying a non-ASCII character came back as six literal characters.
+  ;;
+  ;; The history worth keeping is what the absence cost. Reading the element
+  ;; through `json-get-string` (a FIELD accessor) yields `err`, and this port's
+  ;; own `jstr` wraps every field read in `(unwrap-or ... "")` -- so the flags
+  ;; vanished into empty strings and the subject was invoked with no flag at
+  ;; all. Measured: the 50 cases carrying --strict-verified-core all failed
+  ;; while the 30 flagless ones passed, and nothing type-checked differently.
+  ;;
+  ;; So the default here is a SENTINEL and not "". A non-string flag is a
+  ;; malformed corpus entry, and it should fail its case loudly rather than
+  ;; disappear the way the original defect did.
   (def-shell c-flags [c: Json] -> list[string]
     (list-map (unwrap-or (json-array (jget c "flags")) (list-empty))
-              (fn [x: Json] (json-string-value x))))
+              (fn [x: Json] (unwrap-or (json-as-string x) "<non-string-flag>"))))
 
   ;; `${FLAGS:+ $FLAGS}` in the reference's label: a leading space only when
   ;; there are flags at all.
@@ -387,6 +391,12 @@
 
   (type Ctl
     (| Boot)
+    ;; The solver preflight, one state per binary. Two states rather than one
+    ;; because a Command yields exactly one Response, so the two probes cannot
+    ;; share a step, and reporting WHICH binary is missing is the whole value of
+    ;; naming them separately.
+    (| WhichFix)
+    (| WhichZ3)
     (| Manifest)
     (| Listing)
     (| MadeDir)
@@ -469,14 +479,71 @@
                                        ["  FAIL " (c-file c) ": fixture missing"]))
                              "ci" (+ (ci-of r) 1))))))
 
+  ;; ---- the solver preflight ------------------------------------------------
+  ;;
+  ;; `llmll verify` proves nothing on its own: it shells out to `fixpoint`,
+  ;; which shells out to z3, and absent either it exits 3, "solver unavailable
+  ;; (proof did not run)" (compiler/app/Main.hs). Without this check the machine
+  ;; below scores every proof-bearing case against an exit 3 and an output with
+  ;; no SAFE in it, so all 80 read as diverged and the summary says so when
+  ;; NOTHING diverged. That is finding 12 exactly: the shell reference's first
+  ;; Linux run printed "78 frozen verdict(s) diverged" with one cause and zero
+  ;; divergences.
+  ;;
+  ;; THE REFERENCE GREW THIS CHECK AND THIS PORT DID NOT, which left two
+  ;; implementations both declared `oracle` disagreeing on a solver-less host:
+  ;; one refuses by name, the other grades undecidable verdicts. Recorded in the
+  ;; restart record §8 as a real divergence and closed here.
+  ;;
+  ;; `which` and not a shell builtin, because `command -v` is bash's and this
+  ;; program has no shell. The discriminator is the EXIT CODE and nothing else:
+  ;; 0 means found; 1 means `which` ran and did not find it; and 127 is
+  ;; `code-in`'s score for an RErr, which is what a spawn failure publishes if
+  ;; `which` itself is absent. All three non-zero cases refuse, so an unusual
+  ;; environment fails SAFE rather than grading verdicts it cannot decide.
+  ;;
+  ;; Output goes to /dev/null, twice, and the repetition is deliberate: it is a
+  ;; path that always exists, so the probe cannot fail for a reason that has
+  ;; nothing to do with the solver. Pointing both at one path also means the two
+  ;; streams MERGE (PROC-MERGE-1), which costs nothing when the output is
+  ;; discarded and would have been a truncation race before v0.14.91.
+  (def-shell probe [exe: string] -> Command
+    (wasi.proc.run "which" [exe] "." "/dev/null" "/dev/null" 30))
+
+  (def-shell no-solver [r: Rc missing: string] -> ((Rc, Ctl), Command)
+    (go r (Ending 1)
+        (wasi.io.stdout
+          (string-concat-many
+            ["ERROR: solver toolchain incomplete -- missing: " missing "\n\n"
+             "  `llmll verify` exits 3 (solver unavailable) without both, so every\n"
+             "  proof-bearing verdict here would be reported as diverged when the proof\n"
+             "  simply did not run. Refusing to grade verdicts that cannot be decided.\n\n"
+             "  macOS: brew install z3 && stack install liquid-fixpoint-0.9.6.3.1\n"
+             "  Linux: apt-get install z3, then build fixpoint from\n"
+             "         scripts/fixpoint.stack.yaml (see .github/workflows/version-gate.yml)\n"]))))
+
+  (def-shell whichfix-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (if (= (code-in x) 0)
+        (go r (WhichZ3) (probe "z3"))
+        (no-solver r "fixpoint")))
+
+  (def-shell whichz3-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (if (= (code-in x) 0)
+        (go (say (with-i r "fi" 0)
+                 (string-concat-many [(header) "\n\n> " (fam-of r)]))
+            (Manifest)
+            (wasi.fs.read (manifest-at r)))
+        (no-solver r "z3")))
+
+  ;; Argv is parsed BEFORE the preflight so a refusal still reports against the
+  ;; run the caller asked for, and the preflight runs BEFORE the header so a
+  ;; refused run does not open a report it will never finish.
   (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(as (argv-of x))]
       (let [(r2 (with-s (with-s (with-s r "root" (flag-or as "--root" "."))
                                 "subject" (flag-or as "--subject" "llmll"))
                         "work" (flag-or as "--work" ".")))]
-        (go (say (with-i r2 "fi" 0) (string-concat-many [(header) "\n\n> " (fam-of r2)]))
-            (Manifest)
-            (wasi.fs.read (manifest-at r2))))))
+        (go r2 (WhichFix) (probe "fixpoint")))))
 
   ;; A suite whose manifest is unreadable counts ONE failure and continues, in
   ;; both implementations. It does not abort the suite or the run.
@@ -521,6 +588,8 @@
       -> ((Rc, Ctl), Command)
     (match (ctl-of s)
       ((Boot)     (boot-step     (rc-of s) x))
+      ((WhichFix) (whichfix-step (rc-of s) x))
+      ((WhichZ3)  (whichz3-step  (rc-of s) x))
       ((Manifest) (manifest-step (rc-of s) x))
       ((Listing)  (listing-step  (rc-of s) x))
       ((MadeDir)  (start-case    (rc-of s)))
@@ -534,6 +603,8 @@
   (def-shell rc-done? [s: (Rc, Ctl)] -> bool
     (match (ctl-of s)
       ((Boot)     false)
+      ((WhichFix) false)
+      ((WhichZ3)  false)
       ((Manifest) false)
       ((Listing)  false)
       ((MadeDir)  false)
@@ -547,6 +618,8 @@
   (def-shell done-code [s: (Rc, Ctl)] -> int
     (match (ctl-of s)
       ((Boot)     1)
+      ((WhichFix) 1)
+      ((WhichZ3)  1)
       ((Manifest) 1)
       ((Listing)  1)
       ((MadeDir)  1)
