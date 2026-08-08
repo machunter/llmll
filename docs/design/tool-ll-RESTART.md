@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. **FULLY RELEASED AT v0.14.91**, `main` green at `5b88bc9`, tag pushed and image published with `:latest` on its digest (`b9a0dcec`), verified at the REGISTRY. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. Next is 003, RFC-first, which was measured to be blocked by neither gap."
+status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. **FULLY RELEASED AT v0.14.91**, `main` green at `5b88bc9`, tag pushed and image published with `:latest` on its digest (`b9a0dcec`), verified at the REGISTRY. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. **003 IS COMMITTED AND CUT AS v0.14.92**: port, differential cover (17 cells + 3 controls), CI wiring and RFC at `tool_state: oracle`, three ports of six now landed as oracles. The cover caught TWO real defects in the port before either shipped, neither reachable from the live corpus. **THE CEREMONY IS NOT FINISHED**: v0.14.92 is committed but NOT tagged and NOT published, because the ordering rule in §1 tags only after `version-gate` is green on `main`. Everything in §5 is macOS/aarch64 and none of v0.14.92 has run on Linux."
 date: 2026-08-08
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -25,7 +25,16 @@ local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
 to `main`. The counts this section used to carry are retired: they were a
 property of an unmerged branch and there is no longer one.
 
-**`main` IS GREEN at `5b88bc9` (v0.14.91), tagged and published.** v0.14.91
+**v0.14.92 IS COMMITTED AND IS NEITHER TAGGED NOR PUBLISHED YET**, three commits
+past `5b88bc9`: the 003 port with its RFC and cover and CI wiring, the release,
+and this record. Everything below about v0.14.91 remains true and is the state
+this one is built on. **The next reader's first job is to check whether that
+sentence is still current**, because the ordering rule below is the whole reason
+it is written this way: `gh run list --branch main --limit 3`, and if
+`version-gate` is green at the tip then the tag and the image are what is owed,
+tagged ALONE and verified at the REGISTRY.
+
+**`main` WAS GREEN at `5b88bc9` (v0.14.91), tagged and published.** v0.14.91
 fast-forwarded `1745a69..5b88bc9` on 2026-08-08 and went green on Linux first
 time, which is worth recording because the previous merge needed three
 fix-forward commits. **Both new fixtures are confirmed to have BUILT AND RUN on
@@ -157,7 +166,52 @@ User adjudications, 2026-08-07:
    every field read in `(unwrap-or ... "")`. The defect was a missing operation
    whose absence every call site papered over locally, which is why no gate
    could see it, and it is the argument for the `Result` shape.
-5. **Then 003, RFC-first.** ← **NEXT**
+5. **003, RFC-first.** ~~NEXT~~ **DONE AND COMMITTED**, released as v0.14.92.
+   RFC written before any code with both §8 questions put to the user; port at
+   [`tools/doc-claims/docclaims.llmll`](../../tools/doc-claims/docclaims.llmll);
+   cover at [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py), 17 cells
+   and 3 negative controls, all ok; wired into `spec-roundtrip` adjacent to its
+   reference; `tool_state: oracle`.
+
+   **"BYTE-IDENTICAL" WAS TOO STRONG AND IS CORRECTED HERE BEFORE IT PROPAGATES.**
+   The live run is identical to the reference **line for line with blank lines
+   stripped from BOTH sides**, exit codes agreeing (0 and 0). Stripping is not
+   optional and is not symmetric in what it costs: the port's `console` harness
+   emits a blank line per step, 47 of them in a live run, so its output cannot be
+   compared without removing them, and removing them also removes the ONE blank
+   line the reference prints deliberately between its last tick and its summary.
+   [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py)'s `normalise()`
+   already said exactly this and the prose above it did not. The weakening is
+   small, it is stated rather than glossed, and this is 002's discipline
+   (decisions and exit codes compared, not bytes) applied to its own record.
+
+   **THE COVER EARNED ITS PLACE ON ITS FIRST RUN, twice.** Cell 5: the port
+   promoted a `warn` observation on the presence of `warning:` alone, where the
+   reference promotes it only when the warning AND the pinned substring match.
+   Cell 11: the port probed its subject unconditionally and SKIPPED where the
+   reference FAILS, because `LLMLL_BIN` set to a nonexistent path is used AS
+   GIVEN and never second-guessed. **Neither was reachable from the live
+   corpus**, which always names a working subject and always passes.
+
+   **Two cover bugs of my own, both worth not repeating.** A cell anchored on a
+   fixture that lacked the header it wanted (the anchor guard firing as
+   designed), and — the instructive one — **the two implementations were given
+   DIFFERENT ENVIRONMENTS**, so the port found an `llmll` on `PATH` the
+   reference could not see. A differential cover that varies the environment
+   between its two sides is comparing two worlds, not two implementations.
+
+   **Settled by the user 2026-08-08, do not re-litigate:** the port reproduces
+   the reference's two SKIP paths faithfully and the silent success is filed as
+   `SKIP-SILENT-1` rather than fixed inside a port commit; the `@expect` grammar
+   is implemented in FULL, which the retirement rule forces rather than taste.
+6. ~~**Commit and release 003.**~~ **DONE**, three commits: the port with its
+   RFC, cover, CI wiring and the `SKIP-SILENT-1` row; the v0.14.92 release; this
+   record. **THE CEREMONY IS NOT FINISHED AT THAT POINT AND THIS STEP IS NOT
+   EITHER**: v0.14.92 is not tagged and no image is published until
+   `version-gate` is green on `main`, which is the ordering rule in §1 and the
+   only thing standing between a red tree and a published release image.
+7. **NEXT: 004 (doc-archive), RFC-first.** 005 stays blocked on `REGEX-LOWER-1`
+   and 006 stays last, since it runs the others.
 
 **003 is NOT blocked by any of the three open gaps**; that was measured, not
 assumed. So step 3 and 4 before step 5 is a choice to stop accumulating
@@ -238,21 +292,26 @@ the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). 80/80 verdicts, agrees with the reference. Found `FD-CAPTURE-1` (BLOCKS, fixed v0.14.89), `CAPTURE-ENCODING-1` (fixed v0.14.90), `JSON-SCALAR-1` and `PROC-MERGE-1` (both **fixed v0.14.91**). **All four of its findings are now closed and every workaround it carried is deleted** |
-| **003** doc-claims, **004** doc-archive | not started; **003 is NEXT** |
+| **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released v0.14.92. 15 fixtures, agrees with the reference. Filed `SKIP-SILENT-1` (COSMETIC in the RFC, its own roadmap row), and found **no new language gap**: the first port in the campaign that did not, which is a datapoint about the gaps 002 closed rather than about how hard 003 was |
+| **004** doc-archive | not started; **004 is NEXT** |
 | **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
 | **006** build-smoke | last; it runs the others |
 | **P1** tag debt | **DONE**, §3: four tags pushed, four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE**, §3 |
 
-## 5. Gates, measured at v0.14.91 (the tip of this session's work)
+## 5. Gates, measured at v0.14.92 (the tip of this session's work)
 
 **Re-measure, do not assume, and re-measure THIS SECTION and not only §1.**
 Finding 13 is that these rows are independent claims that rot on their own
 schedule: two of them were false for two days while §1 was accurate. Every
-figure below was taken on a clean tree at v0.14.91.
+figure below was taken at v0.14.92 **except the one that says otherwise in its
+own row**, which is `stack test`: nothing under `compiler/` changed in v0.14.92,
+so it was deliberately not re-run and its row now says so rather than carrying a
+figure forward under a new version's heading. Carrying figures forward under a
+heading that implies they were re-taken is precisely finding 13.
 
-**All of it is macOS/aarch64 and none of the v0.14.91 work has run on Linux
+**All of it is macOS/aarch64 and none of the v0.14.92 work has run on Linux
 yet**, which is finding 10's caveat and finding 12's: every measurement needing a
 proof, and every measurement of an encoding, is macOS-only until CI says
 otherwise. `proc_merge.llmll` is the newest thing with a platform-shaped risk in
@@ -261,18 +320,21 @@ buffering is the one thing the fixture deliberately does not assert.
 
 | Gate | Figure |
 |---|---|
-| `stack test` | **1666 examples, 0 failures**, from 1656; the +10 is JSON-SCALAR-1 and PROC-MERGE-1's tests and the delta matching exactly is what says none of them silently skipped |
+| `stack test` | **NOT RE-RUN at v0.14.92 and it does not need to be**: nothing under `compiler/` changed, only the two version strings the banner gate compares. Last measured at v0.14.91: **1666 examples, 0 failures**, from 1656, the +10 being JSON-SCALAR-1 and PROC-MERGE-1's tests and the delta matching exactly what says none of them silently skipped |
 | `pytest scripts/tests/` | 196 passed, 1 skipped |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed **on macOS, with a solver on `PATH`**. On Linux CI it scored **2 passed / 78 failed** until the job learned to build one: finding 12 |
 | [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s. **Has never run on Linux at all**: its CI step sits after the shell gate, which failed first |
-| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | **16 cells + 3 negative controls, all ok at v0.14.91.** Cell 11, "bogus flag injected", is the one that grades the `c-flags` path JSON-SCALAR-1 rewrote, so the port's agreement with the reference is checked where the change actually landed rather than only in aggregate. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, not the other way round; the shell reference is not an argument at all. See §7. **The "~7 min" this row used to carry is WRONG**: measured on macOS/aarch64 at v0.14.91 by the timestamps of its own scratch trees, it is roughly **five minutes per cell, so ~80 min for the run**, since every cell runs BOTH implementations over a trimmed corpus and every verify shells out to the solver. Budget accordingly, or let CI decide it |
+| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | **16 cells + 3 negative controls, all ok at v0.14.91.** Cell 11, "bogus flag injected", is the one that grades the `c-flags` path JSON-SCALAR-1 rewrote, so the port's agreement with the reference is checked where the change actually landed rather than only in aggregate. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, not the other way round; the shell reference is not an argument at all. See §7. **The "~7 min" was right and the "~80 min" that briefly replaced it was WRONG, from a contaminated measurement.** The ~80 min figure was taken from a run competing with four stalled probe processes, which was not noticed until later. A clean run on the same host took **~8 min**, and CI runs the same 16 cells in **324s** (run 31275114285). Roughly 6-10 min is the figure; the per-cell arithmetic that produced 80 was extrapolation from a poisoned sample |
 | [`json_scalar.llmll`](../../scripts/build-smoke/json_scalar.llmll) | executed by `build_smoke.sh`; one line, 7 cells, of which the two `err` cells are the assertion. Mutation-checked (finding 14) |
 | [`proc_merge.llmll`](../../scripts/build-smoke/proc_merge.llmll) | executed by `build_smoke.sh`; 2 lines, merged plus a split control. Mutation-checked (finding 14) |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 916 citations, all resolve |
+| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 15 doc-claim(s) match, exit 0. **Needs a solver**, one fixture carrying `@cmd: verify {file}`; before P3 it was one of the three gates in `spec-roundtrip` that decide without a proof, which is how that job went years without one (finding 12) |
+| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) (the port) | 15 match, exit 0, ~40s. Identical to the reference line for line with blank lines stripped from BOTH sides; see §3 step 5 for why that phrasing and not "byte-identical". **Has never run on Linux** |
+| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | **17 cells + 3 negative controls, all ok at v0.14.92**, ~2 min on macOS/aarch64. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, the same trap as `refute_crux_cover.py` and the same answer: §7. Cell 11 compares the DECISION only, deliberately, the reference's captured output there being bash's own diagnostic text |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **935 citations in 170 living files, all resolve** (916 at v0.14.91). **The figure moved twice while this row was being written and the second move is the instructive one**: it read 929 until `rfc-genre-and-naming.md` was committed, because the lint's file list is `git ls-files '*.md'` and an UNTRACKED document is invisible to it. So a doc-quality gate cannot see the document you are currently writing, which is exactly when you want it to. It also counts **prose** citations only, stripping markdown link targets first, so adding four `[label](path)` links to this file moved the count by zero |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate`. **The "14 passed" this table used to carry at `268df95` was NOT true at `268df95`**: the cover pinned `v0.14.87` and had been failing 5 cells since `d6e9f01`. Finding 13 |
-| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.91 |
+| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.92 |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages including the new capture-encoding one. **Also not true at `268df95`** — its last stage runs the cover above, so it had been failing since `d6e9f01` too. Finding 13 |
 
 **Rebuilding the port**, which several of these need:
@@ -491,6 +553,11 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
   nothing until it exits, which was already known this same session and applied
   anyway. Two absent signals were read as "the job died" when it was starting
   normally. **Wait, then use `ps`.**
+- **EVERY COVER IN THIS CAMPAIGN TAKES `--gate` AS THE PORT AND `--llmll` AS THE
+  COMPILER**, and `doc_claims_cover.py` is the second to do it. The convention is
+  now consistent across the covers, which makes it easier to get wrong once and
+  then twice, not harder: the names read as the opposite assignment in both.
+  The bullet below is the incident that named it and it applies unchanged.
 - **`refute_crux_cover.py`'s two arguments are not what their names suggest, and
   §5 used to say only "needs `--gate` and `--llmll`", which is exactly enough
   rope.** `--gate` is the **refutecrux PORT BINARY**, executed directly as
@@ -512,7 +579,17 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
   llmll` 1.3, z3 0.2, jq under 5s, job total 16.2. So **jq and z3 are not the
   cost and fixpoint is already solved by the cache** — it only kept rebuilding
   because `actions/cache` does not save on a failed job and no job had yet
-  succeeded. **CONFIRMED once one did**: the next two runs show
+  succeeded.
+
+  **THE PORT STEP'S COST IS MISATTRIBUTED IN THIS BULLET AND THE CORRECTION
+  MATTERS FOR WHAT AN IMAGE WOULD BUY.** It says the step's ~5 min is
+  GENERATED-project builds (`async`, `regex-tdfa`, which the compiler does not
+  depend on). Measured from step log timestamps at run 31275114285, the 411s
+  splits **10s generate-and-build / 324s `refute_crux_cover.py` / 78s the live
+  80-case corpus**. Those deps sit in the restored `~/.stack` snapshot db and
+  cost ~10s. **So the port step is solver time, not build time, and baking a
+  snapshot db into an image would not touch it.** The image's remaining case is
+  determinism, not speed. **CONFIRMED once one did**: the next two runs show
   `Build liquid-fixpoint: skipped` and the job at **10.9 min against 16.2**, so
   the image's remaining SPEED case is roughly fifteen seconds (jq plus z3) and
   should not be argued on that basis. The real arguments for an image are
