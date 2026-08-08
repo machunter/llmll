@@ -4,6 +4,107 @@
 
 <a id="Latest"></a>
 
+## v0.14.92: the third gate, and two defects the live corpus could not reach (2026-08-08)
+
+**Nothing under `compiler/` moves in this release.** The `llmll` binary, the
+JSON-AST schema and the language surface are identical to v0.14.91. What ships
+is the TOOL-LL campaign's third port, the differential battery that graded it,
+and the CI wiring that makes it decide.
+
+### Added: TOOL-RFC-003, the doc-claim drift gate in LLMLL
+
+[`tools/doc-claims/docclaims.llmll`](tools/doc-claims/docclaims.llmll)
+reproduces [`scripts/doc_claims_gate.sh`](scripts/doc_claims_gate.sh): each of
+the 15 fixtures in `scripts/doc-claims/` runs through a named compiler, and the
+observed verdict is asserted against that fixture's `;; @expect:` header. The
+gate exists to catch documentation that has drifted from compiler behaviour,
+specifically stale *restriction* claims: a doc saying a program is rejected when
+the compiler accepts it, or the reverse.
+
+`tool_state: oracle`. Both implementations run as adjacent steps in
+`version-gate.yml`'s `spec-roundtrip` job, over the same tree in the same run,
+so a reader compares them without cross-referencing two job logs.
+
+**The `@expect` grammar is implemented in full**: all five bases (`check-ok`,
+`parse-error`, `check-error`, `warn`, `output`), the optional `:<substring>` pin
+on any of them, and the `@cmd` override. That was a decision rather than a
+default. The in-tree population is thin, `output` having one fixture and `@cmd`
+three, and a port covering only what exists would be smaller; campaign §2
+deletes the reference one release after the port lands, which turns any
+shortfall into a capability regression at retirement.
+
+**The port names the compiler it grades explicitly (`--subject`)**, where the
+reference takes `LLMLL_BIN` from the environment. CI passes that variable as
+`stack exec llmll --`, an idiom that resolves against whatever stack project the
+working directory sits in and that once installed GHC 9.10.3 on a runner before
+answering "Executable named llmll not found".
+
+Three things this port inherited rather than paid for, all of them bills the
+first two ports settled: a job that already builds the compiler and installs jq
+and z3 and `fixpoint`; `CAPTURE-ENCODING-1` (v0.14.90), without which the `✅`
+its classifier matches reached the running program as `05`; and `PROC-MERGE-1`
+(v0.14.91), which is what lets one call reproduce the reference's `2>&1` where
+002 had to read two files and concatenate them.
+
+### The cover earned its place on its first run, twice
+
+`scripts/doc_claims_cover.py`: 17 cells and 3 negative controls, every mutant
+asserted to fail under **both** implementations before their answers are
+compared, because agreement on a passing tree is not evidence. **Two cells found
+real defects in the port, and neither was reachable from the live corpus**,
+which always names a working compiler and always passes.
+
+- **Cell 5.** The port promoted a `warn` observation on the presence of
+  `warning:` alone. The reference promotes it only when the warning **and** the
+  pinned substring both match, so a fixture citing a warning the compiler had
+  stopped emitting would have passed against any other warning in the output.
+- **Cell 11.** The port probed its subject unconditionally and **skipped** where
+  the reference **fails**. An explicitly named binary is used as given and never
+  second-guessed; only the unnamed path probes. A gate pointed at a compiler
+  that does not exist must not report success.
+
+**Two bugs in the cover itself, one of them instructive.** A cell anchored on a
+fixture that lacked the header it wanted, caught by the anchor guard that fails
+rather than skips. Then the two implementations were given **different
+environments**, so the port found an `llmll` on `PATH` that the reference could
+not see and the no-compiler cell had one side run the whole corpus while the
+other skipped. A differential cover that varies the environment between its two
+sides is comparing two worlds, not two implementations.
+
+**What it normalises is blank lines and nothing else.** The port's `console`
+harness emits one per step, which is a property of the entry mode rather than of
+a verdict. v0.14.90's lesson is why the list stops there: the arrow-normalising
+line in `refute_crux_cover.py` hid a real encoding defect for a release. The
+port reproduces the reference's `%-30s` and `%-11s` padding so the comparison
+can be exact.
+
+**Cell 11 compares the decision only, deliberately.** When the named subject
+does not exist, the reference's captured output is bash's own diagnostic text,
+which no port can reproduce and none should try to.
+
+### Filed: `SKIP-SILENT-1`, and why it was not fixed here
+
+`doc_claims_gate.sh` exits **0** having asserted nothing in two cases: no
+`llmll` can be resolved, and the fixture directory is empty. Both print
+`DRIFT-CT-2 SKIP:`. The port reproduces both, on the rule that a port
+reproduces its reference and does not improve on it, and the behaviour is filed
+as its own roadmap row instead of repaired inside a port commit.
+
+The exposure is bounded and stating the bound is the point: CI names a freshly
+built compiler and the fixtures are in the repository, so neither path fires
+there. It fires for a developer whose `llmll` is not on `PATH`, who gets a green
+gate that read nothing. Cover cells 10 and 11b assert that the two
+implementations **agree on skipping**, not that either decides, so closing the
+row means changing both in one commit.
+
+`refute-crux-gate.sh` already chose refusal for its solver preflight (v0.14.91),
+so the repository is currently inconsistent between two gates about what an
+undecidable run should report. That inconsistency is what the row owes an
+answer to.
+
+**Tests:** 1666 Haskell, 197 Python, neither moving. What this release adds is a
+differential cover and a gate step, both invoked by CI rather than by pytest.
+
 ## v0.14.91: two absences, and what the callers did instead (2026-08-08)
 
 Both gaps in this release were filed by the TOOL-LL campaign's second port and
