@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. **FULLY RELEASED AT v0.14.91**, `main` green at `5b88bc9`, tag pushed and image published with `:latest` on its digest (`b9a0dcec`), verified at the REGISTRY. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. **003 IS COMMITTED AND CUT AS v0.14.92**: port, differential cover (17 cells + 3 controls), CI wiring and RFC at `tool_state: oracle`, three ports of six now landed as oracles. The cover caught TWO real defects in the port before either shipped, neither reachable from the live corpus. **THE CEREMONY IS NOT FINISHED**: v0.14.92 is committed but NOT tagged and NOT published, because the ordering rule in §1 tags only after `version-gate` is green on `main`. Everything in §5 is macOS/aarch64 and none of v0.14.92 has run on Linux."
+status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. **FULLY RELEASED AT v0.14.91**, `main` green at `5b88bc9`, tag pushed and image published with `:latest` on its digest (`b9a0dcec`), verified at the REGISTRY. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. **003 IS SHIPPED AND FULLY RELEASED AT v0.14.92**, `main` green at `26006ac`, tag pushed alone, image published, digest `d63cd902` verified AT THE REGISTRY with `latest` resolving to it. Three ports of six now landed as oracles. The cover caught TWO real defects in the port before either shipped, neither reachable from the live corpus, and then **a THIRD on Linux that is in the COMPILER rather than in either implementation**: `TOOL-ENCODING-1` bites totally (15 of 15 fixtures hold non-ASCII bytes), it went red in CI, and the three NEGATIVE CONTROLS are the only cells that could have caught it. Finding 15. Next is 004."
 date: 2026-08-08
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -25,14 +25,30 @@ local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
 to `main`. The counts this section used to carry are retired: they were a
 property of an unmerged branch and there is no longer one.
 
-**v0.14.92 IS COMMITTED AND IS NEITHER TAGGED NOR PUBLISHED YET**, four commits
-past `5b88bc9`: the 003 port with its RFC and cover and CI wiring, the release,
-this record, and one fix-forward. **THE FIRST CI RUN WAS RED and the ordering
-rule is what stopped a broken tree being published** (run `31282452612`). It was
-not the port: the cover's scrubbed environment gave the compiler no locale, and
-on Linux `TOOL-ENCODING-1` then made it unable to read any of the 15 fixtures.
-Finding 15. Everything below about v0.14.91 remains true and is the state this
-one is built on. **The next reader's first job is to check whether that
+**v0.14.92 IS FULLY RELEASED.** `main` green at `26006ac` (run `31282755421`),
+tag pushed ALONE, image published, and **verified at the REGISTRY**: `v0.14.92`
+is `d63cd902` and `latest` resolves to the same digest. Four commits past
+`5b88bc9`: the 003 port with its RFC and cover and CI wiring, the release, this
+record, and one fix-forward.
+
+**THE FIRST CI RUN WAS RED, and the ordering rule is the only reason a broken
+tree was not published** (run `31282452612`). It was not the port. The cover's
+scrubbed environment gave the compiler no locale, and on Linux
+`TOOL-ENCODING-1` then made it unable to read a single one of the 15 fixtures.
+Finding 15, and the campaign's premise landing for the third release running.
+
+**THE TAG RUN TOOK 20 SECONDS AND THAT IS THE CASE THIS RECORD WARNS ABOUT FROM
+BOTH DIRECTIONS.** It was expected to take the full ~18 minutes, because
+`docker-publish` never ran on `26006ac`: its `paths:` filter matches
+`compiler/**` and the Dockerfile, and the fix-forward touched only docs and a
+cover script. That reasoning was wrong about the mechanism. **The layer cache is
+keyed on layer CONTENT, not on the commit**, and `96853e3`'s image had already
+been built from a byte-identical compiler, so every layer hit. A fast green
+still proves nothing on its own; the registry check is what settled it, and it is
+what should settle the next one whichever way the clock goes.
+
+Everything below about v0.14.91 remains true and is the state this one is built
+on. **The next reader's first job is to check whether that
 sentence is still current**, because the ordering rule below is the whole reason
 it is written this way: `gh run list --branch main --limit 3`, and if
 `version-gate` is green at the tip then the tag and the image are what is owed,
@@ -98,7 +114,10 @@ releases `CAPTURE-ENCODING-1`.
 `docker-publish.yml`'s publish job runs `version_gate.sh` AT THE TAG and pushes
 an image to ghcr.io, so tagging a red `main` publishes from a broken tree, and
 the campaign's settled distribution is jobs pulling exactly those images (§2).
-Tag only after `version-gate` is green on `main`. Push tags SEPARATELY, lowest
+**v0.14.92 is the release where this stopped being theoretical**: its first run
+was red, and had the tag gone out on the commit rather than after the run, the
+published image would have carried a tree whose own doc-claims gate could not
+read a fixture. Tag only after `version-gate` is green on `main`. Push tags SEPARATELY, lowest
 first, each observed green at its `Build + push (amd64)` step before the next:
 concurrent runs race and `:latest` follows whichever finishes last, not the
 highest version.
@@ -315,8 +334,10 @@ so it was deliberately not re-run and its row now says so rather than carrying a
 figure forward under a new version's heading. Carrying figures forward under a
 heading that implies they were re-taken is precisely finding 13.
 
-**All of it is macOS/aarch64 and none of the v0.14.92 work has run on Linux
-yet**, which is finding 10's caveat and finding 12's: every measurement needing a
+**003's rows have now run on Linux and the rest have not.** The port, its cover
+and its live corpus all went green in run `31282755421`, which is also where
+finding 15 came from; every other figure below is macOS/aarch64 only. That is
+finding 10's caveat and finding 12's: every measurement needing a
 proof, and every measurement of an encoding, is macOS-only until CI says
 otherwise. `proc_merge.llmll` is the newest thing with a platform-shaped risk in
 it, since it spawns `/bin/sh` and depends on the child's buffering, and the
@@ -332,7 +353,7 @@ buffering is the one thing the fixture deliberately does not assert.
 | [`json_scalar.llmll`](../../scripts/build-smoke/json_scalar.llmll) | executed by `build_smoke.sh`; one line, 7 cells, of which the two `err` cells are the assertion. Mutation-checked (finding 14) |
 | [`proc_merge.llmll`](../../scripts/build-smoke/proc_merge.llmll) | executed by `build_smoke.sh`; 2 lines, merged plus a split control. Mutation-checked (finding 14) |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 15 doc-claim(s) match, exit 0. **NEEDS NO SOLVER, and the row that first stood here said it did.** One fixture carries `@cmd: verify {file}`, which is where the claim came from, but its expectation is `check-error:call to unknown function`: a name-resolution failure reached before any VC is built. Measured at 15/15 under a PATH holding neither `fixpoint` nor z3, and CI agrees without being asked, running both doc-claims steps three steps before `fixpoint` reaches `PATH`. So this stays one of the gates finding 12 calls "decides without a proof" |
-| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) (the port) | 15 match, exit 0, ~40s. Identical to the reference line for line with blank lines stripped from BOTH sides; see §3 step 5 for why that phrasing and not "byte-identical". **Has never run on Linux** |
+| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) (the port) | 15 match, exit 0, ~40s. Identical to the reference line for line with blank lines stripped from BOTH sides; see §3 step 5 for why that phrasing and not "byte-identical". **GREEN ON LINUX**, run `31282755421`, printing the same `DRIFT-CT-2 PASS: 15 doc-claim(s)` line as its reference in the same job log. The first port in the campaign whose live corpus ran on Linux in the same release that introduced it |
 | [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | **17 cells + 3 negative controls, all ok at v0.14.92**, ~2 min on macOS/aarch64. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, the same trap as `refute_crux_cover.py` and the same answer: §7. Cell 11 compares the DECISION only, deliberately, the reference's captured output there being bash's own diagnostic text. **It went RED on its first Linux run and the defect was in the COMPILER**, not in either implementation: finding 15 |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **935 citations in 170 living files, all resolve** (916 at v0.14.91). **The figure moved twice while this row was being written and the second move is the instructive one**: it read 929 until `rfc-genre-and-naming.md` was committed, because the lint's file list is `git ls-files '*.md'` and an UNTRACKED document is invisible to it. So a doc-quality gate cannot see the document you are currently writing, which is exactly when you want it to. It also counts **prose** citations only, stripping markdown link targets first, so adding four `[label](path)` links to this file moved the count by zero |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
