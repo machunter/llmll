@@ -52,10 +52,43 @@ Fixture census, taken at v0.14.91:
 | `output` | 1 |
 
 Three fixtures carry `@cmd`, overriding the default `check {file}`, with values
-`checkout {file}`, `typecheck {file}` and `verify {file}`. **The `verify` one
-means this gate needs a solver**, which the job has only since campaign
-prerequisite P3; before that it was one of the three gates that "decide without a
-proof" and is named as such in the workflow's own comment.
+`checkout {file}`, `typecheck {file}` and `verify {file}`.
+
+**REV 1 SAID THIS GATE NEEDS A SOLVER. IT DOES NOT, AND THE SENTENCE CONTRADICTED
+ITSELF IN ITS OWN SECOND HALF.** It read: "**The `verify` one means this gate
+needs a solver**, which the job has only since campaign prerequisite P3; before
+that it was one of the three gates that 'decide without a proof' and is named as
+such in the workflow's own comment." Both halves cannot be true, and **the
+workflow's comment was the correct one**.
+
+`open-after-def-verify.llmll` expects `check-error:call to unknown function`. That
+is a name-resolution failure, reached before any verification condition is built,
+so `llmll verify` never reaches the solver. **Measured three ways rather than
+argued:**
+
+1. the reference gate scores **15/15, exit 0**, under `PATH=/usr/bin:/bin:/usr/local/bin`,
+   which holds neither `fixpoint` nor z3 on the machine it was run on;
+2. `verify` on that fixture under the same PATH prints `error: call to unknown
+   function 'inc'`, not the exit-3 "solver unavailable";
+3. the differential cover has **never had a solver available on either side** (it
+   pins that same restricted PATH for both implementations, deliberately, so they
+   are asked the same question) and all 17 cells pass, the three negative controls
+   included. Those controls require both implementations to **pass** the
+   unmutated tree, so a gate that silently needed a solver could not have got
+   green there.
+
+**CI settles it independently of any local measurement**, and this is the
+stronger evidence because nobody arranged it: the two doc-claims steps run at
+positions 7 and 8 of `spec-roundtrip`, while z3 is installed at step 10 and
+`fixpoint` reaches `PATH` at step 13. Both gates decide three steps before the
+solver exists.
+
+**Why the error is worth keeping rather than deleting.** It is finding 7's shape
+pointed at the SUBJECT instead of the language: a property was read off a
+fixture's `@cmd` field (it says `verify`, so it must verify) rather than off what
+the fixture's expectation actually makes the compiler do. The cost would have
+landed on 004 and 005, which would have inherited "this class of gate needs a
+solver" as a settled fact.
 
 ## 2. Criteria
 
@@ -120,6 +153,12 @@ this is the first port in the campaign for which that needs no argument: the job
 already builds the compiler, installs jq, installs z3 and builds `fixpoint`,
 because 002's port forced all of it (finding 12). 003 is the first port to
 inherit a complete toolchain rather than establish one.
+
+**Of that toolchain it needs only the compiler**, which §1 now records against
+its own earlier claim. That is why both doc-claims steps can sit at positions 7
+and 8, ahead of the solver setup, and it is a property to preserve rather than an
+accident: a cheap gate that runs before the expensive setup fails faster when it
+fails.
 
 **The harness/subject split is the same as 002's and is not optional.** The
 harness is the port; the SUBJECT is the `llmll` under test, named by an explicit
@@ -200,6 +239,36 @@ compared.** Agreement on a passing tree is not evidence.
 | N1 | reformat a fixture's header whitespace | trimming | both pass |
 | N2 | edit a `@claim` line only | `@claim` is reported, never matched against | both pass |
 | N3 | unmutated tree | the control that says the harness can pass | both pass |
+
+**THE COVER FOUND A COMPILER DEFECT ON ITS FIRST LINUX RUN, AND IT IS NOT IN
+EITHER IMPLEMENTATION.** `TOOL-ENCODING-1`'s second half, which the roadmap
+called unmeasured and unmeasurable on macOS, and whose corpus census the same row
+said nobody had taken. The cover scrubs the environment so both sides are asked
+the same question, which means it hands the compiler **no locale at all**; on
+Linux that is the POSIX locale, `llmll` decodes `.llmll` source through
+`TIO.readFile`, and every one of the 15 fixtures died with
+
+```
+hGetContents: invalid argument (cannot decode byte sequence starting from 194)
+```
+
+194 is `0xC2`, a UTF-8 lead byte. **The census, now taken: 15 of 15 fixtures hold
+non-ASCII bytes** (`§` and `—` in their `@doc` and `@claim` headers), so the
+population is not merely non-empty, it is total for that directory.
+
+**What makes it legible as a subject defect rather than a port defect is the
+shape of the failure, and this is the cover's design paying off.** Cells 1
+through 13 all reported `ok`: both implementations failed, identically, so they
+still agreed. What reddened was the **three negative controls**, which require
+both sides to PASS an unmutated tree. A battery with mutation cells alone would
+have gone green here while the compiler could not read a single fixture.
+
+Pinned back to `C.UTF-8` on both sides, **as a workaround pre-marked for removal**
+when `TOOL-ENCODING-1` closes. The pin restores the locale every real consumer
+already has (the `Dockerfile` sets the same two variables). The repair that must
+NOT be made is dropping the scrubbing: that would trade a measured compiler
+defect for an unmeasurable comparison, which is the bug this cover already fixed
+once.
 
 Cells 10 and 11 are written as open because their expected answer depends on §8
 question 1. **If the port refuses where the reference skips, they become

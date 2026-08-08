@@ -25,10 +25,14 @@ local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
 to `main`. The counts this section used to carry are retired: they were a
 property of an unmerged branch and there is no longer one.
 
-**v0.14.92 IS COMMITTED AND IS NEITHER TAGGED NOR PUBLISHED YET**, three commits
+**v0.14.92 IS COMMITTED AND IS NEITHER TAGGED NOR PUBLISHED YET**, four commits
 past `5b88bc9`: the 003 port with its RFC and cover and CI wiring, the release,
-and this record. Everything below about v0.14.91 remains true and is the state
-this one is built on. **The next reader's first job is to check whether that
+this record, and one fix-forward. **THE FIRST CI RUN WAS RED and the ordering
+rule is what stopped a broken tree being published** (run `31282452612`). It was
+not the port: the cover's scrubbed environment gave the compiler no locale, and
+on Linux `TOOL-ENCODING-1` then made it unable to read any of the 15 fixtures.
+Finding 15. Everything below about v0.14.91 remains true and is the state this
+one is built on. **The next reader's first job is to check whether that
 sentence is still current**, because the ordering rule below is the whole reason
 it is written this way: `gh run list --branch main --limit 3`, and if
 `version-gate` is green at the tip then the tag and the image are what is owed,
@@ -327,9 +331,9 @@ buffering is the one thing the fixture deliberately does not assert.
 | [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | **16 cells + 3 negative controls, all ok at v0.14.91.** Cell 11, "bogus flag injected", is the one that grades the `c-flags` path JSON-SCALAR-1 rewrote, so the port's agreement with the reference is checked where the change actually landed rather than only in aggregate. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, not the other way round; the shell reference is not an argument at all. See §7. **The "~7 min" was right and the "~80 min" that briefly replaced it was WRONG, from a contaminated measurement.** The ~80 min figure was taken from a run competing with four stalled probe processes, which was not noticed until later. A clean run on the same host took **~8 min**, and CI runs the same 16 cells in **324s** (run 31275114285). Roughly 6-10 min is the figure; the per-cell arithmetic that produced 80 was extrapolation from a poisoned sample |
 | [`json_scalar.llmll`](../../scripts/build-smoke/json_scalar.llmll) | executed by `build_smoke.sh`; one line, 7 cells, of which the two `err` cells are the assertion. Mutation-checked (finding 14) |
 | [`proc_merge.llmll`](../../scripts/build-smoke/proc_merge.llmll) | executed by `build_smoke.sh`; 2 lines, merged plus a split control. Mutation-checked (finding 14) |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 15 doc-claim(s) match, exit 0. **Needs a solver**, one fixture carrying `@cmd: verify {file}`; before P3 it was one of the three gates in `spec-roundtrip` that decide without a proof, which is how that job went years without one (finding 12) |
+| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 15 doc-claim(s) match, exit 0. **NEEDS NO SOLVER, and the row that first stood here said it did.** One fixture carries `@cmd: verify {file}`, which is where the claim came from, but its expectation is `check-error:call to unknown function`: a name-resolution failure reached before any VC is built. Measured at 15/15 under a PATH holding neither `fixpoint` nor z3, and CI agrees without being asked, running both doc-claims steps three steps before `fixpoint` reaches `PATH`. So this stays one of the gates finding 12 calls "decides without a proof" |
 | [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) (the port) | 15 match, exit 0, ~40s. Identical to the reference line for line with blank lines stripped from BOTH sides; see §3 step 5 for why that phrasing and not "byte-identical". **Has never run on Linux** |
-| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | **17 cells + 3 negative controls, all ok at v0.14.92**, ~2 min on macOS/aarch64. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, the same trap as `refute_crux_cover.py` and the same answer: §7. Cell 11 compares the DECISION only, deliberately, the reference's captured output there being bash's own diagnostic text |
+| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | **17 cells + 3 negative controls, all ok at v0.14.92**, ~2 min on macOS/aarch64. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, the same trap as `refute_crux_cover.py` and the same answer: §7. Cell 11 compares the DECISION only, deliberately, the reference's captured output there being bash's own diagnostic text. **It went RED on its first Linux run and the defect was in the COMPILER**, not in either implementation: finding 15 |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **935 citations in 170 living files, all resolve** (916 at v0.14.91). **The figure moved twice while this row was being written and the second move is the instructive one**: it read 929 until `rfc-genre-and-naming.md` was committed, because the lint's file list is `git ls-files '*.md'` and an UNTRACKED document is invisible to it. So a doc-quality gate cannot see the document you are currently writing, which is exactly when you want it to. It also counts **prose** citations only, stripping markdown link targets first, so adding four `[label](path)` links to this file moved the count by zero |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
@@ -505,6 +509,39 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
     mutation.** That is measured support for the fixture's own claim that its
     refusals are the assertion, and it is the kind of statement usually made on
     intuition and left unchecked.
+
+15. **`TOOL-ENCODING-1` BITES, IT BITES TOTALLY, AND THE NEGATIVE CONTROLS ARE
+    WHAT CAUGHT IT.** 003's cover went red on its first Linux run. The defect is
+    in the SUBJECT: `llmll` decodes `.llmll` source through `TIO.readFile`, which
+    takes the ambient locale, and the cover scrubs the environment so its two
+    sides are asked the same question, which hands the compiler **no locale at
+    all**. On Linux that is POSIX, and all 15 fixtures failed with
+    `hGetContents: invalid argument (cannot decode byte sequence starting from
+    194)` — `0xC2`, a UTF-8 lead byte.
+
+    **The census that roadmap row has been asking for is now taken, and the
+    answer is worse than "non-empty": 15 of 15**, `§` and `—` in the `@doc` and
+    `@claim` headers. For that directory the firing population is total.
+
+    **Cells 1-13 all reported `ok`.** Both implementations failed and failed
+    identically, so every mutation cell still AGREED. What reddened was the three
+    negative controls, which require both sides to PASS an unmutated tree. **A
+    battery of mutation cells alone would have gone green while the compiler
+    could not read a single fixture**, which is the strongest argument this
+    campaign has produced for negative controls, and it is worth more than the
+    controls' usual framing as a sanity check on the harness.
+
+    Worked around by pinning `LC_ALL=C.UTF-8` on both sides, pre-marked for
+    removal when the row closes. **The repair NOT to make is dropping the
+    scrubbing**: that trades a measured compiler defect for an unmeasurable
+    comparison, and re-introduces the two-different-worlds bug the cover already
+    fixed once.
+
+    **Finding 10 generalises again.** It said every encoding measurement here is
+    macOS-only; finding 12 added every measurement needing a proof. This is the
+    first time the macOS blindness hid a defect in the COMPILER rather than in a
+    gate, and it stayed hidden through a full local green run: 17/17 with no
+    locale set, because macOS GHC resolves UTF-8 under every `LC_ALL`.
 
 ## 7. Gotchas that cost real time this session
 

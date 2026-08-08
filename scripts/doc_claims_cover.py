@@ -47,6 +47,45 @@ FIXTURES = REPO / "scripts" / "doc-claims"
 # and still an order of magnitude under the refute-crux port's 4000.
 BUDGET = 400
 
+# THE ENVIRONMENT BOTH SIDES GET, and every entry in it is load-bearing for a
+# reason that cost a red CI run to learn.
+#
+# PATH and HOME are scrubbed so the two implementations are asked the SAME
+# question: an earlier revision let the port inherit the caller's PATH and find
+# an `llmll` the reference could not see.
+#
+# LC_ALL AND LANG ARE HERE BECAUSE SCRUBBING THE ENVIRONMENT PUT THE COMPILER IN
+# THE POSIX LOCALE, AND ON LINUX THAT MAKES IT UNABLE TO READ ITS OWN FIXTURES.
+# `llmll` decodes `.llmll` source through `TIO.readFile`, which takes the ambient
+# locale (`TOOL-ENCODING-1`, roadmap). All 15 fixtures carry non-ASCII bytes in
+# their `@doc`/`@claim` headers (`§`, `—`), so with no locale set every one of
+# them dies with
+#
+#     hGetContents: invalid argument (cannot decode byte sequence starting from 194)
+#
+# 194 being 0xC2, a UTF-8 lead byte. Cells 1-13 still AGREED, both
+# implementations failing identically, and the three negative controls are what
+# reddened, since they require both to PASS an unmutated tree. That is the
+# controls doing their job.
+#
+# **This is a workaround and it is pre-marked for removal**, the same discipline
+# the campaign applied to `json-string-value`: it belongs to `TOOL-ENCODING-1`
+# and comes out when that row closes. It is not hiding the defect, it is
+# restoring the locale every real consumer already has (the Dockerfile pins the
+# same two variables, at the container instead of at the handle). What must not
+# be done is to drop the scrubbing to make this go away: that trades a measured
+# compiler defect for an unmeasurable comparison.
+#
+# **macOS cannot reproduce any of this**, which is v0.14.86's finding and finding
+# 10's: GHC there resolves UTF-8 under every `LC_ALL`. The cover passed 17/17
+# locally with no locale set and no solver on PATH.
+ENV = {
+    "PATH": "/usr/bin:/bin:/usr/local/bin",
+    "HOME": "/nonexistent",
+    "LC_ALL": "C.UTF-8",
+    "LANG": "C.UTF-8",
+}
+
 
 def prepare(dst: Path) -> None:
     """A scratch tree the reference can run in and the port can be pointed at."""
@@ -119,8 +158,7 @@ def run_shell(tree: Path, subject: str) -> tuple[int, list[str], str]:
     p = subprocess.run(
         ["bash", str(tree / "scripts" / SHELL_GATE.name)],
         capture_output=True, text=True, cwd=str(tree),
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": "/nonexistent",
-             "LLMLL_BIN": subject, "REPO_ROOT": str(tree)},
+        env={**ENV, "LLMLL_BIN": subject, "REPO_ROOT": str(tree)},
     )
     return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 
@@ -136,16 +174,17 @@ def run_port(tree: Path, gate: str, subject: str) -> tuple[int, list[str], str]:
     argv = [gate, "--root", str(tree), "--work", str(work)]
     if subject:
         argv += ["--subject", subject]
-    # THE SAME RESTRICTED ENVIRONMENT THE REFERENCE GETS. Without this the two
-    # implementations are asked different questions: the port inherited the
-    # caller's PATH and found an `llmll` the reference could not see, so the
-    # no-compiler cell had one side run the whole corpus and the other skip.
-    # A differential cover that varies the environment between the two sides is
-    # comparing two worlds, not two implementations.
+    # THE SAME RESTRICTED ENVIRONMENT THE REFERENCE GETS, character for
+    # character. Without this the two implementations are asked different
+    # questions: the port inherited the caller's PATH and found an `llmll` the
+    # reference could not see, so the no-compiler cell had one side run the whole
+    # corpus and the other skip. A differential cover that varies the environment
+    # between the two sides is comparing two worlds, not two implementations.
+    # See ENV for why the locale is pinned rather than absent.
     p = subprocess.run(
         argv,
         input="x\n" * BUDGET, capture_output=True, text=True, cwd=str(run),
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": "/nonexistent"},
+        env=dict(ENV),
     )
     return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 

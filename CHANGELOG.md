@@ -39,12 +39,21 @@ reference takes `LLMLL_BIN` from the environment. CI passes that variable as
 working directory sits in and that once installed GHC 9.10.3 on a runner before
 answering "Executable named llmll not found".
 
-Three things this port inherited rather than paid for, all of them bills the
-first two ports settled: a job that already builds the compiler and installs jq
-and z3 and `fixpoint`; `CAPTURE-ENCODING-1` (v0.14.90), without which the `✅`
-its classifier matches reached the running program as `05`; and `PROC-MERGE-1`
+Two things this port inherited rather than paid for, both of them bills the
+second port settled: `CAPTURE-ENCODING-1` (v0.14.90), without which the `✅` its
+classifier matches reached the running program as `05`; and `PROC-MERGE-1`
 (v0.14.91), which is what lets one call reproduce the reference's `2>&1` where
 002 had to read two files and concatenate them.
+
+**It inherits the solver too, and turns out not to need it.** The RFC recorded
+that a fixture carrying `@cmd: verify {file}` means the gate needs a proof. It
+does not: that fixture expects `check-error:call to unknown function`, which is
+reached before any verification condition is built. Measured at 15/15 under a
+`PATH` holding neither `fixpoint` nor z3, and CI agrees without being asked,
+running both doc-claims steps three steps before `fixpoint` reaches `PATH`. The
+claim was read off the fixture's `@cmd` field rather than off what its
+expectation makes the compiler do, which is worth naming because 004 and 005
+would have inherited it as settled.
 
 ### The cover earned its place on its first run, twice
 
@@ -81,6 +90,34 @@ can be exact.
 **Cell 11 compares the decision only, deliberately.** When the named subject
 does not exist, the reference's captured output is bash's own diagnostic text,
 which no port can reproduce and none should try to.
+
+### Measured: `TOOL-ENCODING-1` bites on Linux, and the census it was owed
+
+The cover's first Linux run reddened, and what it found was in neither
+implementation. `TOOL-ENCODING-1` is the open row saying the toolchain's own text
+handles take the ambient locale: `llmll` decodes `.llmll` source through
+`TIO.readFile`, while `LLMLL.md` §2 says source files **are** UTF-8. The row
+called both halves unmeasured, said macOS could not measure them (GHC there
+resolves UTF-8 under every `LC_ALL`), and asked for a census nobody had taken.
+
+The cover scrubs the environment so its two sides are asked the same question,
+which hands the compiler **no locale at all**. On Linux that is the POSIX
+locale, and all 15 fixtures then failed with `hGetContents: invalid argument
+(cannot decode byte sequence starting from 194)`, 194 being `0xC2`, a UTF-8 lead
+byte. **The census: 15 of 15 hold non-ASCII bytes** (`§` and `—`, in their
+`@doc` and `@claim` headers). The population is total for that directory, not
+merely non-empty.
+
+**The three negative controls are what caught it, and that is the argument for
+having them.** Cells 1 through 13 all agreed: both implementations failed and
+failed identically. Only the controls, which require both sides to **pass** an
+unmutated tree, could tell the difference between "the two implementations agree"
+and "the compiler cannot read a single fixture". A battery of mutation cells
+alone would have gone green.
+
+The cover now pins `LC_ALL=C.UTF-8` on both sides, restoring the locale every
+real consumer already has, and the pin is marked for removal when
+`TOOL-ENCODING-1` closes. The roadmap row carries the measurement.
 
 ### Filed: `SKIP-SILENT-1`, and why it was not fixed here
 
