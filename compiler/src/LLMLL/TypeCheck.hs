@@ -339,6 +339,33 @@ builtinEnv = Map.fromList $
   , ("json-get-number", TFn [TCustom jsonTypeName, TString] (TResult TString TString))
   , ("json-array",      TFn [TCustom jsonTypeName]
                             (TResult (TList (TCustom jsonTypeName)) TString))
+  -- JSON-SCALAR-1: the projection family, which is the field family MINUS THE
+  -- KEY. `json-array` above was its only member for four releases, so an
+  -- element of a `json-array` could be iterated but never read: the four
+  -- injections had no inverse and `["--strict"]` could only be recovered by
+  -- serializing the element and stripping the quotes `json-serialize` renders.
+  --
+  -- That workaround is not merely verbose, it is WRONG, and measurably: the
+  -- emitted `jsonQuote` escapes every character above '~' as \uXXXX
+  -- (CodegenHs.hs), so a flag containing a non-ASCII character comes back as
+  -- six literal characters. It is also silent -- `(json-get-string x "")` on a
+  -- scalar answers `ok ""`, not `err` -- which is how the refute-crux port ran
+  -- its entire corpus with every flag dropped and no gate saw it.
+  --
+  -- Result-valued rather than ""-on-failure for exactly that reason: the whole
+  -- cost of the defect was that its failure was indistinguishable from an empty
+  -- string. Together with json-array these partition Json's shapes: no input
+  -- satisfies two of them.
+  , ("json-as-string",  TFn [TCustom jsonTypeName] (TResult TString TString))
+  -- Strict on "1.0" on the same ground as json-get-int above, and stated again
+  -- here because a reader arriving at the projection family should not have to
+  -- infer it: an integral-valued float is not an integer lexeme, and silent
+  -- narrowing is the worse failure.
+  , ("json-as-int",     TFn [TCustom jsonTypeName] (TResult TInt TString))
+  , ("json-as-bool",    TFn [TCustom jsonTypeName] (TResult TBool TString))
+  -- The lexeme, mirroring json-get-number, and inside Sigma_auto for the same
+  -- reason: a comparison against a literal is STRLIT string equality.
+  , ("json-as-number",  TFn [TCustom jsonTypeName] (TResult TString TString))
   -- Nullary: binds as a VALUE, not a 0-arg function, matching wasi.clock.monotonic
   -- and RNone above and COMP-3b-general's treatment of nullary constructors.
   , ("json-object",     TCustom jsonTypeName)

@@ -712,10 +712,30 @@ runtimePreamble =
   -- secondary wait, so a child ignoring SIGTERM costs 5s rather than a hang,
   -- and the overrun arrives as RErr — a budget overrun is a stage failure the
   -- program can branch on, not a crash.
+  --
+  -- PROC-MERGE-1. EQUAL PATH STRINGS MEAN MERGE: one handle, passed to both
+  -- std_out and std_err, which is what a shell's `2>&1` does. Before this,
+  -- equal paths opened TWO handles at position 0 over one file and they wrote
+  -- over each other, so no working program can depend on the old behaviour and
+  -- the change repairs a silent corruption rather than altering a contract.
+  --
+  -- THE TEST IS STRING EQUALITY, NOT PATH IDENTITY, and that is a decision
+  -- rather than an oversight: "log" and "./log" name one file and do NOT
+  -- merge. Canonicalizing would need a syscall against a file that does not
+  -- exist yet, and a merge convention that depends on the filesystem's state
+  -- is worse than one a reader can settle from the call site.
+  --
+  -- ORDERING IS NOT PROMISED, and it cannot be. The interleaving is the order
+  -- the CHILD flushes, not the order it writes: measured, a child writing
+  -- stdout first and stderr second lands stderr FIRST in the merged file,
+  -- because stdout is block-buffered when its fd is a file and stderr is not.
+  -- A caller depending on the interleaving is depending on the child's
+  -- buffering, which it does not control.
   , "wasi_proc_run :: String -> [String] -> String -> String -> String -> Integer -> IO ()"
   , "wasi_proc_run exe args cwd outPath errPath secs = llmll_publish_io $ do"
   , "  outH <- openFile outPath WriteMode"
-  , "  errH <- openFile errPath WriteMode `onException` hClose outH"
+  , "  errH <- if errPath == outPath then return outH else"
+  , "            openFile errPath WriteMode `onException` hClose outH"
   , "  let closeBoth = hClose outH >> hClose errH"
   , "  (_, _, _, ph) <- P.createProcess (P.proc exe args)"
   , "                     { P.cwd     = Just cwd"
@@ -1064,6 +1084,36 @@ jsonPreamble =
   , "json_array :: Json -> Either String [Json]"
   , "json_array (JArr vs) = Right vs"
   , "json_array _         = Left \"json-array: not an array\""
+  , ""
+  -- JSON-SCALAR-1. The projection family: json_get_* above MINUS THE KEY.
+  -- json_array is the member that already existed, which is why these are
+  -- shaped as it is (Either, failure carries a reason) rather than as a
+  -- total function with a default. A scalar element of a json_array had no
+  -- reader at all before this, and the workaround -- serialize, strip the
+  -- quotes -- loses every character jsonQuote escapes.
+  --
+  -- The error strings say "not a string" rather than naming a member, because
+  -- there is no member: that difference from json_get_string's message is the
+  -- one visible sign at a call site of which family was used.
+  , "json_as_string :: Json -> Either String String"
+  , "json_as_string (JStr t) = Right t"
+  , "json_as_string _        = Left \"json-as-string: not a string\""
+  , ""
+  -- Strict on '1.0', the same rule as json_get_int and for the same reason.
+  , "json_as_int :: Json -> Either String Integer"
+  , "json_as_int (JNum lx)"
+  , "  | jsonIsIntLexeme lx = Right (read lx)"
+  , "  | otherwise = Left (\"json-as-int: '\" ++ lx"
+  , "                      ++ \"' is not an integer lexeme\")"
+  , "json_as_int _ = Left \"json-as-int: not a number\""
+  , ""
+  , "json_as_bool :: Json -> Either String Bool"
+  , "json_as_bool (JBool b) = Right b"
+  , "json_as_bool _         = Left \"json-as-bool: not a bool\""
+  , ""
+  , "json_as_number :: Json -> Either String String"
+  , "json_as_number (JNum lx) = Right lx"
+  , "json_as_number _         = Left \"json-as-number: not a number\""
   , ""
   , "json_object :: Json"
   , "json_object = JObj []"

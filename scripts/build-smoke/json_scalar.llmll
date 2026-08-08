@@ -1,0 +1,97 @@
+;; BUILD-GATE-1 execution fixture. JSON-SCALAR-1.
+;;
+;; WHAT IT PINS: that a scalar element of a `json-array` can be read back as a
+;; value, and that reading it WRONGLY is an `err` rather than a plausible
+;; answer.
+;;
+;; WHY IT IS EXECUTED AND NOT ONLY COMPILED. smoke.llmll calls all eighteen
+;; JSON builtins, which catches a builtinEnv entry landing with no preamble
+;; body. It cannot catch this defect class at all: before JSON-SCALAR-1 the
+;; whole family was ABSENT, and absence type-checks. The refute-crux port ran
+;; its entire 80-case corpus with every flag dropped, reported 30 passed / 50
+;; failed, and no check-only gate saw anything wrong. Only running a program
+;; and looking at what it printed can.
+;;
+;; THE MECHANISM OF THE SILENCE, STATED PRECISELY, BECAUSE THE SHORT VERSION IS
+;; WRONG. It is often written that `(json-get-string x "")` on a scalar answers
+;; "". It does not: `json-get` on a non-object is `err`, so the accessor is
+;; `err` too. The empty string came from the CALLER -- refutecrux.llmll's `jstr`
+;; wraps every field read in `(unwrap-or ... "")`, which is a reasonable habit
+;; for a missing field and turns a type error into a plausible value. So the
+;; OLD-GET cell below pins the accessor's real answer, and the reason the
+;; defect was silent is that `err` and "absent field" were indistinguishable at
+;; the call site. That is the argument for a Result-shaped projection rather
+;; than a ""-on-failure one.
+;;
+;; THE FOUR VALUE CELLS ARE NOT REDUNDANT WITH EACH OTHER. A family shipped
+;; with one member reflecting correctly and three returning a zero value would
+;; pass any single-cell probe. Each of the four scalar types is read from its
+;; own single-element array.
+;;
+;; THE TWO ERROR CELLS ARE THE FIXTURE'S POINT. X-AS-INT reads 1.5 with
+;; `json-as-int` and must be `err`: an integral-valued float is not an integer
+;; lexeme, and a family that answered 1 here would be silently narrowing, which
+;; is the failure `json-get-int` was already written to avoid. N-AS-STR reads 7
+;; with `json-as-string` and must be `err` rather than "7", because a
+;; projection that coerces is a second silent-wrong-answer channel of exactly
+;; the kind this row exists to close.
+;;
+;; Imports only wasi.io: a gate over the JSON projections should fail for JSON
+;; reasons only.
+
+(module json-scalar
+  (import wasi.io (capability stdout :deterministic false))
+
+  ;; One document, four single-element arrays, one per scalar type.
+  (def-shell js-doc [] -> string
+    "{\"flags\":[\"--strict-verified-core\"],\"n\":[7],\"b\":[true],\"x\":[1.5]}")
+
+  (def-shell js-field [d: Json k: string] -> Json
+    (match (json-get d k)
+      ((Success x) x)
+      ((Error _)   json-object)))
+
+  ;; The shape the whole row is about: iterate an array, then read an element.
+  ;; `json-array` gives the list; before JSON-SCALAR-1 the second half had no
+  ;; operation at all.
+  (def-shell js-elem [d: Json k: string] -> Json
+    (unwrap-or (list-head (unwrap-or (json-array (js-field d k)) (list-empty)))
+               json-object))
+
+  (def-shell js-ok [r: Result[string, string]] -> string
+    (if (is-ok r) "ok" "err"))
+
+  (def-shell js-line [] -> string
+    (match (json-parse (js-doc))
+      ((Error e) (string-concat "PARSE-FAIL=" e))
+      ((Success d)
+        (string-concat-many
+          [ "STR="     (unwrap-or (json-as-string (js-elem d "flags")) "<err>")
+            "|INT="    (int-to-string (unwrap-or (json-as-int (js-elem d "n")) 0))
+            "|BOOL="   (if (unwrap-or (json-as-bool (js-elem d "b")) false)
+                           "true" "false")
+            "|NUM="    (unwrap-or (json-as-number (js-elem d "x")) "<err>")
+            ;; 1.5 through json-as-int: must refuse, not narrow.
+            "|X-AS-INT=" (if (is-ok (json-as-int (js-elem d "x"))) "ok" "err")
+            ;; 7 through json-as-string: must refuse, not coerce.
+            "|N-AS-STR=" (js-ok (json-as-string (js-elem d "n")))
+            ;; The field accessor on a scalar. `err`, and the port's
+            ;; `(unwrap-or ... "")` is what turned that into "".
+            "|OLD-GET="  (js-ok (json-get-string (js-elem d "flags") "")) ]))))
+
+  (def-shell js-init [] -> (int, Command)
+    (pair 0 (wasi.io.stdout "")))
+
+  (def-shell js-step [s: int input: string r: Response] -> (int, Command)
+    (pair (+ s 1) (wasi.io.stdout (js-line))))
+
+  ;; >= 2, not >= 1, for the reason capture_encoding.llmll records: RC-4
+  ;; discards the command of the step that trips :done?, so a one-step fixture
+  ;; prints nothing and reads identically to a passing one.
+  (def-shell js-done? [s: int] -> bool (>= s 2))
+
+  (def-main
+    :mode    console
+    :init    (js-init)
+    :step    js-step
+    :done?   js-done?))

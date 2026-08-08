@@ -124,10 +124,16 @@
       ;; list-typed response payload survives codegen into the generated match.
       ((RList ns)  (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length ns)))))))
 
-  ;; JSON-1 (§13.13). Thirteen builtins over the sealed opaque carrier, each
+  ;; JSON-1 (§13.13). Eighteen builtins over the sealed opaque carrier, each
   ;; called at least once, for the same reason the wasi.* names above are: an
   ;; entry in builtinEnv with no jsonPreamble body is the WASI-RT defect, and
-  ;; this phase adds thirteen chances to repeat it.
+  ;; this phase adds eighteen chances to repeat it.
+  ;;
+  ;; The numeral was "thirteen" here through two releases that shipped fourteen
+  ;; names: Rev 4 of the JSON-1 proposal re-admitted json-get-number and this
+  ;; comment was not moved with it. Corrected to eighteen with JSON-SCALAR-1's
+  ;; four projections. The unit test in Spec.hs is what actually counts them;
+  ;; a numeral in a comment cannot fail.
   ;;
   ;; All def-shell, and not by preference: every json-* name is in
   ;; coreExcludedBuiltins, so `def` is a check-time error (CORE-EXCL).
@@ -154,6 +160,24 @@
 
   (def-shell smoke-json-array [j: Json] -> Result[list[Json], string]
     (json-array j))
+
+  ;; JSON-SCALAR-1. The projection family: the four above MINUS THE KEY, which
+  ;; is what reads an element of the list json-array hands back. Present here
+  ;; for this fixture's stated contract (every name with a preamble body is
+  ;; called at least once); their RUNTIME behaviour, including the two refusals
+  ;; that must not coerce, is settled by scripts/build-smoke/json_scalar.llmll,
+  ;; which is executed rather than only compiled.
+  (def-shell smoke-json-as-string [j: Json] -> Result[string, string]
+    (json-as-string j))
+
+  (def-shell smoke-json-as-int [j: Json] -> Result[int, string]
+    (json-as-int j))
+
+  (def-shell smoke-json-as-bool [j: Json] -> Result[bool, string]
+    (json-as-bool j))
+
+  (def-shell smoke-json-as-number [j: Json] -> Result[string, string]
+    (json-as-number j))
 
   ;; Nullary, so the name is a VALUE and not an application — the
   ;; wasi.clock.monotonic shape.

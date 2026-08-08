@@ -455,6 +455,124 @@ if [ -f "$CENC_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: non-ASCII string literals survive captureStdout as UTF-8 (5 BMP + 1 astral)"
 fi
 
+# ---------------------------------------------------------------------------
+# Stage 5c: JSON-SCALAR-1 -- a scalar element of a json-array is readable, and
+# reading it wrongly is an error rather than a plausible answer.
+#
+# WHY IT IS RUN AND NOT ONLY BUILT. smoke.llmll calls all eighteen json-*
+# builtins, which catches a builtinEnv entry landing with no preamble body.
+# That gate is structurally incapable of catching this defect class: before
+# JSON-SCALAR-1 the projection family was ABSENT, and absence type-checks and
+# verifies. The refute-crux port ran all 80 of its cases with every flag
+# dropped and reported 30 passed / 50 failed with no gate saying anything.
+#
+# THE TWO err CELLS ARE THE ASSERTION, not the three value cells. A family that
+# narrowed 1.5 to 1, or coerced the number 7 to the string "7", would satisfy
+# every value cell and reintroduce exactly the silent-wrong-answer class this
+# row was filed to close. A whole-line comparison is used so a cell that
+# vanishes fails as loudly as a cell that changes.
+JS_FIXTURE="$REPO_ROOT/scripts/build-smoke/json_scalar.llmll"
+JS_OUTDIR="$OUTDIR/jsonscalar"
+
+if [ -f "$JS_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$JS_FIXTURE")"
+  JS_LOG="$OUTDIR/.jsonscalar-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$JS_FIXTURE" -o "$JS_OUTDIR" > "$JS_LOG" 2>&1; then
+    cat "$JS_LOG" >&2
+    fail "the json-scalar fixture does not build."
+  fi
+  JS_EXE="$(find "$JS_OUTDIR/.stack-work/install" -type f -name 'json-scalar' -perm -111 2>/dev/null | head -1)"
+  [ -n "$JS_EXE" ] || fail "built the json-scalar fixture but found no json-scalar binary."
+
+  JS_WANT='STR=--strict-verified-core|INT=7|BOOL=true|NUM=1.5|X-AS-INT=err|N-AS-STR=err|OLD-GET=err'
+  JS_RUNDIR="$OUTDIR/.jsonscalar-run"
+  mkdir -p "$JS_RUNDIR"
+  JS_OUT_FILE="$OUTDIR/.jsonscalar.out"
+  ( cd "$JS_RUNDIR" && printf 'x\n%.0s' $(seq 4) | "$JS_EXE" ) > "$JS_OUT_FILE" 2>&1 || true
+
+  if ! grep -Fqx "$JS_WANT" "$JS_OUT_FILE"; then
+    printf 'BUILD-GATE-1 json-scalar failure:\n' >&2
+    printf '  want: %s\n' "$JS_WANT" >&2
+    printf -- '--- program output ---\n' >&2
+    cat "$JS_OUT_FILE" >&2
+    # The signatures worth naming on sight.
+    if grep -q 'STR=$\|STR=|' "$JS_OUT_FILE"; then
+      printf '  diagnosis : the projection answered empty -- the JSON-SCALAR-1 defect itself\n' >&2
+    fi
+    if grep -q 'STR="' "$JS_OUT_FILE"; then
+      printf '  diagnosis : quotes present -- reading via json-serialize, not a projection\n' >&2
+    fi
+    if grep -q 'X-AS-INT=ok' "$JS_OUT_FILE"; then
+      printf '  diagnosis : json-as-int narrowed 1.5 -- strictness lost\n' >&2
+    fi
+    if grep -q 'N-AS-STR=ok' "$JS_OUT_FILE"; then
+      printf '  diagnosis : json-as-string coerced a number -- the family coerces\n' >&2
+    fi
+    fail "a scalar element of a json-array does not read back correctly (JSON-SCALAR-1)."
+  fi
+  echo "BUILD-GATE-1 PASS: scalar json-array elements project to values, and mis-typed reads refuse"
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 5d: PROC-MERGE-1 -- equal stdout/stderr path STRINGS put both of a
+# child's streams in one file, and unequal ones still keep them apart.
+#
+# Nothing here is visible to a check-only gate: the signature, the effect label
+# and the response arm are all unchanged. What changes is which file the
+# child's bytes land in, and the only oracle for that is reading the file.
+#
+# BOTH LINES ARE REQUIRED, and the second is not decoration. The merged line
+# alone is satisfied by a build that dups the second handle onto the first
+# UNCONDITIONALLY, which would silently destroy every two-file caller in the
+# tree -- the driver's stage runner among them. The control differs from the
+# positive case only in whether the two path strings are equal.
+#
+# ORDER IS NOT ASSERTED, deliberately. A merged stream's interleaving is the
+# order the CHILD flushes: measured, a child writing stdout first and stderr
+# second lands stderr first, because stdout is block-buffered to a file and
+# stderr is not. Asserting it would pin /bin/sh's buffering, not this compiler.
+PM_FIXTURE="$REPO_ROOT/scripts/build-smoke/proc_merge.llmll"
+PM_OUTDIR="$OUTDIR/procmerge"
+
+if [ -f "$PM_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$PM_FIXTURE")"
+  PM_LOG="$OUTDIR/.procmerge-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$PM_FIXTURE" -o "$PM_OUTDIR" > "$PM_LOG" 2>&1; then
+    cat "$PM_LOG" >&2
+    fail "the proc-merge fixture does not build."
+  fi
+  PM_EXE="$(find "$PM_OUTDIR/.stack-work/install" -type f -name 'proc-merge' -perm -111 2>/dev/null | head -1)"
+  [ -n "$PM_EXE" ] || fail "built the proc-merge fixture but found no proc-merge binary."
+
+  # The fixture spawns /bin/sh and writes capture files into its working
+  # directory, so it gets one of its own.
+  PM_RUNDIR="$OUTDIR/.procmerge-run"
+  mkdir -p "$PM_RUNDIR"
+  PM_OUT_FILE="$OUTDIR/.procmerge.out"
+  ( cd "$PM_RUNDIR" && printf 'x\n%.0s' $(seq 8) | "$PM_EXE" ) > "$PM_OUT_FILE" 2>&1 || true
+
+  PM_FAILED=0
+  if ! grep -Fqx 'MERGED|OUT=y|ERR=y' "$PM_OUT_FILE"; then
+    printf 'BUILD-GATE-1 proc-merge failure: equal paths did not merge\n' >&2
+    printf '  want: MERGED|OUT=y|ERR=y\n' >&2
+    PM_FAILED=1
+  fi
+  if ! grep -Fqx 'SPLIT-ERRFILE|OUT=n|ERR=y' "$PM_OUT_FILE"; then
+    printf 'BUILD-GATE-1 proc-merge failure: unequal paths did NOT stay separate\n' >&2
+    printf '  want: SPLIT-ERRFILE|OUT=n|ERR=y\n' >&2
+    if grep -q 'SPLIT-ERRFILE|OUT=y' "$PM_OUT_FILE"; then
+      printf '  diagnosis : the merge is unconditional -- every two-file caller is broken\n' >&2
+    fi
+    PM_FAILED=1
+  fi
+  if [ "$PM_FAILED" -ne 0 ]; then
+    printf -- '--- program output ---\n' >&2
+    cat "$PM_OUT_FILE" >&2
+    fail "wasi.proc.run's stream redirection does not match PROC-MERGE-1."
+  fi
+  echo "BUILD-GATE-1 PASS: equal proc.run paths merge both streams; unequal paths stay separate"
+fi
+
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------
 #
 # Before this stage, `llmll replay` was executed by NO gate: not this script,

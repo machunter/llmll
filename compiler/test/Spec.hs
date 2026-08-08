@@ -14660,6 +14660,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       (T.isInfixOf "`onException` hClose outH" p) `shouldBe` True
       (T.isInfixOf "`onException` closeBoth" p)   `shouldBe` True
 
+    -- PROC-MERGE-1. Equal path strings mean one handle on both streams. The
+    -- structural assertion is that the second openFile sits behind a guard: a
+    -- body that opened unconditionally is exactly the pre-fix tree, and a body
+    -- that merged unconditionally would destroy every two-file caller. Both
+    -- wrong shapes fail this, in opposite directions.
+    --
+    -- Runtime behaviour is settled by scripts/build-smoke/proc_merge.llmll,
+    -- which spawns a real child and reads the file back, because "the source
+    -- contains a guard" is not "the merge works".
+    it "CP-18: wasi_proc_run opens ONE handle when the two paths are equal" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "if errPath == outPath then return outH else" p) `shouldBe` True
+      -- The unconditional open is gone, not merely shadowed.
+      (T.isInfixOf "errH <- openFile errPath WriteMode `onException`" p)
+        `shouldBe` False
+
     it "CP-15: generated package.yaml carries the three CAP-PROC dependencies" $ do
       let cpNoC = Contract Nothing Nothing Nothing Nothing Nothing [] []
           stmts = [SDef "f" [("x", TInt)] Nothing cpNoC (EVar "x")]
@@ -14687,8 +14703,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     let jsonNames = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "json-" n ]
         hsName    = T.replace "-" "_"
 
-    it "builtinEnv declares exactly the fourteen json-* names this block covers" $
-      length jsonNames `shouldBe` 14
+    -- 14 -> 18 with JSON-SCALAR-1's projection family (json-as-string/int/
+    -- bool/number). As in the WASI block below, the count is the weaker half:
+    -- the FOLD is the regression, and the count moves only when a name lands
+    -- with a preamble body to match.
+    it "builtinEnv declares exactly the eighteen json-* names this block covers" $
+      length jsonNames `shouldBe` 18
 
     -- Same fold as WASI-RT below, same reason. jsonPreamble is appended INTO
     -- runtimePreamble rather than spliced at the call site, which is what lets
@@ -14719,6 +14739,53 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "JNum String" (T.unlines runtimePreamble) `shouldBe` True
       T.isInfixOf "JNum Double" (T.unlines runtimePreamble) `shouldBe` False
 
+  describe "JSON-SCALAR-1: the scalar projection family" $ do
+
+    let pre = T.unlines runtimePreamble
+
+    -- THE SHAPE IS "THE FIELD FAMILY MINUS THE KEY", and the arity is what
+    -- says so. json-get-string takes (Json, string); these take (Json). A
+    -- projection that kept the key parameter would be a second field accessor
+    -- and would not read an array element at all, which is the defect.
+    it "each projection takes ONE Json and no key" $ do
+      Map.lookup "json-as-string" builtinEnv
+        `shouldBe` Just (TFn [TCustom "Json"] (TResult TString TString))
+      Map.lookup "json-as-int"    builtinEnv
+        `shouldBe` Just (TFn [TCustom "Json"] (TResult TInt TString))
+      Map.lookup "json-as-bool"   builtinEnv
+        `shouldBe` Just (TFn [TCustom "Json"] (TResult TBool TString))
+      Map.lookup "json-as-number" builtinEnv
+        `shouldBe` Just (TFn [TCustom "Json"] (TResult TString TString))
+
+    -- RESULT-VALUED, NOT ""-ON-FAILURE, and this is the whole adjudication:
+    -- the entire cost of JSON-SCALAR-1 was that its failure was
+    -- indistinguishable from an empty string. A future "simplification" to
+    -- `Json -> string` would reintroduce the defect while every other test
+    -- here kept passing, so the return shape is pinned on its own.
+    it "no projection returns a bare value in place of a Result" $ do
+      Map.lookup "json-as-string" builtinEnv
+        `shouldNotBe` Just (TFn [TCustom "Json"] TString)
+      Map.lookup "json-as-int" builtinEnv
+        `shouldNotBe` Just (TFn [TCustom "Json"] TInt)
+
+    -- Strictness is a property of the BODY, so it is pinned in the body. An
+    -- integral-valued float is not an integer lexeme; json-get-int already
+    -- refuses it and the projection must refuse it identically, or the two
+    -- halves of one family disagree about what 1.0 is.
+    it "json_as_int gates on jsonIsIntLexeme, so 1.0 does not narrow" $ do
+      pre `shouldSatisfy` T.isInfixOf "json_as_int (JNum lx)"
+      pre `shouldSatisfy` T.isInfixOf "| jsonIsIntLexeme lx = Right (read lx)"
+
+    -- The projections must not coerce across scalar types. Pinned as the
+    -- catch-all clause each one ends with: a body that fell through to a
+    -- serialization or a default would have no such clause.
+    it "each projection refuses every other shape rather than coercing" $ do
+      pre `shouldSatisfy` T.isInfixOf "json_as_string _        = Left"
+      pre `shouldSatisfy` T.isInfixOf "json_as_bool _         = Left"
+      pre `shouldSatisfy` T.isInfixOf "json_as_number _         = Left"
+      pre `shouldSatisfy` T.isInfixOf "json_as_int _ = Left"
+
+
   describe "JSON-1: CORE-EXCL and JSON-NOEQ" $ do
 
     -- Parses and strict-core type-checks a source string, returning the
@@ -14743,6 +14810,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let src = "(def field-len [j: Json] -> int\n\
                 \  (post (>= result 0))\n\
                 \  (string-length (unwrap (json-get-string j \"cid\"))))"
+      checkSrc src `shouldSatisfy` hasErrorContaining "def-shell-only builtin"
+
+    -- JSON-SCALAR-1's family is covered by CORE-EXCL for free, because the
+    -- rule keys on the `json-` PREFIX rather than a hand-listed set. Asserted
+    -- rather than assumed: a family added under a different prefix would slip
+    -- the strict core silently, which is what CORE-EXCL exists to prevent.
+    it "CORE-EXCL: a def calling json-as-string is rejected" $ do
+      let src = "(def flag-len [j: Json] -> int\n\
+                \  (post (>= result 0))\n\
+                \  (string-length (unwrap (json-as-string j))))"
       checkSrc src `shouldSatisfy` hasErrorContaining "def-shell-only builtin"
 
     -- FIRING WITNESS for the second population. Measured blast radius before

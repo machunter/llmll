@@ -1,0 +1,80 @@
+;; BUILD-GATE-1 execution fixture. PROC-MERGE-1.
+;;
+;; WHAT IT PINS: that passing the SAME path string as both the stdout and the
+;; stderr argument of `wasi.proc.run` puts both of the child's streams in that
+;; one file, and that passing DIFFERENT paths still keeps them apart.
+;;
+;; WHY IT IS EXECUTED. Nothing about this is visible to a check-only gate: the
+;; signature does not change, the effect label does not change, and the
+;; response arm does not change. What changes is which file the child's bytes
+;; land in, and the only oracle for that is reading the file afterwards.
+;;
+;; WHY THE SPLIT CONTROL IS NOT DECORATION. The merged assertion alone is
+;; satisfied by a build that dups the second handle onto the first
+;; UNCONDITIONALLY, which would silently destroy every two-file caller in the
+;; tree. The control fires on the same child, the same markers, and the same
+;; reader, differing only in whether the two path strings are equal. A change
+;; that merges too eagerly fails the second line while passing the first.
+;;
+;; WHAT IT DELIBERATELY DOES NOT ASSERT: the ORDER of the two markers in the
+;; merged file. Measured with GHC's `process` directly, a child that writes
+;; stdout first and stderr second lands stderr FIRST, because stdout is
+;; block-buffered when its fd is a file and stderr is not. The interleaving is
+;; the child's flush order, which the caller does not control, so a fixture
+;; asserting it would be pinning `sh`'s buffering rather than this compiler's
+;; behaviour. Containment is the whole claim.
+;;
+;; The equality test is on the PATH STRINGS, not on the files they name, so
+;; "log" and "./log" do NOT merge. That is a decision recorded in CodegenHs.hs:
+;; canonicalizing needs a syscall against a file that does not exist yet.
+
+(module proc-merge
+  (import wasi.io   (capability stdout :deterministic false))
+  ;; CAP-1-REAL: the verb is never read, so `exec` is documentation.
+  (import wasi.proc (capability exec :deterministic false))
+  (import wasi.fs   (capability read-write "." :deterministic false))
+
+  ;; One child, writing a distinct marker to each stream. `/bin/sh` rather than
+  ;; a compiled helper so the fixture needs nothing built alongside it.
+  (def-shell pm-argv [] -> list[string]
+    ["-c" "echo MERGED-OUT; echo MERGED-ERR 1>&2"])
+
+  (def-shell pm-text [r: Response] -> string
+    (match r
+      ((RText t)  t)
+      ((RErr e)   e)
+      ((RNone)    "")
+      ((RCode n)  "")
+      ((RList xs) "")))
+
+  (def-shell pm-report [tag: string t: string] -> string
+    (string-concat-many
+      [tag
+       "|OUT=" (if (string-contains t "MERGED-OUT") "y" "n")
+       "|ERR=" (if (string-contains t "MERGED-ERR") "y" "n")]))
+
+  ;; RC-3: :init's command supplies the first response, so the merged spawn's
+  ;; exit status arrives as r0.
+  (def-shell pm-init [] -> (int, Command)
+    (pair 0 (wasi.proc.run "/bin/sh" (pm-argv) "."
+                           "pm_merged.txt" "pm_merged.txt" 30)))
+
+  (def-shell pm-step [s: int input: string r: Response] -> (int, Command)
+    (pair (+ s 1)
+      (if (= s 0) (wasi.fs.read "pm_merged.txt")
+      (if (= s 1) (wasi.io.stdout (pm-report "MERGED" (pm-text r)))
+      (if (= s 2) (wasi.proc.run "/bin/sh" (pm-argv) "."
+                                 "pm_split_out.txt" "pm_split_err.txt" 30)
+      (if (= s 3) (wasi.fs.read "pm_split_err.txt")
+      (if (= s 4) (wasi.io.stdout (pm-report "SPLIT-ERRFILE" (pm-text r)))
+                  (wasi.io.stdout "tick"))))))))
+
+  ;; The step that trips :done? has its command discarded (RC-4), so this sits
+  ;; one past the last emitting step rather than on it.
+  (def-shell pm-done? [s: int] -> bool (>= s 6))
+
+  (def-main
+    :mode    console
+    :init    (pm-init)
+    :step    pm-step
+    :done?   pm-done?))
