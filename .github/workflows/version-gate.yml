@@ -245,7 +245,20 @@ jobs:
           ROOT="$PWD"
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           OUT="$RUNNER_TEMP/refutecrux"
-          ( cd tools/refute-crux && stack exec llmll -- build refutecrux.llmll -o "$OUT" )
+          # $SUBJECT and NOT `stack exec llmll --`, which is what this line used
+          # to say and what made its first run fail. `stack exec` resolves
+          # against the stack project of the CURRENT directory, and
+          # tools/refute-crux has no stack.yaml, so stack fell back to the global
+          # project — a different resolver, whose GHC (9.10.3) it then spent
+          # minutes installing before reporting "Executable named llmll not found
+          # on path". The repo-root binary hazard one step further on: not the
+          # wrong compiler, no compiler.
+          #
+          # The absolute path is also the recipe the restart record §5 already
+          # gives for running the port by hand. Using $SUBJECT here means the
+          # binary that COMPILES the port and the binary it GRADES are the same
+          # freshly built one, which is what §8 decision 2 wants anyway.
+          ( cd tools/refute-crux && "$SUBJECT" build refutecrux.llmll -o "$OUT" )
           GATE="$(find "$OUT/.stack-work/install" -type f -name refutecrux -perm -111 | head -1)"
           [ -n "$GATE" ] || { echo "no refutecrux binary under $OUT"; exit 1; }
           mkdir -p "$RUNNER_TEMP/rc-work" "$RUNNER_TEMP/rc-run"

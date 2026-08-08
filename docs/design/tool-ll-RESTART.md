@@ -330,6 +330,17 @@ python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
   scratch dir with an absolute `--root`.
 - **The repo-root binary is stale.** Always
   `export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH`.
+- **`stack exec` outside a stack project silently retargets the GLOBAL one.**
+  `tools/refute-crux` has no `stack.yaml`, so `stack exec llmll --` there
+  resolves against `~/.stack/global-project`, whose resolver is not the
+  compiler's. On Linux CI that meant installing **GHC 9.10.3** before answering
+  `Executable named llmll not found on path`. The `ghc-toolchain` toolchain-diff
+  warning printed during that install is NOT the failure and says so itself
+  ("Don't worry! This won't affect your ghc in any way") — it is the symptom of
+  a GHC install that should never have started. The repo-root-binary hazard one
+  step further on: not the wrong compiler, no compiler. Use the absolute
+  `$(cd compiler && stack path --local-install-root)/bin/llmll`, which is what §5
+  already prescribes.
 - **Run `doc_path_lint.py` on its own line**; piping to `tail` takes `tail`'s
   exit status.
 
