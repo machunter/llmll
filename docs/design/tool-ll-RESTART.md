@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. THE MERGE IS DONE and CAPTURE-ENCODING-1 shipped in v0.14.90, tagged and published. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. Next is 003, RFC-first, which was measured to be blocked by neither gap."
+status: "LIVE, 2026-08-08. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: two ports of six landed as oracles, all three prerequisites cleared. **FULLY RELEASED AT v0.14.91**, `main` green at `5b88bc9`, tag pushed and image published with `:latest` on its digest (`b9a0dcec`), verified at the REGISTRY. **BOTH [CT][SPEC] SHAPE CALLS ARE NOW SETTLED AND SHIPPED IN v0.14.91**: JSON-SCALAR-1 as a FOUR-name projection family (the field family minus the key), PROC-MERGE-1 as equal-path-strings-mean-merge with ordering explicitly NOT in the contract, that last decided by measurement rather than argument. Both shipped with EXECUTED fixtures, and both fixtures were mutation-checked rather than assumed to work. The port's last workaround is gone, so finding 11 is fully closed. Next is 003, RFC-first, which was measured to be blocked by neither gap."
 date: 2026-08-08
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -25,8 +25,23 @@ local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
 to `main`. The counts this section used to carry are retired: they were a
 property of an unmerged branch and there is no longer one.
 
-**`main` IS GREEN, at `2d27c0d` (v0.14.90), and getting the merge itself green
-took three fix-forward commits.** The merge's first CI run failed, and so did
+**`main` IS GREEN at `5b88bc9` (v0.14.91), tagged and published.** v0.14.91
+fast-forwarded `1745a69..5b88bc9` on 2026-08-08 and went green on Linux first
+time, which is worth recording because the previous merge needed three
+fix-forward commits. **Both new fixtures are confirmed to have BUILT AND RUN on
+Linux**, not skipped: `proc_merge.llmll` passing there is the one that mattered,
+since it spawns `/bin/sh` and its control depends on the child's buffering.
+
+**The tag run finished in 27 SECONDS and that is not a red flag, but it looks
+exactly like one.** v0.14.90's took 23m50s. The difference is a Docker layer
+cache hit: the same commit had been built by the `main` push twenty minutes
+earlier, so only the push happened. `Build + push (amd64)` succeeded and the
+registry confirms it. **This is the case §1 keeps warning about from the other
+direction**: a fast green is as much in need of registry verification as a slow
+one.
+
+**The earlier merge, kept because its lesson stands.** Getting v0.14.90's merge green
+took three fix-forward commits. The merge's first CI run failed, and so did
 the two after it. **Every one of the three was a defect the merge exposed and
 none was visible from macOS**, which is the case for having merged before doing
 the bug work:
@@ -43,8 +58,11 @@ not fail.
 
 **All owed tags are PUSHED and all images are published**, each verified at the
 REGISTRY and not at a run's green check: `v0.14.88` `5c1194d4`, `v0.14.89`
-`92f501d4`, `v0.14.90` `0720f75d`, and `latest` resolving to `0720f75d` — the
-same digest as `v0.14.90`, which is what says the ordering rule below worked.
+`92f501d4`, `v0.14.90` `0720f75d`, `v0.14.91` `b9a0dcec`, and `latest`
+resolving to `b9a0dcec` — the same digest as `v0.14.91`, which is what says the
+ordering rule below worked. v0.14.91 was tagged ALONE, after `version-gate` was
+green on `main` and after that commit's image had passed the container
+acceptance gate in the `main` run: v0.14.90's pattern, repeated deliberately.
 
 **Re-measure, do not read on.** If `git rev-list --count origin/main..main` is
 not 0, or the newest `version-gate` run on `main` is not green, this section is
