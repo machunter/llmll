@@ -4,6 +4,125 @@
 
 <a id="Latest"></a>
 
+## v0.14.93: the toolchain reads its own source as UTF-8 (2026-08-08)
+
+`LLMLL.md` §2 has always said source files **are** UTF-8. The compiler read them
+through `TIO.readFile`, which decodes via the ambient locale, so a source file's
+meaning depended on the environment that compiled it. This release makes the
+spec sentence true.
+
+### Fixed: `TOOL-ENCODING-1`, source decoding no longer consults the locale
+
+Seven sites move from locale-mediated text reads to bytes-plus-explicit-decode:
+`Main.hs`'s three, `Module.hs`'s `parseFile` (the site governing import
+resolution, and the one the roadmap row had missed), `HubQuery.hs`'s, and both
+child pipe handles in `Replay.hs`, whose event log generated programs have
+written as UTF-8 since v0.14.90.
+
+`decodeSourceUtf8` lands in `Diagnostic.hs` beside `megaparsecToDiagnostic`,
+which is where "turn a low-level failure into a `Diagnostic`" already lives, and
+the module stays IO-free.
+
+**What a bad file now says.** Invalid UTF-8 and a byte-order mark each produce a
+parse diagnostic instead of an escaped GHC exception:
+
+```
+(error :phase parse :file "bad.llmll" :line 1 :col 10
+  :message "source file is not valid UTF-8: invalid byte 0xff at line 1, column 10. LLMLL source files are UTF-8 and the host locale is not consulted."
+  :hint "re-save the file as UTF-8")
+```
+
+(One line in reality, broken between fields here for width. No string value is
+wrapped, because wrapping one would change it.)
+
+The message carries three parts by specification, each with its own test: it
+names UTF-8 in words, gives the byte in hex, and gives the position. That is not
+style. `emitParseDiag` renders no `diagKind`, so on the default S-expression
+channel the message is the only discriminator between "your bytes are wrong" and
+"your syntax is wrong". The decode/parse distinction goes in `diagKind`
+(`source-decode-error`), mirroring `ParserJSON`'s existing
+`json-decode-error` / `json-parse-error` split rather than inventing a second
+mechanism, and `:phase parse` is unchanged.
+
+**A BOM is rejected, not stripped.** §2's closed-world non-ASCII clause already
+makes it illegal, and stripping would be a silent normalization for a zero
+in-tree population.
+
+**The offset is computed rather than read off the codec.** `decodeUtf8`'s
+`UnicodeException` carries the offending byte and not its position, and this row
+owes a diagnostic naming line and column, so `firstInvalidUtf8Offset` walks
+Unicode table 3-7: overlongs, surrogates, and above-U+10FFFF are rejected rather
+than admitted. It runs only on the failure path, the codec staying authoritative
+for accept and reject. Line and column come from counting `0x0A` over raw bytes,
+which is exact rather than approximate here, because every continuation byte is
+at or above `0x80` and so `0x0A` cannot occur inside a multi-byte sequence.
+
+### The acceptance criterion was the pin coming out, and it held on Linux
+
+v0.14.92 worked around this row by pinning `LC_ALL=C.UTF-8` on both sides of
+[`scripts/doc_claims_cover.py`](scripts/doc_claims_cover.py), marked for removal
+when the row closed. **The pin is gone.** With no locale set, that cover is now
+the only gate that fails if the compiler ever again decodes source through the
+environment, and it scored 17 cells and 3 negative controls on Linux CI, the
+three controls being precisely the cells that reddened at v0.14.92.
+
+This is the half that could never be measured on macOS, where GHC resolves UTF-8
+under every `LC_ALL`, and it is why the fix shipped through a Linux-first run
+rather than on a local green.
+
+### Added: a sixteenth doc-claim fixture, and the first non-ASCII token in the tree
+
+[`scripts/doc-claims/unicode-alias-token.llmll`](scripts/doc-claims/unicode-alias-token.llmll)
+is the only fixture whose non-ASCII bytes must survive decoding **and** lex into
+operator tokens; every other one carries its non-ASCII where the lexer skips it.
+The census makes the point: of 259 committed `.llmll` files, 142 hold a
+non-ASCII byte, 141 in comments and 20 inside string literals, and before this
+release **exactly zero** held one in token position.
+
+Both new gates were mutation-checked rather than assumed to work: deleting
+either `hSetEncoding` fails the source pin, and ASCII-ising the fixture's
+operators flips it to no-warning and fails the gate.
+
+### Filed: three rows, none of them fixed here
+
+`ALIAS-LOWER-1`. The fixture above pins a second defect that is not this row's.
+§2.4 advertises nine Unicode aliases and eight of them do not work, in two
+different ways. Six (`≥ ≤ ≠ ∧ ∨ ¬`) lex correctly and reach the type checker as
+unknown operators, because `isOperator` stores the raw glyph as the operator
+name and nothing normalizes it before the `builtinEnv` lookup, so `check` warns
+and `verify` refuses while the ASCII form of the same program verifies
+body-faithful. Two (`⇒ ⇔`) are absent from the lexer and parser entirely and are
+parse errors. Only `→` works. §2.4's own sentence "both forms compile to
+identical AST nodes" is the normalization requirement, so this is a `[CT]` bug
+against existing normative text and not a spec question. The fixture pins the
+broken behaviour on this corpus's drift-catcher convention and flips when the
+defect is fixed.
+
+`DIAG-KIND-SEXPR-1`. `emitParseDiag` renders no `diagKind`, so the default
+channel cannot distinguish `json-decode-error` from `json-parse-error` either.
+Pre-existing and substring-safe to fix.
+
+`READ-SILENT-1`. `HubQuery.hs` answers "I could not read that" with an empty
+success-shaped result. Same class as `SKIP-SILENT-1`, different tier and
+remediation, so it is filed separately rather than folded.
+
+### Fixed: the new gate ran in a job with no pytest
+
+The source-encoding gate lives in `spec-roundtrip` deliberately, that being the
+job with a compiler; in the banner job every test in the file would skip, and a
+gate that skips reports green by not running. What the wiring missed is that
+`actions/setup-python` installs an interpreter and not pytest, and no gate in
+that job had ever needed one. The first Linux run failed with `No module named
+pytest`. It failed loudly, which is the only reason it cost one run.
+
+**Tests:** 1675 Haskell (from 1666), 203 Python (from 197). The Python figure is
+the collected total, which is what these lines have always counted. Both splits,
+because they differ and the difference is the point: with a compiler present,
+**202 passed and 1 skipped**; in CI's compiler-free banner job, **197 passed and
+6 skipped**. The five-test gap is the source-encoding suite, which requires a
+binary and therefore skips where there is none. Haskell measured locally at this
+tree, since `stack test` does not run in CI (`CI-BUILD-TEST-1`).
+
 ## v0.14.92: the third gate, and two defects the live corpus could not reach (2026-08-08)
 
 **Nothing under `compiler/` moves in this release.** The `llmll` binary, the

@@ -34,7 +34,7 @@ tried to install GHC 9.10.3 on a Linux runner. The port takes the absolute
 `$(cd compiler && stack path --local-install-root)/bin/llmll` as `--subject`,
 the way 002 does.
 
-**What it decides.** It runs each of **15 fixtures** in
+**What it decides.** It runs each of **16 fixtures** in
 [`scripts/doc-claims/`](../../scripts/doc-claims/) through the compiler and
 asserts the observed verdict matches the fixture's `;; @expect:` header. Its
 purpose is documentation that has drifted from compiler behaviour, specifically
@@ -66,7 +66,7 @@ is a name-resolution failure, reached before any verification condition is built
 so `llmll verify` never reaches the solver. **Measured three ways rather than
 argued:**
 
-1. the reference gate scores **15/15, exit 0**, under `PATH=/usr/bin:/bin:/usr/local/bin`,
+1. the reference gate scores **16/16, exit 0**, under `PATH=/usr/bin:/bin:/usr/local/bin`,
    which holds neither `fixpoint` nor z3 on the machine it was run on;
 2. `verify` on that fixture under the same PATH prints `error: call to unknown
    function 'inc'`, not the exit-3 "solver unavailable";

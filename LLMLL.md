@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.92)
+# LLMLL: Large Language Model Logical Language (v0.14.93)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.92.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.93.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -37,7 +37,7 @@ LLMLL's operational semantics are defined by the generated Haskell program. The 
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
 - **Comments:** `;; text` — from `;;` to end of line. Ignored by the compiler.
-- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`, and `?` in terminal position only — e.g., `done?`, `string-empty?`, `is-game-over?`). A leading `?` denotes a hole (§6) and is lexed separately. A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error.
+- **Source encoding:** Source files are **UTF-8** and are decoded as UTF-8 **regardless of the host locale**. A byte sequence that is not valid UTF-8 is a parse error naming the offending byte and its line and column; a leading byte-order mark is rejected rather than skipped. **Identifiers must be ASCII** (letters, digits, `-`, `_`, and `?` in terminal position only, e.g. `done?`, `string-empty?`, `is-game-over?`). A leading `?` denotes a hole (§6) and is lexed separately. A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators, see §2.4. **In token position, all other non-ASCII characters are a lexer error**; comments and string literals may carry any UTF-8 text.
 - **S-expression string escapes:** `\n`, `\t`, `\r`, `\\`, `\"`, and `\uXXXX`. Standard Haskell-style character escapes.
 - **JSON-AST string values** follow RFC 8259 — non-ASCII and control characters must be encoded as `\uXXXX` (e.g. `\u001b` for ESC). The C-style `\xNN` form is not valid JSON.
 

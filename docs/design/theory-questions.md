@@ -168,3 +168,35 @@ Why it does not block. Sub-phase 4e ships the end-of-wave whole-tree check eithe
 discharges the window by construction whatever it is called, and the per-fill bar's provisional
 reading is disclosed rather than claimed. An answer would tell us whether the disclosure should
 carry a named obligation, not whether to ship the check.
+
+## Q-006  (2026-08-08)  Status: OPEN
+
+When a type checker cannot resolve an operator symbol, is there an established discipline for
+whether its arguments should still be checked, in the case where the compiler's consumer is an
+automated repair loop rather than a human reading the first error?
+
+Context. LLMLL's operator-elimination rule has two arms. When the symbol resolves, the arguments
+are synthesized and unified against the operator's parameter types. When it does not, the checker
+reports the unresolved symbol, returns `bool`, and never visits the arguments at all. Measured: the
+same argument list containing a type mismatch, a call to an undefined function, and a strict-core
+body-faithfulness violation produces three errors and a warning under a resolved operator, and one
+warning with an OK exit under an unresolved one.
+
+The two available disciplines are the usual pair. *Poisoning* returns a top or unknown type and
+suppresses downstream diagnostics from the subtree, which is the standard move for error-cascade
+suppression in batch compilers addressed to a human who will read the first error and recompile.
+*Recovery* synthesizes the arguments, discards the result type, and reports everything found.
+
+The question is whether the trade-off has a settled treatment once the reader is a loop rather than
+a person. The cost structure inverts: a suppressed diagnostic costs an agent a whole round trip,
+because the next attempt cannot know about a defect the compiler declined to mention, while a
+spurious cascade costs only tokens in a transcript the agent discards. If that inversion is
+recognized in the literature, there should be a name for the discipline and a statement of what it
+gives up, since suppression exists for a reason and the reason does not simply evaporate.
+
+Why it does not block. The choice is already forced here by an in-tree precedent, independent of
+the answer: the sibling arm of this same rule had exactly this defect (its arguments were ignored
+entirely, so an ill-typed operand passed silently), it was fixed by checking them, and the fix's
+own comment records the reasoning. Applying that answer to the arm the fix did not reach is a
+consistency argument that needs no literature. An answer would tell us whether the discipline
+generalizes to LLMLL's other suppression sites, not whether to make this one recover.
