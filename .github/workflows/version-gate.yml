@@ -8,9 +8,14 @@
 #   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + DRIFT-DOC-4 + pytest
 #                     harness tests. No Stack: no gate in this job has a compiler
 #                     dependency.
-#   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2 +
-#                     BUILD-GATE-1 + the refute-crux verdict gate. Builds llmll,
-#                     runs scripts/doc_claims_gate.sh (doc restriction-claims vs
+#   spec-roundtrip  — slower (~16-17 min warm, measured over runs 31328105593
+#                     and 31332324160; it was ~11 min before the example suite
+#                     joined it, and this line said "~5 min" while the job was
+#                     already taking eleven). C5 + DRIFT-CT-2 +
+#                     BUILD-GATE-1 + the refute-crux verdict gate + the hspec
+#                     example suite. Builds llmll, runs `stack test` under
+#                     --fail-on=pending (CI-BUILD-TEST-1),
+#                     scripts/doc_claims_gate.sh (doc restriction-claims vs
 #                     compiler behaviour), scripts/refute-crux-gate.sh (frozen
 #                     verify verdicts), scripts/build_smoke.sh, and
 #                     scripts/spec_roundtrip.py against opt-in spec blocks.
@@ -21,10 +26,15 @@
 # actual compiler behaviour) is the only one with an oracle outside the
 # repository, because it executes the compiler. DRIFT-DOC-4 (prose path
 # citations) is ADVISORY and never fails, for the reason in its module
-# docstring. It does not run `stack test` or the Python harness suites
-# at tools/llmll-orchestra/ and experiments/. Build/test CI is a separate ticket;
-# the workflow file is deliberately named `version-gate.yml`, not `ci.yml`, to
-# avoid implying a broader signal.
+# docstring. It does not run the Python harness suites at
+# tools/llmll-orchestra/ and experiments/.
+#
+# It DOES run `stack test`, as of CI-BUILD-TEST-1 (v0.14.94). This paragraph
+# called build/test CI "a separate ticket" from the day the file was written,
+# and no such ticket existed until v0.14.93 filed one; the roadmap row is the
+# decision, not the deferral. The file keeps the name `version-gate.yml` rather
+# than `ci.yml` because the drift gates are still what it is FOR, and the
+# example suite rides in the job that already has a solver.
 #
 # Security posture: no run: block interpolates ${{ github.event.* }} or any
 # attacker-controllable context. The only ${{ }} expressions used are

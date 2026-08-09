@@ -4,6 +4,250 @@
 
 <a id="Latest"></a>
 
+## v0.14.94: the example suite runs in CI, and the binary contradicts its own help text (2026-08-09)
+
+No language surface moves. What ships is one compiler fix, one CI gate that had
+never existed, and the reconciliation of four documents against the binary they
+describe. The shape they share is a claim nobody had executed: an objective the
+design specified and the solver script never emitted, a workflow whose own header
+admitted it was not build/test CI, and three advertised invocations that answer
+`Invalid argument`.
+
+### Added: `CI-BUILD-TEST-1`, the example suite runs in CI and can fail there
+
+All 1679 hspec examples had been a local-only gate for the life of
+`version-gate.yml`. A green `main` said nothing about them, and a contributor
+without a local Stack toolchain could take a change to green with the whole suite
+unrun. The workflow's own header had said so since it was written, calling
+build/test CI "a separate ticket"; no such ticket existed until v0.14.93 filed
+one, and this release closes it.
+
+**The `--fail-on=pending` flag is not decoration and the step's position is not
+preference.** 55 of the examples shell out to `fixpoint` and call `pendingWith`
+when it is absent. Measured on one tree with only `PATH` differing:
+
+```
+solver present                      -> 1679 examples, 0 failures              exit 0
+solver absent                       -> 1679 examples, 0 failures, 55 pending  exit 0
+solver absent + --fail-on=pending   -> 1679 examples, 55 failures             exit 1
+```
+
+The headline count a reader checks against this file is identical in the first two
+rows, and hspec scores pending as non-failure, so neither the number nor the exit
+code discriminates. Wired into the banner job, which has no Haskell toolchain, the
+step would have reported green having skipped 55 tests. That is `SKIP-SILENT-1`'s
+class for the fifth time in this campaign, and it is the whole argument for placing
+the step in the solver-bearing `spec-roundtrip` job rather than an argument about
+convenience. `--fail-on=pending` converts the skip into a refusal and makes the
+step's own position self-enforcing, since above the toolchain assertion it fails
+loudly rather than passing hollowly.
+
+Ordered before the refute-crux gate, because a unit-test failure localizes better
+than a frozen-verdict divergence and failing first saves that gate's solver time.
+
+**The ubuntu-latest cost is now measured, which is the one figure the implementing
+commit could not supply.** The suite had never run there, so its own first run was
+what measured it: the `Run hspec example suite (CI-BUILD-TEST-1)` step took about
+**4m07s** including building the test component, which `stack build llmll` does not
+build. The local estimate was 203s for a 16,616-line single-module `Spec.hs` on
+macOS/aarch64. Same ballpark, so the cold-cache third-job option rejected during
+design does not need reopening.
+
+### Fixed: `FEAS-MIN-1`, the νZ objective the design specified
+
+`minimizeWitness` tightened by asserting only `(< SUM|input| c)` for at most eight
+rounds. Nothing in that constraint requires the next model to be much smaller, so
+how fast it converged was a property of z3's model-selection heuristic rather than
+of the algorithm. From the seed `y=1000000000` on the FEAS-1 shape, z3 4.15.4
+reaches cost 1 in two rounds; **z3 4.8.12, the version CI and the published image
+ship, descends by exactly 39 per round and stops at 999999688.**
+
+This is conformance with a settled design and not a new one.
+[`docs/design/cascading-refinement-proposal.md`](docs/design/cascading-refinement-proposal.md)
+already requires the model be "**minimized** (νZ, minimize `Σ|inputᵢ|`) so it names
+the boundary" rather than an arbitrary corner, and calls minimality normative
+because the witness is Tier-2's whole rationale; `LLMLL.md` §11 likewise promises a
+"minimal witnessing input". The objective was specified and never emitted.
+
+**`(minimize ...)` combined with the existing `(check-sat-using qsat)` makes z3
+discard the objective silently.** Measured on both 4.8.12 and 4.15.4: that
+combination returns a non-optimal model with no warning and no error. So the
+objective needs plain `(check-sat)` and cannot share a script with the qsat tactic.
+`scriptOfOpt` is a separate renderer for exactly that reason, one entry point
+taking both a bound and an objective being an invitation to the combination that
+fails quietly.
+
+**Verdicts cannot move, by construction rather than by testing.** `feasibilityOf`
+decides at the `scriptOf` call and maps unsat/other/sat before `minimizeWitness` is
+reached, and the call sits inside the `Z3Sat` branch only, so it selects which
+values are printed and can never turn an Abstain into an Infeasible or reject a
+feasible contract. Every failure path returns the seed. Because z3 4.8.12 warns
+that "optimization with quantified constraints is not supported" while still
+returning the optimum, the optimizer's model is accepted only when it is strictly
+cheaper than the seed **and** still a model of the qsat verdict script with its
+values pinned, so the complete tactic governs every witness the gate prints.
+
+Four tests, mutation-checked rather than assumed to work: moving the objective back
+alongside the qsat tactic fails three of them while the solver-independent fallback
+test correctly stays green. `FEAS-MIN-SCRIPT` needs no solver at all, so the trap
+cannot regress behind a pending skip.
+
+### Fixed: three advertised invocations that do not exist
+
+`build`'s `progDesc` told users to run `--emit json-ast`. `--emit` is registered as
+a bare switch, so the advertised command answers ``Invalid argument `json-ast'``.
+Two docs faithfully transcribed the wrong string, which is correct behaviour for a
+transcript and is why the defect propagated rather than being caught.
+
+**The help text was the drifted side, not the flag**, and that was settled on
+evidence rather than convenience. `llmll build --help` contradicts itself within one
+screen: optparse-applicative derives the usage line from the real parser and prints
+`[--emit]` with no metavar, two lines above the hand-written prose claiming an
+argument. The codebase also has a consistent idiom for argument-taking options
+(`option` + `metavar` + enumerated help, as `--contracts` and `--grammar` both use)
+that `--emit` deliberately does not follow, and exactly one emitter exists, so a
+FORMAT argument would have one legal value.
+
+`README.md` and `LLMLL.md` both advertised `llmll hub fetch <pkg>@<ver>`. No such
+form exists: `hub fetch --from-file TARBALL` installs a **local** tarball and
+downloads nothing, so both were wrong about the syntax and about what the command
+does. `docs/getting-started.md` already said in as many words that this form "does
+not exist", so two of the six target docs had been contradicting each other and only
+one of them was right.
+
+**The repository had worked the `--emit` case out twice and told nobody who could
+fix it.** `tools/llmll-driver/wave.llmll` carries the comment "`--emit` is a bare
+flag; `--emit json-ast` is a usage error", and a DRIVER-LL restart record notes that
+the string "cost the state machine's first hour". Two independent readers paid for
+this and wrote it down beside their own code instead of in the help text, so the
+next reader paid again.
+
+Not fixed here and routed on, because it is the same defect in a worse place:
+`Main.hs`'s checkout error tells the user to run `llmll build --emit json-ast`
+first. That is user-facing failure guidance rather than help text, and correcting it
+is an observable behaviour change with three transcription sites, one of them a
+doc-claims fixture whose `@claim` prose quotes the full string. The two doc sites
+that quote that message are therefore left alone deliberately: they are accurate
+transcriptions of a string that is still wrong.
+
+### Changed: the README command table matches the running binary
+
+Three registered commands were missing (`build-json`, `run`, `diverge-report`) and
+`checkout`'s `--multi` was undocumented. All four were verified against
+`llmll --help` and each subcommand's own help, resolved by absolute path from the
+stack install root, because the previous pass had correctly refused to document a
+surface it could not run: the binary it found was 0.14.79.
+
+**The reverse audit is what found the false claim, and it is the half nobody had
+run.** Reading `Main.hs` and checking each command reaches README can only find
+omissions. Reading README and checking each row against the binary is the direction
+that can find a lie, and it found the `hub fetch` one above. Three further suspects
+were disproved by running nested help rather than assumed: `hub scaffold --output`
+and `hub query --signature` both exist as short/long pairs, and `serve`'s `--sketch`
+is prose about the endpoint it exposes rather than a claimed flag. After the edits
+the table has zero registered-but-undocumented commands, zero
+documented-but-unregistered, and zero claimed-but-absent flags across all 19.
+
+The JSON-AST schema title moved from v0.6 to v0.11. Nothing was chosen: `$id`
+(`/schemas/v0.11/`) and `schemaVersion` (`0.11.0`) already agreed with each other
+and the title was the lone dissenter. Gate C4 does not read the title, which is why
+it stayed wrong through five schema versions.
+
+### Changed: the TOOL-RFC standard gains `## 7. Verification`
+
+The TOOL-LL campaign's retirement rule deletes the subject script one release after
+a port lands. Nothing in the standard asked what the port still has at that point,
+and the answer today is: its live corpus passing, which is the port agreeing with
+itself. Section 7 sits before retirement and the order is the argument, since
+section 6 is checked against the reference and section 8 deletes the reference.
+
+**The obligation is not "is it proved".** It is: name two instruments that fail
+differently, and state what each catches that the other cannot. Two instruments that
+fail the same way are one instrument. A row may record an absence, with a roadmap
+tag; listing one instrument twice under two names may not. Requiring proof outright
+was considered and rejected, because the recognizer half of every gate (bytes to
+token) is not provable today, a bool-valued body whose result is a string comparison
+falling back even against a literal. A standard that mandates the impossible teaches
+people to route around the standard.
+
+**The three shipped RFCs are retrofitted rather than exempted**, because the gate
+iterates every RFC and an exemption by number would teach that the standard is
+negotiable. Their rows are the measured state and they are not flattering. 003's
+surviving instrument is blind to the only two defects that port is known to have
+had, its own section 6 recording that both were "neither reachable from the live
+corpus". 001 must **not** count `--strict-verified-core` as an instrument, because
+`versiongate.llmll` passes it today with zero body-faithful functions, so the pass
+is vacuous, which is the precise failure this section exists to name. 002's frozen
+verdict manifest survives and is the weaker of its two.
+
+### Corrected: `LLMLL.md` §4.4.1 describes a preorder, and had said partial order
+
+`evidenceCovers` makes `verified` and `verified-lean` peer tops that cover each
+other without being equal, so antisymmetry fails and `evidenceMeet` is a greatest
+lower bound only up to that peer equivalence. The code has always behaved this way
+and says so at the definition; the spec was the drifted side and moves. The
+correction is recorded in the sentence rather than applied silently, because a
+reader who relied on antisymmetry deserves to know the claim changed.
+
+A related property is deliberately **not** corrected: `evidenceMeet` is not
+commutative either, same-constructor equations taking the **first** argument's
+payload, so meeting two verified levels from different provers depends on argument
+order. That one is commented at the definition as a conservative choice and is a
+property of the payload rather than of the lattice structure the spec sentence
+describes. Named here so the next reader does not rediscover it as a third defect.
+
+### Filed: two rows, neither fixed here
+
+`MATCH-TERM-EQ-1`. A `match` arm on a nullary constructor refines the scrutinee's
+int-tag discriminant and never emits the term equation `scrutinee = Ctor`, so
+nothing connects `result` back to the scrutinee **variable** across arms. Two
+functions that are both the identity disagree: the direct body `a` verifies SAFE,
+and the `match` body is **refuted** with "else-branch does not satisfy
+postcondition". **That is a false refutation, which is worse than a fallback**: a
+fallback declines to decide and says so, while this reports that a correct
+implementation violates its contract. The blast radius is every sum-type function
+that would relate its result to what it matched on, which is the natural way to
+specify a classifier. It stayed invisible because the corpus specifies classifiers
+by their **inputs** rather than by the scrutinee, so the shape that fires has no
+in-tree population, the same blind spot `TOOL-ENCODING-1` had. Whether a
+payload-carrying arm shares the defect is unmeasured, and the row asks for a census
+before a fix rather than assuming either way.
+
+`TOOL-ORACLE-1`. What each shipped port owes before its own reference is deleted,
+per section 7 above. Due per port before **its** retirement and not before 004
+starts, because retirement is when the reference disappears.
+
+### Roadmap: 22 closed rows leave Active Items
+
+Active Items had accumulated status debt to the point where it no longer answered
+the question it exists to answer: rows that had shipped or settled outright were
+still sitting in it, against 29 genuinely open. **22 is the measured count**, taken
+from the diff (22 rows removed from Active Items, 22 added below), and it is
+recorded here because the implementing commit's own subject line says 20 while the
+section it wrote says twenty-two. The section is the side that agrees with its
+contents. They move
+into a new H3 under Resolved cross-cutting items, because this file's Shipped
+Releases section is explicitly one line per **version** and a per-row `[CT]` record
+cannot fit it.
+
+**Moved verbatim, and verified as such rather than asserted**, by comparing the
+multiset of table rows against HEAD: 263 rows before, 264 after, zero rows present
+before and absent after, exactly one line added and it is the new table's header.
+They were deliberately not compressed, since compressing means rewriting table-row
+cells, which `UPDATE-PROTOCOL` D1 excludes from doc-lead's verbatim-apply path.
+Three rows that look closed stayed put: `PROC-BOUNDARY-1`, `RET-BRANCH-PREF` and
+`OBLIG-1-FOLLOWON` each open with a shipped tag and then name something still owed,
+which is how a count keyed on the word SHIPPED over-counted by one on the first
+pass.
+
+**Tests:** 1679 Haskell (from 1675), 203 Python (unchanged). The four new Haskell
+examples are `FEAS-MIN-1`'s. **The Haskell figure is measured in CI for the first
+time**, `CI-BUILD-TEST-1` having closed, and it agrees with the local count. The
+Python figure is the collected total, which is what these lines have always counted,
+and both splits again, because the discriminator is the **`LLMLL_BIN` environment
+variable and not `PATH`**: with it set, **202 passed and 1 skipped**; without it,
+**197 passed and 6 skipped**, the five-test gap being the source-encoding suite.
+
 ## v0.14.93: the toolchain reads its own source as UTF-8 (2026-08-08)
 
 `LLMLL.md` §2 has always said source files **are** UTF-8. The compiler read them
