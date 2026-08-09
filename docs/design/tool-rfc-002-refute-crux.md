@@ -324,7 +324,27 @@ have failed this cell rather than sailing through it.** The battery is stronger
 for having been wrong once, and the record of that is why this paragraph is here
 instead of a quietly-edited table row.
 
-## 7. Retirement
+## 7. Verification
+
+Retrofitted at the amendment that introduced this section, against a port already
+shipped. The rows below are the measured state, not an aspiration.
+
+| Instrument | Catches | Blind to | Survives §8? |
+|---|---|---|---|
+| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py), 16 cells + 3 negative controls | the port disagreeing with the reference under mutation | any defect the port and the shell reference **share** | **NO**, it executes the reference |
+| the frozen verdict manifest (80 cases, `EXPECTED_VERDICTS.json`) | the port's end-to-end verdicts drifting from a record written independently of the shell | the port's own comparison logic when it errs toward agreement; the live corpus always passes | yes |
+| a contract on the adjudicator | — | — | **absent**, see below |
+
+The second row survives retirement and is the weaker of the two, which is the
+shape this section is meant to surface rather than hide.
+
+**Owed before §8.** A contract on the adjudicator with at least one refuting
+case, tracked as `TOOL-ORACLE-1`. The adjudicator half is provable today; the
+recognizer half (bytes to token) is not, because a bool-valued body whose result
+is a string comparison falls back even against a literal, and word equations over
+runtime strings are outside the automated fragment.
+
+## 8. Retirement
 
 **Not at the release the port lands.** The subject script is deleted one release
 after the port enters `oracle`, in the same commit that flips this file's
@@ -348,7 +368,7 @@ gate is the one that catches silently lost refutation. Deleting the reference
 early trades a gate that has caught a twenty-version regression for one that has
 run for a release.
 
-## 8. Decisions taken
+## 9. Decisions taken
 
 **Three policy calls, and all three were put to the user before this file was
 written.** That is the difference from TOOL-RFC-001, whose §8 records three of

@@ -275,7 +275,28 @@ question 1. **If the port refuses where the reference skips, they become
 divergence cells rather than agreement cells**, and the cover must say which it
 is asserting. That is the reason the question is asked before the code.
 
-## 7. Retirement
+## 7. Verification
+
+Retrofitted at the amendment that introduced this section, against a port already
+shipped. The rows below are the measured state, not an aspiration.
+
+| Instrument | Catches | Blind to | Survives §8? |
+|---|---|---|---|
+| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py), 17 cells + 3 negative controls | the port disagreeing with the reference under mutation | any defect the port and the shell reference **share**; and, when both fail identically, every mutation cell still reports `ok` (measured at v0.14.92, `TOOL-ENCODING-1`) | **NO**, it executes the reference |
+| the 16 fixtures' frozen `@expect` headers | the port drifting from expectations recorded independently of the shell | **the two defects this port actually had.** §6 records that the `warn`-promotion bug and the subject-probe skip were "neither reachable from the live corpus", which always names a working compiler and always passes | yes |
+| a contract on the adjudicator | — | — | **absent**, see below |
+
+**The second row is blind to the only defects this port is known to have had.**
+That is not a criticism of the corpus; it is the reason a reference-independent
+instrument is owed before the reference is deleted.
+
+**Owed before §8.** A contract on the adjudicator with at least one refuting
+case, tracked as `TOOL-ORACLE-1`. The adjudicator half is provable today; the
+recognizer half (bytes to token) is not, because a bool-valued body whose result
+is a string comparison falls back even against a literal, and word equations over
+runtime strings are outside the automated fragment.
+
+## 8. Retirement
 
 `scripts/doc_claims_gate.sh` is deleted at the release **after** all of:
 
@@ -291,7 +312,7 @@ is asserting. That is the reason the question is asked before the code.
 Flipping `tool_state` to `retired` and deleting the script happen in **one
 commit**, per campaign §4.
 
-## 8. Decisions taken
+## 9. Decisions taken
 
 **Two are NOT taken and are put to the user. They are policy, not
 implementation, and deciding them at the keyboard is the failure this workflow

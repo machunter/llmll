@@ -85,13 +85,45 @@ answers are compared. Agreement on a passing tree is not evidence.
 |---|---|---|---|
 | | | | |
 
-## 7. Retirement
+## 7. Verification
+
+§6's battery is checked against the reference. **§8 deletes the reference.** From
+that release on every cell in §6 is inoperable, and the port's only remaining
+instrument is its live corpus passing, which is the port agreeing with itself.
+This section names what survives that.
+
+**Name two instruments that fail differently, and state what each catches that
+the other cannot.** Not "is it proved". Two instruments that fail the same way
+are one instrument.
+
+| Instrument | Catches | Blind to | Survives §8? |
+|---|---|---|---|
+| | | | |
+
+The differential cover is a legitimate entry and is usually the first row, but it
+is blind by construction to a defect the port and the reference **share**, which
+is the likely class when the port was written by reading the reference. It also
+does not survive §8.
+
+A **contract with at least one refuting case** is the usual second row, because it
+references neither implementation and outlives the reference.
+`--strict-verified-core` passing is not sufficient on its own: a module with no
+body-faithful functions passes it vacuously, and a postcondition of `false` on a
+fallback body reports SAFE. The refuting case is what separates a proof from a
+green light, since a fallback function cannot be refuted.
+
+**One row may be honest about absence.** "This half has one instrument", with a
+roadmap tag, is an acceptable answer and follows §5's discipline. A recognizer
+over arbitrary strings cannot be contracted today. Listing one instrument twice
+under two names is not acceptable.
+
+## 8. Retirement
 
 The release at which the subject script is deleted, and what must be true first.
 At minimum: the differential cover green, the port wired into a job that decides,
 and one release elapsed in state `oracle`.
 
-## 8. Decisions taken
+## 9. Decisions taken
 
 **The policy calls, not the implementation.** Anything the author decided that a
 reader could reasonably have decided otherwise, and that is not settled by the

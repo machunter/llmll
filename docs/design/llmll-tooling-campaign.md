@@ -172,10 +172,10 @@ One port is one RFC and one merge sequence:
 
 1. **RFC first.** Copy [`TOOL-RFC-TEMPLATE.md`](TOOL-RFC-TEMPLATE.md) to
    `docs/design/tool-rfc-NNN-<slug>.md`. It is not a formality: §3 (distribution)
-   and §8 (decisions taken) are the sections that record choices which are
+   and §9 (decisions taken) are the sections that record choices which are
    *policy rather than implementation*, and those are the ones an author
    otherwise makes silently at the keyboard. DRIFT-CI-1 is the worked example of
-   that failure mode; see TOOL-RFC-001 §8.
+   that failure mode; see TOOL-RFC-001 §9.
 2. **Feasibility read against the language**, RFC §4 and §5. Every needed
    feature marked available or a gap, every gap given a disposition.
 3. **Implement** under `tools/<tool>/`.
@@ -194,7 +194,7 @@ One port is one RFC and one merge sequence:
 no toolchain required:
 
 - every LLMLL program under `tools/` that CI invokes has an RFC;
-- every RFC carries the required frontmatter and all eight sections;
+- every RFC carries the required frontmatter and all nine sections;
 - every RFC names a subject script that exists, or declares `retired`;
 - the tri-state of §4 agrees with the filesystem;
 - every gap row carries one of the three dispositions, and every BLOCKS or

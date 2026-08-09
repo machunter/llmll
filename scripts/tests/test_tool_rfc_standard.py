@@ -18,7 +18,7 @@ below:
 
   * an RFC is written after the fact to match what was built, which is how a
     process becomes paperwork. This cannot be checked mechanically and is not
-    claimed to be. What IS checked is that §8 exists and is not empty, because
+    claimed to be. What IS checked is that §9 exists and is not empty, because
     the decisions it names are the ones that get made at a keyboard.
 
 WHAT IT DELIBERATELY DOES NOT CHECK. Whether the RFC is any good, whether the
@@ -41,11 +41,16 @@ ROADMAP = REPO / "docs" / "compiler-team-roadmap.md"
 STATES = {"blocked", "oracle", "retired"}
 DISPOSITIONS = {"BLOCKS", "SHAPES", "COSMETIC"}
 
-# The eight sections campaign §6 requires. Matched on the heading text, so a
+# The nine sections campaign §6 requires. Matched on the heading text, so a
 # renumbering is caught and a rewording is caught.
+#
+# "Verification" sits before "Retirement" deliberately and the order is the
+# point: retirement DELETES the reference, so §6's whole battery dies with it
+# and §7 is what the port still has afterwards. A reader who meets the two in
+# the other order learns nothing about why either exists.
 SECTIONS = [
     "Subject", "Criteria", "Distribution", "Feasibility", "Gaps",
-    "Differential plan", "Retirement", "Decisions taken",
+    "Differential plan", "Verification", "Retirement", "Decisions taken",
 ]
 
 
@@ -125,7 +130,7 @@ def test_every_rfc_has_the_required_frontmatter():
             f"{p.name} has tool_state {fm['tool_state']!r}, not one of {sorted(STATES)}"
 
 
-def test_every_rfc_has_all_eight_sections():
+def test_every_rfc_has_all_required_sections():
     for p in _rfcs():
         body = _body(p)
         for i, name in enumerate(SECTIONS, start=1):
@@ -134,18 +139,25 @@ def test_every_rfc_has_all_eight_sections():
 
 
 def test_no_rfc_leaves_its_decisions_section_empty():
-    """Campaign §6 step 1: §8 is where policy calls are recorded, and an empty
-    one means either that none were made (rare) or that they were made silently
-    (usual). Cannot check which; can check that something is claimed."""
+    """Campaign §6 step 1: the decisions section is where policy calls are
+    recorded, and an empty one means either that none were made (rare) or that
+    they were made silently (usual). Cannot check which; can check that
+    something is claimed.
+
+    The number is DERIVED from SECTIONS rather than written here. It used to be
+    hardcoded as 8, and inserting `Verification` ahead of it broke this test
+    while leaving the assertion it makes perfectly valid: the check was keyed to
+    a position rather than to the thing it was checking."""
+    n = SECTIONS.index("Decisions taken") + 1
     for p in _rfcs():
         body = _body(p)
-        m = re.search(r"^##\s+8\.\s+Decisions taken\s*$", body, re.M)
-        assert m, f"{p.name} has no section 8"
+        m = re.search(rf"^##\s+{n}\.\s+Decisions taken\s*$", body, re.M)
+        assert m, f"{p.name} has no section {n}"
         tail = body[m.end():]
         nxt = re.search(r"^##\s+\d+\.", tail, re.M)
         section = (tail[:nxt.start()] if nxt else tail).strip()
         assert len(section) > 120, \
-            f"{p.name} section 8 is effectively empty ({len(section)} chars)"
+            f"{p.name} section {n} is effectively empty ({len(section)} chars)"
 
 
 # ---------------------------------------------------------------------------

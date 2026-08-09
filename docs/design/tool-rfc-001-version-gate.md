@@ -131,7 +131,29 @@ port emits neither, because a failed `wasi.fs.read` answers `RErr` and a failed
 `json-parse` answers `Error`. Same decision, same exit code; the chatter is not
 part of it.
 
-## 7. Retirement
+## 7. Verification
+
+Retrofitted at the amendment that introduced this section, against a port already
+shipped. The rows below are the measured state, not an aspiration.
+
+| Instrument | Catches | Blind to | Survives §8? |
+|---|---|---|---|
+| [`version_gate_cover.py`](../../scripts/version_gate_cover.py), 14 cells incl. the V13 negative control | the port disagreeing with the reference under mutation of each C1-C4 criterion | any defect the port and the shell reference **share**; the port was written by reading the reference | **NO**, it executes the reference |
+| the live tree (BUILD-GATE-1 runs the port over the real five banner sites) | the port drifting from the tree's actual state | everything the tree does not currently exercise; it always passes, so it discriminates nothing | yes |
+| a contract on the adjudicator | — | — | **absent**, see below |
+
+**`--strict-verified-core` is NOT a third instrument here and must not be listed
+as one.** `versiongate.llmll` passes it today with **zero** body-faithful
+functions: nothing to verify means nothing to fall back, so the pass is vacuous.
+That is the precise failure this section exists to name.
+
+**Owed before §8.** A contract on the adjudicator with at least one refuting
+case, tracked as `TOOL-ORACLE-1`. The adjudicator half is provable today; the
+recognizer half (bytes to token) is not, because a bool-valued body whose result
+is a string comparison falls back even against a literal, and word equations over
+runtime strings are outside the automated fragment.
+
+## 8. Retirement
 
 `scripts/version_gate.sh` is deleted, and this document flips to `retired`, when
 all of:
@@ -143,7 +165,7 @@ all of:
 
 Until then the state is `oracle` and the shell script stays.
 
-## 8. Decisions taken
+## 9. Decisions taken
 
 Four, and **three were made at the keyboard and reported afterwards.** That is
 the failure this campaign's RFC-first workflow exists to prevent, recorded here
