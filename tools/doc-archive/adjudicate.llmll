@@ -1,0 +1,65 @@
+;; TOOL-RFC-004, the verified core of the archive-disposition gate.
+;;
+;; The RFC is docs/design/tool-rfc-004-doc-archive.md. This module is section
+;; 7's THIRD instrument: a contract that references neither implementation and
+;; therefore outlives the reference script, which section 8 deletes.
+;;
+;; WHY THIS IS ITS OWN MODULE AND NOT PART OF THE PORT. A `def` cannot call a
+;; sibling `def` in the same module: the failure is at check time, before
+;; verification, and no ordering escapes it. Cross-module calls to an
+;; already-verified callee do work, leaf-first. So a proved core's module split
+;; is forced by the language rather than chosen for tidiness, and the port
+;; imports this.
+;;
+;; THE CONTRACT IS INPUT-SIDE AND THAT IS NOT A STYLE CHOICE. It constrains
+;; `result` per constructor of the INPUT, which is the classify.llmll shape. The
+;; natural alternative, a post relating `result` to the scrutinee VARIABLE, is
+;; FALSELY REFUTED by this compiler: a match arm on a nullary constructor
+;; refines the int-tag discriminant and never emits the term equation
+;; `scrutinee = Ctor`, so even the identity function fails such a post
+;; (MATCH-TERM-EQ-1). Written the other way this file would not verify and the
+;; defect would look like ours.
+;;
+;; `and` is binary here, not variadic, so the conjunction nests.
+;;
+;; MEASURED, not assumed: this module verifies SAFE and reports
+;; `body-faithful: side-of`, so the pass is not a fallback. Misrouting a single
+;; arm (Superseded -> DormantDir) is REFUTED at constraint #1. That refuting
+;; case is what separates a proof from a green light: a fallback body cannot be
+;; refuted, and a postcondition of `false` on one still reports SAFE.
+
+(module adjudicate
+
+  ;; The vocabulary of `archive-disposition`, plus the value the reference
+  ;; reports as "not one of shipped|superseded|dropped|deferred". UnknownD
+  ;; rather than Unknown: `check` is a reserved word in this language and
+  ;; short constructor names near reserved ones have cost time before.
+  (type Disposition
+    (| Shipped)
+    (| Superseded)
+    (| Dropped)
+    (| Deferred)
+    (| UnknownD))
+
+  ;; The two governed directories, plus "this value names no side", which is
+  ;; the reference's first violation class rather than an error state.
+  (type Side
+    (| SpecDir)
+    (| DormantDir)
+    (| NoSide))
+
+  ;; shipped | superseded -> shipped-design-specs/
+  ;; dropped  | deferred  -> dormant-explorations/
+  ;; anything else        -> no side, which the caller reports as a violation.
+  (def side-of [d: Disposition] -> Side
+    (post (and (and (=> (= d Shipped)    (= result SpecDir))
+                    (=> (= d Superseded) (= result SpecDir)))
+               (and (=> (= d Dropped)    (= result DormantDir))
+                    (and (=> (= d Deferred) (= result DormantDir))
+                         (=> (= d UnknownD) (= result NoSide))))))
+    (match d
+      ((Shipped)    SpecDir)
+      ((Superseded) SpecDir)
+      ((Dropped)    DormantDir)
+      ((Deferred)   DormantDir)
+      ((UnknownD)   NoSide))))
