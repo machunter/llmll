@@ -177,6 +177,16 @@ jobs:
       # stack project the cwd sits in, and from a non-project directory it once
       # installed GHC 9.10.3 on a runner before answering "Executable named llmll
       # not found". Same trap as the doc-claims step above.
+      # `actions/setup-python` installs an interpreter and NOT pytest, and this
+      # job had never needed one: every gate above it is a shell script or a
+      # plain `python3` invocation. The C1-C4 job installs pytest explicitly for
+      # the same reason. Omitting it here failed this step with `No module named
+      # pytest` on the first Linux run, which is finding 6 one turn on again — a
+      # gate wired into a job that cannot run it. It failed LOUDLY, which is the
+      # only reason it cost one run rather than shipping green-by-not-running.
+      - name: Install pytest (this job now hosts a pytest-based gate)
+        run: pip install pytest
+
       - name: Run source-encoding gate (TOOL-ENCODING-1)
         run: |
           set -euo pipefail
