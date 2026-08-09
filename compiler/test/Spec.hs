@@ -31,7 +31,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
-import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
+import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset)
 import qualified Data.ByteString as BSS
@@ -16265,6 +16265,61 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           best <- minimizeWitness z3 q1 [("x", "0"), ("y", "1000000000")]
           intOf best "x" `shouldSatisfy` (< intOf best "y")  -- still a valid witness
           totalAbs best  `shouldSatisfy` (<= 1)              -- shrank from 1e9 to the boundary
+
+    -- FEAS-MIN-1. The four below pin the νZ objective. FEAS-MIN above asserts
+    -- the OUTCOME (cost <= 1); these assert the MECHANISM, because the outcome
+    -- was reachable by luck for years: the previous solve-and-tighten loop only
+    -- required each model to be strictly cheaper, so convergence was a property
+    -- of z3's model selection. It held on 4.15.4 and stalled at 999999688 on
+    -- 4.8.12, which is the version CI and the published image ship.
+    it "FEAS-MIN-SCRIPT: the objective is emitted, and NOT alongside the qsat tactic" $ do
+      let q = fromJust (buildQuery aliases0 params2 (Just TInt) (mkC c1Pre c1Post))
+          s = scriptOfOpt q
+      -- The trap this test exists for: (minimize ...) combined with
+      -- (check-sat-using qsat) is discarded SILENTLY by z3 on both 4.8.12 and
+      -- 4.15.4, yielding a non-optimal model with no warning. Needs no solver,
+      -- so it can never go pending and hide the regression.
+      T.isInfixOf "(minimize "        s `shouldBe` True
+      T.isInfixOf "(check-sat)"       s `shouldBe` True
+      T.isInfixOf "check-sat-using"   s `shouldBe` False
+      -- and the verdict script keeps the complete tactic, unchanged
+      T.isInfixOf "check-sat-using qsat" (scriptOf q Nothing) `shouldBe` True
+
+    it "FEAS-MIN-EXACT: the witness is the exact optimum, not merely a small one" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let q1 = fromJust (buildQuery aliases0 params2 (Just TInt) (mkC c1Pre c1Post))
+          best <- minimizeWitness z3 q1 [("x", "0"), ("y", "1000000000")]
+          -- 1 is the true optimum, established independently: (< cost 1) is
+          -- unsat, and a binary search on the bound converges to 1 on both z3
+          -- versions. An oracle, where FEAS-MIN asserts only a bound.
+          totalAbs best `shouldBe` 1
+
+    it "FEAS-MIN-VALID: the returned witness re-validates under the qsat script" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let q1 = fromJust (buildQuery aliases0 params2 (Just TInt) (mkC c1Pre c1Post))
+              pin w = "(and " <> T.unwords [ "(= " <> n <> " " <> lit v <> ")"
+                                           | (n, v) <- w ] <> ")"
+              lit v = case T.uncons v of Just ('-', n) -> "(- " <> n <> ")"; _ -> v
+              sat s = do (_, o, _) <- readProcessWithExitCode z3 ["-in"] (T.unpack s)
+                         pure (take 3 (dropWhile (== '\n') o) == "sat")
+          best <- minimizeWitness z3 q1 [("x", "0"), ("y", "1000000000")]
+          sat (scriptOf q1 (Just (pin best))) `shouldReturn` True
+          -- the negative half: the check discriminates rather than always passing
+          sat (scriptOf q1 (Just (pin [("x", "5"), ("y", "0")]))) `shouldReturn` False
+
+    it "FEAS-MIN-FALLBACK: an unusable solver returns the seed, never a worse witness" $ do
+      let q1   = fromJust (buildQuery aliases0 params2 (Just TInt) (mkC c1Pre c1Post))
+          seed = [("x", "0"), ("y", "1000000000")]
+      -- Fail-open: every path where the optimizer does not answer `sat`
+      -- (unknown, timeout, process error, a z3 that rejects (minimize)) must
+      -- hand back what it was given. Solver-independent by construction.
+      minimizeWitness "/nonexistent/z3" q1 seed `shouldReturn` seed
 
     it "FEAS-WIT: renderWitness formats name=value pairs" $
       renderWitness [("x", "0"), ("y", "1")] `shouldBe` "x=0,y=1"

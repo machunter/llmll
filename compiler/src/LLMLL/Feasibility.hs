@@ -44,6 +44,7 @@ module LLMLL.Feasibility
   , Query(..)
   , buildQuery
   , scriptOf
+  , scriptOfOpt
   ) where
 
 import           Control.Exception (try, IOException)
@@ -207,6 +208,46 @@ scriptOf q mBound = T.unlines $
      -- the pinned z3 4.15.4 build; plain (check-sat) uses incomplete MBQI).
   ++ [ "(check-sat-using qsat)", "(get-model)" ]
 
+-- | The witness-MINIMIZATION script: the same declarations, precondition and
+--   negated-inner assertion as 'scriptOf', plus the νZ objective
+--   @(minimize Σ|inputᵢ|)@ the settled design specifies
+--   (@docs/design/cascading-refinement-proposal.md@, the minimal-witness
+--   clause). Used only to propose a witness; the VERDICT is always decided by
+--   'scriptOf'.
+--
+--   THE PLAIN @(check-sat)@ IS REQUIRED AND IS NOT AN OVERSIGHT. Combining
+--   @(minimize …)@ with @(check-sat-using qsat)@ makes z3 discard the objective
+--   SILENTLY: measured on 4.8.12 and 4.15.4, that combination returns a
+--   non-optimal model with no warning and no error. So the objective and the
+--   qsat tactic cannot share a script. That is safe here precisely because this
+--   script never decides Feasible/Infeasible: its model is re-validated against
+--   the qsat script before it is used, so the complete tactic still governs
+--   every witness the gate prints.
+--
+--   A separate function rather than another parameter on 'scriptOf', because
+--   the objective and the tightening bound are mutually exclusive and one entry
+--   point taking both invites exactly the silent-discard combination above.
+scriptOfOpt :: Query -> Text
+scriptOfOpt q = T.unlines $
+     [ "(set-option :timeout 10000)" ]
+  ++ [ "(declare-const " <> sn <> " " <> st <> ")" | (_, sn, st, _) <- qInputs q ]
+  ++ maybe [] (\p -> [ "(assert " <> p <> ")" ]) (qPreSMT q)
+  ++ [ "(assert (forall ((result " <> qRetSort q <> ")) " <> qInnerNeg q <> "))" ]
+  ++ maybe [] (\c -> [ "(minimize " <> c <> ")" ]) (costTermOf q)
+  ++ [ "(check-sat)", "(get-model)" ]
+
+-- | @Σ|inputᵢ|@ over the Int inputs, or 'Nothing' when there are none to
+--   minimize. Shared by 'scriptOfOpt' (as the objective) and 'minimizeWitness'
+--   (as the tightening bound), so the two cannot drift apart.
+costTermOf :: Query -> Maybe Text
+costTermOf q = case [ sn | (_, sn, _, True) <- qInputs q ] of
+  []  -> Nothing
+  ns  -> Just (sumTerm (map absTerm ns))
+  where
+    absTerm n  = "(ite (>= " <> n <> " 0) " <> n <> " (- " <> n <> "))"
+    sumTerm [t] = t
+    sumTerm ts  = "(+ " <> T.unwords ts <> ")"
+
 -- ---------------------------------------------------------------------------
 -- z3 runner
 -- ---------------------------------------------------------------------------
@@ -254,12 +295,52 @@ parseModel = go . T.words . T.replace ")" " ) " . T.replace "(" " ( "
 --   Returns the smallest model found. Purpose: name the boundary (@x=0,y=1@),
 --   not an arbitrary corner. No Int inputs ⇒ nothing to minimize, return as-is.
 minimizeWitness :: FilePath -> Query -> [(Text, Text)] -> IO [(Text, Text)]
-minimizeWitness z3 q = loop (0 :: Int)
+minimizeWitness z3 q seed
+  | null intNames = pure seed
+  | otherwise     = do
+      out <- runZ3 z3 (scriptOfOpt q)
+      case out of
+        Z3Sat m -> do
+          let cand = filterInputs sanNames (parseModel m)
+          ok <- accepts cand
+          if ok then pure cand else loop (0 :: Int) seed
+        _ -> loop (0 :: Int) seed
   where
     intNames = [ sn | (_, sn, _, True) <- qInputs q ]
     sanNames = [ sn | (_, sn, _, _)    <- qInputs q ]
+
+    -- A proposed witness is accepted only when it is strictly cheaper than the
+    -- seed AND is still a model of the qsat verdict script with its values
+    -- pinned. The second half is the part that matters: z3 4.8.12 warns that
+    -- "optimization with quantified constraints is not supported" while still
+    -- returning the optimum, so optimality there is the solver's best effort by
+    -- its own admission. Re-validating turns that into a machine check, and
+    -- makes every printed witness a model accepted by the COMPLETE tactic —
+    -- a stronger invariant than the previous tighten-loop maintained.
+    accepts cand
+      | costOf cand >= costOf seed = pure False
+      | otherwise = case pinExpr cand of
+          Nothing -> pure False
+          Just p  -> do
+            v <- runZ3 z3 (scriptOf q (Just p))
+            pure $ case v of Z3Sat _ -> True; _ -> False
+
+    pinExpr model = case [ "(= " <> sn <> " " <> smtLit v <> ")" | (sn, v) <- model ] of
+      []  -> Nothing
+      [e] -> Just e
+      es  -> Just ("(and " <> T.unwords es <> ")")
+
+    -- parseModel renders negatives as "-3"; SMT-LIB needs "(- 3)".
+    smtLit v = case T.uncons v of
+      Just ('-', n) -> "(- " <> n <> ")"
+      _             -> v
+
+    -- Retained verbatim as the fallback for every path where the optimizer does
+    -- not answer `sat` (unknown, timeout, process error, or a z3 that rejects
+    -- (minimize)). Strictly-decreasing and capped at K=8, so it can only ever
+    -- improve on the seed or return it.
     loop k best
-      | k >= 8 || null intNames = pure best
+      | k >= 8    = pure best
       | otherwise = case boundExpr (costOf best) of
           Nothing -> pure best
           Just b  -> do
@@ -267,14 +348,10 @@ minimizeWitness z3 q = loop (0 :: Int)
             case out of
               Z3Sat m -> loop (k + 1) (filterInputs sanNames (parseModel m))
               _       -> pure best
+
     costOf model =
       sum [ abs v | sn <- intNames, Just v <- [lookup sn model >>= (readMaybe . T.unpack)] ]
-    boundExpr c
-      | null intNames = Nothing
-      | otherwise     = Just ("(< " <> sumTerm (map absTerm intNames) <> " " <> tshow c <> ")")
-    absTerm n  = "(ite (>= " <> n <> " 0) " <> n <> " (- " <> n <> "))"
-    sumTerm [t] = t
-    sumTerm ts  = "(+ " <> T.unwords ts <> ")"
+    boundExpr c = (\t -> "(< " <> t <> " " <> tshow c <> ")") <$> costTermOf q
 
 filterInputs :: [Text] -> [(Text, Text)] -> [(Text, Text)]
 filterInputs names = filter ((`elem` names) . fst)
