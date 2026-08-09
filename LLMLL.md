@@ -516,7 +516,7 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
 
 #### 4.4.1 Display Levels
 
-Every `pre` and `post` clause carries a **display level** — a structured evidence record describing how the contract has been checked. Display levels form a partial-order diamond lattice, not a total order:
+Every `pre` and `post` clause carries a **display level** — a structured evidence record describing how the contract has been checked. Display levels form a **preorder** diamond lattice, not a total order, and not a partial order: `verified` and `verified-lean` are **peer tops** that cover each other without being equal (`evidenceCovers` in `Syntax.hs`), so antisymmetry fails and the meet is a greatest lower bound only up to that peer equivalence. The compiler has always behaved this way and says so at the definition; this sentence read "partial-order" until the discrepancy was measured:
 
 ```
         verified
