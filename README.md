@@ -260,7 +260,7 @@ compiler/                   ← Haskell compiler (stack project)
     TypeCheck.hs            ← Bidirectional type checker
     HoleAnalysis.hs         ← Hole collector (?hole expressions)
     CodegenHs.hs            ← Haskell code emitter
-    AstEmit.hs              ← JSON-AST emitter (--emit json-ast round-trip)
+    AstEmit.hs              ← JSON-AST emitter (--emit round-trip)
     Contracts.hs            ← Runtime contract assertion generator
     PBT.hs                  ← QuickCheck property runner
     Diagnostic.hs           ← Structured error/warning types

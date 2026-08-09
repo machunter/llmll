@@ -6,7 +6,7 @@
 --   check      — parse + type-check, optional --json output
 --   holes      — list and classify all holes, optional --json output
 --   test       — run property-based tests (check blocks)
---   build      — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
+--   build      — emit Haskell; --emit writes JSON-AST; .ast.json input auto-delegates
 --   run        — build into temp dir and execute
 --   repl       — interactive read-eval-print loop
 --   verify     — D4: emit .fq constraints + run liquid-fixpoint (if installed)
@@ -179,7 +179,7 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <> command "test"  (info (helper <*> testCmd)
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info (helper <*> buildCmd)
-          (progDesc "Compile .llmll to Haskell; use --emit json-ast to emit JSON-AST instead"))
+          (progDesc "Compile .llmll to Haskell; use --emit to write JSON-AST (.ast.json) instead"))
       <> command "build-json" (info (helper <*> buildJsonCmd)
           (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
       <> command "run"   (info (helper <*> runCmd)
@@ -684,7 +684,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
   if takeExtension fp == ".json"
     then doBuildFromJson json gm fp mOutDir emitOnly contractsMode
     else do
-      -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
+      -- --emit: parse the file directly to round-trip to JSON (no module merge needed)
       when emitJson $ do
         bs <- BS.readFile fp                      -- TOOL-ENCODING-1
         case decodeSourceUtf8 fp bs >>= parseSrc gm fp of

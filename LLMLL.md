@@ -1419,11 +1419,13 @@ Omitting `:laws` is valid — interfaces without laws parse and compile unchange
 
 ### 8.9 `llmll-hub` Registry
 
-The `hub.` import prefix resolves modules from the local `llmll-hub` cache (`~/.llmll/modules/`). Fetch packages with:
+The `hub.` import prefix resolves modules from the local `llmll-hub` cache (`~/.llmll/modules/`). The cache is populated from local tarballs only: there is no registry-by-name fetch, and nothing is downloaded. Install a `.tar.gz` with:
 
 ```bash
-llmll hub fetch llmll-crypto@0.1.0
+llmll hub fetch --from-file ./llmll-crypto-0.1.0.tar.gz
 ```
+
+The tarball's top-level directory encodes package and version (`llmll-crypto-0.1.0/`), and its contents are installed to `~/.llmll/modules/llmll-crypto/0.1.0/`.
 
 Import syntax:
 

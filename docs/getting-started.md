@@ -56,8 +56,8 @@ Available commands:
   check                    Parse and type-check a .llmll or .ast.json file
   holes                    List and classify all holes in a .llmll file
   test                     Run property-based tests (check blocks)
-  build                    Compile .llmll to Haskell; use --emit json-ast to
-                           emit JSON-AST instead
+  build                    Compile .llmll to Haskell; use --emit to write
+                           JSON-AST (.ast.json) instead
   build-json               Compile a .ast.json file (JSON-AST) — same as build
                            but from JSON input
   run                      Compile and immediately run an LLMLL program
