@@ -260,6 +260,45 @@ jobs:
           test -x "$HOME/.local/bin/fixpoint" \
             || { echo "fixpoint missing at $HOME/.local/bin/fixpoint"; exit 1; }
 
+      # CI-BUILD-TEST-1. The hspec example suite, which until now has NEVER run
+      # in CI: this workflow's header called build/test CI "a separate ticket"
+      # and no ticket existed, so all 1675 examples were a local-only gate and a
+      # green `main` said nothing about them.
+      #
+      # THE POSITION IS LOAD-BEARING AND SO IS THE FLAG. 53 of the 1675 examples
+      # shell out to `fixpoint` (test/Spec.hs, findExecutable "liquid-fixpoint"
+      # / "fixpoint" / "z3") and call `pendingWith` when it is absent. Measured
+      # on the same tree with only PATH differing:
+      #
+      #   solver present -> 1675 examples, 0 failures              exit 0
+      #   solver absent  -> 1675 examples, 0 failures, 53 pending  exit 0
+      #
+      # The headline count a reader checks against the CHANGELOG is 1675 either
+      # way, and hspec scores pending as non-failure, so the exit code does not
+      # discriminate either. Run in the C1-C4 job, which has no Haskell
+      # toolchain, this step would report green having skipped 53 tests: the
+      # same class as findings 6 and 12 and SKIP-SILENT-1, for the fifth time.
+      #
+      # `--fail-on=pending` is what makes it decide rather than report. Verified
+      # in both directions rather than assumed: with the solver it exits 0 at
+      # 1675/0, and with the solver hidden it exits 1 at "1675 examples, 53
+      # failures". That also makes THIS STEP'S POSITION self-enforcing — placed
+      # above the toolchain assertion it fails loudly instead of passing
+      # hollowly, so the ordering cannot rot silently.
+      #
+      # Before refute-crux and not after: a unit-test failure localizes better
+      # than a frozen-verdict divergence, and failing here first saves the ~5
+      # minutes of solver time that gate spends.
+      #
+      # Cost: the RUN is 11.5s. What this step actually pays for is building the
+      # test component, which `stack build llmll` above does not build. Measured
+      # locally at 203s (macOS/aarch64) to recompile a 16,616-line single-module
+      # Spec.hs; the ubuntu-latest figure is UNMEASURED until this step's first
+      # run, which is the point of the row.
+      - name: Run hspec example suite (CI-BUILD-TEST-1)
+        working-directory: compiler
+        run: stack test --test-arguments="--fail-on=pending"
+
       # The refute-crux verdict gate: 80 frozen `llmll verify` verdicts across
       # twelve suites. Until now it was a `make` target only and no workflow ran
       # it. So the regression class it exists to catch (refutation silently
