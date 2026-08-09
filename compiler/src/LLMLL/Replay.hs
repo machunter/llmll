@@ -26,7 +26,7 @@ module LLMLL.Replay
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Process (createProcess, proc, std_in, std_out, StdStream(..), waitForProcess)
-import System.IO (Handle, hPutStrLn, hFlush, hGetLine, hSetBuffering, BufferMode(..), hClose)
+import System.IO (Handle, hPutStrLn, hFlush, hGetLine, hSetBuffering, BufferMode(..), hClose, hSetEncoding, utf8)
 import Control.Exception (try, SomeException)
 import System.Exit (ExitCode(..))
 import System.Timeout (timeout)
@@ -239,6 +239,13 @@ runReplay execPath entries = do
   (Just hin, Just hout, _, ph) <- createProcess cp
   hSetBuffering hin LineBuffering
   hSetBuffering hout LineBuffering
+  -- TOOL-ENCODING-1. createProcess hands back handles carrying the codec
+  -- getLocaleEncoding supplied, so replaying a program that prints non-ASCII
+  -- failed under a POSIX locale. A per-handle pin is sufficient HERE, unlike in
+  -- a generated program: nothing downstream duplicates these handles, so there
+  -- is no captureStdout-style pair to rebuild the codec behind them.
+  hSetEncoding hin utf8
+  hSetEncoding hout utf8
   observations <- mapM (replayOne hin hout) entries
   hClose hin
   _ <- waitForProcess ph

@@ -161,6 +161,28 @@ jobs:
             || { grep -v '^$' "$RUNNER_TEMP/dc.log" >&2; exit 1; }
           grep -v '^$' "$RUNNER_TEMP/dc.log"
 
+      # TOOL-ENCODING-1's end-to-end half. It lives HERE and not in the pytest
+      # step of the C1-C4 job for a reason worth stating: that job sets up
+      # Python and jq and no Haskell toolchain, so `llmll` does not exist there
+      # and every test in this file would SKIP. A gate that skips reports green
+      # by not running, which is the failure this campaign keeps finding. The
+      # same reasoning and the same shape govern test_driver_ll_4a_cover.py.
+      #
+      # This half is platform-independent: it feeds invalid UTF-8 and asserts a
+      # diagnostic rather than an escaped GHC exception, which fails on the
+      # unfixed tree on macOS too. The LOCALE half cannot be tested here at all
+      # and is gated by doc_claims_cover.py above, which scrubs the environment
+      # and therefore only discriminates on Linux.
+      # The absolute path, not `stack exec`: that idiom resolves against whatever
+      # stack project the cwd sits in, and from a non-project directory it once
+      # installed GHC 9.10.3 on a runner before answering "Executable named llmll
+      # not found". Same trap as the doc-claims step above.
+      - name: Run source-encoding gate (TOOL-ENCODING-1)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_source_encoding.py -v
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on

@@ -27,12 +27,12 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe, fromMaybe)
 import System.FilePath ((</>), (<.>), takeExtension)
 import System.Directory (doesFileExist, getHomeDirectory)
 import Control.Monad (foldM)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BS
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
@@ -228,10 +228,15 @@ parseFile gm fp
       bs <- BL.readFile fp
       pure (PJ.parseJSONAST gm fp bs)
   | otherwise = do
-      src <- TIO.readFile fp
-      case P.parseTopLevel gm fp src of
-        Left err    -> pure $ Left (megaparsecToDiagnostic fp err)
-        Right stmts -> pure $ Right stmts
+      -- TOOL-ENCODING-1. This is the site the roadmap row missed, and it is the
+      -- one that governs `(import ...)` resolution: a module whose sibling
+      -- carries a non-ASCII byte was unreadable under a POSIX locale.
+      bs <- BS.readFile fp
+      case decodeSourceUtf8 fp bs of
+        Left d    -> pure (Left d)
+        Right src -> case P.parseTopLevel gm fp src of
+          Left err    -> pure $ Left (megaparsecToDiagnostic fp err)
+          Right stmts -> pure $ Right stmts
   where
     ext = takeExtension fp
 

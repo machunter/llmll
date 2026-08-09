@@ -30,6 +30,7 @@ import Numeric (showFFloat)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BS
 import Data.Aeson (Value(..), encode, object, toJSON, (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Text (encodeToLazyText)
@@ -60,7 +61,7 @@ import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
-  , mkReuseWarning)
+  , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
@@ -444,8 +445,12 @@ loadStatements json gm fp
         Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
         Right ss  -> return (Right ss)
   | otherwise = do
-      src <- TIO.readFile fp
-      case parseSrc gm fp src of
+      -- TOOL-ENCODING-1: bytes then an explicit UTF-8 decode, not TIO.readFile,
+      -- which decodes through the ambient locale. Both stages answer
+      -- `Either Diagnostic`, so a decode failure reaches the same arm a parse
+      -- failure does and needs no new error channel.
+      bs <- BS.readFile fp
+      case decodeSourceUtf8 fp bs >>= parseSrc gm fp of
         Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
         Right ss  -> return (Right ss)
 
@@ -681,8 +686,8 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
     else do
       -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
       when emitJson $ do
-        src <- TIO.readFile fp
-        case parseSrc gm fp src of
+        bs <- BS.readFile fp                      -- TOOL-ENCODING-1
+        case decodeSourceUtf8 fp bs >>= parseSrc gm fp of
           Left diag -> do { emitParseDiag json fp diag; exitFailure }
           Right stmts -> do
             let modName = T.pack $ takeBaseName fp
@@ -833,8 +838,8 @@ doRun json gm fp extraArgs = do
   let modName = T.unpack . T.pack $ takeBaseName fp
       tmpDir  = "/tmp/llmll-run-" <> modName
   -- Build into tmp dir (reuses doBuild logic via shared helpers)
-  src <- TIO.readFile fp
-  case parseSrc gm fp src of
+  bs <- BS.readFile fp                            -- TOOL-ENCODING-1
+  case decodeSourceUtf8 fp bs >>= parseSrc gm fp of
     Left diag -> do
       emitParseDiag json fp diag
       exitFailure
@@ -2546,7 +2551,16 @@ extractContract _                         = Nothing
 
 doReplay :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
 doReplay json gm srcFp logFp = do
-  logContents <- TIO.readFile logFp
+  -- TOOL-ENCODING-1. An event log is not source, so a decode failure is not a
+  -- parse diagnostic; it takes doReplay's own failure idiom. The log is written
+  -- as UTF-8 by every generated program since v0.14.90, so reading it through
+  -- the ambient locale was the same defect one command over.
+  logBytes <- BS.readFile logFp
+  logContents <- case decodeSourceUtf8 logFp logBytes of
+    Left d  -> do
+      hPutStrLn stderr (T.unpack (diagMessage d))
+      exitFailure
+    Right t -> pure t
   let entries = parseEventLog logContents
   if null entries
     then do

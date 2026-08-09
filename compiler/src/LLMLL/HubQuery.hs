@@ -23,8 +23,9 @@ module LLMLL.HubQuery
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BS
+import LLMLL.Diagnostic (decodeSourceUtf8)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, catMaybes)
@@ -140,11 +141,19 @@ parseModuleFunctions fp
         Left _      -> pure []
         Right stmts -> pure (extractFunctions stmts)
   | otherwise = do
-      src <- TIO.readFile fp
-      -- Hub packages use def-logic / letrec (v0.10 grammar); GrammarLegacy intentional.
-      case P.parseTopLevel GrammarLegacy fp src of
-        Left _      -> pure []
-        Right stmts -> pure (extractFunctions stmts)
+      -- TOOL-ENCODING-1. A decode failure takes this site's EXISTING contract
+      -- (an unreadable package contributes no signatures) rather than a louder
+      -- one, because a fix here would be a behaviour change in a scaffolding
+      -- surface and belongs to its own row. That contract is still the
+      -- silent-success class: filed as READ-SILENT-1. What this does change is
+      -- that the failure was previously an uncaught IOException.
+      bs <- BS.readFile fp
+      case decodeSourceUtf8 fp bs of
+        Left _    -> pure []
+        -- Hub packages use def-logic / letrec (v0.10 grammar); GrammarLegacy intentional.
+        Right src -> case P.parseTopLevel GrammarLegacy fp src of
+          Left _      -> pure []
+          Right stmts -> pure (extractFunctions stmts)
 
 -- | Extract (name, type, hasContract) from def-logic/letrec statements.
 extractFunctions :: [Statement] -> [(Name, Type, Bool)]

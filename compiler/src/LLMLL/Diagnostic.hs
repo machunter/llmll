@@ -44,12 +44,20 @@ module LLMLL.Diagnostic
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
   , mkContractReadOOBWarning
+  -- * TOOL-ENCODING-1: source decoding pinned to UTF-8
+  , decodeSourceUtf8
+  , firstInvalidUtf8Offset
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as BS
+import Data.Maybe (fromMaybe)
+import Data.Word (Word8)
+import Numeric (showHex)
 import Data.Aeson (ToJSON(..), object, (.=), encode)
 import Data.Aeson.Types (Value(..))
 import Data.Void (Void)
@@ -512,3 +520,122 @@ megaparsecToDiagnostic fp bundle =
       in case ls of
            (_hdr:rest) -> T.strip (T.unlines rest)
            []          -> t
+
+-- ---------------------------------------------------------------------------
+-- TOOL-ENCODING-1: source decoding, pinned to UTF-8
+-- ---------------------------------------------------------------------------
+--
+-- LLMLL.md 2 says source files are UTF-8. Until this landed the compiler read
+-- them through `TIO.readFile`, which decodes via the AMBIENT LOCALE, so a
+-- source file's meaning depended on the environment that compiled it. On a
+-- POSIX-locale Linux host every one of the 15 fixtures in scripts/doc-claims/
+-- failed to read at all. macOS cannot reproduce that: GHC there resolves UTF-8
+-- under every LC_ALL, which is why the defect survived to v0.14.92.
+--
+-- The decode failure is routed to an ordinary parse Diagnostic rather than to a
+-- new error channel, so it flows through the existing `emitParseDiag` path and
+-- classifies as `parse-error`. The decode/parse distinction lives in `diagKind`
+-- (`source-decode-error`), mirroring ParserJSON's existing json-decode-error /
+-- json-parse-error split rather than inventing a second mechanism for the same
+-- distinction.
+--
+-- THE MESSAGE IS LOAD-BEARING AND THAT IS NOT A STYLE PREFERENCE.
+-- `emitParseDiag` renders :phase/:file/:line/:col/:message/:hint and does NOT
+-- render diagKind, so on the default S-expression channel the message text is
+-- the ONLY thing distinguishing "your bytes are wrong" from "your syntax is
+-- wrong". It therefore names the encoding in words, the offending byte in hex,
+-- and the position; each of those three is separately tested.
+
+-- | The UTF-8 byte-order mark, which LLMLL source may not carry.
+utf8Bom :: BS.ByteString
+utf8Bom = BS.pack [0xEF, 0xBB, 0xBF]
+
+-- | Byte offset of the first byte that does not begin or continue a valid UTF-8
+-- sequence, or 'Nothing' when the whole input is valid UTF-8.
+--
+-- Written out rather than read off 'Data.Text.Encoding.decodeUtf8'' because
+-- that function's 'UnicodeException' carries the offending BYTE and not its
+-- POSITION, and this row owes a diagnostic naming line and column.
+--
+-- The table is Unicode table 3-7, so overlong encodings (0xC0 and 0xC1; 0xE0
+-- below 0xA0; 0xF0 below 0x90), surrogates (0xED at or above 0xA0) and scalar
+-- values above U+10FFFF (0xF4 above 0x8F, and 0xF5 upward) are all rejected
+-- rather than silently admitted.
+firstInvalidUtf8Offset :: BS.ByteString -> Maybe Int
+firstInvalidUtf8Offset bs = go 0
+  where
+    len  = BS.length bs
+    at i = BS.index bs i
+    cont i lo hi = i < len && at i >= lo && at i <= hi
+    go i
+      | i >= len               = Nothing
+      | b <  0x80              = go (i + 1)
+      | b >= 0xC2 && b <= 0xDF = sq2 0x80 0xBF
+      | b == 0xE0              = sq3 0xA0 0xBF
+      | b >= 0xE1 && b <= 0xEC = sq3 0x80 0xBF
+      | b == 0xED              = sq3 0x80 0x9F
+      | b >= 0xEE && b <= 0xEF = sq3 0x80 0xBF
+      | b == 0xF0              = sq4 0x90 0xBF
+      | b >= 0xF1 && b <= 0xF3 = sq4 0x80 0xBF
+      | b == 0xF4              = sq4 0x80 0x8F
+      | otherwise              = Just i
+      where
+        b = at i
+        sq2 lo hi
+          | cont (i+1) lo hi = go (i + 2)
+          | otherwise        = Just i
+        sq3 lo hi
+          | cont (i+1) lo hi && cont (i+2) 0x80 0xBF = go (i + 3)
+          | otherwise                                = Just i
+        sq4 lo hi
+          | cont (i+1) lo hi && cont (i+2) 0x80 0xBF && cont (i+3) 0x80 0xBF = go (i + 4)
+          | otherwise                                                        = Just i
+
+-- | 1-based line and column of a byte offset.
+--
+-- Counting 0x0A on RAW BYTES is exact here rather than approximate: every UTF-8
+-- continuation byte is at or above 0x80, so 0x0A can never occur inside a
+-- multi-byte sequence. The prefix before the offending offset is by
+-- construction valid UTF-8, which is what makes the count unambiguous.
+offsetLineCol :: BS.ByteString -> Int -> (Int, Int)
+offsetLineCol bs off =
+  let prefix = BS.take off bs
+      nls    = BS.count 0x0A prefix
+  in ( nls + 1
+     , case BS.elemIndexEnd 0x0A prefix of
+         Nothing -> off + 1
+         Just k  -> off - k
+     )
+
+hexByte :: Word8 -> Text
+hexByte w = let s = showHex w "" in T.pack (if length s < 2 then '0' : s else s)
+
+-- | Decode LLMLL source as UTF-8, independent of the ambient locale.
+--
+-- The codec is authoritative for accept/reject; 'firstInvalidUtf8Offset' runs
+-- ONLY on the failure path, to locate what the codec already refused. So the
+-- success path pays nothing for the position arithmetic.
+decodeSourceUtf8 :: FilePath -> BS.ByteString -> Either Diagnostic Text
+decodeSourceUtf8 fp bs
+  | utf8Bom `BS.isPrefixOf` bs = Left bomDiag
+  | otherwise =
+      case TE.decodeUtf8' bs of
+        Right t -> Right t
+        Left _  -> Left (invalidDiag (fromMaybe 0 (firstInvalidUtf8Offset bs)))
+  where
+    bomDiag =
+      (mkError (Just (Span fp 1 1 1 1))
+        "source file begins with a UTF-8 byte-order mark (U+FEFF); LLMLL source files must not carry one")
+        { diagKind       = Just "source-bom"
+        , diagSuggestion = Just "re-save the file as UTF-8 with no byte-order mark"
+        }
+    invalidDiag off =
+      let (ln, col) = offsetLineCol bs off
+          byte      = if off < BS.length bs then BS.index bs off else 0
+      in (mkError (Just (Span fp ln col ln col))
+            ( "source file is not valid UTF-8: invalid byte 0x" <> hexByte byte
+           <> " at line " <> tshow ln <> ", column " <> tshow col
+           <> ". LLMLL source files are UTF-8 and the host locale is not consulted." ))
+           { diagKind       = Just "source-decode-error"
+           , diagSuggestion = Just "re-save the file as UTF-8"
+           }

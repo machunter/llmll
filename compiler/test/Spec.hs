@@ -33,7 +33,8 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset)
+import qualified Data.ByteString as BSS
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
@@ -269,6 +270,74 @@ main = hspec $ do
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err   -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
+
+  -- -----------------------------------------------------------------------
+  -- TOOL-ENCODING-1: source decoding pinned to UTF-8
+  --
+  -- These are PURE and read no file, which is the point: the defect they guard
+  -- is that the compiler used to decode source through the ambient locale, and
+  -- a test that decoded an in-memory Text could never have caught it. They pin
+  -- the decoder's own contract. The end-to-end half lives in
+  -- scripts/tests/test_source_encoding.py and scripts/doc-claims/.
+  -- -----------------------------------------------------------------------
+  describe "TOOL-ENCODING-1 source decoding" $ do
+    let bytes = BSS.pack
+        decodes bs = decodeSourceUtf8 "<test>" (bytes bs)
+
+    it "accepts ASCII" $
+      decodes [0x61, 0x62, 0x0A] `shouldBe` Right "ab\n"
+
+    it "accepts multi-byte UTF-8 the ambient locale would not" $
+      -- U+00A7 SECTION SIGN, U+2014 EM DASH, U+1F600 (astral, 4 bytes).
+      decodes [0xC2,0xA7, 0xE2,0x80,0x94, 0xF0,0x9F,0x98,0x80]
+        `shouldBe` Right "\167\8212\128512"
+
+    it "rejects a lone 0xFF and names the byte and position" $ do
+      case decodes [0x61, 0xFF] of
+        Right _ -> expectationFailure "0xFF must not decode"
+        Left d  -> do
+          diagKind d `shouldBe` Just "source-decode-error"
+          diagMessage d `shouldSatisfy` T.isInfixOf "not valid UTF-8"
+          diagMessage d `shouldSatisfy` T.isInfixOf "0xff"
+          fmap spanLine (diagSpan d) `shouldBe` Just 1
+          fmap spanCol  (diagSpan d) `shouldBe` Just 2
+
+    it "reports line and column after newlines, counted on raw bytes" $ do
+      -- "a\nb\n\xFF" — the invalid byte opens line 3.
+      case decodes [0x61,0x0A, 0x62,0x0A, 0xFF] of
+        Right _ -> expectationFailure "0xFF must not decode"
+        Left d  -> do
+          fmap spanLine (diagSpan d) `shouldBe` Just 3
+          fmap spanCol  (diagSpan d) `shouldBe` Just 1
+
+    it "rejects a truncated multi-byte sequence at EOF" $
+      -- 0xE2 0x80 opens a 3-byte sequence that never completes.
+      case decodes [0xE2, 0x80] of
+        Left d  -> diagKind d `shouldBe` Just "source-decode-error"
+        Right _ -> expectationFailure "truncated sequence must not decode"
+
+    it "rejects an overlong encoding" $
+      -- 0xC0 0xAF is an overlong '/'. Accepting it is a classic security bug.
+      case decodes [0xC0, 0xAF] of
+        Left d  -> diagKind d `shouldBe` Just "source-decode-error"
+        Right _ -> expectationFailure "overlong encoding must not decode"
+
+    it "rejects a surrogate half" $
+      -- 0xED 0xA0 0x80 is U+D800, which UTF-8 excludes.
+      case decodes [0xED, 0xA0, 0x80] of
+        Left d  -> diagKind d `shouldBe` Just "source-decode-error"
+        Right _ -> expectationFailure "surrogate must not decode"
+
+    it "rejects a byte-order mark rather than stripping it" $
+      case decodes [0xEF,0xBB,0xBF, 0x61] of
+        Left d  -> do
+          diagKind d `shouldBe` Just "source-bom"
+          diagMessage d `shouldSatisfy` T.isInfixOf "U+FEFF"
+        Right _ -> expectationFailure "a BOM must be rejected, not stripped"
+
+    it "locates the first invalid byte, not merely that one exists" $ do
+      firstInvalidUtf8Offset (bytes [0x61,0x62,0xFF,0x63]) `shouldBe` Just 2
+      firstInvalidUtf8Offset (bytes [0x61,0xC2,0xA7,0x62]) `shouldBe` Nothing
 
   describe "TypeCheck (where binding scope)" $ do
     it "string where-type binding name preserved in AST" $ do

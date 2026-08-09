@@ -43,7 +43,7 @@ SHELL_GATE = REPO / "scripts" / "doc_claims_gate.sh"
 FIXTURES = REPO / "scripts" / "doc-claims"
 
 # The port is a console step machine (MODE-CLI-1), so it is driven by a stdin
-# budget rather than a loop. 15 fixtures cost ~6 steps each; 400 is generous
+# budget rather than a loop. 16 fixtures cost ~6 steps each; 400 is generous
 # and still an order of magnitude under the refute-crux port's 4000.
 BUDGET = 400
 
@@ -54,36 +54,35 @@ BUDGET = 400
 # question: an earlier revision let the port inherit the caller's PATH and find
 # an `llmll` the reference could not see.
 #
-# LC_ALL AND LANG ARE HERE BECAUSE SCRUBBING THE ENVIRONMENT PUT THE COMPILER IN
-# THE POSIX LOCALE, AND ON LINUX THAT MAKES IT UNABLE TO READ ITS OWN FIXTURES.
-# `llmll` decodes `.llmll` source through `TIO.readFile`, which takes the ambient
-# locale (`TOOL-ENCODING-1`, roadmap). All 15 fixtures carry non-ASCII bytes in
-# their `@doc`/`@claim` headers (`§`, `—`), so with no locale set every one of
-# them dies with
+# NO LOCALE IS SET HERE, DELIBERATELY, AND THAT IS THIS COVER'S SECOND JOB.
+#
+# v0.14.92 shipped with `LC_ALL=C.UTF-8` and `LANG=C.UTF-8` pinned in this dict
+# as a WORKAROUND, pre-marked for removal. Scrubbing the environment had put the
+# compiler in the POSIX locale, and `llmll` decoded `.llmll` source through
+# `TIO.readFile`, which takes the ambient locale, so on Linux it could not read
+# a single one of the fixtures:
 #
 #     hGetContents: invalid argument (cannot decode byte sequence starting from 194)
 #
-# 194 being 0xC2, a UTF-8 lead byte. Cells 1-13 still AGREED, both
-# implementations failing identically, and the three negative controls are what
-# reddened, since they require both to PASS an unmutated tree. That is the
-# controls doing their job.
+# 194 being 0xC2, a UTF-8 lead byte. `TOOL-ENCODING-1` fixed that at the handle,
+# so the pin came out with it. Removing it is the row's acceptance criterion
+# rather than a tidy-up: with no locale set, this cover is the only gate in the
+# repository that fails if the compiler ever again decodes source through the
+# environment. Do not re-add it to make a red run go away.
 #
-# **This is a workaround and it is pre-marked for removal**, the same discipline
-# the campaign applied to `json-string-value`: it belongs to `TOOL-ENCODING-1`
-# and comes out when that row closes. It is not hiding the defect, it is
-# restoring the locale every real consumer already has (the Dockerfile pins the
-# same two variables, at the container instead of at the handle). What must not
-# be done is to drop the scrubbing to make this go away: that trades a measured
-# compiler defect for an unmeasurable comparison.
+# WHAT THAT EPISODE DEMONSTRATED, kept because it is the argument for the three
+# negative controls. Cells 1-13 all AGREED while every fixture was unreadable:
+# both implementations failed, and failed identically, so every mutation cell
+# went green. Only the controls, which require both sides to PASS an unmutated
+# tree, could tell "the two implementations agree" from "the compiler cannot
+# read a single fixture".
 #
-# **macOS cannot reproduce any of this**, which is v0.14.86's finding and finding
-# 10's: GHC there resolves UTF-8 under every `LC_ALL`. The cover passed 17/17
-# locally with no locale set and no solver on PATH.
+# **macOS cannot reproduce any of it**, which is v0.14.86's finding and finding
+# 10's: GHC there resolves UTF-8 under every `LC_ALL`. This cover passed 17/17
+# locally throughout, with no locale set and no solver on PATH.
 ENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin",
     "HOME": "/nonexistent",
-    "LC_ALL": "C.UTF-8",
-    "LANG": "C.UTF-8",
 }
 
 

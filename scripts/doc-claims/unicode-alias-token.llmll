@@ -1,0 +1,9 @@
+;; @doc: LLMLL.md §2.4 (Unicode symbol aliases)
+;; @expect: warn:unknown operator
+;; @claim: §2.4 says the Unicode aliases are "accepted everywhere their ASCII equivalents are valid". They are NOT. All six (∧ ∨ ¬ ≥ ≤ ≠) lex correctly and then reach `TypeCheck` as unrecognised operators, so `check` warns and `verify` REFUSES with `error: unknown operator`, while the ASCII form of the identical program verifies body-faithful. Measured at v0.14.92 in every token position tried, contract and body alike. This fixture pins the CURRENT broken behaviour deliberately, on this corpus's drift-catcher convention: when the defect is fixed the fixture flips to `check-ok` and forces §2.4 and this header to be updated together. It has a second job that is the reason it was added under TOOL-ENCODING-1: it is the only fixture whose non-ASCII bytes must survive decoding AND lex into operator tokens, every other one carrying its non-ASCII in a comment or string literal where the lexer skips it. Spec.hs tests the same six aliases against `tokenize` on an in-memory Text, which cannot fail on a read-path defect and did not fail on this one either.
+(module unicode-alias-token
+  (export clamp)
+  (def clamp [n: int] -> int
+    (pre (∧ (≥ n 0) (≤ n 100)))
+    (post (¬ (≠ result n)))
+    n))
