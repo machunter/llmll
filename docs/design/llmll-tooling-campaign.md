@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 2, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). TWO are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive) and the refute-crux gate (TOOL-RFC-002, the first written RFC-first). All three prerequisites are cleared, so nothing is blocked on a decision. 002 found three defects its own feasibility read had declared absent, which is the campaign premise landing on the campaign."
+status: "Rev 2, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). THREE are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first) and doc-claims (TOOL-RFC-003, released v0.14.92). All three prerequisites are cleared, so nothing is blocked on a decision. 004 (doc-archive) is NEXT. THE STANDARD NOW HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. 002 found three defects its own feasibility read had declared absent, and 003's differential cover found a defect in the COMPILER (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, which is the campaign premise landing on the campaign twice."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -43,7 +43,7 @@ excluding comments and blanks:
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | |
+| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |

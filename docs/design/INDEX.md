@@ -66,9 +66,9 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [tool-ll-RESTART.md](tool-ll-RESTART.md) | Where the TOOL-LL work is: branch state, the P1 decision the user owns, gates measured, findings not to rediscover | **LIVE** — read before the campaign doc; state authority, delegates the standard |
+| [tool-ll-RESTART.md](tool-ll-RESTART.md) | Where the TOOL-LL work is: release state, gates measured, findings not to rediscover, 004 next | **LIVE** — read before the campaign doc; state authority, delegates the standard |
 | [llmll-tooling-campaign.md](llmll-tooling-campaign.md) | TOOL-LL: the six CI gates rewritten in LLMLL and actually deciding, with the RFC standard and the gap discipline | **Rev 2, IN FLIGHT**: scope, distribution and retirement settled 2026-08-07; **3 of 6 ported** (001/002/003, all `oracle`); P1 tag debt cleared, nothing blocked |
-| [TOOL-RFC-TEMPLATE.md](TOOL-RFC-TEMPLATE.md) | The eight sections every tool port owes before it is written | **Template** — enforced by `scripts/tests/test_tool_rfc_standard.py` |
+| [TOOL-RFC-TEMPLATE.md](TOOL-RFC-TEMPLATE.md) | The nine sections every tool port owes before it is written | **Template** — enforced by `scripts/tests/test_tool_rfc_standard.py` |
 | [tool-rfc-001-version-gate.md](tool-rfc-001-version-gate.md) | DRIFT-CI-1 in LLMLL: four criteria, a hand-rolled scanner, four gaps, two of them new | **Rev 1, RETROACTIVE**, state `oracle`: shipped at `7d1de03` before the standard existed |
 | [tool-rfc-002-refute-crux.md](tool-rfc-002-refute-crux.md) | The 80 frozen verify verdicts in LLMLL: no BLOCKS gap, and a two-binary split (harness vs graded compiler) that 001 did not have | **Rev 1, PORTED**, state `oracle`: the first port written RFC-first; all four of its findings closed by v0.14.91 |
 | [tool-rfc-003-doc-claims.md](tool-rfc-003-doc-claims.md) | The doc-claim drift gate in LLMLL: both §8 questions answered, `@expect` grammar implemented in full | **Rev 1, PORTED**, state `oracle`: released v0.14.92; cover green at 17 cells + 3 negative controls, which is what caught `TOOL-ENCODING-1` |

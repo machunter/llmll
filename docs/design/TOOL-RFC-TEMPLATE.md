@@ -16,7 +16,8 @@ port_module: tools/<dir>/<module>.llmll
 > [`llmll-tooling-campaign.md`](llmll-tooling-campaign.md); the gate that reads
 > this file is
 > [`scripts/tests/test_tool_rfc_standard.py`](../../scripts/tests/test_tool_rfc_standard.py).
-> All eight sections are required. Delete this quote block.
+> All nine sections are required, `## 7. Verification` included. Delete this
+> quote block.
 >
 > `tool_state` is the tri-state of the campaign §4 and is checked against the
 > filesystem: `blocked` (no port), `oracle` (both run), `retired` (the subject
