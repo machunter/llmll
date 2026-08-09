@@ -40,6 +40,7 @@ tools/llmll-orchestra/fixtures/**/*.verified.json
 # `llmll verify` in the suite dir drops sidecars here. No canonical exceptions.
 tools/llmll-driver/**/*.verified.json
 tools/version-gate/**/*.verified.json
+tools/doc-archive/**/*.verified.json
 
 # Console-mode programs write <module>.event-log.jsonl into their working
 # directory (LLMLL.md §10a). The covers now run them from scratch directories,

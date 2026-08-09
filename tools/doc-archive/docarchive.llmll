@@ -1,0 +1,354 @@
+;; TOOL-RFC-004: the archive-disposition drift gate (DRIFT-DOC-3), in LLMLL.
+;;
+;; A port of scripts/doc_archive_gate.sh. The RFC is
+;; docs/design/tool-rfc-004-doc-archive.md and it was written before this file,
+;; with both of its policy decisions put to the user rather than settled here.
+;;
+;; WHAT THIS GATE DECIDES. Every archived design doc that DECLARES an
+;; `archive-disposition` frontmatter field must sit in the directory that
+;; field's side names: shipped|superseded in shipped-design-specs/,
+;; dropped|deferred in dormant-explorations/. Files without the field are not
+;; gated; their count is asserted against a bound that may shrink and never
+;; grows silently.
+;;
+;; THE ADJUDICATOR IS IMPORTED, NOT INLINE, AND THE LANGUAGE FORCES THAT. A
+;; `def` cannot call a sibling `def` in the same module; the failure is at check
+;; time, before verification. Cross-module calls to an already-verified callee
+;; work, leaf-first. So `side-of` lives in adjudicate.llmll, where it verifies
+;; SAFE and body-faithful and where misrouting one arm is REFUTED at constraint
+;; #1. That is RFC section 7's third instrument and the only one that outlives
+;; the reference script.
+;;
+;; THE RECOGNIZER HALF CARRIES NO PROOF and section 7 says so rather than
+;; implying otherwise: a bool-valued body whose result is a string comparison
+;; falls back even against a literal (STRLIT-BODY-1). So everything below that
+;; decides "is this line a declaration" is a `def-shell`, and its instrument is
+;; the fixture self-test, not a contract.
+;;
+;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits a pure
+;; `print (step args)`: no Command performed, no exit status. `console` is the
+;; only entry mode that can touch the world, so a gate is a stdin-driven step
+;; machine that exits 70 on EOF.
+;;
+;; SCOPE OF THIS REVISION, STATED SO NOTHING READS AS FINISHED. The governed-
+;; directory scan and the real run are implemented. NOT yet implemented: the
+;; stray-declaration branch (criterion 6's third violation class, which needs
+;; the RList/RErr directory probe measured in RFC section 4) and the fixture
+;; self-test (criteria 1-4). `tool_state` stays `blocked` until both land,
+;; because a port that reproduces some of its reference is not the reference.
+
+(module docarchive
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.fs   (capability read-write "/"))
+  (import wasi.proc (capability run :deterministic false))
+  (import adjudicate)
+  (open adjudicate)
+
+  ;; ------------------------------------------------------------------ state --
+  ;; A Json object behind typed accessors, which is docclaims.llmll's shape and
+  ;; is reused rather than reinvented so a reader of one port can read the other.
+  (type Rc (| Rc Json))
+  (def-shell f-of [r: Rc] -> Json (match r ((Rc j) j)))
+  (def-shell mk   [j: Json] -> Rc (Rc j))
+
+  (def-shell jstr [v: Json k: string] -> string
+    (unwrap-or (json-get-string v k) ""))
+  (def-shell jint [v: Json k: string] -> int
+    (unwrap-or (json-get-int v k) 0))
+  (def-shell sets [v: Json k: string s: string] -> Json
+    (unwrap-or (json-set v k (json-of-string s)) v))
+  (def-shell seti [v: Json k: string n: int] -> Json
+    (unwrap-or (json-set v k (json-of-int n)) v))
+
+  ;; argv scanning, the same shape docclaims uses: fold carrying "take the next
+  ;; element" in the accumulator's bool half.
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+  (def-shell flag-or [as: list[string] f: string d: string] -> string
+    (let [(v (flag-value as f))] (if (string-empty? v) d v)))
+
+  (def-shell root-of    [r: Rc] -> string (jstr (f-of r) "root"))
+  (def-shell gated-of   [r: Rc] -> int    (jint (f-of r) "gated"))
+  (def-shell ungated-of [r: Rc] -> int    (jint (f-of r) "ungated"))
+  (def-shell viols-of   [r: Rc] -> int    (jint (f-of r) "viols"))
+  (def-shell bound-of   [r: Rc] -> int    (jint (f-of r) "bound"))
+  (def-shell msgs-of    [r: Rc] -> string (jstr (f-of r) "msgs"))
+  ;; The work queue, newline-joined "gov\tpath" records. A list[string] in the
+  ;; Json state would need the of-strs/strs-of pair; one string keeps the
+  ;; accessor count down and splits the same way.
+  (def-shell fileq-of   [r: Rc] -> string (jstr (f-of r) "fileq"))
+  (def-shell dirq-of    [r: Rc] -> string (jstr (f-of r) "dirq"))
+
+  (def-shell with-s [r: Rc k: string v: string] -> Rc (mk (sets (f-of r) k v)))
+  (def-shell with-i [r: Rc k: string v: int]    -> Rc (mk (seti (f-of r) k v)))
+
+  (type Ctl
+    (| Boot)
+    (| ListD)
+    (| ReadF)
+    (| Report)
+    (| Ending int)
+    (| Done int))
+
+  (def-shell go [r: Rc p: Ctl c: Command] -> ((Rc, Ctl), Command)
+    (pair (pair r p) c))
+  (def-shell rc-of  [s: (Rc, Ctl)] -> Rc  (first s))
+  (def-shell ctl-of [s: (Rc, Ctl)] -> Ctl (second s))
+
+  ;; ------------------------------------------------------- response readers --
+  (def-shell entries-of [x: Response] -> list[string]
+    (match x
+      ((RList l) l)
+      ((RNone)   [])
+      ((RText _) [])
+      ((RCode _) [])
+      ((RErr  _) [])))
+
+  (def-shell text-of [x: Response] -> string
+    (match x
+      ((RText s) s)
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RErr  _) "")
+      ((RList _) "")))
+
+  ;; ------------------------------------------------------- queue primitives --
+  ;; Newline-delimited queues. head is "" when empty, which is why every
+  ;; producer below refuses to enqueue an empty record.
+  (def-shell qhead [q: string] -> string
+    (unwrap-or (list-head (string-split "\n" q)) ""))
+  (def-shell qrest [q: string] -> string
+    (string-concat-many (list-fold (unwrap-or (list-tail (string-split "\n" q)) [])
+                                   []
+                                   (fn [acc: list[string] e: string] -> list[string]
+                                     (if (string-empty? e)
+                                         acc
+                                         (list-append acc (string-concat e "\n")))))))
+  (def-shell qpush [q: string rec: string] -> string
+    (if (string-empty? rec) q (string-concat q (string-concat rec "\n"))))
+  (def-shell qempty? [q: string] -> bool (string-empty? (qhead q)))
+
+  ;; A queue record is "gov\tpath": the governed directory the file was found
+  ;; in, and its full path. The gov half is what criterion 6 compares against.
+  (def-shell rec-gov  [rec: string] -> string
+    (unwrap-or (list-head (string-split "\t" rec)) ""))
+  (def-shell rec-path [rec: string] -> string
+    (unwrap-or (list-nth (string-split "\t" rec) 1) ""))
+
+  ;; ------------------------------------------------------------- recognizer --
+  ;; Not contractable (STRLIT-BODY-1); its instrument is the fixture self-test.
+  (def-shell ends-md? [n: string] -> bool
+    (if (< (string-length n) 4)
+        false
+        (= (string-slice n (- (string-length n) 3) (string-length n)) ".md")))
+
+  (def-shell index-file? [n: string] -> bool
+    (or (= n "README.md") (= n "INDEX.md")))
+
+  ;; `archive-disposition:` is 20 characters. Compared by slice because this
+  ;; language has no starts-with builtin.
+  (def-shell decl-line? [line: string] -> bool
+    (if (< (string-length line) 20)
+        false
+        (= (string-slice line 0 20) "archive-disposition:")))
+
+  (def-shell strip-quotes [v: string] -> string
+    (if (< (string-length v) 2)
+        v
+        (let [(a (string-slice v 0 1))
+              (b (string-slice v (- (string-length v) 1) (string-length v)))]
+          (if (or (and (= a "\"") (= b "\""))
+                  (and (= a "'") (= b "'")))
+              (string-slice v 1 (- (string-length v) 1))
+              v))))
+
+  (def-shell decl-value [line: string] -> string
+    (strip-quotes (string-trim (string-slice line 20 (string-length line)))))
+
+  ;; Fold over a file's lines, scoped to the frontmatter block so a mention in
+  ;; body prose cannot be picked up: the over-fire mode that ruled out a
+  ;; whole-file scan in the reference. Phase 0 = expecting the opening ---,
+  ;; 1 = inside, 2 = closed or absent.
+  (def-shell scan-fm [content: string] -> string
+    (second
+      (list-fold (string-split "\n" content)
+                 (pair 0 "")
+                 (fn [acc: (int, string) line: string] -> (int, string)
+                   (if (= (first acc) 0)
+                       (if (= line "---") (pair 1 "") (pair 2 ""))
+                       (if (= (first acc) 1)
+                           (if (= line "---")
+                               (pair 2 (second acc))
+                               (if (and (decl-line? line) (string-empty? (second acc)))
+                                   (pair 1 (decl-value line))
+                                   acc))
+                           acc))))))
+
+  ;; ------------------------------------------------------------ adjudicate --
+  ;; The string the reference reads becomes the imported vocabulary. Unknown
+  ;; values land on UnknownD, whose side is NoSide, which is criterion 6's
+  ;; first violation class rather than an error.
+  (def-shell to-disp [v: string] -> Disposition
+    (if (= v "shipped")    Shipped
+    (if (= v "superseded") Superseded
+    (if (= v "dropped")    Dropped
+    (if (= v "deferred")   Deferred
+                           UnknownD)))))
+
+  (def-shell side-dir [s: Side] -> string
+    (match s
+      ((SpecDir)    "shipped-design-specs")
+      ((DormantDir) "dormant-explorations")
+      ((NoSide)     "")))
+
+  ;; ------------------------------------------------------------------ steps --
+  (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(as (entries-of x))]
+      (let [(root (flag-or as "--root" "."))]
+        (let [(r2 (with-s r "root" root))]
+          (let [(r3 (with-s r2 "dirq"
+                      (qpush (qpush ""
+                               (string-concat-many
+                                 ["shipped-design-specs\t" root
+                                  "/docs/archive/shipped-design-specs"]))
+                             (string-concat-many
+                               ["dormant-explorations\t" root
+                                "/docs/archive/dormant-explorations"]))))]
+            (go r3 (ListD) (wasi.fs.list (rec-path (qhead (dirq-of r3))))))))))
+
+  ;; x is the listing of dirq's head. Enqueue its .md files, then either list
+  ;; the next directory or start reading.
+  (def-shell listd-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(cur (qhead (dirq-of r)))]
+      (let [(gov (rec-gov cur))
+            (base (rec-path cur))]
+        (let [(fq (list-fold (entries-of x)
+                             (fileq-of r)
+                             (fn [acc: string n: string] -> string
+                               (if (and (ends-md? n) (not (index-file? n)))
+                                   (qpush acc (string-concat-many
+                                                [gov "\t" base "/" n]))
+                                   acc))))]
+          (let [(r2 (with-s (with-s r "fileq" fq) "dirq" (qrest (dirq-of r))))]
+            (if (qempty? (dirq-of r2))
+                (if (qempty? (fileq-of r2))
+                    (go r2 (Report) (wasi.io.stdout ""))
+                    (go r2 (ReadF) (wasi.fs.read (rec-path (qhead (fileq-of r2))))))
+                (go r2 (ListD)
+                    (wasi.fs.list (rec-path (qhead (dirq-of r2)))))))))))
+
+  ;; x is the content of fileq's head. Classify, then read the next file.
+  (def-shell readf-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(cur (qhead (fileq-of r)))]
+      (let [(gov (rec-gov cur))
+            (path (rec-path cur))
+            (disp (scan-fm (text-of x)))]
+        (let [(r2 (if (string-empty? disp)
+                      (with-i r "ungated" (+ (ungated-of r) 1))
+                      (let [(want (side-dir (side-of (to-disp disp))))]
+                        (let [(rg (with-i r "gated" (+ (gated-of r) 1)))]
+                          (if (string-empty? want)
+                              (with-s (with-i rg "viols" (+ (viols-of rg) 1))
+                                      "msgs"
+                                      (string-concat-many
+                                        [(msgs-of rg) "  ✘ " path
+                                         ": archive-disposition '" disp
+                                         "' is not one of shipped|superseded|dropped|deferred\n"]))
+                              (if (= want gov)
+                                  rg
+                                  (with-s (with-i rg "viols" (+ (viols-of rg) 1))
+                                          "msgs"
+                                          (string-concat-many
+                                            [(msgs-of rg) "  ✘ " path
+                                             ": archive-disposition '" disp
+                                             "' belongs in " want "/, found in "
+                                             gov "/\n"]))))))))]
+          (let [(r3 (with-s r2 "fileq" (qrest (fileq-of r2))))]
+            (if (qempty? (fileq-of r3))
+                (go r3 (Report) (wasi.io.stdout ""))
+                (go r3 (ReadF)
+                    (wasi.fs.read (rec-path (qhead (fileq-of r3)))))))))))
+
+  ;; Criterion 5 then 6 then 7, in the reference's order.
+  (def-shell report-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(scanned (+ (gated-of r) (ungated-of r)))]
+      (if (= scanned 0)
+          (go r (Ending 1)
+              (wasi.io.stdout
+                "DRIFT-DOC-3 FAIL: scanned 0 files under docs/archive/{shipped-design-specs,dormant-explorations}, the governed directories are missing or renamed\n"))
+          (if (> (viols-of r) 0)
+              (go r (Ending 1)
+                  (wasi.io.stdout
+                    (string-concat-many
+                      ["\nDRIFT-DOC-3 FAIL: " (int-to-string (viols-of r))
+                       " archived doc(s) sit in a directory their declared disposition contradicts\n\n"
+                       (msgs-of r) "\n"])))
+              (if (> (ungated-of r) (bound-of r))
+                  (go r (Ending 1)
+                      (wasi.io.stdout
+                        (string-concat-many
+                          ["\nDRIFT-DOC-3 FAIL: " (int-to-string (ungated-of r))
+                           " archived doc(s) declare no archive-disposition, above the bound of "
+                           (int-to-string (bound-of r)) "\n"])))
+                  (go r (Ending 0)
+                      (wasi.io.stdout
+                        (string-concat-many
+                          ["DRIFT-DOC-3 PASS: " (int-to-string (gated-of r))
+                           " declared disposition(s) agree with their directory\n"
+                           (if (< (ungated-of r) (bound-of r))
+                               (string-concat-many
+                                 ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
+                                  " ungated file(s) against a bound of "
+                                  (int-to-string (bound-of r)) ", lower UNGATED_BOUND to "
+                                  (int-to-string (ungated-of r)) ".\n"])
+                               (string-concat-many
+                                 ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
+                                  " ungated file(s), at the bound.\n"]))]))))))))
+
+  (def-shell da-init [] -> ((Rc, Ctl), Command)
+    (go (with-i (with-i (with-i (with-i (with-s (mk json-object) "msgs" "")
+                                        "gated" 0)
+                                "ungated" 0)
+                        "viols" 0)
+                "bound" 58)
+        (Boot)
+        wasi.proc.args))
+
+  (def-shell da-step [s: (Rc, Ctl) input: string x: Response]
+      -> ((Rc, Ctl), Command)
+    (match (ctl-of s)
+      ((Boot)   (boot-step   (rc-of s) x))
+      ((ListD)  (listd-step  (rc-of s) x))
+      ((ReadF)  (readf-step  (rc-of s) x))
+      ((Report) (report-step (rc-of s) x))
+      ((Ending c) (go (rc-of s) (Done c) (wasi.io.stdout "")))
+      ((Done c) (go (rc-of s) (Done c) (wasi.io.stdout "")))))
+
+  (def-shell da-done? [s: (Rc, Ctl)] -> bool
+    (match (ctl-of s)
+      ((Boot)   false)
+      ((ListD)  false)
+      ((ReadF)  false)
+      ((Report) false)
+      ((Ending _) false)
+      ((Done _) true)))
+
+  (def-shell da-status [s: (Rc, Ctl)] -> int
+    (match (ctl-of s)
+      ((Boot)   1)
+      ((ListD)  1)
+      ((ReadF)  1)
+      ((Report) 1)
+      ((Ending _) 1)
+      ((Done c) (if (< c 0) 1 (if (> c 255) 255 c)))))
+
+  (def-main
+    :mode    console
+    :init    (da-init)
+    :step    da-step
+    :done?   da-done?
+    :status  da-status))
