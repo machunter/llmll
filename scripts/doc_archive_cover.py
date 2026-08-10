@@ -15,7 +15,8 @@ Two implementations that both report success are not thereby correct: at
 TOOL-ENCODING-1 every mutation cell AGREED while both sides failed identically
 for a reason unrelated to the mutation, and only the negative controls, which
 require both to PASS an unmutated tree, could tell "these agree" from "neither
-can read the corpus". So the controls are load-carrying, not decoration.
+can read the corpus". So the controls decide between those two cases, and a
+battery without them passes either way.
 
 BOTH SIDES GET THE SAME ENVIRONMENT. 003's cover let the port inherit the
 caller's PATH and it found an `llmll` the reference could not see, which compares

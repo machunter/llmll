@@ -1,709 +1,489 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-09. The authority on WHERE THE WORK IS. The authority on WHAT THE STANDARD SAYS is llmll-tooling-campaign.md; when they disagree about the standard the campaign wins, when they disagree about state re-measure. DRIVER-LL Phase 4 sub-phase 4e is COMPLETE and its record (driver-ll-phase4-RESTART.md) is closed history. The active campaign is TOOL-LL: **THREE ports of six** landed as oracles (001 version-gate, 002 refute-crux, 003 doc-claims), all three prerequisites cleared, and **004 doc-archive is NEXT**. **FULLY RELEASED AT v0.14.94**, cut over the eight commits after v0.14.93. **TOOL-ENCODING-1 IS SHIPPED, NOT OPEN, and this block framed it as open for a day:** 003's differential cover found it on Linux, in the COMPILER rather than in either implementation, and v0.14.93 closed it across SEVEN sites with the removal of doc_claims_cover.py's LC_ALL pin as the acceptance criterion. The census it asked for is taken and the row's premise was wrong twice: 142 of 259 committed .llmll files hold non-ASCII bytes, and until v0.14.93 exactly ZERO held one in TOKEN position, so the question to ask is not 'is the population empty' but 'is the population where anything checks'. The three NEGATIVE CONTROLS were the only cells that could have caught it, every mutation cell having agreed while both sides failed identically. Finding 15. **THE STANDARD NOW HAS NINE SECTIONS**: `## 7. Verification` landed at v0.14.94 and asks what survives the reference's deletion; 004 is the first port whose §7 table can be filled DURING the RFC, measured rather than assumed. **§5's gate figures are still measured at v0.14.92 and were NOT re-taken for this release** - re-measure them rather than carrying them forward, which is finding 13's whole point."
+status: "LIVE, 2026-08-09. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
 date: 2026-08-09
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
+style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
 ---
 
 # TOOL-LL: restart record
 
-**Read this first, then
-[`llmll-tooling-campaign.md`](llmll-tooling-campaign.md).** This file is where
-the work is; that one is what the standard says. Everything below is dated and
-every figure names how it was measured, because a restart record in this
-repository has gone stale inside a day before.
+## 0. How to use this file
+
+Read this file first. Then read
+[`llmll-tooling-campaign.md`](llmll-tooling-campaign.md).
+
+### The language of this file
+
+This file uses Simplified Technical English (ASD-STE100). These rules apply:
+
+- Write instructions with 20 words or fewer.
+- Write descriptions with 25 words or fewer.
+- Give one instruction in each sentence.
+- Use the active voice.
+- Use articles.
+- Write six sentences or fewer in each paragraph.
+- Give one meaning to each word.
+
+Technical names keep their usual form. File paths, tag names such as
+`TOOL-ENCODING-1`, and command names are technical names.
+
+Approved word choices in this file: a gate *passes* or *fails*. It is not
+"green" or "red". A record becomes *incorrect*. It does not "rot" or "go
+stale". A defect *causes a failure*. It does not "bite".
+
+### Measure the state before you use it
+
+A record in this repository became incorrect at a handoff three times. Do these
+four steps first. Do them before you read section 1.
+
+1. Run `git describe --tags --abbrev=0`. This gives the last tag.
+2. Run `git rev-list --count $(git describe --tags --abbrev=0)..HEAD`. This
+   gives the count of unreleased commits.
+3. Run `head -1 LLMLL.md`. This gives the version banner.
+4. Run `gh run list --branch main --limit 3`. This gives the CI result.
+
+Compare the four results with section 1. If one result disagrees, section 1 is
+incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. Where the work is
+## 1. State, measured 2026-08-09
 
-**THE MERGE IS DONE.** `tool-ll/campaign-4e-hole-status` fast-forwarded into
-local `main` at `8bf4ece` (33 commits, 48 files, 7,741 insertions) and pushed
-`b9cbf00..8bf4ece` on 2026-08-07. The branch still exists and is now identical
-to `main`. The counts this section used to carry are retired: they were a
-property of an unmerged branch and there is no longer one.
+| Item | Value | How it was measured |
+|---|---|---|
+| Last tag | `v0.14.94` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **7** | `git rev-list --count v0.14.94..HEAD` |
+| Version banner | `v0.14.94` | `head -1 LLMLL.md` |
+| CI on `main` | **passed** at `e5459c3` | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.94` | `grep "^## " CHANGELOG.md` |
 
-**v0.14.92 IS FULLY RELEASED.** `main` green at `26006ac` (run `31282755421`),
-tag pushed ALONE, image published, and **verified at the REGISTRY**: `v0.14.92`
-is `d63cd902` and `latest` resolves to the same digest. Four commits past
-`5b88bc9`: the 003 port with its RFC and cover and CI wiring, the release, this
-record, and one fix-forward.
+The banner and the last tag agree. The seven commits after the tag have no
+release. **The repository owes a v0.14.95 release.**
 
-**THE FIRST CI RUN WAS RED, and the ordering rule is the only reason a broken
-tree was not published** (run `31282452612`). It was not the port. The cover's
-scrubbed environment gave the compiler no locale, and on Linux
-`TOOL-ENCODING-1` then made it unable to read a single one of the 15 fixtures.
-Finding 15, and the campaign's premise landing for the third release running.
+The seven unreleased commits are these:
 
-**THE TAG RUN TOOK 20 SECONDS AND THAT IS THE CASE THIS RECORD WARNS ABOUT FROM
-BOTH DIRECTIONS.** It was expected to take the full ~18 minutes, because
-`docker-publish` never ran on `26006ac`: its `paths:` filter matches
-`compiler/**` and the Dockerfile, and the fix-forward touched only docs and a
-cover script. That reasoning was wrong about the mechanism. **The layer cache is
-keyed on layer CONTENT, not on the commit**, and `96853e3`'s image had already
-been built from a byte-identical compiler, so every layer hit. A fast green
-still proves nothing on its own; the registry check is what settled it, and it is
-what should settle the next one whichever way the clock goes.
-
-Everything below about v0.14.91 remains true and is the state this one is built
-on. **The next reader's first job is to check whether that
-sentence is still current**, because the ordering rule below is the whole reason
-it is written this way: `gh run list --branch main --limit 3`, and if
-`version-gate` is green at the tip then the tag and the image are what is owed,
-tagged ALONE and verified at the REGISTRY.
-
-**`main` WAS GREEN at `5b88bc9` (v0.14.91), tagged and published.** v0.14.91
-fast-forwarded `1745a69..5b88bc9` on 2026-08-08 and went green on Linux first
-time, which is worth recording because the previous merge needed three
-fix-forward commits. **Both new fixtures are confirmed to have BUILT AND RUN on
-Linux**, not skipped: `proc_merge.llmll` passing there is the one that mattered,
-since it spawns `/bin/sh` and its control depends on the child's buffering.
-
-**The tag run finished in 27 SECONDS and that is not a red flag, but it looks
-exactly like one.** v0.14.90's took 23m50s. The difference is a Docker layer
-cache hit: the same commit had been built by the `main` push twenty minutes
-earlier, so only the push happened. `Build + push (amd64)` succeeded and the
-registry confirms it. **This is the case §1 keeps warning about from the other
-direction**: a fast green is as much in need of registry verification as a slow
-one.
-
-**The earlier merge, kept because its lesson stands.** Getting v0.14.90's merge green
-took three fix-forward commits. The merge's first CI run failed, and so did
-the two after it. **Every one of the three was a defect the merge exposed and
-none was visible from macOS**, which is the case for having merged before doing
-the bug work:
-
-| Run | Failed at | Cause | Fixed by |
-|---|---|---|---|
-| 1 | refute-crux gate, 2 passed / 78 failed | the job had never had a solver | `6fda261` |
-| 2 | the port step | `stack exec` outside a stack project | `f5e1cd3` |
-| 3 | `build_smoke.sh` | the version cover pinned `v0.14.87` | `235da63` |
-
-Findings 12, 13 and §7 carry them. **Three of the three are finding 6's class**:
-wired but never run, written but never executed, or measured somewhere it could
-not fail.
-
-**All owed tags are PUSHED and all images are published**, each verified at the
-REGISTRY and not at a run's green check: `v0.14.88` `5c1194d4`, `v0.14.89`
-`92f501d4`, `v0.14.90` `0720f75d`, `v0.14.91` `b9a0dcec`, and `latest`
-resolving to `b9a0dcec` — the same digest as `v0.14.91`, which is what says the
-ordering rule below worked. v0.14.91 was tagged ALONE, after `version-gate` was
-green on `main` and after that commit's image had passed the container
-acceptance gate in the `main` run: v0.14.90's pattern, repeated deliberately.
-
-**Re-measure, do not read on.** If `git rev-list --count origin/main..main` is
-not 0, or the newest `version-gate` run on `main` is not green, this section is
-describing a world that has moved:
-`gh run list --branch main --limit 3`.
-
-**The branch was renamed 2026-08-07**, from `hole-status-sibling/brief-unfilled-status`.
-It was cut for one compiler fix (`6547de4`, HOLE-STATUS-SIBLING) and carries four
-unrelated bodies of work: theory-question records, a doc-frontmatter fix, all of
-DRIVER-LL sub-phase 4e, and the TOOL-LL campaign. The name now says so.
-
-**THREE releases came out of this branch and all three are tagged and
-published.** v0.14.88 (`d6e9f01`) releases `6547de4`, which changes
-`Checkout.hs` and `HoleAnalysis.hs` so a sibling whose body still holds a hole
-reads `status: "unfilled"` and moves `brief_version` to 0.12.3. v0.14.89
-(`c7c057a`) releases `FD-CAPTURE-1` plus TOOL-RFC-002. v0.14.90 (`2d27c0d`)
-releases `CAPTURE-ENCODING-1`.
-
-**THE ORDERING RULE THAT PRODUCED THAT, KEPT BECAUSE IT STILL BINDS.**
-`docker-publish.yml`'s publish job runs `version_gate.sh` AT THE TAG and pushes
-an image to ghcr.io, so tagging a red `main` publishes from a broken tree, and
-the campaign's settled distribution is jobs pulling exactly those images (§2).
-**v0.14.92 is the release where this stopped being theoretical**: its first run
-was red, and had the tag gone out on the commit rather than after the run, the
-published image would have carried a tree whose own doc-claims gate could not
-read a fixture. Tag only after `version-gate` is green on `main`. Push tags SEPARATELY, lowest
-first, each observed green at its `Build + push (amd64)` step before the next:
-concurrent runs race and `:latest` follows whichever finishes last, not the
-highest version.
-
-**v0.14.88 and v0.14.89 were BACKFILLED; v0.14.90 was not.** The first two sat
-untagged across a merge and three red runs. The third was tagged the same day,
-on a commit already green on Linux and whose image had already passed the
-container acceptance gate in the `main` run. That is the shape to repeat.
-
-## 2. What is settled, and must not be re-litigated
-
-User adjudications, 2026-08-07:
-
-- **Scope**: the six CI gates, and nothing else. The covers,
-  `rfc_to_implementation.py` and `scripts/tests/` are out, each for a reason
-  recorded in campaign §2.
-- **Distribution**: jobs pull a published release image.
-- **Retirement**: the original stays one release as a differential oracle, then
-  is deleted in the same commit that flips the RFC's `tool_state` to `retired`.
-- **The gap discipline**: every gap takes exactly one of BLOCKS, SHAPES or
-  COSMETIC, and a SHAPES row must state what the design would have been and cite
-  a roadmap tag.
-
-## 3. The agreed plan, and the one gate inside it
-
-**Agreed with the user 2026-08-07, after 002 landed. Do not re-derive it:**
-
-1. ~~**Merge this branch to `main` and push.**~~ **DONE**, 2026-08-07 (§1).
-   Merging before the bug work was right, and the first run is the evidence: it
-   found a defect that only exists on Linux (finding 12) and that no amount of
-   local work would have surfaced.
-2. ~~**Watch that CI run. Tags only after it is green.**~~ **DONE.** Three runs
-   were red and each named a real defect (§1's table). `main` is green at
-   `235da63`, both tags are pushed and both images are published, `:latest`
-   resolving to the same digest as `v0.14.89`.
-3. ~~**`CAPTURE-ENCODING-1` next.**~~ **SHIPPED v0.14.90**, tagged and published
-   the same day. Cause: `System.Posix.IO.fdToHandle` returns a handle in BINARY
-   mode, which is the ABSENCE of a codec rather than a wrong one, so
-   `setLocaleEncoding` had nothing to inform — `hGetEncoding` answers `Nothing`
-   on both pipe ends while the locale reads UTF-8. Fixed by pinning `utf8` on
-   both ends, write end BEFORE the redirect; all four configurations ablated.
-   **Both workarounds are gone** (finding 11), so the port writes a real `→` and
-   the cover compares labels instead of normalising them — which is also how the
-   Linux datapoint arrived, since that comparison cannot pass on Linux unless the
-   fix works there.
-4. ~~**`JSON-SCALAR-1` and `PROC-MERGE-1` behind a language-team shape call**,
-   per finding 9.~~ **BOTH SHIPPED v0.14.91**, the shapes put to the user rather
-   than settled at the keyboard.
-
-   **`JSON-SCALAR-1` took the WIDER shape: four names**, `json-as-string` /
-   `-int` / `-bool` / `-number`, each `Json -> Result[T,string]`. The argument
-   that decided it is that `json-array` was ALREADY a projection of exactly that
-   shape, so the family had one member and the question was whether to finish it,
-   not whether to invent a kind of operation. The five now partition `Json`.
-
-   **`PROC-MERGE-1`'s prior question was the one that mattered, and measurement
-   settled it: ordering is NOT part of the contract and cannot be.** A merged
-   stream's interleaving is the order the CHILD flushes, not the order it writes.
-   Probed directly against GHC's `process`: a child writing stdout first and
-   stderr second lands **stderr first**, stdout being block-buffered when its fd
-   is a file. So the "byte for byte" reproduction TOOL-RFC-002 §5 imagined was
-   never available to promise. Mechanism: equal path STRINGS mean merge, one
-   handle on both, no signature change. Syntactic equality, so `"log"` and
-   `"./log"` do not merge.
-
-   **One correction the closure forced.** It was recorded in three places that
-   `(json-get-string x "")` on a scalar *answers* `""`. It does not: `json-get`
-   on a non-object is `err`. The `""` came from the PORT, whose `jstr` wraps
-   every field read in `(unwrap-or ... "")`. The defect was a missing operation
-   whose absence every call site papered over locally, which is why no gate
-   could see it, and it is the argument for the `Result` shape.
-5. **003, RFC-first.** ~~NEXT~~ **DONE AND COMMITTED**, released as v0.14.92.
-   RFC written before any code with both §8 questions put to the user; port at
-   [`tools/doc-claims/docclaims.llmll`](../../tools/doc-claims/docclaims.llmll);
-   cover at [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py), 17 cells
-   and 3 negative controls, all ok; wired into `spec-roundtrip` adjacent to its
-   reference; `tool_state: oracle`.
-
-   **"BYTE-IDENTICAL" WAS TOO STRONG AND IS CORRECTED HERE BEFORE IT PROPAGATES.**
-   The live run is identical to the reference **line for line with blank lines
-   stripped from BOTH sides**, exit codes agreeing (0 and 0). Stripping is not
-   optional and is not symmetric in what it costs: the port's `console` harness
-   emits a blank line per step, 47 of them in a live run, so its output cannot be
-   compared without removing them, and removing them also removes the ONE blank
-   line the reference prints deliberately between its last tick and its summary.
-   [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py)'s `normalise()`
-   already said exactly this and the prose above it did not. The weakening is
-   small, it is stated rather than glossed, and this is 002's discipline
-   (decisions and exit codes compared, not bytes) applied to its own record.
-
-   **THE COVER EARNED ITS PLACE ON ITS FIRST RUN, twice.** Cell 5: the port
-   promoted a `warn` observation on the presence of `warning:` alone, where the
-   reference promotes it only when the warning AND the pinned substring match.
-   Cell 11: the port probed its subject unconditionally and SKIPPED where the
-   reference FAILS, because `LLMLL_BIN` set to a nonexistent path is used AS
-   GIVEN and never second-guessed. **Neither was reachable from the live
-   corpus**, which always names a working subject and always passes.
-
-   **Two cover bugs of my own, both worth not repeating.** A cell anchored on a
-   fixture that lacked the header it wanted (the anchor guard firing as
-   designed), and — the instructive one — **the two implementations were given
-   DIFFERENT ENVIRONMENTS**, so the port found an `llmll` on `PATH` the
-   reference could not see. A differential cover that varies the environment
-   between its two sides is comparing two worlds, not two implementations.
-
-   **Settled by the user 2026-08-08, do not re-litigate:** the port reproduces
-   the reference's two SKIP paths faithfully and the silent success is filed as
-   `SKIP-SILENT-1` rather than fixed inside a port commit; the `@expect` grammar
-   is implemented in FULL, which the retirement rule forces rather than taste.
-6. ~~**Commit and release 003.**~~ **DONE**, three commits: the port with its
-   RFC, cover, CI wiring and the `SKIP-SILENT-1` row; the v0.14.92 release; this
-   record. **THE CEREMONY IS NOT FINISHED AT THAT POINT AND THIS STEP IS NOT
-   EITHER**: v0.14.92 is not tagged and no image is published until
-   `version-gate` is green on `main`, which is the ordering rule in §1 and the
-   only thing standing between a red tree and a published release image.
-7. **NEXT: 004 (doc-archive), RFC-first.** 005 stays blocked on `REGEX-LOWER-1`
-   and 006 stays last, since it runs the others.
-
-**003 is NOT blocked by any of the three open gaps**; that was measured, not
-assumed. So step 3 and 4 before step 5 is a choice to stop accumulating
-workarounds across four remaining ports, not a dependency.
-
-P1, P2 and P3 are all done and nothing in the campaign is blocked on a
-decision.
-
-**P1 is DONE, 2026-08-07. The tag debt is cleared and all four images are
-published**, each verified at its `Build + push (amd64)` step rather than at the
-run's green check. The user authorized it; it was not taken unilaterally.
-`:latest` points at `v0.14.87`, which is why `v0.14.87` was pushed last and
-alone: concurrent publish runs race, and `:latest` lands on whichever finishes
-last rather than on the highest version.
-
-Each target was re-verified before its push: banner matching its own tag,
-`version_gate.sh` exit 0 at that commit in a detached worktree, and already an
-ancestor of `origin/main`, so no branch push was needed. All four tags are
-annotated and each says in its message that it was backfilled after the fact.
-
-| Tag | Commit |
+| Commit | Content |
 |---|---|
-| v0.14.84 | `a182638` |
-| v0.14.85 | `1428fe3` |
-| v0.14.86 | `6e92dd0` |
-| v0.14.87 | `1bc2965` |
+| `e5459c3` | the 004 differential cover, and three defects it found |
+| `df1626d` | 004 becomes an oracle; DRIFT-DOC-3 leaves the fast job |
+| `247a4da` | the 004 archive gate runs in LLMLL and agrees with its reference |
+| `2edd3ad` | roadmap: `RUN-STDIN-1` |
+| `ea9b544` | the 004 verified core |
+| `3b9d181` | the 004 RFC |
+| `0a65a09` | four records that became incorrect at the handoff |
 
-**The three hazards, and how each was discharged:**
+---
 
-1. **Pushing a `v*` tag publishes.** It triggers `docker-publish.yml`'s
-   `publish` job, which runs `version_gate.sh` at the tag and pushes an image to
-   ghcr.io. Outward-facing, so it needed explicit authorization. **Given.**
-2. **The mechanism was called unverifiable, and it was verifiable after all,
-   from history rather than from the file.** `on.push` carries both `paths:`
-   filters and `tags: ['v*']`, and whether a tag satisfies the path filter
-   cannot be settled by reading the YAML. It can be settled by looking at what
-   already happened: the run list shows `headBranch=v0.14.82` and `v0.14.83`,
-   both `push`, both `success`, with `build-test` skipped and `publish` run.
-   **Tag pushes have been firing this workflow all along.**
+## 2. The next decision
 
-   The mitigation was followed anyway: `v0.14.84` alone, observed to green
-   (run `31222612126`, `Build + push (amd64)` success, 17m59s), then the rest.
-   The doubt was correct to record; the wrong tool was reached for to answer it.
-   A question about what a workflow does is answered by what it did, and that
-   evidence was three commands away the whole time.
-3. **`origin/main`'s most recent CI run did not complete. RESOLVED 2026-08-07,
-   and it is not the workflow.** Both runs (2026-08-06 19:21 and 20:42) are
-   `failure` at the run level and `cancelled` at the job level, at 15:02 and
-   15:03. **Both jobs in each run executed ZERO steps** and share start and end
-   timestamps to the second, so they never received a runner: they sat queued
-   and were cancelled at 15 minutes.
+**Port 005 is blocked. The critical path now goes through the compiler for the
+first time in this campaign.**
 
-   That rules out the workflow's own config, and it also rules out the fix that
-   looks obvious. **Adding `timeout-minutes` would not have prevented it**, since
-   a job that never starts has no step for a timeout to bound. It is not quota
-   or billing either: the repository is public, so Actions minutes are free, and
-   a 2m05s success at 19:56 sits between the two failures, which no persistent
-   account-level block would allow.
+Port 005 (`doc_path_lint`) needs `REGEX-LOWER-1`. That row is a compiler fix.
+It is not port work. The roadmap shows it OPEN at line 63.
 
-   What remains is a transient runner-assignment problem upstream on that
-   evening. Nothing in this repository is actionable; the response to a
-   recurrence is to re-run, not to edit the workflow. Recorded so the next
-   reader does not spend the time again, and so nobody "fixes" it with a
-   `timeout-minutes` that cannot fire.
+Three items are owed. The user must choose the order of item 3.
 
-**P3 is DONE, 2026-08-07, and needed no authorization.**
-`refute-crux-gate.sh` now runs in `version-gate.yml`'s `spec-roundtrip` job:
-that is the Stack-bearing job, and the gate shells out to `stack exec llmll --`,
-so the deliberately toolchain-free job could not host it. It sits after the
-cheap doc-claims gate and before `build_smoke.sh`, keeping the job ordered cheap
-to expensive, and a jq guard was added because the script hard-requires jq and
-the job had never asserted it. Measured 80 passed / 0 failed, ~3 min, at
-`f555070`. TOOL-RFC-002 now has a wired gate to port.
+1. **Release v0.14.95.** Seven commits have no release. A later release mixes
+   the workflow change with new tooling in one set of release notes.
+2. **Correct two records.** See section 3.
+3. **Choose the next work.** Select one of these two options:
+   - Do `REGEX-LOWER-1` first. This unblocks port 005.
+   - Do port 006 first. Port 006 runs the other gates, so it is designed to
+     come last. This option changes the agreed order.
 
-## 4. State of the campaign
+---
 
-| | |
+## 3. Records that are incorrect, and one defect found on 2026-08-09
+
+Correct these as part of the 004 landing. Do not defer them.
+
+| File | What it claims | What is true |
+|---|---|---|
+| `docs/design/tool-ll-RESTART.md` (before this revision) | three ports, 004 is next | four ports, 005 is next and is blocked |
+| `docs/design/llmll-tooling-campaign.md` | three ports | four ports |
+
+**A third record is also incorrect, and it is in CI.**
+[`.github/workflows/version-gate.yml`](../../.github/workflows/version-gate.yml)
+line 8 and line 54 both say the fast job runs DRIFT-DOC-3. Line 75 records that
+DRIFT-DOC-3 moved to the `spec-roundtrip` job at TOOL-RFC-004. Line 54 is the
+job's display name, so the CI checks list names a gate that the job does not
+run. Correct line 8 and line 54.
+
+This is finding 13's class in a new place. The move was recorded in a comment
+next to the code. The two places that advertise the job were not changed.
+
+---
+
+## 4. Settled decisions
+
+The user made these decisions on 2026-08-07. Do not discuss them again.
+
+- **Scope.** The campaign ports the six CI gates. It ports nothing else. The
+  covers, `rfc_to_implementation.py` and `scripts/tests/` stay out. Campaign
+  section 2 gives a reason for each.
+- **Distribution.** Jobs pull a published release image.
+- **Retirement.** The original stays for one release as a differential oracle.
+  Then one commit deletes it and sets the RFC `tool_state` to `retired`.
+- **The gap discipline.** Each gap takes one of BLOCKS, SHAPES or COSMETIC. A
+  SHAPES row must state the intended design and cite a roadmap tag.
+
+The user made these decisions on 2026-08-08. Do not discuss them again.
+
+- The port copies the reference's two SKIP paths. The silent success became
+  `SKIP-SILENT-1`. A port copies its reference. A port does not improve it.
+- The `@expect` grammar is implemented in full. The retirement rule requires
+  this.
+
+---
+
+## 5. Campaign status
+
+Four ports of six are complete. Each of the four is an oracle.
+
+| Port | State |
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
-| **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). 80/80 verdicts, agrees with the reference. Found `FD-CAPTURE-1` (BLOCKS, fixed v0.14.89), `CAPTURE-ENCODING-1` (fixed v0.14.90), `JSON-SCALAR-1` and `PROC-MERGE-1` (both **fixed v0.14.91**). **All four of its findings are now closed and every workaround it carried is deleted** |
-| **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released v0.14.92. **16 fixtures** since v0.14.93 added `unicode-alias-token.llmll`, agrees with the reference. Filed `SKIP-SILENT-1` (COSMETIC in the RFC, its own roadmap row), and found **no new language gap**: the first port in the campaign that did not, which is a datapoint about the gaps 002 closed rather than about how hard 003 was |
-| **004** doc-archive | not started; **004 is NEXT** |
-| **005** doc-path-lint | blocked on `REGEX-LOWER-1` |
-| **006** build-smoke | last; it runs the others |
-| **P1** tag debt | **DONE**, §3: four tags pushed, four images published |
+| **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
+| **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
+| **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). Not yet released. See section 6 |
+| **005** doc-path-lint | **BLOCKED** on `REGEX-LOWER-1` |
+| **006** build-smoke | Last. It runs the other gates |
+| **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
-| **P3** wire refute-crux into CI | **DONE**, §3 |
+| **P3** wire refute-crux into CI | **DONE** |
 
-## 5. Gates, measured at v0.14.92 (the tip of this session's work)
+Open roadmap rows that this campaign filed or needs:
 
-**Re-measure, do not assume, and re-measure THIS SECTION and not only §1.**
-Finding 13 is that these rows are independent claims that rot on their own
-schedule: two of them were false for two days while §1 was accurate. Every
-figure below was taken at v0.14.92 **except the one that says otherwise in its
-own row**, which is `stack test`: nothing under `compiler/` changed in v0.14.92,
-so it was deliberately not re-run and its row now says so rather than carrying a
-figure forward under a new version's heading. Carrying figures forward under a
-heading that implies they were re-taken is precisely finding 13.
+| Row | Status | Line |
+|---|---|---|
+| `REGEX-LOWER-1` | OPEN. Port 005 needs it | roadmap :63 |
+| `ALIAS-LOWER-1` | OPEN | roadmap :64 |
+| `RUN-STDIN-1` | OPEN | roadmap :70 |
+| `SKIP-SILENT-1` | OPEN | roadmap :62 |
+| `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
+| `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |
 
-**003's rows have now run on Linux and the rest have not.** The port, its cover
-and its live corpus all went green in run `31282755421`, which is also where
-finding 15 came from; every other figure below is macOS/aarch64 only. That is
-finding 10's caveat and finding 12's: every measurement needing a
-proof, and every measurement of an encoding, is macOS-only until CI says
-otherwise. `proc_merge.llmll` is the newest thing with a platform-shaped risk in
-it, since it spawns `/bin/sh` and depends on the child's buffering, and the
-buffering is the one thing the fixture deliberately does not assert.
+---
+
+## 6. Port 004, and the three defects its cover found
+
+Port 004 is complete. These are its parts:
+
+| Part | Path |
+|---|---|
+| The port | [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) |
+| The verified core | [`tools/doc-archive/adjudicate.llmll`](../../tools/doc-archive/adjudicate.llmll) |
+| The reference | [`scripts/doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) |
+| The cover | [`scripts/doc_archive_cover.py`](../../scripts/doc_archive_cover.py) |
+
+The cover has **17 cells: 14 mutations and 3 negative controls.** All 17 pass.
+The count was measured from the `CELLS` list on 2026-08-09.
+
+Both implementations run in the `spec-roundtrip` job. They run next to each
+other. This is what `tool_state: oracle` means: both decide over the same tree
+in the same run, and a reader compares them in one job log.
+
+### The cover found three defects that the live run did not
+
+The live corpus declares exactly one disposition. So a live run exercises one
+of four vocabulary values and none of the four violation classes. **A live run
+that passes is not evidence that the port is correct.**
+
+| Defect | Description |
+|---|---|
+| 1 | Criterion 1 was not implemented in the port |
+| 2 | Criterion 7 did not print the remedy epilogue |
+| 3 | Two cover cells were incorrect when they were written |
+
+Defect 3 is the useful one. A cover can be wrong in the same way as the thing
+it grades. Cells that agree by accident prove nothing.
+
+---
+
+## 7. Gate measurements
+
+**Warning: each row below is a separate claim. Each row becomes incorrect on
+its own schedule.** Finding 13 records two rows that were false for two days
+while section 1 was correct. Measure this section again. Do not measure only
+section 1.
+
+Every figure below was measured at v0.14.92 unless the row says otherwise.
+Every figure is from macOS and aarch64 unless the row says otherwise.
 
 | Gate | Figure |
 |---|---|
-| `stack test` | **NOT RE-RUN at v0.14.92 and it does not need to be**: nothing under `compiler/` changed, only the two version strings the banner gate compares. Last measured at v0.14.91: **1666 examples, 0 failures**, from 1656, the +10 being JSON-SCALAR-1 and PROC-MERGE-1's tests and the delta matching exactly what says none of them silently skipped |
+| `stack test` | **Not re-run since v0.14.91.** Last figure: 1666 examples, 0 failures. **This gate has never run in CI** |
 | `pytest scripts/tests/` | 196 passed, 1 skipped |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed **on macOS, with a solver on `PATH`**. On Linux CI it scored **2 passed / 78 failed** until the job learned to build one: finding 12 |
-| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (the port) | 80 passed, 0 failed, 71s. **Has never run on Linux at all**: its CI step sits after the shell gate, which failed first |
-| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | **16 cells + 3 negative controls, all ok at v0.14.91.** Cell 11, "bogus flag injected", is the one that grades the `c-flags` path JSON-SCALAR-1 rewrote, so the port's agreement with the reference is checked where the change actually landed rather than only in aggregate. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, not the other way round; the shell reference is not an argument at all. See §7. **The "~7 min" was right and the "~80 min" that briefly replaced it was WRONG, from a contaminated measurement.** The ~80 min figure was taken from a run competing with four stalled probe processes, which was not noticed until later. A clean run on the same host took **~8 min**, and CI runs the same 16 cells in **324s** (run 31275114285). Roughly 6-10 min is the figure; the per-cell arithmetic that produced 80 was extrapolation from a poisoned sample |
-| [`json_scalar.llmll`](../../scripts/build-smoke/json_scalar.llmll) | executed by `build_smoke.sh`; one line, 7 cells, of which the two `err` cells are the assertion. Mutation-checked (finding 14) |
-| [`proc_merge.llmll`](../../scripts/build-smoke/proc_merge.llmll) | executed by `build_smoke.sh`; 2 lines, merged plus a split control. Mutation-checked (finding 14) |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | **16** doc-claim(s) match, exit 0 (15 until v0.14.93 added the sixteenth). **NEEDS NO SOLVER, and the row that first stood here said it did.** One fixture carries `@cmd: verify {file}`, which is where the claim came from, but its expectation is `check-error:call to unknown function`: a name-resolution failure reached before any VC is built. Measured at 16/16 under a PATH holding neither `fixpoint` nor z3, and CI agrees without being asked, running both doc-claims steps three steps before `fixpoint` reaches `PATH`. So this stays one of the gates finding 12 calls "decides without a proof" |
-| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) (the port) | **16** match, exit 0, ~40s. Identical to the reference line for line with blank lines stripped from BOTH sides; see §3 step 5 for why that phrasing and not "byte-identical". **GREEN ON LINUX**, run `31282755421`, printing the same `DRIFT-CT-2 PASS: 15 doc-claim(s)` line as its reference in the same job log (that run predates the sixteenth fixture; the same step prints 16 from v0.14.93 on). The first port in the campaign whose live corpus ran on Linux in the same release that introduced it |
-| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | **17 cells + 3 negative controls, all ok at v0.14.92**, ~2 min on macOS/aarch64. **`--gate` is the PORT BINARY and `--llmll` is the COMPILER**, the same trap as `refute_crux_cover.py` and the same answer: §7. Cell 11 compares the DECISION only, deliberately, the reference's captured output there being bash's own diagnostic text. **It went RED on its first Linux run and the defect was in the COMPILER**, not in either implementation: finding 15 |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **935 citations in 170 living files, all resolve** (916 at v0.14.91). **The figure moved twice while this row was being written and the second move is the instructive one**: it read 929 until `rfc-genre-and-naming.md` was committed, because the lint's file list is `git ls-files '*.md'` and an UNTRACKED document is invisible to it. So a doc-quality gate cannot see the document you are currently writing, which is exactly when you want it to. It also counts **prose** citations only, stripping markdown link targets first, so adding four `[label](path)` links to this file moved the count by zero |
-| [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, needs a rebuilt sequencer via `--driver` |
-| [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, needs `--wave` |
-| [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed, needs `--gate`. **The "14 passed" this table used to carry at `268df95` was NOT true at `268df95`**: the cover pinned `v0.14.87` and had been failing 5 cells since `d6e9f01`. Finding 13 |
+| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
+| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) | 80 passed, 0 failed, 71s. **It has never run on Linux** |
+| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells and 3 negative controls, all pass at v0.14.91. CI runs the 16 cells in 324s. The figure is 6 to 10 minutes |
+| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 16 doc-claims match, exit 0. **It needs no solver** |
+| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) | 16 match, exit 0, about 40s. **It passes on Linux** |
+| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | 17 cells and 3 negative controls, all pass. About 2 minutes |
+| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | PASS. It runs in `spec-roundtrip` since TOOL-RFC-004 |
+| [`docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) | PASS. Output identical to the reference. **It passes on Linux** |
+| [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured 2026-08-09 on macOS and on Linux CI at `e5459c3` |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 935 citations in 170 files, all resolve. It reads `git ls-files '*.md'`, so it cannot see an untracked file |
+| [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed. Needs a rebuilt sequencer through `--driver` |
+| [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed. Needs `--wave` |
+| [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed. Needs `--gate` |
 | [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.92 |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages including the new capture-encoding one. **Also not true at `268df95`** — its last stage runs the cover above, so it had been failing since `d6e9f01` too. Finding 13 |
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages |
 
-**Rebuilding the port**, which several of these need:
+### How to rebuild a port
+
+Several rows above need a rebuilt port. Use these commands:
 
 ```
 export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH
-cd tools/refute-crux && llmll build refutecrux.llmll -o <outdir>
+cd tools/<tool> && llmll build <tool>.llmll -o <outdir>
 ```
 
-Then run it from a scratch directory with an absolute `--root`, because a
-console program writes `<module>.event-log.jsonl` into its working directory:
+Run the port from a scratch directory. Give it an absolute `--root`. A console
+program writes `<module>.event-log.jsonl` into its working directory.
 
 ```
 python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
-  | <outdir>/.../refutecrux --root <repo> --subject <llmll binary> --work <scratch>
+  | <outdir>/.../<tool> --root <repo>
 ```
 
-## 6. Findings not to rediscover
+---
 
-1. **`MODE-CLI-1` is the reason the ports are large.** `:mode cli` emits
-   `print (step args)`: a pure step, no `Command` performed, no exit status,
-   zero in-tree users. `console` is the only usable entry mode, so every LLMLL
-   tool is a stdin-driven step machine that exits **70** on EOF. 58 code lines
-   of shell became 278 of LLMLL, and this is the single largest contributor.
+## 8. Findings
 
-2. **`SPLIT-EMPTY-1`: `string-split ""` does not terminate**, typechecks, and
-   *verifies*. There is no character decomposition at all, so a scan must be a
-   fold over a literal index list with a hand-written bound.
+Do not discover these again. The numbers are stable. Other sections cite them.
 
-3. **`CAP-NULLARY-1`: nullary `wasi.*` builtins bypass capability enforcement.**
-   `checkWasiCapability` is called only from `inferExpr (EApp ...)`, so argv and
-   the wall clock are reachable with no capability import naming them.
+1. **`MODE-CLI-1` makes the ports large.** `:mode cli` emits
+   `print (step args)`. It performs no `Command`. It gives no exit status. It
+   has no users in the tree. So `console` is the only usable entry mode. Every
+   LLMLL tool is a stdin-driven step machine that exits **70** on EOF. 58 lines
+   of shell became 278 lines of LLMLL.
+
+2. **`SPLIT-EMPTY-1`: `string-split ""` does not terminate.** It type-checks
+   and it verifies. LLMLL decomposes no characters. A scan must be a fold over
+   a literal index list with a hand-written bound.
+
+3. **`CAP-NULLARY-1`: nullary `wasi.*` builtins bypass capability
+   enforcement.** `inferExpr (EApp ...)` is the only caller of
+   `checkWasiCapability`. So argv and the wall clock need no capability import.
 
 4. **The per-fill bar is not redundant with `patch`.** A body of
-   `(+ n (string-length "x"))` satisfies its postcondition, answers
-   `PatchSuccess`, verifies SAFE, and lands in `body-fallback`. `[S9-FAITHFUL]`
-   is the only thing that rejects it.
+   `(+ n (string-length "x"))` satisfies its postcondition. It answers
+   `PatchSuccess`. It verifies SAFE. It lands in `body-fallback`. Only
+   `[S9-FAITHFUL]` rejects it.
 
-5. **`checkout` and `patch` take a `.ast.json`, not a `.llmll`**, and `--emit`
-   is a bare flag. A refused patch leaves the lock HELD; a successful one clears
-   it. Full list in
-   [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §4.
+5. **`checkout` and `patch` take a `.ast.json` file, not a `.llmll` file.**
+   `--emit` is a bare flag. A refused patch leaves the lock held. A successful
+   patch clears the lock.
+   [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) section 4 has
+   the full list.
 
-6. **A gate that is not wired in decides nothing.** 4c shipped a cover nothing
-   invoked; `refute-crux-gate.sh` was in that state until P3 wired it
-   (2026-08-07, §3). The standard's §1 exists to catch it before code is
-   written, and here it did: the finding came from applying §1 to the port,
-   before any of the port was designed.
+6. **A gate that is not wired in decides nothing.** Sub-phase 4c shipped a
+   cover that nothing invoked. `refute-crux-gate.sh` was in that state until P3
+   wired it. The standard's section 1 exists to catch this before anyone writes
+   code.
 
-7. **TOOL-RFC-002's feasibility read was WRONG, and that is the campaign's
-   most useful result so far.** Rev 0 concluded "nothing here is BLOCKS" and "no
-   new gap was discovered". Building it found four defects. **A feasibility
-   table enumerates what the language HAS; the defects are in what it DOES.**
-   Treat any future RFC's §4 as a list of things to go and try, not as a
-   clearance. RFC §5 keeps the wrong conclusion quoted above the correction.
+7. **TOOL-RFC-002's feasibility read was wrong. This is the campaign's most
+   useful result.** Revision 0 concluded that nothing was BLOCKS and that it
+   found no new gap. The build found four defects. **A feasibility table lists
+   what the language has. The defects are in what the language does.** Treat a
+   future RFC section 4 as a list of things to try. Do not treat it as a
+   clearance.
 
-8. **Two of the four fail SILENTLY, and that is what cost the time.**
-   `JSON-SCALAR-1`: `(json-get-string x "")` on a scalar answers `""`, so the
-   port ran its whole corpus with the flags dropped and reported 30 passed / 50
-   failed, where 50 is exactly the count of flagged cases. It type-checks, it
-   verifies, no gate sees it. `CAPTURE-ENCODING-1` is silent in the other
-   direction: output looks present but is wrong bytes.
+8. **Two of those four defects fail silently, and that cost the time.**
+   `JSON-SCALAR-1`: `(json-get-string x "")` on a scalar answers `""`. The port
+   ran its corpus with the flags dropped. It reported 30 passed and 50 failed,
+   and 50 is the count of flagged cases. It type-checks. It verifies. No gate
+   sees it. `CAPTURE-ENCODING-1` is silent in the other direction: the output
+   looks present, but the bytes are wrong.
 
-9. **`bug` vs `language gap` has a repository convention: the roadmap's `[CT]`
-   and `[SPEC]` tags** (legend at roadmap `:13-14`). `[SPEC]` means closing it
-   changes what the language IS. `FD-CAPTURE-1` and `CAPTURE-ENCODING-1` are
-   `[CT]` bugs; `JSON-SCALAR-1` and `PROC-MERGE-1` are `[CT][SPEC]` gaps and
-   campaign §9 makes their SHAPE language-team's call, not the porter's.
-   **Do not settle those two at the keyboard.**
+9. **This repository separates a bug from a language gap with roadmap tags.**
+   The legend is at roadmap lines 13 and 14. `[SPEC]` means that a fix changes
+   what the language is. `FD-CAPTURE-1` and `CAPTURE-ENCODING-1` are `[CT]`
+   bugs. `JSON-SCALAR-1` and `PROC-MERGE-1` are `[CT][SPEC]` gaps. Campaign
+   section 9 gives their shape to the language team. **Do not settle a
+   `[SPEC]` shape at the keyboard.**
 
-10. **Every encoding measurement in this record is macOS-only.** v0.14.86's
-    history is that macOS GHC resolves UTF-8 under every `LC_ALL`, which is why
-    a gate "could not fail where it ran" and `main` was red for two days. So
-    `CAPTURE-ENCODING-1`'s `codepoint mod 256` finding has no Linux datapoint,
-    and getting one is an argument for merging BEFORE fixing it.
+10. **Every encoding measurement in this record is from macOS only.** macOS GHC
+    resolves UTF-8 under every `LC_ALL`. So a gate could not fail where it ran,
+    and `main` failed for two days at v0.14.86.
 
-11. **The workarounds for two gaps were pre-marked for removal, and they are ALL
-    now removed.** `CAPTURE-ENCODING-1`'s pair went with v0.14.90: the port
-    writes a real `→` and `refute_crux_cover.py`'s normalisation line is gone, so
-    the two implementations' labels are COMPARED rather than reconciled.
-    `json-string-value` went with v0.14.91. **The pre-marking paid off exactly as
-    intended**: closing each row was a small edit at sites that named themselves,
-    not an audit. 001 is untouched by all of this, its scanner being
-    `REGEX-LOWER-1`/`SPLIT-EMPTY-1`.
+11. **The workarounds for two gaps were marked for removal, and all are now
+    removed.** The pre-marking worked as intended. Each row closed with a small
+    edit at sites that named themselves. An audit was not necessary.
 
-    **The deleted helper was also WRONG, which nobody had noticed and which the
-    removal turned up.** It stripped the outer quotes off `json-serialize`, and
-    the emitted `jsonQuote` escapes every character above `~` as `\uXXXX`. So a
-    flag carrying a non-ASCII character came back as six literal characters:
-    the port would have mangled exactly the class of character v0.14.90 was cut
-    to fix. A workaround is not a smaller version of the fix, and this one had a
-    second defect hiding inside the first.
+    **One deleted helper was also wrong, and the removal found it.** It
+    stripped the outer quotes from `json-serialize`. The emitted `jsonQuote`
+    escapes each character above `~` as `\uXXXX`. So a flag with a non-ASCII
+    character came back as six literal characters. **A workaround is not a
+    smaller version of the fix.**
 
-12. **The `spec-roundtrip` job had no solver, and nothing noticed because no
-    gate in it had ever needed one.** `llmll verify` proves nothing by itself:
-    it shells out to `fixpoint`, which shells out to z3, and absent either it
-    exits **3** — "solver unavailable (proof did not run)",
-    [`Main.hs:1386`](../../compiler/app/Main.hs). The job set up Stack and
-    nothing else from the day it was written and ran green in ~2 minutes the
-    whole time, because `doc_claims_gate.sh`, `build_smoke.sh` and
-    `spec_roundtrip.py` all decide without a proof. The refute-crux gate P3
-    wired in is the first that cannot, and its first Linux run scored **2 passed
-    / 78 failed**, every failure exit 3.
+12. **The `spec-roundtrip` job had no solver. Nothing noticed, because no gate
+    in it had ever needed one.** `llmll verify` proves nothing by itself. It
+    calls `fixpoint`, which calls z3. Without either, it exits **3**:
+    "solver unavailable (proof did not run)",
+    [`Main.hs:1386`](../../compiler/app/Main.hs). The refute-crux gate is the
+    first gate in that job that needs a solver. Its first Linux run scored 2
+    passed and 78 failed. Each failure exited 3.
 
-    **The two that passed are what identify the cause rather than leaving it
-    inferred**: they are the only two whose verdict is reached BEFORE the solver
-    (a capability refusal and a coverage threshold). So this was an absent
-    toolchain, not a verification regression, and not the encoding failure
-    finding 10 predicted.
+    **The two passes identify the cause.** Both reach a verdict before the
+    solver runs: one is a capability refusal, one is a coverage threshold. So
+    this was an absent toolchain. It was not a verification regression.
 
-    **Sibling of finding 6, one turn further on.** A gate that is not wired in
-    decides nothing; **a gate wired into a job that cannot run it decides
-    nothing either, and says it did.** The script had a `jq` preflight and no
-    `fixpoint`/`z3` one, so it printed `78 frozen verdict(s) diverged` when zero
-    had diverged — the same silent-wrong-answer class as finding 8, in a gate's
-    own summary line. Fixed three ways: the job apt-installs z3 and builds
-    `fixpoint` from [`scripts/fixpoint.stack.yaml`](../../scripts/fixpoint.stack.yaml)
-    (the Dockerfile's pin, cached on that file's hash), and the gate now refuses
-    to grade verdicts it cannot decide.
+    **This is finding 6, one step further on.** A gate that is not wired in
+    decides nothing. **A gate wired into a job that cannot run it also decides
+    nothing, and it reports that it decided.** The gate printed
+    `78 frozen verdict(s) diverged` when zero had diverged.
 
-    **Generalise finding 10 while you are here.** It says every ENCODING
-    measurement in this record is macOS-only. So is every measurement that
-    needed a proof, for the same reason, and this is what that costs.
+    **Generalise finding 10 here.** Every measurement that needs a proof is
+    from macOS only, for the same reason.
 
-13. **A cover that pins a literal version rots at the next release, and §5's
-    own figures rotted with it.** `version_gate_cover.py` hardcoded `v0.14.87`
-    in five cells. The banner moved at `d6e9f01` (v0.14.88) and again at
-    `c7c057a` (v0.14.89), the cover was added at `7d1de03` and never touched
-    since, so from `d6e9f01` onward those cells could not find their anchor —
-    and `build_smoke.sh`, whose LAST stage is that cover, failed with them.
+13. **A cover that pins a literal version fails at the next release.**
+    `version_gate_cover.py` hardcoded `v0.14.87` in five cells. The banner moved
+    at `d6e9f01` and again at `c7c057a`. From `d6e9f01`, those cells could not
+    find their anchor. `build_smoke.sh` runs that cover as its last stage, so
+    it failed too.
 
-    **§5 claimed both were passing at `268df95` and neither was.** Those figures
-    were carried forward from an earlier measurement rather than taken at the
-    commit they were stamped with, which is the exact failure this record warns
-    about in its own §1 and had already committed twice. **Re-measuring §1 is
-    not enough; §5 is a table of claims and each one rots independently.**
+    **Section 7 claimed that both passed at `268df95`. Neither passed.** Those
+    figures were copied from an earlier measurement. They were not taken at the
+    commit they name. **Measuring section 1 again is not enough. Section 7 is a
+    table of separate claims.**
 
-    **The irony is worth keeping.** V13 is the cover's negative control and its
-    comment reads: "A gate that failed here would be pinning a literal version
-    rather than checking that the sites agree, which is the anti-hardcoding
-    property `crux-validate-subject-hardcoded` exists for one directory over."
-    The cover asserting that the gate does not pin a version pinned one itself.
+    **Keep the one thing that worked.** The cells did not pass without effect.
+    The `want` field reports "this cell would test nothing" and it FAILS. **A
+    mutation harness that cannot find its anchor must fail. It must not skip.**
 
-    **The one thing that worked is the thing to keep.** The cells did not go
-    vacuously green: `edit`'s `want` reports "this cell would test nothing" and
-    FAILS. A mutation harness that cannot find its anchor must fail, never skip,
-    or a rotted cover reads as a healthy one. `BANNER` now comes from
-    `LLMLL.md` line 1, the same place `version_gate.sh` reads it.
+14. **A new gate is a claim, and the claim is that the gate can fail.** Both
+    v0.14.91 fixtures were mutation-checked. One check changed what the fixture
+    asserts. The cheap method is to mutate the generated Haskell in a built
+    fixture project. Then rebuild that project alone. Do not mutate the
+    compiler and pay for a full rebuild for each probe.
 
-14. **A new gate is a claim, and the claim is that it can FAIL. Both v0.14.91
-    fixtures were mutation-checked, and one of the two checks changed what the
-    fixture asserts.** The cheap way to do it is to mutate the GENERATED Haskell
-    in an already-built fixture project and rebuild that project alone, rather
-    than mutating the compiler and paying a full rebuild per probe.
+    `json_scalar.llmll`: a mutation flipped exactly the two refusal cells. All
+    three value cells stayed correct. **So the three value cells alone would
+    have caught neither mutation.**
 
-    `proc_merge.llmll`: making the merge unconditional (`errH <- return outH`)
-    flips the split control to `OUT=n|ERR=n`, so the gate rejects it. Note the
-    flip is not the one predicted: the expectation was `OUT=y`, but under an
-    unconditional merge the split *stderr* file is never opened at all, so the
-    read errs and BOTH markers go missing. The gate still fails, which is what
-    was being tested, and the predicted-versus-actual gap is the reason to run
-    the probe rather than reason about it.
+15. **`TOOL-ENCODING-1` caused a total failure, and the negative controls
+    caught it.** 003's cover failed on its first Linux run. The defect is in
+    the subject. `llmll` decodes `.llmll` source through `TIO.readFile`, which
+    takes the ambient locale. The cover scrubs the environment, so the compiler
+    got no locale. On Linux that is POSIX, and all 15 fixtures failed.
 
-    `json_scalar.llmll`: making `json-as-string` answer `Right ""` on a
-    non-string and dropping `json-as-int`'s lexeme guard flips **exactly the two
-    refusal cells**, `X-AS-INT` and `N-AS-STR`, while all three value cells stay
-    correct. **So the three value cells alone would have caught neither
-    mutation.** That is measured support for the fixture's own claim that its
-    refusals are the assertion, and it is the kind of statement usually made on
-    intuition and left unchecked.
+    **Cells 1 to 13 all reported `ok`.** Both implementations failed, and they
+    failed identically, so each mutation cell still agreed. The three negative
+    controls failed, because they require both sides to pass an unmutated tree.
+    **A set of mutation cells alone would have passed while the compiler could
+    not read one fixture.**
 
-15. **`TOOL-ENCODING-1` BITES, IT BITES TOTALLY, AND THE NEGATIVE CONTROLS ARE
-    WHAT CAUGHT IT.** 003's cover went red on its first Linux run. The defect is
-    in the SUBJECT: `llmll` decodes `.llmll` source through `TIO.readFile`, which
-    takes the ambient locale, and the cover scrubs the environment so its two
-    sides are asked the same question, which hands the compiler **no locale at
-    all**. On Linux that is POSIX, and all 15 fixtures failed with
-    `hGetContents: invalid argument (cannot decode byte sequence starting from
-    194)` — `0xC2`, a UTF-8 lead byte.
+    **The census is taken, and the question it asked was the wrong one.** 142
+    of 259 committed `.llmll` files hold non-ASCII bytes. Until v0.14.93,
+    exactly zero held one in token position. So ask "is the population where
+    something checks", not "is the population empty".
 
-    **The census that roadmap row has been asking for is now taken, and the
-    answer is worse than "non-empty": 15 of 15**, `§` and `—` in the `@doc` and
-    `@claim` headers. For that directory the firing population is total.
+16. **The 004 cover found three defects that a live run cannot find.** See
+    section 6. The live corpus declares one disposition of four. It contains
+    none of the four violation classes. A live run that passes grades one
+    twentieth of the specified behaviour.
 
-    **Cells 1-13 all reported `ok`.** Both implementations failed and failed
-    identically, so every mutation cell still AGREED. What reddened was the three
-    negative controls, which require both sides to PASS an unmutated tree. **A
-    battery of mutation cells alone would have gone green while the compiler
-    could not read a single fixture**, which is the strongest argument this
-    campaign has produced for negative controls, and it is worth more than the
-    controls' usual framing as a sanity check on the harness.
+17. **A record in this repository became incorrect at the handoff boundary
+    three times.** This is a property of the process, not of the practice. The
+    handoff is the moment when a record is copied rather than measured. Section
+    0 exists to make the first act of a session a measurement.
 
-    Worked around by pinning `LC_ALL=C.UTF-8` on both sides, pre-marked for
-    removal when the row closes. **The repair NOT to make is dropping the
-    scrubbing**: that trades a measured compiler defect for an unmeasurable
-    comparison, and re-introduces the two-different-worlds bug the cover already
-    fixed once.
+---
 
-    **Finding 10 generalises again.** It said every encoding measurement here is
-    macOS-only; finding 12 added every measurement needing a proof. This is the
-    first time the macOS blindness hid a defect in the COMPILER rather than in a
-    gate, and it stayed hidden through a full local green run: 17/17 with no
-    locale set, because macOS GHC resolves UTF-8 under every `LC_ALL`.
+## 9. Gotchas
 
-## 7. Gotchas that cost real time this session
+### Shell and process
 
-- **zsh does not word-split unquoted parameters.** `set -- $pair` inside a loop
-  puts the whole string in `$1`, so `git show "$sha:F"` became
-  `git show ":F"`, which reads the **index** and silently answers about the
-  working tree. It cost two false conclusions in one turn. Use Python for
-  anything with quoting in it.
-- **zsh eats `^` and `{}`.** `git cat-file -e $sha^{commit}` unquoted reports
-  every commit as missing.
-- **`yes x | head -n N | prog` reports 141 under `set -o pipefail`**, because
-  `yes` is designed to die of SIGPIPE. It failed a build stage while the program
-  under test printed PASS.
-- **A console program with no stdin hangs**, and writes
-  `<module>.event-log.jsonl` into its **working directory**. Run tools from a
-  scratch dir with an absolute `--root`.
-- **The repo-root binary is stale.** Always
+- **zsh does not word-split an unquoted parameter.** `set -- $pair` in a loop
+  puts the full string in `$1`. So `git show "$sha:F"` became `git show ":F"`,
+  which reads the index. Use Python when the command contains quoting.
+- **zsh removes `^` and `{}`.** An unquoted `git cat-file -e $sha^{commit}`
+  reports each commit as missing.
+- **`yes x | head -n N | prog` reports 141 under `set -o pipefail`.** `yes`
+  dies of SIGPIPE by design. Use
+  `python3 -c "import sys; sys.stdout.write('x\n'*N)"` instead.
+- **A console program with no stdin stops and waits.** It also writes
+  `<module>.event-log.jsonl` into its working directory. Run a tool from a
+  scratch directory with an absolute `--root`.
+- **The binary at the repository root is old.** Always run
   `export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH`.
-- **`stack exec` outside a stack project silently retargets the GLOBAL one.**
-  `tools/refute-crux` has no `stack.yaml`, so `stack exec llmll --` there
-  resolves against `~/.stack/global-project`, whose resolver is not the
-  compiler's. On Linux CI that meant installing **GHC 9.10.3** before answering
-  `Executable named llmll not found on path`. The `ghc-toolchain` toolchain-diff
-  warning printed during that install is NOT the failure and says so itself
-  ("Don't worry! This won't affect your ghc in any way") — it is the symptom of
-  a GHC install that should never have started. The repo-root-binary hazard one
-  step further on: not the wrong compiler, no compiler. Use the absolute
-  `$(cd compiler && stack path --local-install-root)/bin/llmll`, which is what §5
-  already prescribes.
-- **Run `doc_path_lint.py` on its own line**; piping to `tail` takes `tail`'s
+  Then check `llmll version`.
+- **`stack exec` outside a stack project silently uses the global project.**
+  `tools/refute-crux` has no `stack.yaml`. On Linux CI this installed GHC
+  9.10.3 before it answered "Executable named llmll not found on path". Use the
+  absolute path from `stack path --local-install-root`.
+- **Run `doc_path_lint.py` on its own line.** A pipe to `tail` takes `tail`'s
   exit status.
-- **`fd 1 == PIPE` on a generated console program is NORMAL and is not evidence
-  of anything.** It was read here as proof that a stalled probe was blocked on
-  the launching harness's plumbing, and a wrong conclusion was written down on
-  that basis. Every `console` program redirects its own stdout into a
-  `captureStdout` pipe and hands the saved original to a later fd: `lsof` on a
-  healthy run shows `0r` the stdin file, **`1` a PIPE**, `2w` and `4w` the real
-  output file, `5` and `6` the capture pipe's ends. **Read the whole fd table,
-  not one row.** What actually distinguishes a hang is CPU TIME that stops
-  accumulating: `ps -o time=` frozen across a 90-second sample is the signal,
-  and `%cpu` alone is not, since it decays toward 0 on a merely idle process.
-- **`pgrep -f` returning nothing is not proof of absence, and a 0-byte log is
-  not proof of death.** A check for the running cover returned zero while `ps`
-  showed it alive: the process had not spawned yet, the wrapper still being
-  inside `stack path`. Python also block-buffers stdout to a file and writes
-  nothing until it exits, which was already known this same session and applied
-  anyway. Two absent signals were read as "the job died" when it was starting
-  normally. **Wait, then use `ps`.**
-- **EVERY COVER IN THIS CAMPAIGN TAKES `--gate` AS THE PORT AND `--llmll` AS THE
-  COMPILER**, and `doc_claims_cover.py` is the second to do it. The convention is
-  now consistent across the covers, which makes it easier to get wrong once and
-  then twice, not harder: the names read as the opposite assignment in both.
-  The bullet below is the incident that named it and it applies unchanged.
-- **`refute_crux_cover.py`'s two arguments are not what their names suggest, and
-  §5 used to say only "needs `--gate` and `--llmll`", which is exactly enough
-  rope.** `--gate` is the **refutecrux PORT BINARY**, executed directly as
-  `[gate, "--root", ...]`; `--llmll` is the **compiler**, passed on as
-  `--subject`. The shell reference is not an argument at all: `run_shell` invokes
-  the copy inside the scratch tree it builds. Passing
-  `--gate scripts/refute-crux-gate.sh --llmll <port>` reads as the obvious
-  assignment, type-checks as far as the filesystem is concerned, and hangs;
-  it cost a ten-minute timeout before the workflow file settled it
-  ([`version-gate.yml:273`](../../.github/workflows/version-gate.yml)). §5 now
-  names the roles. Same lesson as the tag-mechanism doubt in §3: the question was
-  answered by what CI already does, not by reading the script's argparse.
+- **`fd 1 == PIPE` on a generated console program is normal.** It is not
+  evidence of a problem. Every `console` program redirects its own stdout into
+  a `captureStdout` pipe. Read the full fd table, not one row. **A stopped
+  process shows CPU time that does not increase.** Use `ps -o time=` over 90
+  seconds. `%cpu` alone is not the signal.
+- **`pgrep -f` that returns nothing is not proof of absence.** A 0-byte log is
+  not proof of death. Python block-buffers stdout to a file. Wait, then use
+  `ps`.
 
-## 8. Debt, deferred and unrelated
+### Cover arguments
 
-- **A CI toolchain image is proposed and NOT built.** The user asked whether one
-  image could carry the tooling instead of the job rebuilding it. Measured at
-  run `31239115894`: `Build liquid-fixpoint` 6.0 min, the port step 5.2, `Build
-  llmll` 1.3, z3 0.2, jq under 5s, job total 16.2. So **jq and z3 are not the
-  cost and fixpoint is already solved by the cache** — it only kept rebuilding
-  because `actions/cache` does not save on a failed job and no job had yet
-  succeeded.
+- **Every cover in this campaign takes `--gate` as the PORT BINARY and
+  `--llmll` as the COMPILER.** The names read as the opposite assignment. The
+  shell reference is not an argument at all. A wrong assignment type-checks as
+  far as the filesystem is concerned, and then it stops and waits. This cost a
+  ten-minute timeout once. Read
+  [`version-gate.yml`](../../.github/workflows/version-gate.yml) to see the
+  correct invocation.
 
-  **THE PORT STEP'S COST IS MISATTRIBUTED IN THIS BULLET AND THE CORRECTION
-  MATTERS FOR WHAT AN IMAGE WOULD BUY.** It says the step's ~5 min is
-  GENERATED-project builds (`async`, `regex-tdfa`, which the compiler does not
-  depend on). Measured from step log timestamps at run 31275114285, the 411s
-  splits **10s generate-and-build / 324s `refute_crux_cover.py` / 78s the live
-  80-case corpus**. Those deps sit in the restored `~/.stack` snapshot db and
-  cost ~10s. **So the port step is solver time, not build time, and baking a
-  snapshot db into an image would not touch it.** The image's remaining case is
-  determinism, not speed. **CONFIRMED once one did**: the next two runs show
-  `Build liquid-fixpoint: skipped` and the job at **10.9 min against 16.2**, so
-  the image's remaining SPEED case is roughly fifteen seconds (jq plus z3) and
-  should not be argued on that basis. The real arguments for an image are
-  determinism (cache entries
-  evict at 7 days, and the Stack key is `hashFiles(compiler/stack.yaml)`, so a
-  resolver bump silently restores the 6-minute tail) and baking the lts-22.43
-  snapshot db, which would bite into the port step's 5.2 min of
-  GENERATED-project builds (`async`, `regex-tdfa`, which the compiler does not
-  depend on). **It cannot be the published release image**: RFC §8 decision 2
-  requires the subject be built from source, or the 41 refuted cases go
-  vacuously green. It would be a second, CI-only image.
-- ~~**The port has no solver preflight and the reference now does.**~~ **CLOSED
-  in v0.14.91**, authorized by the user. `refutecrux.llmll` now probes `which
-  fixpoint` and `which z3` as two states between `Boot` and the first manifest
-  read, and refuses by name with the reference's message and exit 1. Verified
-  both ways round: hiding `fixpoint` alone reports `missing: fixpoint`, hiding
-  z3 alone reports `missing: z3`, and the full corpus still scores 80 passed /
-  0 failed with the two extra steps in the budget.
+### The LLMLL language
 
-  **The mechanism is the exit code and nothing else**, which is what makes it
-  robust: 0 is found, 1 is `which` running and not finding it, and 127 is
-  `code-in`'s score for an `RErr`, which is what a spawn failure publishes if
-  `which` itself is absent. Every non-zero case refuses, so an unusual
-  environment fails safe rather than grading verdicts it cannot decide. Output
-  goes to `/dev/null` twice: a path that always exists, so the probe cannot fail
-  for a reason unrelated to the solver, and the repetition exercises
-  PROC-MERGE-1's merge where the bytes are discarded anyway.
+The 004 port found these. **They were observed during debugging on 2026-08-09.
+They are not re-verified. Test one before you depend on it.**
 
-  **THIS ENTRY DESCRIBED THE PRE-FIX BEHAVIOUR WRONGLY, AND THE TRUTH IS WORSE
-  THAN EITHER GUESS. Measured: the pre-fix port DEADLOCKS.** The entry predicted
-  it "would still grade 80 undecidable cases and report them diverged". Run
-  against the actual pre-fix binary with `fixpoint` and z3 hidden and nothing
-  else changed, it instead stops dead:
+- **`string-split` takes the separator first, then the string.** A reversed
+  call type-checks and returns a malformed result. This cost five call sites.
+- **A command in a state with no successor does not execute.** Add an `Ending`
+  state, or the final output command never runs.
+- **These helpers do not exist and must be written locally**: `sets`, `seti`,
+  `flag-or`, `flag-value`.
+- **`check` exits 0 on a call to an unknown function.** So a type check that
+  passes does not prove that each callee exists.
+- **A `def` cannot call a sibling `def`.**
+- **There is no `starts-with` builtin.**
+- **`json-object` is the empty object value.** It is not a constructor.
+- **The `:done?` warning is benign on a shipped program.**
 
-  | | pre-fix, no solver | with solver |
-  |---|---|---|
-  | output | **1882 bytes, frozen** | 7432 bytes, 99 report lines |
-  | CPU accumulated | **1.11s, not moving over 90s** | completes |
-  | state | sleeping, 0% | exit 0, 80 passed / 0 failed |
+---
 
-  **Reproduced five times, all at exactly 1882 bytes**, with stdin from a FILE
-  and stdout to a FILE and the process detached, so it is not the launching
-  harness. A 300-step run completes normally (exit 70), which locates the
-  deadlock near step ~1882 of the ~1997 a full run takes: it dies just before
-  finishing, having emitted no report, because the report only flushes at the
-  end.
+## 10. Debt, deferred and unrelated
 
-  So the two `oracle` implementations did not merely disagree about a number.
-  One refused by name in under a second; the other **hung indefinitely**. The
-  preflight is what stops that being reachable, and this is the strongest
-  argument for it, not the one originally recorded. The deadlock itself is left
-  unexplained and unfixed: it is now unreachable through the gate, and chasing
-  it belongs with whoever next has reason to run a console program of that
-  length against a deliberately broken toolchain.
-- **No parse gate over design-doc frontmatter.**
-- `HDelegate`, `HDelegateAsync`, `HDelegatePending`, `HConflictResolution` reach
-  the HOLE-STATUS-SIBLING catch-all unpinned by any test.
-- DRIVER-LL 4d is parked; 4f, program unification and stage A stay deferred.
-  Five of the eight remaining callerless rows are 4d's.
+- **The published image ships no compiler.** This is why DRIFT-DOC-3 moved out
+  of the fast job. The settled distribution says that jobs pull a published
+  release image. The image has no GHC and no Stack, so it cannot build a port.
+  **This deviation from the settled distribution is unresolved.** RFC section 8
+  cannot delete a reference while the reference decides in a job that the port
+  cannot reach.
+- **`llmll run` does not work for a console program.** Filed as `RUN-STDIN-1`,
+  roadmap line 70.
+- **A CI toolchain image is proposed and not built.** Measured: jq and z3 cost
+  about fifteen seconds together. The `fixpoint` build is already solved by the
+  cache. The port step is solver time, not build time, so a baked snapshot
+  database would not change it. **Do not argue for the image on speed.** Argue
+  for it on determinism: a cache entry evicts after 7 days, and the Stack key
+  is `hashFiles(compiler/stack.yaml)`, so a resolver change restores the
+  six-minute tail. **It cannot be the published release image**: RFC section 8
+  decision 2 requires a subject built from source.
+- **The pre-fix refute-crux port deadlocks without a solver.** Measured five
+  times, always at 1882 bytes of output, with CPU time that stopped increasing.
+  A 300-step run completes normally. So the deadlock is near step 1882 of about
+  1997. The solver preflight makes this unreachable. The deadlock itself is
+  unexplained and unfixed.
+- **No parse gate covers design-document frontmatter.**
+- **`HDelegate`, `HDelegateAsync`, `HDelegatePending` and
+  `HConflictResolution` reach the HOLE-STATUS-SIBLING catch-all with no test.**
+- **DRIVER-LL 4d is parked.** Sub-phase 4f, program unification and stage A
+  stay deferred. Five of the eight remaining callerless rows belong to 4d.

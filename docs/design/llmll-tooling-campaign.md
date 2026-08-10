@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 2, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). THREE are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first) and doc-claims (TOOL-RFC-003, released v0.14.92). All three prerequisites are cleared, so nothing is blocked on a decision. 004 (doc-archive) is NEXT. THE STANDARD NOW HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. 002 found three defects its own feasibility read had declared absent, and 003's differential cover found a defect in the COMPILER (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, which is the campaign premise landing on the campaign twice."
+status: "Rev 3, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, unreleased as of 2026-08-09). 005 (doc-path-lint) is BLOCKED on `REGEX-LOWER-1`, a compiler fix, so the critical path now runs through compiler work for the first time; 006 stays last. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -44,7 +44,7 @@ excluding comments and blanks:
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
-| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes | |
+| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
 | [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
@@ -220,9 +220,29 @@ no toolchain required:
   building it found `FD-CAPTURE-1` (BLOCKS, fixed in the same change),
   `JSON-SCALAR-1` and `PROC-MERGE-1`. §5 keeps the wrong conclusion quoted
   above the correction rather than amending it.
-- **003** doc-claims gate.
-- **004** doc-archive gate.
-- **005** doc-path lint. Gated on `REGEX-LOWER-1`.
+- **003** doc-claims gate. **PORTED 2026-08-08**,
+  [TOOL-RFC-003](tool-rfc-003-doc-claims.md), state `oracle`, released v0.14.92.
+  Filed `SKIP-SILENT-1`. Its differential cover found `TOOL-ENCODING-1` in the
+  COMPILER, and the three NEGATIVE CONTROLS are what caught it: every mutation
+  cell agreed while both implementations failed identically.
+- **004** doc-archive gate. **PORTED 2026-08-09**,
+  [TOOL-RFC-004](tool-rfc-004-doc-archive.md), state `oracle`, unreleased.
+  Port at [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll)
+  with its verified core in
+  [`adjudicate.llmll`](../../tools/doc-archive/adjudicate.llmll); cover at
+  [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py), **17 cells: 14
+  mutations and 3 negative controls, all ok**. **DRIFT-DOC-3 moved out of the
+  fast `version-gate` job into `spec-roundtrip`**, because the port needs a
+  compiler to build and the published image ships none: a knowing deviation
+  from the settled distribution, recorded in §8 of the RFC.
+  **The cover found three defects the live run could not reach**: criterion 1
+  unimplemented, criterion 7 missing its remedy epilogue, and two cover cells
+  wrong by construction. The live corpus declares one disposition of four and
+  contains none of the four violation classes, so a live green run grades about
+  a twentieth of the specified behaviour.
+- **005** doc-path lint. Gated on `REGEX-LOWER-1`. **This is where the campaign
+  first stops being port work**: the row is a compiler fix, so the critical path
+  runs through the compiler team.
 - **006** build-smoke. Last: it is the harness that runs the others, so porting
   it is an LLMLL program orchestrating LLMLL programs, and it should inherit
   five ports' worth of settled pattern rather than invent it.

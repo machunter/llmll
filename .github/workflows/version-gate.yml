@@ -5,9 +5,11 @@
 # docs/design/critique-2026-05-23-triage.md:111.
 #
 # Two jobs:
-#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-3 + DRIFT-DOC-4 + pytest
+#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-4 + pytest
 #                     harness tests. No Stack: no gate in this job has a compiler
-#                     dependency.
+#                     dependency. DRIFT-DOC-3 LEFT THIS JOB at TOOL-RFC-004 and
+#                     this line said otherwise for a release; see the comment at
+#                     the DRIFT-DOC-3 step in spec-roundtrip for why it moved.
 #   spec-roundtrip  — slower (~16-17 min warm, measured over runs 31328105593
 #                     and 31332324160; it was ~11 min before the example suite
 #                     joined it, and this line said "~5 min" while the job was
@@ -51,7 +53,7 @@ on:
 
 jobs:
   version-gate:
-    name: C1-C4 banner / schema + DRIFT-DOC-3 / DOC-4
+    name: C1-C4 banner / schema + DRIFT-DOC-4 + pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
