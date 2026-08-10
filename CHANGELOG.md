@@ -4,6 +4,184 @@
 
 <a id="Latest"></a>
 
+## v0.14.95: the fourth gate, and the three defects its live green run could not reach (2026-08-10)
+
+No language surface moves and no compiler code changes. What ships is the fourth
+of six CI gates rewritten in LLMLL and deciding beside its reference, the first
+port to answer the RFC standard's new §7 in full, one roadmap row filed against
+`llmll run`, and four records corrected that had gone incorrect at a handoff.
+
+The series continues its one reliable pattern: **each of the last three ports
+found something its own feasibility read had declared absent.** 002 found three
+defects, 003's cover found a defect in the *compiler* that neither implementation
+had (`TOOL-ENCODING-1`, v0.14.93), and 004's cover found three that a passing
+live run could not reach.
+
+### Added: `TOOL-RFC-004`, the archive-disposition gate decides in LLMLL
+
+[`doc_archive_gate.sh`](scripts/doc_archive_gate.sh) is DRIFT-DOC-3. It checks
+that every archived document under `docs/archive/` declares an
+`archive-disposition` whose value its directory agrees with. 218 bash lines
+become 575 of LLMLL across two modules,
+[`docarchive.llmll`](tools/doc-archive/docarchive.llmll) at 510 and
+[`adjudicate.llmll`](tools/doc-archive/adjudicate.llmll) at 65. Both now run in
+the `spec-roundtrip` job over the same tree in the same run, which is what
+`tool_state: oracle` means: a reader compares two implementations in one job log.
+
+**The reference exits on first failure, so the order of its seven criteria is
+behaviour rather than presentation**, and the port owes that order along with
+each message's text and the stream it goes to. Criteria 6 and 7 print their
+headline to stderr and a bare newline to stdout first. The NOTE line has two
+forms, one at the bound and one below it, and a port emitting only one of them
+diverges on a tree whose ungated debt has been paid down.
+
+Two scoping rules are easy to lose in a port and are pinned by cells:
+`README.md` and `INDEX.md` are skipped as index files rather than archived
+documents, and the disposition is read **only inside the frontmatter block**,
+which is what rules out a whole-file scan. The word "superseded" appears in body
+prose in four different files.
+
+**The module split is forced by the language and was not chosen for tidiness.** A
+`def` cannot call a sibling `def` in the same module; the failure is at check
+time, before verification, and no ordering escapes it. Cross-module calls into an
+already-verified callee do work, leaf-first, so a proved core has to be its own
+module and the port imports it.
+
+**The core's contract is input-side, and that is also not a style choice.** It
+constrains `result` per constructor of the input. The natural alternative, a post
+relating `result` to the scrutinee variable, is *falsely refuted* by this
+compiler: a match arm on a nullary constructor refines the int-tag discriminant
+and never emits the term equation `scrutinee = Ctor`, so even the identity
+function fails such a post. That is `MATCH-TERM-EQ-1`, filed at v0.14.94. Written
+the other way this module would not verify and a compiler defect would have
+looked like ours. Measured rather than assumed: it verifies SAFE and reports
+`body-faithful: side-of`, and misrouting a single arm (`Superseded` to
+`DormantDir`) is REFUTED at constraint #1. That refuting case is what separates a
+proof from a green light, since a fallback body cannot be refuted and a
+postcondition of `false` on one still reports SAFE.
+
+### Added: the differential cover, and the three defects it found immediately
+
+[`doc_archive_cover.py`](scripts/doc_archive_cover.py) runs **17 cells: 14
+mutations and 3 negative controls.** Every mutant is asserted to fail under
+*both* implementations before their answers are compared, and the controls
+require both to PASS an unmutated tree. All 17 pass, measured on macOS and on
+Linux CI at `e5459c3`.
+
+**Why a passing live run does not decide this.** Measured across `docs/archive/`:
+of 59 scanned files, **exactly one declares `archive-disposition`** and 58 are
+ungated at the bound. So the live run exercises one of four vocabulary values and
+**zero of the four violation classes**. Both implementations agreeing on that
+tree is agreement about almost nothing, and the agreement had already survived a
+live green run and six cells run by hand. Three defects survived with it:
+
+1. **Criterion 1 was not implemented at all.** With the fixtures deleted the
+   reference reports `self-test fixtures missing under
+   scripts/doc-archive-fixtures (expected pass/ and fail/)`; the port scanned an
+   absent corpus and reported an under-fire instead. It now probes the fixtures
+   root before any scan. A missing root lists as `RErr`, which `entries-of` maps
+   to `[]`, so the absent case needs no branch of its own.
+2. **Criterion 7 owed the reference's two-line remedy epilogue** and printed only
+   the headline. Criterion 6's epilogue had been added earlier; 7's was missed
+   because no cell had ever pushed the ungated count over the bound.
+3. **Two cover cells were wrong by construction**, which is the finding worth
+   keeping: a cover can be wrong in the same way as the thing it grades, and
+   cells that agree by accident prove nothing. The RFC's cell 12 said "rename
+   `shipped-design-specs`" and expected `scanned 0 files`; renaming one governed
+   directory leaves the other scanned, so the gate passes with a different NOTE
+   and both directories have to go. A cell adding a body-prose declaration as a
+   *new* file failed for a reason unrelated to frontmatter scoping, since any
+   added file raises the ungated count to 59 and trips criterion 7. It now
+   rewrites an existing ungated file so the count is held fixed and the cell
+   tests what it claims to.
+
+The live gated file and the rewrite target are **located rather than hardcoded**.
+Hardcoding either would make the cover pass vacuously the day that file is
+renamed, which is the failure mode this campaign keeps finding in its own gates.
+
+The cover is wired ahead of the port's live run, which is 003's arrangement and
+its reason: the cover decides agreement under mutation, while the live run only
+shows the port agreeing with itself. The environment is scrubbed to a fixed
+minimum for both sides, because 003's cover let the port inherit the caller's
+`PATH` and found an `llmll` the reference could not see, comparing two worlds
+rather than two implementations. It sets **no locale on purpose**: with none set,
+this is one of the gates that fails if the compiler ever again decodes source
+through the environment.
+
+### Added: §7 answered in full, and the one absence it records
+
+004 is the first port to answer the standard's ninth section, which asks what
+survives the reference's deletion at §8. Three instruments, and **they fail
+differently, which is the point**: the cover compares two implementations, the
+fixture self-test compares one implementation to a fixed expected count, and the
+contract compares a function to a specification. A defect shared by both
+implementations passes the cover and is caught by the contract if it is in the
+adjudicator; a recognizer regression passes the contract and is caught by the
+self-test.
+
+The self-test's expected counts (4 and 4) previously lived inside the reference
+script, which §8 deletes, so that row would not have survived its own retirement.
+The port now carries them as its own assertions.
+
+Two things §7 does **not** claim. The contract covers the adjudicator only, so
+the recognizer half has exactly one instrument, an absence tagged
+`STRLIT-BODY-1`. And `--strict-verified-core` is deliberately not listed as an
+instrument: `versiongate.llmll` passes it today with zero body-faithful
+functions, so the pass is vacuous, and naming that is the reason §7 exists.
+
+### Changed: DRIFT-DOC-3 leaves the fast job
+
+The gate moves out of the fast `version-gate` job into `spec-roundtrip`. The port
+needs a compiler to build and the published image ships none, so this is a
+knowing deviation from the settled distribution rather than an oversight, and it
+is recorded as such in the RFC. Both implementations run in the job that has a
+toolchain.
+
+### Filed: `RUN-STDIN-1`, three defects in `llmll run` that hide each other
+
+Found by a TOOL-RFC-004 feasibility probe and executed rather than read off the
+source. `Main.hs:903` runs the child as `readProcessWithExitCode stackBin [...]
+""`, and that trailing `""` is the child's **stdin**; a `:mode console` program
+is a stdin-driven step machine, so it takes immediate EOF, executes zero steps
+and exits **70**. `Main.hs:908` then answers a failed child with `ExitFailure _
+-> ... exitFailure`, discarding the child's code, so the 70 that would have named
+the cause is reported as a bare 1. And `Main.hs:256` builds the pass-through from
+a *positional* parser, so a flag-shaped argument is rejected by `llmll run`'s own
+parser although the help advertises "Arguments passed through to the program".
+
+**A prediction failed on the way to this row, which is why the mechanism is
+stated that precisely.** The hypothesis that the exit code would be the initial
+state's `:status` was refuted by setting that status to 7 and still observing 1.
+
+### Fixed: four records that had gone incorrect, one of them in CI
+
+This is finding 13's class in four new places, and the shape recurs: a change is
+recorded in a comment next to the code, and the places that *advertise* it are
+not touched.
+
+- [`llmll-tooling-campaign.md`](docs/design/llmll-tooling-campaign.md) said three
+  ports. Four are ported. Now Rev 3, with 005 recorded as blocked.
+- [`version-gate.yml`](.github/workflows/version-gate.yml) lines 8 and 54 both
+  said the fast job runs DRIFT-DOC-3, and line 54 is the job's **display name**,
+  so the CI checks list named a gate the job does not run.
+- [`INDEX.md`](docs/design/INDEX.md) carried three wrong claims in two cells: the
+  restart record summarized as "004 next", the campaign row as Rev 2 with "3 of 6
+  ported" and "nothing blocked", and no row existed for
+  [`tool-rfc-004-doc-archive.md`](docs/design/tool-rfc-004-doc-archive.md) at all
+  though the file had been committed.
+- [`tool-ll-RESTART.md`](docs/design/tool-ll-RESTART.md) said 004 was next.
+
+### Changed: the restart record is Simplified Technical English
+
+[`tool-ll-RESTART.md`](docs/design/tool-ll-RESTART.md) is rewritten in ASD-STE100
+as a trial, scoped to restart, campaign and procedural text only. It is about
+half its former length. Its §0 states the rules it follows and gives the four
+commands that measure state, and it now says plainly that a record here became
+incorrect at a handoff three times, so section 1 is to be checked against
+measurement before it is used.
+
+---
+
 ## v0.14.94: the example suite runs in CI, and the binary contradicts its own help text (2026-08-09)
 
 No language surface moves. What ships is one compiler fix, one CI gate that had
