@@ -441,6 +441,8 @@ Before that, all of:
 - the `ALLOW` table carried in the port rather than in the reference, per D5,
   since deleting the reference otherwise deletes fourteen human judgements that
   nothing in the tree can regenerate;
+- **an answer for `scripts/tests/test_doc_path_lint.py`**, which is fail-closed
+  on the live tree and binds to the reference this section deletes; see below;
 - **the job verifying `adjudicate.llmll` BEFORE `pathlint.llmll`**, which is an
   ordering constraint rather than a preference. Measured: with no sidecar
   present, `llmll check` on the port warns "Function `reports?` has an unproven
@@ -460,6 +462,36 @@ its output is **produced and readable in a job that runs on every push**, which
 is what an advisory gate has in place of a verdict. Retiring a reference whose
 port only ever ran locally would be the §10 failure mode, and that is the
 property the condition is protecting.
+
+**SOMETHING DOES DECIDE, AND IT IS NOT THE GATE. Found while wiring, and it is
+the sharpest thing this RFC has to say about retirement.**
+[`scripts/tests/test_doc_path_lint.py`](../../scripts/tests/test_doc_path_lint.py)
+runs the reference over the live tree and asserts `all resolve`. It is
+**fail-closed**: move a file without updating the prose that names it and CI goes
+red. So the merge-blocking property of DRIFT-DOC-4 has never lived in
+DRIFT-DOC-4. It lives in a pytest test, in `scripts/tests/`, which campaign §2
+deliberately places OUT of scope.
+
+Three consequences, none of which were visible before the port was wired:
+
+1. **§8 breaks that file.** All three of its tests bind to
+   `scripts/doc_path_lint.py`, two of them by importing it as a module for its
+   predicates. Deleting the reference deletes the only fail-closed check that
+   prose citations resolve, and it does so as a side effect.
+2. **The obvious repair does not fit the job.** Repointing the test at the port
+   needs a built binary, and the test runs in the toolchain-free job by design.
+   So the choice is to move the test, to drop it, or to keep a Python remnant of
+   a retired reference, and each is a different answer to what the campaign is
+   for.
+3. **§1's "it decides nothing" is true of the script and false of the
+   arrangement.** The RFC states it about the script throughout and that stays
+   correct, but a reader deciding what may be deleted needs the arrangement.
+
+**This is therefore a retirement precondition and not a footnote**: before
+`scripts/doc_path_lint.py` is deleted, `test_doc_path_lint.py` must have an
+answer, decided rather than discovered when CI reddens. It is routed to the user
+because it is a scope question the campaign settled in the abstract and this is
+its first concrete instance.
 
 ## 9. Decisions taken
 

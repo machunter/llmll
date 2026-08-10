@@ -5,11 +5,13 @@
 # docs/design/critique-2026-05-23-triage.md:111.
 #
 # Two jobs:
-#   version-gate    — fast (<1 min). C1-C4 + DRIFT-DOC-4 + pytest
-#                     harness tests. No Stack: no gate in this job has a compiler
-#                     dependency. DRIFT-DOC-3 LEFT THIS JOB at TOOL-RFC-004 and
-#                     this line said otherwise for a release; see the comment at
-#                     the DRIFT-DOC-3 step in spec-roundtrip for why it moved.
+#   version-gate    — fast (<1 min). C1-C4 + pytest harness tests. No Stack: no
+#                     gate in this job has a compiler dependency. DRIFT-DOC-3
+#                     LEFT THIS JOB at TOOL-RFC-004 and this line said otherwise
+#                     for a release; DRIFT-DOC-4 LEFT IT at TOOL-RFC-005, for
+#                     the same reason and under the campaign rule that reason
+#                     produced. See the comment at either step in spec-roundtrip.
+#                     THIS JOB NOW ANSWERS NO DOCUMENTATION QUESTION AT ALL.
 #   spec-roundtrip  — slower (~16-17 min warm, measured over runs 31328105593
 #                     and 31332324160; it was ~11 min before the example suite
 #                     joined it, and this line said "~5 min" while the job was
@@ -53,7 +55,7 @@ on:
 
 jobs:
   version-gate:
-    name: C1-C4 banner / schema + DRIFT-DOC-4 + pytest
+    name: C1-C4 banner / schema + pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,14 +92,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      # DRIFT-DOC-4 is ADVISORY and exits 0 by design. It cannot decide the
-      # counterfactual class (prose that names a path precisely because it does
-      # not exist), so a fail-closed version would demand correct prose be
-      # mangled. Its value is the printed report in the job log and the
-      # test_clean_on_live_repo regression test below, not a merge block.
-      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
-        run: python3 scripts/doc_path_lint.py
-
+      # DRIFT-DOC-4 MOVED OUT OF THIS JOB at TOOL-RFC-005, wholesale, both
+      # implementations together. It is in spec-roundtrip now; see the comment
+      # at its step there. The job NAME above was corrected in the same commit,
+      # because a display name advertising a gate the job does not run is
+      # exactly the stale record TOOL-RFC-004 filed against this file.
+      #
+      # test_clean_on_live_repo in the pytest suite below still runs here and
+      # still imports the reference, so this job keeps a check that the live
+      # corpus resolves. What it no longer does is print the report.
       - name: Install pytest
         run: pip install pytest
 
@@ -171,6 +174,62 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      # DRIFT-DOC-4 RELOCATED HERE FROM THE FAST JOB at TOOL-RFC-005, wholesale,
+      # reference and port together. The campaign rule this follows was amended
+      # at the same time and is the reason for the "wholesale": the published
+      # image delivers a COMPILER and not a COMPILED PORT, so a port runs only
+      # where a toolchain built it, and splitting a gate across two jobs leaves
+      # retirement unable to delete a reference that is the only thing running
+      # in the job that matters. TOOL-RFC-001 split, and 004 recorded why that
+      # was wrong.
+      #
+      # WHAT THIS COSTS, and it is accepted knowingly: an advisory report that
+      # used to appear in about 25 seconds now appears behind a Haskell build,
+      # about 17 minutes in. That is cheaper here than it was for DRIFT-DOC-3,
+      # because DRIFT-DOC-3 blocks a merge and this gate decides nothing, so
+      # what moved is when a reader sees a suggestion.
+      #
+      # THE FAST JOB IS NOT LEFT WITHOUT A CHECK. test_clean_on_live_repo in
+      # scripts/tests/ still runs there, still executes this reference, and is
+      # FAIL-CLOSED on the live tree. So the merge-blocking property lives in a
+      # pytest test rather than in the gate, which is worth knowing before
+      # anyone deletes either.
+      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
+        run: python3 scripts/doc_path_lint.py
+
+      # TOOL-RFC-005: the same gate in LLMLL, adjacent to its reference, which
+      # is what `tool_state: oracle` means and is 003's and 004's arrangement.
+      #
+      # THE CORE IS VERIFIED BEFORE THE PORT IS BUILT, and the order is a
+      # requirement rather than tidiness. adjudicate.llmll carries the three
+      # proved functions the port delegates its decision to, and its
+      # .verified.json sidecar is gitignored. Measured: without that sidecar
+      # `llmll check` on the port warns that it inherits an unproven contract
+      # for `reports?`, so a port built without this step silently drops to
+      # `asserted` on the one function §7 counts as proved.
+      #
+      # THE COVER RUNS BEFORE THE LIVE GATE, for 003's and 004's reason: it
+      # decides whether the port agrees with the reference UNDER MUTATION, and
+      # a live green run does not. Here that is sharper than usual. The live
+      # corpus reports zero findings, so the whole REPORTING half of the gate
+      # never executes on it, and four of the cover's cells test rules no
+      # corpus state can reach at all.
+      - name: Run prose path-citation lint (LLMLL port, TOOL-RFC-005)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          ( cd tools/doc-path-lint && "$SUBJECT" verify adjudicate.llmll )
+          OUT="$RUNNER_TEMP/pathlint-build"
+          ( cd tools/doc-path-lint && "$SUBJECT" build pathlint.llmll -o "$OUT" )
+          GATE="$(find "$OUT/.stack-work/install" -type f -name pathlint -perm -111 | head -1)"
+          [ -n "$GATE" ] || { echo "no pathlint binary under $OUT"; exit 1; }
+          python3 scripts/doc_path_lint_cover.py --gate "$GATE" --repo .
+          # The step budget comes from python3 and NOT `yes x | head -n N`:
+          # `yes` dies of SIGPIPE and this step runs under pipefail. The loop
+          # takes one step per living file plus five, so 900 is roughly five
+          # times the current corpus.
+          python3 -c "import sys; sys.stdout.write('x\n' * 900)" | "$GATE"
 
       - name: Run doc-claim drift gate (DRIFT-CT-2)
         working-directory: compiler
