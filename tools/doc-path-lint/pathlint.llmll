@@ -1,0 +1,247 @@
+;; TOOL-RFC-005: the prose path-citation lint (DRIFT-DOC-4), in LLMLL.
+;;
+;; The RFC is docs/design/tool-rfc-005-doc-path-lint.md. The reference this port
+;; reproduces is scripts/doc_path_lint.py, and section 8 of the RFC deletes that
+;; reference one release after this file lands.
+;;
+;; THIS GATE DECIDES NOTHING AND MUST KEEP DECIDING NOTHING. It exits 0 whatever
+;; it finds, unless `--strict` is passed. The reference's docstring argues the
+;; case at length and the short form is: a rationale may legitimately name a
+;; path BECAUSE it does not exist, and a gate that can be wrong about correct
+;; input teaches people to write worse prose to appease it. Do not "promote"
+;; this to fail-closed. That is a language problem, not a scripting one.
+;;
+;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits a pure
+;; `print (step args)` with no Command performed and no exit status, so a
+;; program that touches the world has to be a stdin-driven step machine in
+;; `console` mode. That is the single largest reason a 132-line Python script
+;; becomes this.
+;;
+;; --------------------------------------------------------------------------
+;; THREE DESIGN CHOICES THAT WERE MEASURED, NOT ARGUED. All three are RFC
+;; section 9 decisions and all three were settled before this file existed.
+;;
+;; D2. EXISTENCE IS `git ls-files` MEMBERSHIP, NOT A FILESYSTEM PROBE.
+;; `os.path.exists` has no LLMLL equivalent. Existence-by-attempt works
+;; (`wasi.fs.read` answers RErr on a missing path, measured), but it moves the
+;; file's bytes to answer a yes/no question: 77.0 MB across ~1900 calls for this
+;; corpus, in a job budgeted under a minute. So the port enumerates the tree
+;; ONCE and tests membership. The divergence is real and is recorded rather than
+;; hidden: git answers about the INDEX and the reference asks the FILESYSTEM, so
+;; an untracked-but-present file is reported here and suppressed there. Measured
+;; on a working tree, exactly two paths differ and BOTH are already in the
+;; reference's own ALLOW table, carried there because they exist in a working
+;; tree and not in a fresh clone. On CI, which checks out fresh, the divergence
+;; is zero. Note that the reference already takes its FILE LIST from git and its
+;; RESOLUTION from the filesystem; this port makes one mechanism answer both.
+;;
+;; D3. `regex-match` IS USED, REVERSING THE PRECEDENT IN versiongate.llmll AND
+;; shape.llmll. Those modules hand-roll and say so at the site. Their reasons
+;; were measured and neither survives here: versiongate cites REGEX-LOWER-1
+;; ("does not build"), which SHIPPED at v0.14.96, and shape cites the verified
+;; tier, which a string recognizer cannot reach either way. Measured: a
+;; `string-contains` recognizer and a `regex-match` recognizer BOTH report
+;; `body-fallback` under STRLIT-BODY-1, while a control over ints reports
+;; `body-faithful`, so the probe discriminates and the tier cost is zero.
+;;
+;; TDFA IS NOT PYTHON'S `re`, AND THAT IS THE STANDING COST OF D3.
+;; `regex-match` lowers to Text.Regex.TDFA, which is POSIX ERE. Measured: `\b`
+;; IS supported, `\d` is NOT (`^N\d+$` does not match "N123"), and inline
+;; `(?i)` is NOT (it matches literally and therefore never fires). A comment in
+;; this tree asserted the opposite about `\d` for a release. MEASURE ANY NEW
+;; PATTERN BEFORE ADDING IT.
+;;
+;; HIST-PAT BELOW IS SPELLED IN PER-LETTER BRACKET CLASSES ON PURPOSE. That is
+;; exact case-insensitivity, which is what the reference's `re.I` means. The
+;; cheap approximation, matching `previously|Previously`, passes the live corpus
+;; and FAILS on "PREVIOUSLY". Cover cell 9 exists to forbid it.
+;;
+;; THE SCANNER IS A SPLIT, NOT A CHARACTER FOLD, AND THIS WAS MEASURED.
+;; `regex-match` returns bool and captures nothing, so it cannot find WHERE the
+;; citations are; that is REGEX-CAPTURE-1. But splitting the body on a backtick
+;; recovers exactly the same set, because a citation is backtick-delimited by
+;; construction. Every inter-backtick segment is then tested with one
+;; `regex-match`. Checked against the reference over the whole live corpus: 955
+;; citations across 172 files, 172 files agreeing, ZERO disagreements.
+;;
+;; TWO SCANNER MODELS WERE TRIED FIRST AND BOTH ARE WRONG. Recorded so nobody
+;; re-derives them. (a) Odd-index segments per line ("inside backticks") is
+;; wrong because a backtick span may cross a newline, which desyncs the parity
+;; for the rest of the line: it missed one citation in
+;; docs/design/finding-arg-position-false-safe.md. (b) Odd-index segments over
+;; the whole body is far worse, because ONE unbalanced backtick desyncs
+;; everything after it: 16 citations found where the reference finds 94, in
+;; docs/compiler-team-roadmap.md. Testing EVERY segment has no parity to lose
+;; and is what the reference's regex effectively does.
+;;
+;; SPLIT-EMPTY-1 is why none of this is a per-character fold: `string-split`
+;; with an empty separator does not terminate, so there is no character
+;; decomposition to fold over, and the other tools scan by folding a LITERAL
+;; index list. This port needs no such fold.
+;;
+;; `string-split` TAKES THE SEPARATOR FIRST (versiongate.llmll:124 measured it).
+
+(module pathlint
+
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.fs   (capability read-write "/"))
+  (import wasi.proc (capability run :deterministic false))
+  (import adjudicate)
+  (open adjudicate)
+
+  ;; ---------------------------------------------------------------- record --
+  ;; The state carried across steps. Json rather than a wide product type,
+  ;; matching docarchive.llmll: a step machine that grows a field should not
+  ;; restate every constructor.
+  (type Rc (| Rc Json))
+  (def-shell f-of [r: Rc] -> Json (match r ((Rc j) j)))
+  (def-shell mk   [j: Json] -> Rc (Rc j))
+
+  (def-shell jstr [v: Json k: string] -> string
+    (unwrap-or (json-get-string v k) ""))
+  (def-shell jint [v: Json k: string] -> int
+    (unwrap-or (json-get-int v k) 0))
+  (def-shell sets [v: Json k: string s: string] -> Json
+    (unwrap-or (json-set v k (json-of-string s)) v))
+  (def-shell seti [v: Json k: string n: int] -> Json
+    (unwrap-or (json-set v k (json-of-int n)) v))
+
+  (def-shell with-s [r: Rc k: string v: string] -> Rc (mk (sets (f-of r) k v)))
+  (def-shell with-i [r: Rc k: string v: int]    -> Rc (mk (seti (f-of r) k v)))
+
+  ;; `tracked` is the whole `git ls-files` output, newline-delimited and with a
+  ;; leading and trailing newline so membership can be a delimited substring
+  ;; test. Without the delimiters `design/foo.md` would match inside
+  ;; `docs/design/foo.md` and every suffix would resolve.
+  (def-shell tracked-of [r: Rc] -> string (jstr (f-of r) "tracked"))
+  (def-shell queue-of   [r: Rc] -> string (jstr (f-of r) "queue"))
+  (def-shell cur-of     [r: Rc] -> string (jstr (f-of r) "cur"))
+  (def-shell out-of     [r: Rc] -> string (jstr (f-of r) "out"))
+  (def-shell work-of    [r: Rc] -> string (jstr (f-of r) "work"))
+  (def-shell cites-of   [r: Rc] -> int    (jint (f-of r) "cites"))
+  (def-shell scanned-of [r: Rc] -> int    (jint (f-of r) "scanned"))
+  (def-shell found-of   [r: Rc] -> int    (jint (f-of r) "found"))
+  (def-shell files-of   [r: Rc] -> int    (jint (f-of r) "files"))
+  (def-shell strict-of  [r: Rc] -> int    (jint (f-of r) "strict"))
+
+  ;; ------------------------------------------------------------- patterns --
+  ;; The reference's PATH regex, minus the surrounding backticks, which the
+  ;; split has already consumed. Anchored, because the reference's backticks
+  ;; anchor it: a segment must be a path in its entirety.
+  (def-shell path-pat [] -> string
+    "^[A-Za-z0-9_./-]+\\.(md|hs|llmll|json|sh|yaml|yml|py|cabal|txt)$")
+
+  ;; The reference's PLACEHOLDER, character for character. `\b` is supported by
+  ;; TDFA and measured working; `\.` is the literal dot.
+  (def-shell ph-pat [] -> string
+    "NN|<|\\bfoo\\b|Mylib|cell_|turn_|\\.\\.\\.")
+
+  ;; The reference's HIST_LINE under `re.I`, as per-letter bracket classes.
+  ;; Verbose and exact. `**DONE**` needs its asterisks made literal, and a
+  ;; bracketed `[*]` is used rather than a backslash escape so that nothing
+  ;; depends on how the LLMLL literal and the ERE parser share a backslash.
+  (def-shell hist-pat [] -> string
+    (string-concat
+      (string-concat
+        "[*][*][Dd][Oo][Nn][Ee][*][*]|[Mm][Oo][Vv][Ee][Dd] [Tt][Oo]|[Rr][Ee][Ll][Oo][Cc][Aa][Tt]"
+        "|[Ff][Oo][Rr][Mm][Ee][Rr][Ll][Yy]|[Pp][Rr][Ee][Vv][Ii][Oo][Uu][Ss][Ll][Yy]")
+      (string-concat
+        "|[Oo][Ll][Dd] [Pp][Aa][Tt][Hh]|[Aa][Rr][Cc][Hh][Ii][Vv][Ee][Dd] [Tt][Oo]"
+        "|[Rr][Ee][Mm][Oo][Vv][Ee][Dd] 20|[Dd][Ee][Ll][Ee][Tt][Ee][Dd] 20|[Mm][Ii][Gg][Rr][Aa][Tt][Ee][Dd] [Ff][Rr][Oo][Mm]")))
+
+  ;; ---------------------------------------------------------- file filters --
+  ;; F1: the reference drops these two prefixes from `git ls-files '*.md'`.
+  ;; Measured: the six files this removes contain ZERO citations between them,
+  ;; so this filter is invisible to any corpus and only cover cell 13 can see
+  ;; it. It is implemented anyway, because a port reproduces its reference.
+  (def-shell excluded-dir? [f: string] -> bool
+    (or (starts-with? f "site/") (starts-with? f "node_modules/")))
+
+  (def-shell starts-with? [s: string p: string] -> bool
+    (and (>= (string-length s) (string-length p))
+         (= (string-slice s 0 (string-length p)) p)))
+
+  ;; F2: historical files describe the tree AS IT WAS, so their stale-looking
+  ;; paths are accurate history. The reference calls this "the big one: the
+  ;; difference between a ~450-item problem and a ~50-item one"; measured here
+  ;; it suppresses 268 findings.
+  (def-shell historical-file? [f: string] -> bool
+    (or (or (= f "CHANGELOG.md")
+            (string-contains f "/runs/"))
+        (or (string-contains f "/postmortem-")
+            (or (starts-with? f "docs/archive/")
+                (string-contains f "/findings/")))))
+
+  ;; ------------------------------------------------------------- the scan --
+  ;; Fence stripping, reproducing FENCE.sub('', raw): split on the triple
+  ;; backtick and keep the EVEN segments, concatenating with no separator,
+  ;; which is what substituting the empty string does.
+  (def-shell strip-fences [content: string] -> string
+    (first (list-fold (string-split "```" content)
+                      (pair "" true)
+                      (fn [acc: (string, bool) seg: string]
+                        (if (second acc)
+                            (pair (string-concat (first acc) seg) false)
+                            (pair (first acc) true))))))
+
+  ;; Every inter-backtick segment that is a path citation. The `/` test is the
+  ;; reference's own, applied BEFORE the citation is counted
+  ;; (doc_path_lint.py:149-150), so a bare filename never reaches the total.
+  (def-shell citations [body: string] -> list[string]
+    (list-filter (string-split "`" body)
+                 (fn [s: string] (and (string-contains s "/")
+                                      (regex-match (path-pat) s)))))
+
+  ;; ------------------------------------------------------------ resolution --
+  ;; Membership in the tracked set, delimited so a suffix cannot match.
+  (def-shell tracked? [tracked: string p: string] -> bool
+    (string-contains tracked (string-concat "\n" (string-concat p "\n"))))
+
+  ;; os.path.dirname: everything before the last separator, or "" if none.
+  ;; Same fold as drop-last, and deliberately the same function rather than a
+  ;; second one that could drift from it.
+  (def-shell dir-of [f: string] -> string (drop-last f))
+
+  ;; normpath(join(d, p)), folded over the segments: ".." drops the previous
+  ;; component and "." is dropped. 58 of 947 live citations contain "..", so
+  ;; this is on the main path rather than an edge case.
+  (def-shell norm-join [d: string p: string] -> string
+    (list-fold (string-split "/" (if (string-empty? d) p (string-concat d (string-concat "/" p))))
+               ""
+               (fn [acc: string seg: string]
+                 (if (= seg "..")
+                     (drop-last acc)
+                     (if (or (= seg ".") (string-empty? seg))
+                         acc
+                         (if (string-empty? acc) seg (string-concat acc (string-concat "/" seg))))))))
+
+  ;; Drop the last "/"-separated component. The fold carries a PENDING segment
+  ;; and flushes it one step late, so the final segment is never flushed. The
+  ;; obvious alternative, counting segments and rebuilding all but the last,
+  ;; needs an index the fold does not supply.
+  (def-shell drop-last [acc: string] -> string
+    (first (list-fold (string-split "/" acc)
+                      (pair "" "")
+                      (fn [a: (string, string) seg: string]
+                        (pair (if (string-empty? (second a))
+                                  (first a)
+                                  (if (string-empty? (first a))
+                                      (second a)
+                                      (string-concat (first a)
+                                                     (string-concat "/" (second a)))))
+                              seg)))))
+
+  ;; --------------------------------------------------------------- verdict --
+  ;; The six suppressors of doc_path_lint.py:153-161, gathered for one citation
+  ;; and handed to the PROVED adjudicator in adjudicate.llmll. The evidence is
+  ;; collected here, where nothing is provable, and the decision is taken there,
+  ;; where it is: `reports?` verifies body-faithful and dropping a single
+  ;; suppressor from it is refuted at constraint #0.
+  (def-shell report-citation? [tracked: string f: string p: string
+                               label: bool hist: bool allow: bool] -> bool
+    (reports? (tracked? tracked p)
+              (tracked? tracked (norm-join (dir-of f) p))
+              label
+              (regex-match (ph-pat) p)
+              allow
+              hist)))

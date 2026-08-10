@@ -1,0 +1,76 @@
+;; TOOL-RFC-005, the verified core of the prose path-citation lint.
+;;
+;; The RFC is docs/design/tool-rfc-005-doc-path-lint.md. This module is section
+;; 7's THIRD instrument: a contract that references neither implementation and
+;; therefore outlives the reference script, which section 8 deletes.
+;;
+;; WHY THIS IS ITS OWN MODULE AND NOT PART OF THE PORT. A `def` cannot call a
+;; sibling `def` in the same module: the failure is at check time, before
+;; verification, and no ordering escapes it. Cross-module calls to an
+;; already-verified callee do work, leaf-first. So a proved core's module split
+;; is forced by the language rather than chosen for tidiness, and the port
+;; imports this. Same reason as tools/doc-archive/adjudicate.llmll.
+;;
+;; WHAT IS PROVABLE HERE AND WHAT IS NOT. The gate has two halves and only one
+;; of them is contractable today. The RECOGNIZER half decides which bytes are a
+;; citation and whether a line carries a history marker; every one of those is a
+;; bool-valued body over string comparison, which falls to erBodyFallback
+;; (STRLIT-BODY-1), so it carries no proof. Measured, not assumed: a
+;; `string-contains` recognizer and a `regex-match` recognizer BOTH report
+;; `body-fallback`, while a control over ints reports `body-faithful`. That
+;; measurement is what settled RFC section 9 D3, since the verified tier the
+;; hand-rolled precedent was protecting is not on offer either way.
+;;
+;; The ADJUDICATOR half is this file. Once the six pieces of evidence are in
+;; hand, "does this citation get reported" is a pure boolean function of them,
+;; and boolean connectives are in the QF-LIA core, so it verifies body-faithful.
+;;
+;; THE CONTRACT IS AN EQUALITY, NOT AN IMPLICATION, AND THAT IS THE POINT. A
+;; post of the form (=> ... result) would be satisfied by a body that reports
+;; everything, and a post of (=> result ...) by one that reports nothing. Only
+;; the equality pins both directions, which is what makes the refuting case
+;; below bite.
+;;
+;; MEASURED, not assumed: this module verifies SAFE and reports
+;; `body-faithful: reports?`, so the pass is not a fallback. Dropping a single
+;; suppressor from the body (the `hist` disjunct) is REFUTED at constraint #0.
+;; That refuting case is what separates a proof from a green light: a fallback
+;; body cannot be refuted, and a postcondition of `false` on one still reports
+;; SAFE.
+;;
+;; `or` is binary here, not variadic, so the disjunction nests.
+
+(module adjudicate
+
+  ;; The six pieces of evidence the scanner collects for one citation, in the
+  ;; reference's own short-circuit order (doc_path_lint.py:153-161):
+  ;;
+  ;;   root   S1  the path resolves from the repository root
+  ;;   rel    S2  it resolves relative to the directory of the citing file
+  ;;   label  S3  it appears as a link LABEL whose target resolves
+  ;;   ph     S4  it matches PLACEHOLDER: a pattern, not a citation
+  ;;   allow  S5  the (file, path) pair is in the ALLOW table
+  ;;   hist   S6  the citing line carries a historical marker
+  ;;
+  ;; A citation is REPORTED exactly when none of the six fired. The reference
+  ;; chains S1 to S5 with `or` and tests S6 separately, but the two forms agree
+  ;; on every input: `or` is commutative and neither branch has an effect. The
+  ;; separation there is about which LINE is consulted, which is the scanner's
+  ;; problem and not this function's.
+  (def reports? [root: bool rel: bool label: bool ph: bool allow: bool hist: bool] -> bool
+    (post (= result (not (or (or (or root rel) (or label ph)) (or allow hist)))))
+    (not (or (or (or root rel) (or label ph)) (or allow hist))))
+
+  ;; The finding count is what section 7's row 2 asserts against the live
+  ;; corpus, and the assertion is `= 0` rather than a pinned citation total,
+  ;; which would redden on the next document anyone writes.
+  ;;
+  ;; The contract states the two properties that make the count meaningful: it
+  ;; never goes negative, and it advances by exactly one per reported citation.
+  ;; A body that dropped findings on the floor would satisfy neither.
+  (def tally [seen: int report: bool] -> int
+    (pre  (>= seen 0))
+    (post (and (>= result 0)
+               (and (=> report      (= result (+ seen 1)))
+                    (=> (not report) (= result seen)))))
+    (if report (+ seen 1) seen)))
