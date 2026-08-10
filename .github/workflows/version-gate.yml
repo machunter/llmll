@@ -150,6 +150,12 @@ jobs:
           ( cd tools/doc-archive && "$SUBJECT" build docarchive.llmll -o "$OUT" )
           GATE="$(find "$OUT/.stack-work/install" -type f -name docarchive -perm -111 | head -1)"
           [ -n "$GATE" ] || { echo "no docarchive binary under $OUT"; exit 1; }
+          # The COVER runs first, for 003's reason: it decides whether the port
+          # agrees with the reference UNDER MUTATION, which a live green run does
+          # not. This gate makes that concrete, its live corpus declaring exactly
+          # one disposition. The cover found three real defects in this port
+          # before it shipped, none reachable from the live tree.
+          python3 scripts/doc_archive_cover.py --gate "$GATE" --repo .
           # The step budget comes from python3 and NOT `yes x | head -n N`:
           # `yes` dies of SIGPIPE and this step runs under pipefail.
           python3 -c "import sys; sys.stdout.write('x\n' * 600)" \

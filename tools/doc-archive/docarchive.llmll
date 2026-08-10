@@ -120,6 +120,7 @@
 
   (type Ctl
     (| Boot)
+    (| CheckFix)
     (| ListD)
     (| ListRoot)
     (| ProbeE)
@@ -266,7 +267,23 @@
 
   (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(as (entries-of x))]
-      (start-phase (with-s r "root" (flag-or as "--root" ".")) 0)))
+      (let [(r2 (with-s r "root" (flag-or as "--root" ".")))]
+        (go r2 (CheckFix)
+            (wasi.fs.list (join-root r2 "scripts/doc-archive-fixtures"))))))
+
+  ;; Criterion 1, and it runs before any scan because the reference's fail() for
+  ;; it precedes both self-test phases. A missing fixtures ROOT lists as RErr,
+  ;; which entries-of maps to [], so the absent case needs no branch of its own.
+  (def-shell checkfix-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(es (entries-of x))]
+      (if (and (list-contains es "pass") (list-contains es "fail"))
+          (start-phase r 0)
+          (go r (Ending 1)
+              (wasi.io.stdout
+                (string-concat-many
+                  ["DRIFT-DOC-3 FAIL: self-test fixtures missing under "
+                   (join-root r "scripts/doc-archive-fixtures")
+                   " (expected pass/ and fail/)\n"]))))))
 
   ;; x is the listing of dirq's head. Enqueue its .md files, then the next
   ;; governed directory, then the phase root itself for the stray scan.
@@ -420,7 +437,9 @@
                                   [(out-of r) "\nDRIFT-DOC-3 FAIL: "
                                    (int-to-string (ungated-of r))
                                    " archived doc(s) declare no archive-disposition, above the bound of "
-                                   (int-to-string (bound-of r)) "\n"])))
+                                   (int-to-string (bound-of r)) "\n"
+                                   "Add 'archive-disposition: shipped|superseded|dropped|deferred' to the new file's frontmatter,\n"
+                                   "or raise UNGATED_BOUND in scripts/doc_archive_gate.sh and say why in the commit message.\n"])))
                           (go r (Ending 0)
                               (wasi.io.stdout
                                 (string-concat-many
@@ -450,6 +469,7 @@
       -> ((Rc, Ctl), Command)
     (match (ctl-of s)
       ((Boot)   (boot-step   (rc-of s) x))
+      ((CheckFix) (checkfix-step (rc-of s) x))
       ((ListD)  (listd-step  (rc-of s) x))
       ((ListRoot) (listroot-step (rc-of s) x))
       ((ProbeE)   (probee-step   (rc-of s) x))
@@ -461,6 +481,7 @@
   (def-shell da-done? [s: (Rc, Ctl)] -> bool
     (match (ctl-of s)
       ((Boot)   false)
+      ((CheckFix) false)
       ((ListD)  false)
       ((ListRoot) false)
       ((ProbeE)   false)
@@ -472,6 +493,7 @@
   (def-shell da-status [s: (Rc, Ctl)] -> int
     (match (ctl-of s)
       ((Boot)   1)
+      ((CheckFix) 1)
       ((ListD)  1)
       ((ListRoot) 1)
       ((ProbeE)   1)
