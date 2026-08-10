@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-005-doc-path-lint
 title: "TOOL-RFC-005: the prose path-citation lint, in LLMLL"
-status: "Rev 0, DRAFT, state BLOCKED (the RFC exists, the port does not). Written RFC-first, before any port code. THE SUBJECT IS ADVISORY AND EXITS 0 BY DESIGN, so a differential cover comparing exit codes grades nothing and §6 compares STDOUT TEXT instead. THE LIVE CORPUS IS NOT VACUOUS, and this RFC corrects the expectation it inherited from TOOL-RFC-004: measured 2026-08-10, all four exemption classes are live-exercised, each the SOLE rescuer of 13 to 19 citations, and the historical-file skip is worth 268; so the SUPPRESSION half has a live instrument and only the REPORTING half is fixture-only, because the corpus yields zero findings. THREE decisions settled by user adjudication 2026-08-10: D1 distribution, D2 existence by `git ls-files` membership, and D3 `regex-match` over a hand-rolled scanner. D3 REVERSES THE PRECEDENT SET BY `versiongate.llmll:25` AND `shape.llmll:26`, and it reverses it on a measurement: both recognizer shapes report `body-fallback`, a control reports `body-faithful`, so the verified tier those comments were protecting is not available to this function either way. `HIST_LINE` is written as per-letter bracket classes, which is exact case-insensitivity; the variant-list approximation is forbidden and cover cell 9 is what forbids it. The campaign's distribution sentence is AMENDED here rather than owed a third time. Three findings routed out: `shape.llmll:26` claims `^N\\d+$` ports verbatim and it does not, `llmll check` passes an unknown function at exit 0, and DONE-TYPE-1 fires on every console program built for this port."
+status: "Rev 1, DRAFT, state BLOCKED (the proved core and the pure scanner exist and verify; the step machine does not, so the module carries no def-main). REV 1 CORRECTS THREE THINGS THE FIRST DRAFT GOT WRONG, all found by building rather than by re-reading. (i) §4 and §5 said a character-level scanner was forced; it is not. Splitting the body on the citation's own delimiter recovers what the capture group would have, and each segment is validated by one regex-match: measured exact against the reference at 955 citations over 172 files, zero disagreements. Two plausible parity-based versions of that split are WRONG and are tabled in §5. (ii) Cover cell 3 graded nothing, because it used an unbackticked link target, which is not a citation under PATH at all; it now uses a backticked target. (iii) §7 gains a second in-principle-invisible rule: the LINK substitution is a measured no-op on the live corpus, 955 citations with and without it. Written RFC-first, before any port code. THE SUBJECT IS ADVISORY AND EXITS 0 BY DESIGN, so a differential cover comparing exit codes grades nothing and §6 compares STDOUT TEXT instead. THE LIVE CORPUS IS NOT VACUOUS, and this RFC corrects the expectation it inherited from TOOL-RFC-004: measured 2026-08-10, all four exemption classes are live-exercised, each the SOLE rescuer of 13 to 19 citations, and the historical-file skip is worth 268; so the SUPPRESSION half has a live instrument and only the REPORTING half is fixture-only, because the corpus yields zero findings. THREE decisions settled by user adjudication 2026-08-10: D1 distribution, D2 existence by `git ls-files` membership, and D3 `regex-match` over a hand-rolled scanner. D3 REVERSES THE PRECEDENT SET BY `versiongate.llmll:25` AND `shape.llmll:26`, and it reverses it on a measurement: both recognizer shapes report `body-fallback`, a control reports `body-faithful`, so the verified tier those comments were protecting is not available to this function either way. `HIST_LINE` is written as per-letter bracket classes, which is exact case-insensitivity; the variant-list approximation is forbidden and cover cell 9 is what forbids it. The campaign's distribution sentence is AMENDED here rather than owed a third time. Three findings routed out: `shape.llmll:26` claims `^N\\d+$` ports verbatim and it does not, `llmll check` passes an unknown function at exit 0, and DONE-TYPE-1 fires on every console program built for this port."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -199,23 +199,40 @@ Every row marked *measured* below was executed against `llmll 0.14.96` at
 | Decide whether a cited path EXISTS | **gap** | `os.path.exists` has no equivalent. Two mechanisms measured, see §5 and D2. **Measured**: `wasi.fs.read` on a missing path answers `RErr` with `openFile: does not exist`, so existence-by-attempt works; it costs a full READ where the reference costs a stat, and the live corpus would move **77.0 MB across ~1900 calls** in a job budgeted under a minute |
 | Test membership in a list | **available**, `list-contains` | The mechanism D2 settled on |
 | Normalize `a/b/../c` | **gap, hand-rolled** | No `normpath`. **Measured**: 58 of 947 live citations contain `..`, so this is exercised on every real run and cannot be deferred |
-| Extract every backticked path from a document | **gap** | `regex-match : (string, string) -> bool` returns a **bool** and captures nothing, so `PATH` and `LABEL` cannot use it whatever D3 decides. A hand-rolled scanner is forced, on `versiongate.llmll:25`'s precedent |
+| Extract every backticked path from a document | **gap, and it costs one `string-split`** | `regex-match : (string, string) -> bool` returns a **bool** and captures nothing, so it cannot locate a citation whatever D3 decides. **Corrected after building it**: this does NOT force a character-level scanner. A citation is backtick-delimited by construction, so splitting the body on a backtick recovers exactly the set the capture would have returned, and each segment is then validated by one `regex-match`. **Measured against the reference over the whole live corpus: 955 citations, 172 files, ZERO disagreements** |
 | Test a candidate against `PLACEHOLDER` | **available**, `regex-match`, verbatim | **Measured, built and run**: `"NN|<|\\bfoo\\b|Mylib|cell_|turn_|\\.\\.\\."` gives T on `postmortem-NNN.md`, T on `design/foo.md`, T on `a/turn_3/x.json`, and F on a fourth path carrying no placeholder token. The LLMLL string literal carries the backslash through to TDFA, and TDFA supports `\b` |
 | Test a line against `HIST_LINE`, case-insensitively | **gap** | **Measured**: `regex-match` lowers to `Text.Regex.TDFA`, which rejects inline `(?i)` (returns False), and there is no lowercase builtin. Exact case-insensitivity IS expressible as per-letter bracket classes (`[Pp][Rr]...`, measured working). Live relevance measured: one alternative genuinely needs the fold, `previously` matching `Previously` twice |
 | Split content into lines | **available**, `string-split` on `"\n"` | Empty-separator decomposition is absent (`SPLIT-EMPTY-1`) and is not needed |
-| Index a string by character | **available**, `string-char-at` | **Measured, built and run**: `string-char-at "abc" 1` is `"b"`, `string-slice "abcdef" 1 3` is `"bc"` (end-exclusive) |
+| Index a string by character | **available and NOT needed** | **Measured, built and run**: `string-char-at "abc" 1` is `"b"`, `string-slice "abcdef" 1 3` is `"bc"` (end-exclusive). Recorded because the first design assumed a character fold like `versiongate.llmll`'s `leading-run`, and the split-plus-`regex-match` scanner removed the need for one. `string-slice` is still used, for the prefix tests in F1 |
 | Sort findings by file | **available by construction** | `git ls-files` emits sorted output and findings accumulate in file order, so no sort builtin is needed |
 | Adjudicate the suppression order | **available AND provable** | **Measured**: a `def` over six bools verifies `body-faithful` and SAFE, and dropping one clause is **REFUTED at constraint #0**. This is §7's third instrument |
 | Recognize which bytes are a citation | **available, not contractable** | A bool-valued body over string comparison falls back (`STRLIT-BODY-1`). **Measured**: the `string-contains` recognizer and the `regex-match` recognizer BOTH report `body-fallback`, while a control (`(def double [x: int] -> int (post (= result (+ x x))) (+ x x))`) reports `body-faithful`, so the instrument discriminates and the fallback is a finding rather than an artifact |
 | Read `STRICT` from the environment | **gap** | No `wasi.env.*` exists; the sixteen `wasi.*` names were enumerated from the compiler. **Measured**: `wasi.proc.args` delivers `--strict extra` as `argc=2` to a built binary with no `--` separator, so argv carries the flag |
 | Exit with a distinct status | **available**, `console` mode | `:mode cli` performs no `Command` (`MODE-CLI-1`), so the port is a stdin-driven step machine like every other in this campaign |
 
+**The split scanner had two plausible wrong versions and both were caught by
+measurement rather than by reading.** The obvious implementation of "split on the
+delimiter" is to keep the segments that are *inside* backticks, and that is
+exactly the one that fails:
+
+| Model | Result against the reference |
+|---|---|
+| Odd-index segments, per line | Wrong. A backtick span may cross a newline, which desyncs the parity for the rest of that line. Missed one citation in `docs/design/finding-arg-position-false-safe.md` |
+| Odd-index segments, whole body | Much worse. A single unbalanced backtick desyncs everything after it: **16 citations where the reference finds 94**, in `docs/compiler-team-roadmap.md` |
+| **Every segment, no parity** | **Exact: 955 citations, 172 files, zero disagreements** |
+
+Testing every segment has no parity to lose, and it is what the reference's regex
+effectively does: on a failed match the regex advances one character and may
+re-enter at a backtick a parity model has already spent. **All three models agree
+on almost every file**, which is why the instrument was a corpus-wide comparison
+and why a spot check would have passed.
+
 ## 5. Gaps
 
 | Gap | Disposition | Roadmap tag | What the design would have been |
 |---|---|---|---|
 | `os.path.exists` has no equivalent; nothing answers "is there a file here" without moving its bytes | **SHAPES** | unfiled, owed (proposed `FS-EXISTS-1`) | A direct existence predicate per citation, as the reference writes it. Instead the port enumerates the tree ONCE with `git ls-files` and tests `list-contains`, per D2. Deliberately **not** folded into `FS-STAT-1`, which is about an artifact's AGE for `liveness.advancing` and would answer a different question; collapsing two causes into one row is what produced a row that was wrong for a release at `ALIAS-LOWER-1` |
-| `regex-match` returns `bool`, so no capture and no scan | **SHAPES** | unfiled, owed (proposed `REGEX-CAPTURE-1`) | `PATH` and `LABEL` as two regex calls, the way the reference writes them. Instead the port hand-rolls two scanners over `string-char-at` and `string-slice`. This is forced independently of D3 and is the second port to hand-roll a scanner, after `versiongate.llmll:25` |
+| `regex-match` returns `bool`, so no capture and no scan | **SHAPES** | unfiled, owed (proposed `REGEX-CAPTURE-1`) | `PATH` and `LABEL` as two `finditer` calls, the way the reference writes them. Instead the port splits the body on the citation's own delimiter and validates each segment with one `regex-match`. **The gap is real and its cost is one `string-split`, not a character scanner**, which is a correction to this row's first revision: the delimiter recovers what the capture group would have. The cost that remains is that the split model had to be **measured** against the reference rather than read off the regex, and two plausible versions of it are wrong (see the note below) |
 | No case-insensitive matching: TDFA rejects `(?i)` and no lowercase builtin exists | **SHAPES** | unfiled, owed (proposed `REGEX-CASE-1`) | `HIST_LINE` as one `re.I` call. Instead the port writes **per-letter bracket classes** (`[Pp][Rr]...`), settled at D3: exact rather than approximate, and verbose. Measured live relevance: `previously` matches `Previously` twice on the current tree, so the gap fires on real prose rather than only on a fixture |
 | No path normalization for `..` | **SHAPES** | unfiled, owed (proposed `PATH-NORM-1`) | `os.path.normpath`. Instead the port folds the segment list, dropping a segment per `..`. Measured: 58 of 947 live citations need it, so it is on the main path and not an edge case |
 | `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: scan, print, exit. Instead the port is a stdin-driven step machine with an explicit control state, which is the campaign's single largest line-count multiplier |
@@ -227,6 +244,12 @@ Every row marked *measured* below was executed against `llmll 0.14.96` at
 **Four gaps are marked unfiled and owed.** That is a larger number than any
 previous port has produced, and it is the census this campaign exists to
 generate rather than a reason to defer. The campaign's §5 table carries them.
+
+**The split scanner's two wrong versions are tabled at the end of §4**, with the
+rest of the feasibility measurements. They are not repeated here because this
+section's tables are parsed as gap rows by
+[`test_tool_rfc_standard.py`](../../scripts/tests/test_tool_rfc_standard.py),
+which reads every row under this heading as a gap and rejects a two-column one.
 
 ## 6. Differential plan
 
@@ -252,7 +275,7 @@ requires both to report **zero findings** and the **same counts**.
 |---|---|---|---|
 | 1 | add a doc citing a path that does not exist | S1, S2 | both report 1 finding, same file, line and path |
 | 2 | cite the same missing path inside a fenced code block | stage 2, FENCE | both report 0; a port that forgets fence stripping reports 1 |
-| 3 | cite it as a link TARGET, `](missing/x.md)` | stage 2, LINK | both report 0 |
+| 3 | put a missing path in a link target **wrapped in backticks**, ``](`missing/x.md`)`` | stage 2, LINK | both report 0. **Corrected: the first version of this cell used an unbackticked target and graded nothing**, because an unbackticked path is not a citation under `PATH` at all, so a port with no LINK handling passes it too. Measured: the live corpus contains **zero** links with a backticked target, so this rule is invisible on the tree and this cell is its only instrument |
 | 4 | add [`old/x.md`](INDEX.md), a label whose target resolves | S3 | both report 0 |
 | 5 | the same label with a target that does NOT resolve | S3 | both report 1; the label set requires a RESOLVING target and this is the cell that proves it |
 | 6 | cite `postmortem-NNN.md` | S4 | both report 0 |
@@ -301,6 +324,7 @@ zero findings meant the same thing here. **Measured 2026-08-10, it does not.**
 | S6 `HIST_LINE` | 13 |
 | F2 historical files | 268 |
 | F1 `site/`, `node_modules/` | **0** |
+| The LINK substitution | **0** |
 
 Of 947 citations, 737 resolve from the repo root, 151 resolve **only** relative
 to the citing file, 58 contain `..`, and 59 do not resolve by path at all and are
@@ -310,9 +334,17 @@ that drops F2 reports 268. The suppression half has a live instrument.
 
 What the live corpus cannot reach is the **reporting** half. Zero findings means
 the finding loop, the line-number lookup, the file grouping, the epilogue and the
-`STRICT` branch never execute on a real run. And F1 is invisible even in
-principle: the six filtered files contain **zero** citations between them, so
-omitting the filter changes only the scanned-file count in the summary line.
+`STRICT` branch never execute on a real run.
+
+**Two rules are invisible in principle, not merely today, and each has exactly
+one instrument.** F1's six filtered files contain **zero** citations between
+them, so omitting the filter changes only the scanned-file count in the summary
+line; cell 13 is its only instrument. The LINK substitution is a **measured
+no-op**: 955 citations with it and 955 without, because a link target is not
+backticked and therefore is not a citation under `PATH` in the first place. It
+fires only on a backticked target, of which the corpus has none; cell 3 is its
+only instrument, and the first version of that cell would not have caught its
+absence either.
 
 | Instrument | Catches | Blind to | Survives §8? |
 |---|---|---|---|
@@ -369,6 +401,14 @@ Before that, all of:
 - the `ALLOW` table carried in the port rather than in the reference, per D5,
   since deleting the reference otherwise deletes fourteen human judgements that
   nothing in the tree can regenerate;
+- **the job verifying `adjudicate.llmll` BEFORE `pathlint.llmll`**, which is an
+  ordering constraint rather than a preference. Measured: with no sidecar
+  present, `llmll check` on the port warns "Function `reports?` has an unproven
+  contract (level: asserted). Your module inherits this trust gap", and the
+  warning disappears once the core is verified. The sidecar is gitignored, as it
+  is for the other three ports, so the trust is established by running verify in
+  the job and not by anything in the repository. A port checked without that
+  step silently drops to `asserted` on the one function §7 counts as proved;
 - the reporting-half fixtures in place, since §6 dies with the reference and row
   4 is the only instrument that reaches that half at all.
 

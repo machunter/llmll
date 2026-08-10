@@ -76,14 +76,45 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 
 ---
 
-## 2. The next work: build port 005
+## 2. The next work: finish port 005
 
-**The RFC for port 005 is written.** Read
-[`tool-rfc-005-doc-path-lint.md`](tool-rfc-005-doc-path-lint.md). The port does
-not exist. Its `tool_state` is `blocked`, which means "no port", not "a roadmap
-row stops it".
+**The RFC is written and the port is started.** Read
+[`tool-rfc-005-doc-path-lint.md`](tool-rfc-005-doc-path-lint.md), at Rev 1. Its
+`tool_state` is `blocked`, which means "no program yet", not "a roadmap row
+stops it".
 
-Build the port next. Then write the cover. The RFC gives the plan.
+**Two files exist. Both check and verify.**
+
+| File | State |
+|---|---|
+| `tools/doc-path-lint/adjudicate.llmll` | **DONE.** `reports?` and `tally` are body-faithful and SAFE. Each one has a refuting case |
+| `tools/doc-path-lint/pathlint.llmll` | **PART DONE.** The pure half is written. It has no `def-main` |
+
+**Build the step machine next.** These parts are owed:
+
+1. The phase machine: argv, two `git ls-files` calls, the file loop, the report.
+2. The label lookup, for suppressor S3.
+3. The `ALLOW` table, 14 entries, carried in the port. Decision D5 requires this.
+4. The line-number lookup. Copy the reference's first-line quirk.
+5. The `--strict` exit.
+
+Then write the cover. The RFC section 6 gives 19 cells and 3 negative controls.
+
+**Rev 1 corrected three errors. Build to Rev 1, not to Rev 0.** The first draft
+said a character scanner was necessary. It is not. A split on the backtick gives
+the same citations. One `regex-match` then tests each part. This is measured
+against the reference: 955 citations, 172 files, no disagreement.
+
+**Two other split models look correct and are wrong.** Do not use them. Section
+5 of the RFC gives the measurements.
+
+- Keep the parts INSIDE backticks, per line. A backtick pair can cross a line
+  end. Then the count is wrong for the remainder of that line.
+- Keep the parts INSIDE backticks, whole file. One unbalanced backtick makes
+  the remainder of the file wrong. This gives 16 citations where the reference
+  gives 94.
+
+Test EVERY part between two backticks. Do not count backticks.
 
 ### All three decisions are settled
 
