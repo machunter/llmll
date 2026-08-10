@@ -231,17 +231,334 @@
                                                      (string-concat "/" (second a)))))
                               seg)))))
 
+  ;; --------------------------------------------------------- string helpers --
+  ;; Everything before the first occurrence of sep, or all of s if absent.
+  (def-shell before-first [s: string sep: string] -> string
+    (unwrap-or (list-head (string-split sep s)) s))
+
+  ;; Everything after the first occurrence of sep, rejoined, or "" if absent.
+  ;; The counter distinguishes "before the first separator" (dropped) from the
+  ;; first kept segment (no separator prepended) from the rest (separator
+  ;; restored), which a bool cannot do in one pass.
+  (def-shell after-first [s: string sep: string] -> string
+    (first (list-fold (string-split sep s)
+                      (pair "" 0)
+                      (fn [a: (string, int) seg: string]
+                        (if (= (second a) 0)
+                            (pair "" 1)
+                            (if (= (second a) 1)
+                                (pair seg 2)
+                                (pair (string-concat (first a) (string-concat sep seg))
+                                      (+ (second a) 1))))))))
+
+  ;; LINK.sub(']()', body): blank out every link TARGET before scanning, so a
+  ;; path inside `](...)` is not read as a citation.
+  ;;
+  ;; MEASURED NO-OP ON THE LIVE CORPUS: 955 citations with it and 955 without,
+  ;; because a target is not backticked and so is not a citation under PATH in
+  ;; the first place. It fires only on a backticked target, of which this tree
+  ;; has none. Implemented because a port reproduces its reference, and cover
+  ;; cell 3 is its only instrument.
+  (def-shell strip-links [body: string] -> string
+    (first (list-fold (string-split "](" body)
+                      (pair "" true)
+                      (fn [a: (string, bool) seg: string]
+                        (if (second a)
+                            (pair seg false)
+                            (pair (string-concat
+                                    (first a)
+                                    (if (string-contains seg ")")
+                                        (string-concat "]()" (after-first seg ")"))
+                                        (string-concat "](" seg)))
+                                  false))))))
+
+  ;; ---------------------------------------------------------------- ALLOW --
+  ;; D5: the fourteen entries are carried HERE and not derived, because §8
+  ;; deletes the reference and takes the table with it. Each one is a human
+  ;; judgement that a specific citation is correct despite not resolving;
+  ;; regenerating it from the tree would make every unresolved citation
+  ;; self-justifying, which is the vacuous shape §7 rejects.
+  ;;
+  ;; Keyed on (file, path) exactly as the reference keys it, tab-separated and
+  ;; newline-delimited so a membership test cannot match across two entries.
+  (def-shell allow-tbl [] -> string
+    (string-concat
+      (string-concat
+        "\nexperiments/language-comparison-backlog.md\texperiments/repair-loop/BACKLOG.md\nREADME.md\tsrc/Lib.hs\nLLMLL.md\tsrc/FFI/Mylib.hs\n"
+        "experiments/minimal-agent/README.md\t.llmll/templates/ecommerce-order-handler/scaffold.ast.json\nexperiments/minimal-agent/experiments/009-transfer-conservation.md\t.llmll/templates/transfer-conservation/scaffold.ast.json\n")
+      (string-concat
+        (string-concat
+          "experiments/minimal-agent/experiments/010-byte-saturate.md\t.llmll/templates/byte-saturate/scaffold.ast.json\nexperiments/minimal-agent/experiments/011-assume-guarantee-order.md\t.llmll/templates/assume-guarantee-order/scaffold.ast.json\n"
+          "experiments/r5-validation/findings.md\tscratchpad/r5drive.sh\ndocs/design/rfc-swarm-roadmap-proposal.md\taudit/runner.py\n")
+        (string-concat
+          "docs/design/driver-in-llmll-campaign.md\tarchive/do_notation/do-notation-design.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/rfc-swarm-roadmap-proposal.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/driver-in-llmll-campaign.md\n"
+          "docs/design/examples-audit-2026-07-20-compiler-followups.md\texamples/conways_life_json_verifier/life.ast.json.verified.json\nexperiments/repair-loop/findings.md\texperiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll\n"))))
+
+  (def-shell allowed? [f: string p: string] -> bool
+    (string-contains (allow-tbl)
+                     (string-concat "\n" (string-concat f (string-concat "\t" (string-concat p "\n"))))))
+
+  ;; ---------------------------------------------------------------- labels --
+  ;; S3: `p` is rescued when it appears as a link LABEL whose TARGET resolves,
+  ;; [`old/path.md`](new/path.md). The link works and the label is display text.
+  ;;
+  ;; The reference builds a per-file set of such labels, so ANY link carrying
+  ;; the label with a resolving target rescues EVERY citation of it in that
+  ;; file. That is why the fold below keeps looking after the first occurrence:
+  ;; a file may cite the same label twice with only one link.
+  (def-shell label-ok? [tracked: string f: string body: string p: string] -> bool
+    (second (list-fold (string-split (string-concat "[`" (string-concat p "`](")) body)
+                       (pair true false)
+                       (fn [a: (bool, bool) seg: string]
+                         (if (first a)
+                             (pair false (second a))
+                             (pair false
+                                   (or (second a)
+                                       (tracked? tracked
+                                                 (norm-join (dir-of f)
+                                                            (before-first (before-first seg ")") "#"))))))))))
+
+  ;; ------------------------------------------------------------ line lookup --
+  ;; The reference takes the FIRST line containing `p`, over the UNSTRIPPED
+  ;; lines, and consults only that line for the historical marker. Two
+  ;; consequences are reproduced rather than fixed, per §9: a path cited twice
+  ;; yields two findings both carrying the first line's number, and a marker on
+  ;; that first line suppresses both.
+  (def-shell line-of [content: string p: string] -> int
+    (second (list-fold (string-split "\n" content)
+                       (pair 0 0)
+                       (fn [a: (int, int) line: string]
+                         (pair (+ (first a) 1)
+                               (if (and (= (second a) 0)
+                                        (string-contains line (string-concat "`" (string-concat p "`"))))
+                                   (+ (first a) 1)
+                                   (second a)))))))
+
+  (def-shell line-text [content: string n: int] -> string
+    (first (list-fold (string-split "\n" content)
+                      (pair "" 1)
+                      (fn [a: (string, int) line: string]
+                        (pair (if (= (second a) n) line (first a))
+                              (+ (second a) 1))))))
+
   ;; --------------------------------------------------------------- verdict --
   ;; The six suppressors of doc_path_lint.py:153-161, gathered for one citation
   ;; and handed to the PROVED adjudicator in adjudicate.llmll. The evidence is
   ;; collected here, where nothing is provable, and the decision is taken there,
   ;; where it is: `reports?` verifies body-faithful and dropping a single
   ;; suppressor from it is refuted at constraint #0.
-  (def-shell report-citation? [tracked: string f: string p: string
-                               label: bool hist: bool allow: bool] -> bool
-    (reports? (tracked? tracked p)
-              (tracked? tracked (norm-join (dir-of f) p))
-              label
-              (regex-match (ph-pat) p)
-              allow
-              hist)))
+  ;;
+  ;; THE LINE LOOKUP IS DEFERRED ON PURPOSE. The reference computes it only
+  ;; after S1 to S5 have all missed (`:159`, below the `or`-chain), so a
+  ;; resolving citation never pays for a scan of the file's lines. Computing it
+  ;; eagerly here would be correct and would walk every line of every file once
+  ;; per citation, which on this corpus is 955 scans instead of the handful the
+  ;; reporting path actually needs.
+  ;; THE ORDER OF EVALUATION HERE IS A PERFORMANCE PROPERTY, NOT A STYLE ONE,
+  ;; and it mirrors the reference's own short-circuit `or`. Two suppressors are
+  ;; expensive: S3 rescans the whole file body looking for a link carrying this
+  ;; label, and S6 walks every line looking for the citation. The other four are
+  ;; a substring test or a regex over one short path. Evaluating the cheap four
+  ;; first takes S3 from 955 body scans to the 59 citations that reach it.
+  ;;
+  ;; Measured: computing S3 eagerly for every citation ran past two minutes on
+  ;; this corpus, because a 274 KB file with 94 citations rescans 26 MB. LLMLL is
+  ;; strict, so `and`/`or` in one expression would not have saved it; the
+  ;; branching is what defers the work.
+  ;;
+  ;; Passing `false` for a suppressor that was never evaluated is sound because
+  ;; `reports?` is a negated disjunction: once any suppressor holds the answer is
+  ;; false whatever the others are.
+  (def-shell report-citation? [tracked: string f: string content: string
+                               body: string p: string] -> bool
+    (let [(root  (tracked? tracked p))
+          (rel   (tracked? tracked (norm-join (dir-of f) p)))
+          (ph    (regex-match (ph-pat) p))
+          (allow (allowed? f p))]
+      (if (or (or root rel) (or ph allow))
+          (reports? root rel false ph allow false)
+          (if (label-ok? tracked f body p)
+              (reports? root rel true ph allow false)
+              (reports? root rel false ph allow
+                        (regex-match (hist-pat)
+                                     (line-text content (line-of content p))))))))
+
+  ;; ------------------------------------------------------------- scan a file --
+  (def-shell finding-line [f: string content: string p: string] -> string
+    (string-concat "  " (string-concat f (string-concat ":"
+      (string-concat (int-to-string (line-of content p))
+                     (string-concat "  `" (string-concat p "`\n")))))))
+
+  ;; One file: count every citation, report the ones nothing suppressed, and
+  ;; raise the reporting-file count exactly once however many findings it has.
+  ;; TWO BODIES, AND THE ORDER IS THE WHOLE OF IT. The reference builds its
+  ;; label set from the FENCE-STRIPPED body and applies the link substitution
+  ;; only to the copy it scans for citations (doc_path_lint.py:145-148). Passing
+  ;; the link-stripped copy to the label lookup blanks every target before it is
+  ;; read, so no label ever resolves.
+  ;;
+  ;; MEASURED, and it is why this comment exists: collapsing the two produced 20
+  ;; false findings on the live tree, every one of them an S3 case, while the
+  ;; other 939 citations agreed with the reference exactly. A spot check of any
+  ;; single resolving citation would have passed.
+  (def-shell scan-file [r: Rc f: string content: string] -> Rc
+    (let [(fbody (strip-fences content))
+          (before (found-of r))]
+      (let [(r2 (list-fold (citations (strip-links fbody))
+                           r
+                           (fn [acc: Rc p: string]
+                             (let [(acc2 (with-i acc "cites" (+ (cites-of acc) 1)))]
+                               (if (report-citation? (tracked-of acc2) f content fbody p)
+                                   (with-s (with-i acc2 "found" (tally (found-of acc2) true))
+                                           "out" (string-concat (out-of acc2)
+                                                                (finding-line f content p)))
+                                   acc2)))))]
+        (with-i (with-i r2 "scanned" (+ (scanned-of r2) 1))
+                "ffiles" (if (> (found-of r2) before)
+                             (+ (jint (f-of r2) "ffiles") 1)
+                             (jint (f-of r2) "ffiles"))))))
+
+  ;; ----------------------------------------------------------------- queue --
+  (def-shell qhead [q: string] -> string (before-first q "\n"))
+  (def-shell qrest [q: string] -> string (after-first q "\n"))
+  (def-shell qempty? [q: string] -> bool (string-empty? (qhead q)))
+
+  ;; The scannable file list: `git ls-files '*.md'` minus F1 minus F2.
+  (def-shell wanted? [f: string] -> bool
+    (and (not (string-empty? f))
+         (and (not (excluded-dir? f)) (not (historical-file? f)))))
+
+  (def-shell build-queue [listing: string] -> string
+    (list-fold (list-filter (string-split "\n" listing) (fn [f: string] (wanted? f)))
+               ""
+               (fn [acc: string f: string] (string-concat acc (string-concat f "\n")))))
+
+  ;; ---------------------------------------------------------------- report --
+  ;; The reference's exact message text. The summary line is unconditional; the
+  ;; two tails are mutually exclusive.
+  (def-shell summary [r: Rc] -> string
+    (string-concat "DRIFT-DOC-4 (advisory): "
+      (string-concat (int-to-string (cites-of r))
+        (string-concat " prose path citations in "
+          (string-concat (int-to-string (scanned-of r)) " living files\n")))))
+
+  (def-shell epilogue [] -> string
+    (string-concat
+      "\nEach is one of: a stale citation to fix, or a case ALLOW should record with a reason.\n"
+      "This lint does not fail the build; see the module docstring for why it must not."))
+
+  (def-shell report-text [r: Rc] -> string
+    (if (= (found-of r) 0)
+        (string-concat (summary r) "DRIFT-DOC-4: all resolve.")
+        (string-concat (summary r)
+          (string-concat "DRIFT-DOC-4: "
+            (string-concat (int-to-string (found-of r))
+              (string-concat " do not resolve, in "
+                (string-concat (int-to-string (jint (f-of r) "ffiles"))
+                  (string-concat " file(s).\n\n"
+                    (string-concat (out-of r) (epilogue))))))))))
+
+  ;; ------------------------------------------------------------------ Ctl --
+  ;; TWO TERMINAL PHASES, AND THE SECOND ONE IS NOT REDUNDANT. `:done?` is
+  ;; consulted on the state the step RETURNS, and the Command that step returns
+  ;; is not performed once it holds. So a phase that both prints the report and
+  ;; declares itself finished loses the report. Measured the hard way: collapsing
+  ;; these two produced a run of 176 empty lines and no output at all, exiting 0.
+  ;; `Ending` issues the report and is NOT done; `Done` is. docarchive.llmll
+  ;; carries the same pair for the same reason.
+  (type Ctl
+    (| Boot)
+    (| LsAll)
+    (| ReadAll)
+    (| LsMd)
+    (| ReadMd)
+    (| ReadFile)
+    (| Ending)
+    (| Done))
+
+  (def-shell go [r: Rc p: Ctl c: Command] -> ((Rc, Ctl), Command)
+    (pair (pair r p) c))
+
+  (def-shell rc-of  [s: (Rc, Ctl)] -> Rc  (first s))
+  (def-shell ctl-of [s: (Rc, Ctl)] -> Ctl (second s))
+
+  (def-shell entries-of [x: Response] -> list[string]
+    (match x
+      ((RList xs) xs)
+      ((RNone)    [])
+      ((RText t)  [])
+      ((RCode n)  [])
+      ((RErr e)   [])))
+
+  (def-shell text-of [x: Response] -> string
+    (match x
+      ((RText t)  t)
+      ((RList xs) "")
+      ((RNone)    "")
+      ((RCode n)  "")
+      ((RErr e)   "")))
+
+  ;; Paths for the two `git ls-files` captures. wasi.proc.run writes the child's
+  ;; stdout to a FILE, so each listing is a run followed by a read.
+  (def-shell all-path [r: Rc] -> string (string-concat (work-of r) "/pathlint-all.txt"))
+  (def-shell md-path  [r: Rc] -> string (string-concat (work-of r) "/pathlint-md.txt"))
+
+  (def-shell run-git [r: Rc args: list[string] out: string] -> Command
+    (wasi.proc.run "git" args "." out out 120))
+
+  ;; Start the file loop, or go straight to the report on an empty queue.
+  (def-shell next-file [r: Rc] -> ((Rc, Ctl), Command)
+    (if (qempty? (queue-of r))
+        (go r Ending (wasi.io.stdout (report-text r)))
+        (go (with-s r "cur" (qhead (queue-of r))) ReadFile
+            (wasi.fs.read (qhead (queue-of r))))))
+
+  ;; --------------------------------------------------------------- the step --
+  (def-shell pl-step [s: (Rc, Ctl) input: string x: Response] -> ((Rc, Ctl), Command)
+    (let [(r (rc-of s))]
+      (match (ctl-of s)
+        ;; argv arrives as r0 through RC-3. D4: `--strict` is read HERE and not
+        ;; from the environment, because no env builtin exists. Measured: a
+        ;; flag-shaped argument reaches a built binary intact with no `--`.
+        ((Boot)
+         (let [(r2 (with-s (with-i r "strict"
+                             (if (list-contains (entries-of x) "--strict") 1 0))
+                           "work" "."))]
+           (go r2 LsAll (run-git r2 ["ls-files"] (all-path r2)))))
+        ;; D2: one enumeration of the index answers every existence question.
+        ((LsAll)   (go r ReadAll (wasi.fs.read (all-path r))))
+        ((ReadAll)
+         (let [(r2 (with-s r "tracked" (string-concat "\n" (text-of x))))]
+           (go r2 LsMd (run-git r2 ["ls-files" "*.md"] (md-path r2)))))
+        ((LsMd)    (go r ReadMd (wasi.fs.read (md-path r))))
+        ((ReadMd)
+         (next-file (with-s r "queue" (build-queue (text-of x)))))
+        ;; An unreadable file is skipped rather than crashing the run. The
+        ;; reference would raise; this gate reports and never fails, so raising
+        ;; on one file would lose the other 171 reports.
+        ((ReadFile)
+         (next-file (with-s (scan-file r (cur-of r) (text-of x))
+                            "queue" (qrest (queue-of r)))))
+        ((Ending)  (go r Done (wasi.io.stdout "")))
+        ((Done)    (go r Done (wasi.io.stdout ""))))))
+
+  (def-shell pl-done? [s: (Rc, Ctl)] -> bool
+    (match (ctl-of s) ((Done) true) ((Ending) false) ((Boot) false)
+                      ((LsAll) false) ((ReadAll) false) ((LsMd) false)
+                      ((ReadMd) false) ((ReadFile) false)))
+
+  ;; THE EXIT STATUS IS THE WHOLE OF THIS GATE'S "DECISION" AND IT IS ALMOST
+  ;; ALWAYS 0. `--strict` is the only way to get a 1, and only with findings.
+  ;; Do not widen this without reading the module header.
+  (def-shell pl-status [s: (Rc, Ctl)] -> int
+    (status-of (strict-of (first s)) (found-of (first s))))
+
+  (def-shell pl-init [] -> ((Rc, Ctl), Command)
+    (pair (pair (mk json-object) Boot) wasi.proc.args))
+
+  (def-main
+    :mode    console
+    :init    (pl-init)
+    :step    pl-step
+    :done?   pl-done?
+    :status  pl-status))

@@ -73,4 +73,26 @@
     (post (and (>= result 0)
                (and (=> report      (= result (+ seen 1)))
                     (=> (not report) (= result seen)))))
-    (if report (+ seen 1) seen)))
+    (if report (+ seen 1) seen))
+
+  ;; The exit status, and the whole of what this advisory gate "decides".
+  ;;
+  ;; IT LIVES HERE RATHER THAN IN THE PORT FOR TWO REASONS. A `:status`
+  ;; function is a strict-core `def`, so it may call only body-faithful
+  ;; functions, and every accessor in the port is a `def-shell` reading Json;
+  ;; PROC-BOUNDARY-1 records the same shape, that a def projecting a component
+  ;; out of a composite state falls back. Taking the two integers as parameters
+  ;; keeps the range obligation PROVED instead of asserted.
+  ;;
+  ;; The range refinement is what stops a silent success: POSIX truncates to the
+  ;; low 8 bits, so an unchecked 256 would exit 0 and report success. The two
+  ;; implications pin the policy itself, not merely the range: exit 1 exactly
+  ;; when strict was asked for AND something was found, and 0 in every other
+  ;; case. A body that failed closed would satisfy the range and be refuted by
+  ;; the second implication, which is the point of writing both.
+  (def status-of [strict: int found: int] -> int
+    (pre  (and (>= strict 0) (>= found 0)))
+    (post (and (and (>= result 0) (<= result 255))
+               (and (=> (and (= strict 1) (> found 0)) (= result 1))
+                    (=> (or (not (= strict 1)) (= found 0)) (= result 0)))))
+    (if (and (= strict 1) (> found 0)) 1 0)))

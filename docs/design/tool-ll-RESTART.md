@@ -83,22 +83,38 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 `tool_state` is `blocked`, which means "no program yet", not "a roadmap row
 stops it".
 
-**Two files exist. Both check and verify.**
+**Two files exist. The port BUILDS and RUNS.**
 
 | File | State |
 |---|---|
-| `tools/doc-path-lint/adjudicate.llmll` | **DONE.** `reports?` and `tally` are body-faithful and SAFE. Each one has a refuting case |
-| `tools/doc-path-lint/pathlint.llmll` | **PART DONE.** The pure half is written. It has no `def-main` |
+| `tools/doc-path-lint/adjudicate.llmll` | **DONE.** `reports?`, `tally` and `status-of` are body-faithful and SAFE. Each one has a refuting case |
+| `tools/doc-path-lint/pathlint.llmll` | **DONE and MEASURED.** It agrees with the reference byte for byte |
 
-**Build the step machine next.** These parts are owed:
+**The port agrees with the reference.** These runs are the measurement:
 
-1. The phase machine: argv, two `git ls-files` calls, the file loop, the report.
-2. The label lookup, for suppressor S3.
-3. The `ALLOW` table, 14 entries, carried in the port. Decision D5 requires this.
-4. The line-number lookup. Copy the reference's first-line quirk.
-5. The `--strict` exit.
+- The clean tree: byte-identical, from the first report line.
+- A tree with one bad citation: byte-identical, same file, line and path.
+- `--strict` gives exit 1 with findings. A plain run gives 0. This agrees with
+  `STRICT=1`.
 
-Then write the cover. The RFC section 6 gives 19 cells and 3 negative controls.
+**Two parts are owed before the port is an oracle.**
+
+1. Write the cover. Section 6 of the RFC gives 19 cells and 3 negative controls.
+2. Wire both implementations into `spec-roundtrip`, as one commit. Decision D1
+   gives the reason.
+
+**The job must verify `adjudicate.llmll` BEFORE `pathlint.llmll`.** The sidecar
+is not in git. Without it the port drops to `asserted` for `reports?`.
+
+### Three things the run showed. No reading gives them
+
+1. **Console mode writes one blank line for each step.** The run gave 177 blank
+   lines before the report. The cover must start at the first `DRIFT-DOC-4`
+   line. Do not compare raw output.
+2. **The report text must not end with a line end.** The harness adds one.
+3. **Do not compute suppressor S3 for each citation.** That took more than two
+   minutes. Compute the four cheap suppressors first. The reference does the
+   same. The run then takes 34 seconds.
 
 **Rev 1 corrected three errors. Build to Rev 1, not to Rev 0.** The first draft
 said a character scanner was necessary. It is not. A split on the backtick gives

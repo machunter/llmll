@@ -42,6 +42,10 @@ tools/llmll-driver/**/*.verified.json
 tools/version-gate/**/*.verified.json
 tools/doc-archive/**/*.verified.json
 tools/doc-path-lint/**/*.verified.json
+# The doc-path-lint port captures `git ls-files` through a file, because
+# wasi.proc.run writes a child's stdout to a path rather than returning it.
+pathlint-all.txt
+pathlint-md.txt
 
 # Console-mode programs write <module>.event-log.jsonl into their working
 # directory (LLMLL.md §10a). The covers now run them from scratch directories,
