@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 4, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) has its RFC WRITTEN (TOOL-RFC-005) and no port yet, `tool_state: blocked`; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
+status: "Rev 5, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). FIVE are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is PORTED and `tool_state: oracle` (TOOL-RFC-005), green on run 31439956284; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -45,7 +45,7 @@ excluding comments and blanks:
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | **RFC WRITTEN**, TOOL-RFC-005, `tool_state: blocked` (no port yet) |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes, `spec-roundtrip` since 005 | **PORTED**, `tool_state: oracle`, TOOL-RFC-005 |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
 **`refute-crux-gate.sh` was not invoked by any workflow.** It was a `make`
@@ -267,9 +267,11 @@ no toolchain required:
   wrong by construction. The live corpus declares one disposition of four and
   contains none of the four violation classes, so a live green run grades about
   a twentieth of the specified behaviour.
-- **005** doc-path lint. **RFC WRITTEN 2026-08-10**,
-  [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md), `tool_state: blocked`: the RFC
-  exists and the port does not, which is the RFC-first order working as intended.
+- **005** doc-path lint. **PORTED 2026-08-10**,
+  [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md), `tool_state: oracle`, green on
+  run `31439956284`. Cover at [`doc_path_lint_cover.py`](../../scripts/doc_path_lint_cover.py),
+  **22 cells: 19 mutations and 3 negative controls**, and the cover is SHOWN TO
+  FAIL against two deliberately broken ports rather than merely to pass.
   It was gated on `REGEX-LOWER-1`, and **this is where the campaign first stopped
   being port work**: that row was a compiler fix, so the critical path ran
   through the compiler team for one release and is now back on ports. The fix's

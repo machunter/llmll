@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. REGEX-LOWER-1 shipped at v0.14.96 and unblocked port 005. THE RFC FOR PORT 005 IS NOW WRITTEN and the port is not built; building it is the next work. ALL THREE OF ITS DECISIONS ARE SETTLED (D1 distribution, D2 existence by git ls-files, D3 use regex-match). D3 reverses the precedent in versiongate.llmll:25 and shape.llmll:26, on a measurement that the verified tier those comments protect is not available to this function either way. See section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+status: "LIVE, 2026-08-10. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle; run 31439956284 passed and both implementations run adjacent in spec-roundtrip. It is UNRELEASED: the last tag is v0.14.96 and several commits sit after it, so measure that count, do not read it. Port 006 is next and is BLOCKED on FS-WALK-1, whose disposition is Hold. Port 005 left TWO items for the user: the retirement question in section 8 of its RFC, because scripts/tests/test_doc_path_lint.py is fail-closed and binds to the reference that section deletes; and four gap rows to file. See section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -76,178 +76,44 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 
 ---
 
-## 2. The next work: finish port 005
+## 2. The next work: port 006
 
-**The RFC is written and the port is started.** Read
-[`tool-rfc-005-doc-path-lint.md`](tool-rfc-005-doc-path-lint.md), at Rev 1. Its
-`tool_state` is `blocked`, which means "no program yet", not "a roadmap row
-stops it".
+**Port 005 is complete.** It is `tool_state: oracle`. Run `31439956284` passed.
+Both implementations run in `spec-roundtrip`, as adjacent steps.
 
-**Two files exist. The port BUILDS and RUNS.**
+Port 006 (`build_smoke.sh`) is the last port. **It is BLOCKED on `FS-WALK-1`**,
+at the roadmap. That row has the disposition **Hold**. A recursive walk with no
+depth bound is the first unbounded loop in this language. Thus it is a design
+question for the language-team.
 
-| File | State |
-|---|---|
-| `tools/doc-path-lint/adjudicate.llmll` | **DONE.** `reports?`, `tally` and `status-of` are body-faithful and SAFE. Each one has a refuting case |
-| `tools/doc-path-lint/pathlint.llmll` | **DONE and MEASURED.** It agrees with the reference byte for byte |
+Port 006 also runs the other five gates. It must inherit their pattern.
 
-**The port agrees with the reference.** These runs are the measurement:
+### Port 005 left two items. Give them to the user
 
-- The clean tree: byte-identical, from the first report line.
-- A tree with one bad citation: byte-identical, same file, line and path.
-- `--strict` gives exit 1 with findings. A plain run gives 0. This agrees with
-  `STRICT=1`.
+1. **The retirement question.** Section 8 of the RFC gives it.
+   `scripts/tests/test_doc_path_lint.py` runs the reference. It is FAIL-CLOSED
+   on the live tree. Section 8 deletes that reference. Then the test breaks, and
+   the only fail-closed check on prose citations goes with it. The repair needs a
+   built binary, and that test runs in the job with no toolchain. **Decide this
+   before you delete the reference.**
+2. **Four gap rows.** Section 5 of the campaign names them: `FS-EXISTS-1`,
+   `REGEX-CAPTURE-1`, `REGEX-CASE-1` and `PATH-NORM-1`. No roadmap row holds
+   them. File the four rows.
 
-**The cover is written and it passes.** It is
-`scripts/doc_path_lint_cover.py`, with 19 mutations and 3 negative controls. All
-22 cells agree.
+### What port 005 measured. Keep these
 
-**The cover is also shown to FAIL.** A battery that only passes is not evidence.
-Two broken ports were built and run through it:
-
-| Broken port | Result |
-|---|---|
-| `HIST_LINE` as a list of case variants | Cell 9 fails. Cells 7 and 8 pass |
-| No `site/` filter | Cell 13 fails, on the finding and on the file count |
-
-**ONE part is owed before the port is an oracle.** Wire both implementations
-into `spec-roundtrip`, as one commit. Decision D1 gives the reason.
-
-**The job must verify `adjudicate.llmll` BEFORE `pathlint.llmll`.** The sidecar
-is not in git. Without it the port drops to `asserted` for `reports?`.
-
-### Three things the run showed. No reading gives them
-
-1. **Console mode writes one blank line for each step.** The run gave 177 blank
-   lines before the report. The cover must start at the first `DRIFT-DOC-4`
-   line. Do not compare raw output.
-2. **The report text must not end with a line end.** The harness adds one.
-3. **Do not compute suppressor S3 for each citation.** That took more than two
-   minutes. Compute the four cheap suppressors first. The reference does the
-   same. The run then takes 34 seconds.
-
-**Rev 1 corrected three errors. Build to Rev 1, not to Rev 0.** The first draft
-said a character scanner was necessary. It is not. A split on the backtick gives
-the same citations. One `regex-match` then tests each part. This is measured
-against the reference: 955 citations, 172 files, no disagreement.
-
-**Two other split models look correct and are wrong.** Do not use them. Section
-5 of the RFC gives the measurements.
-
-- Keep the parts INSIDE backticks, per line. A backtick pair can cross a line
-  end. Then the count is wrong for the remainder of that line.
-- Keep the parts INSIDE backticks, whole file. One unbalanced backtick makes
-  the remainder of the file wrong. This gives 16 citations where the reference
-  gives 94.
-
-Test EVERY part between two backticks. Do not count backticks.
-
-### All three decisions are settled
-
-The user made D1, D2 and D3 on 2026-08-10. Do not discuss them again. Section 9
-of the RFC gives each one.
-
-- **D1, distribution.** Amend the campaign rule first. Then move the gate.
-- **D2, existence.** Use one `git ls-files`. Then use `list-contains`.
-- **D3, the regexes.** Use `regex-match`.
-
-**D3 reverses a precedent. Build the port to the reversal.** Two comments in the
-tree avoid `regex-match`: `versiongate.llmll:25` and `shape.llmll:26`. They give
-the verified tier as the reason. A probe measured that reason to be absent here.
-Both recognizer shapes report `body-fallback`. A control reports
-`body-faithful`. Thus the probe discriminates, and the tier cost is zero.
-
-Three rules come with D3:
-
-1. Write `PLACEHOLDER` as the reference writes it. Do not change a character.
-2. Write `HIST_LINE` as per-letter bracket classes, like `[Pp][Rr]`. This gives
-   exact case-insensitive matching. **Do not use a list of case variants.** That
-   is an approximation, and cover cell 9 rejects it.
-3. Hand-roll the two SCANNERS. `regex-match` returns a bool and captures
-   nothing. Thus the port holds two mechanisms. This is correct.
-
-**TDFA is not Python.** `regex-match` uses POSIX ERE. It has `\b`. It has no
-`\d`. Measure each new pattern before you use it.
-
-### What the RFC found that the roadmap did not say
-
-Four facts were given to this campaign. Three are correct. One is wrong.
-
-- **Correct.** The gate is advisory. It exits 0. A cover must compare the text
-  on stdout. It must not compare exit codes.
-- **Correct.** No environment access exists. The port reads `--strict` from
-  argv. A probe measured that argv carries the flag. **The campaign disposition
-  holds. The row does not move.**
-- **Correct.** The gate runs in the fast job. That job has no toolchain. This is
-  the second occurrence. **The user told the campaign to amend the rule now.**
-  The amendment is at campaign section 3.
-- **WRONG.** The fourth fact said that a live green run grades almost nothing.
-  **Measure it again before you trust it.** All four exemption classes are live.
-  Each one alone rescues 13 to 19 citations. The historical-file rule rescues
-  268. Thus the suppression half has a live instrument. Only the reporting half
-  needs fixtures, because the corpus gives zero findings.
-
-**One filter is invisible.** The `site/` and `node_modules/` rule removes six
-files. Those six files hold zero citations. Thus no corpus can exercise that
-rule. Only cell 13 can see it.
-
-### Three items go to other teams
-
-The RFC found these. None of them stops port 005.
-
-1. `shape.llmll:26` says that `^N\d+$` ports word for word. **This is wrong.**
-   TDFA has no `\d`. Use `^N[0-9]+$`. Corrected.
-2. `llmll check` gives exit 0 for an unknown function. It gives a warning only.
-   This is the `REGEX-LOWER-1` shape.
-3. `DONE-TYPE-1` gives a warning for each console program.
-4. **`REGEX-LOWER-1` shipped at v0.14.96. Six sites still say it did not.** The
-   v0.14.96 release corrected the documents. It did not correct the code
-   comments. This session corrected `versiongate.llmll:25`, because D3 rests on
-   it. Five sites stay: `sequencer.llmll:1327` and `:1334`,
-   `docclaims.llmll:174`, and `test_driver_ll_4c.py:39`, `:419` and `:432`.
-
-**One of the five sites is a test, and it is the one to look at first.**
-`test_the_driver_calls_regex_match_nowhere` gives "does not build" as its reason.
-It says "Until that row ships" in its failure message. The row shipped. The test
-passes today, because no module calls `regex-match`. But it will stop a correct
-change and give a false reason. DRIVER-LL owns that decision.
-
-### Why the campaign did not choose port 006
-
-The earlier version of this section offered port 006 as the other option. **That
-option was incorrect. Port 006 is also blocked.** It needs `FS-WALK-1`, at
-roadmap line 73. Port 006 does not avoid compiler work.
-
-`FS-WALK-1` is also the more difficult row. Its roadmap disposition is **Hold**.
-A recursive walk with no depth bound is the first unbounded loop in this
-language. The other scanning code is bounded by construction. That makes
-`FS-WALK-1` a design question. `REGEX-LOWER-1` is a known defect in codegen, and
-it has two proposed shapes.
-
-Port 006 comes last for a second reason. It runs the other five gates. It must
-inherit the pattern of five ports.
-
-### What `REGEX-LOWER-1` found, and the two lessons to keep
-
-The row asked for a census before a fix. The census **corrected the row**.
-
-1. **The row grouped two names that behave differently.** It said `regex-match`
-   and `is-valid?` were one unmeasured pair. They are two classes. The
-   discriminator is `builtinEnv` membership. The row already stated that fact
-   for the six Unicode aliases. It did not apply the fact to `is-valid?`.
-2. **`is-valid?` was a phantom.** The compiler named it in one list and nowhere
-   else. It had no type, no implementation, no spec entry and no callers.
-3. **The gate caught a cell that was wrong by construction.** The negative
-   control ran the gate against a reverted compiler. The gate failed at its
-   build step. Thus two of its checks did not run. One of those checks could
-   never fire. It matched an identifier before the operator, and the fixture
-   passes a string literal there.
-
-**Keep lesson 3.** `TOOL-RFC-004` found the same class one release before. A
-battery can be wrong in the same way as the thing it grades. Run the negative
-control. Then read which checks it did not reach.
-
-`ALIAS-LOWER-1` is at roadmap line 63. v0.14.96 did not change it, and a test
-pins that. The six glyphs are now its full scope.
+- **Console mode writes one blank line for each step.** A cover must start at
+  the first `DRIFT-DOC-4` line. Do not compare raw output.
+- **A report text must not end with a line end.** The harness adds one.
+- **`:done?` is read on the state a step RETURNS.** That step's Command does not
+  run. Thus a phase must not print AND finish. Use two phases.
+- **`llmll verify` needs the solver.** Put a step that verifies BELOW the
+  toolchain assertion. Port 005 is the first port to verify in CI.
+- **TDFA is not Python.** `regex-match` gives POSIX ERE. It has `\b`. It has no
+  `\d`. It refuses `(?i)`. Measure each new pattern.
+- **A first-run pass is not evidence.** The cover passed 22 of 22 at once. Two
+  broken ports then showed that cell 9 and cell 13 can fail. Do this for each
+  new cover.
 
 ---
 
@@ -306,7 +172,7 @@ The user made these decisions on 2026-08-08. Do not discuss them again.
 
 ## 5. Campaign status
 
-Four ports of six are complete. Each of the four is an oracle.
+Five ports of six are complete. Each of the five is an oracle.
 
 | Port | State |
 |---|---|
@@ -314,7 +180,7 @@ Four ports of six are complete. Each of the four is an oracle.
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
-| **005** doc-path-lint | **RFC WRITTEN**, `tool_state: blocked`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The port does not exist. **Build it next.** One decision is open. See section 2 |
+| **005** doc-path-lint | **PORTED**, `tool_state: oracle`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). Run `31439956284` passed |
 | **006** build-smoke | Last. It runs the other gates. **It is also BLOCKED**, on `FS-WALK-1` |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
