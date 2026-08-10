@@ -173,6 +173,63 @@ fi
 
 echo "BUILD-GATE-1 PASS: fixture compiled through GHC; ${#MISSING[@]} missing preamble definitions"
 
+# --- 4b. REGEX-LOWER-1: a builtin that checks, verifies, and does not build. -
+#
+# This stage is the ONLY gate that can see this defect class. `regex-match`
+# passed `llmll check` at exit 0 with no warning and `llmll verify` as SAFE,
+# then failed at GHC, because Parser.hs's isOperator named it and emitOp's
+# fallback intercalated the operator name between its arguments. A check-time
+# fixture would have been green on both sides of the fix.
+#
+# Two assertions, and the second is the one that does not decay. Building is
+# necessary but a future refactor could make the module build while emitting
+# something other than the preamble binding, so the call site is asserted
+# directly.
+
+RX_FIXTURE="$REPO_ROOT/scripts/build-smoke/regex_lower.llmll"
+RX_OUTDIR="$OUTDIR/regex-lower"
+RX_LOG="$OUTDIR/.regex-lower.log"
+
+[ -f "$RX_FIXTURE" ] || fail "REGEX-LOWER-1 fixture missing at $RX_FIXTURE"
+
+if ! "${LLMLL_CMD[@]}" build "$RX_FIXTURE" -o "$RX_OUTDIR" > "$RX_LOG" 2>&1; then
+  echo "--- llmll build output ---" >&2
+  cat "$RX_LOG" >&2
+  fail "the REGEX-LOWER-1 fixture does not build. If GHC reports
+  'Variable not in scope: regex', then isOperator (Parser.hs) is naming
+  'regex-match' again and emitOp's fallback is emitting it infix. That call
+  must parse as an EApp so emitApp's default applies toHsIdent and binds the
+  preamble's regex_match."
+fi
+
+RX_LIB="$RX_OUTDIR/src/Lib.hs"
+[ -f "$RX_LIB" ] || fail "REGEX-LOWER-1: no src/Lib.hs emitted at $RX_LIB"
+
+# The prefix call, not merely the preamble definition: grep for an APPLICATION.
+grep -qE 'regex_match \(' "$RX_LIB" || fail "REGEX-LOWER-1: src/Lib.hs has no
+  prefix application of regex_match. The preamble defines it; if nothing calls
+  it the builtin is dead again, which is the state this gate exists to detect."
+
+# The hyphenated spelling must not survive into emitted Haskell AT ALL.
+#
+# An earlier draft of this assertion matched '[a-z_]+ regex-match ', modelled on
+# the `(p regex-match s)` form. That cell was WRONG BY CONSTRUCTION: this
+# fixture's first def passes a string LITERAL, whose emission is
+# `("^[a-f0-9]{64}$" regex-match s)`, and the character before the operator is a
+# quote rather than an identifier, so the pattern missed the very call it was
+# written for. Measured on both sides instead: a correct build contains ZERO
+# occurrences of the hyphenated spelling, the preamble carrying `regex_match`
+# and a comment that says "regex patterns". So test for zero.
+if grep -q 'regex-match' "$RX_LIB"; then
+  echo "--- offending lines ---" >&2
+  grep -n 'regex-match' "$RX_LIB" >&2
+  fail "REGEX-LOWER-1: src/Lib.hs contains the hyphenated 'regex-match'. GHC
+  lexes that hyphen as subtraction. isOperator must not name anything emitOp
+  cannot lower; the call must reach emitApp and be mangled by toHsIdent."
+fi
+
+echo "BUILD-GATE-1 PASS: REGEX-LOWER-1 fixture compiled and binds regex_match prefix"
+
 # --- 5. EXECUTION gate (CAP-PROC). ------------------------------------------
 #
 # Everything above proves the preamble COMPILES. That is not the property

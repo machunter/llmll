@@ -821,6 +821,60 @@ main = hspec $ do
       cgHsSource result `shouldSatisfy` T.isInfixOf "deriving (Eq, Show)"
 
   -- -----------------------------------------------------------------------
+  -- REGEX-LOWER-1: 'isOperator' must not name anything 'emitOp' cannot lower.
+  -- `regex-match` sat in that list, so it parsed to an EOp and reached
+  -- emitOp's fallback, which intercalates the operator name LITERALLY between
+  -- its arguments: `(regex-match p s)` emitted `(p regex-match s)`, which GHC
+  -- lexes as `p regex - match s`. The program typechecked, VERIFIED, and then
+  -- did not build, while the preamble's own `regex_match` binding was
+  -- referenced by nothing. These tests pin the lowering, not the diagnostic.
+  -- -----------------------------------------------------------------------
+  describe "REGEX-LOWER-1 operator lowering" $ do
+    it "regex-match parses as EApp, not EOp, so it reaches toHsIdent" $ do
+      case parseExpr "<test>" "(regex-match p s)" of
+        Left err -> expectationFailure (show err)
+        Right (EApp "regex-match" [_, _]) -> pure ()
+        Right other -> expectationFailure $ "Expected EApp, got: " ++ show other
+
+    it "is-valid? parses as EApp, so it fails as an unknown FUNCTION" $ do
+      -- It is a phantom: named in isOperator and nowhere else in the compiler.
+      -- As an EOp it only warned and `check` exited 0; as an EApp the
+      -- strict-core admissibility check rejects it at check time.
+      case parseExpr "<test>" "(is-valid? s)" of
+        Left err -> expectationFailure (show err)
+        Right (EApp "is-valid?" [_]) -> pure ()
+        Right other -> expectationFailure $ "Expected EApp, got: " ++ show other
+
+    it "regex-match lowers to the prefix preamble binding, never the infix form" $ do
+      let src = T.pack $ unlines
+            [ "(def matches [p: string s: string] -> bool"
+            , "  (regex-match p s))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let hs = cgHsSource (generateHaskell "test" stmts)
+          -- The call site binds the preamble function ...
+          hs `shouldSatisfy` T.isInfixOf "regex_match (p) (s)"
+          -- ... and the emission GHC lexed as `p regex - match s` is gone.
+          hs `shouldSatisfy` (not . T.isInfixOf "p regex-match s")
+
+    it "the six Unicode aliases still parse as EOp (ALIAS-LOWER-1 is a separate patch)" $ do
+      -- This patch must not silently absorb ALIAS-LOWER-1. After it, the
+      -- aliases are the ENTIRE remaining population of TypeCheck's
+      -- unknown-operator arm, which is that row's business and not this one's.
+      let binaries = ["\x2265", "\x2264", "\x2260", "\x2227", "\x2228"] :: [T.Text]
+      forM_ binaries $ \a ->
+        case parseExpr "<test>" ("(" <> a <> " x y)") of
+          Left err -> expectationFailure (show err)
+          Right (EOp op _) | op == a -> pure ()
+          Right other -> expectationFailure $ "Expected EOp for alias, got: " ++ show other
+      case parseExpr "<test>" "(\x00AC x)" of
+        Left err -> expectationFailure (show err)
+        Right (EOp "\x00AC" _) -> pure ()
+        Right other -> expectationFailure $ "Expected EOp for negation, got: " ++ show other
+
+  -- -----------------------------------------------------------------------
   -- D1: Static match exhaustiveness check
   -- -----------------------------------------------------------------------
   describe "D1 match exhaustiveness" $ do

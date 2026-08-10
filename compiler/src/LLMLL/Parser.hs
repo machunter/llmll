@@ -937,10 +937,32 @@ pFuncName = lexeme' $ choice
         else pure ident
   ]
 
+-- | REGEX-LOWER-1: this list must not name anything 'emitOp' cannot lower.
+--
+-- A name here becomes an 'EOp', and CodegenHs.emitOp carries named lowerings
+-- for ten operators and then a fallback that intercalates the operator name
+-- LITERALLY between its arguments. That fallback is correct exactly for names
+-- which are already valid Haskell infix operators. `regex-match` was not, so
+-- `(regex-match p s)` emitted `(p regex-match s)`, GHC lexed it as
+-- `p regex - match s`, and the preamble's own `regex_match` binding
+-- (CodegenHs.hs:395-396) was referenced by nothing for the builtin's whole
+-- life. It typechecked and it VERIFIED, and then it did not build.
+--
+-- Removed rather than given an emitOp case, so the two lists cannot drift
+-- apart again: `regex-match` now parses as an 'EApp' and reaches emitApp's
+-- default, which applies `toHsIdent` and so emits `regex_match` prefix, the
+-- preamble binding's exact name. `is-valid?` was a phantom, named here and
+-- nowhere else in the compiler: no builtinEnv type, no preamble, no spec
+-- entry, no callers. As an 'EApp' it now fails `check` (exit 1) instead of
+-- warning and exiting 0 about a program that could never work.
+--
+-- The six Unicode aliases stay: they are not in builtinEnv either, so they are
+-- rejected at TypeCheck before emitOp is consulted, and their normalization is
+-- ALIAS-LOWER-1's patch and not this one.
 isOperator :: Name -> Bool
 isOperator n = n `elem`
   ["+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=",
-   "and", "or", "not", "=>", "<=>", "regex-match", "is-valid?",
+   "and", "or", "not", "=>", "<=>",
    -- Unicode aliases map to the same operator semantics:
    "\x2265", "\x2264", "\x2260",  -- ≥ ≤ ≠
    "\x2227", "\x2228", "\x00AC"   -- ∧ ∨ ¬

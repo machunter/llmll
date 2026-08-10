@@ -1,0 +1,43 @@
+;; REGEX-LOWER-1 fixture. Compiled end to end through GHC by
+;; scripts/build_smoke.sh on every CI run of the spec-roundtrip job.
+;;
+;; THIS FIXTURE EXISTS BECAUSE NO CHECK-TIME GATE CAN SEE THE DEFECT IT PINS.
+;; `regex-match` is in builtinEnv (TypeCheck.hs:143), is documented in
+;; LLMLL.md's builtin table and boolean-builtin class row, and has a preamble
+;; implementation emitted at CodegenHs.hs:395-396. A program calling it passed
+;; `llmll check` at exit 0 with no warning, passed `llmll verify` as SAFE, and
+;; then FAILED at GHC with "Variable not in scope: regex".
+;;
+;; The cause was a parser list, not a missing piece. Parser.hs's isOperator
+;; named `regex-match`, so the call parsed to an EOp and reached emitOp's
+;; fallback, which intercalates the operator name LITERALLY between its
+;; arguments. `(regex-match p s)` emitted `(p regex-match s)`; GHC lexes that
+;; as `p regex - match s`, and the preamble's `regex_match` binding was
+;; referenced by nothing for the builtin's entire life.
+;;
+;; WHY A CHECK-ONLY FIXTURE WOULD NOT DO. The defect is downstream of every
+;; check-time gate this repository runs, and `check` reports OK on it. A
+;; scripts/doc-claims fixture asserts an @expect over `check` and would have
+;; been green before the fix and green after it, grading nothing. Only a BUILD
+;; discriminates, which is why this file lives here and not there.
+;;
+;; The in-tree firing population of `regex-match` in TOKEN position was ZERO
+;; when the defect was found: four committed .llmll files named it and all four
+;; did so in comments. That is how a typed, documented, preamble-backed builtin
+;; went un-code-generated for its whole life, and it is why this fixture had to
+;; be written rather than found.
+;;
+;; Both argument positions are exercised: the pattern is a literal in one call
+;; and a parameter in the other, because emitOp's fallback was insensitive to
+;; which was which and a fixture that only passed literals would still have
+;; caught it for the wrong reason.
+(module regex_lower
+  (export matches-literal matches-param)
+
+  ;; Pattern as a literal, subject as a parameter.
+  (def matches-literal [s: string] -> bool
+    (regex-match "^[a-f0-9]{64}$" s))
+
+  ;; Both from parameters. LLMLL.md:2447: the PATTERN comes first.
+  (def matches-param [p: string s: string] -> bool
+    (regex-match p s)))
