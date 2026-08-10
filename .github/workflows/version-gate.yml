@@ -175,62 +175,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # DRIFT-DOC-4 RELOCATED HERE FROM THE FAST JOB at TOOL-RFC-005, wholesale,
-      # reference and port together. The campaign rule this follows was amended
-      # at the same time and is the reason for the "wholesale": the published
-      # image delivers a COMPILER and not a COMPILED PORT, so a port runs only
-      # where a toolchain built it, and splitting a gate across two jobs leaves
-      # retirement unable to delete a reference that is the only thing running
-      # in the job that matters. TOOL-RFC-001 split, and 004 recorded why that
-      # was wrong.
-      #
-      # WHAT THIS COSTS, and it is accepted knowingly: an advisory report that
-      # used to appear in about 25 seconds now appears behind a Haskell build,
-      # about 17 minutes in. That is cheaper here than it was for DRIFT-DOC-3,
-      # because DRIFT-DOC-3 blocks a merge and this gate decides nothing, so
-      # what moved is when a reader sees a suggestion.
-      #
-      # THE FAST JOB IS NOT LEFT WITHOUT A CHECK. test_clean_on_live_repo in
-      # scripts/tests/ still runs there, still executes this reference, and is
-      # FAIL-CLOSED on the live tree. So the merge-blocking property lives in a
-      # pytest test rather than in the gate, which is worth knowing before
-      # anyone deletes either.
-      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
-        run: python3 scripts/doc_path_lint.py
-
-      # TOOL-RFC-005: the same gate in LLMLL, adjacent to its reference, which
-      # is what `tool_state: oracle` means and is 003's and 004's arrangement.
-      #
-      # THE CORE IS VERIFIED BEFORE THE PORT IS BUILT, and the order is a
-      # requirement rather than tidiness. adjudicate.llmll carries the three
-      # proved functions the port delegates its decision to, and its
-      # .verified.json sidecar is gitignored. Measured: without that sidecar
-      # `llmll check` on the port warns that it inherits an unproven contract
-      # for `reports?`, so a port built without this step silently drops to
-      # `asserted` on the one function §7 counts as proved.
-      #
-      # THE COVER RUNS BEFORE THE LIVE GATE, for 003's and 004's reason: it
-      # decides whether the port agrees with the reference UNDER MUTATION, and
-      # a live green run does not. Here that is sharper than usual. The live
-      # corpus reports zero findings, so the whole REPORTING half of the gate
-      # never executes on it, and four of the cover's cells test rules no
-      # corpus state can reach at all.
-      - name: Run prose path-citation lint (LLMLL port, TOOL-RFC-005)
-        run: |
-          set -euo pipefail
-          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
-          ( cd tools/doc-path-lint && "$SUBJECT" verify adjudicate.llmll )
-          OUT="$RUNNER_TEMP/pathlint-build"
-          ( cd tools/doc-path-lint && "$SUBJECT" build pathlint.llmll -o "$OUT" )
-          GATE="$(find "$OUT/.stack-work/install" -type f -name pathlint -perm -111 | head -1)"
-          [ -n "$GATE" ] || { echo "no pathlint binary under $OUT"; exit 1; }
-          python3 scripts/doc_path_lint_cover.py --gate "$GATE" --repo .
-          # The step budget comes from python3 and NOT `yes x | head -n N`:
-          # `yes` dies of SIGPIPE and this step runs under pipefail. The loop
-          # takes one step per living file plus five, so 900 is roughly five
-          # times the current corpus.
-          python3 -c "import sys; sys.stdout.write('x\n' * 900)" | "$GATE"
-
       - name: Run doc-claim drift gate (DRIFT-CT-2)
         working-directory: compiler
         env:
@@ -404,6 +348,71 @@ jobs:
       # locally at 203s (macOS/aarch64) to recompile a 16,616-line single-module
       # Spec.hs; the ubuntu-latest figure is UNMEASURED until this step's first
       # run, which is the point of the row.
+      # DRIFT-DOC-4 RELOCATED HERE FROM THE FAST JOB at TOOL-RFC-005, wholesale,
+      # reference and port together. The campaign rule this follows was amended
+      # at the same time and is the reason for the "wholesale": the published
+      # image delivers a COMPILER and not a COMPILED PORT, so a port runs only
+      # where a toolchain built it, and splitting a gate across two jobs leaves
+      # retirement unable to delete a reference that is the only thing running
+      # in the job that matters. TOOL-RFC-001 split, and 004 recorded why that
+      # was wrong.
+      #
+      # WHAT THIS COSTS, and it is accepted knowingly: an advisory report that
+      # used to appear in about 25 seconds now appears behind a Haskell build,
+      # about 17 minutes in. That is cheaper here than it was for DRIFT-DOC-3,
+      # because DRIFT-DOC-3 blocks a merge and this gate decides nothing, so
+      # what moved is when a reader sees a suggestion.
+      #
+      # THE FAST JOB IS NOT LEFT WITHOUT A CHECK. test_clean_on_live_repo in
+      # scripts/tests/ still runs there, still executes this reference, and is
+      # FAIL-CLOSED on the live tree. So the merge-blocking property lives in a
+      # pytest test rather than in the gate, which is worth knowing before
+      # anyone deletes either.
+      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
+        run: python3 scripts/doc_path_lint.py
+
+      # TOOL-RFC-005: the same gate in LLMLL, adjacent to its reference, which
+      # is what `tool_state: oracle` means and is 003's and 004's arrangement.
+      #
+      # THE CORE IS VERIFIED BEFORE THE PORT IS BUILT, and the order is a
+      # requirement rather than tidiness. adjudicate.llmll carries the three
+      # proved functions the port delegates its decision to, and its
+      # .verified.json sidecar is gitignored. Measured: without that sidecar
+      # `llmll check` on the port warns that it inherits an unproven contract
+      # for `reports?`, so a port built without this step silently drops to
+      # `asserted` on the one function §7 counts as proved.
+      #
+      # THIS PAIR SITS AFTER THE TOOLCHAIN ASSERTION, AND THAT IS WHY. `llmll
+      # verify` needs liquid-fixpoint and z3; placed with the other doc gates,
+      # immediately after the compiler build, it exited 3 with "SOLVER NOT FOUND
+      # -- NOTHING WAS PROVEN" on run 31439638684. This is the FIRST port in the
+      # campaign to verify anything in CI rather than only build, so it is the
+      # first with a solver dependency, and DRIFT-DOC-3's port runs early
+      # precisely because it does not have one. Do not move this pair back up
+      # with the other documentation gates.
+      #
+      # THE COVER RUNS BEFORE THE LIVE GATE, for 003's and 004's reason: it
+      # decides whether the port agrees with the reference UNDER MUTATION, and
+      # a live green run does not. Here that is sharper than usual. The live
+      # corpus reports zero findings, so the whole REPORTING half of the gate
+      # never executes on it, and four of the cover's cells test rules no
+      # corpus state can reach at all.
+      - name: Run prose path-citation lint (LLMLL port, TOOL-RFC-005)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          ( cd tools/doc-path-lint && "$SUBJECT" verify adjudicate.llmll )
+          OUT="$RUNNER_TEMP/pathlint-build"
+          ( cd tools/doc-path-lint && "$SUBJECT" build pathlint.llmll -o "$OUT" )
+          GATE="$(find "$OUT/.stack-work/install" -type f -name pathlint -perm -111 | head -1)"
+          [ -n "$GATE" ] || { echo "no pathlint binary under $OUT"; exit 1; }
+          python3 scripts/doc_path_lint_cover.py --gate "$GATE" --repo .
+          # The step budget comes from python3 and NOT `yes x | head -n N`:
+          # `yes` dies of SIGPIPE and this step runs under pipefail. The loop
+          # takes one step per living file plus five, so 900 is roughly five
+          # times the current corpus.
+          python3 -c "import sys; sys.stdout.write('x\n' * 900)" | "$GATE"
+
       - name: Run hspec example suite (CI-BUILD-TEST-1)
         working-directory: compiler
         run: stack test --test-arguments="--fail-on=pending"
