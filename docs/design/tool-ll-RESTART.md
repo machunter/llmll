@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-09. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
-date: 2026-08-09
+status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. The next work is REGEX-LOWER-1, a compiler fix, decided by the user on 2026-08-10; see section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
@@ -50,71 +50,100 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-09
+## 1. State, measured 2026-08-10
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.94` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **7** | `git rev-list --count v0.14.94..HEAD` |
-| Version banner | `v0.14.94` | `head -1 LLMLL.md` |
-| CI on `main` | **passed** at `e5459c3` | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.94` | `grep "^## " CHANGELOG.md` |
+| Last tag | `v0.14.95` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **1**, this record's own update | `git rev-list --count v0.14.95..HEAD` |
+| Version banner | `v0.14.95` | `head -1 LLMLL.md` |
+| CI on `main` | **passed** at `c4e7901` | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.95` | `grep "^## " CHANGELOG.md` |
 
-The banner and the last tag agree. The seven commits after the tag have no
-release. **The repository owes a v0.14.95 release.**
+The banner, the last tag and the newest CHANGELOG entry agree. **The repository
+owes no release.**
 
-The seven unreleased commits are these:
+v0.14.95 released the four ports' fourth gate. It also released the record
+corrections of section 3. The release notes are in `CHANGELOG.md`.
 
-| Commit | Content |
-|---|---|
-| `e5459c3` | the 004 differential cover, and three defects it found |
-| `df1626d` | 004 becomes an oracle; DRIFT-DOC-3 leaves the fast job |
-| `247a4da` | the 004 archive gate runs in LLMLL and agrees with its reference |
-| `2edd3ad` | roadmap: `RUN-STDIN-1` |
-| `ea9b544` | the 004 verified core |
-| `3b9d181` | the 004 RFC |
-| `0a65a09` | four records that became incorrect at the handoff |
+**A warning about the row above.** The count of unreleased commits is 1 because
+this record's update is the commit. That number increases with the next commit.
+Measure it again. Do not read it from this table.
 
 ---
 
-## 2. The next decision
+## 2. The next work: `REGEX-LOWER-1`
 
-**Port 005 is blocked. The critical path now goes through the compiler for the
-first time in this campaign.**
+**The user decided this on 2026-08-10. Do `REGEX-LOWER-1` first. Do not port 006
+out of order.**
 
-Port 005 (`doc_path_lint`) needs `REGEX-LOWER-1`. That row is a compiler fix.
-It is not port work. The roadmap shows it OPEN at line 63.
+Port 005 (`doc_path_lint`) needs `REGEX-LOWER-1`. That row is a compiler fix. It
+is not port work. The roadmap shows it OPEN at line 63. **The critical path goes
+through the compiler for the first time in this campaign.**
 
-Three items are owed. The user must choose the order of item 3.
+### Why the campaign did not choose port 006
 
-1. **Release v0.14.95.** Seven commits have no release. A later release mixes
-   the workflow change with new tooling in one set of release notes.
-2. **Correct two records.** See section 3.
-3. **Choose the next work.** Select one of these two options:
-   - Do `REGEX-LOWER-1` first. This unblocks port 005.
-   - Do port 006 first. Port 006 runs the other gates, so it is designed to
-     come last. This option changes the agreed order.
+The earlier version of this section offered port 006 as the other option. **That
+option was incorrect. Port 006 is also blocked.** It needs `FS-WALK-1`, at
+roadmap line 73. Port 006 does not avoid compiler work.
+
+`FS-WALK-1` is also the more difficult row. Its roadmap disposition is **Hold**.
+A recursive walk with no depth bound is the first unbounded loop in this
+language. The other scanning code is bounded by construction. That makes
+`FS-WALK-1` a design question. `REGEX-LOWER-1` is a known defect in codegen, and
+it has two proposed shapes.
+
+Port 006 comes last for a second reason. It runs the other five gates. It must
+inherit the pattern of five ports.
+
+### What `REGEX-LOWER-1` needs before a fix
+
+The roadmap row asks for three things.
+
+1. **Measure the population.** `isOperator` holds two names that are not valid
+   Haskell infix operators. They are `regex-match` and `is-valid?`. Nobody
+   measured them. The row says this about itself.
+2. **Write a fixture first.** Each affected name has a firing population of zero
+   in this repository. No current gate shows a fix. No current gate shows a
+   regression. Write the fixture before the fix.
+3. **Choose the shape.** Give `emitOp` a case for each non-infix name. Or stop
+   `isOperator` from claiming a name that has no lowering. The second shape is
+   more narrow. It also keeps the two lists together.
+
+`ALIAS-LOWER-1` is at roadmap line 64. It is adjacent to `REGEX-LOWER-1`. The two
+rows share a cause. They do not share a symptom. The roadmap keeps two rows for
+this reason. Read both rows before you patch the parser.
 
 ---
 
-## 3. Records that are incorrect, and one defect found on 2026-08-09
+## 3. Five records that were incorrect. All are corrected
 
-Correct these as part of the 004 landing. Do not defer them.
+All five are corrected at v0.14.95.
 
-| File | What it claims | What is true |
+| File | What it claimed | What is true |
 |---|---|---|
-| `docs/design/tool-ll-RESTART.md` (before this revision) | three ports, 004 is next | four ports, 005 is next and is blocked |
-| `docs/design/llmll-tooling-campaign.md` | three ports | four ports |
+| `docs/design/tool-ll-RESTART.md` | three ports, 004 is next | four ports, 005 is next and is blocked |
+| `docs/design/llmll-tooling-campaign.md` | three ports | four ports, and it is Rev 3 |
+| `.github/workflows/version-gate.yml` | the fast job runs DRIFT-DOC-3 | the `spec-roundtrip` job runs it |
+| `docs/design/INDEX.md` | Rev 2, three ports, nothing blocked, and no row for the 004 RFC | Rev 3, four ports, 005 blocked, and the row is present |
+| `docs/design/tool-rfc-004-doc-archive.md` | six differential cells and one negative control | 17 cells: 14 mutations and 3 negative controls |
 
-**A third record is also incorrect, and it is in CI.**
-[`.github/workflows/version-gate.yml`](../../.github/workflows/version-gate.yml)
-line 8 and line 54 both say the fast job runs DRIFT-DOC-3. Line 75 records that
-DRIFT-DOC-3 moved to the `spec-roundtrip` job at TOOL-RFC-004. Line 54 is the
-job's display name, so the CI checks list names a gate that the job does not
-run. Correct line 8 and line 54.
+**The five records failed in the same way.** A person recorded a change in a
+comment next to the code. The person did not change the places that advertise the
+change. Finding 13 records this class first.
 
-This is finding 13's class in a new place. The move was recorded in a comment
-next to the code. The two places that advertise the job were not changed.
+The CI record is the most severe of the five. Line 54 of the workflow is the
+job's display name. Thus the CI checks list showed a gate that the job does not
+run.
+
+**The search for these records found three, then four, then five.** The first
+search on 2026-08-09 found three. `INDEX.md` was found on 2026-08-10. The 004
+RFC's own status line was found after that, because the previous revision of this
+section told the reader to look for a fifth place.
+
+**A count of incorrect records is a measurement and not a total.** Search again
+before you trust this table. The 004 RFC shows why: a document can record its own
+instrument incorrectly while the instrument passes.
 
 ---
 
@@ -149,9 +178,9 @@ Four ports of six are complete. Each of the four is an oracle.
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
-| **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). Not yet released. See section 6 |
-| **005** doc-path-lint | **BLOCKED** on `REGEX-LOWER-1` |
-| **006** build-smoke | Last. It runs the other gates |
+| **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
+| **005** doc-path-lint | **BLOCKED** on `REGEX-LOWER-1`. **This is the next work.** See section 2 |
+| **006** build-smoke | Last. It runs the other gates. **It is also BLOCKED**, on `FS-WALK-1` |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE** |
@@ -160,12 +189,18 @@ Open roadmap rows that this campaign filed or needs:
 
 | Row | Status | Line |
 |---|---|---|
-| `REGEX-LOWER-1` | OPEN. Port 005 needs it | roadmap :63 |
-| `ALIAS-LOWER-1` | OPEN | roadmap :64 |
-| `RUN-STDIN-1` | OPEN | roadmap :70 |
+| `REGEX-LOWER-1` | OPEN. Port 005 needs it. **This is the next work** | roadmap :63 |
+| `ALIAS-LOWER-1` | OPEN. It is adjacent to the row above | roadmap :64 |
+| `RUN-STDIN-1` | OPEN. Filed by a 004 feasibility probe | roadmap :70 |
 | `SKIP-SILENT-1` | OPEN | roadmap :62 |
+| `FS-WALK-1` | OPEN, disposition **Hold**. Port 006 needs it | roadmap :73 |
+| `MATCH-TERM-EQ-1` | OPEN. The 004 core is written around it | roadmap, search the tag |
+| `STRLIT-BODY-1` | OPEN. It is the absence that 004 section 7 records | roadmap, search the tag |
 | `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
 | `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |
+
+**The line numbers above move.** Search for the tag name. Do not trust the
+number.
 
 ---
 
@@ -216,8 +251,8 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 
 | Gate | Figure |
 |---|---|
-| `stack test` | **Not re-run since v0.14.91.** Last figure: 1666 examples, 0 failures. **This gate has never run in CI** |
-| `pytest scripts/tests/` | 196 passed, 1 skipped |
+| `stack test` | **1679 examples, 0 failures.** Measured 2026-08-10 at v0.14.95 on macOS. **This gate now runs in CI**, since `CI-BUILD-TEST-1` at v0.14.94, in the `spec-roundtrip` job with `--fail-on=pending`. CI measured about 4m07s |
+| `pytest scripts/tests/` | **197 passed, 6 skipped.** Measured 2026-08-10 at v0.14.95 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
 | [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) | 80 passed, 0 failed, 71s. **It has never run on Linux** |
 | [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells and 3 negative controls, all pass at v0.14.91. CI runs the 16 cells in 324s. The figure is 6 to 10 minutes |
@@ -226,12 +261,12 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 | [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | 17 cells and 3 negative controls, all pass. About 2 minutes |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | PASS. It runs in `spec-roundtrip` since TOOL-RFC-004 |
 | [`docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) | PASS. Output identical to the reference. **It passes on Linux** |
-| [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured 2026-08-09 on macOS and on Linux CI at `e5459c3` |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 935 citations in 170 files, all resolve. It reads `git ls-files '*.md'`, so it cannot see an untracked file |
+| [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured on macOS and on Linux CI at `e5459c3` and again at `c4e7901`. **The cover is not its own CI step.** It runs inside the port's step, before the live run. Look in the step named `Run archive-disposition drift gate (LLMLL port, TOOL-RFC-004)` |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **946 citations in 171 files, all resolve.** Measured 2026-08-10. It reads `git ls-files '*.md'`, so it cannot see an untracked file |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed. Needs a rebuilt sequencer through `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed. Needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed. Needs `--gate` |
-| [`version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.92 |
+| [`version_gate.sh`](../../scripts/version_gate.sh) | **PASS at 0.14.95** across all five banner sites. Measured 2026-08-10 |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages |
 
 ### How to rebuild a port
