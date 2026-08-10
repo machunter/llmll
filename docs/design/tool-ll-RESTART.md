@@ -72,14 +72,20 @@ Measure it again. Do not read it from this table.
 
 ---
 
-## 2. The next work: `REGEX-LOWER-1`
+## 2. The next work: port 005
 
-**The user decided this on 2026-08-10. Do `REGEX-LOWER-1` first. Do not port 006
-out of order.**
+**`REGEX-LOWER-1` SHIPPED at v0.14.96. Port 005 is no longer blocked.**
 
-Port 005 (`doc_path_lint`) needs `REGEX-LOWER-1`. That row is a compiler fix. It
-is not port work. The roadmap shows it OPEN at line 63. **The critical path goes
-through the compiler for the first time in this campaign.**
+The user decided on 2026-08-10 to do `REGEX-LOWER-1` before port 006. The
+campaign did that work and released it. The critical path went through the
+compiler for the first time, and it is now back on port work.
+
+Do port 005 (`doc_path_lint`) next. Write its RFC first. The standard has nine
+sections. Read `TOOL-RFC-TEMPLATE.md`.
+
+**Measure the gap list again before you write the RFC.** `REGEX-LOWER-1` was
+port 005's only recorded blocker. A new port finds new gaps. Three of the last
+three ports found something their own feasibility read had called absent.
 
 ### Why the campaign did not choose port 006
 
@@ -96,23 +102,28 @@ it has two proposed shapes.
 Port 006 comes last for a second reason. It runs the other five gates. It must
 inherit the pattern of five ports.
 
-### What `REGEX-LOWER-1` needs before a fix
+### What `REGEX-LOWER-1` found, and the two lessons to keep
 
-The roadmap row asks for three things.
+The row asked for a census before a fix. The census **corrected the row**.
 
-1. **Measure the population.** `isOperator` holds two names that are not valid
-   Haskell infix operators. They are `regex-match` and `is-valid?`. Nobody
-   measured them. The row says this about itself.
-2. **Write a fixture first.** Each affected name has a firing population of zero
-   in this repository. No current gate shows a fix. No current gate shows a
-   regression. Write the fixture before the fix.
-3. **Choose the shape.** Give `emitOp` a case for each non-infix name. Or stop
-   `isOperator` from claiming a name that has no lowering. The second shape is
-   more narrow. It also keeps the two lists together.
+1. **The row grouped two names that behave differently.** It said `regex-match`
+   and `is-valid?` were one unmeasured pair. They are two classes. The
+   discriminator is `builtinEnv` membership. The row already stated that fact
+   for the six Unicode aliases. It did not apply the fact to `is-valid?`.
+2. **`is-valid?` was a phantom.** The compiler named it in one list and nowhere
+   else. It had no type, no implementation, no spec entry and no callers.
+3. **The gate caught a cell that was wrong by construction.** The negative
+   control ran the gate against a reverted compiler. The gate failed at its
+   build step. Thus two of its checks did not run. One of those checks could
+   never fire. It matched an identifier before the operator, and the fixture
+   passes a string literal there.
 
-`ALIAS-LOWER-1` is at roadmap line 64. It is adjacent to `REGEX-LOWER-1`. The two
-rows share a cause. They do not share a symptom. The roadmap keeps two rows for
-this reason. Read both rows before you patch the parser.
+**Keep lesson 3.** `TOOL-RFC-004` found the same class one release before. A
+battery can be wrong in the same way as the thing it grades. Run the negative
+control. Then read which checks it did not reach.
+
+`ALIAS-LOWER-1` is at roadmap line 63. v0.14.96 did not change it, and a test
+pins that. The six glyphs are now its full scope.
 
 ---
 
@@ -179,7 +190,7 @@ Four ports of six are complete. Each of the four is an oracle.
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
-| **005** doc-path-lint | **BLOCKED** on `REGEX-LOWER-1`. **This is the next work.** See section 2 |
+| **005** doc-path-lint | **UNBLOCKED at v0.14.96.** `REGEX-LOWER-1` shipped. **This is the next work.** See section 2 |
 | **006** build-smoke | Last. It runs the other gates. **It is also BLOCKED**, on `FS-WALK-1` |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
@@ -189,8 +200,8 @@ Open roadmap rows that this campaign filed or needs:
 
 | Row | Status | Line |
 |---|---|---|
-| `REGEX-LOWER-1` | OPEN. Port 005 needs it. **This is the next work** | roadmap :63 |
-| `ALIAS-LOWER-1` | OPEN. It is adjacent to the row above | roadmap :64 |
+| `REGEX-LOWER-1` | **SHIPPED v0.14.96.** It unblocked port 005 | roadmap, closed-rows section |
+| `ALIAS-LOWER-1` | OPEN. The six glyphs are now its full scope | roadmap :63 |
 | `RUN-STDIN-1` | OPEN. Filed by a 004 feasibility probe | roadmap :70 |
 | `SKIP-SILENT-1` | OPEN | roadmap :62 |
 | `FS-WALK-1` | OPEN, disposition **Hold**. Port 006 needs it | roadmap :73 |
@@ -251,7 +262,7 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 
 | Gate | Figure |
 |---|---|
-| `stack test` | **1679 examples, 0 failures.** Measured 2026-08-10 at v0.14.95 on macOS. **This gate now runs in CI**, since `CI-BUILD-TEST-1` at v0.14.94, in the `spec-roundtrip` job with `--fail-on=pending`. CI measured about 4m07s |
+| `stack test` | **1683 examples, 0 failures.** Measured 2026-08-10 at v0.14.96 on macOS. **This gate now runs in CI**, since `CI-BUILD-TEST-1` at v0.14.94, in the `spec-roundtrip` job with `--fail-on=pending`. CI measured about 4m07s |
 | `pytest scripts/tests/` | **197 passed, 6 skipped.** Measured 2026-08-10 at v0.14.95 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
 | [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) | 80 passed, 0 failed, 71s. **It has never run on Linux** |
@@ -267,7 +278,7 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed. Needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed. Needs `--gate` |
 | [`version_gate.sh`](../../scripts/version_gate.sh) | **PASS at 0.14.95** across all five banner sites. Measured 2026-08-10 |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages |
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages. **It gained the `REGEX-LOWER-1` stage at v0.14.96.** That stage is the only gate that can see a builtin which checks, verifies and then does not build |
 
 ### How to rebuild a port
 

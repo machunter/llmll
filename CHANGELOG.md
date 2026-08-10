@@ -4,6 +4,108 @@
 
 <a id="Latest"></a>
 
+## v0.14.96: a builtin that typechecked, verified, and did not build (2026-08-10)
+
+One compiler fix, and it is two names deleted from a list. No language surface
+moves: `LLMLL.md` §2447 has always documented `(regex-match pattern subject)` as
+a prefix call, and this release makes the compiler agree with the spec rather
+than the reverse.
+
+### Fixed: `REGEX-LOWER-1`, `regex-match` reaches its own implementation
+
+`isOperator` ([`Parser.hs:940-947`](compiler/src/LLMLL/Parser.hs)) named two
+things `emitOp` cannot lower. A name in that list parses to an `EOp`, and
+[`emitOp`](compiler/src/LLMLL/CodegenHs.hs) carries named lowerings for ten
+operators and then a fallback that intercalates the operator name **literally
+between its arguments**, which is correct exactly for names that are already
+valid Haskell infix. So `(regex-match p s)` emitted `(p regex-match s)`, GHC
+lexed the hyphen as subtraction and reported `Variable not in scope: regex`, and
+the preamble's own `regex_match` binding
+([`CodegenHs.hs:395-396`](compiler/src/LLMLL/CodegenHs.hs)) was referenced by
+nothing for the builtin's entire life.
+
+**Every piece was present; the defect was in the path.** `regex-match` is in the
+type environment, is documented in the builtin table and the boolean-builtin
+class row, and has a preamble implementation. A program calling it passed
+`llmll check` at exit 0 **with no warning**, passed `llmll verify` as SAFE, and
+then failed at GHC. It fails closed, so nothing verified-and-wrong shipped; the
+cost was that `verify` said SAFE about a program that could not be built.
+
+**Removed from the list rather than given an `emitOp` case.** That is the
+narrower of the two shapes the roadmap offered and the only one that cannot
+drift apart again, since it leaves no second list to disagree with the first.
+`regex-match` now parses as an `EApp` and reaches `emitApp`'s default, which
+applies `toHsIdent`; that maps `-` to `_`, so the emission is `regex_match`, the
+preamble binding's exact name. No codegen was written. Admissibility was the one
+risk and [`TypeCheck.hs:956`](compiler/src/LLMLL/TypeCheck.hs) resolves it: the
+check is `trustedPrelude || Map.member func builtinEnv`, and `regex-match` is in
+`builtinEnv`, so as an `EApp` it stays admissible in strict-core bodies.
+
+The refinement position is unaffected and was measured on both sides rather than
+argued: `(type BlockID (where [s: string] (regex-match ...)))` verifies SAFE with
+`body-fallback` and builds clean before and after. Refinements are erased at
+codegen, so `LLMLL.md`'s "runtime" classification for this builtin names the
+tier, not an emitted check.
+
+### Fixed: `is-valid?` was a phantom, and the row that owed it was wrong
+
+**The census this row demanded is done, and it corrects the row.** The roadmap
+grouped `regex-match` and `is-valid?` as the unmeasured pair it still owed.
+Executed, they are **different classes**, and the discriminator is `builtinEnv`
+membership, which that row already states for the six Unicode aliases:
+
+| Name | in `builtinEnv` | `check` | `verify` | `build` |
+|---|---|---|---|---|
+| `regex-match` | yes | OK, exit 0, no warning | SAFE | **failed** |
+| `is-valid?` | **no** | OK, exit 0, warns | refuses, exit 1 | unreachable |
+
+So this row's population reaching `emitOp`'s fallback was exactly **one** name.
+This is the second time the row has grouped classes that behave differently; the
+first was corrected at v0.14.93 by executing the aliases.
+
+`is-valid?` was named at `Parser.hs:943` and **nowhere else in the compiler**: no
+`builtinEnv` type, no preamble, no spec entry, no callers, and a firing
+population of zero across 261 committed `.llmll` files. No program could call it
+successfully. As an `EApp` it now fails `check` at **exit 1** through the
+strict-core admissibility path, instead of warning and exiting 0 about a program
+that could never work.
+
+### Added: the build-level gate this defect class had no precedent for
+
+The defect is downstream of every check-time gate in this repository and `check`
+reports OK on it, so a `scripts/doc-claims` fixture would have been green on both
+sides of the fix and graded nothing. The fixture
+([`regex_lower.llmll`](scripts/build-smoke/regex_lower.llmll)) therefore lives in
+BUILD-GATE-1, which compiles through GHC. It exercises both argument positions,
+a string literal and a parameter, because the fallback was insensitive to which
+was which.
+
+**The negative control caught a cell of ours wrong by construction.** Run against
+a deliberately reverted parser, the gate exits 1 while the smoke stage still
+passes, so it discriminates. But it failed at the *build* assertion, so its two
+grep assertions never executed. Checked directly against the broken emission, one
+of them could not fire: it matched `[a-z_]+ regex-match `, modelled on
+`(p regex-match s)`, while the fixture's first def passes a string literal and
+emits `("^[a-f0-9]{64}$" regex-match s)`, whose preceding character is a quote.
+It missed the very call it was written for. Measured on both sides instead: a
+correct build contains **zero** hyphenated occurrences, so the assertion now
+tests for zero. That is TOOL-RFC-004 defect 3's class, one release later, in our
+own cell.
+
+### Unchanged on purpose: `ALIAS-LOWER-1`
+
+The six Unicode aliases still parse as `EOp` and
+[`unicode-alias-token.llmll`](scripts/doc-claims/unicode-alias-token.llmll) still
+expects `warn:unknown operator`. A test pins this so the patch cannot silently
+absorb the neighbouring row. After this release the aliases are the **entire**
+remaining population of TypeCheck's unknown-operator arm. That row's fix is
+parse-time glyph normalization plus adding U+21D2 and U+21D4 to the lexer, and it
+carries a second defect (the arm discards its argument subtree, so `check`
+reports OK over a body it never checked) which this release neither fixes nor
+hides.
+
+---
+
 ## v0.14.95: the fourth gate, and the three defects its live green run could not reach (2026-08-10)
 
 No language surface moves and no compiler code changes. What ships is the fourth
