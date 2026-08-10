@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. The next work is REGEX-LOWER-1, a compiler fix, decided by the user on 2026-08-10; see section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. REGEX-LOWER-1 shipped at v0.14.96 and unblocked port 005, which is the next work; see section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -50,25 +50,29 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-10
+## 1. State, measured 2026-08-10, after v0.14.96
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.95` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **1**, this record's own update | `git rev-list --count v0.14.95..HEAD` |
-| Version banner | `v0.14.95` | `head -1 LLMLL.md` |
-| CI on `main` | **passed** at `c4e7901` | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.95` | `grep "^## " CHANGELOG.md` |
+| Last tag | `v0.14.96` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **1**, this record's own update | `git rev-list --count v0.14.96..HEAD` |
+| Version banner | `v0.14.96` | `head -1 LLMLL.md` |
+| CI on `main` | **all three runs passed** at `3924bb3` | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.96` | `grep "^## " CHANGELOG.md` |
 
 The banner, the last tag and the newest CHANGELOG entry agree. **The repository
 owes no release.**
 
-v0.14.95 released the four ports' fourth gate. It also released the record
-corrections of section 3. The release notes are in `CHANGELOG.md`.
+Two releases went out on 2026-08-10. v0.14.95 released the fourth port and the
+record corrections of section 3. v0.14.96 released `REGEX-LOWER-1`, which
+unblocked port 005. The release notes are in `CHANGELOG.md`.
 
-**A warning about the row above.** The count of unreleased commits is 1 because
+**A warning about the table above.** The count of unreleased commits is 1 because
 this record's update is the commit. That number increases with the next commit.
 Measure it again. Do not read it from this table.
+
+The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
+`main` and on the tag. A tag push starts the image publish. Look at all three.
 
 ---
 

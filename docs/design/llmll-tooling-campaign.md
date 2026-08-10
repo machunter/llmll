@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 3, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is BLOCKED on `REGEX-LOWER-1`, a compiler fix, so the critical path now runs through compiler work for the first time; 006 stays last. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
+status: "Rev 3, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is NEXT and was UNBLOCKED at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -45,7 +45,7 @@ excluding comments and blanks:
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | blocked, `REGEX-LOWER-1` |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | **NEXT**, unblocked at v0.14.96 |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
 **`refute-crux-gate.sh` was not invoked by any workflow.** It was a `make`
@@ -146,7 +146,7 @@ ports are worth doing even where the shell script was fine.
 |---|---|---|---|
 | `MODE-CLI-1` | SHAPES | **every tool** | filed 2026-08-07 |
 | `SPLIT-EMPTY-1` (with the no-character-decomposition half) | SHAPES | every scanner | filed 2026-08-07 |
-| `REGEX-LOWER-1` | BLOCKS | `doc_path_lint` (005) | filed, open |
+| `REGEX-LOWER-1` | BLOCKS | `doc_path_lint` (005) | **SHIPPED v0.14.96**, and its census corrected its own row |
 | `FS-WALK-1` | BLOCKS | `build_smoke` (006) only | filed 2026-08-07, **not urgent** |
 | no env access (`wasi.proc.args` exists, no env builtin) | COSMETIC | none; argv carries it | unfiled, nothing lost |
 | `CAP-NULLARY-1` | COSMETIC | none | filed 2026-08-07 |
@@ -240,9 +240,12 @@ no toolchain required:
   wrong by construction. The live corpus declares one disposition of four and
   contains none of the four violation classes, so a live green run grades about
   a twentieth of the specified behaviour.
-- **005** doc-path lint. Gated on `REGEX-LOWER-1`. **This is where the campaign
-  first stops being port work**: the row is a compiler fix, so the critical path
-  runs through the compiler team.
+- **005** doc-path lint. **NEXT, and unblocked at v0.14.96.** It was gated on
+  `REGEX-LOWER-1`, and **this is where the campaign first stopped being port
+  work**: that row was a compiler fix, so the critical path ran through the
+  compiler team for one release and is now back on ports. The fix's census
+  corrected the row it closed, `regex-match` and `is-valid?` proving to be two
+  classes rather than the one unmeasured pair the row recorded.
 - **006** build-smoke. Last: it is the harness that runs the others, so porting
   it is an LLMLL program orchestrating LLMLL programs, and it should inherit
   five ports' worth of settled pattern rather than invent it.
