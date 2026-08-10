@@ -1,11 +1,11 @@
 ---
 name: tool-rfc-004-doc-archive
 title: "TOOL-RFC-004: the archive-disposition drift gate, in LLMLL"
-status: "Rev 1, DRAFT. Written before any code. State: blocked, no port module exists yet. THE DISTRIBUTION QUESTION IS SETTLED (option D, user adjudication 2026-08-09): DRIFT-DOC-3 relocates wholesale into spec-roundtrip with both implementations adjacent, accepting that the fast job drops to three gates and time-to-signal goes from ~25s to ~17m. It was a campaign-level finding rather than a port choice: the published release image CANNOT produce a port binary (no GHC, no Stack in its runtime stage), so P1 clearing did not resolve TOOL-RFC-001's deviation the way that RFC predicted, and the campaign's distribution sentence is owed an amendment. D2 is also SETTLED: the port hardcodes the fixture expected counts rather than deriving them, so a deleted fixture cannot lower expected and actual together and stay green. BOTH policy decisions are closed before any code exists, which is what the RFC-first workflow is for. Section 7 is fillable during the RFC for the first time in the campaign, and what it reports is not flattering: the live corpus gates exactly ONE file, so the fixtures carry all the discriminative power."
+status: "Rev 2, PORTED, state ORACLE. Both implementations run adjacent in spec-roundtrip; DRIFT-DOC-3 left the banner job in the same commit as the port, which section 8 requires. Both policy decisions were closed BEFORE any code existed (D1 distribution option D, D2 the port carries the fixture counts). Six differential cells plus the unmutated negative control agree on output AND exit code, every mutation asserted to fail under both before comparison. THE CAMPAIGN-LEVEL FINDING STANDS: the published release image cannot build a port (no GHC, no Stack in its runtime stage), so P1 clearing did not resolve TOOL-RFC-001's deviation and the campaign's distribution sentence is owed an amendment. Section 7 reports that the live corpus gates exactly ONE file, so the fixtures carry all discriminative power."
 date: 2026-08-09
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
-tool_state: blocked
+tool_state: oracle
 subject_script: scripts/doc_archive_gate.sh
 port_module: tools/doc-archive/docarchive.llmll
 ---
@@ -24,9 +24,11 @@ side names: `shipped|superseded` in `shipped-design-specs/`, `dropped|deferred`
 in `dormant-explorations/`. Files without the field are not gated; the count of
 them is asserted against a bound that may shrink and never grows silently.
 
-**Where CI invokes it.** [`version-gate.yml`](../../.github/workflows/version-gate.yml),
-job **`C1-C4 banner / schema + DRIFT-DOC-3 / DOC-4`**, step
-`Run archive-disposition drift gate (DRIFT-DOC-3)`, as `bash scripts/doc_archive_gate.sh`.
+**Where CI invoked it, and where it runs now.** It ran in
+[`version-gate.yml`](../../.github/workflows/version-gate.yml)'s banner job
+**`C1-C4 banner / schema + DRIFT-DOC-3 / DOC-4`**. **As of this port it runs in
+`spec-roundtrip`, adjacent to the LLMLL port**, per §3's settled option D; the
+move landed in the same commit as the port because §8 requires it.
 
 **The job is the whole of §3 and naming it wrong is TOOL-RFC-001's recorded
 mistake.** This job has **no Haskell toolchain by design**. The workflow header
@@ -94,8 +96,8 @@ prose in four different files.
 
 ## 3. Distribution
 
-**This section is a finding, not a choice the port can make, and it is the
-reason this RFC is `blocked` rather than a plan.**
+**This section is a finding, not a choice the port could make, and it is why
+this RFC sat at `blocked` until the question was adjudicated.**
 
 The campaign settled that jobs pull a published release image. TOOL-RFC-001
 deviated from that, leaving the shell deciding in the fast job and running its

@@ -72,11 +72,16 @@ jobs:
       - name: Run version_gate.sh
         run: bash scripts/version_gate.sh
 
-      # DRIFT-DOC-3. No compiler dependency, so it belongs in the fast job and
-      # fails closed rather than skipping. Self-tests against
-      # scripts/doc-archive-fixtures/ before scanning docs/archive/.
-      - name: Run archive-disposition drift gate (DRIFT-DOC-3)
-        run: bash scripts/doc_archive_gate.sh
+      # DRIFT-DOC-3 MOVED OUT OF THIS JOB at TOOL-RFC-004, and the move is a
+      # cost accepted knowingly rather than a tidy-up. It ran here because it
+      # needs only bash and awk. Its LLMLL port needs a compiler to build, the
+      # published image ships no GHC or Stack, and RFC section 8 cannot delete
+      # the reference while the reference is the thing deciding in a job the
+      # port cannot reach. So both implementations now run adjacent in
+      # spec-roundtrip (RFC section 3, option D, user adjudication 2026-08-09).
+      # What this job gives up: an archive-disposition error is a one-line
+      # frontmatter mistake and now surfaces behind a Haskell build, ~17m rather
+      # than ~25s.
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -122,6 +127,33 @@ jobs:
       - name: Build llmll
         working-directory: compiler
         run: stack build llmll
+
+      # DRIFT-DOC-3 and its LLMLL port, adjacent, which is what `tool_state:
+      # oracle` means: both decide over the same tree in the same run and a
+      # reader compares them in one job log rather than across two jobs.
+      # Deliberately placed immediately after the compiler build and BEFORE
+      # every solver-dependent step: this gate needs no solver, and RFC section
+      # 3 requires it to run even when a later step would fail, so it is never
+      # made conditional on anything.
+      - name: Run archive-disposition drift gate (DRIFT-DOC-3)
+        run: bash scripts/doc_archive_gate.sh
+
+      # The absolute path, not `stack exec`: that idiom resolves against
+      # whatever stack project the cwd sits in, and from a tools/ directory it
+      # once installed GHC 9.10.3 on a runner before answering "Executable
+      # named llmll not found".
+      - name: Run archive-disposition drift gate (LLMLL port, TOOL-RFC-004)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/docarchive-build"
+          ( cd tools/doc-archive && "$SUBJECT" build docarchive.llmll -o "$OUT" )
+          GATE="$(find "$OUT/.stack-work/install" -type f -name docarchive -perm -111 | head -1)"
+          [ -n "$GATE" ] || { echo "no docarchive binary under $OUT"; exit 1; }
+          # The step budget comes from python3 and NOT `yes x | head -n N`:
+          # `yes` dies of SIGPIPE and this step runs under pipefail.
+          python3 -c "import sys; sys.stdout.write('x\n' * 600)" \
+            | "$GATE" --root "$GITHUB_WORKSPACE"
 
       # Before the gates and not after them. The refute-crux port's step drives
       # its console loop from a python3-generated step budget and runs the

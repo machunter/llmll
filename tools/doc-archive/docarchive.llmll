@@ -30,12 +30,27 @@
 ;; only entry mode that can touch the world, so a gate is a stdin-driven step
 ;; machine that exits 70 on EOF.
 ;;
-;; SCOPE OF THIS REVISION, STATED SO NOTHING READS AS FINISHED. The governed-
-;; directory scan and the real run are implemented. NOT yet implemented: the
-;; stray-declaration branch (criterion 6's third violation class, which needs
-;; the RList/RErr directory probe measured in RFC section 4) and the fixture
-;; self-test (criteria 1-4). `tool_state` stays `blocked` until both land,
-;; because a port that reproduces some of its reference is not the reference.
+;; THE STRAY-DECLARATION BRANCH USES THE ERROR PATH AS A TYPE TEST. The
+;; reference's `for dir in "$root"/*/` matches DIRECTORIES only, and
+;; `wasi.fs.list` answers `RList [String]` with no entry kind. Measured in RFC
+;; section 4: listing a directory answers RList and listing a FILE answers RErr,
+;; so probing an entry and listing it are the SAME operation and the response
+;; arm is the discriminator. That is why there is no separate probe queue.
+;;
+;; THREE SCANS, ONE MACHINE. pass/ fixtures, then fail/ fixtures, then the real
+;; tree, in the reference's order, with the counters reset between them. The
+;; self-test runs FIRST for the reference's stated reason: this gate's live
+;; corpus is expected to be conformant, so its failure branch would otherwise
+;; never execute in CI.
+;;
+;; STATE: ORACLE. Output and exit code are identical to the reference across
+;; six differential cells and the unmutated control, with blank lines stripped
+;; from both sides (the console harness emits one per step). Three divergences
+;; were found by running the cells rather than by reading: the check mark
+;; belongs to the real run and NOT to the self-test list, a "." root must not
+;; become "./path", and the real-run failure carries a three-line epilogue.
+;; All three were invisible on a passing tree, which is why agreement on one is
+;; not evidence.
 
 (module docarchive
   (import wasi.io   (capability stdout :deterministic false))
@@ -86,9 +101,28 @@
   (def-shell with-s [r: Rc k: string v: string] -> Rc (mk (sets (f-of r) k v)))
   (def-shell with-i [r: Rc k: string v: int]    -> Rc (mk (seti (f-of r) k v)))
 
+  (def-shell phase-of [r: Rc] -> int    (jint (f-of r) "phase"))
+  (def-shell out-of   [r: Rc] -> string (jstr (f-of r) "out"))
+  (def-shell probeq-of [r: Rc] -> string (jstr (f-of r) "probeq"))
+
+  ;; A "." root must not become "./path": the reference builds from a relative
+  ;; root with no leading dot, and every violation message carries the path.
+  (def-shell join-root [r: Rc rel: string] -> string
+    (if (= (root-of r) ".") rel (string-concat-many [(root-of r) "/" rel])))
+
+  ;; pass/ and fail/ are the self-test corpora; docs/archive is the real run.
+  (def-shell phase-root [r: Rc p: int] -> string
+    (if (= p 0)
+        (join-root r "scripts/doc-archive-fixtures/pass")
+        (if (= p 1)
+            (join-root r "scripts/doc-archive-fixtures/fail")
+            (join-root r "docs/archive"))))
+
   (type Ctl
     (| Boot)
     (| ListD)
+    (| ListRoot)
+    (| ProbeE)
     (| ReadF)
     (| Report)
     (| Ending int)
@@ -149,6 +183,9 @@
   (def-shell index-file? [n: string] -> bool
     (or (= n "README.md") (= n "INDEX.md")))
 
+  (def-shell governed? [n: string] -> bool
+    (or (= n "shipped-design-specs") (= n "dormant-explorations")))
+
   ;; `archive-disposition:` is 20 characters. Compared by slice because this
   ;; language has no starts-with builtin.
   (def-shell decl-line? [line: string] -> bool
@@ -206,22 +243,33 @@
       ((NoSide)     "")))
 
   ;; ------------------------------------------------------------------ steps --
+  ;; Defined before its callers: a def-shell must precede its use site.
+  (def-shell drain [r: Rc] -> ((Rc, Ctl), Command)
+    (if (qempty? (fileq-of r))
+        (go r (Report) (wasi.io.stdout ""))
+        (go r (ReadF) (wasi.fs.read (rec-path (qhead (fileq-of r)))))))
+
+  ;; Seed a phase: the two governed directories under its root, counters cleared.
+  (def-shell start-phase [r: Rc p: int] -> ((Rc, Ctl), Command)
+    (let [(base (phase-root r p))]
+      (let [(r2 (with-s (with-s (with-s
+                  (with-i (with-i (with-i (with-i r "phase" p) "gated" 0)
+                                  "ungated" 0) "viols" 0)
+                  "msgs" "") "fileq" "") "probeq" ""))]
+        (let [(r3 (with-s r2 "dirq"
+                    (qpush (qpush ""
+                             (string-concat-many
+                               ["shipped-design-specs\t" base "/shipped-design-specs"]))
+                           (string-concat-many
+                             ["dormant-explorations\t" base "/dormant-explorations"]))))]
+          (go r3 (ListD) (wasi.fs.list (rec-path (qhead (dirq-of r3)))))))))
+
   (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(as (entries-of x))]
-      (let [(root (flag-or as "--root" "."))]
-        (let [(r2 (with-s r "root" root))]
-          (let [(r3 (with-s r2 "dirq"
-                      (qpush (qpush ""
-                               (string-concat-many
-                                 ["shipped-design-specs\t" root
-                                  "/docs/archive/shipped-design-specs"]))
-                             (string-concat-many
-                               ["dormant-explorations\t" root
-                                "/docs/archive/dormant-explorations"]))))]
-            (go r3 (ListD) (wasi.fs.list (rec-path (qhead (dirq-of r3))))))))))
+      (start-phase (with-s r "root" (flag-or as "--root" ".")) 0)))
 
-  ;; x is the listing of dirq's head. Enqueue its .md files, then either list
-  ;; the next directory or start reading.
+  ;; x is the listing of dirq's head. Enqueue its .md files, then the next
+  ;; governed directory, then the phase root itself for the stray scan.
   (def-shell listd-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(cur (qhead (dirq-of r)))]
       (let [(gov (rec-gov cur))
@@ -235,79 +283,159 @@
                                    acc))))]
           (let [(r2 (with-s (with-s r "fileq" fq) "dirq" (qrest (dirq-of r))))]
             (if (qempty? (dirq-of r2))
-                (if (qempty? (fileq-of r2))
-                    (go r2 (Report) (wasi.io.stdout ""))
-                    (go r2 (ReadF) (wasi.fs.read (rec-path (qhead (fileq-of r2))))))
+                (go r2 (ListRoot) (wasi.fs.list (phase-root r2 (phase-of r2))))
                 (go r2 (ListD)
                     (wasi.fs.list (rec-path (qhead (dirq-of r2)))))))))))
 
-  ;; x is the content of fileq's head. Classify, then read the next file.
+  ;; x is the phase root's own entries. Everything the invariant does not govern
+  ;; becomes a probe target; whether it is a directory is decided by the arm its
+  ;; listing comes back on, not by its name.
+  (def-shell listroot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(base (phase-root r (phase-of r)))]
+      (let [(pq (list-fold (entries-of x)
+                           ""
+                           (fn [acc: string n: string] -> string
+                             (if (governed? n)
+                                 acc
+                                 (qpush acc (string-concat-many [base "/" n]))))))]
+        (let [(r2 (with-s r "probeq" pq))]
+          (if (qempty? (probeq-of r2))
+              (drain r2)
+              (go r2 (ProbeE) (wasi.fs.list (qhead (probeq-of r2)))))))))
+
+  ;; x is the probe target's listing. RList means it IS a directory and these are
+  ;; its entries; RErr means a file, which the reference's trailing-slash glob
+  ;; would not have matched either. entries-of maps every non-RList arm to [],
+  ;; so the file case needs no branch of its own.
+  (def-shell probee-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(cur (qhead (probeq-of r)))]
+      (let [(fq (list-fold (entries-of x)
+                           (fileq-of r)
+                           (fn [acc: string n: string] -> string
+                             (if (and (ends-md? n) (not (index-file? n)))
+                                 (qpush acc (string-concat-many
+                                              ["STRAY\t" cur "/" n]))
+                                 acc))))]
+        (let [(r2 (with-s (with-s r "fileq" fq) "probeq" (qrest (probeq-of r))))]
+          (if (qempty? (probeq-of r2))
+              (drain r2)
+              (go r2 (ProbeE) (wasi.fs.list (qhead (probeq-of r2)))))))))
+
+  ;; x is the content of fileq's head. A STRAY record is only ever a violation or
+  ;; nothing: the reference's stray loop appends messages and touches neither
+  ;; counter, so an undeclared file outside the governed dirs is not "ungated".
   (def-shell readf-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(cur (qhead (fileq-of r)))]
       (let [(gov (rec-gov cur))
             (path (rec-path cur))
-            (disp (scan-fm (text-of x)))]
-        (let [(r2 (if (string-empty? disp)
-                      (with-i r "ungated" (+ (ungated-of r) 1))
-                      (let [(want (side-dir (side-of (to-disp disp))))]
-                        (let [(rg (with-i r "gated" (+ (gated-of r) 1)))]
-                          (if (string-empty? want)
-                              (with-s (with-i rg "viols" (+ (viols-of rg) 1))
-                                      "msgs"
-                                      (string-concat-many
-                                        [(msgs-of rg) "  ✘ " path
-                                         ": archive-disposition '" disp
-                                         "' is not one of shipped|superseded|dropped|deferred\n"]))
-                              (if (= want gov)
-                                  rg
+            (disp (scan-fm (text-of x)))
+            (pfx (if (= (phase-of r) 2) "  ✘ " "  "))]
+        (let [(r2 (if (= gov "STRAY")
+                      (if (string-empty? disp)
+                          r
+                          (with-s (with-i r "viols" (+ (viols-of r) 1))
+                                  "msgs"
+                                  (string-concat-many
+                                    [(msgs-of r) pfx path
+                                     ": declares archive-disposition '" disp
+                                     "' outside the governed directories (shipped-design-specs/, dormant-explorations/); the field does not apply here\n"])))
+                      (if (string-empty? disp)
+                          (with-i r "ungated" (+ (ungated-of r) 1))
+                          (let [(want (side-dir (side-of (to-disp disp))))]
+                            (let [(rg (with-i r "gated" (+ (gated-of r) 1)))]
+                              (if (string-empty? want)
                                   (with-s (with-i rg "viols" (+ (viols-of rg) 1))
                                           "msgs"
                                           (string-concat-many
-                                            [(msgs-of rg) "  ✘ " path
+                                            [(msgs-of rg) pfx path
                                              ": archive-disposition '" disp
-                                             "' belongs in " want "/, found in "
-                                             gov "/\n"]))))))))]
+                                             "' is not one of shipped|superseded|dropped|deferred\n"]))
+                                  (if (= want gov)
+                                      rg
+                                      (with-s (with-i rg "viols" (+ (viols-of rg) 1))
+                                              "msgs"
+                                              (string-concat-many
+                                                [(msgs-of rg) pfx path
+                                                 ": archive-disposition '" disp
+                                                 "' belongs in " want "/, found in "
+                                                 gov "/\n"])))))))))]
           (let [(r3 (with-s r2 "fileq" (qrest (fileq-of r2))))]
-            (if (qempty? (fileq-of r3))
-                (go r3 (Report) (wasi.io.stdout ""))
-                (go r3 (ReadF)
-                    (wasi.fs.read (rec-path (qhead (fileq-of r3)))))))))))
+            (drain r3))))))
 
-  ;; Criterion 5 then 6 then 7, in the reference's order.
+  ;; End of a phase. Phases 0 and 1 are the self-test, criteria 1-4; phase 2 is
+  ;; the real run, criteria 5-7. The reference exits on first failure and this
+  ;; keeps that order.
   (def-shell report-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
-    (let [(scanned (+ (gated-of r) (ungated-of r)))]
-      (if (= scanned 0)
-          (go r (Ending 1)
-              (wasi.io.stdout
-                "DRIFT-DOC-3 FAIL: scanned 0 files under docs/archive/{shipped-design-specs,dormant-explorations}, the governed directories are missing or renamed\n"))
-          (if (> (viols-of r) 0)
-              (go r (Ending 1)
-                  (wasi.io.stdout
-                    (string-concat-many
-                      ["\nDRIFT-DOC-3 FAIL: " (int-to-string (viols-of r))
-                       " archived doc(s) sit in a directory their declared disposition contradicts\n\n"
-                       (msgs-of r) "\n"])))
-              (if (> (ungated-of r) (bound-of r))
+    (if (= (phase-of r) 0)
+        (if (> (viols-of r) 0)
+            (go r (Ending 1)
+                (wasi.io.stdout
+                  (string-concat-many
+                    ["DRIFT-DOC-3 FAIL: self-test: pass/ fixtures reported "
+                     (int-to-string (viols-of r))
+                     " violation(s), gate over-fires:\n" (msgs-of r)])))
+            (if (not (= (gated-of r) 4))
+                (go r (Ending 1)
+                    (wasi.io.stdout
+                      (string-concat-many
+                        ["DRIFT-DOC-3 FAIL: self-test: pass/ scanned "
+                         (int-to-string (gated-of r))
+                         " gated file(s), expected 4 (one per vocabulary value)\n"])))
+                (start-phase r 1)))
+        (if (= (phase-of r) 1)
+            (if (not (= (viols-of r) 4))
+                (go r (Ending 1)
+                    (wasi.io.stdout
+                      (string-concat-many
+                        ["DRIFT-DOC-3 FAIL: self-test: fail/ fixtures produced "
+                         (int-to-string (viols-of r))
+                         " violation(s), expected 4 (mis-filed shipped-side, mis-filed dormant-side, unknown value, stray declaration outside the governed dirs). Gate under-fires:\n"
+                         (msgs-of r)])))
+                (start-phase
+                  (with-s r "out"
+                    (string-concat (out-of r)
+                      "DRIFT-DOC-3 self-test OK: pass/ clean over 4 values, fail/ caught 4 of 4\n"))
+                  2))
+            (let [(scanned (+ (gated-of r) (ungated-of r)))]
+              (if (= scanned 0)
                   (go r (Ending 1)
                       (wasi.io.stdout
-                        (string-concat-many
-                          ["\nDRIFT-DOC-3 FAIL: " (int-to-string (ungated-of r))
-                           " archived doc(s) declare no archive-disposition, above the bound of "
-                           (int-to-string (bound-of r)) "\n"])))
-                  (go r (Ending 0)
-                      (wasi.io.stdout
-                        (string-concat-many
-                          ["DRIFT-DOC-3 PASS: " (int-to-string (gated-of r))
-                           " declared disposition(s) agree with their directory\n"
-                           (if (< (ungated-of r) (bound-of r))
-                               (string-concat-many
-                                 ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
-                                  " ungated file(s) against a bound of "
-                                  (int-to-string (bound-of r)) ", lower UNGATED_BOUND to "
-                                  (int-to-string (ungated-of r)) ".\n"])
-                               (string-concat-many
-                                 ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
-                                  " ungated file(s), at the bound.\n"]))]))))))))
+                        (string-concat (out-of r)
+                          "DRIFT-DOC-3 FAIL: scanned 0 files under docs/archive/{shipped-design-specs,dormant-explorations}, the governed directories are missing or renamed\n")))
+                  (if (> (viols-of r) 0)
+                      (go r (Ending 1)
+                          (wasi.io.stdout
+                            (string-concat-many
+                              [(out-of r) "\nDRIFT-DOC-3 FAIL: "
+                               (int-to-string (viols-of r))
+                               " archived doc(s) sit in a directory their declared disposition contradicts\n\n"
+                               (msgs-of r) "\n"
+                               "A reader who finds a dropped or deferred design under shipped-design-specs/ concludes it is\n"
+                               "realized in the compiler. Move the file, or correct its archive-disposition, whichever\n"
+                               "of the two records is the wrong one.\n"])))
+                      (if (> (ungated-of r) (bound-of r))
+                          (go r (Ending 1)
+                              (wasi.io.stdout
+                                (string-concat-many
+                                  [(out-of r) "\nDRIFT-DOC-3 FAIL: "
+                                   (int-to-string (ungated-of r))
+                                   " archived doc(s) declare no archive-disposition, above the bound of "
+                                   (int-to-string (bound-of r)) "\n"])))
+                          (go r (Ending 0)
+                              (wasi.io.stdout
+                                (string-concat-many
+                                  [(out-of r)
+                                   "DRIFT-DOC-3 PASS: " (int-to-string (gated-of r))
+                                   " declared disposition(s) agree with their directory\n"
+                                   (if (< (ungated-of r) (bound-of r))
+                                       (string-concat-many
+                                         ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
+                                          " ungated file(s) against a bound of "
+                                          (int-to-string (bound-of r)) ", lower UNGATED_BOUND to "
+                                          (int-to-string (ungated-of r)) ".\n"])
+                                       (string-concat-many
+                                         ["DRIFT-DOC-3 NOTE: " (int-to-string (ungated-of r))
+                                          " ungated file(s), at the bound.\n"]))]))))))))))
 
   (def-shell da-init [] -> ((Rc, Ctl), Command)
     (go (with-i (with-i (with-i (with-i (with-s (mk json-object) "msgs" "")
@@ -323,6 +451,8 @@
     (match (ctl-of s)
       ((Boot)   (boot-step   (rc-of s) x))
       ((ListD)  (listd-step  (rc-of s) x))
+      ((ListRoot) (listroot-step (rc-of s) x))
+      ((ProbeE)   (probee-step   (rc-of s) x))
       ((ReadF)  (readf-step  (rc-of s) x))
       ((Report) (report-step (rc-of s) x))
       ((Ending c) (go (rc-of s) (Done c) (wasi.io.stdout "")))
@@ -332,6 +462,8 @@
     (match (ctl-of s)
       ((Boot)   false)
       ((ListD)  false)
+      ((ListRoot) false)
+      ((ProbeE)   false)
       ((ReadF)  false)
       ((Report) false)
       ((Ending _) false)
@@ -341,6 +473,8 @@
     (match (ctl-of s)
       ((Boot)   1)
       ((ListD)  1)
+      ((ListRoot) 1)
+      ((ProbeE)   1)
       ((ReadF)  1)
       ((Report) 1)
       ((Ending _) 1)
