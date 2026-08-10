@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-004-doc-archive
 title: "TOOL-RFC-004: the archive-disposition drift gate, in LLMLL"
-status: "Rev 3, PORTED, state ORACLE, RELEASED at v0.14.95. Both implementations run adjacent in spec-roundtrip; DRIFT-DOC-3 left the banner job in the same commit as the port, which section 8 requires. Both policy decisions were closed BEFORE any code existed (D1 distribution option D, D2 the port carries the fixture counts). THE COVER IS 17 CELLS, 14 mutations and 3 negative controls, and NOT the six cells this line recorded until v0.14.95: every mutation is asserted to fail under BOTH implementations before their answers are compared, and the controls require both to PASS an unmutated tree. IT FOUND THREE DEFECTS that a live green run and six hand-run cells had already survived: criterion 1 was not implemented at all, criterion 7 printed no remedy epilogue, and two cover cells were wrong by construction. THE CAMPAIGN-LEVEL FINDING STANDS: the published release image cannot build a port (no GHC, no Stack in its runtime stage), so P1 clearing did not resolve TOOL-RFC-001's deviation and the campaign's distribution sentence is owed an amendment. Section 7 reports that the live corpus gates exactly ONE file, so the fixtures carry all discriminative power."
+status: "Rev 3, PORTED, state ORACLE, RELEASED at v0.14.95. Both implementations run adjacent in spec-roundtrip; DRIFT-DOC-3 left the banner job in the same commit as the port, which section 8 requires. Both policy decisions were closed BEFORE any code existed (D1 distribution option D, D2 the port carries the fixture counts). THE COVER IS 17 CELLS, 14 mutations and 3 negative controls, and NOT the six cells this line recorded until v0.14.95: every mutation is asserted to fail under BOTH implementations before their answers are compared, and the controls require both to PASS an unmutated tree. IT FOUND THREE DEFECTS that a live green run and six hand-run cells had already survived: criterion 1 was not implemented at all, criterion 7 printed no remedy epilogue, and two cover cells were wrong by construction. THE CAMPAIGN-LEVEL FINDING STANDS: the published release image cannot build a port (no GHC, no Stack in its runtime stage), so P1 clearing did not resolve TOOL-RFC-001's deviation. THE AMENDMENT THIS RFC SAID WAS OWED IS NOW WRITTEN, at campaign §3, by user adjudication 2026-08-10, after TOOL-RFC-005 met the same constraint as the second occurrence. Section 7 reports that the live corpus gates exactly ONE file, so the fixtures carry all discriminative power."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
@@ -168,6 +168,14 @@ not do it: "jobs pull a published release image" does not distinguish shipping a
 compiler from shipping a compiled port, and that is the sentence which made 001
 predict a resolution that measurement contradicts. Owed to `language-team`.
 
+**AMENDED 2026-08-10 and no longer owed.** [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md)
+met the same constraint at DRIFT-DOC-4, and the user adjudicated that a gap met
+twice is written rather than owed a third time. The amended sentence is at
+campaign §3: the image delivers the compiler and not a compiled port, so a port
+runs only in a toolchain-bearing job, and a gate whose reference sits in a
+toolchain-free job relocates **wholesale** rather than splitting. Option D, which
+this RFC chose before the rule existed, is what the rule now requires.
+
 ## 4. Feasibility
 
 Worked from the reference's actual behaviour and, where the answer was not
@@ -332,6 +340,8 @@ signal (option C) was rejected because it makes §8 unreachable, and the campaig
 does not get to keep a port whose reference can never be deleted. The campaign's
 distribution sentence still needs amending to distinguish shipping a compiler
 from shipping a compiled port; that is `language-team`'s call and is owed.
+**Closed 2026-08-10**: written at campaign §3 by user adjudication, at 005's
+second occurrence of the same constraint.
 
 **D2. Where the fixture expected counts live after retirement. SETTLED as "the
 port carries them", user adjudication 2026-08-09.** The port hardcodes `4` and

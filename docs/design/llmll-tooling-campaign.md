@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 3, IN FLIGHT. Scope, distribution and retirement SETTLED by user adjudication 2026-08-07. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is NEXT and was UNBLOCKED at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
+status: "Rev 4, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). FOUR are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) has its RFC WRITTEN (TOOL-RFC-005) and no port yet, `tool_state: blocked`; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -45,7 +45,7 @@ excluding comments and blanks:
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | **NEXT**, unblocked at v0.14.96 |
+| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes | **RFC WRITTEN**, TOOL-RFC-005, `tool_state: blocked` (no port yet) |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
 **`refute-crux-gate.sh` was not invoked by any workflow.** It was a `make`
@@ -84,6 +84,29 @@ gate to port.
 sharing artifacts, over giving every job a toolchain, and over keeping a shell
 fallback per gate. The last of those is what DRIFT-CI-1 does today and it is
 explicitly a transitional state, not the pattern.
+
+**AMENDED 2026-08-10, by user adjudication, at the second port to meet the same
+constraint.** The sentence above conflates two artifacts, and the conflation is
+what made TOOL-RFC-001 predict that its deviation would resolve when P1 cleared.
+It did not, and TOOL-RFC-004 recorded that an amendment was owed. The amended
+form:
+
+> The published release image delivers the **compiler**. It does not deliver a
+> **compiled port**, and no mechanism publishes port binaries today. Until one
+> does, a port runs only in a **toolchain-bearing job**. A gate whose reference
+> lives in a toolchain-free job therefore relocates **wholesale**, reference and
+> port together, rather than splitting across two jobs.
+
+Measured off [`Dockerfile`](../../Dockerfile) and re-confirmed at 005: the
+runtime stage is `debian:bookworm-slim` installing only
+`z3 libgmp10 zlib1g ca-certificates`, and it copies exactly two executables,
+`llmll` and `fixpoint`. There is no GHC and no Stack, and `llmll build` shells
+out to `stack build`.
+
+**The wholesale clause is the part that carries consequence.** Splitting is what
+TOOL-RFC-001 did, and §4's retirement cannot delete a reference that is the only
+thing running in the job that matters. Both DRIFT-DOC-3 (004) and DRIFT-DOC-4
+(005) relocate under this rule.
 
 **This blocked the campaign at its second port until 2026-08-07, and the block
 was never technical.** [`docker-publish.yml`](../../.github/workflows/docker-publish.yml)
@@ -148,9 +171,13 @@ ports are worth doing even where the shell script was fine.
 | `SPLIT-EMPTY-1` (with the no-character-decomposition half) | SHAPES | every scanner | filed 2026-08-07 |
 | `REGEX-LOWER-1` | BLOCKS | `doc_path_lint` (005) | **SHIPPED v0.14.96**, and its census corrected its own row |
 | `FS-WALK-1` | BLOCKS | `build_smoke` (006) only | filed 2026-08-07, **not urgent** |
-| no env access (`wasi.proc.args` exists, no env builtin) | COSMETIC | none; argv carries it | unfiled, nothing lost |
+| no env access (`wasi.proc.args` exists, no env builtin) | COSMETIC | none; argv carries it | unfiled, nothing lost. **TESTED at 005 and the disposition HOLDS**: `wasi.proc.args` delivers `--strict extra` as `argc=2` to a built binary with no `--` separator. The row does not move; only the invocation changes, which is a porting decision |
 | `CAP-NULLARY-1` | COSMETIC | none | filed 2026-08-07 |
 | `FS-STAT-1` | BLOCKS | none in scope | filed, open |
+| `FS-EXISTS-1` (proposed): nothing answers "is there a file here" without moving its bytes | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005. Deliberately NOT folded into `FS-STAT-1`, which answers about an artifact's AGE |
+| `REGEX-CAPTURE-1` (proposed): `regex-match` returns `bool`, so no capture and no scan | SHAPES | every scanner | **unfiled, owed**, raised by 005. Independent of `REGEX-LOWER-1`, which was about lowering and shipped |
+| `REGEX-CASE-1` (proposed): no case-insensitive matching; TDFA rejects `(?i)` and no lowercase builtin exists | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005 and firing on real prose, not only on a fixture |
+| `PATH-NORM-1` (proposed): no path normalization for `..` | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005; 58 of 947 live citations need it |
 
 **`MODE-CLI-1` is the largest and it was invisible before a port existed.**
 `:mode cli` emits `print (step args)`: a pure function, no `Command` performed,
@@ -240,12 +267,27 @@ no toolchain required:
   wrong by construction. The live corpus declares one disposition of four and
   contains none of the four violation classes, so a live green run grades about
   a twentieth of the specified behaviour.
-- **005** doc-path lint. **NEXT, and unblocked at v0.14.96.** It was gated on
-  `REGEX-LOWER-1`, and **this is where the campaign first stopped being port
-  work**: that row was a compiler fix, so the critical path ran through the
-  compiler team for one release and is now back on ports. The fix's census
-  corrected the row it closed, `regex-match` and `is-valid?` proving to be two
-  classes rather than the one unmeasured pair the row recorded.
+- **005** doc-path lint. **RFC WRITTEN 2026-08-10**,
+  [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md), `tool_state: blocked`: the RFC
+  exists and the port does not, which is the RFC-first order working as intended.
+  It was gated on `REGEX-LOWER-1`, and **this is where the campaign first stopped
+  being port work**: that row was a compiler fix, so the critical path ran
+  through the compiler team for one release and is now back on ports. The fix's
+  census corrected the row it closed, `regex-match` and `is-valid?` proving to be
+  two classes rather than the one unmeasured pair the row recorded.
+  **The subject is ADVISORY and exits 0 by design**, so §6 compares stdout text
+  rather than exit codes, and §8's "wired into a job that decides" condition is
+  restated for a gate that decides nothing.
+  **It corrects an expectation inherited from 004.** 004's live corpus graded
+  about a twentieth of the behaviour, and 005's was assumed to be the same. It is
+  not: all four exemption classes are live-exercised, each the SOLE rescuer of 13
+  to 19 citations, and the historical-file skip is worth 268, so the SUPPRESSION
+  half has a live instrument and only the REPORTING half is fixture-only. One
+  filter, `site/` and `node_modules/`, is worth exactly ZERO and can never be
+  exercised by any corpus state, because the six files it removes contain no
+  citations at all.
+  It raised **four owed gaps**, the largest number any port has produced, and its
+  distribution finding is what the §3 amendment above answers.
 - **006** build-smoke. Last: it is the harness that runs the others, so porting
   it is an LLMLL program orchestrating LLMLL programs, and it should inherit
   five ports' worth of settled pattern rather than invent it.

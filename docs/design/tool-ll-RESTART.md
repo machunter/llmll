@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. REGEX-LOWER-1 shipped at v0.14.96 and unblocked port 005, which is the next work; see section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+status: "LIVE, 2026-08-10. Four ports of six are complete and released at v0.14.95. REGEX-LOWER-1 shipped at v0.14.96 and unblocked port 005. THE RFC FOR PORT 005 IS NOW WRITTEN and the port is not built; building it is the next work. ALL THREE OF ITS DECISIONS ARE SETTLED (D1 distribution, D2 existence by git ls-files, D3 use regex-match). D3 reverses the precedent in versiongate.llmll:25 and shape.llmll:26, on a measurement that the verified tier those comments protect is not available to this function either way. See section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -76,20 +76,84 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 
 ---
 
-## 2. The next work: port 005
+## 2. The next work: build port 005
 
-**`REGEX-LOWER-1` SHIPPED at v0.14.96. Port 005 is no longer blocked.**
+**The RFC for port 005 is written.** Read
+[`tool-rfc-005-doc-path-lint.md`](tool-rfc-005-doc-path-lint.md). The port does
+not exist. Its `tool_state` is `blocked`, which means "no port", not "a roadmap
+row stops it".
 
-The user decided on 2026-08-10 to do `REGEX-LOWER-1` before port 006. The
-campaign did that work and released it. The critical path went through the
-compiler for the first time, and it is now back on port work.
+Build the port next. Then write the cover. The RFC gives the plan.
 
-Do port 005 (`doc_path_lint`) next. Write its RFC first. The standard has nine
-sections. Read `TOOL-RFC-TEMPLATE.md`.
+### All three decisions are settled
 
-**Measure the gap list again before you write the RFC.** `REGEX-LOWER-1` was
-port 005's only recorded blocker. A new port finds new gaps. Three of the last
-three ports found something their own feasibility read had called absent.
+The user made D1, D2 and D3 on 2026-08-10. Do not discuss them again. Section 9
+of the RFC gives each one.
+
+- **D1, distribution.** Amend the campaign rule first. Then move the gate.
+- **D2, existence.** Use one `git ls-files`. Then use `list-contains`.
+- **D3, the regexes.** Use `regex-match`.
+
+**D3 reverses a precedent. Build the port to the reversal.** Two comments in the
+tree avoid `regex-match`: `versiongate.llmll:25` and `shape.llmll:26`. They give
+the verified tier as the reason. A probe measured that reason to be absent here.
+Both recognizer shapes report `body-fallback`. A control reports
+`body-faithful`. Thus the probe discriminates, and the tier cost is zero.
+
+Three rules come with D3:
+
+1. Write `PLACEHOLDER` as the reference writes it. Do not change a character.
+2. Write `HIST_LINE` as per-letter bracket classes, like `[Pp][Rr]`. This gives
+   exact case-insensitive matching. **Do not use a list of case variants.** That
+   is an approximation, and cover cell 9 rejects it.
+3. Hand-roll the two SCANNERS. `regex-match` returns a bool and captures
+   nothing. Thus the port holds two mechanisms. This is correct.
+
+**TDFA is not Python.** `regex-match` uses POSIX ERE. It has `\b`. It has no
+`\d`. Measure each new pattern before you use it.
+
+### What the RFC found that the roadmap did not say
+
+Four facts were given to this campaign. Three are correct. One is wrong.
+
+- **Correct.** The gate is advisory. It exits 0. A cover must compare the text
+  on stdout. It must not compare exit codes.
+- **Correct.** No environment access exists. The port reads `--strict` from
+  argv. A probe measured that argv carries the flag. **The campaign disposition
+  holds. The row does not move.**
+- **Correct.** The gate runs in the fast job. That job has no toolchain. This is
+  the second occurrence. **The user told the campaign to amend the rule now.**
+  The amendment is at campaign section 3.
+- **WRONG.** The fourth fact said that a live green run grades almost nothing.
+  **Measure it again before you trust it.** All four exemption classes are live.
+  Each one alone rescues 13 to 19 citations. The historical-file rule rescues
+  268. Thus the suppression half has a live instrument. Only the reporting half
+  needs fixtures, because the corpus gives zero findings.
+
+**One filter is invisible.** The `site/` and `node_modules/` rule removes six
+files. Those six files hold zero citations. Thus no corpus can exercise that
+rule. Only cell 13 can see it.
+
+### Three items go to other teams
+
+The RFC found these. None of them stops port 005.
+
+1. `shape.llmll:26` says that `^N\d+$` ports word for word. **This is wrong.**
+   TDFA has no `\d`. Use `^N[0-9]+$`. Corrected.
+2. `llmll check` gives exit 0 for an unknown function. It gives a warning only.
+   This is the `REGEX-LOWER-1` shape.
+3. `DONE-TYPE-1` gives a warning for each console program.
+4. **`REGEX-LOWER-1` shipped at v0.14.96. Six sites still say it did not.** The
+   v0.14.96 release corrected the documents. It did not correct the code
+   comments. This session corrected `versiongate.llmll:25`, because D3 rests on
+   it. Five sites stay: `sequencer.llmll:1327` and `:1334`,
+   `docclaims.llmll:174`, and `test_driver_ll_4c.py:39`, `:419` and `:432`.
+
+**One of the five sites is a test, and it is the one to look at first.**
+`test_the_driver_calls_regex_match_nowhere` gives "does not build" as its reason.
+It says "Until that row ships" in its failure message. The row shipped. The test
+passes today, because no module calls `regex-match`. But it will stop a correct
+change and give a false reason. DRIVER-LL owns that decision.
 
 ### Why the campaign did not choose port 006
 
@@ -194,7 +258,7 @@ Four ports of six are complete. Each of the four is an oracle.
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
-| **005** doc-path-lint | **UNBLOCKED at v0.14.96.** `REGEX-LOWER-1` shipped. **This is the next work.** See section 2 |
+| **005** doc-path-lint | **RFC WRITTEN**, `tool_state: blocked`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The port does not exist. **Build it next.** One decision is open. See section 2 |
 | **006** build-smoke | Last. It runs the other gates. **It is also BLOCKED**, on `FS-WALK-1` |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
@@ -213,6 +277,13 @@ Open roadmap rows that this campaign filed or needs:
 | `STRLIT-BODY-1` | OPEN. It is the absence that 004 section 7 records | roadmap, search the tag |
 | `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
 | `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |
+| `FS-EXISTS-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
+| `REGEX-CAPTURE-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
+| `REGEX-CASE-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
+| `PATH-NORM-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
+
+**Port 005 proposed four gap names. No roadmap row holds them.** The campaign
+section 5 table carries them. File the four rows before the port ships.
 
 **The line numbers above move.** Search for the tag name. Do not trust the
 number.

@@ -24,9 +24,24 @@
 ;;
 ;; NO REGEX, AND NOT BY PREFERENCE. `regex-match` is a documented builtin, is
 ;; in the type environment, has a preamble body emitted, and a program calling
-;; it DOES NOT BUILD (REGEX-LOWER-1, measured at v0.14.87 and recorded at
-;; sequencer.llmll:1324-1334). The shell version leans on `grep -oE` in three
-;; places, so the port owes a scanner. `leading-run` below is it.
+;; it DID NOT BUILD when this port was written (REGEX-LOWER-1, measured at
+;; v0.14.87 and recorded at sequencer.llmll:1324-1334). The shell version leans
+;; on `grep -oE` in three places, so the port owes a scanner. `leading-run`
+;; below is it.
+;;
+;; THE REASON ABOVE EXPIRED AT v0.14.96 and the scanner stays anyway. That
+;; release shipped REGEX-LOWER-1, and a program calling `regex-match` now
+;; builds and runs; TOOL-RFC-005 measured it. So this comment no longer
+;; explains why THIS module hand-rolls, and the honest answer is that nobody
+;; has revisited it: `leading-run` works, and rewriting a shipped oracle's
+;; scanner is a behaviour change owed its own cover run, not a tidy-up.
+;;
+;; A later port decided the other way on evidence. TOOL-RFC-005 §9 D3 chose
+;; `regex-match` for doc-path-lint after measuring that the verified tier this
+;; comment's neighbours cite is not available to a string recognizer either
+;; way: both shapes report `body-fallback`. If this module is ever revisited,
+;; that measurement is the one to start from, and `\d` is absent from TDFA
+;; while `\b` is present, which is not what a reader of Python's `re` expects.
 ;;
 ;; `string-split` WITH AN EMPTY SEPARATOR DOES NOT TERMINATE, so there is no
 ;; per-character decomposition to fold over. Measured from the emitted body:

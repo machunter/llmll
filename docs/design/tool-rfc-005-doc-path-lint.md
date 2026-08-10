@@ -1,0 +1,531 @@
+---
+name: tool-rfc-005-doc-path-lint
+title: "TOOL-RFC-005: the prose path-citation lint, in LLMLL"
+status: "Rev 0, DRAFT, state BLOCKED (the RFC exists, the port does not). Written RFC-first, before any port code. THE SUBJECT IS ADVISORY AND EXITS 0 BY DESIGN, so a differential cover comparing exit codes grades nothing and §6 compares STDOUT TEXT instead. THE LIVE CORPUS IS NOT VACUOUS, and this RFC corrects the expectation it inherited from TOOL-RFC-004: measured 2026-08-10, all four exemption classes are live-exercised, each the SOLE rescuer of 13 to 19 citations, and the historical-file skip is worth 268; so the SUPPRESSION half has a live instrument and only the REPORTING half is fixture-only, because the corpus yields zero findings. THREE decisions settled by user adjudication 2026-08-10: D1 distribution, D2 existence by `git ls-files` membership, and D3 `regex-match` over a hand-rolled scanner. D3 REVERSES THE PRECEDENT SET BY `versiongate.llmll:25` AND `shape.llmll:26`, and it reverses it on a measurement: both recognizer shapes report `body-fallback`, a control reports `body-faithful`, so the verified tier those comments were protecting is not available to this function either way. `HIST_LINE` is written as per-letter bracket classes, which is exact case-insensitivity; the variant-list approximation is forbidden and cover cell 9 is what forbids it. The campaign's distribution sentence is AMENDED here rather than owed a third time. Three findings routed out: `shape.llmll:26` claims `^N\\d+$` ports verbatim and it does not, `llmll check` passes an unknown function at exit 0, and DONE-TYPE-1 fires on every console program built for this port."
+date: 2026-08-10
+author: experiment-lead
+consumers: [compiler-engineer, documentation-lead, language-team, user]
+tool_state: blocked
+subject_script: scripts/doc_path_lint.py
+port_module: tools/doc-path-lint/pathlint.llmll
+---
+
+# TOOL-RFC-005: the prose path-citation lint, in LLMLL
+
+## 1. Subject
+
+[`scripts/doc_path_lint.py`](../../scripts/doc_path_lint.py), **132 code lines**
+of 180 total (excluding comments and blanks, measured 2026-08-10, and agreeing
+with the campaign's §2 scope table). It is DRIFT-DOC-4.
+
+**What it decides: nothing, and that is the defining fact of this port.** The
+function ends `return 1 if os.environ.get('STRICT') else 0`, and the module
+docstring argues at length that it must stay that way. One class of input has no
+truth value for it:
+
+> COUNTERFACTUAL PATHS. A rationale legitimately names a location that does not
+> exist, and its non-existence is the point of the sentence.
+
+A gate that can be wrong about correct input teaches people to write worse prose
+to appease it, so this one reports and exits 0. Every other gate in the campaign
+asserts something with a definite truth value; this one asserts a
+recommendation. The consequence runs through §6 and §7: **a cover that compares
+exit codes compares two constants**, and the port's obligation is to reproduce
+*text*, not a verdict.
+
+**What it lints.** Bare-backtick path citations in prose, `docs/design/foo.md`,
+which ordinary Markdown link checkers do not follow because they are not links.
+Measured on the live tree: 947 citations across 171 living files, all resolving.
+
+**Where CI invokes it.** [`version-gate.yml`](../../.github/workflows/version-gate.yml),
+job **`C1-C4 banner / schema + DRIFT-DOC-4 + pytest`**, step "Run prose
+path-citation lint (DRIFT-DOC-4, advisory)" at `:98-99`. Naming the job rather
+than the workflow is TOOL-RFC-001's recorded mistake and the job is the whole of
+§3: this one has **no Haskell toolchain by design**, stated in the workflow's own
+header at `:8-9` ("No Stack: no gate in this job has a compiler dependency"), and
+its budget is "fast (<1 min)".
+
+**What kind of gate it is, because it bounds what §7 can claim.** Unlike
+DRIFT-CI-1 and DRIFT-DOC-3, which compare two records maintained inside the
+repository, this gate compares prose against the **filesystem**, which is an
+oracle neither record controls. It can therefore detect a citation that both the
+author and the reviewer believed correct. What it cannot do is decide the
+counterfactual class, and that is a property of the question rather than of the
+implementation.
+
+## 2. Criteria
+
+**The reference has no failure order, because it has no failures.** It has one
+scan, one summary line, and two mutually exclusive tails. What it does have is a
+**per-citation suppression order**, which is short-circuit (`or`-chained at
+`:153-157`, then a separate check at `:159-161`) and which the port owes exactly,
+because two suppressors firing on one citation are indistinguishable in the
+output while their absence is not.
+
+**Stage 1, file selection.** `git ls-files '*.md'` (`:133`), then:
+
+| # | Rule | Source |
+|---|---|---|
+| F1 | drop paths starting `site/` or `node_modules/` | `:135` |
+| F2 | drop `CHANGELOG.md`, any path containing `/runs/` or `/findings/`, any path matching `/postmortem-`, any path starting `docs/archive/` | `historical_file`, `:124-129` |
+
+F2 is the exclusion the docstring calls "the big one: it is the difference
+between a ~450-item problem and a ~50-item one".
+
+**Stage 2, per file.** Strip fenced code blocks (`FENCE`, `:63`). Build the
+resolving-label set: every `[`p`](target)` whose **target** resolves relative to
+the file's directory contributes `p` (`LABEL`, `:146-147`). Then substitute every
+`](...)` with `]()` before scanning (`LINK`, `:148`), so a link's target is never
+itself read as a citation.
+
+**Stage 3, per candidate.** `PATH` (`:61`) matches a backticked path ending in
+one of `md hs llmll json sh yaml yml py cabal txt`. A candidate with no `/` is
+skipped **before** it is counted (`:149-150`), so the reported citation count
+excludes bare filenames. Everything else increments `cites`, then runs the
+suppression order:
+
+| # | Suppressor | Source |
+|---|---|---|
+| S1 | `os.path.exists(p)`, from the repo root | `:153` |
+| S2 | `os.path.exists(normpath(join(dirname(f), p)))`, relative to the citing file | `:154` |
+| S3 | `p` is in the resolving-label set | `:155` |
+| S4 | `PLACEHOLDER` matches: `NN`, `<`, `\bfoo\b`, `Mylib`, `cell_`, `turn_`, `...` | `:156`, `:65` |
+| S5 | `(f, p)` is in `ALLOW`, 14 entries, each carrying a stated reason | `:157`, `:73-121` |
+| S6 | the **first** line of the file containing `` `p` `` matches `HIST_LINE`, case-insensitively: `**DONE**`, `moved to`, `relocat`, `formerly`, `previously`, `old path`, `archived to`, `removed 20`, `deleted 20`, `migrated from` | `:159-161`, `:66-68` |
+
+**Message text**, quoted because a cover that compares output needs it written
+somewhere that is not the reference:
+
+```
+DRIFT-DOC-4 (advisory): {cites} prose path citations in {scanned} living files
+DRIFT-DOC-4: all resolve.
+```
+
+and, on the reporting tail:
+
+```
+DRIFT-DOC-4: {n} do not resolve, in {k} file(s).
+
+  {file}:{line}  `{path}`
+
+Each is one of: a stale citation to fix, or a case ALLOW should record with a reason.
+This lint does not fail the build; see the module docstring for why it must not.
+```
+
+Findings are grouped by file and the files are sorted (`:170`). All output is
+**stdout**; nothing goes to stderr.
+
+**Two properties of S6 that are easy to lose and are reproduced rather than
+fixed.** The line lookup takes the **first** line containing the citation, so a
+path cited twice in one file yields two findings that both report the first
+line's number, and a historical marker on that first line suppresses **both**.
+And the lookup runs over the **unstripped** lines, so it can land on a line
+inside a fenced block. Neither is reachable on the live corpus, which reports
+zero findings; both are §6 fixture territory and §9 records the decision to copy
+them.
+
+## 3. Distribution
+
+**The campaign's distribution sentence is amended here.** This is the second port
+to meet the same constraint, TOOL-RFC-004 §3 recorded that an amendment was owed
+to `language-team`, and the user adjudicated on 2026-08-10 that it be written now
+rather than owed a third time.
+
+**The measurement, re-confirmed for this port.** Read off
+[`Dockerfile`](../../Dockerfile): the runtime stage is `debian:bookworm-slim`
+installing only `z3 libgmp10 zlib1g ca-certificates`, and it copies exactly two
+executables, `llmll` and `fixpoint`. There is no GHC and no Stack. `llmll build`
+emits a Haskell package and shells out to `stack build`, so inside the image it
+has nothing to build with.
+
+**The amendment.** Campaign §3 says "Jobs pull a published release image". That
+sentence conflates two artifacts, and the conflation is what made TOOL-RFC-001
+predict that its deviation would resolve when P1 cleared. It did not. The
+amended form distinguishes them:
+
+> The published release image delivers the **compiler**. It does not deliver a
+> **compiled port**, and no mechanism publishes port binaries today. Until one
+> does, a port runs only in a **toolchain-bearing job**. A gate whose reference
+> lives in a toolchain-free job therefore relocates **wholesale**, reference and
+> port together, rather than splitting across two jobs.
+
+The wholesale clause is the part that carries consequence. Splitting is what
+TOOL-RFC-001 did, and §8 cannot delete a reference that is the only thing running
+in the job that matters.
+
+**Placement for this port: relocate DRIFT-DOC-4 wholesale into
+`spec-roundtrip`**, both implementations as adjacent steps. That is 003's and
+004's arrangement, and it is what the amended sentence licenses.
+
+**What it costs, stated here rather than discovered later.**
+
+1. **The fast job loses its last doc gate.** After 004 moved DRIFT-DOC-3 out, the
+   banner job carries C1-C4, DRIFT-DOC-4 and the pytest suite. After this move it
+   carries C1-C4 and pytest, and answers no documentation question at all.
+2. **Time-to-signal goes from about 25 seconds to about 17 minutes**, on 004's
+   measurement of run `31332324160`.
+3. **A gate needing only Python acquires a Haskell build as a dependency**, which
+   is `SKIP-SILENT-1`'s neighbourhood. The mitigation is that the job fails
+   loudly rather than reporting green, so the step must not be made conditional.
+
+**Point 2 costs less here than it did at 004, and the reason is worth stating
+plainly.** DRIFT-DOC-3 blocks a merge, so delaying it delays a decision.
+DRIFT-DOC-4 decides nothing. Delaying an advisory report moves *when a reader
+sees a suggestion*, and the docstring's claim for its value ("at review time, in
+the diff") survives in the job log. Nobody is blocked either way, before or
+after.
+
+**The option 004 rejected does not fail here for 004's reason, and it still
+fails.** Option C left the reference deciding in the fast job, which made
+retirement incoherent. That objection is vacuous for an advisory gate: this
+reference decides nothing, so leaving it in place leaves nothing deciding. C
+fails on the amended sentence instead, which forbids the split, and on §8, which
+would delete the fast job's only prose-path report as a side effect of retiring a
+port that runs elsewhere.
+
+## 4. Feasibility
+
+Worked from the reference's behaviour and, wherever the answer was not obvious,
+from **building and running a probe** rather than reading the capability table.
+Every row marked *measured* below was executed against `llmll 0.14.96` at
+`3924bb3`, built from the tree rather than taken from `stack exec` (a stale
+0.14.95 binary was on `PATH` at the start of this session and was rebuilt first).
+
+| Needs | LLMLL | Note |
+|---|---|---|
+| Enumerate tracked Markdown files | **available**, `wasi.proc.run` | The reference already shells to `git ls-files '*.md'`, so the port inherits the invocation rather than inventing one |
+| Filter by path prefix and by substring | **available**, `string-contains` and `string-slice` | F1 and F2 are prefix and substring tests over the file list |
+| Read a file's text | **available**, `wasi.fs.read` | **Measured**: `RText` on a present path |
+| Decide whether a cited path EXISTS | **gap** | `os.path.exists` has no equivalent. Two mechanisms measured, see §5 and D2. **Measured**: `wasi.fs.read` on a missing path answers `RErr` with `openFile: does not exist`, so existence-by-attempt works; it costs a full READ where the reference costs a stat, and the live corpus would move **77.0 MB across ~1900 calls** in a job budgeted under a minute |
+| Test membership in a list | **available**, `list-contains` | The mechanism D2 settled on |
+| Normalize `a/b/../c` | **gap, hand-rolled** | No `normpath`. **Measured**: 58 of 947 live citations contain `..`, so this is exercised on every real run and cannot be deferred |
+| Extract every backticked path from a document | **gap** | `regex-match : (string, string) -> bool` returns a **bool** and captures nothing, so `PATH` and `LABEL` cannot use it whatever D3 decides. A hand-rolled scanner is forced, on `versiongate.llmll:25`'s precedent |
+| Test a candidate against `PLACEHOLDER` | **available**, `regex-match`, verbatim | **Measured, built and run**: `"NN|<|\\bfoo\\b|Mylib|cell_|turn_|\\.\\.\\."` gives T on `postmortem-NNN.md`, T on `design/foo.md`, T on `a/turn_3/x.json`, and F on a fourth path carrying no placeholder token. The LLMLL string literal carries the backslash through to TDFA, and TDFA supports `\b` |
+| Test a line against `HIST_LINE`, case-insensitively | **gap** | **Measured**: `regex-match` lowers to `Text.Regex.TDFA`, which rejects inline `(?i)` (returns False), and there is no lowercase builtin. Exact case-insensitivity IS expressible as per-letter bracket classes (`[Pp][Rr]...`, measured working). Live relevance measured: one alternative genuinely needs the fold, `previously` matching `Previously` twice |
+| Split content into lines | **available**, `string-split` on `"\n"` | Empty-separator decomposition is absent (`SPLIT-EMPTY-1`) and is not needed |
+| Index a string by character | **available**, `string-char-at` | **Measured, built and run**: `string-char-at "abc" 1` is `"b"`, `string-slice "abcdef" 1 3` is `"bc"` (end-exclusive) |
+| Sort findings by file | **available by construction** | `git ls-files` emits sorted output and findings accumulate in file order, so no sort builtin is needed |
+| Adjudicate the suppression order | **available AND provable** | **Measured**: a `def` over six bools verifies `body-faithful` and SAFE, and dropping one clause is **REFUTED at constraint #0**. This is §7's third instrument |
+| Recognize which bytes are a citation | **available, not contractable** | A bool-valued body over string comparison falls back (`STRLIT-BODY-1`). **Measured**: the `string-contains` recognizer and the `regex-match` recognizer BOTH report `body-fallback`, while a control (`(def double [x: int] -> int (post (= result (+ x x))) (+ x x))`) reports `body-faithful`, so the instrument discriminates and the fallback is a finding rather than an artifact |
+| Read `STRICT` from the environment | **gap** | No `wasi.env.*` exists; the sixteen `wasi.*` names were enumerated from the compiler. **Measured**: `wasi.proc.args` delivers `--strict extra` as `argc=2` to a built binary with no `--` separator, so argv carries the flag |
+| Exit with a distinct status | **available**, `console` mode | `:mode cli` performs no `Command` (`MODE-CLI-1`), so the port is a stdin-driven step machine like every other in this campaign |
+
+## 5. Gaps
+
+| Gap | Disposition | Roadmap tag | What the design would have been |
+|---|---|---|---|
+| `os.path.exists` has no equivalent; nothing answers "is there a file here" without moving its bytes | **SHAPES** | unfiled, owed (proposed `FS-EXISTS-1`) | A direct existence predicate per citation, as the reference writes it. Instead the port enumerates the tree ONCE with `git ls-files` and tests `list-contains`, per D2. Deliberately **not** folded into `FS-STAT-1`, which is about an artifact's AGE for `liveness.advancing` and would answer a different question; collapsing two causes into one row is what produced a row that was wrong for a release at `ALIAS-LOWER-1` |
+| `regex-match` returns `bool`, so no capture and no scan | **SHAPES** | unfiled, owed (proposed `REGEX-CAPTURE-1`) | `PATH` and `LABEL` as two regex calls, the way the reference writes them. Instead the port hand-rolls two scanners over `string-char-at` and `string-slice`. This is forced independently of D3 and is the second port to hand-roll a scanner, after `versiongate.llmll:25` |
+| No case-insensitive matching: TDFA rejects `(?i)` and no lowercase builtin exists | **SHAPES** | unfiled, owed (proposed `REGEX-CASE-1`) | `HIST_LINE` as one `re.I` call. Instead the port writes **per-letter bracket classes** (`[Pp][Rr]...`), settled at D3: exact rather than approximate, and verbose. Measured live relevance: `previously` matches `Previously` twice on the current tree, so the gap fires on real prose rather than only on a fixture |
+| No path normalization for `..` | **SHAPES** | unfiled, owed (proposed `PATH-NORM-1`) | `os.path.normpath`. Instead the port folds the segment list, dropping a segment per `..`. Measured: 58 of 947 live citations need it, so it is on the main path and not an edge case |
+| `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: scan, print, exit. Instead the port is a stdin-driven step machine with an explicit control state, which is the campaign's single largest line-count multiplier |
+| A bool-valued body whose result is a string comparison falls back, so the citation recognizer carries no proof | **SHAPES** | `STRLIT-BODY-1` | The recognizer and the adjudicator would both be verified. Instead only the adjudicator is contractable, which is what forces §7's instrument split. **Measured here**: the fallback is identical for a hand-rolled and a regex recognizer, which is what makes D3's tier cost zero |
+| `string-split` with an empty separator does not terminate | **COSMETIC** | `SPLIT-EMPTY-1` | Nothing follows: this gate splits on `"\n"`, and per-character work goes through `string-char-at`, which is measured working |
+| No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows: `git ls-files` supplies the whole file list flat, which is the reference's own mechanism |
+| No environment access | **COSMETIC** | unfiled, and the campaign's census already carries this row | **The campaign's disposition was tested here and it HOLDS.** `wasi.proc.args` delivers a flag-shaped argument intact, measured on a built binary. Nothing is lost and the row does not move. The *invocation* changes, `STRICT=1 cmd` becoming `cmd --strict`, and that is a porting decision recorded at D4 with a §6 cell, not a language gap |
+
+**Four gaps are marked unfiled and owed.** That is a larger number than any
+previous port has produced, and it is the census this campaign exists to
+generate rather than a reason to defer. The campaign's §5 table carries them.
+
+## 6. Differential plan
+
+A cover in the shape of [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py),
+taking `--gate` (the port binary) and running the reference from a scratch copy,
+**both implementations in the same scrubbed environment**, because 003's cover
+found an `llmll` on `PATH` that its reference could not see and was then
+comparing two worlds rather than two implementations.
+
+**Exit codes grade nothing here and the cover must not compare them.** The
+reference exits 0 on every input that is not both STRICT-enabled and
+finding-bearing, and measured on the live tree even `STRICT=1` exits 0, because
+the zero-findings tail returns at `:168` before `STRICT` is ever read. **The
+cover compares stdout text**: the summary line, the finding lines with their
+`file:line  \`path\`` shape, and the epilogue.
+
+**Mutations must ADD findings, not remove them**, since the corpus reports none.
+Every mutant is asserted to produce the SAME non-empty finding set under both
+implementations before their answers are compared, and every negative control
+requires both to report **zero findings** and the **same counts**.
+
+| Cell | Mutation | Criterion | Expect |
+|---|---|---|---|
+| 1 | add a doc citing a path that does not exist | S1, S2 | both report 1 finding, same file, line and path |
+| 2 | cite the same missing path inside a fenced code block | stage 2, FENCE | both report 0; a port that forgets fence stripping reports 1 |
+| 3 | cite it as a link TARGET, `](missing/x.md)` | stage 2, LINK | both report 0 |
+| 4 | add [`old/x.md`](INDEX.md), a label whose target resolves | S3 | both report 0 |
+| 5 | the same label with a target that does NOT resolve | S3 | both report 1; the label set requires a RESOLVING target and this is the cell that proves it |
+| 6 | cite `postmortem-NNN.md` | S4 | both report 0 |
+| 7 | cite a missing path on a line reading "moved to" | S6 | both report 0 |
+| 8 | same line, "Previously" | S6 | both report 0; **this cell fails a port with no case handling at all** |
+| 9 | same line, "PREVIOUSLY" | S6 | both report 0; **this cell fails a port that matches only a literal-plus-capitalized variant list**, which is the approximation D3 forbids. It is the cell that holds the per-letter bracket classes honest |
+| 10 | add a missing citation to `CHANGELOG.md` | F2 | both report 0 |
+| 11 | add one to a new file under `docs/archive/` | F2 | both report 0 |
+| 12 | add one to a new file under a `/runs/` directory | F2 | both report 0 |
+| 13 | add one to `site/index.md` | F1 | both report 0 **and the scanned-file count is unchanged**; this is the ONLY cell that can see F1, because the six filtered files contain zero citations between them |
+| 14 | cite `../compiler-team-roadmap.md` from a file in `docs/design/` | S2 | both report 0; resolves only relative to the citing file |
+| 15 | cite a `../`-prefixed path that does not exist, from a file in `docs/design/` | S2 | both report 1; the `..` fold must resolve and then fail, not fail to parse |
+| 16 | remove one entry from `ALLOW` in **both** implementations | S5 | both report 1 |
+| 17 | cell 1's tree, with STRICT enabled on both | exit | both exit **1**; the only cell in which the exit code carries information |
+| 18 | cell 1's tree, STRICT absent | exit | both exit **0** while reporting 1 finding |
+| 19 | cite a missing path TWICE in one file, second occurrence 40 lines later | S6 quirk | both report 2 findings **both carrying the FIRST line number**; the reference quirk is reproduced, not fixed |
+| **NC-1** | unmutated tree | all | **both PASS**, `all resolve.`, exit 0, and **the same two counts as each other**. The counts are compared between implementations, never pinned to a literal: they rise with every document added, and a literal here would be a stale record by the next commit |
+| **NC-2** | add a doc citing a path that DOES resolve | S1 | **both PASS**, citation count rises by exactly 1, findings stay 0 |
+| **NC-3** | add a living `.md` with no citations at all | stage 1 | **both PASS**, scanned count rises by exactly 1, citation count unchanged |
+
+Cells 8, 9, 13 and 19 are the ones that matter most, and each of them is
+invisible on the live corpus. TOOL-ENCODING-1 is why the three negative controls
+are written as counts rather than as "both pass": there, every mutation cell
+agreed while both implementations failed identically, and only a control
+requiring both to succeed on an unmutated tree could tell "the two agree" from
+"neither can read the corpus".
+
+**Run the negative control first, then read which assertions it never reached.**
+Two cover cells have been found wrong by construction this way, at 004 and again
+at `REGEX-LOWER-1`, in both cases because the gate failed early and left later
+assertions unexecuted.
+
+## 7. Verification
+
+**This section corrects an expectation carried over from TOOL-RFC-004.** At 004
+the live corpus declared one disposition of four and contained none of the four
+violation classes, so a live green run graded about a twentieth of the specified
+behaviour and the fixtures carried everything. The expectation for 005 was that
+zero findings meant the same thing here. **Measured 2026-08-10, it does not.**
+
+| Class | Citations it is the SOLE rescuer of |
+|---|---|
+| S3 resolving labels | 19 |
+| S4 `PLACEHOLDER` | 13 |
+| S5 `ALLOW` | 13 |
+| S6 `HIST_LINE` | 13 |
+| F2 historical files | 268 |
+| F1 `site/`, `node_modules/` | **0** |
+
+Of 947 citations, 737 resolve from the repo root, 151 resolve **only** relative
+to the citing file, 58 contain `..`, and 59 do not resolve by path at all and are
+carried by the four exemption classes. So a port that drops any one of S3 to S6
+turns "all resolve" into 13 to 19 findings **on the unmutated tree**, and a port
+that drops F2 reports 268. The suppression half has a live instrument.
+
+What the live corpus cannot reach is the **reporting** half. Zero findings means
+the finding loop, the line-number lookup, the file grouping, the epilogue and the
+`STRICT` branch never execute on a real run. And F1 is invisible even in
+principle: the six filtered files contain **zero** citations between them, so
+omitting the filter changes only the scanned-file count in the summary line.
+
+| Instrument | Catches | Blind to | Survives §8? |
+|---|---|---|---|
+| The §6 differential cover | Any divergence from the reference under mutation, including message text, the finding-line shape and the suppression order | A defect the port and the reference SHARE, which is the likely class when the port is written by reading the reference; and it cannot run at all once the reference is gone | **No** |
+| The live corpus, as a suppression oracle. **The assertion is `findings == 0`, not a pinned citation count** | A dropped or over-broad exemption class, immediately and without any fixture: S3 to S6 each move the finding count off zero and F2 moves it by 268, so the zero is doing real work rather than describing an empty scan | The entire reporting half, which never executes; F1, which no corpus state can exercise; and any defect that suppresses MORE rather than less, since over-suppression also reports zero | **Yes**, it reads the tree, not the reference |
+| A contract on the adjudicator (`six evidence flags -> report?`) with a refuting case | A misrouted suppression rule, referencing neither implementation. **Measured**: the body verifies `body-faithful` and SAFE, and dropping the `HIST_LINE` clause is **REFUTED at constraint #0** | The recognizer half entirely: which bytes are a citation, the regex dialect, the `..` fold. `STRLIT-BODY-1` makes that half uncontractable today | **Yes** |
+| Fixtures for the reporting half | Output shape, line numbers, grouping, sorting, the epilogue, the `STRICT` exit, and cells 8, 9, 13 and 19 | Anything about the live corpus, which it never reads | **Yes**, a separate directory from the subject script |
+
+**The four fail differently and that is the point.** The cover compares two
+implementations. The live corpus compares one implementation to a pinned count.
+The contract compares a function to a specification. The fixtures compare output
+to expected text. A defect shared by both implementations passes row 1 and is
+caught by row 3 if it is in the adjudicator. A dropped exemption passes row 3 and
+is caught by row 2 on the next CI run. A wrong finding format passes rows 2 and 3
+and is caught only by row 4.
+
+**Three things this section does NOT claim.** Row 2 is blind to
+over-suppression, which reports zero exactly as correctness does, so it is a
+one-directional instrument and cells 1, 5, 15 and 16 are what cover the other
+direction. The contract covers the adjudicator only, so the **recognizer half has
+exactly one instrument** (row 4), which is the absence §7 permits a row to
+record, tagged `STRLIT-BODY-1`. And `--strict-verified-core` is **not** listed:
+`versiongate.llmll` passes it today with zero body-faithful functions, so the
+pass is vacuous, and this port's recognizer is measured to fall back under D3's
+settled choice exactly as it would have under the alternative.
+
+**The debt this section creates.** The 14-entry `ALLOW` table and row 4's
+expected fixture text must live **in the port**, not in the reference, because §8
+deletes the reference and takes both with it. `ALLOW` in particular is not
+derivable: each entry is a human judgement that one specific citation is correct
+despite not resolving, and regenerating it from the tree would make every
+unresolved citation self-justifying. Settled at D5.
+
+**Row 2 is deliberately NOT a pinned count.** Asserting "947 citations in 171
+files" in the port would redden CI on the next document anyone writes, and the
+number would be a stale record within a commit. The assertion is that findings
+are **zero**, which is stable under document addition and is exactly as strong,
+because the table above measures that zero to be the product of six live
+suppression classes rather than an empty scan.
+
+## 8. Retirement
+
+`scripts/doc_path_lint.py` is deleted one release after the port lands, in the
+same commit that moves `tool_state` to `retired`.
+
+Before that, all of:
+
+- the §6 differential cover green, including the three negative controls, and its
+  negative control run FIRST with the unreached assertions read off;
+- the port wired into a job that runs it, satisfied by §3: both implementations
+  as adjacent steps in `spec-roundtrip`, with DRIFT-DOC-4's own step leaving the
+  banner job **in the same commit as the port**, not later;
+- one release elapsed in state `oracle`, both implementations running adjacent;
+- the `ALLOW` table carried in the port rather than in the reference, per D5,
+  since deleting the reference otherwise deletes fourteen human judgements that
+  nothing in the tree can regenerate;
+- the reporting-half fixtures in place, since §6 dies with the reference and row
+  4 is the only instrument that reaches that half at all.
+
+**The word "decides" in the campaign's retirement rule does not apply to this
+gate, and pretending otherwise would be the error.** The campaign requires a port
+"wired into a job that decides". DRIFT-DOC-4 decides nothing and never will; its
+docstring forbids promoting it. The condition this port satisfies instead is that
+its output is **produced and readable in a job that runs on every push**, which
+is what an advisory gate has in place of a verdict. Retiring a reference whose
+port only ever ran locally would be the §10 failure mode, and that is the
+property the condition is protecting.
+
+## 9. Decisions taken
+
+**Two settled by the user before any code exists, one open, and two taken by the
+porter.** The RFC-first order exists because TOOL-RFC-001 made three of its four
+calls at the keyboard and reported them afterwards.
+
+**D1. Distribution. SETTLED by user adjudication 2026-08-10: amend the campaign
+sentence now, then choose.** The amendment is written in §3 and distinguishes
+shipping a compiler from shipping a compiled port. The placement it licenses is
+the wholesale relocation of DRIFT-DOC-4 into `spec-roundtrip`, and the cost is
+accepted knowingly: the fast job drops to C1-C4 plus pytest and answers no
+documentation question, and an advisory report moves from about 25 seconds to
+about 17 minutes. The cost is lower than 004's because a delayed suggestion
+blocks nobody, and §3 says so rather than leaving the two cases to look alike.
+
+**D2. The existence check. SETTLED by user adjudication 2026-08-10: one
+`git ls-files` plus `list-contains`.** One IO call, against roughly 1900 calls
+and 77.0 MB for existence-by-attempt in a job budgeted under a minute.
+
+**The divergence this buys is measured, not assumed.** `git ls-files` answers
+about the INDEX and `os.path.exists` answers about the FILESYSTEM. Measured on
+this working tree, exactly **two** resolved paths differ, and **both are already
+in the reference's `ALLOW` table**, carried there precisely because they exist in
+a working tree and not in a fresh clone: a gitignored `.verified.json` and an
+uncommitted run directory. On CI, which checks out fresh, the divergence is zero.
+
+The residual risk is an untracked-but-present file that `ALLOW` does not carry:
+the reference suppresses it and the port reports it. That is a real behavioural
+difference, it is the port not being its reference, and §6 owes it a cell. It is
+also the direction that fails safe, since the port over-reports in a gate that
+cannot fail a build. **The asymmetry this removes is the reference's own**: it
+already takes its file LIST from git and its RESOLUTION from the filesystem, so
+D2 makes one mechanism answer both questions.
+
+**D3. `regex-match` versus a hand-rolled scanner. SETTLED as `regex-match`, by
+user adjudication 2026-08-10**, after the cost was measured rather than argued:
+
+| | Hand-rolled | `regex-match` |
+|---|---|---|
+| `PATH` and `LABEL` extraction | hand-rolled | **hand-rolled either way**: `regex-match` returns `bool` and captures nothing |
+| `PLACEHOLDER` | 6 `string-contains` plus a hand-rolled `\bfoo\b` boundary | ports **verbatim**, measured T/T/F/T on four real paths |
+| `HIST_LINE` | a `to-lower` fold with no lowercase builtin, so 26 comparisons per character via `string-char-at`; or a variant list, which **cell 9 fails** | per-letter bracket classes, exact and verbose, measured working |
+| Verified tier | `body-fallback` | `body-fallback` |
+| Verified core | unaffected: `reports?` is `body-faithful` + SAFE either way | unaffected |
+
+**The tier cost is zero and that is the measurement, not a prediction.** Both
+recognizer shapes were built and verified; both report `body-fallback` under
+`STRLIT-BODY-1`, while a control reports `body-faithful`, so the probe
+discriminates. `LLMLL.md:326` puts `regex-match` in the boolean-builtin class and
+`versiongate.llmll:25` and `shape.llmll:26` avoided it on that ground; the
+measurement says the class costs nothing **here**, because the function that
+would carry it is one the language already declines to prove.
+
+**This decision reverses a precedent, and it reverses it on evidence rather than
+on taste.** Two modules avoided `regex-match` and said so at the site, and **they
+gave two different reasons, only one of which was ever about the tier.**
+
+- `shape.llmll:26` cites the tier, and that reason is measured absent for a
+  string recognizer: both shapes report `body-fallback`. Its narrower claim,
+  that `validate.llmll`'s own proved functions would lose something, is not
+  re-measured here and stands.
+- `versiongate.llmll:25` cites `REGEX-LOWER-1`: a program calling `regex-match`
+  did not build. **That reason expired at v0.14.96**, one release before this
+  RFC, and the comment still asserted it in the present tense until this change
+  corrected it. The scanner stays regardless, because rewriting a shipped
+  oracle's scanner is a behaviour change owed its own cover run.
+
+So the avoidance rested on one reason that is now false and one that does not
+reach this port's recognizer. A third tool no longer inherits it by default.
+
+**What the port commits to, stated so it can be checked.**
+
+1. `PLACEHOLDER` is written as the reference's alternation, character for
+   character, and cell 6 pins that it still fires.
+2. `HIST_LINE` is written as **per-letter bracket classes**, which is exact
+   case-insensitivity and not an approximation. The variant-list shortcut is
+   forbidden, and cell 9 is what forbids it: a port matching only
+   `previously|Previously` reports a finding on `PREVIOUSLY` where the reference
+   reports none.
+3. `PATH` and `LABEL` are still hand-rolled, since `regex-match` cannot capture.
+   The port therefore carries **both** mechanisms, and that is a consequence of
+   the decision rather than an inconsistency in it.
+
+**The residual cost, accepted knowingly.** The port acquires a standing coupling
+to TDFA's dialect agreeing with Python's `re`. It is measured for the two
+patterns in use today and is **not** guaranteed for a pattern someone adds later:
+this session found `\d` silently absent from TDFA while `\b` is present, and
+found a comment in the tree that had assumed otherwise for a release. The
+mitigation is that any new pattern is a diff to the port, and §6 owes a cell for
+each alternation branch it adds.
+
+**D4. `STRICT` moves from the environment to argv. Porter's call.** No `wasi.env.*`
+exists, and `wasi.proc.args` was measured to deliver `--strict` intact to a built
+binary. So `STRICT=1 python3 scripts/doc_path_lint.py` becomes
+`pathlint --strict`. The port is not its reference at the invocation boundary and
+cells 17 and 18 pin both halves. The campaign's "no env access is COSMETIC
+because argv carries it" disposition is **tested and holds**; the row does not
+move.
+
+**D5. The `ALLOW` table and the fixture expectations are carried in the port.** Fourteen
+entries, each with its stated reason, copied rather than derived, on 004's D2
+precedent: deriving a self-test's expectations from the corpus makes it agree
+with whatever the corpus becomes, and a self-test that cannot notice its own
+table shrinking is the vacuous pass §7 rejects. The consequence is a forcing
+function and it is deliberate: adding an `ALLOW` entry requires editing the port,
+so a reviewer sees it in the diff. Both copies are asserted against each other by
+cell 16 for as long as both implementations run.
+
+**Deliberately not built.** No promotion to fail-closed: the docstring forbids it
+until the counterfactual class is solved, and that is a language problem rather
+than a scripting one. No change to `ALLOW`, to `PLACEHOLDER`, or to the extension
+list; a port reproduces its reference. No fix to the two S6 quirks in §2 (the
+first-line lookup and its unstripped-line search); both are reproduced, and cell
+19 pins the first so that reproducing it stays a decision rather than an
+accident.
+
+**Found while probing §4 and routed OUT of this RFC**, because none of it is the
+port's:
+
+1. **`shape.llmll:26` is incorrect.** It states that `^C[1-6]$` and `^N\d+$`
+   "port verbatim with no narrowing" because `regex-match` is a compiler builtin.
+   **Measured against TDFA**: `^C[1-6]$` matches `C3`, but `^N\d+$` does **not**
+   match `N123`. TDFA has no `\d`; `^N[0-9]+$` works. The comment is a
+   feasibility claim recorded next to the code and never executed, which is the
+   class the campaign has now found five times.
+2. **`llmll check` passes an unknown function at exit 0.** A call to a
+   nonexistent `list` builtin produced `warning: call to unknown function 'list'`
+   and exit 0. That is `REGEX-LOWER-1`'s shape, a program that checks and would
+   not build, and it wants its own row.
+3. **`DONE-TYPE-1` fires on every console program written for this port**,
+   confirming the roadmap row's claim that it carries no information.
+4. **`REGEX-LOWER-1` shipped at v0.14.96 and SIX in-tree sites still say it did
+   not.** Found by grepping for records that advertise the state D3 turns on.
+   `versiongate.llmll:25` is corrected here because D3 rests on it. The other
+   five are DRIVER-LL and doc-claims scope and are deliberately **not** touched:
+   `sequencer.llmll:1327` and `:1334`, `docclaims.llmll:174`, and
+   `test_driver_ll_4c.py:39`, `:419` and `:432`.
+   **One of the five is worse than a stale comment.**
+   `test_the_driver_calls_regex_match_nowhere` asserts that no driver module
+   calls `regex-match`, on the stated ground that it "does not build", and its
+   failure message reads "Until that row ships". The row has shipped. The test
+   still passes, because nobody has added a call, so nothing is red; but a future
+   maintainer who legitimately simplified a hand-rolled check back to the builtin
+   would be stopped by a test citing a reason that no longer exists. Whether that
+   test should be deleted or re-grounded on a different reason is a DRIVER-LL
+   call, and this RFC does not make it.
+
+None of the four blocks this port.

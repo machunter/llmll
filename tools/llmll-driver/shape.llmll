@@ -22,9 +22,17 @@
 ;;    row of every census would be in scope and nothing but review would stop a
 ;;    body from reading one.
 ;;
-;;    FRAGMENT PRESERVATION. Both regexes these validators need are portable:
-;;    `regex-match` is a compiler builtin (TypeCheck.hs:143, Syntax.hs:502), so
-;;    `^C[1-6]$` (:490) and `^N\d+$` (:422) port verbatim with no narrowing.
+;;    FRAGMENT PRESERVATION. `regex-match` is a compiler builtin
+;;    (TypeCheck.hs:143, Syntax.hs:502), so `^C[1-6]$` (:490) ports verbatim.
+;;
+;;    CORRECTED 2026-08-10 by TOOL-RFC-005, which measured it. This comment
+;;    said `^N\d+$` (:422) ports verbatim too. IT DOES NOT. `regex-match`
+;;    lowers to Text.Regex.TDFA (CodegenHs.hs, `subject =~ pattern`), which is
+;;    POSIX ERE and has no `\d`: executed against TDFA, `^N\d+$` does not match
+;;    "N123", while `^N[0-9]+$` does. The claim was a feasibility read written
+;;    next to the code and never run. TDFA does support `\b`, which the same
+;;    probe confirmed, so the dialect narrows in one direction only.
+;;
 ;;    But LLMLL.md:326 puts regex-match in the boolean-builtin class, "never
 ;;    auto", and LLMLL.md:356 states the consequence: a predicate outside
 ;;    Sigma_auto still erases, but the carrying function falls to
