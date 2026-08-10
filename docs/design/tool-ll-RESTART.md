@@ -97,11 +97,20 @@ stops it".
 - `--strict` gives exit 1 with findings. A plain run gives 0. This agrees with
   `STRICT=1`.
 
-**Two parts are owed before the port is an oracle.**
+**The cover is written and it passes.** It is
+`scripts/doc_path_lint_cover.py`, with 19 mutations and 3 negative controls. All
+22 cells agree.
 
-1. Write the cover. Section 6 of the RFC gives 19 cells and 3 negative controls.
-2. Wire both implementations into `spec-roundtrip`, as one commit. Decision D1
-   gives the reason.
+**The cover is also shown to FAIL.** A battery that only passes is not evidence.
+Two broken ports were built and run through it:
+
+| Broken port | Result |
+|---|---|
+| `HIST_LINE` as a list of case variants | Cell 9 fails. Cells 7 and 8 pass |
+| No `site/` filter | Cell 13 fails, on the finding and on the file count |
+
+**ONE part is owed before the port is an oracle.** Wire both implementations
+into `spec-roundtrip`, as one commit. Decision D1 gives the reason.
 
 **The job must verify `adjudicate.llmll` BEFORE `pathlint.llmll`.** The sidecar
 is not in git. Without it the port drops to `asserted` for `reports?`.
