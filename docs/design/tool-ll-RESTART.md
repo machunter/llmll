@@ -97,26 +97,39 @@ Port 006 (`build_smoke.sh`) is the last port. **IT IS NOT BLOCKED.**
 closed-rows section.
 
 **The row asked for a measurement. Nobody ran it for three days. The answer
-closed the row.** These are the figures. Port 006 has **twelve** walk sites, and
-the row said nine. Each of the twelve is the same query. Each one finds one
-executable file by name below a `.stack-work/install` directory. That directory
-is **four levels deep on both platforms**. macOS gives `aarch64-osx/<hash>/9.6.6/bin`.
-Linux gives `x86_64-linux-tinfo6/<hash>/9.6.6/bin`, read from the log of run
-`31441364939`, which passed. Only the names of the parts change. Thus port 006 finds
-each executable with four flat `wasi.fs.list` calls. It needs no new builtin.
+closed the row.** These were the figures. `build_smoke.sh` had **twelve** walk
+sites, and the row said nine. Each of the twelve was the same query. Each one
+found one executable file by name below a `.stack-work/install` directory. That
+directory is **four levels deep on both platforms**. macOS gives
+`aarch64-osx/<hash>/9.6.6/bin`. Linux gives
+`x86_64-linux-tinfo6/<hash>/9.6.6/bin`, read from the log of run
+`31441364939`, which passed.
 
-Port 006 also runs the other five gates. It must inherit their pattern.
+**THE TWELVE WALK SITES ARE GONE. Do not port them.** A later measurement showed
+the search was the defect. `build_smoke.sh` now calls
+`stack path --local-install-root` through one `exe_path` helper, changed
+2026-08-11. Stack gives the exact path. Thus the reference does no search, and
+no ambiguity exists.
 
-**Caution 1. The reference is not deterministic, and the port cannot copy that.**
-The reference uses `find … | head -1`. `wasi.fs.list` sorts its answer. The two
-agree when the tree holds one hash directory. CI makes a new directory for each
-run, so CI holds one. A caller can set `OUTDIR` to a directory that holds more.
-**The user must decide this: does 006 state the precondition, or does the copy
-rule get an exception?**
+**Port 006 must copy the new mechanism.** `wasi.proc.run` takes a cwd, so the
+port calls `stack path` in the same way. Port 005 reaches `git ls-files` by that
+same method. **Do not use an mtime.** No `wasi.fs.stat` exists; see `FS-STAT-1`.
 
-**Caution 2. A symlink cycle makes a recursive walk continue forever.**
-`wasi.fs.list` cannot see a symlink. The measured tree holds zero symlinks, so
-nothing shows this today. The `LIST-KIND-1` row holds this hazard.
+**Caution 1. SETTLED 2026-08-11. Read this before you write a search.** A search
+had no defined answer, because a tree can hold more than one install root. Two
+measurements decided it. The repository's compiler tree holds two roots. `find`
+gives the 2026-08-10 build, which is `llmll 0.14.96`. A sorted pick gives the
+2026-06-19 build, which is `llmll 0.13.0`. **A sorted pick is deterministic and
+two months stale.** Thus neither pick was correct.
+
+Stack keeps an old install root on purpose. The directory name is a hash of the
+build config. Stack keeps the old root as a cache. Stack has no command that
+removes all roots except the newest.
+
+**Caution 2. This no longer applies to port 006, and it stays on `LIST-KIND-1`.**
+A symlink cycle makes a recursive walk continue forever. `wasi.fs.list` cannot
+see a symlink. Port 006 does no walk now, so port 006 cannot meet this. Any
+future recursive walk must answer it first.
 
 ### Port 005 left two items. Give them to the user
 

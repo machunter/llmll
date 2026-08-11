@@ -56,6 +56,52 @@ trap cleanup EXIT
 
 fail() { echo "BUILD-GATE-1 FAIL: $*" >&2; exit 1; }
 
+# ASK STACK WHERE IT PUT THE BINARY. DO NOT SEARCH FOR IT.
+#
+# Every site below used `find <proj>/.stack-work/install -name <exe> | head -1`.
+# That searches for something stack already knows, and it has no defined answer
+# when the tree holds more than one install root: `find` emits in readdir order,
+# which is filesystem-dependent. Measured on this repo's own compiler tree, which
+# holds two, readdir order yields the 2026-08-10 build (llmll 0.14.96) and sorted
+# order yields the 2026-06-19 one (llmll 0.13.0). So neither an arbitrary pick nor
+# a sorted pick is right: one is unspecified, the other is deterministically two
+# months stale. `stack path --local-install-root` has neither failure mode. It is
+# exact, it costs about 0.8s, and line 101 of this file already uses it to locate
+# the compiler itself.
+#
+# WHY THIS SHAPE AND NOT AN mtime PICK. TOOL-RFC-006 ports this file to LLMLL, and
+# a port copies its reference. "Newest by mtime" is unportable: no `wasi.fs.stat`
+# exists, which is the open FS-STAT-1 row. Shelling out IS portable, because
+# `wasi.proc.run` takes a cwd, and port 005 reaches `git ls-files` the same way.
+# Choosing the reference's mechanism to be one the port can reproduce is the point.
+#
+# Multiple install roots are not a bug in stack. The directory name hashes the
+# BUILD CONFIG, so a changed resolver or flag makes a new one and the old is kept
+# as a cache. There is no prune-all-but-newest, and deleting on build would make
+# correctness depend on cleanup having happened, which nothing can check at read
+# time. Asking stack needs no such precondition.
+#
+# Answers empty and returns 1 when the project is absent, unbuilt, or the binary
+# is missing, so every `[ -n "$X" ] || fail ...` check below keeps its meaning.
+exe_path() {
+  local proj="$1" name="$2" root p
+  root="$( (cd "$proj" && stack path --local-install-root) 2>/dev/null )"
+  # The two causes of an empty answer are different and the caller's message
+  # cannot tell them apart, so say which one happened here. Silence on this
+  # path is how "the binary is missing" and "stack could not read the project"
+  # become one indistinguishable failure.
+  if [ -z "$root" ]; then
+    echo "  note: stack could not report an install root for $proj" >&2
+    return 1
+  fi
+  p="$root/bin/$name"
+  if [ ! -x "$p" ]; then
+    echo "  note: stack reports $root but no executable '$name' under its bin/" >&2
+    return 1
+  fi
+  printf '%s\n' "$p"
+}
+
 # --- 1. Toolchain must be present. Fail-closed, never skip. ------------------
 
 if ! command -v stack >/dev/null 2>&1 && ! command -v ghc >/dev/null 2>&1; then
@@ -270,7 +316,7 @@ if [ -f "$EXEC_FIXTURE" ]; then
     fail "the execution fixture does not build."
   fi
 
-  EXE="$(find "$EXEC_OUTDIR/.stack-work/install" -type f -name capproc-exec -perm -111 2>/dev/null | head -1)"
+  EXE="$(exe_path "$EXEC_OUTDIR" capproc-exec)"
   [ -n "$EXE" ] || fail "built the execution fixture but found no capproc-exec
   binary under $EXEC_OUTDIR/.stack-work/install. Without running it this stage
   observes nothing, which is the failure mode it exists to prevent."
@@ -359,7 +405,7 @@ if [ -f "$FSENC_FIXTURE" ]; then
     cat "$FSENC_LOG" >&2
     fail "the fs-encoding fixture does not build."
   fi
-  FSENC_EXE="$(find "$FSENC_OUTDIR/.stack-work/install" -type f -name 'fs-encoding' -perm -111 2>/dev/null | head -1)"
+  FSENC_EXE="$(exe_path "$FSENC_OUTDIR" 'fs-encoding')"
   [ -n "$FSENC_EXE" ] || fail "built the fs-encoding fixture but found no fs-encoding binary."
 
   # DOES LC_ALL=C MEAN ANYTHING TO GHC ON THIS PLATFORM?
@@ -478,7 +524,7 @@ if [ -f "$CENC_FIXTURE" ]; then
     cat "$CENC_LOG" >&2
     fail "the capture-encoding fixture does not build."
   fi
-  CENC_EXE="$(find "$CENC_OUTDIR/.stack-work/install" -type f -name 'capture-encoding' -perm -111 2>/dev/null | head -1)"
+  CENC_EXE="$(exe_path "$CENC_OUTDIR" 'capture-encoding')"
   [ -n "$CENC_EXE" ] || fail "built the capture-encoding fixture but found no capture-encoding binary."
 
   # BMP=→✔✘✅§|AST=<U+1F600>|LEN=5|ALEN=1 as UTF-8. Written as hex because the
@@ -538,7 +584,7 @@ if [ -f "$JS_FIXTURE" ]; then
     cat "$JS_LOG" >&2
     fail "the json-scalar fixture does not build."
   fi
-  JS_EXE="$(find "$JS_OUTDIR/.stack-work/install" -type f -name 'json-scalar' -perm -111 2>/dev/null | head -1)"
+  JS_EXE="$(exe_path "$JS_OUTDIR" 'json-scalar')"
   [ -n "$JS_EXE" ] || fail "built the json-scalar fixture but found no json-scalar binary."
 
   JS_WANT='STR=--strict-verified-core|INT=7|BOOL=true|NUM=1.5|X-AS-INT=err|N-AS-STR=err|OLD-GET=err'
@@ -598,7 +644,7 @@ if [ -f "$PM_FIXTURE" ]; then
     cat "$PM_LOG" >&2
     fail "the proc-merge fixture does not build."
   fi
-  PM_EXE="$(find "$PM_OUTDIR/.stack-work/install" -type f -name 'proc-merge' -perm -111 2>/dev/null | head -1)"
+  PM_EXE="$(exe_path "$PM_OUTDIR" 'proc-merge')"
   [ -n "$PM_EXE" ] || fail "built the proc-merge fixture but found no proc-merge binary."
 
   # The fixture spawns /bin/sh and writes capture files into its working
@@ -668,7 +714,7 @@ replay_case() {
   # filename-derived module name. capproc_exec builds capproc-exec for the same
   # reason (stage 5 above hardcodes that).
   local exe exe_name="${mod//_/-}"
-  exe="$(find "$REPLAY_DIR/generated/$mod/.stack-work/install" -type f -name "$exe_name" -perm -111 2>/dev/null | head -1)"
+  exe="$(exe_path "$REPLAY_DIR/generated/$mod" "$exe_name")"
   [ -n "$exe" ] || fail "built $mod but found no executable named '$exe_name'; the replay stage would observe nothing"
 
   # Record. The harness writes <module>.event-log.jsonl into its own cwd.
@@ -780,7 +826,7 @@ if [ -f "$PB_FIXTURE" ]; then
     cat "$PB_LOG" >&2
     fail "the process-boundary fixture does not build."
   fi
-  PB_EXE="$(find "$PB_OUTDIR/.stack-work/install" -type f -name 'proc-boundary' -perm -111 2>/dev/null | head -1)"
+  PB_EXE="$(exe_path "$PB_OUTDIR" 'proc-boundary')"
   [ -n "$PB_EXE" ] || fail "built the process-boundary fixture but found no
   proc-boundary binary. Without running it this stage observes nothing, which is
   the failure mode it exists to prevent."
@@ -831,13 +877,13 @@ if [ -f "$PB_FIXTURE" ]; then
   # Stage 6 already built this exact source into $REPLAY_DIR, so the binary is
   # reused rather than rebuilt. Falling back to a build keeps the stage
   # self-contained if stage 6 is ever reordered or skipped.
-  RD_EXE="$(find "$REPLAY_DIR/generated/replay-demo/.stack-work/install" -type f -name 'replay-demo' -perm -111 2>/dev/null | head -1)"
+  RD_EXE="$(exe_path "$REPLAY_DIR/generated/replay-demo" 'replay-demo')"
   if [ -z "$RD_EXE" ] && [ -f "$REPO_ROOT/examples/replay-demo/replay-demo.llmll" ]; then
     RD_DIR="$OUTDIR/nodone"; mkdir -p "$RD_DIR"
     cp "$REPO_ROOT/examples/replay-demo/replay-demo.llmll" "$RD_DIR/"
     ( cd "$RD_DIR" && "${LLMLL_CMD[@]}" build replay-demo.llmll ) > "$RD_DIR/build.log" 2>&1 \
       || { cat "$RD_DIR/build.log" >&2; fail "the no-:done? witness does not build"; }
-    RD_EXE="$(find "$RD_DIR/generated/replay-demo/.stack-work/install" -type f -name 'replay-demo' -perm -111 2>/dev/null | head -1)"
+    RD_EXE="$(exe_path "$RD_DIR/generated/replay-demo" 'replay-demo')"
   fi
   [ -n "$RD_EXE" ] || fail "found no replay-demo binary for the no-:done? exit-code
   witness. Skipping it silently would leave the half of the rule that protects
@@ -893,7 +939,7 @@ if [ -f "$DRV_SRC" ]; then
     fail "the DRIVER-LL sequencer does not build."
   fi
 
-  DRV_EXE="$(find "$DRV_OUTDIR/.stack-work/install" -type f -name 'sequencer' -perm -111 2>/dev/null | head -1)"
+  DRV_EXE="$(exe_path "$DRV_OUTDIR" 'sequencer')"
   [ -n "$DRV_EXE" ] || fail "built the DRIVER-LL sequencer but found no
   sequencer binary under $DRV_OUTDIR/.stack-work/install. Without running it
   this stage observes nothing, which is the failure mode it exists to prevent."
@@ -939,7 +985,7 @@ if [ -f "$WAVE_SRC" ]; then
     fail "the DRIVER-LL wave does not build."
   fi
 
-  WAVE_EXE="$(find "$WAVE_OUTDIR/.stack-work/install" -type f -name 'wave' -perm -111 2>/dev/null | head -1)"
+  WAVE_EXE="$(exe_path "$WAVE_OUTDIR" 'wave')"
   [ -n "$WAVE_EXE" ] || fail "built the DRIVER-LL wave but found no wave binary
   under $WAVE_OUTDIR/.stack-work/install. Without running it this stage
   observes nothing, which is the failure mode it exists to prevent."
@@ -987,7 +1033,7 @@ if [ -f "$VG_SRC" ]; then
     fail "the LLMLL version gate does not build."
   fi
 
-  VG_EXE="$(find "$VG_OUTDIR/.stack-work/install" -type f -name 'versiongate' -perm -111 2>/dev/null | head -1)"
+  VG_EXE="$(exe_path "$VG_OUTDIR" 'versiongate')"
   [ -n "$VG_EXE" ] || fail "built the LLMLL version gate but found no
   versiongate binary under $VG_OUTDIR/.stack-work/install. Without running it
   this stage observes nothing, which is the failure mode it exists to prevent."
