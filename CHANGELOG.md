@@ -4,6 +4,42 @@
 
 <a id="Latest"></a>
 
+## v0.14.97: the fifth gate ports, and the row blocking the sixth closes on a measurement nobody had run (2026-08-10)
+
+**No compiler change.** Nothing under `compiler/` moves, so the test counts are unchanged and are not restated. This release is three things: the fifth of six CI gates rewritten in LLMLL and now running as an oracle beside its reference, the close of the row that was holding the sixth, and five language gaps that finally have roadmap rows.
+
+### Ported: `DRIFT-DOC-4`, the prose path-citation lint (TOOL-RFC-005)
+
+[`scripts/doc_path_lint.py`](scripts/doc_path_lint.py), 180 lines, becomes [`pathlint.llmll`](tools/doc-path-lint/pathlint.llmll) (564 lines) over a proved core, [`adjudicate.llmll`](tools/doc-path-lint/adjudicate.llmll) (98 lines). Both implementations now run as adjacent steps in the `spec-roundtrip` job, which is what `tool_state: oracle` means here: they decide over the same tree in the same run and a reader compares them in one log. DRIFT-DOC-4 left the fast banner job **wholesale** in the same commit as the port, rather than being duplicated across two jobs.
+
+**This is the first port that verifies in CI**, and that surfaced a workflow defect the job had never been able to show. `llmll verify` proves nothing on its own; it calls `fixpoint`, which calls z3. The `spec-roundtrip` job had neither, because no gate in it had ever needed one. The verify step now sits **below** the toolchain assertion rather than above it.
+
+**Two feasibility reads were wrong in the same direction, and building the thing corrected both.** The first said a character-level scanner was forced because `regex-match` returns `bool` and captures nothing. It is not: a citation is backtick-delimited by construction, so splitting the body on the delimiter recovers exactly the set a capture group would have returned, at a cost of one `string-split`. **Measured against the reference over the whole live corpus: 955 citations, 172 files, zero disagreements.** Two plausible versions of that split model are wrong and both were caught by corpus-wide comparison rather than by reading — keeping only odd-index segments desyncs on a backtick span crossing a newline, and doing it over the whole body finds 16 citations where the reference finds 94. All three models agree on almost every file, so a spot check would have passed.
+
+The second read assumed a live green run grades the port. It does not, and the live corpus caught a real defect on its first run.
+
+### The cover, and why a first-run pass was not accepted as evidence
+
+[`doc_path_lint_cover.py`](scripts/doc_path_lint_cover.py) is **22 cells: 19 mutations and 3 negative controls.** All 22 passed on the first attempt, which is not evidence of anything. Two deliberately broken ports were then built to show that cells 9 and 13 can fail at all. This is the `TOOL-ENCODING-1` lesson from v0.14.93 applied before the fact: a set of mutation cells alone once passed while the compiler could not read a single fixture, because both sides failed identically and every mutation cell still agreed. Only the negative controls, which require both implementations to pass an unmutated tree, caught it.
+
+### Closed: `FS-WALK-1`, and port 006 is unblocked
+
+The row asked whether [`build_smoke.sh`](scripts/build_smoke.sh)'s walk sites need arbitrary depth or a known one. Nobody ran that measurement for three days, and running it closed the row outright. **There are twelve walk sites, not the nine the row claimed**, all `find`, zero globstar, zero directory globs, and all twelve are one query: locate one executable by name under a `.stack-work/install` tree. That tree is **four levels deep on both platforms in scope** — `aarch64-osx/<hash>/9.6.6/bin` measured on a live tree, `x86_64-linux-tinfo6/<hash>/9.6.6/bin` read out of a green CI log rather than inferred from Stack's documentation. Only the component names vary. The requirement is therefore *enumerate at known depth with unknown names*, which composes from flat `wasi.fs.list` calls, and **no builtin is owed**.
+
+The general capability was examined on its own merits and needs no builtin either: `Rc = Json` already admits a worklist through `json-of-list` / `json-array`, and `wasi.fs.list` answers `RErr` on a file, so the response arm discriminates kind. Three prerequisites are recorded for anyone who revisits it, and none is a depth bound — a symlink policy, an explicit acyclicity assumption, and a `[Json]` queue rather than a delimited string.
+
+**That is the second wrong count on this one gap.** The first over-stated its blast radius three-fold by measuring `scripts/` generally instead of the six gates in scope. Neither was caught by re-reading; only counting caught either.
+
+The residue — what bounds an unbounded worklist in a stdin-driven step machine — **deliberately did not become a row.** Its diagnostic half is already settled and disclosed under `PROC-BOUNDARY-1`, where reserving exit 70 was considered and rejected. Its remainder is now evidence under `MODE-CLI-1`, which is the cause: **four of the six committed console programs never read their stdin line's content at all**, binding it and dispatching on state and `Response` instead. stdin is a step clock for them, not data. The two that genuinely consume it are the driver's sequencer and `replay-demo`, which is exactly the stream-processor population `PROC-BOUNDARY-1` measured, so that row is confirmed here rather than contradicted.
+
+### Filed: five language gaps, and one had been invisible for a release
+
+`FS-EXISTS-1` (nothing answers "is there a file here" without moving its bytes; the workaround costs 77.0 MB across ~1900 calls). `REGEX-CAPTURE-1` (`regex-match` returns `bool`). `REGEX-CASE-1` (TDFA rejects inline `(?i)`; `previously` matches `Previously` twice on the live tree). `PATH-NORM-1` (58 of 947 citations contain `..`). And **`LIST-KIND-1`**, which port 004 raised on 2026-08-09 as SHAPES, owed, **with no tag name** — so no census held it, including the campaign's own, and it surfaced only when closing `FS-WALK-1` triggered a grep of every record. A gap with no name is invisible to a search for names. It now carries two causes: a listing has no entry kind, and no listing can distinguish a symlink.
+
+### Records
+
+The `FS-WALK-1` close left every record that advertises campaign state behind, and a sweep found **five**, not the three the hand-off named. The two extra were the gap tables in TOOL-RFC-004 and 005, whose tag column is a live pointer to a roadmap row rather than history. The Active Items composition note also said "35 rows, 29 open" while the table held 38, its sub-counts summing to 35 because one row sat in no bucket; the closed-rows note said twenty-three while its table held twenty-four. Both are re-measured and both now say to count the table.
+
 ## v0.14.96: a builtin that typechecked, verified, and did not build (2026-08-10)
 
 One compiler fix, and it is two names deleted from a list. No language surface
