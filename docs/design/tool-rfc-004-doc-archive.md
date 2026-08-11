@@ -203,19 +203,26 @@ concluded "nothing here is BLOCKS" and "no new gap" and both were false.
 
 | Gap | Disposition | Roadmap tag | What the design would have been |
 |---|---|---|---|
-| A listing carries no entry KIND, so a file and a directory are indistinguishable without a second call | **SHAPES** | unfiled, owed | One `wasi.fs.list` per root, partitioned by kind in a single pass. Instead the stray-declaration branch calls `wasi.fs.list` on every entry and reads `RErr` as "this is a file", which is a control-flow use of an error channel and costs one IO call per entry |
+| A listing carries no entry KIND, so a file and a directory are indistinguishable without a second call | **SHAPES** | `LIST-KIND-1`, filed 2026-08-10 | One `wasi.fs.list` per root, partitioned by kind in a single pass. Instead the stray-declaration branch calls `wasi.fs.list` on every entry and reads `RErr` as "this is a file", which is a control-flow use of an error channel and costs one IO call per entry |
 | `:mode cli` performs no Command and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: scan, print, exit. Instead every port in this campaign is a stdin-driven step machine with an explicit `Ctl` state type, which is the single largest reason a shell gate triples in line count |
 | A bool-valued body whose result is a string comparison falls back, so the frontmatter recognizer carries no proof | **SHAPES** | `STRLIT-BODY-1` | The recognizer and the adjudicator would both be verified. Instead only the adjudicator half is contractable, which is what forces §7's instrument split rather than a single proof covering the gate |
 | `string-split` with an empty separator does not terminate and there is no character decomposition | **COSMETIC** | `SPLIT-EMPTY-1` | Nothing follows: this gate splits on `"\n"` and never needs character-level decomposition |
 | No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows: the archive is two levels and composes from flat lists, which is the census claim and it holds for this gate |
 
-**The first row is owed a roadmap row and is deliberately not folded into
-`FS-WALK-1`.** That row is "`wasi.fs.list` is flat; there is no recursive
-directory walk", which is about **recursion**; this is about the listing carrying
-no **kind**. They share a cause, the shape of the listing result, and not a
-symptom. That is the same distinction the repository drew between
-`ALIAS-LOWER-1` and `REGEX-LOWER-1`, where collapsing the two produced a row
-that was wrong for a release.
+**The first row became `LIST-KIND-1`, filed 2026-08-10, and is deliberately not
+folded into `FS-WALK-1`.** That row was "`wasi.fs.list` is flat; there is no
+recursive directory walk", which is about **recursion**; this is about the
+listing carrying no **kind**. They share a cause, the shape of the listing
+result, and not a symptom. That is the same distinction the repository drew
+between `ALIAS-LOWER-1` and `REGEX-LOWER-1`, where collapsing the two produced a
+row that was wrong for a release. **The non-folding was right and the delay was
+not.** This row named the gap on 2026-08-09 and gave it no tag, so it entered no
+census, and the campaign's own §5 table never gained a row for it; it surfaced
+on 2026-08-10 only because `FS-WALK-1`'s close triggered a grep of every record.
+A gap with no name is invisible to a search for names. **`FS-WALK-1` closed
+COSMETIC on that same date**, and the symlink half of this row is what a future
+recursive walk would still have to answer: `listDirectory` follows a symlink to a
+directory, so `RList` cannot distinguish one, and a cycle diverges.
 
 ## 6. Differential plan
 

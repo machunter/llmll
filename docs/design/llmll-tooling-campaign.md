@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 5, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). FIVE are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is PORTED and `tool_state: oracle` (TOOL-RFC-005), green on run 31439956284; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
+status: "Rev 5, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). FIVE are ported and running as oracles: DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95). 005 (doc-path-lint) is PORTED and `tool_state: oracle` (TOOL-RFC-005), green on run 31439956284; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 stays last and is now UNBLOCKED. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced; ALL FOUR ARE FILED as of 2026-08-10, together with a fifth, `LIST-KIND-1`, that 004 had raised on 2026-08-09 and that NO census held, this one included. `FS-WALK-1` CLOSED COSMETIC 2026-08-10 on the measurement its own row asked for and nobody had run: 006's walk sites are twelve, not the nine the row claimed, and all twelve are one query at a fixed depth of 4, so nothing is owed to the compiler and 006 needs no builtin. That is the SECOND wrong count on that one gap, the first having over-stated its blast radius three-fold; see §5. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -170,14 +170,15 @@ ports are worth doing even where the shell script was fine.
 | `MODE-CLI-1` | SHAPES | **every tool** | filed 2026-08-07 |
 | `SPLIT-EMPTY-1` (with the no-character-decomposition half) | SHAPES | every scanner | filed 2026-08-07 |
 | `REGEX-LOWER-1` | BLOCKS | `doc_path_lint` (005) | **SHIPPED v0.14.96**, and its census corrected its own row |
-| `FS-WALK-1` | BLOCKS | `build_smoke` (006) only | filed 2026-08-07, **not urgent** |
+| `FS-WALK-1` | **COSMETIC** | **none** | **CLOSED 2026-08-10** on the measurement the row itself asked for. It read BLOCKS against 006 from 2026-08-07 until then. Measured: 006's walk sites are **twelve**, not the nine the row claimed, all one query, and the tree is **depth 4 on both platforms in scope**, so the requirement composes from flat `wasi.fs.list` calls and no builtin is owed. Roadmap closed-rows section |
 | no env access (`wasi.proc.args` exists, no env builtin) | COSMETIC | none; argv carries it | unfiled, nothing lost. **TESTED at 005 and the disposition HOLDS**: `wasi.proc.args` delivers `--strict extra` as `argc=2` to a built binary with no `--` separator. The row does not move; only the invocation changes, which is a porting decision |
 | `CAP-NULLARY-1` | COSMETIC | none | filed 2026-08-07 |
 | `FS-STAT-1` | BLOCKS | none in scope | filed, open |
-| `FS-EXISTS-1` (proposed): nothing answers "is there a file here" without moving its bytes | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005. Deliberately NOT folded into `FS-STAT-1`, which answers about an artifact's AGE |
-| `REGEX-CAPTURE-1` (proposed): `regex-match` returns `bool`, so no capture and no scan | SHAPES | every scanner | **unfiled, owed**, raised by 005. Independent of `REGEX-LOWER-1`, which was about lowering and shipped |
-| `REGEX-CASE-1` (proposed): no case-insensitive matching; TDFA rejects `(?i)` and no lowercase builtin exists | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005 and firing on real prose, not only on a fixture |
-| `PATH-NORM-1` (proposed): no path normalization for `..` | SHAPES | `doc_path_lint` (005) | **unfiled, owed**, raised by 005; 58 of 947 live citations need it |
+| `FS-EXISTS-1`: nothing answers "is there a file here" without moving its bytes | SHAPES | `doc_path_lint` (005) | **FILED 2026-08-10**, raised by 005. Deliberately NOT folded into `FS-STAT-1`, which answers about an artifact's AGE |
+| `LIST-KIND-1`: a listing carries no entry kind, and no listing can see a symlink | SHAPES | `doc_archive` (004) | **FILED 2026-08-10**, raised by **004** and not by 005. **This row was owed for a release and sat in no census, including this one**; it was found by sweeping the records at `FS-WALK-1`'s close, not by the discipline that is supposed to catch it. See the note below. Deliberately NOT folded into `FS-WALK-1`, which asked about recursion where this asks about the shape of the listing result |
+| `REGEX-CAPTURE-1`: `regex-match` returns `bool`, so no capture and no scan | SHAPES | every scanner | **FILED 2026-08-10**, raised by 005. Independent of `REGEX-LOWER-1`, which was about lowering and shipped |
+| `REGEX-CASE-1`: no case-insensitive matching; TDFA rejects `(?i)` and no lowercase builtin exists | SHAPES | `doc_path_lint` (005) | **FILED 2026-08-10**, raised by 005 and firing on real prose, not only on a fixture |
+| `PATH-NORM-1`: no path normalization for `..` | SHAPES | `doc_path_lint` (005) | **FILED 2026-08-10**, raised by 005; 58 of 947 live citations need it |
 
 **`MODE-CLI-1` is the largest and it was invisible before a port existed.**
 `:mode cli` emits `print (step args)`: a pure function, no `Command` performed,
@@ -192,6 +193,24 @@ a true recursive walk and it is the one scheduled last; `doc_archive_gate.sh`
 needs a two-level enumeration that composes from flat lists. Recorded because
 the census is the deliverable, and a census that inflates its own blast radius
 is the failure this campaign's §10 warns about in the other direction.
+
+**A SECOND count of `FS-WALK-1` was also wrong, in the other direction, and it
+sat in the roadmap for three days.** The corrected row said `build_smoke.sh` has
+**nine** walk sites. It has **twelve**. The row asked for that measurement in its
+own text and nobody ran it until 2026-08-10, at which point the answer closed the
+row outright: all twelve are one query at a fixed depth of 4. **Two wrong counts
+on one gap is the finding.** The first over-stated the blast radius, the second
+under-stated the population, and neither was caught by re-reading. Only running
+the count caught either.
+
+**`LIST-KIND-1` was owed for a release and appeared in NO census, including this
+one.** [`TOOL-RFC-004`](tool-rfc-004-doc-archive.md) §5 recorded it on 2026-08-09
+as SHAPES, unfiled, owed, with no tag name, and §5 here never gained a row for
+it. It was found on 2026-08-10 by grepping the records during an unrelated close,
+not by this section's discipline. **A gap with no tag is invisible to a search for
+tags**, which is the mechanism, and the repair is that a row is owed a NAME at the
+moment it is recorded, not at the moment someone decides to file it. This is
+§10's "gaps worked around silently" reaching the census itself rather than a port.
 
 ## 6. The workflow
 
@@ -308,7 +327,7 @@ routing is:
 | `MODE-CLI-1`: complete `:mode cli` or withdraw it | **language-team**, then compiler-engineer | a language-surface question; a fixture is owed before either fix |
 | `SPLIT-EMPTY-1`: what `string-split ""` answers | **language-team** first | the value chosen decides whether the no-decomposition half closes with it, so the order matters |
 | `SPLIT-EMPTY-1`: the divergence itself | **compiler-engineer** | one equation |
-| `FS-WALK-1` | **language-team**, held | an unbounded walk in a bounded idiom is a design question |
+| `FS-WALK-1` | **language-team**, **SETTLED 2026-08-10** | an unbounded walk in a bounded idiom was a design question, and the measurement dissolved it: 006 needs no walk. The residue, what bounds an unbounded worklist, went to `MODE-CLI-1` rather than becoming a row, because that row is the cause and `PROC-BOUNDARY-1` §4.5 already discloses the diagnostic half |
 | `CAP-NULLARY-1` | **compiler-engineer** | sits under `CAP-1-REAL` |
 | P1 (tags, images) | **the user** | outward-facing |
 

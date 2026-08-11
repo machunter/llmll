@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-10. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle; run 31439956284 passed and both implementations run adjacent in spec-roundtrip. It is UNRELEASED: the last tag is v0.14.96 and several commits sit after it, so measure that count, do not read it. Port 006 is next and is BLOCKED on FS-WALK-1, whose disposition is Hold. Port 005 left TWO items for the user: the retirement question in section 8 of its RFC, because scripts/tests/test_doc_path_lint.py is fail-closed and binds to the reference that section deletes; and four gap rows to file. See section 2. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+status: "LIVE, 2026-08-10. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle. Run 31439956284 passed. Both implementations run adjacent in spec-roundtrip. A RELEASE IS OWED. The last tag is v0.14.96 and ten commits are after it. Measure that count. Do not read it. The version gate cannot find this defect. It compares the five banners with each other and with no git tag. All five agree at v0.14.96. CHANGELOG.md holds zero lines about TOOL-005. PORT 006 IS NEXT AND IT IS NOT BLOCKED. FS-WALK-1 closed as COSMETIC on 2026-08-10. That row asked for a measurement. Nobody ran it for three days. The answer closed the row: twelve walk sites where the row said nine, at a fixed depth of four. The gap rows are FILED. There were FIVE and not four. The fifth is LIST-KIND-1. Port 004 raised it with no tag name, so no census held it. ONE item stays with the user. It is the retirement question in section 8 of the 005 RFC. That test is fail-closed and binds to the reference that section deletes. Section 2 names a second question, which the user must answer at port 006. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -55,20 +55,31 @@ incorrect. Correct section 1 before you do other work.
 | Item | Value | How it was measured |
 |---|---|---|
 | Last tag | `v0.14.96` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **1**, this record's own update | `git rev-list --count v0.14.96..HEAD` |
+| Unreleased commits | **10**, measured 2026-08-10 at `2fbe5f1` | `git rev-list --count v0.14.96..HEAD` |
 | Version banner | `v0.14.96` | `head -1 LLMLL.md` |
-| CI on `main` | **all three runs passed** at `3924bb3` | `gh run list --branch main` |
+| CI on `main` | run `31441364939` passed, 19m16s | `gh run list --branch main` |
 | Newest CHANGELOG entry | `v0.14.96` | `grep "^## " CHANGELOG.md` |
 
-The banner, the last tag and the newest CHANGELOG entry agree. **The repository
-owes no release.**
+The banner, the last tag and the newest CHANGELOG entry agree. **THE REPOSITORY
+OWES A RELEASE.** Ten commits are after the tag. Port 005 is in those commits.
+
+**The version gate cannot find this defect, and that is the important part.**
+`version_gate.sh` compares the banners with each other. It compares them with no
+git tag. All five banners agree at `v0.14.96`, so the gate passes. Search
+`CHANGELOG.md` for `TOOL-005` and you find zero lines. A whole port is on `main`
+and no release note describes it.
+
+**Do this before you release.** Change the version number in
+`compiler/package.yaml` and in `compiler/llmll.cabal`. The documentation-lead
+writes the release note after that change. The documentation-lead must not
+change the version number.
 
 Two releases went out on 2026-08-10. v0.14.95 released the fourth port and the
 record corrections of section 3. v0.14.96 released `REGEX-LOWER-1`, which
 unblocked port 005. The release notes are in `CHANGELOG.md`.
 
-**A warning about the table above.** The count of unreleased commits is 1 because
-this record's update is the commit. That number increases with the next commit.
+**A warning about the table above.** The count of unreleased commits was 1 when a
+person wrote this table. It is 10 now. That number increases with each commit.
 Measure it again. Do not read it from this table.
 
 The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
@@ -81,12 +92,31 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 **Port 005 is complete.** It is `tool_state: oracle`. Run `31439956284` passed.
 Both implementations run in `spec-roundtrip`, as adjacent steps.
 
-Port 006 (`build_smoke.sh`) is the last port. **It is BLOCKED on `FS-WALK-1`**,
-at the roadmap. That row has the disposition **Hold**. A recursive walk with no
-depth bound is the first unbounded loop in this language. Thus it is a design
-question for the language-team.
+Port 006 (`build_smoke.sh`) is the last port. **IT IS NOT BLOCKED.**
+`FS-WALK-1` closed as COSMETIC on 2026-08-10. The roadmap holds that row in its
+closed-rows section.
+
+**The row asked for a measurement. Nobody ran it for three days. The answer
+closed the row.** These are the figures. Port 006 has **twelve** walk sites, and
+the row said nine. Each of the twelve is the same query. Each one finds one
+executable file by name below a `.stack-work/install` directory. That directory
+is **four levels deep on both platforms**. macOS gives `aarch64-osx/<hash>/9.6.6/bin`.
+Linux gives `x86_64-linux-tinfo6/<hash>/9.6.6/bin`, read from the log of run
+`31441364939`, which passed. Only the names of the parts change. Thus port 006 finds
+each executable with four flat `wasi.fs.list` calls. It needs no new builtin.
 
 Port 006 also runs the other five gates. It must inherit their pattern.
+
+**Caution 1. The reference is not deterministic, and the port cannot copy that.**
+The reference uses `find … | head -1`. `wasi.fs.list` sorts its answer. The two
+agree when the tree holds one hash directory. CI makes a new directory for each
+run, so CI holds one. A caller can set `OUTDIR` to a directory that holds more.
+**The user must decide this: does 006 state the precondition, or does the copy
+rule get an exception?**
+
+**Caution 2. A symlink cycle makes a recursive walk continue forever.**
+`wasi.fs.list` cannot see a symlink. The measured tree holds zero symlinks, so
+nothing shows this today. The `LIST-KIND-1` row holds this hazard.
 
 ### Port 005 left two items. Give them to the user
 
@@ -96,9 +126,14 @@ Port 006 also runs the other five gates. It must inherit their pattern.
    the only fail-closed check on prose citations goes with it. The repair needs a
    built binary, and that test runs in the job with no toolchain. **Decide this
    before you delete the reference.**
-2. **Four gap rows.** Section 5 of the campaign names them: `FS-EXISTS-1`,
-   `REGEX-CAPTURE-1`, `REGEX-CASE-1` and `PATH-NORM-1`. No roadmap row holds
-   them. File the four rows.
+2. **The gap rows. This item is DONE.** The roadmap holds five rows as of
+   2026-08-10: `FS-EXISTS-1`, `REGEX-CAPTURE-1`, `REGEX-CASE-1`, `PATH-NORM-1`
+   and `LIST-KIND-1`.
+
+   **There were five rows and not four.** Port 004 raised `LIST-KIND-1` on
+   2026-08-09. It gave the gap no tag name. Thus no census held it, and this
+   record did not hold it. A search for tag names cannot find a gap that has no
+   tag. **Give each new gap a name when you record it.**
 
 ### What port 005 measured. Keep these
 
@@ -181,7 +216,7 @@ Five ports of six are complete. Each of the five is an oracle.
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
 | **005** doc-path-lint | **PORTED**, `tool_state: oracle`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). Run `31439956284` passed |
-| **006** build-smoke | Last. It runs the other gates. **It is also BLOCKED**, on `FS-WALK-1` |
+| **006** build-smoke | Last. It runs the other gates. **IT IS NOT BLOCKED**: `FS-WALK-1` closed COSMETIC 2026-08-10. Write its RFC next |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE** |
@@ -194,18 +229,20 @@ Open roadmap rows that this campaign filed or needs:
 | `ALIAS-LOWER-1` | OPEN. The six glyphs are now its full scope | roadmap :63 |
 | `RUN-STDIN-1` | OPEN. Filed by a 004 feasibility probe | roadmap :70 |
 | `SKIP-SILENT-1` | OPEN | roadmap :62 |
-| `FS-WALK-1` | OPEN, disposition **Hold**. Port 006 needs it | roadmap :73 |
+| `FS-WALK-1` | **CLOSED COSMETIC 2026-08-10.** Port 006 does not need it | roadmap, closed-rows section |
 | `MATCH-TERM-EQ-1` | OPEN. The 004 core is written around it | roadmap, search the tag |
 | `STRLIT-BODY-1` | OPEN. It is the absence that 004 section 7 records | roadmap, search the tag |
 | `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
 | `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |
-| `FS-EXISTS-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
-| `REGEX-CAPTURE-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
-| `REGEX-CASE-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
-| `PATH-NORM-1` | **OWED**, proposed by 005. No roadmap row exists | campaign section 5 |
+| `FS-EXISTS-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
+| `REGEX-CAPTURE-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
+| `REGEX-CASE-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
+| `PATH-NORM-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
+| `LIST-KIND-1` | **FILED 2026-08-10.** OPEN. Raised by **004**, not by 005. It had no tag, so no census held it | roadmap, Active Items |
 
-**Port 005 proposed four gap names. No roadmap row holds them.** The campaign
-section 5 table carries them. File the four rows before the port ships.
+**All five gap rows are filed.** The roadmap Active Items table holds them as of
+2026-08-10. Port 005 proposed four of the five. Port 004 raised the fifth,
+`LIST-KIND-1`, and gave it no tag, so no census found it for a release.
 
 **The line numbers above move.** Search for the tag name. Do not trust the
 number.
