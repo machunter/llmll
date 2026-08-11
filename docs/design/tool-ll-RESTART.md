@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-10. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle. Run 31439956284 passed. Both implementations run adjacent in spec-roundtrip. A RELEASE IS OWED. The last tag is v0.14.96 and ten commits are after it. Measure that count. Do not read it. The version gate cannot find this defect. It compares the five banners with each other and with no git tag. All five agree at v0.14.96. CHANGELOG.md holds zero lines about TOOL-005. PORT 006 IS NEXT AND IT IS NOT BLOCKED. FS-WALK-1 closed as COSMETIC on 2026-08-10. That row asked for a measurement. Nobody ran it for three days. The answer closed the row: twelve walk sites where the row said nine, at a fixed depth of four. The gap rows are FILED. There were FIVE and not four. The fifth is LIST-KIND-1. Port 004 raised it with no tag name, so no census held it. ONE item stays with the user. It is the retirement question in section 8 of the 005 RFC. That test is fail-closed and binds to the reference that section deletes. Section 2 names a second question, which the user must answer at port 006. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
-date: 2026-08-10
+status: "LIVE, 2026-08-11. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle. Both implementations run adjacent in spec-roundtrip. v0.14.97 RELEASED port 005 and closed FS-WALK-1. All three CI runs passed. One commit is after the tag; measure that count, do not read it. PORT 006 IS NEXT AND IT IS NOT BLOCKED. FS-WALK-1 closed as COSMETIC on 2026-08-10. That row asked for a measurement. Nobody ran it for three days. The answer closed the row: twelve walk sites where the row said nine, at a fixed depth of four. THE TWELVE SITES ARE NOW GONE. build_smoke.sh asks stack for the path, changed 2026-08-11. Port 006 copies that, and not a walk. The five gap rows are FILED. There were FIVE and not four; the fifth is LIST-KIND-1, which port 004 raised with no tag name, so no census held it. THE RETIREMENT QUESTION IS ANSWERED. The user deleted the reference's pytest file on 2026-08-11. Nothing now stops a broken path citation from reaching main. Section 2 names one open question for port 006. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
+date: 2026-08-11
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
@@ -50,36 +50,34 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-10, after v0.14.96
+## 1. State, measured 2026-08-11, after v0.14.97
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.96` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **10**, measured 2026-08-10 at `2fbe5f1` | `git rev-list --count v0.14.96..HEAD` |
-| Version banner | `v0.14.96` | `head -1 LLMLL.md` |
-| CI on `main` | run `31441364939` passed, 19m16s | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.96` | `grep "^## " CHANGELOG.md` |
+| Last tag | `v0.14.97` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **1**, measured 2026-08-11 | `git rev-list --count v0.14.97..HEAD` |
+| Version banner | `v0.14.97` | `head -1 LLMLL.md` |
+| CI on `main` | run `31459032759` passed, 21m13s | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.97` | `grep "^## " CHANGELOG.md` |
 
-The banner, the last tag and the newest CHANGELOG entry agree. **THE REPOSITORY
-OWES A RELEASE.** Ten commits are after the tag. Port 005 is in those commits.
+The banner, the last tag and the newest CHANGELOG entry agree. **v0.14.97
+released port 005 and closed `FS-WALK-1`.** All three CI runs passed. The tag
+run published the image.
 
-**The version gate cannot find this defect, and that is the important part.**
-`version_gate.sh` compares the banners with each other. It compares them with no
-git tag. All five banners agree at `v0.14.96`, so the gate passes. Search
-`CHANGELOG.md` for `TOOL-005` and you find zero lines. A whole port is on `main`
-and no release note describes it.
+**One commit is after the tag.** It changes `build_smoke.sh` only. A release can
+wait, but the debt is real. Measure the count again.
+
+**A warning that stays true.** The version gate cannot find an owed release. It
+compares the five banners with each other. It compares them with no git tag. So
+the gate passes while a whole port sits on `main` with no release note. That
+happened at v0.14.97: ten commits and zero CHANGELOG lines about TOOL-005.
 
 **Do this before you release.** Change the version number in
 `compiler/package.yaml` and in `compiler/llmll.cabal`. The documentation-lead
 writes the release note after that change. The documentation-lead must not
 change the version number.
 
-Two releases went out on 2026-08-10. v0.14.95 released the fourth port and the
-record corrections of section 3. v0.14.96 released `REGEX-LOWER-1`, which
-unblocked port 005. The release notes are in `CHANGELOG.md`.
-
-**A warning about the table above.** The count of unreleased commits was 1 when a
-person wrote this table. It is 10 now. That number increases with each commit.
+**A warning about the table above.** Each count changes with the next commit.
 Measure it again. Do not read it from this table.
 
 The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
@@ -133,12 +131,23 @@ future recursive walk must answer it first.
 
 ### Port 005 left two items. Give them to the user
 
-1. **The retirement question.** Section 8 of the RFC gives it.
-   `scripts/tests/test_doc_path_lint.py` runs the reference. It is FAIL-CLOSED
-   on the live tree. Section 8 deletes that reference. Then the test breaks, and
-   the only fail-closed check on prose citations goes with it. The repair needs a
-   built binary, and that test runs in the job with no toolchain. **Decide this
-   before you delete the reference.**
+1. **The retirement question. ANSWERED 2026-08-11. This item is DONE.** The user
+   chose to delete the test and to accept the loss.
+   The test file `test_doc_path_lint.py` is deleted. The test count goes from
+   197 to 179.
+
+   **Know what the repository lost.** That test ran `scripts/doc_path_lint.py`
+   over the tree and failed if one file path was broken. CI then failed. Thus a
+   broken path could not go into `main`. **Nothing stops a broken path now.**
+   The two remaining checks report and do not decide. Each one exits 0 when it
+   finds a broken path, by design.
+
+   **Do not report this as a defect.** It is a decision, and section 8 of the
+   005 RFC holds the reason.
+
+   **One door stays open.** Make the port's CI step fail when it finds a broken
+   path. The merge block then lives in the LLMLL port. A person must choose
+   that; it changes when CI fails.
 2. **The gap rows. This item is DONE.** The roadmap holds five rows as of
    2026-08-10: `FS-EXISTS-1`, `REGEX-CAPTURE-1`, `REGEX-CASE-1`, `PATH-NORM-1`
    and `LIST-KIND-1`.

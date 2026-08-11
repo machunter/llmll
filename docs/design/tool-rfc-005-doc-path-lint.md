@@ -447,8 +447,10 @@ Before that, all of:
 - the `ALLOW` table carried in the port rather than in the reference, per D5,
   since deleting the reference otherwise deletes fourteen human judgements that
   nothing in the tree can regenerate;
-- **an answer for `scripts/tests/test_doc_path_lint.py`**, which is fail-closed
-  on the live tree and binds to the reference this section deletes; see below;
+- ~~an answer for the reference's pytest file~~ **ANSWERED and DONE
+  2026-08-11: the user chose to delete the test, accepting the loss.** The file
+  is gone, 18 tests with it, ahead of the reference's own deletion; see below
+  for what that costs;
 - **the job verifying `adjudicate.llmll` BEFORE `pathlint.llmll`**, which is an
   ordering constraint rather than a preference. Measured: with no sidecar
   present, `llmll check` on the port warns "Function `reports?` has an unproven
@@ -471,7 +473,7 @@ property the condition is protecting.
 
 **SOMETHING DOES DECIDE, AND IT IS NOT THE GATE. Found while wiring, and it is
 the sharpest thing this RFC has to say about retirement.**
-[`scripts/tests/test_doc_path_lint.py`](../../scripts/tests/test_doc_path_lint.py)
+`test_doc_path_lint.py`, which lived under `scripts/tests/` until 2026-08-11,
 runs the reference over the live tree and asserts `all resolve`. It is
 **fail-closed**: move a file without updating the prose that names it and CI goes
 red. So the merge-blocking property of DRIFT-DOC-4 has never lived in
@@ -498,6 +500,34 @@ Three consequences, none of which were visible before the port was wired:
 answer, decided rather than discovered when CI reddens. It is routed to the user
 because it is a scope question the campaign settled in the abstract and this is
 its first concrete instance.
+
+### The answer, taken 2026-08-11: delete the test
+
+The user chose the second of three options: move the test to a job that has a
+compiler, **delete it and accept the loss**, or keep a Python remnant of a
+retired reference. The file `test_doc_path_lint.py` is deleted. The suite
+goes from 197 to 179 passing.
+
+**State plainly what that costs, because the point of this section was to make
+it a decision instead of a surprise.** Nothing now blocks a broken prose
+citation from reaching `main`. Both remaining checks are advisory by design and
+exit 0 with findings: the reference at its own step, and the port at the step
+after it. The `doc_path_lint.py` run in CI reports and does not decide, which is
+what §1 said about the gate all along; the difference is that the arrangement no
+longer has a decider hidden in `scripts/tests/`.
+
+**Three smaller losses that were not the headline and are worth naming.** The
+18 tests included the only automated check that every entry in the `ALLOW`
+table carries a comment, which is the guard on the fourteen human judgements D5
+requires the port to carry. They included the assertion that the reference exits
+0, which is the advisory contract itself. And they included the unit coverage of
+`historical_file`, `PLACEHOLDER` and the historical-line predicates, so the
+reference now ships untested until it is deleted.
+
+**The door that stays open.** The property can be restored without a Python
+remnant by making the port's CI step fail on findings, which would put the
+merge-block in the LLMLL implementation rather than beside it. That is a change
+to when CI reddens and was not taken here.
 
 ## 9. Decisions taken
 
