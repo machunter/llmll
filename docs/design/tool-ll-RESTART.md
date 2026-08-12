@@ -55,17 +55,21 @@ incorrect. Correct section 1 before you do other work.
 | Item | Value | How it was measured |
 |---|---|---|
 | Last tag | `v0.14.97` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **1**, measured 2026-08-11 | `git rev-list --count v0.14.97..HEAD` |
+| Unreleased commits | **2**, measured 2026-08-11 at 09:44 PDT | `git rev-list --count v0.14.97..HEAD` |
 | Version banner | `v0.14.97` | `head -1 LLMLL.md` |
-| CI on `main` | run `31459032759` passed, 21m13s | `gh run list --branch main` |
+| CI on `main` | run `31513997765` passed, 18m44s | `gh run list --branch main` |
 | Newest CHANGELOG entry | `v0.14.97` | `grep "^## " CHANGELOG.md` |
 
 The banner, the last tag and the newest CHANGELOG entry agree. **v0.14.97
 released port 005 and closed `FS-WALK-1`.** All three CI runs passed. The tag
 run published the image.
 
-**One commit is after the tag.** It changes `build_smoke.sh` only. A release can
-wait, but the debt is real. Measure the count again.
+**TWO commits are after the tag, and this table said ONE until 2026-08-11.** The
+count was corrected by measurement at the start of the port 006 work, which is
+what section 0 tells you to do. Both commits are PUSHED and CI run `31513997765`
+passed on them, 18m44s. One changes `build_smoke.sh` and the other deletes the
+005 reference's pytest file. A release can wait, but the debt is real. Measure
+the count again.
 
 **A warning that stays true.** The version gate cannot find an owed release. It
 compares the five banners with each other. It compares them with no git tag. So
@@ -93,6 +97,28 @@ Both implementations run in `spec-roundtrip`, as adjacent steps.
 Port 006 (`build_smoke.sh`) is the last port. **IT IS NOT BLOCKED.**
 `FS-WALK-1` closed as COSMETIC on 2026-08-10. The roadmap holds that row in its
 closed-rows section.
+
+**THE RFC IS WRITTEN, 2026-08-11.** Read
+[`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write
+any port code. Four things it settled, each by a probe:
+
+1. **The port is feasible.** One complete stage was written in LLMLL, built and
+   run. It passes on a good fixture and fails on a broken one.
+2. **The size fear was wrong.** The port projects to about 1,400 code lines, not
+   2,500. The 4.8 ratio is the FIRST port's; the five decline to 2.23.
+3. **The real scope question was stdin, and the compiler answered it.**
+   Thirteen sites feed a child on stdin and `wasi.proc.run` could not.
+   **`PROC-STDIN-1` SHIPPED a seventh parameter, a stdin path, on 2026-08-11.**
+   The port passes a path, as it passes a stdout path. **Do not write a `drive`
+   helper and do not write `/bin/sh -c`.** D1 chose that workaround before the
+   compiler moved, and the RFC records it as superseded.
+4. **Three gaps are filed**: `PROC-STDIN-1`, `PROC-STDIN-SHARE-1` and
+   `PROC-ENV-1`. The second is a compiler defect that is latent in all five
+   shipped ports.
+
+**A rule the RFC's own probe proved again.** Its first stage printed PASS
+against a build that exited 1, because it read a stale artifact. The negative
+control caught it. Write the negative control first.
 
 **The row asked for a measurement. Nobody ran it for three days. The answer
 closed the row.** These were the figures. `build_smoke.sh` had **twelve** walk
