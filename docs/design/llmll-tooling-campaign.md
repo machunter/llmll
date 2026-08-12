@@ -45,7 +45,7 @@ excluding comments and blanks:
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | 132 | yes, `spec-roundtrip` since 005 | **PORTED**, `tool_state: oracle`, TOOL-RFC-005 |
+| `doc_path_lint.py` (DELETED v0.14.99) | 132 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-005. **The campaign's first retirement** |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
 **`refute-crux-gate.sh` was not invoked by any workflow.** It was a `make`
@@ -289,11 +289,17 @@ no toolchain required:
   wrong by construction. The live corpus declares one disposition of four and
   contains none of the four violation classes, so a live green run grades about
   a twentieth of the specified behaviour.
-- **005** doc-path lint. **PORTED 2026-08-10**,
-  [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md), `tool_state: oracle`, green on
-  run `31439956284`. Cover at [`doc_path_lint_cover.py`](../../scripts/doc_path_lint_cover.py),
-  **22 cells: 19 mutations and 3 negative controls**, and the cover is SHOWN TO
-  FAIL against two deliberately broken ports rather than merely to pass.
+- **005** doc-path lint. **PORTED 2026-08-10, RETIRED 2026-08-12 at v0.14.99**,
+  [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md), `tool_state: retired`. It was
+  green on run `31439956284` while it was an oracle. **This is the campaign's
+  first retirement, and it is where retirement stopped being a rule and became a
+  measurement.** The cover held `REF = "scripts/doc_path_lint.py"` and compared
+  the two implementations, so it could not outlive the reference: **22 cells, 19
+  mutations and 3 negative controls, all deleted**, after having been SHOWN TO
+  FAIL against two deliberately broken ports rather than merely to pass. The
+  port is now ungraded. **Deleting the subject broke 13 prose citations in 6
+  files**, measured before the deletion rather than after it, which is the rule
+  port 006 inherits: move the subject aside, run the gate, then delete.
   It was gated on `REGEX-LOWER-1`, and **this is where the campaign first stopped
   being port work**: that row was a compiler fix, so the critical path ran
   through the compiler team for one release and is now back on ports. The fix's

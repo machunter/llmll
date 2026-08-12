@@ -189,8 +189,8 @@ Two more are mechanical and are **reported, never thresholded**, because both fi
 input. A span one line short of its own sentence (6 real TFTP rows), and a declared strength
 absent from the quote (3 real TFTP rows, all citing RFC 1123's requirements-summary table,
 where strength is a column position rather than a word). Failing closed on either demands that
-a correct row be mangled to pass, which is the reasoning `scripts/doc_path_lint.py` records for
-staying advisory.
+a correct row be mangled to pass, which is the reasoning DRIFT-DOC-4 records for staying
+advisory; see [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md).
 
 The last check is a **reading and cannot be mechanised**: does the stated reason describe the
 clause it cites? Delegate it over the rows the gate reads (core rows, and every excluded row),

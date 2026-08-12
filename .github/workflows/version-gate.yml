@@ -29,8 +29,9 @@
 # consistency gates over in-repo records. DRIFT-CT-2 (doc restriction-claims vs
 # actual compiler behaviour) is the only one with an oracle outside the
 # repository, because it executes the compiler. DRIFT-DOC-4 (prose path
-# citations) is ADVISORY and never fails, for the reason in its module
-# docstring. It does not run the Python harness suites at
+# citations) is ADVISORY and never fails; the reason lived in the Python
+# reference's module docstring until TOOL-RFC-005 retirement deleted it, and it
+# is now in docs/UPDATE-PROTOCOL.md. It does not run the Python harness suites at
 # tools/llmll-orchestra/ and experiments/.
 #
 # It DOES run `stack test`, as of CI-BUILD-TEST-1 (v0.14.94). This paragraph
@@ -98,9 +99,14 @@ jobs:
       # because a display name advertising a gate the job does not run is
       # exactly the stale record TOOL-RFC-004 filed against this file.
       #
-      # test_clean_on_live_repo in the pytest suite below still runs here and
-      # still imports the reference, so this job keeps a check that the live
-      # corpus resolves. What it no longer does is print the report.
+      # THIS JOB NOW HAS NO PATH-CITATION CHECK AT ALL, and that is the state
+      # rather than an oversight. test_clean_on_live_repo imported the reference
+      # and was fail-closed on the live tree; the user deleted it with
+      # test_doc_path_lint.py on 2026-08-11, and TOOL-RFC-005 §8 records what
+      # that costs. The reference itself is deleted at retirement. So the only
+      # DRIFT-DOC-4 in the repository is the LLMLL port, in spec-roundtrip, and
+      # it is advisory. Nothing blocks a broken prose citation from reaching
+      # main. See TOOL-RFC-005 §8 for the door that stays open.
       - name: Install pytest
         run: pip install pytest
 
@@ -380,16 +386,14 @@ jobs:
       # because DRIFT-DOC-3 blocks a merge and this gate decides nothing, so
       # what moved is when a reader sees a suggestion.
       #
-      # THE FAST JOB IS NOT LEFT WITHOUT A CHECK. test_clean_on_live_repo in
-      # scripts/tests/ still runs there, still executes this reference, and is
-      # FAIL-CLOSED on the live tree. So the merge-blocking property lives in a
-      # pytest test rather than in the gate, which is worth knowing before
-      # anyone deletes either.
-      - name: Run prose path-citation lint (DRIFT-DOC-4, advisory)
-        run: python3 scripts/doc_path_lint.py
-
-      # TOOL-RFC-005: the same gate in LLMLL, adjacent to its reference, which
-      # is what `tool_state: oracle` means and is 003's and 004's arrangement.
+      # THE REFERENCE IS GONE. scripts/doc_path_lint.py and its differential
+      # cover were deleted at TOOL-RFC-005 retirement, one release after the
+      # port landed, per the campaign's settled retirement rule. The step below
+      # is the whole of DRIFT-DOC-4 now.
+      #
+      # TOOL-RFC-005: the gate in LLMLL. It ran adjacent to its reference for
+      # one release, which is what `tool_state: oracle` meant, and it is now the
+      # only implementation.
       #
       # THE CORE IS VERIFIED BEFORE THE PORT IS BUILT, and the order is a
       # requirement rather than tidiness. adjudicate.llmll carries the three
@@ -408,12 +412,15 @@ jobs:
       # precisely because it does not have one. Do not move this pair back up
       # with the other documentation gates.
       #
-      # THE COVER RUNS BEFORE THE LIVE GATE, for 003's and 004's reason: it
-      # decides whether the port agrees with the reference UNDER MUTATION, and
-      # a live green run does not. Here that is sharper than usual. The live
-      # corpus reports zero findings, so the whole REPORTING half of the gate
-      # never executes on it, and four of the cover's cells test rules no
-      # corpus state can reach at all.
+      # THE COVER IS GONE, AND WITH IT THE ONLY INSTRUMENT THAT GRADED THIS
+      # PORT. doc_path_lint_cover.py pinned REF = scripts/doc_path_lint.py and
+      # diffed the two implementations under mutation, so it could not outlive
+      # the reference. That was the accepted trade at retirement, taken with the
+      # cost stated rather than discovered: what remains below is a live run,
+      # and the live corpus reports zero findings, so the whole REPORTING half
+      # of the gate never executes here. A live green run is not evidence that
+      # this port is correct. TOOL-RFC-005 §6 recorded which two cells were
+      # measured to discriminate, cells 9 and 13, if anyone rebuilds a grader.
       - name: Run prose path-citation lint (LLMLL port, TOOL-RFC-005)
         run: |
           set -euo pipefail
@@ -428,7 +435,6 @@ jobs:
           GATE="$GROOT/bin/pathlint"
           [ -n "$GROOT" ] && [ -x "$GATE" ] \
             || { echo "no pathlint binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
-          python3 scripts/doc_path_lint_cover.py --gate "$GATE" --repo .
           # The step budget comes from python3 and NOT `yes x | head -n N`:
           # `yes` dies of SIGPIPE and this step runs under pipefail. The loop
           # takes one step per living file plus five, so 900 is roughly five

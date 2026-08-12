@@ -428,9 +428,11 @@ in this repository's docs have been stale by hundreds.
 - **zsh globs unquoted `?` and `*`**, so `for d in foo?` and
   `grep --include=*.py` both die with "no matches found". Quote them.
 - **The Bash tool's working directory persists between calls.**
-- Run [`scripts/doc_path_lint.py`](../../scripts/doc_path_lint.py) **on its own
-  line**; piping to `tail` takes `tail`'s exit status and a red lint sails
-  through.
+- Run the prose path lint **on its own line**; piping to `tail` takes `tail`'s
+  exit status and a red lint sails through. The Python reference was retired at
+  TOOL-RFC-005 and the gate is now
+  [`tools/doc-path-lint/pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll),
+  which CI builds and runs in `spec-roundtrip`.
 - `--strict-verified-core` on a `def-shell` module **hard-errors by design**
   (the strict-sibling wall).
   [`tools/llmll-driver/EXPECTED_VERDICTS.json`](../../tools/llmll-driver/EXPECTED_VERDICTS.json)

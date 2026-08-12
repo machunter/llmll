@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-12, after v0.14.98. FIVE ports of six are complete and PORT 006 IS NEXT. THE TAG DEBT IS ZERO: the banner, the last tag and the newest CHANGELOG entry agree, and the tag run published the image. Measure that anyway; section 0 gives the four commands and this line has been incorrect before. v0.14.98 SHIPPED THE TWO GAPS PORT 006 RAISED, before the port was written: PROC-STDIN-1 gave wasi.proc.run a stdin path, and PROC-STDIN-SHARE-1 closed with it. That is the campaign's FIRST gap closed by the compiler rather than worked around by a port. So DO NOT write a drive helper and DO NOT write /bin/sh -c; the port passes a path. THE RFC IS WRITTEN: read tool-rfc-006-build-smoke.md before any port code. NO QUESTION IS OPEN for port 006. The port projects to about 1,400 code lines, not the 2,500 an inherited 4.8x ratio gave; that ratio was the FIRST port's and the five decline to 2.23. v0.14.98 also removed the last four find | head -1 sites from version-gate.yml, so that idiom is absent from the repository. THE RETIREMENT QUESTION IS ANSWERED: the user deleted the reference's pytest file on 2026-08-11, and nothing now stops a broken path citation from reaching main. PORT 005 RETIREMENT IS NOW DUE, one release after the port landed at v0.14.97; read TOOL-RFC-005 section 8 first, because deleting the reference also deletes the differential oracle the port is graded against. This file shows where the work is. llmll-tooling-campaign.md shows what the standard says. If the two disagree about the standard, use the campaign file. If they disagree about state, measure the state again."
+status: "LIVE, 2026-08-12, after v0.14.99. FIVE ports of six are complete and PORT 006 IS THE ONLY WORK LEFT. PORT 005 IS RETIRED at v0.14.99, which is the campaign's FIRST retirement: the reference and its 22-cell differential cover are both deleted, and NO INSTRUMENT GRADES THE PORT NOW. The user accepted that cost on 2026-08-12 with the cost stated first. THE RETIREMENT PRODUCED A RULE AND PORT 006 MUST USE IT: move the subject script aside, run the gate, read the result, and do all three BEFORE you delete the subject. Deleting the 005 reference broke 13 prose citations in 6 files, which the RFC section 8 precondition list did not ask about, and the measurement was free. THE TAG DEBT IS ZERO: the banner, the last tag and the newest CHANGELOG entry agree, and the tag run published the image. Measure that anyway; section 0 gives the four commands and this line has been incorrect before. v0.14.98 SHIPPED THE TWO GAPS PORT 006 RAISED, before the port was written: PROC-STDIN-1 gave wasi.proc.run a stdin path, and PROC-STDIN-SHARE-1 closed with it. That is the campaign's FIRST gap closed by the compiler rather than worked around by a port. So DO NOT write a drive helper and DO NOT write /bin/sh -c; the port passes a path. THE RFC IS WRITTEN: read tool-rfc-006-build-smoke.md before any port code. NO QUESTION IS OPEN for port 006. The port projects to about 1,400 code lines, not the 2,500 an inherited 4.8x ratio gave; that ratio was the FIRST port's and the five decline to 2.23. v0.14.98 also removed the last four find | head -1 sites from version-gate.yml, so that idiom is absent from the repository. NOTHING NOW STOPS A BROKEN PATH CITATION FROM REACHING main: the user deleted the reference's pytest file on 2026-08-11, and the reference itself at v0.14.99. Both remaining checks report and do not decide. This file shows where the work is. llmll-tooling-campaign.md shows what the standard says. If the two disagree about the standard, use the campaign file. If they disagree about state, measure the state again."
 date: 2026-08-12
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -54,11 +54,11 @@ incorrect. Correct section 1 before you do other work.
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.98` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **0**, measured 2026-08-12 | `git rev-list --count v0.14.98..HEAD` |
-| Version banner | `v0.14.98` | `head -1 LLMLL.md` |
-| CI on `main` | run `31606470341` passed | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.98` | `grep "^## " CHANGELOG.md` |
+| Last tag | `v0.14.99` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **0**, measured 2026-08-12 | `git rev-list --count v0.14.99..HEAD` |
+| Version banner | `v0.14.99` | `head -1 LLMLL.md` |
+| CI on `main` | measure it | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.99` | `grep "^## " CHANGELOG.md` |
 
 The banner, the last tag and the newest CHANGELOG entry agree, and **the tag
 debt is zero.** The tag run published `ghcr.io/machunter/llmll:v0.14.98` and
@@ -69,6 +69,11 @@ was written. `PROC-STDIN-1` gave `wasi.proc.run` a stdin path and
 `PROC-STDIN-SHARE-1` closed with it. It also removed the last four
 `find | head -1` sites from `version-gate.yml`, so that idiom is now absent
 from the repository.
+
+**v0.14.99 RETIRED port 005. This is the campaign's first retirement.** The
+reference and its differential cover are deleted. The port is the only
+DRIFT-DOC-4 now, and no instrument grades it. Section 2 gives the rule that
+this retirement produced. Port 006 must use that rule.
 
 **This table was incorrect twice in two days, and both times a measurement
 caught it.** On 2026-08-11 it claimed one unreleased commit against a measured
@@ -161,7 +166,37 @@ A symlink cycle makes a recursive walk continue forever. `wasi.fs.list` cannot
 see a symlink. Port 006 does no walk now, so port 006 cannot meet this. Any
 future recursive walk must answer it first.
 
-### Port 005 left two items. Give them to the user
+### Port 005 is RETIRED at v0.14.99. Read this before you retire port 006
+
+**A retirement rule that this retirement produced. Use it for port 006.** Move
+the subject script aside. Then run the gate. Then read the result. Do this
+BEFORE you delete the subject.
+
+Deleting `scripts/doc_path_lint.py` broke **13 prose citations in 6 files**. The
+measurement took one minute and it was free. The RFC section 8 precondition list
+did not ask for it. Two citations now name the port. Five `ALLOW` entries in the
+port carry the others. Each of the five is a past-tense record.
+
+**Do not rewrite a past-tense record to name the port.** The port did not take
+that measurement. A rewrite makes the record false.
+
+**The differential cover died with the reference.** `doc_path_lint_cover.py`
+holds `REF = "scripts/doc_path_lint.py"`. It compares the two implementations.
+So it cannot work without the reference. The 22 cells are deleted.
+
+**No instrument grades the port now.** The live corpus gives zero findings. Thus
+the reporting half of the gate does not execute. **A live run that passes is not
+evidence that the port is correct.** The user accepted this cost on 2026-08-12.
+RFC section 6 records that cells 9 and 13 discriminate. Start there if you build
+a new grader.
+
+**One record was incorrect and the retirement found it.** `version-gate.yml`
+said in two places that `test_clean_on_live_repo` keeps the fast job
+fail-closed. That test was deleted on 2026-08-11. So the workflow advertised a
+merge block for one day that did not exist. `docs/UPDATE-PROTOCOL.md` said the
+same. Both are corrected.
+
+### Port 005 left two items. Both are DONE
 
 1. **The retirement question. ANSWERED 2026-08-11. This item is DONE.** The user
    chose to delete the test and to accept the loss.
@@ -261,7 +296,7 @@ The user made these decisions on 2026-08-08. Do not discuss them again.
 
 ## 5. Campaign status
 
-Five ports of six are complete. Each of the five is an oracle.
+Five ports of six are complete. Four are oracles. One is retired.
 
 | Port | State |
 |---|---|
@@ -269,7 +304,7 @@ Five ports of six are complete. Each of the five is an oracle.
 | **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
-| **005** doc-path-lint | **PORTED**, `tool_state: oracle`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). Run `31439956284` passed |
+| **005** doc-path-lint | **RETIRED at v0.14.99**, `tool_state: retired`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The reference and the cover are deleted. **The campaign's first retirement.** Section 2 gives its rule |
 | **006** build-smoke | Last. It runs the other gates. **IT IS NOT BLOCKED**: `FS-WALK-1` closed COSMETIC 2026-08-10. Write its RFC next |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
@@ -361,7 +396,7 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 | [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | PASS. It runs in `spec-roundtrip` since TOOL-RFC-004 |
 | [`docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) | PASS. Output identical to the reference. **It passes on Linux** |
 | [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured on macOS and on Linux CI at `e5459c3` and again at `c4e7901`. **The cover is not its own CI step.** It runs inside the port's step, before the live run. Look in the step named `Run archive-disposition drift gate (LLMLL port, TOOL-RFC-004)` |
-| [`doc_path_lint.py`](../../scripts/doc_path_lint.py) | **946 citations in 171 files, all resolve.** Measured 2026-08-10. It reads `git ls-files '*.md'`, so it cannot see an untracked file |
+| [`pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) | **986 citations in 173 files, all resolve.** Measured 2026-08-12 after the retirement commit. It reads `git ls-files '*.md'`, so it cannot see an untracked file. **This is the only DRIFT-DOC-4.** The last differential measurement was earlier in the same commit, at 977 citations, where the reference gave the same two numbers. The retirement's own prose added the other nine, and two of them needed `ALLOW` entries |
 | [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed. Needs a rebuilt sequencer through `--driver` |
 | [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed. Needs `--wave` |
 | [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed. Needs `--gate` |

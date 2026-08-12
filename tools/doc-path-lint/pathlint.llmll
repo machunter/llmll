@@ -273,7 +273,7 @@
                                   false))))))
 
   ;; ---------------------------------------------------------------- ALLOW --
-  ;; D5: the fourteen entries are carried HERE and not derived, because §8
+  ;; D5: the entries are carried HERE and not derived, because §8
   ;; deletes the reference and takes the table with it. Each one is a human
   ;; judgement that a specific citation is correct despite not resolving;
   ;; regenerating it from the tree would make every unresolved citation
@@ -281,6 +281,17 @@
   ;;
   ;; Keyed on (file, path) exactly as the reference keys it, tab-separated and
   ;; newline-delimited so a membership test cannot match across two entries.
+  ;;
+  ;; FIVE ENTRIES ADDED AT RETIREMENT, all naming scripts/doc_path_lint.py, the
+  ;; reference this port replaced. Deleting it broke 13 citations in 6 files,
+  ;; measured before the deletion rather than discovered after it. Two were
+  ;; present-tense and were repointed at this port instead. These five are
+  ;; past-tense records of what the reference measured while it existed: a
+  ;; frozen gate-figure table, two restart records, a closed work row and a
+  ;; frozen harness-findings log. Rewriting them to name this port would
+  ;; falsify them, because this port did not take those measurements. This is
+  ;; the case the table exists for: the citation is right and the file's
+  ;; absence is the point of the sentence.
   (def-shell allow-tbl [] -> string
     (string-concat
       (string-concat
@@ -291,8 +302,19 @@
           "experiments/minimal-agent/experiments/010-byte-saturate.md\t.llmll/templates/byte-saturate/scaffold.ast.json\nexperiments/minimal-agent/experiments/011-assume-guarantee-order.md\t.llmll/templates/assume-guarantee-order/scaffold.ast.json\n"
           "experiments/r5-validation/findings.md\tscratchpad/r5drive.sh\ndocs/design/rfc-swarm-roadmap-proposal.md\taudit/runner.py\n")
         (string-concat
-          "docs/design/driver-in-llmll-campaign.md\tarchive/do_notation/do-notation-design.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/rfc-swarm-roadmap-proposal.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/driver-in-llmll-campaign.md\n"
-          "docs/design/examples-audit-2026-07-20-compiler-followups.md\texamples/conways_life_json_verifier/life.ast.json.verified.json\nexperiments/repair-loop/findings.md\texperiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll\n"))))
+          (string-concat
+            "docs/design/driver-in-llmll-campaign.md\tarchive/do_notation/do-notation-design.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/rfc-swarm-roadmap-proposal.md\ndocs/design/driver-in-llmll-campaign.md\tdesign/driver-in-llmll-campaign.md\n"
+            "docs/design/examples-audit-2026-07-20-compiler-followups.md\texamples/conways_life_json_verifier/life.ast.json.verified.json\nexperiments/repair-loop/findings.md\texperiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll\n")
+          (string-concat
+            (string-concat
+              "docs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint.py\ndocs/design/tool-ll-RESTART.md\tscripts/doc_path_lint.py\ndocs/design/driver-ll-phase4-RESTART.md\tscripts/doc_path_lint.py\n"
+              "docs/design/driver-ll-open-work.md\tscripts/doc_path_lint.py\nexperiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md\tscripts/doc_path_lint.py\n")
+            ;; The retirement's own records: the roadmap's shipped-release row
+            ;; and the RFC's status line name the two files the release deleted.
+            ;; Both were added by the retirement pass and caught by rerunning
+            ;; this port over the edited tree, which is the same measurement the
+            ;; retirement rule asks for and the reason it is worth doing twice.
+            "docs/compiler-team-roadmap.md\tscripts/doc_path_lint.py\ndocs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint_cover.py\n")))))
 
   (def-shell allowed? [f: string p: string] -> bool
     (string-contains (allow-tbl)

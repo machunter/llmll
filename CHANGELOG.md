@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.99: a reference is deleted, and the only instrument that graded its replacement goes with it (2026-08-12)
+
+**TOOL-RFC-005 retires, on schedule and by the campaign's settled rule.** `scripts/doc_path_lint.py` is deleted one release after its LLMLL port landed at v0.14.97; read it at `git show v0.14.98:scripts/doc_path_lint.py`. DRIFT-DOC-4 is now [`pathlint.llmll`](tools/doc-path-lint/pathlint.llmll) and nothing else. This is the first retirement in the six-gate port campaign, so it is the first time the campaign has to answer what retirement actually costs rather than describe it.
+
+### Removed: the reference, and the differential cover that could not outlive it
+
+`doc_path_lint_cover.py` pinned `REF = "scripts/doc_path_lint.py"` and compared the two implementations' stdout under mutation. A cover whose subject is a diff against a deleted file grades nothing, so its 22 cells are deleted in the same commit. The reference's own CI step leaves `spec-roundtrip` with it.
+
+**A live green run is not evidence that this port is correct, and the release note says so because nothing else now will.** The live corpus reports zero findings, so the entire reporting half of the gate never executes; four cover cells tested rules no corpus state can reach at all. Two cells were measured to discriminate (cell 9 against a `HIST_LINE` variant-list approximation, cell 13 against a missing `site/` filter), and `TOOL-RFC-005` §6 keeps that record for anyone rebuilding a grader.
+
+**The last differential measurement was taken at the moment of deletion.** Reference and port ran against the same tree with the same `ALLOW` additions: both report **977 prose path citations in 173 living files, all resolve**. That is the final evidence the two agree.
+
+### Measured before the deletion: what removing a subject does to the prose that cites it
+
+The retirement preconditions in `TOOL-RFC-005` §8 did not ask this question, which is a gap in the list given that DRIFT-DOC-4 is the instrument for exactly it. Measured by moving the reference aside and rerunning the lint before deleting anything: **13 citations in 6 files stop resolving.**
+
+Two were present tense and now name the port. Five `ALLOW` entries carry the rest, each a past-tense record of a measurement the reference took while it existed: a frozen gate-figure table, two restart records, a closed work row, a frozen harness log. Rewriting those to name the port would falsify them, because the port did not take those measurements. **A rule for port 006's retirement: move the subject aside and run the gate before you delete it.** The breakage is measurable in advance and free.
+
+### Fixed: a workflow that advertised a merge block it did not have
+
+[`version-gate.yml`](.github/workflows/version-gate.yml) stated in two places that `test_clean_on_live_repo` still ran in the fast job and kept it fail-closed on the live tree. That test was deleted with `test_doc_path_lint.py` on 2026-08-11, one day earlier. [`docs/UPDATE-PROTOCOL.md`](docs/UPDATE-PROTOCOL.md) carried the same claim. Both are corrected: no job blocks a broken prose citation from reaching `main`, by decision, and `TOOL-RFC-005` §8 names the door that stays open.
+
+**This workflow file has now carried an untrue claim about itself twice.** [`tool-ll-RESTART.md`](docs/design/tool-ll-RESTART.md) §3 catalogues five records that described a change without updating the places advertising it, and `version-gate.yml` is one of the five: TOOL-RFC-004 caught its job display name advertising a gate the job no longer ran. A comment next to the code is not a record.
+
+### Also in this release
+
+- **The `ALLOW` table lives in the port**, migrated there before retirement per D5, because deleting the reference would otherwise delete fourteen human judgements that nothing in the tree can regenerate. It is now twenty-one: five added for the deleted reference, two more for the records this release itself wrote about the deletion.
+- **`docs/design/INDEX.md` labelled `tool-rfc-006-build-smoke.md` as Rev 1**; it reached Rev 2 at v0.14.98 when the compiler shipped two of the three gaps it raised.
+
+**Tests:** 1688 Haskell examples, 179 Python (6 skipped). Unchanged from v0.14.98; no Haskell source changed in this release.
+
 ## v0.14.98: a builtin stops sharing the caller's stdin, and the last search idiom leaves the tree (2026-08-12)
 
 **`wasi.proc.run` gains a seventh parameter and loses a defect.** Two roadmap rows close together, because a named stdin path removes the sharing as a side effect of giving the caller a choice. Found by TOOL-RFC-006's feasibility probe, which was measuring whether port 006 was possible at all.
