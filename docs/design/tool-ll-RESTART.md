@@ -107,7 +107,51 @@ Port 006 (`build_smoke.sh`) is the last port. **IT IS NOT BLOCKED.**
 `FS-WALK-1` closed as COSMETIC on 2026-08-10. The roadmap holds that row in its
 closed-rows section.
 
-**THE RFC IS WRITTEN, 2026-08-11.** Read
+### Port 006 is STARTED. Read this before you write a stage
+
+**The port module exists.** It is
+[`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll).
+It holds the spine and **stage 1 of fourteen**. It builds and it runs.
+
+**`tool_state` stays `blocked` and that word is now approximate.** The tri-state
+is `blocked`, `oracle` and `retired`. It has NO value for "started and
+incomplete". `blocked` is the only state the RFC gate accepts here, because
+`oracle` asserts that both implementations decide over one tree in one job.
+**Give this vocabulary gap to the user.** Do not invent a fourth state.
+
+**Two facts the spine settled. Copy them; do not re-derive them.**
+
+1. The state is `((Bs, Ctl), Command)`. `Bs` holds a `Json`. `sequencer.llmll`
+   and `pathlint.llmll` use this shape. A positional tuple grows one field for
+   each stage. Then it renumbers each call site.
+2. `:done?` needs a `Done` phase after an `Ending` phase. The `Ending` phase
+   prints. The `Done` phase stops.
+
+**D3 IS DISCHARGED, 2026-08-12.** The RFC told you to probe two rows before you
+write the stages that use them. Both are probed. The probe is
+[`scripts/build-smoke/d3_probe.llmll`](../../scripts/build-smoke/d3_probe.llmll).
+
+- `wasi.fs.sha256` gives `RText`. The digest is lowercase hex. It agrees with
+  `shasum -a 256` for each byte. **This needed a measurement.** `LLMLL.md` §13
+  says the SHA-1 in the preamble is a simplified stub.
+- A failed run gives `RErr`. **The step machine continues after it.** The
+  message shows `does not exist` for an absent file. It shows
+  `permission denied` for a file with no execute permission. The subject's
+  `-perm -111` test gives one bit. Thus the port can say more than the subject.
+
+**Stage 1 is done and it FAILS correctly.** Give the program a `PATH` with no
+`stack` and no `ghc`. It prints `BUILD-GATE-1 FAIL`. This control uses a real
+environment. It does not use a changed source file.
+
+**Stage 2 is next, and stage 2 needs a decision that stage 1 did not.** The
+subject reads the `LLMLL_BIN` environment variable. **No builtin reads an
+environment variable.** The campaign disposed that row COSMETIC because "argv
+carries it". So the port must take the compiler path as an argument. **Write
+that contract before you write stage 2.** Stage 2a then makes the path
+absolute, with `stack path --local-install-root`, first from the current
+directory and then from `compiler/`. Subject line 118 gives the full rule.
+
+**THE RFC IS WRITTEN and it is Rev 4.** Read
 [`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write
 any port code. Four things it settled, each by a probe:
 
@@ -305,7 +349,7 @@ Five ports of six are complete. Four are oracles. One is retired.
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
 | **005** doc-path-lint | **RETIRED at v0.14.99**, `tool_state: retired`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The reference and the cover are deleted. **The campaign's first retirement.** Section 2 gives its rule |
-| **006** build-smoke | Last. It runs the other gates. **IT IS NOT BLOCKED**: `FS-WALK-1` closed COSMETIC 2026-08-10. Write its RFC next |
+| **006** build-smoke | Last. It runs the other gates. **STARTED 2026-08-12**: the RFC is Rev 4, D3 is discharged by probe, and `buildsmoke.llmll` holds the spine and stage 1 of 14. `tool_state: blocked`, which is approximate. Section 2 gives what stage 2 needs first |
 | **P1** tag debt | **DONE.** Four tags pushed. Four images published |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE** |
