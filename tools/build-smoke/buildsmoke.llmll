@@ -4,20 +4,28 @@
 ;; scripts/build_smoke.sh, which is the harness that builds and runs the other
 ;; five ports. So this program is an LLMLL program that tests LLMLL programs.
 ;;
-;; STATE OF THIS FILE: the spine and stages 1, 2 and 2a. Eleven stages remain,
-;; and TOOL-RFC-006 section 2 tables them with a code-line count each. The RFC
-;; is the specification; this header does not restate it.
+;; STATE OF THIS FILE: the spine and stages 1, 2, 2a, 3 and 4. Nine stages
+;; remain, and TOOL-RFC-006 section 2 tables them with a code-line count each.
+;; The RFC is the specification; this header does not restate it.
 ;;
-;; FIVE CONTROLS RUN AGAINST WHAT IS HERE, three of them negative:
+;; SEVEN CONTROLS RUN AGAINST WHAT IS HERE, four of them negative:
 ;;
 ;;   --subject <abs path>              PASS compiler present
 ;;   --subject stack --root <repo>     PASS compiler anchored at <resolved>
+;;   full run against the real fixture PASS fixture compiled through GHC
 ;;   --subject /nonexistent/llmll      FAIL no llmll binary answered
 ;;   --subject stack --root /nonexist  FAIL no llmll under stack path
 ;;   PATH=/usr/bin:/bin                FAIL neither stack nor ghc
+;;   broken fixture, STALE good Lib.hs FAIL the fixture does not build
 ;;
-;; Each negative uses a real environment rather than a changed source, so it
-;; grades these stages as they ship.
+;; Each negative uses a real environment or a real broken input rather than a
+;; changed source, so each grades these stages as they ship.
+;;
+;; THE LAST CONTROL IS THE ONE THAT MATTERS. It reproduces the exact scenario
+;; that defeated the RFC's first probe: a fixture that fails to compile, with a
+;; complete 850-line src/Lib.hs left in the work directory by an earlier
+;; successful run. A stage that reads the artifact without consulting the status
+;; reports PASS here. This one reports the status.
 ;;
 ;; WHY THE STATE IS A RECORD AND A CONTROL TAG, and not an int. `:mode console`
 ;; hands each step one Response and takes one Command back, so anything a later
@@ -130,11 +138,26 @@
     ;; tree whose compiler was built and present.
     (| Anchor2aX1) ;; first source's binary: on failure, try <root>/compiler
     (| Anchor2aX2) ;; second source's binary: on failure, the stage fails
+    (| Build3)     ;; stage 3, `llmll build` on the fixture; status arrives
+    (| Lib4)       ;; stage 4, read the emitted src/Lib.hs
+    (| Log4)       ;; stage 4, read the build log for a GHC invocation
     (| Ending)
     (| Done))
 
   (def-shell go [b: Bs p: Ctl c: Command] -> ((Bs, Ctl), Command)
     (pair (pair b p) c))
+
+  ;; Stage 2 and stage 2a both end by handing control to stage 3, from three
+  ;; different phases. One entry point rather than three copies, because a
+  ;; fourth path added later would otherwise be the one that forgets.
+  (def-shell start-build [b: Bs] -> ((Bs, Ctl), Command)
+    (go b Build3
+        (wasi.proc.run (get-s b "subject")
+                       ["build" (fixture-of (get-s b "root"))
+                        "-o" (get-s b "work")]
+                       (get-s b "root")
+                       (log-of (get-s b "work")) (log-of (get-s b "work"))
+                       900 "/dev/null")))
 
   ;; ------------------------------------------------------------- responses --
   ;; Every shape is rendered distinctly. Collapsing two shapes to "" is how
@@ -243,6 +266,44 @@
   (def-shell chomp [s: string] -> string
     (unwrap-or (list-head (string-split "\n" s)) s))
 
+  ;; --------------------------------------------- stages 3 and 4, the build --
+  ;; scripts/build_smoke.sh:175 and :186. Stage 3 builds the fixture. Stage 4
+  ;; corroborates INDEPENDENTLY that something was compiled, and its comment
+  ;; names the class it guards: a fail-open runGhcCheck reporting success on an
+  ;; emitted file that never reached GHC.
+  (def-shell fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/smoke.llmll"))
+
+  (def-shell lib-of [work: string] -> string (string-concat work "/src/Lib.hs"))
+  (def-shell log-of [work: string] -> string (string-concat work "/.build.log"))
+
+  ;; The subject's list at line 195, verbatim and in its order. Each name must
+  ;; carry a TOP-LEVEL definition in the emitted preamble, which the subject
+  ;; tests as `^name ` and this tests as a line start followed by the name and
+  ;; a space. A literal list is also what SPLIT-EMPTY-1 forces: `string-split ""`
+  ;; does not terminate, so a scan is a fold over a written-out list.
+  (def-shell preamble-names [] -> list[string]
+    ["wasi_io_stdout" "wasi_io_stderr" "wasi_http_response"
+     "wasi_fs_read" "wasi_fs_write" "wasi_fs_delete" "wasi_http_post"
+     "wasi_fs_list" "wasi_fs_mkdir" "wasi_fs_sha256"
+     "wasi_clock_monotonic" "wasi_proc_run" "wasi_proc_args"
+     "seq_commands"
+     "json_parse" "json_serialize" "json_get" "json_get_string" "json_get_int"
+     "json_get_bool" "json_get_number" "json_array" "json_object" "json_set"
+     "json_of_string" "json_of_int" "json_of_bool" "json_of_list"])
+
+  (def-shell defines? [lib: string n: string] -> bool
+    (string-contains lib (string-concat "\n" (string-concat n " "))))
+
+  (def-shell missing-in [lib: string] -> list[string]
+    (list-filter (preamble-names) (fn [n: string] (not (defines? lib n)))))
+
+  ;; The subject accepts either spelling, because the two backends log
+  ;; differently and a gate that knew only one would call a real GHC run a
+  ;; fail-open path.
+  (def-shell ghc-ran? [lg: string] -> bool
+    (or (string-contains lg "stack build OK") (string-contains lg "ghc OK")))
+
   (def-shell bs-init [] -> ((Bs, Ctl), Command)
     (go (bs-mk json-object) Boot wasi.proc.args))
 
@@ -286,8 +347,7 @@
                     (go b Anchor2a
                         (wasi.proc.run "stack" ["path" "--local-install-root"] "."
                                        "bs_sir.txt" "bs_sir.txt" 120 "/dev/null"))
-                    (go b Ending
-                        (wasi.io.stdout (pass-line "compiler present"))))))
+                    (start-build b))))
           ;; stage 2a, first source: an install root for the working directory.
           ;; BRANCH ON THE STATUS BEFORE READING THE ARTIFACT. This is the
           ;; header's ordering rule, and it is the defect the RFC's own first
@@ -337,15 +397,52 @@
                     (wasi.proc.run "stack" ["path" "--local-install-root"]
                                    (string-concat (get-s b "root") "/compiler")
                                    "bs_sir2.txt" "bs_sir2.txt" 120 "/dev/null"))
-                (go b Ending
-                    (wasi.io.stdout (pass-line
-                      (string-concat "compiler anchored at " (get-s b "subject")))))))
+                (start-build b)))
           ((Anchor2aX2)
             (if (or (absent? r) (denied? r))
                 (go b Ending (wasi.io.stdout (anchor-fail)))
+                (start-build b)))
+          ;; stage 3. THE STATUS IS CONSULTED HERE AND NOWHERE LATER. This is
+          ;; the branch the RFC's first probe did not write, and without it the
+          ;; stale src/Lib.hs from a previous run satisfies stage 4.
+          ((Build3)
+            (if (ok? r)
+                (go b Lib4 (wasi.fs.read (lib-of (get-s b "work"))))
                 (go b Ending
-                    (wasi.io.stdout (pass-line
-                      (string-concat "compiler anchored at " (get-s b "subject")))))))
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the fixture does not build (status "
+                         (bs-text r)
+                         "). This is the defect class the gate exists for: it passes 'llmll check' and fails at GHC. Log: "
+                         (log-of (get-s b "work"))]))))))
+          ;; stage 4, first half: the emitted preamble must DEFINE every name
+          ;; the fixture can call. A read error is the subject's "no src/Lib.hs
+          ;; emitted" branch.
+          ((Lib4)
+            (let [(lib (bs-text r))]
+              (if (string-empty? lib)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat "no src/Lib.hs emitted at " (lib-of (get-s b "work"))))))
+                  (let [(miss (missing-in lib))]
+                    (if (= (list-length miss) 0)
+                        (go b Log4 (wasi.fs.read (log-of (get-s b "work"))))
+                        (go b Ending
+                            (wasi.io.stdout (fail-line
+                              (string-concat-many
+                                ["src/Lib.hs is missing a definition for: "
+                                 (string-concat-many (list-map miss (fn [n: string] (string-concat n " "))))
+                                 ". The build reported success, which means it did not reach GHC (runGhcCheck's fail-open path) or the preamble drifted from builtinEnv."])))))))))
+          ;; stage 4, second half: a success with no GHC invocation in the log
+          ;; is the fail-open path, and the subject refuses to report green on
+          ;; it. Two spellings are accepted because the two backends differ.
+          ((Log4)
+            (if (ghc-ran? (bs-text r))
+                (go b Ending
+                    (wasi.io.stdout (pass-line "fixture compiled through GHC; 0 missing preamble definitions")))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "build reported success but the log shows no GHC invocation. Fail-open path taken; the gate refuses to report green on an uncompiled fixture.")))))
           ((Ending) (go b Done   (wasi.io.stdout "")))
           ((Done)   (go b Done   (wasi.io.stdout "")))))))
 
@@ -355,7 +452,7 @@
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
                                  ((Tool1Ghc) false) ((Comp2) false)
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
-                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Ending) false)))))
+                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Ending) false)))))
 
   (def-main
     :mode    console

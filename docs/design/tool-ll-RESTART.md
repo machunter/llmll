@@ -111,8 +111,14 @@ closed-rows section.
 
 **The port module exists.** It is
 [`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll).
-It holds the spine and **stages 1, 2 and 2a of fourteen**. It builds and it
-runs. **Eleven stages remain.**
+It holds the spine and **stages 1, 2, 2a, 3 and 4 of fourteen**. It builds and
+it runs. **Nine stages remain.**
+
+**Seven controls run against it and four are negative.** The most important one
+uses a fixture that does not compile, with a complete generated `Lib.hs` left
+in the work directory by an earlier good run. That is the scenario that defeated the
+RFC's own first probe. The port reports the status. It does not read the stale
+file.
 
 **The argument contract is settled. Use it.** The port takes `--subject` for the
 compiler, `--root` for the repository and `--work` for a scratch directory.
@@ -170,8 +176,16 @@ one port measures that port. It does not measure the language.
    checks. The first version reported FAIL against a tree whose compiler was
    built and present.
 
-**Stage 3 is next.** It calls `llmll build` on `smoke.llmll` and keeps the exit
-status. Section 4 of the RFC gives the shape from its own probe of stage 4b.
+**A THIRD porting defect, and the compiler found it.** `llmll check` gave OK
+with two warnings: `call to unknown function 'list-empty?'` and
+`call to unknown function 'string-join'`. Neither name exists. **The old gotcha
+said `check` passes an unknown callee at exit 0, and it still does**, but it now
+prints a warning that names each one. Read the warnings. Use `list-length` and
+`string-concat-many` instead.
+
+**Stage 4b is next.** It builds the `regex_lower` fixture and asserts that the
+generated `Lib.hs` binds a `regex_match` prefix. The RFC probed this stage, so
+section 4 gives its shape and its two cells.
 
 **THE RFC IS WRITTEN and it is Rev 4.** Read
 [`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write
