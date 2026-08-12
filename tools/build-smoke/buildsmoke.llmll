@@ -4,28 +4,42 @@
 ;; scripts/build_smoke.sh, which is the harness that builds and runs the other
 ;; five ports. So this program is an LLMLL program that tests LLMLL programs.
 ;;
-;; STATE OF THIS FILE: the spine and stages 1, 2, 2a, 3 and 4. Nine stages
+;; STATE OF THIS FILE: the spine and stages 1, 2, 2a, 3, 4 and 4b. Eight stages
 ;; remain, and TOOL-RFC-006 section 2 tables them with a code-line count each.
 ;; The RFC is the specification; this header does not restate it.
 ;;
-;; SEVEN CONTROLS RUN AGAINST WHAT IS HERE, four of them negative:
+;; NINE CONTROLS RUN AGAINST WHAT IS HERE, six of them negative:
 ;;
 ;;   --subject <abs path>              PASS compiler present
 ;;   --subject stack --root <repo>     PASS compiler anchored at <resolved>
-;;   full run against the real fixture PASS fixture compiled through GHC
+;;   full run, real fixtures           PASS both stage 4 and stage 4b lines
 ;;   --subject /nonexistent/llmll      FAIL no llmll binary answered
 ;;   --subject stack --root /nonexist  FAIL no llmll under stack path
 ;;   PATH=/usr/bin:/bin                FAIL neither stack nor ghc
 ;;   broken fixture, STALE good Lib.hs FAIL the fixture does not build
+;;   regex fixture that does not build FAIL the REGEX-LOWER-1 fixture ...
+;;   regex fixture with NO call        FAIL no prefix application of regex_match
 ;;
-;; Each negative uses a real environment or a real broken input rather than a
-;; changed source, so each grades these stages as they ship.
+;; Each negative uses a real environment or a real input rather than a changed
+;; source, so each grades these stages as they ship.
 ;;
-;; THE LAST CONTROL IS THE ONE THAT MATTERS. It reproduces the exact scenario
-;; that defeated the RFC's first probe: a fixture that fails to compile, with a
-;; complete 850-line src/Lib.hs left in the work directory by an earlier
-;; successful run. A stage that reads the artifact without consulting the status
-;; reports PASS here. This one reports the status.
+;; TWO OF THESE ARE THE ONES THAT MATTER.
+;;
+;;   The stale-artifact control reproduces the exact scenario that defeated the
+;;   RFC's first probe: a fixture that fails to compile, with a complete
+;;   850-line generated Lib.hs left in the work directory by an earlier good
+;;   run. A stage that reads the artifact without consulting the status reports
+;;   PASS there. This one reports the status.
+;;
+;;   The no-call control fires 4b's SECOND assertion, which is the one the
+;;   subject says does not decay. That fixture COMPILES, and the preamble does
+;;   define regex_match, and nothing calls it. That is the "the builtin is dead
+;;   again" state, and only an assertion on the CALL SITE sees it.
+;;
+;; ONE ASSERTION IS NOT SHOWN TO FIRE, and saying so is the point of counting.
+;; 4b's third assertion is that the hyphenated `regex-match` appears ZERO times
+;; in the emitted Haskell. Producing that state needs a compiler-side
+;; regression, not a changed input, so no control here reaches it.
 ;;
 ;; WHY THE STATE IS A RECORD AND A CONTROL TAG, and not an int. `:mode console`
 ;; hands each step one Response and takes one Command back, so anything a later
@@ -47,6 +61,14 @@
 ;; WRITE THE NEGATIVE CONTROL FIRST. A stage that has never been seen to fail is
 ;; not known to decide anything. This is finding 14 in tool-ll-RESTART.md, and
 ;; the 004 and 003 covers each found defects that a passing live run could not.
+;;
+;; `seq-commands` DELIVERS THE LAST COMMAND'S RESPONSE to the next step, and
+;; that was measured here rather than read. LLMLL.md section 9.3 says it runs
+;; its two arguments left then right; it does not say which Response arrives
+;; next. Stage 4 prints its PASS line and starts 4b's build in one step, and
+;; 4b then branches on the build's exit status. If the print's Response arrived
+;; instead, 4b would report a build failure against a fixture that built. It
+;; reports PASS, so the Response is the right-hand command's.
 
 (module buildsmoke
   (import wasi.io   (capability stdout :deterministic false))
@@ -141,6 +163,8 @@
     (| Build3)     ;; stage 3, `llmll build` on the fixture; status arrives
     (| Lib4)       ;; stage 4, read the emitted src/Lib.hs
     (| Log4)       ;; stage 4, read the build log for a GHC invocation
+    (| Build4b)    ;; stage 4b, build the REGEX-LOWER-1 fixture; status arrives
+    (| Lib4b)      ;; stage 4b, read its emitted Lib.hs and assert on the text
     (| Ending)
     (| Done))
 
@@ -304,6 +328,42 @@
   (def-shell ghc-ran? [lg: string] -> bool
     (or (string-contains lg "stack build OK") (string-contains lg "ghc OK")))
 
+  ;; -------------------------------------------- stage 4b, REGEX-LOWER-1 --
+  ;; scripts/build_smoke.sh:222. THIS STAGE IS THE ONLY GATE THAT CAN SEE ITS
+  ;; DEFECT CLASS. `regex-match` passed `llmll check` at exit 0 with no warning
+  ;; and `llmll verify` as SAFE, then failed at GHC: `isOperator` in Parser.hs
+  ;; named it, and `emitOp`'s fallback put the operator name BETWEEN its
+  ;; arguments. A check-time fixture is green on both sides of that fix, so
+  ;; only a build sees it.
+  ;;
+  ;; Two assertions, and the second does not decay. Building is necessary, but
+  ;; a later refactor could make the module build while emitting something other
+  ;; than the preamble binding, so the call site is asserted directly.
+  (def-shell rx-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/regex_lower.llmll"))
+
+  (def-shell rx-out-of [work: string] -> string (string-concat work "/regex-lower"))
+  (def-shell rx-log-of [work: string] -> string (string-concat work "/.regex-lower.log"))
+  (def-shell rx-lib-of [work: string] -> string
+    (string-concat (rx-out-of work) "/src/Lib.hs"))
+
+  ;; The PREFIX APPLICATION and not merely the preamble definition. If nothing
+  ;; calls it the builtin is dead again, which is the state this gate exists to
+  ;; detect.
+  (def-shell rx-applied? [lib: string] -> bool
+    (string-contains lib "regex_match ("))
+
+  ;; ZERO occurrences of the hyphenated spelling, and the subject's comment
+  ;; records why the count is zero rather than a pattern. An earlier assertion
+  ;; matched `[a-z_]+ regex-match `, modelled on the `(p regex-match s)` form.
+  ;; It was WRONG BY CONSTRUCTION: this fixture's first def passes a string
+  ;; LITERAL, so the emission is `("^[a-f0-9]{64}$" regex-match s)` and the
+  ;; character before the operator is a quote rather than an identifier. The
+  ;; pattern missed the very call it was written for. Measured on both sides
+  ;; instead: a correct build contains none at all.
+  (def-shell rx-hyphen? [lib: string] -> bool
+    (string-contains lib "regex-match"))
+
   (def-shell bs-init [] -> ((Bs, Ctl), Command)
     (go (bs-mk json-object) Boot wasi.proc.args))
 
@@ -438,11 +498,52 @@
           ;; it. Two spellings are accepted because the two backends differ.
           ((Log4)
             (if (ghc-ran? (bs-text r))
-                (go b Ending
-                    (wasi.io.stdout (pass-line "fixture compiled through GHC; 0 missing preamble definitions")))
+                ;; Stage 4 passed. The subject prints its PASS line here and
+                ;; continues to 4b, so the port does the same: a stage that
+                ;; swallowed its own verdict would make the log unreadable
+                ;; against the reference's.
+                (go b Build4b
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "fixture compiled through GHC; 0 missing preamble definitions"))
+                      (wasi.proc.run (get-s b "subject")
+                                     ["build" (rx-fixture-of (get-s b "root"))
+                                      "-o" (rx-out-of (get-s b "work"))]
+                                     (get-s b "root")
+                                     (rx-log-of (get-s b "work"))
+                                     (rx-log-of (get-s b "work"))
+                                     900 "/dev/null")))
                 (go b Ending
                     (wasi.io.stdout (fail-line
                       "build reported success but the log shows no GHC invocation. Fail-open path taken; the gate refuses to report green on an uncompiled fixture.")))))
+          ;; stage 4b. The status first, as everywhere. A missing fixture is
+          ;; also a build failure here: the subject tests `-f` on the path, and
+          ;; no builtin answers that (FS-EXISTS-1), so attempting the build
+          ;; answers the same question. D3 established the substitution.
+          ((Build4b)
+            (if (ok? r)
+                (go b Lib4b (wasi.fs.read (rx-lib-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the REGEX-LOWER-1 fixture does not build (status "
+                         (bs-text r)
+                         "). If GHC reports 'Variable not in scope: regex', then isOperator (Parser.hs) is naming 'regex-match' again and emitOp's fallback is emitting it infix. That call must parse as an EApp so emitApp's default applies toHsIdent and binds the preamble's regex_match."]))))))
+          ((Lib4b)
+            (let [(lib (bs-text r))]
+              (if (string-empty? lib)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat "REGEX-LOWER-1: no src/Lib.hs emitted at " (rx-lib-of (get-s b "work"))))))
+                  (if (not (rx-applied? lib))
+                      (go b Ending
+                          (wasi.io.stdout (fail-line
+                            "REGEX-LOWER-1: src/Lib.hs has no prefix application of regex_match. The preamble defines it; if nothing calls it the builtin is dead again, which is the state this gate exists to detect.")))
+                      (if (rx-hyphen? lib)
+                          (go b Ending
+                              (wasi.io.stdout (fail-line
+                                "REGEX-LOWER-1: src/Lib.hs contains the hyphenated 'regex-match'. GHC lexes that hyphen as subtraction. isOperator must not name anything emitOp cannot lower; the call must reach emitApp and be mangled by toHsIdent.")))
+                          (go b Ending
+                              (wasi.io.stdout (pass-line "REGEX-LOWER-1 fixture compiled and binds regex_match prefix"))))))))
           ((Ending) (go b Done   (wasi.io.stdout "")))
           ((Done)   (go b Done   (wasi.io.stdout "")))))))
 
@@ -452,7 +553,7 @@
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
                                  ((Tool1Ghc) false) ((Comp2) false)
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
-                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Ending) false)))))
+                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Ending) false)))))
 
   (def-main
     :mode    console

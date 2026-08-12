@@ -111,14 +111,29 @@ closed-rows section.
 
 **The port module exists.** It is
 [`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll).
-It holds the spine and **stages 1, 2, 2a, 3 and 4 of fourteen**. It builds and
-it runs. **Nine stages remain.**
+It holds the spine and **stages 1, 2, 2a, 3, 4 and 4b of fourteen**. It builds
+and it runs. **Eight stages remain.**
 
-**Seven controls run against it and four are negative.** The most important one
-uses a fixture that does not compile, with a complete generated `Lib.hs` left
-in the work directory by an earlier good run. That is the scenario that defeated the
-RFC's own first probe. The port reports the status. It does not read the stale
-file.
+**Nine controls run against it and six are negative.** Two of the six matter
+more than the others.
+
+- A fixture that does not compile, with a complete generated `Lib.hs` left in
+  the work directory by an earlier good run. That is the scenario that defeated
+  the RFC's own first probe. The port reports the status. It does not read the
+  stale file.
+- A `regex_lower` fixture that COMPILES and calls nothing. This fires stage
+  4b's second assertion, which the subject says does not decay. The preamble
+  defines `regex_match` and no code calls it. Only an assertion on the CALL
+  SITE sees that state.
+
+**One assertion is NOT shown to fire, and this record says so.** Stage 4b also
+asserts that the hyphenated spelling appears zero times in the emitted Haskell.
+That state needs a compiler regression and not a changed input. No control
+reaches it.
+
+**`seq-commands` gives the LAST command's Response to the next step.**
+`LLMLL.md` section 9.3 gives the order of execution. It does not give this.
+Stage 4 prints and starts 4b's build in one step, so stage 4b showed it.
 
 **The argument contract is settled. Use it.** The port takes `--subject` for the
 compiler, `--root` for the repository and `--work` for a scratch directory.
@@ -183,9 +198,12 @@ said `check` passes an unknown callee at exit 0, and it still does**, but it now
 prints a warning that names each one. Read the warnings. Use `list-length` and
 `string-concat-many` instead.
 
-**Stage 4b is next.** It builds the `regex_lower` fixture and asserts that the
-generated `Lib.hs` binds a `regex_match` prefix. The RFC probed this stage, so
-section 4 gives its shape and its two cells.
+**Stage 5 is next**, CAP-PROC, at 38 subject code lines. It is the first stage
+that BUILDS a fixture and then RUNS the binary, and it matches the output
+against known answers. Stages 1 to 4b only build. Expect the run to need the
+`exe_path` mechanism: ask `stack path` for the install root of the fixture's
+own output directory, then execute the binary under its `bin/`. Stage 2a
+already does this for the compiler, so copy that five-phase shape.
 
 **THE RFC IS WRITTEN and it is Rev 4.** Read
 [`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write
