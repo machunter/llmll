@@ -4,6 +4,61 @@
 
 <a id="Latest"></a>
 
+## v0.14.98: a builtin stops sharing the caller's stdin, and the last search idiom leaves the tree (2026-08-12)
+
+**`wasi.proc.run` gains a seventh parameter and loses a defect.** Two roadmap rows close together, because a named stdin path removes the sharing as a side effect of giving the caller a choice. Found by TOOL-RFC-006's feasibility probe, which was measuring whether port 006 was possible at all.
+
+### Fixed: `PROC-STDIN-SHARE-1`, a child that reads the parent's stdin
+
+[`CodegenHs.hs`](compiler/src/LLMLL/CodegenHs.hs) set `std_out` and `std_err` and left `std_in` unset, so `createProcess` **inherited** and parent and child read one descriptor. A `:mode console` parent takes one line of stdin per step, so a child that reads stdin takes bytes the parent needed.
+
+**Measured on aarch64-osx, and the numbers are the finding.** At 7,893 bytes of parent stdin the child read nothing. At 9,693 bytes it read `NE1034`, which is the **tail** of the parent's `LINE1034` cut where the 8 KiB handle buffer ended. Three runs at 138,893 bytes took three different victims, and in one the parent **skipped a step input**. The threshold is the buffer, the value is torn, and the outcome is a race.
+
+**No shipped program tripped it**, because `git ls-files` and `llmll version` do not read stdin. The defect was latent across all five ported gates and no cover could have found it. A passing gate was not evidence here.
+
+**`NoStream` is the wrong repair and the `process` documentation says so**: it closes the descriptor, and it "should only be used with child processes that don't use the file descriptor at all". A closed descriptor 0 is re-allocated by the child's first `open`, and a read of it raises `EBADF` rather than reporting end of input. The runtime now passes a handle, which is the alternative that documentation names.
+
+### Added: `PROC-STDIN-1`, the stdin path
+
+```lisp
+(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs stdin-path)
+```
+
+`"/dev/null"` means no input, which is the spelling [`refutecrux.llmll`](tools/refute-crux/refutecrux.llmll) already used for the two output paths.
+
+**The seventh parameter sits after the `int`, and the placement is a decision.** `LLMLL.md` §13 records that the trailing `string` parameters type-check in any permutation. `stdin-path` and `stdout-path` differ by one character and name opposite directions, so their transposition is the most probable error a writer makes here. The `int` at position 6 makes exactly that transposition a type error. Grouping the four paths together would have made it type-check.
+
+**The open order is now normative**: stdout, then stderr, then stdin. It is observable whenever two paths name one real file, because `WriteMode` truncates, so a caller naming one file for both output and input reads an **empty** file. That matches the shell, where `cat < f > f` takes a 12-byte file to 0 bytes.
+
+**No equality rule constrains the stdin path, and an earlier revision of the design had one.** `in == out` was to answer `RErr`. The natural migration of `refutecrux.llmll` produces `in == out == err`, because that call already passes `"/dev/null"` for both output paths, so the rule would have turned a shipped port into a runtime error. It also fires at run time, so it shortens no repair distance for an agent.
+
+**17 call sites in 9 files migrate in the same commit**, because an un-migrated site is an arity error and the tree does not build. That is the correct failure mode: the type checker finds every one.
+
+[`proc_stdin.llmll`](scripts/build-smoke/proc_stdin.llmll) and its `BUILD-GATE-1` stage carry the regression in two halves that fail in opposite directions. `FED` asserts a child reads the file the program named. `EMPTY` asserts a `/dev/null` child reads nothing while the parent holds 12,000 lines. A build that closes descriptor 0 rather than binding it passes `EMPTY` and fails `FED`. **The stdin volume is the test**: below 8,192 bytes the defect is invisible and the stage grades nothing.
+
+### Fixed: the last four `find | head -1` sites
+
+[`version-gate.yml`](.github/workflows/version-gate.yml) located four port binaries by searching `.stack-work/install`. That has no defined answer when a tree holds more than one install root, because `find` emits in readdir order. It never failed, because `RUNNER_TEMP` is fresh and holds one candidate, so all four were correct by a property of the runner rather than of the code. Each step already asked `stack` for the compiler one line above.
+
+**The guard had to change with the idiom.** The old check was `[ -n "$GATE" ]`, because `find` answers empty when it finds nothing. A stack-derived path is always non-empty, so keeping `-n` would have left a guard that passes unconditionally. The test is now `-x`, and the install root is captured separately so "stack could not read the project" and "stack read it and the binary is absent" stay distinguishable.
+
+This completes what v0.14.97 began at twelve sites in [`build_smoke.sh`](scripts/build_smoke.sh). **The idiom is now absent from the repository.**
+
+### Written: TOOL-RFC-006, the last port's RFC
+
+[`tool-rfc-006-build-smoke.md`](docs/design/tool-rfc-006-build-smoke.md) is written before any port code, and `tool_state` is `blocked` because the port module does not exist yet.
+
+**The size projection it inherited was wrong by 1.8 times.** 4.8x is the first port's expansion ratio, not the campaign's: the five shipped ports expand by 4.79, 3.24, 3.13, 2.75 and 2.23. One complete stage of `build_smoke.sh` was written in LLMLL, built and run, and came in at 2.6x, so the port projects to about 1,400 code lines rather than 2,500.
+
+**A negative control caught the RFC's own stage reporting PASS against a build that exited 1**, by reading a stale `Lib.hs`. Three gaps were filed: `PROC-STDIN-1`, `PROC-STDIN-SHARE-1` and `PROC-ENV-1`. The first two are closed by this release, which makes it the campaign's first gap closed by the compiler rather than worked around by a port.
+
+### Also in this release
+
+- **`build_smoke.sh` asks stack where it put the binary** at twelve sites, rather than searching for it. Measured on this repository's compiler tree, which holds two install roots: readdir order yields the 2026-08-10 build and sorted order yields the 2026-06-19 one, so an arbitrary pick is unspecified and a sorted pick is deterministically two months stale.
+- **The TOOL-005 reference ships untested.** `test_doc_path_lint.py` is deleted by user decision, and `TOOL-RFC-005` §8 states what that costs: nothing now blocks a broken prose citation from reaching `main`, because both remaining checks are advisory and exit 0 with findings.
+
+**Tests:** 1688 Haskell examples, 179 Python (6 skipped). Up from 1683 Haskell at v0.14.97.
+
 ## v0.14.97: the fifth gate ports, and the row blocking the sixth closes on a measurement nobody had run (2026-08-10)
 
 **No compiler change.** Nothing under `compiler/` moves, so the test counts are unchanged and are not restated. This release is three things: the fifth of six CI gates rewritten in LLMLL and now running as an oracle beside its reference, the close of the row that was holding the sixth, and five language gaps that finally have roadmap rows.
