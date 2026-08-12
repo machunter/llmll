@@ -731,17 +731,54 @@ runtimePreamble =
   -- because stdout is block-buffered when its fd is a file and stderr is not.
   -- A caller depending on the interleaving is depending on the child's
   -- buffering, which it does not control.
-  , "wasi_proc_run :: String -> [String] -> String -> String -> String -> Integer -> IO ()"
-  , "wasi_proc_run exe args cwd outPath errPath secs = llmll_publish_io $ do"
+  --
+  -- PROC-STDIN-SHARE-1. std_in is BOUND, and leaving it unset was a defect.
+  -- createProcess inherits an unset stream, so parent and child read ONE
+  -- descriptor. A :mode console parent reads a line of stdin per step, so a
+  -- child that reads stdin takes bytes the parent needed. Measured on
+  -- aarch64-osx: at 7893 bytes of parent stdin the child reads nothing; at 9693
+  -- it reads "NE1034", the TAIL of the parent's "LINE1034" cut where the 8 KiB
+  -- handle buffer ended. Three runs at 138893 bytes took three different
+  -- victims and one made the parent SKIP a step input. The five shipped ports
+  -- do not trip it only because git and llmll do not read stdin.
+  --
+  -- NoStream is the WRONG constructor here and the process documentation says
+  -- so: it "Close[s] the stream's file descriptor without passing a Handle" and
+  -- "should only be used with child processes that don't use the file
+  -- descriptor at all". A closed descriptor 0 is re-allocated by the child's
+  -- first open, and a read of it raises EBADF rather than reporting EOF. The
+  -- documentation names the alternative used here: pass a Handle.
+  --
+  -- inH opens LAST. Two independent constraints select that order. The existing
+  -- two-handle exception path stays intact, and the open order is observable
+  -- when two paths name one real file, so it is normative rather than
+  -- incidental (stdout, then stderr, then stdin).
+  --
+  -- PROC-STDIN-1. NO equality rule applies to inPath, and an earlier revision
+  -- of this design had one. `in == out` was to answer RErr. Two things killed
+  -- it. The natural migration of refutecrux.llmll:511, which already passes
+  -- "/dev/null" for BOTH output paths, produces in == out == err and would have
+  -- turned a shipped port into a runtime error. And the rule fires at run time,
+  -- so it shortens no repair distance for an agent, which is the criterion at
+  -- docs/compiler-team-roadmap.md:5.
+  --
+  -- What `in == out` on one REAL file does instead is defined, and it matches
+  -- the shell: outH opens first in WriteMode and truncates, so the child reads
+  -- an EMPTY file. Measured: `cat < f > f` takes a 12-byte file to 0 bytes.
+  , "wasi_proc_run :: String -> [String] -> String -> String -> String -> Integer -> String -> IO ()"
+  , "wasi_proc_run exe args cwd outPath errPath secs inPath = llmll_publish_io $ do"
   , "  outH <- openFile outPath WriteMode"
   , "  errH <- if errPath == outPath then return outH else"
   , "            openFile errPath WriteMode `onException` hClose outH"
-  , "  let closeBoth = hClose outH >> hClose errH"
+  , "  inH  <- openFile inPath ReadMode"
+  , "            `onException` (hClose outH >> hClose errH)"
+  , "  let closeAll = hClose outH >> hClose errH >> hClose inH"
   , "  (_, _, _, ph) <- P.createProcess (P.proc exe args)"
   , "                     { P.cwd     = Just cwd"
+  , "                     , P.std_in  = P.UseHandle inH"
   , "                     , P.std_out = P.UseHandle outH"
   , "                     , P.std_err = P.UseHandle errH"
-  , "                     } `onException` closeBoth"
+  , "                     } `onException` closeAll"
   , "  finished <- timeout (fromIntegral (secs * 1000000)) (P.waitForProcess ph)"
   , "  case finished of"
   , "    Nothing -> do"

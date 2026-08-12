@@ -14659,9 +14659,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "CAP-PROC: Phase 2 operation signatures" $ do
 
-    it "CP-1: wasi.proc.run is exec/argv with cwd, two redirect paths, timeout" $
+    -- PROC-STDIN-1 added the seventh parameter, the stdin path, AFTER the Int.
+    -- The Int separates it from the other three paths, so transposing it with
+    -- stdout-path is a type error rather than a silent swap.
+    it "CP-1: wasi.proc.run is exec/argv with cwd, two redirect paths, timeout, stdin path" $
       Map.lookup "wasi.proc.run" builtinEnv `shouldBe`
-        Just (TFn [TString, TList TString, TString, TString, TString, TInt]
+        Just (TFn [TString, TList TString, TString, TString, TString, TInt, TString]
                   (TCustom "Command"))
 
     -- Nullary, so it binds as a VALUE. A TFn [] would make `(wasi.clock.monotonic)`
@@ -14778,10 +14781,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- corrupted an unrelated later operation. hClose is idempotent, so closing
     -- on the error path cannot double-close what createProcess takes on the
     -- success path.
-    it "CP-17: wasi_proc_run closes both redirect handles when the spawn fails" $ do
+    -- PROC-STDIN-SHARE-1 widened this from two handles to three. The binding
+    -- is renamed closeBoth -> closeAll because it now closes the input handle
+    -- too, and CP-20 below asserts that third member explicitly. The regression
+    -- property is unchanged and the assertion is strictly stronger.
+    it "CP-17: wasi_proc_run closes every redirect handle when the spawn fails" $ do
       let p = T.unlines runtimePreamble
       (T.isInfixOf "`onException` hClose outH" p) `shouldBe` True
-      (T.isInfixOf "`onException` closeBoth" p)   `shouldBe` True
+      (T.isInfixOf "`onException` closeAll" p)    `shouldBe` True
+
+    -- PROC-STDIN-SHARE-1. std_in unset means createProcess INHERITS, so parent
+    -- and child read one descriptor. Measured: above the 8 KiB buffer the child
+    -- reads a torn fragment of the parent's own step input.
+    it "CP-19: wasi_proc_run binds std_in and never inherits it" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "P.std_in  = P.UseHandle inH" p) `shouldBe` True
+      (T.isInfixOf "P.Inherit" p)                   `shouldBe` False
+
+    it "CP-20: the input handle is closed on the failed-spawn path" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "let closeAll = hClose outH >> hClose errH >> hClose inH" p)
+        `shouldBe` True
+
+    -- NoStream CLOSES the descriptor; the process documentation restricts it to
+    -- children that never touch the fd, which is the opposite of this use. A
+    -- closed fd 0 is re-allocated by the child's first open and a read of it
+    -- raises EBADF instead of reporting EOF.
+    it "CP-21: the stdin path opens for READING, and NoStream is not used" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "openFile inPath ReadMode" p) `shouldBe` True
+      (T.isInfixOf "NoStream" p)                 `shouldBe` False
+
+    -- PROC-STDIN-1. An earlier revision made `in == out` answer RErr. The
+    -- natural migration of refutecrux.llmll:511 produces in == out == err,
+    -- because that call already passes "/dev/null" for both output paths, so
+    -- the rule would have turned a shipped port into a runtime error. This
+    -- asserts the rule is absent, in both directions it could be written.
+    it "CP-24: no equality rule constrains the stdin path" $ do
+      let p = T.unlines runtimePreamble
+      (T.isInfixOf "inPath == outPath" p) `shouldBe` False
+      (T.isInfixOf "inPath == errPath" p) `shouldBe` False
+      -- the ONE equality test that must survive is the out/err merge
+      (T.isInfixOf "if errPath == outPath then return outH else" p) `shouldBe` True
+
+    -- The order is NORMATIVE, not incidental: it is observable whenever two
+    -- paths name one real file, because WriteMode truncates. Measured in a
+    -- shell, `cat < f > f` takes a 12-byte file to 0 bytes.
+    it "CP-23: the three handles open in the order stdout, stderr, stdin" $ do
+      let p = T.unlines runtimePreamble
+          ixOut = T.breakOn "outH <- openFile outPath" p
+          ixErr = T.breakOn "errH <- if errPath" p
+          ixIn  = T.breakOn "inH  <- openFile" p
+      (T.length (fst ixOut) < T.length (fst ixErr)) `shouldBe` True
+      (T.length (fst ixErr) < T.length (fst ixIn))  `shouldBe` True
 
     -- PROC-MERGE-1. Equal path strings mean one handle on both streams. The
     -- structural assertion is that the second openFile sits behind a guard: a

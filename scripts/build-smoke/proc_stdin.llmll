@@ -1,0 +1,78 @@
+;; BUILD-GATE-1 execution fixture. PROC-STDIN-1 and PROC-STDIN-SHARE-1.
+;;
+;; WHAT IT PINS, in two halves that fail in opposite directions.
+;;
+;;   HALF ONE, the FEATURE (PROC-STDIN-1). A child reads the file this program
+;;   names as its stdin path. Before the seventh parameter existed, no program
+;;   could give a child any input at all.
+;;
+;;   HALF TWO, the DEFECT (PROC-STDIN-SHARE-1). A child given "/dev/null" reads
+;;   NOTHING, whatever the parent holds on its own stdin. Before std_in was
+;;   bound, createProcess inherited, so parent and child read ONE descriptor.
+;;
+;; WHY THE HARNESS MUST FEED THIS BINARY MORE THAN 8192 BYTES. The defect is
+;; invisible below the handle buffer. Measured on aarch64-osx before the fix:
+;; at 7893 bytes of parent stdin the child read nothing and the gate would have
+;; passed; at 9693 bytes the child read "NE1034", the TAIL of the parent's
+;; "LINE1034" cut where the buffer ended. Three runs at 138893 bytes took three
+;; different victims, and one made the parent SKIP a step input. A stage that
+;; feeds a few lines grades nothing and reports a pass.
+;;
+;; WHY BOTH HALVES ARE HERE. Half two alone is satisfied by a build that closes
+;; stdin entirely, which is the NoStream shape the process documentation warns
+;; against: a closed descriptor 0 is re-allocated by the child's first open, and
+;; a read of it raises an error rather than reporting end of input. Half one
+;; fails against that shape, because a closed descriptor delivers no file
+;; either. The two together admit only a bound handle.
+
+(module proc-stdin
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.proc (capability exec :deterministic false))
+  (import wasi.fs   (capability read-write "." :deterministic false))
+
+  ;; One child, reading ONE line from stdin and reporting what it got.
+  (def-shell ps-argv [] -> list[string]
+    ["-c" "read L; echo CHILD-SAW=[$L]"])
+
+  (def-shell ps-text [r: Response] -> string
+    (match r
+      ((RText t)  t)
+      ((RErr e)   e)
+      ((RNone)    "")
+      ((RCode n)  "")
+      ((RList xs) "")))
+
+  ;; The report is a one-line summary so the harness compares text, not layout.
+  (def-shell ps-report [tag: string t: string] -> string
+    (string-concat-many
+      [tag
+       "|FED="  (if (string-contains t "CHILD-SAW=[FEEDME]") "y" "n")
+       "|EMPTY=" (if (string-contains t "CHILD-SAW=[]")      "y" "n")]))
+
+  (def-shell ps-init [] -> (int, Command)
+    (pair 0 (wasi.fs.write "ps_feed.txt" "FEEDME\n")))
+
+  (def-shell ps-step [s: int input: string r: Response] -> (int, Command)
+    (pair (+ s 1)
+      ;; HALF ONE: the child's stdin is the file named above.
+      (if (= s 0) (wasi.proc.run "/bin/sh" (ps-argv) "."
+                                 "ps_fed.txt" "ps_fed.txt" 30 "ps_feed.txt")
+      (if (= s 1) (wasi.fs.read "ps_fed.txt")
+      (if (= s 2) (wasi.io.stdout (ps-report "FED" (ps-text r)))
+      ;; HALF TWO: the child's stdin is the null device. The parent's own stdin
+      ;; is large, and none of it may reach this child.
+      (if (= s 3) (wasi.proc.run "/bin/sh" (ps-argv) "."
+                                 "ps_null.txt" "ps_null.txt" 30 "/dev/null")
+      (if (= s 4) (wasi.fs.read "ps_null.txt")
+      (if (= s 5) (wasi.io.stdout (ps-report "NULL" (ps-text r)))
+                  (wasi.io.stdout "tick")))))))))
+
+  ;; RC-4: the step that trips :done? has its command discarded, so this sits
+  ;; one past the last emitting step rather than on it.
+  (def-shell ps-done? [s: int] -> bool (>= s 7))
+
+  (def-main
+    :mode    console
+    :init    (ps-init)
+    :step    ps-step
+    :done?   ps-done?))

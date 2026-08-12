@@ -504,7 +504,7 @@
   (def-shell md-path  [r: Rc] -> string (string-concat (work-of r) "/pathlint-md.txt"))
 
   (def-shell run-git [r: Rc args: list[string] out: string] -> Command
-    (wasi.proc.run "git" args "." out out 120))
+    (wasi.proc.run "git" args "." out out 120 "/dev/null"))
 
   ;; Start the file loop, or go straight to the report on an empty queue.
   (def-shell next-file [r: Rc] -> ((Rc, Ctl), Command)

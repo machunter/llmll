@@ -391,7 +391,7 @@
           (if (string-empty? named)
               (go r2 (Probe)
                   (wasi.proc.run (subject-of r2) ["version"] (work-of r2)
-                                 (cap-path r2) (cap-path r2) 60))
+                                 (cap-path r2) (cap-path r2) 60 "/dev/null"))
               (go r2 (Listing) (wasi.fs.list (fixture-dir r2))))))))
 
   (def-shell probe-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
@@ -433,7 +433,8 @@
                                (work-of r2)
                                (cap-path r2)
                                (cap-path r2)
-                               120)))))))
+                               120
+                               "/dev/null")))))))
 
   ;; The reference discards the child's exit status entirely: the verdict comes
   ;; from the OUTPUT. Reproduced, and worth stating because a port that graded

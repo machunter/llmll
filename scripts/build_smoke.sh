@@ -676,6 +676,61 @@ if [ -f "$PM_FIXTURE" ]; then
   echo "BUILD-GATE-1 PASS: equal proc.run paths merge both streams; unequal paths stay separate"
 fi
 
+# ---------------------------------------------------------------------------
+# PROC-STDIN-1 and PROC-STDIN-SHARE-1.
+#
+# THE STDIN VOLUME BELOW IS THE WHOLE TEST. Do not lower it. The sharing defect
+# is invisible under the 8 KiB handle buffer: measured on aarch64-osx before the
+# fix, a child read NOTHING at 7893 bytes of parent stdin and read "NE1034", the
+# torn tail of the parent's own "LINE1034", at 9693 bytes. Three runs at 138893
+# bytes took three different victims and one made the parent skip a step input.
+# A stage feeding eight lines, as the proc-merge stage above does, passes
+# against the defective build and grades nothing.
+#
+# Two halves, failing in opposite directions. FED asserts a child reads the file
+# the program named (the feature). EMPTY asserts a child given "/dev/null" reads
+# nothing while the parent holds 12000 lines (the defect). A build that closes
+# descriptor 0 rather than binding it passes EMPTY and fails FED.
+# ---------------------------------------------------------------------------
+PS_FIXTURE="$REPO_ROOT/scripts/build-smoke/proc_stdin.llmll"
+PS_OUTDIR="$OUTDIR/procstdin"
+
+if [ -f "$PS_FIXTURE" ]; then
+  echo "BUILD-GATE-1: building and RUNNING $(basename "$PS_FIXTURE")"
+  PS_LOG="$OUTDIR/.procstdin-build.log"
+  if ! "${LLMLL_CMD[@]}" build "$PS_FIXTURE" -o "$PS_OUTDIR" > "$PS_LOG" 2>&1; then
+    cat "$PS_LOG" >&2
+    fail "the proc-stdin fixture does not build."
+  fi
+  PS_EXE="$(exe_path "$PS_OUTDIR" 'proc-stdin')"
+  [ -n "$PS_EXE" ] || fail "built the proc-stdin fixture but found no proc-stdin binary."
+
+  PS_RUNDIR="$OUTDIR/.procstdin-run"
+  mkdir -p "$PS_RUNDIR"
+  PS_OUT_FILE="$OUTDIR/.procstdin.out"
+  ( cd "$PS_RUNDIR" && printf 'LINE%s\n' $(seq 12000) | "$PS_EXE" ) > "$PS_OUT_FILE" 2>&1 || true
+
+  PS_FAILED=0
+  if ! grep -Fqx 'FED|FED=y|EMPTY=n' "$PS_OUT_FILE"; then
+    printf 'BUILD-GATE-1 proc-stdin failure: the child did NOT read its stdin path\n' >&2
+    printf '  want: FED|FED=y|EMPTY=n   (PROC-STDIN-1)\n' >&2
+    PS_FAILED=1
+  fi
+  if ! grep -Fqx 'NULL|FED=n|EMPTY=y' "$PS_OUT_FILE"; then
+    printf 'BUILD-GATE-1 proc-stdin failure: a /dev/null child saw the PARENT stdin\n' >&2
+    printf '  want: NULL|FED=n|EMPTY=y   (PROC-STDIN-SHARE-1)\n' >&2
+    printf '  diagnosis : std_in is unset, so createProcess inherits and the child\n' >&2
+    printf '              steals bytes the parent needed. See CodegenHs wasi_proc_run.\n' >&2
+    PS_FAILED=1
+  fi
+  if [ "$PS_FAILED" -ne 0 ]; then
+    printf -- '--- program output ---\n' >&2
+    cat "$PS_OUT_FILE" >&2
+    fail "wasi.proc.run's stdin channel does not match PROC-STDIN-1."
+  fi
+  echo "BUILD-GATE-1 PASS: a child reads its named stdin path, and a /dev/null child is not fed the parent's 12000 lines"
+fi
+
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------
 #
 # Before this stage, `llmll replay` was executed by NO gate: not this script,

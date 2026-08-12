@@ -92,12 +92,13 @@
   (def-shell smoke-args [] -> Command
     wasi.proc.args)
 
-  ;; exec/argv: six positional parameters, and argv is list[string]. The gate
-  ;; covers the list-typed ARGUMENT here the way smoke-step covers the
-  ;; list-typed response payload.
+  ;; exec/argv: SEVEN positional parameters since PROC-STDIN-1, and argv is
+  ;; list[string]. The gate covers the list-typed ARGUMENT here the way
+  ;; smoke-step covers the list-typed response payload. The stdin path is
+  ;; "/dev/null", which is the spelling for "no input".
   (def-shell smoke-proc [exe: string args: list[string] cwd: string
                          out: string err: string secs: int]
-    (wasi.proc.run exe args cwd out err secs))
+    (wasi.proc.run exe args cwd out err secs "/dev/null"))
 
   ;; seq-commands is the Command monoid's <>; exercised so the gate covers
   ;; composition, not only the leaf constructors.

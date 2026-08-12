@@ -459,7 +459,8 @@
                                  (work-of r)
                                  (out-path r)
                                  (err-path r)
-                                 (- 0 1))))))))
+                                 (- 0 1)
+                                 "/dev/null")))))))
 
   ;; A fixture named by a case but absent from the suite. The reference tests
   ;; `[ ! -f "$SRC" ]` before copying; here the suite listing is already in
@@ -508,7 +509,7 @@
   ;; streams MERGE (PROC-MERGE-1), which costs nothing when the output is
   ;; discarded and would have been a truncation race before v0.14.91.
   (def-shell probe [exe: string] -> Command
-    (wasi.proc.run "which" [exe] "." "/dev/null" "/dev/null" 30))
+    (wasi.proc.run "which" [exe] "." "/dev/null" "/dev/null" 30 "/dev/null"))
 
   (def-shell no-solver [r: Rc missing: string] -> ((Rc, Ctl), Command)
     (go r (Ending 1)

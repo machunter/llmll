@@ -1253,7 +1253,8 @@
               dir
               (string-concat dir "/agent.stdout.log")
               (string-concat dir "/agent.stderr.log")
-              (ag-timeout (cfg-agent c))))))))
+              (ag-timeout (cfg-agent c))
+              "/dev/null"))))))
 
   (def-shell tmpl-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]

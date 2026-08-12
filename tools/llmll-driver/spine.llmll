@@ -611,7 +611,8 @@
                                "."
                                "/tmp/llmll-spine-out.txt"
                                "/tmp/llmll-spine-err.txt"
-                               120))
+                               120
+                               "/dev/null"))
     ;; s=1: the exit status arrives as RCode.
     (if (= s 1)
         (pair 2 (wasi.io.stdout
@@ -690,7 +691,8 @@
                                "."
                                "/tmp/llmll-spine-tr.json"
                                "/tmp/llmll-spine-tr-err.txt"
-                               300))
+                               300
+                               "/dev/null"))
     ;; s=9: read the trust report back.
     (if (= s 9)
         (pair 10 (wasi.fs.read "/tmp/llmll-spine-tr.json"))
@@ -737,7 +739,8 @@
                                 "."
                                 "/tmp/llmll-spine-cov.txt"
                                 "/tmp/llmll-spine-cov-err.txt"
-                                120))
+                                120
+                                "/dev/null"))
     ;; s=14: the exit status IS stage L's whole pin.
     (if (= s 14)
         (pair 15 (wasi.io.stdout (l-block r)))

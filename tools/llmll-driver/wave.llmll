@@ -434,7 +434,7 @@
 
   (def-shell llmll-run [c: Cfg a: Att args: list[string] out: string err: string] -> Command
     (wasi.proc.run (cfg-compiler c) args "." (in-dir c a out) (in-dir c a err)
-                   (cfg-timeout c)))
+                   (cfg-timeout c) "/dev/null"))
 
   ;; ---- reading what the compiler said --------------------------------------
 
@@ -559,7 +559,7 @@
                              ["verify" (cfg-tree c) "--strict-verified-core"] "."
                              (string-concat (cfg-workdir c) "/seal.out")
                              (string-concat (cfg-workdir c) "/seal.err")
-                             (cfg-timeout c))
+                             (cfg-timeout c) "/dev/null")
               (wasi.fs.read (string-concat (cfg-workdir c) "/seal.out")))))))
 
   ;; THE SEAL CANNOT RESCUE A RUN AND CAN ONLY CONDEMN ONE. A tally that
@@ -625,7 +625,7 @@
                                    (list-append (cfg-agent-args c) (in-dir c a "brief.json"))
                                    (in-dir c a "body.json"))
                                  "." (in-dir c a "agent.out") (in-dir c a "agent.err")
-                                 (cfg-timeout c))
+                                 (cfg-timeout c) "/dev/null")
                   (wasi.fs.read (in-dir c a "body.json")))))
           (go w (Ending 4)
               (wasi.io.stdout
@@ -789,7 +789,7 @@
                       (wasi.proc.run (cfg-compiler c) ["holes" (cfg-tree c) "--json"] "."
                                      (string-concat (cfg-workdir c) "/holes.json")
                                      (string-concat (cfg-workdir c) "/holes.err")
-                                     (cfg-timeout c))
+                                     (cfg-timeout c) "/dev/null")
                       (wasi.fs.read (string-concat (cfg-workdir c) "/holes.json")))))
               ;; Before any hole exists, so no tally attaches. The literal 2 is
               ;; sequencer.llmll's usage-stop code.

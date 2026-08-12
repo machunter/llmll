@@ -117,7 +117,8 @@
                                "/tmp/llmll-capproc-exec"
                                "/tmp/llmll-capproc-exec/out.txt"
                                "/tmp/llmll-capproc-exec/err.txt"
-                               30))
+                               30
+                               "/dev/null"))
     (if (= s 4)
         (pair 5 (wasi.io.stdout (string-concat "exit=" (resp-text r))))
     ;; Reads back what the CHILD wrote. This is what distinguishes a spawn that

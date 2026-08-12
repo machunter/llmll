@@ -57,14 +57,15 @@
   ;; exit status arrives as r0.
   (def-shell pm-init [] -> (int, Command)
     (pair 0 (wasi.proc.run "/bin/sh" (pm-argv) "."
-                           "pm_merged.txt" "pm_merged.txt" 30)))
+                           "pm_merged.txt" "pm_merged.txt" 30 "/dev/null")))
 
   (def-shell pm-step [s: int input: string r: Response] -> (int, Command)
     (pair (+ s 1)
       (if (= s 0) (wasi.fs.read "pm_merged.txt")
       (if (= s 1) (wasi.io.stdout (pm-report "MERGED" (pm-text r)))
       (if (= s 2) (wasi.proc.run "/bin/sh" (pm-argv) "."
-                                 "pm_split_out.txt" "pm_split_err.txt" 30)
+                                 "pm_split_out.txt" "pm_split_err.txt" 30
+                                 "/dev/null")
       (if (= s 3) (wasi.fs.read "pm_split_err.txt")
       (if (= s 4) (wasi.io.stdout (pm-report "SPLIT-ERRFILE" (pm-text r)))
                   (wasi.io.stdout "tick"))))))))

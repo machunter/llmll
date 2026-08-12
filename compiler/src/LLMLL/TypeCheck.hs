@@ -194,10 +194,22 @@ builtinEnv = Map.fromList $
   -- program interprets its arguments as instructions the authority delivered
   -- through argv is unbounded. The property is auditability, not authority
   -- bounding, and no capability check is enforced here (CAP-1-REAL).
-  -- Parameters: executable, argv, cwd, stdout path, stderr path, timeout secs.
-  -- The timeout is in the signature because a budget overrun must be a value
-  -- (RErr), not a hang.
-  , ("wasi.proc.run",      TFn [TString, TList TString, TString, TString, TString, TInt]
+  -- Parameters: executable, argv, cwd, stdout path, stderr path, timeout secs,
+  -- STDIN PATH. The timeout is in the signature because a budget overrun must
+  -- be a value (RErr), not a hang.
+  --
+  -- PROC-STDIN-1. The stdin path sits AFTER the Int, and the placement is a
+  -- decision rather than an accident. LLMLL.md:2536 records that the trailing
+  -- string parameters all type-check in any permutation. `stdin-path` and
+  -- `stdout-path` differ by one character and name opposite directions, so
+  -- their transposition is the most probable error a writer makes here. The
+  -- Int at position 6 makes exactly that transposition a type error. Grouping
+  -- the four paths together would make it type-check instead.
+  --
+  -- "/dev/null" means no input, which is the spelling refutecrux.llmll already
+  -- uses for the two output paths. NO equality rule applies to this path; see
+  -- the note in CodegenHs.hs.
+  , ("wasi.proc.run",      TFn [TString, TList TString, TString, TString, TString, TInt, TString]
                                (TCustom "Command"))
   -- PROC-BOUNDARY-1 half one: the process argument vector.
   --
