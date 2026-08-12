@@ -1,0 +1,73 @@
+;; TOOL-RFC-006 D3 probe. The two capability rows the RFC read from the builtin
+;; table instead of executing, which is the exact mistake port 005's feasibility
+;; read made twice in the same direction.
+;;
+;;   ROW 1, the byte compare. §5 disposes "comparing two files byte for byte" as
+;;   COSMETIC because `wasi.fs.sha256` exists. That disposition needs the digest
+;;   to be READABLE BY THE PROGRAM and to DIFFER on differing bytes. A builtin
+;;   that exists and answers RNone would leave the row wrong.
+;;
+;;   ROW 2, LIST-KIND-1. §5 says the port "attempts the run, letting a failed
+;;   exec answer" in place of the subject's `-perm -111` test. That needs a
+;;   failed exec to be OBSERVABLE and NON-FATAL: the program must survive it and
+;;   be able to branch on it. If a missing binary kills the step machine, every
+;;   stage that locates a binary needs a different design.
+;;
+;; Each probe prints one tagged line. Nothing here asserts; the point is to read
+;; what the runtime actually answers.
+
+(module d3probe
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.proc (capability exec :deterministic false))
+  (import wasi.fs   (capability read-write "." :deterministic false))
+
+  ;; Render every Response shape distinctly. A probe that collapsed two shapes
+  ;; to "" would answer its own question wrong.
+  (def-shell d3-text [r: Response] -> string
+    (match r
+      ((RText t)  (string-concat "text:" t))
+      ((RErr e)   (string-concat "err:" e))
+      ((RNone)    "none")
+      ((RCode n)  (string-concat "code:" (int-to-string n)))
+      ((RList xs) "list")))
+
+  (def-shell d3-say [tag: string r: Response] -> Command
+    (wasi.io.stdout (string-concat-many ["D3|" tag "=" (d3-text r)])))
+
+  (def-shell d3-init [] -> (int, Command)
+    (pair 0 (wasi.fs.write "a.txt" "hello\n")))
+
+  (def-shell d3-step [s: int input: string r: Response] -> (int, Command)
+    (pair (+ s 1)
+      ;; ROW 1: three files, two identical and one different.
+      (if (= s 0)  (wasi.fs.write "b.txt" "hello\n")
+      (if (= s 1)  (wasi.fs.write "c.txt" "world\n")
+      (if (= s 2)  (wasi.fs.sha256 "a.txt")
+      (if (= s 3)  (d3-say "SHA-A" r)
+      (if (= s 4)  (wasi.fs.sha256 "b.txt")
+      (if (= s 5)  (d3-say "SHA-B" r)
+      (if (= s 6)  (wasi.fs.sha256 "c.txt")
+      (if (= s 7)  (d3-say "SHA-C" r)
+      ;; ROW 2a: a path that does not exist at all.
+      (if (= s 8)  (wasi.proc.run "./no-such-binary" [] "."
+                                  "n1.txt" "n1.txt" 30 "/dev/null")
+      (if (= s 9)  (d3-say "MISSING" r)
+      ;; ROW 2b: a file that exists and carries no execute bit.
+      (if (= s 10) (wasi.fs.write "plain.txt" "not an executable\n")
+      (if (= s 11) (wasi.proc.run "./plain.txt" [] "."
+                                  "n2.txt" "n2.txt" 30 "/dev/null")
+      (if (= s 12) (d3-say "NONEXEC" r)
+      ;; ROW 2c: the survival question. If the two failures above did not kill
+      ;; the machine, this line prints and the row's design holds.
+      (if (= s 13) (wasi.io.stdout "D3|ALIVE=y")
+                   (wasi.io.stdout "tick")))))))))))))))))
+
+  ;; RC-4: the step that trips :done? has its command discarded, so this sits
+  ;; one past the last emitting step.
+  (def-shell d3-done? [s: int] -> bool (>= s 15))
+
+  (def-main
+    :mode    console
+    :init    (d3-init)
+    :step    d3-step
+    :done?   d3-done?))

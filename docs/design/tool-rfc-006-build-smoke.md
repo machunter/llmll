@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-006-build-smoke
 title: "TOOL-RFC-006: BUILD-GATE-1, the build smoke harness, in LLMLL"
-status: "Rev 2, RFC ONLY, WRITTEN BEFORE ANY PORT CODE. State: blocked, meaning the port module does not exist yet. NO DECISION IS OPEN. THE TWO GAPS THIS RFC RAISED AGAINST THE COMPILER ARE SHIPPED, at v0.14.98 on 2026-08-12, BEFORE the port was written, and that reorders the campaign: normally a port works around a gap and files it. `PROC-STDIN-1` gave `wasi.proc.run` a seventh parameter, a stdin path. `PROC-STDIN-SHARE-1` was a COMPILER DEFECT: `std_in` was unset, so `createProcess` inherited and a child could read a TORN fragment of the parent's own step input above the 8 KiB handle buffer, with three runs taking three different victims. It was latent in all five shipped ports, because `git ls-files` and `llmll version` do not read stdin. `PROC-ENV-1` stays open and no port needs it yet. THE PORT THEREFORE PASSES A PATH AND WRITES NO SHELL STRING. D1 is SUPERSEDED: it had bounded the `sh -c` cost to one `drive` helper, and no `drive` helper will be written. Section 4 and D1 are KEPT rather than deleted, because the census counts the gap the port surfaced, not the workaround it avoided; a reader who wants the current mechanism reads `LLMLL.md` section 13. The port is FEASIBLE: one complete stage was written in LLMLL, built, and run against a good fixture and a broken one, and it discriminates. A negative control caught that stage reporting PASS against a build that exited 1, by reading a stale artifact. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
+status: "Rev 3, RFC ONLY, WRITTEN BEFORE ANY PORT CODE. State: blocked, meaning the port module does not exist yet. NO DECISION IS OPEN, and §9's opening line said otherwise until 2026-08-12: it still read 'one decision is open and it blocks the port', which was true at Rev 1 and false from the moment `PROC-STDIN-1` shipped. The frontmatter was corrected at Rev 2 and the section body was not, which is the campaign's own stale-record class. D3 IS NOW DISCHARGED: the two capability rows this RFC deliberately refused to assume were PROBED on 2026-08-12 against `llmll 0.14.99`, by one program that exercised both and printed what the runtime answers. `wasi.fs.sha256` gives `RText` lowercase hex matching `shasum -a 256` byte for byte, so it is a real SHA-256 and not the polynomial stub `LLMLL.md` §13 records for the sibling SHA-1, and the byte-compare row stays COSMETIC. A failed exec answers `RErr`, the step machine SURVIVES it, and the message separates *missing* from *present but not executable*, so at this call site `LIST-KIND-1` is a GAIN over the subject's one-bit `-perm -111` test rather than a loss; the row does not close, because nothing answers 'is this executable' without attempting the run. THE TWO GAPS THIS RFC RAISED AGAINST THE COMPILER ARE SHIPPED, at v0.14.98 on 2026-08-12, BEFORE the port was written, and that reorders the campaign: normally a port works around a gap and files it. `PROC-STDIN-1` gave `wasi.proc.run` a seventh parameter, a stdin path. `PROC-STDIN-SHARE-1` was a COMPILER DEFECT: `std_in` was unset, so `createProcess` inherited and a child could read a TORN fragment of the parent's own step input above the 8 KiB handle buffer, with three runs taking three different victims. It was latent in all five shipped ports, because `git ls-files` and `llmll version` do not read stdin. `PROC-ENV-1` stays open and no port needs it yet. THE PORT THEREFORE PASSES A PATH AND WRITES NO SHELL STRING. D1 is SUPERSEDED: it had bounded the `sh -c` cost to one `drive` helper, and no `drive` helper will be written. Section 4 and D1 are KEPT rather than deleted, because the census counts the gap the port surfaced, not the workaround it avoided; a reader who wants the current mechanism reads `LLMLL.md` section 13. The port is FEASIBLE: one complete stage was written in LLMLL, built, and run against a good fixture and a broken one, and it discriminates. A negative control caught that stage reporting PASS against a build that exited 1, by reading a stale artifact. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
 date: 2026-08-11
 author: experiment-lead
 tool_state: blocked
@@ -214,10 +214,10 @@ D1 puts that cost to the user.
 | A child spawned by `wasi.proc.run` SHARES the parent's stdin, and above the 8 KiB buffer it reads a torn fragment of the parent's own input | **SHAPES** | `PROC-STDIN-SHARE-1`, filed 2026-08-11, shipped v0.14.98 | `std_in` bound to an empty handle, or to the stdin path `PROC-STDIN-1` asks for. Instead the port must keep its own stdin under 8 KiB, which is a constraint nothing states or checks. **Measured**, and the numbers are in F2 below. This is a compiler defect as well as a gap, and it is routed to the compiler-engineer |
 | No environment channel: `wasi.proc.run` takes no environment and no `wasi.env.*` name exists | **SHAPES** | `PROC-ENV-1`, filed 2026-08-11, open | `LC_ALL=C cmd`, as the subject writes it at line 443. Instead the site goes through `sh -c`, which sets the variable in the shell string. **Measured**: a child INHERITS the parent's environment, so the campaign's older "no env access" row is about READING and this is about SETTING. The two are not the same row, and folding them is the mistake that made `FS-STAT-1` and `FS-EXISTS-1` need splitting |
 | `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: build, run, assert, exit. Instead the port is a stdin-driven step machine with an explicit control state. This is the campaign's largest line-count multiplier and it applies here fourteen times over, once per stage |
-| A listing carries no entry kind, so nothing answers "is this file executable" | **SHAPES** | `LIST-KIND-1` | The subject's `-perm -111` test inside `exe_path`. Instead the port asks `stack path` for the directory and attempts the run, letting a failed exec answer. **Not yet probed**; D3 records it |
+| A listing carries no entry kind, so nothing answers "is this file executable" | **SHAPES** | `LIST-KIND-1` | The subject's `-perm -111` test inside `exe_path`. Instead the port asks `stack path` for the directory and attempts the run, letting a failed exec answer. **PROBED 2026-08-12 and the design holds**: a failed exec answers `RErr`, the step machine survives it, and the message separates *missing* from *not executable*, which the subject's one-bit `-perm -111` test cannot. See D3 |
 | No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows. The twelve walk sites were deleted from the subject on 2026-08-11 and replaced by `stack path --local-install-root`. The row closed on 2026-08-10 and this port confirms the close |
 | No file-age predicate | **COSMETIC** | `FS-STAT-1` | Nothing follows. The subject reads no mtime, and the port must not introduce one |
-| Comparing two files byte for byte | **COSMETIC** | `wasi.fs.sha256` exists | Nothing follows. The subject uses `cmp` and `od`; a hash of each file answers the same question |
+| Comparing two files byte for byte | **COSMETIC** | `wasi.fs.sha256` exists | Nothing follows. The subject uses `cmp` and `od`; a hash of each file answers the same question. **PROBED 2026-08-12**: the digest is `RText`, lowercase hex, and matches `shasum -a 256` byte for byte, so it is a real SHA-256 and not the polynomial stub `LLMLL.md` §13 records for the sibling SHA-1. See D3 |
 
 **Three gaps were named and unfiled when this RFC was written. All three are
 now filed, and TWO ARE SHIPPED.** `PROC-STDIN-1` and `PROC-STDIN-SHARE-1`
@@ -323,9 +323,14 @@ removes before the deletion, not after CI reddens.
 
 ## 9. Decisions taken
 
-**One decision is open and it blocks the port. Four are taken by the porter.**
-The RFC-first order exists because TOOL-RFC-001 made three of its four calls at
-the keyboard and reported them afterwards.
+**NO DECISION IS OPEN. All five are taken, and D1 was taken twice.** This
+paragraph said "one decision is open and it blocks the port" until 2026-08-12,
+which was true when Rev 1 was written and false from the moment `PROC-STDIN-1`
+shipped at v0.14.98. The frontmatter was corrected at Rev 2 and this line was
+not, which is the stale-record class the campaign keeps finding: a change
+recorded in one place and not in the places that advertise it. The RFC-first
+order exists because TOOL-RFC-001 made three of its four calls at the keyboard
+and reported them afterwards.
 
 **D1. SUPERSEDED 2026-08-11, later the same day, and the supersession is the
 better outcome.** The user first chose option 2, "bound it", and then chose to
@@ -384,11 +389,37 @@ partial port would leave the harness split between two implementations.
 Section 8 of the 005 RFC found that arrangement hiding a decider in an
 unexpected place.
 
-**D3. Two capability rows are NOT probed, and this RFC says so rather than
-assuming them.** The byte compare through `wasi.fs.sha256` and the executable
-test under `LIST-KIND-1` are read from the compiler's builtin table and from an
-existing call site. Port 005's feasibility read was wrong twice by doing exactly
-that. **Probe both before writing the stages that need them.**
+**D3. Two capability rows were NOT probed when this RFC was written, and this
+RFC said so rather than assuming them.** The byte compare through
+`wasi.fs.sha256` and the executable test under `LIST-KIND-1` were read from the
+compiler's builtin table and from an existing call site. Port 005's feasibility
+read was wrong twice by doing exactly that.
+
+**BOTH ARE NOW PROBED, 2026-08-12, against `llmll 0.14.99`. Both hold, and the
+second is better than the design assumed.** One program exercised both rows and
+printed what the runtime answers.
+
+| Row | Probe | Answer |
+|---|---|---|
+| byte compare | `wasi.fs.sha256` over two identical files and one differing file | `RText` with a lowercase hex digest. Identical bytes gave identical digests; differing bytes differed |
+| `LIST-KIND-1`, missing | `wasi.proc.run "./no-such-binary"` | `RErr "./no-such-binary: createProcess: execvp: does not exist (No such file or directory)"` |
+| `LIST-KIND-1`, not executable | `wasi.proc.run` on a file written with no execute bit | `RErr "./plain.txt: createProcess: execvp: permission denied (Permission denied)"` |
+| survival | a line printed after both failures | It printed. Neither failure ended the step machine |
+
+**The digest is faithful, and that needed checking rather than assuming.**
+`LLMLL.md` §13 records that the preamble's SHA-1 is a simplified polynomial
+stub, so a sibling hash being real is not implied by its existence. Both digests
+match `shasum -a 256` byte for byte: `5891b5b5…be03` for `hello\n` and
+`e258d248…b317` for `world\n`. So the §5 COSMETIC disposition holds.
+
+**The failed-exec answer is STRICTLY MORE INFORMATIVE than the test it
+replaces, which reverses the direction the gap row implied.** The subject's
+`-perm -111` answers one bit, executable or not, and cannot say why a lookup
+failed. `RErr` separates *missing* from *present but not executable* in the
+message text. A `LIST-KIND-1` row phrased as a loss is, at this call site, a
+gain. **This does not close the row**: nothing here answers "is this file
+executable" without attempting to run it, which is a different question and the
+one the row states.
 
 **D4. The job's time budget doubles at the most expensive step. TAKEN:
 accepted, and measured before the port lands.** One warm build of the smallest
