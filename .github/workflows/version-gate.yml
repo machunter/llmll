@@ -153,8 +153,20 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           OUT="$RUNNER_TEMP/docarchive-build"
           ( cd tools/doc-archive && "$SUBJECT" build docarchive.llmll -o "$OUT" )
-          GATE="$(find "$OUT/.stack-work/install" -type f -name docarchive -perm -111 | head -1)"
-          [ -n "$GATE" ] || { echo "no docarchive binary under $OUT"; exit 1; }
+          # ASK STACK WHERE IT PUT THE BINARY. DO NOT SEARCH FOR IT. The full
+          # argument is at scripts/build_smoke.sh's exe_path, which removed the
+          # same idiom from twelve sites: `find | head -1` has no defined answer
+          # when a tree holds more than one install root, because find emits in
+          # readdir order. It does not fail here today only because RUNNER_TEMP
+          # is fresh and holds exactly one candidate. The line above already
+          # asks stack for the COMPILER; this asks for the port the same way.
+          #
+          # The test is -x and NOT -n: the path is now always non-empty, so an
+          # -n guard would pass unconditionally and stop guarding anything.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/docarchive"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no docarchive binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
           # The COVER runs first, for 003's reason: it decides whether the port
           # agrees with the reference UNDER MUTATION, which a live green run does
           # not. This gate makes that concrete, its live corpus declaring exactly
@@ -203,8 +215,13 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           OUT="$RUNNER_TEMP/docclaims-build"
           ( cd tools/doc-claims && "$SUBJECT" build docclaims.llmll -o "$OUT" )
-          GATE="$(find "$OUT/.stack-work/install" -type f -name docclaims -perm -111 | head -1)"
-          [ -n "$GATE" ] || { echo "no docclaims binary under $OUT"; exit 1; }
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/docclaims"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no docclaims binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
           python3 scripts/doc_claims_cover.py --gate "$GATE" --llmll "$SUBJECT"
           mkdir -p "$RUNNER_TEMP/dc-work" "$RUNNER_TEMP/dc-run"
           ( cd "$RUNNER_TEMP/dc-run" \
@@ -404,8 +421,13 @@ jobs:
           ( cd tools/doc-path-lint && "$SUBJECT" verify adjudicate.llmll )
           OUT="$RUNNER_TEMP/pathlint-build"
           ( cd tools/doc-path-lint && "$SUBJECT" build pathlint.llmll -o "$OUT" )
-          GATE="$(find "$OUT/.stack-work/install" -type f -name pathlint -perm -111 | head -1)"
-          [ -n "$GATE" ] || { echo "no pathlint binary under $OUT"; exit 1; }
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/pathlint"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no pathlint binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
           python3 scripts/doc_path_lint_cover.py --gate "$GATE" --repo .
           # The step budget comes from python3 and NOT `yes x | head -n N`:
           # `yes` dies of SIGPIPE and this step runs under pipefail. The loop
@@ -481,8 +503,13 @@ jobs:
           # binary that COMPILES the port and the binary it GRADES are the same
           # freshly built one, which is what §8 decision 2 wants anyway.
           ( cd tools/refute-crux && "$SUBJECT" build refutecrux.llmll -o "$OUT" )
-          GATE="$(find "$OUT/.stack-work/install" -type f -name refutecrux -perm -111 | head -1)"
-          [ -n "$GATE" ] || { echo "no refutecrux binary under $OUT"; exit 1; }
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/refutecrux"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no refutecrux binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
           mkdir -p "$RUNNER_TEMP/rc-work" "$RUNNER_TEMP/rc-run"
           # The differential cover first: it decides whether the port AGREES
           # with the reference, which a live green run on its own does not.
