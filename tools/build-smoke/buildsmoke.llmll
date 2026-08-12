@@ -1,0 +1,149 @@
+;; BUILD-GATE-1, the build smoke harness, in LLMLL. TOOL-RFC-006.
+;;
+;; The sixth and last port of the TOOL-LL campaign. Its subject is
+;; scripts/build_smoke.sh, which is the harness that builds and runs the other
+;; five ports. So this program is an LLMLL program that tests LLMLL programs.
+;;
+;; STATE OF THIS FILE: the spine and stage 1. Thirteen stages remain, and
+;; TOOL-RFC-006 section 2 tables them with a code-line count each. The RFC is
+;; the specification; this header does not restate it.
+;;
+;; WHY THE STATE IS A RECORD AND A CONTROL TAG, and not an int. `:mode console`
+;; hands each step one Response and takes one Command back, so anything a later
+;; stage needs from an earlier one has to live in the state. sequencer.llmll and
+;; pathlint.llmll both carry ((Record, Ctl), Command) and this port follows
+;; them. The record is Json because the alternative is a positional tuple that
+;; grows a field per stage and renumbers every call site when it does.
+;;
+;; THE ORDERING HAZARD THAT COST THE RFC ITS FIRST PROBE, restated here because
+;; it is a property of the shape rather than of that probe. A command's status
+;; arrives as the Response of the NEXT step. So "run the build" and "read what
+;; the build produced" are two steps, and nothing in the language forces the
+;; second to consult the first. The RFC's stage 4b printed PASS against a build
+;; that had exited 1, by reading a stale artifact from the previous run. In
+;; shell the check is structural, because `if ! llmll build ...; then fail; fi`
+;; puts the status first. Here the order is a hand-written control state.
+;; EVERY STAGE MUST BRANCH ON THE STATUS BEFORE IT READS AN ARTIFACT.
+;;
+;; WRITE THE NEGATIVE CONTROL FIRST. A stage that has never been seen to fail is
+;; not known to decide anything. This is finding 14 in tool-ll-RESTART.md, and
+;; the 004 and 003 covers each found defects that a passing live run could not.
+
+(module buildsmoke
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.proc (capability exec :deterministic false))
+  (import wasi.fs   (capability read-write "." :deterministic false))
+
+  ;; ------------------------------------------------------------------ state --
+  ;; Json carries the accumulated verdicts so a field added by stage 9 does not
+  ;; renumber stage 1's call sites.
+  (type Bs (| Bs Json))
+  (def-shell bs-of [b: Bs] -> Json (match b ((Bs j) j)))
+  (def-shell bs-mk [j: Json] -> Bs (Bs j))
+
+  ;; One tag per stage, plus the two terminal phases. `:done?` is read on the
+  ;; state a step RETURNS and that step's Command is DISCARDED, so a phase must
+  ;; not both print and finish. Ending prints; Done finishes.
+  (type Ctl
+    (| Boot)
+    (| Tool1)      ;; stage 1, toolchain present
+    (| Tool1Ghc)   ;; stage 1, the ghc fallback the subject also accepts
+    (| Ending)
+    (| Done))
+
+  (def-shell go [b: Bs p: Ctl c: Command] -> ((Bs, Ctl), Command)
+    (pair (pair b p) c))
+
+  ;; ------------------------------------------------------------- responses --
+  ;; Every shape is rendered distinctly. Collapsing two shapes to "" is how
+  ;; JSON-SCALAR-1 went unnoticed for a corpus run: the port reported 30 passed
+  ;; and 50 failed, and 50 was the count of cases whose flags had been dropped.
+  (def-shell bs-text [r: Response] -> string
+    (match r
+      ((RText t)  t)
+      ((RErr e)   e)
+      ((RNone)    "")
+      ((RCode n)  (string-concat "code:" (int-to-string n)))
+      ((RList xs) "")))
+
+  ;; PROBED 2026-08-12 by scripts/build-smoke/d3_probe.llmll, against llmll
+  ;; 0.14.99, and recorded in TOOL-RFC-006 D3. A failed exec answers RErr and
+  ;; the step machine survives it. The two causes carry DIFFERENT text:
+  ;;
+  ;;   missing         "...: createProcess: execvp: does not exist (No such file
+  ;;                    or directory)"
+  ;;   not executable  "...: createProcess: execvp: permission denied
+  ;;                    (Permission denied)"
+  ;;
+  ;; The subject's `command -v` and its `-perm -111` test each answer one bit
+  ;; and cannot say which happened. Reproducing the reference does not require
+  ;; discarding that, because the subject's exe_path prints two DIFFERENT notes
+  ;; for its two causes and this is how the port earns them.
+  (def-shell absent? [r: Response] -> bool
+    (string-contains (bs-text r) "does not exist"))
+
+  (def-shell denied? [r: Response] -> bool
+    (string-contains (bs-text r) "permission denied"))
+
+  ;; ---------------------------------------------------------------- report --
+  ;; The subject's two verdict spellings, at scripts/build_smoke.sh:57 for FAIL
+  ;; and at each stage's own echo for PASS. A report text must not end with a
+  ;; line end; the harness adds one.
+  (def-shell pass-line [what: string] -> string
+    (string-concat "BUILD-GATE-1 PASS: " what))
+
+  (def-shell fail-line [what: string] -> string
+    (string-concat "BUILD-GATE-1 FAIL: " what))
+
+  ;; ------------------------------------------------------- stage 1, toolchain --
+  ;; scripts/build_smoke.sh:107. The subject fails closed when NEITHER stack nor
+  ;; ghc is on PATH, and its comment says why a skip would be wrong: this gate
+  ;; compiles generated Haskell, and runGhcCheck returns True when no toolchain
+  ;; is present (compiler/app/Main.hs:940), so a skip would pass while observing
+  ;; nothing. That is finding 6's class and the subject already refuses it.
+  ;;
+  ;; The port asks each binary for its version rather than asking PATH for its
+  ;; presence, because no builtin answers "is this name on PATH". D3 established
+  ;; that the failure is observable and non-fatal, which is what makes the
+  ;; substitution sound.
+  (def-shell tool-fail [] -> string
+    (fail-line "neither 'stack' nor 'ghc' answers --version. This gate compiles generated Haskell; without a toolchain it would pass while observing nothing. Install Stack from https://haskellstack.org, or set PATH, and re-run."))
+
+  (def-shell bs-init [] -> ((Bs, Ctl), Command)
+    (go (bs-mk json-object) Tool1
+        (wasi.proc.run "stack" ["--version"] "."
+                       "bs_stack.txt" "bs_stack.txt" 60 "/dev/null")))
+
+  (def-shell bs-step [s: (Bs, Ctl) input: string r: Response] -> ((Bs, Ctl), Command)
+    (match s
+      ((pair b p)
+        (match p
+          ;; stack answered. If it is absent, the subject still accepts ghc, so
+          ;; a missing stack is not yet a failure.
+          ((Tool1)
+            (if (absent? r)
+                (go b Tool1Ghc
+                    (wasi.proc.run "ghc" ["--version"] "."
+                                   "bs_ghc.txt" "bs_ghc.txt" 60 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (pass-line "toolchain present (stack)")))))
+          ;; ghc answered, and it is the last chance.
+          ((Tool1Ghc)
+            (if (absent? r)
+                (go b Ending (wasi.io.stdout (tool-fail)))
+                (go b Ending (wasi.io.stdout (pass-line "toolchain present (ghc)")))))
+          ((Boot)   (go b Ending (wasi.io.stdout "")))
+          ((Ending) (go b Done   (wasi.io.stdout "")))
+          ((Done)   (go b Done   (wasi.io.stdout "")))))))
+
+  ;; RC-4: the step that trips :done? has its Command discarded, so Done sits
+  ;; one past the last emitting phase rather than on it.
+  (def-shell bs-done? [s: (Bs, Ctl)] -> bool
+    (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
+                                 ((Tool1Ghc) false) ((Ending) false)))))
+
+  (def-main
+    :mode    console
+    :init    (bs-init)
+    :step    bs-step
+    :done?   bs-done?))
