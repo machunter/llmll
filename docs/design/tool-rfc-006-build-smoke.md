@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-006-build-smoke
 title: "TOOL-RFC-006: BUILD-GATE-1, the build smoke harness, in LLMLL"
-status: "Rev 1, WRITTEN BEFORE ANY PORT CODE. State: blocked, meaning the port module does not exist yet. NO DECISION IS OPEN: D1 was settled by user adjudication on 2026-08-11, BOUND IT, and the helper it names was built and run before the decision was recorded. The port is FEASIBLE and it is not blocked on the compiler. One complete stage was written in LLMLL, built, and run against both a good fixture and a broken one; it discriminates. THE SCOPE QUESTION IS NOT SIZE. Thirteen of the subject's sites feed a child process on stdin, because driving a console-mode LLMLL program IS feeding it stdin. `wasi.proc.run` has no stdin parameter. Measured: `/bin/sh -c` supplies the stdin instead, and a real console binary driven that way runs correctly. So the disposition is SHAPES and not BLOCKS, and the cost is that thirteen sites put the command back into a shell string, which is the exact property `wasi.proc.run`'s argv split exists to remove. D1 first BOUNDED that cost with one `drive` helper. **D1 is then SUPERSEDED: the user chose to fix the compiler first, `PROC-STDIN-1` shipped a seventh parameter on `wasi.proc.run`, and the port now passes a stdin path instead of a shell string. No `drive` helper will be written.** The census still counts the gap, because the port surfaced it. A SECOND MEASUREMENT IS A COMPILER DEFECT AND IS FILED SEPARATELY: a child spawned by `wasi.proc.run` shares the parent's stdin, and above the 8 KiB buffer it reads a TORN fragment of the parent's own input. Three runs took three different victims. The five shipped ports do not trip it, because `git ls-files` does not read stdin. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 times is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
+status: "Rev 2, RFC ONLY, WRITTEN BEFORE ANY PORT CODE. State: blocked, meaning the port module does not exist yet. NO DECISION IS OPEN. THE TWO GAPS THIS RFC RAISED AGAINST THE COMPILER ARE SHIPPED, at v0.14.98 on 2026-08-12, BEFORE the port was written, and that reorders the campaign: normally a port works around a gap and files it. `PROC-STDIN-1` gave `wasi.proc.run` a seventh parameter, a stdin path. `PROC-STDIN-SHARE-1` was a COMPILER DEFECT: `std_in` was unset, so `createProcess` inherited and a child could read a TORN fragment of the parent's own step input above the 8 KiB handle buffer, with three runs taking three different victims. It was latent in all five shipped ports, because `git ls-files` and `llmll version` do not read stdin. `PROC-ENV-1` stays open and no port needs it yet. THE PORT THEREFORE PASSES A PATH AND WRITES NO SHELL STRING. D1 is SUPERSEDED: it had bounded the `sh -c` cost to one `drive` helper, and no `drive` helper will be written. Section 4 and D1 are KEPT rather than deleted, because the census counts the gap the port surfaced, not the workaround it avoided; a reader who wants the current mechanism reads `LLMLL.md` section 13. The port is FEASIBLE: one complete stage was written in LLMLL, built, and run against a good fixture and a broken one, and it discriminates. A negative control caught that stage reporting PASS against a build that exited 1, by reading a stale artifact. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
 date: 2026-08-11
 author: experiment-lead
 tool_state: blocked
@@ -210,20 +210,33 @@ D1 puts that cost to the user.
 
 | Gap | Disposition | Roadmap tag | What the design would have been |
 |---|---|---|---|
-| `wasi.proc.run` cannot supply a child's stdin, and driving a console-mode LLMLL program is feeding it stdin | **SHAPES** | `PROC-STDIN-1`, unfiled 2026-08-11, owed | A seventh parameter, a stdin path, symmetric with the stdout and stderr paths the builtin already takes. Instead thirteen sites route through `/bin/sh -c` and rebuild the shell string that the argv split removes. **Measured**: `sh -c` does deliver the input, and a real console binary driven that way completes its loop, so this SHAPES the port rather than blocking it. The gap reaches 295 of 504 stage code lines |
-| A child spawned by `wasi.proc.run` SHARES the parent's stdin, and above the 8 KiB buffer it reads a torn fragment of the parent's own input | **SHAPES** | `PROC-STDIN-SHARE-1`, unfiled 2026-08-11, owed | `std_in` bound to an empty handle, or to the stdin path `PROC-STDIN-1` asks for. Instead the port must keep its own stdin under 8 KiB, which is a constraint nothing states or checks. **Measured**, and the numbers are in F2 below. This is a compiler defect as well as a gap, and it is routed to the compiler-engineer |
-| No environment channel: `wasi.proc.run` takes no environment and no `wasi.env.*` name exists | **SHAPES** | `PROC-ENV-1`, unfiled 2026-08-11, owed | `LC_ALL=C cmd`, as the subject writes it at line 443. Instead the site goes through `sh -c`, which sets the variable in the shell string. **Measured**: a child INHERITS the parent's environment, so the campaign's older "no env access" row is about READING and this is about SETTING. The two are not the same row, and folding them is the mistake that made `FS-STAT-1` and `FS-EXISTS-1` need splitting |
+| `wasi.proc.run` cannot supply a child's stdin, and driving a console-mode LLMLL program is feeding it stdin | **SHAPES** | `PROC-STDIN-1`, filed 2026-08-11, shipped v0.14.98 | A seventh parameter, a stdin path, symmetric with the stdout and stderr paths the builtin already takes. Instead thirteen sites route through `/bin/sh -c` and rebuild the shell string that the argv split removes. **Measured**: `sh -c` does deliver the input, and a real console binary driven that way completes its loop, so this SHAPES the port rather than blocking it. The gap reaches 295 of 504 stage code lines |
+| A child spawned by `wasi.proc.run` SHARES the parent's stdin, and above the 8 KiB buffer it reads a torn fragment of the parent's own input | **SHAPES** | `PROC-STDIN-SHARE-1`, filed 2026-08-11, shipped v0.14.98 | `std_in` bound to an empty handle, or to the stdin path `PROC-STDIN-1` asks for. Instead the port must keep its own stdin under 8 KiB, which is a constraint nothing states or checks. **Measured**, and the numbers are in F2 below. This is a compiler defect as well as a gap, and it is routed to the compiler-engineer |
+| No environment channel: `wasi.proc.run` takes no environment and no `wasi.env.*` name exists | **SHAPES** | `PROC-ENV-1`, filed 2026-08-11, open | `LC_ALL=C cmd`, as the subject writes it at line 443. Instead the site goes through `sh -c`, which sets the variable in the shell string. **Measured**: a child INHERITS the parent's environment, so the campaign's older "no env access" row is about READING and this is about SETTING. The two are not the same row, and folding them is the mistake that made `FS-STAT-1` and `FS-EXISTS-1` need splitting |
 | `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: build, run, assert, exit. Instead the port is a stdin-driven step machine with an explicit control state. This is the campaign's largest line-count multiplier and it applies here fourteen times over, once per stage |
 | A listing carries no entry kind, so nothing answers "is this file executable" | **SHAPES** | `LIST-KIND-1` | The subject's `-perm -111` test inside `exe_path`. Instead the port asks `stack path` for the directory and attempts the run, letting a failed exec answer. **Not yet probed**; D3 records it |
 | No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows. The twelve walk sites were deleted from the subject on 2026-08-11 and replaced by `stack path --local-install-root`. The row closed on 2026-08-10 and this port confirms the close |
 | No file-age predicate | **COSMETIC** | `FS-STAT-1` | Nothing follows. The subject reads no mtime, and the port must not introduce one |
 | Comparing two files byte for byte | **COSMETIC** | `wasi.fs.sha256` exists | Nothing follows. The subject uses `cmp` and `od`; a hash of each file answers the same question |
 
-**Three gaps are named and unfiled.** Filing them in
-[`compiler-team-roadmap.md`](../compiler-team-roadmap.md) is owed before this
-port lands. The campaign's §5 records why the name comes first. `LIST-KIND-1`
-sat in no census for a release, because port 004 recorded it with no tag. A
-search for tag names cannot find a gap that has no tag.
+**Three gaps were named and unfiled when this RFC was written. All three are
+now filed, and TWO ARE SHIPPED.** `PROC-STDIN-1` and `PROC-STDIN-SHARE-1`
+closed at v0.14.98, on 2026-08-12, before the port was written.
+[`compiler-team-roadmap.md`](../compiler-team-roadmap.md) holds all three;
+the two closed rows sit in its closed-rows section and `PROC-ENV-1` stays open
+in Active Items.
+
+**That reorders the campaign, and the reordering is the finding.** A port
+normally works around a gap and files it. Here the compiler closed the gap
+first, so §4's `sh -c` analysis and D1's `drive` helper describe a cost the
+port never paid. **Both are kept rather than deleted**, because the census in
+campaign §5 counts the gap the port surfaced, not the workaround it avoided.
+A reader who needs the current mechanism should read `LLMLL.md` §13, not §4
+here.
+
+The campaign's §5 records why the name comes first. `LIST-KIND-1` sat in no
+census for a release, because port 004 recorded it with no tag. A search for
+tag names cannot find a gap that has no tag.
 
 ## 6. Differential plan
 

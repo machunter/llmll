@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-11. FIVE ports of six are complete. PORT 005 IS DONE and is tool_state: oracle. Both implementations run adjacent in spec-roundtrip. v0.14.97 RELEASED port 005 and closed FS-WALK-1. All three CI runs passed. One commit is after the tag; measure that count, do not read it. PORT 006 IS NEXT AND IT IS NOT BLOCKED. FS-WALK-1 closed as COSMETIC on 2026-08-10. That row asked for a measurement. Nobody ran it for three days. The answer closed the row: twelve walk sites where the row said nine, at a fixed depth of four. THE TWELVE SITES ARE NOW GONE. build_smoke.sh asks stack for the path, changed 2026-08-11. Port 006 copies that, and not a walk. The five gap rows are FILED. There were FIVE and not four; the fifth is LIST-KIND-1, which port 004 raised with no tag name, so no census held it. THE RETIREMENT QUESTION IS ANSWERED. The user deleted the reference's pytest file on 2026-08-11. Nothing now stops a broken path citation from reaching main. Section 2 names one open question for port 006. This file shows where the work is. The file llmll-tooling-campaign.md shows what the standard says. If the two files disagree about the standard, use the campaign file. If the two files disagree about state, measure the state again."
-date: 2026-08-11
+status: "LIVE, 2026-08-12, after v0.14.98. FIVE ports of six are complete and PORT 006 IS NEXT. THE TAG DEBT IS ZERO: the banner, the last tag and the newest CHANGELOG entry agree, and the tag run published the image. Measure that anyway; section 0 gives the four commands and this line has been incorrect before. v0.14.98 SHIPPED THE TWO GAPS PORT 006 RAISED, before the port was written: PROC-STDIN-1 gave wasi.proc.run a stdin path, and PROC-STDIN-SHARE-1 closed with it. That is the campaign's FIRST gap closed by the compiler rather than worked around by a port. So DO NOT write a drive helper and DO NOT write /bin/sh -c; the port passes a path. THE RFC IS WRITTEN: read tool-rfc-006-build-smoke.md before any port code. NO QUESTION IS OPEN for port 006. The port projects to about 1,400 code lines, not the 2,500 an inherited 4.8x ratio gave; that ratio was the FIRST port's and the five decline to 2.23. v0.14.98 also removed the last four find | head -1 sites from version-gate.yml, so that idiom is absent from the repository. THE RETIREMENT QUESTION IS ANSWERED: the user deleted the reference's pytest file on 2026-08-11, and nothing now stops a broken path citation from reaching main. PORT 005 RETIREMENT IS NOW DUE, one release after the port landed at v0.14.97; read TOOL-RFC-005 section 8 first, because deleting the reference also deletes the differential oracle the port is graded against. This file shows where the work is. llmll-tooling-campaign.md shows what the standard says. If the two disagree about the standard, use the campaign file. If they disagree about state, measure the state again."
+date: 2026-08-12
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
@@ -50,26 +50,30 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-11, after v0.14.97
+## 1. State, measured 2026-08-12, after v0.14.98
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.97` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **2**, measured 2026-08-11 at 09:44 PDT | `git rev-list --count v0.14.97..HEAD` |
-| Version banner | `v0.14.97` | `head -1 LLMLL.md` |
-| CI on `main` | run `31513997765` passed, 18m44s | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.97` | `grep "^## " CHANGELOG.md` |
+| Last tag | `v0.14.98` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **0**, measured 2026-08-12 | `git rev-list --count v0.14.98..HEAD` |
+| Version banner | `v0.14.98` | `head -1 LLMLL.md` |
+| CI on `main` | run `31606470341` passed | `gh run list --branch main` |
+| Newest CHANGELOG entry | `v0.14.98` | `grep "^## " CHANGELOG.md` |
 
-The banner, the last tag and the newest CHANGELOG entry agree. **v0.14.97
-released port 005 and closed `FS-WALK-1`.** All three CI runs passed. The tag
-run published the image.
+The banner, the last tag and the newest CHANGELOG entry agree, and **the tag
+debt is zero.** The tag run published `ghcr.io/machunter/llmll:v0.14.98` and
+moved `:latest` to the same digest.
 
-**TWO commits are after the tag, and this table said ONE until 2026-08-11.** The
-count was corrected by measurement at the start of the port 006 work, which is
-what section 0 tells you to do. Both commits are PUSHED and CI run `31513997765`
-passed on them, 18m44s. One changes `build_smoke.sh` and the other deletes the
-005 reference's pytest file. A release can wait, but the debt is real. Measure
-the count again.
+**v0.14.98 shipped the two gaps that port 006's RFC raised**, before the port
+was written. `PROC-STDIN-1` gave `wasi.proc.run` a stdin path and
+`PROC-STDIN-SHARE-1` closed with it. It also removed the last four
+`find | head -1` sites from `version-gate.yml`, so that idiom is now absent
+from the repository.
+
+**This table was incorrect twice in two days, and both times a measurement
+caught it.** On 2026-08-11 it claimed one unreleased commit against a measured
+two. It then claimed two against v0.14.97 while the tree had moved to v0.14.98.
+Do not read this table. Run the four commands in section 0.
 
 **A warning that stays true.** The version gate cannot find an owed release. It
 compares the five banners with each other. It compares them with no git tag. So
@@ -108,13 +112,15 @@ any port code. Four things it settled, each by a probe:
    2,500. The 4.8 ratio is the FIRST port's; the five decline to 2.23.
 3. **The real scope question was stdin, and the compiler answered it.**
    Thirteen sites feed a child on stdin and `wasi.proc.run` could not.
-   **`PROC-STDIN-1` SHIPPED a seventh parameter, a stdin path, on 2026-08-11.**
+   **`PROC-STDIN-1` SHIPPED a seventh parameter, a stdin path, at v0.14.98 on
+   2026-08-12.**
    The port passes a path, as it passes a stdout path. **Do not write a `drive`
    helper and do not write `/bin/sh -c`.** D1 chose that workaround before the
    compiler moved, and the RFC records it as superseded.
-4. **Three gaps are filed**: `PROC-STDIN-1`, `PROC-STDIN-SHARE-1` and
-   `PROC-ENV-1`. The second is a compiler defect that is latent in all five
-   shipped ports.
+4. **Three gaps are filed and TWO ARE SHIPPED at v0.14.98**: `PROC-STDIN-1`,
+   `PROC-STDIN-SHARE-1` and
+   `PROC-ENV-1`. The second was a compiler defect. It was latent in all five
+   shipped ports and it is now fixed.
 
 **A rule the RFC's own probe proved again.** Its first stage printed PASS
 against a build that exited 1, because it read a stale artifact. The negative
