@@ -111,7 +111,12 @@ closed-rows section.
 
 **The port module exists.** It is
 [`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll).
-It holds the spine and **stage 1 of fourteen**. It builds and it runs.
+It holds the spine and **stages 1, 2 and 2a of fourteen**. It builds and it
+runs. **Eleven stages remain.**
+
+**The argument contract is settled. Use it.** The port takes `--subject` for the
+compiler, `--root` for the repository and `--work` for a scratch directory.
+`refutecrux.llmll` takes the same three names. Do not invent a fourth spelling.
 
 **`tool_state` stays `blocked` and that word is now approximate.** The tri-state
 is `blocked`, `oracle` and `retired`. It has NO value for "started and
@@ -143,13 +148,30 @@ write the stages that use them. Both are probed. The probe is
 `stack` and no `ghc`. It prints `BUILD-GATE-1 FAIL`. This control uses a real
 environment. It does not use a changed source file.
 
-**Stage 2 is next, and stage 2 needs a decision that stage 1 did not.** The
-subject reads the `LLMLL_BIN` environment variable. **No builtin reads an
-environment variable.** The campaign disposed that row COSMETIC because "argv
-carries it". So the port must take the compiler path as an argument. **Write
-that contract before you write stage 2.** Stage 2a then makes the path
-absolute, with `stack path --local-install-root`, first from the current
-directory and then from `compiler/`. Subject line 118 gives the full rule.
+**Stages 2 and 2a are DONE, and building them found a gap.** The subject reads
+`$LLMLL_BIN`, then `PATH`, then `$HOME/.local/bin/llmll`. The port does the
+first two. **It cannot do the third**, because nothing reads the environment
+and `$HOME` is not in argv. This is filed as `ENV-READ-1`.
+
+**The campaign census was wrong here, and this is the lesson to carry.** That
+row said "no env access" is COSMETIC because "argv carries it". Port 005 tested
+it and it held. **It failed at its second use.** A disposition tested against
+one port measures that port. It does not measure the language.
+
+**TWO PORTING DEFECTS were found by running the controls, not by reading.**
+
+1. `wasi.proc.run` answers the child's EXIT STATUS. It does not answer the
+   child's output. The output goes to the path in the call. So a command and a
+   read of what it printed are TWO steps. Stage 2a needs five phases.
+2. The subject's fallback test is a DISJUNCTION:
+   `[ -z "$_SIR" ] || [ ! -x "$_SIR/bin/llmll" ]`. A root that resolves but
+   holds no compiler must still fall through to `<root>/compiler`. One shared
+   execute-check cannot do this, because it does not know which source it
+   checks. The first version reported FAIL against a tree whose compiler was
+   built and present.
+
+**Stage 3 is next.** It calls `llmll build` on `smoke.llmll` and keeps the exit
+status. Section 4 of the RFC gives the shape from its own probe of stage 4b.
 
 **THE RFC IS WRITTEN and it is Rev 4.** Read
 [`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write

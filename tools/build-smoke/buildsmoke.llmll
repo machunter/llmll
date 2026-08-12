@@ -4,9 +4,20 @@
 ;; scripts/build_smoke.sh, which is the harness that builds and runs the other
 ;; five ports. So this program is an LLMLL program that tests LLMLL programs.
 ;;
-;; STATE OF THIS FILE: the spine and stage 1. Thirteen stages remain, and
-;; TOOL-RFC-006 section 2 tables them with a code-line count each. The RFC is
-;; the specification; this header does not restate it.
+;; STATE OF THIS FILE: the spine and stages 1, 2 and 2a. Eleven stages remain,
+;; and TOOL-RFC-006 section 2 tables them with a code-line count each. The RFC
+;; is the specification; this header does not restate it.
+;;
+;; FIVE CONTROLS RUN AGAINST WHAT IS HERE, three of them negative:
+;;
+;;   --subject <abs path>              PASS compiler present
+;;   --subject stack --root <repo>     PASS compiler anchored at <resolved>
+;;   --subject /nonexistent/llmll      FAIL no llmll binary answered
+;;   --subject stack --root /nonexist  FAIL no llmll under stack path
+;;   PATH=/usr/bin:/bin                FAIL neither stack nor ghc
+;;
+;; Each negative uses a real environment rather than a changed source, so it
+;; grades these stages as they ship.
 ;;
 ;; WHY THE STATE IS A RECORD AND A CONTROL TAG, and not an int. `:mode console`
 ;; hands each step one Response and takes one Command back, so anything a later
@@ -41,6 +52,59 @@
   (def-shell bs-of [b: Bs] -> Json (match b ((Bs j) j)))
   (def-shell bs-mk [j: Json] -> Bs (Bs j))
 
+  ;; `sets` and `get-s` do not exist as builtins and are written locally at
+  ;; every port in this campaign. json-set answers a Result, so the unwrap
+  ;; keeps the old value rather than dropping the write silently.
+  (def-shell sets [v: Json k: string s: string] -> Json
+    (unwrap-or (json-set v k (json-of-string s)) v))
+
+  (def-shell with-s [b: Bs k: string s: string] -> Bs (bs-mk (sets (bs-of b) k s)))
+  (def-shell get-s  [b: Bs k: string] -> string
+    (unwrap-or (json-get-string (bs-of b) k) ""))
+
+  ;; ------------------------------------------------------------------- argv --
+  ;; THE ARGUMENT CONTRACT, and it exists because the subject reads an
+  ;; ENVIRONMENT VARIABLE that no builtin can read.
+  ;;
+  ;;   --subject  the llmll compiler. Default "llmll", found on PATH.
+  ;;   --root     the repository root. Default "."
+  ;;   --work     a scratch directory for build outputs. Default "."
+  ;;
+  ;; The names follow refutecrux.llmll, which already takes exactly these three
+  ;; and whose CI step passes an absolute --subject. Inventing a fourth spelling
+  ;; for the same three ideas would make the campaign's ports differ for no
+  ;; reason.
+  ;;
+  ;; WHAT THIS CONTRACT DOES NOT REACH, stated because the campaign's census
+  ;; says it does. `scripts/build_smoke.sh:118` tries THREE sources for the
+  ;; compiler in order: $LLMLL_BIN, then `command -v llmll`, then
+  ;; $HOME/.local/bin/llmll. `--subject` reproduces the first and a bare
+  ;; "llmll" reproduces the second. **The third is unreachable**, because it
+  ;; needs $HOME and nothing here reads the environment. The census row "no env
+  ;; access ... argv carries it" is dispositioned COSMETIC on the grounds that
+  ;; nothing is lost. That holds for port 005 and it does NOT hold here: argv
+  ;; carries what a caller passes, and $HOME is not passed. Reading it through
+  ;; `sh -c 'echo $HOME'` would break D1's rule that this port hands no string
+  ;; to a shell. So the branch is dropped deliberately, and the caller supplies
+  ;; the path instead.
+  (def-shell argv-of [x: Response] -> list[string]
+    (match x
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell flag-or [as: list[string] f: string d: string] -> string
+    (let [(v (flag-value as f))] (if (string-empty? v) d v)))
+
   ;; One tag per stage, plus the two terminal phases. `:done?` is read on the
   ;; state a step RETURNS and that step's Command is DISCARDED, so a phase must
   ;; not both print and finish. Ending prints; Done finishes.
@@ -48,6 +112,24 @@
     (| Boot)
     (| Tool1)      ;; stage 1, toolchain present
     (| Tool1Ghc)   ;; stage 1, the ghc fallback the subject also accepts
+    (| Comp2)      ;; stage 2, an llmll binary answers
+    ;; Stage 2a takes FIVE phases and not two, and the reason is the shape
+    ;; rather than the task. `wasi.proc.run` answers the child's EXIT STATUS as
+    ;; RCode; the child's stdout went to the path the call named. So reading
+    ;; what `stack path` printed is a SEPARATE step from learning whether it
+    ;; succeeded, and each source needs both.
+    (| Anchor2a)   ;; ran `stack path` in the working directory; status arrives
+    (| Anchor2aR)  ;; read that root from its file
+    (| Anchor2aC)  ;; ran `stack path` in <root>/compiler; status arrives
+    (| Anchor2aCR) ;; read that root from its file
+    ;; TWO execute-checks and not one, because the subject's fallback condition
+    ;; is a DISJUNCTION: `[ -z "$_SIR" ] || [ ! -x "$_SIR/bin/llmll" ]`. A root
+    ;; that resolves but holds no compiler must still fall through to
+    ;; <root>/compiler. A single shared check cannot, because it does not know
+    ;; which source it is checking, and collapsing them reported FAIL against a
+    ;; tree whose compiler was built and present.
+    (| Anchor2aX1) ;; first source's binary: on failure, try <root>/compiler
+    (| Anchor2aX2) ;; second source's binary: on failure, the stage fails
     (| Ending)
     (| Done))
 
@@ -85,6 +167,19 @@
   (def-shell denied? [r: Response] -> bool
     (string-contains (bs-text r) "permission denied"))
 
+  ;; A child that exited 0. RCode carries the status; every other shape from a
+  ;; `wasi.proc.run` is a failure to launch, which `absent?` and `denied?`
+  ;; classify. Written as its own predicate because "the command succeeded" and
+  ;; "the artifact says what I expect" are the two halves the RFC's first probe
+  ;; conflated, and conflating them is how it printed PASS against exit 1.
+  (def-shell ok? [r: Response] -> bool
+    (match r
+      ((RCode n)  (= n 0))
+      ((RText _)  false)
+      ((RErr _)   false)
+      ((RNone)    false)
+      ((RList _)  false)))
+
   ;; ---------------------------------------------------------------- report --
   ;; The subject's two verdict spellings, at scripts/build_smoke.sh:57 for FAIL
   ;; and at each stage's own echo for PASS. A report text must not end with a
@@ -109,15 +204,61 @@
   (def-shell tool-fail [] -> string
     (fail-line "neither 'stack' nor 'ghc' answers --version. This gate compiles generated Haskell; without a toolchain it would pass while observing nothing. Install Stack from https://haskellstack.org, or set PATH, and re-run."))
 
+  ;; ---------------------------------------- stage 2, the compiler binary --
+  ;; scripts/build_smoke.sh:118. A missing compiler is a FAILURE here and not a
+  ;; skip, for the same reason stage 1 gives.
+  (def-shell comp-fail [subj: string] -> string
+    (string-concat-many
+      ["BUILD-GATE-1 FAIL: no llmll binary answered '" subj
+       " version'. Pass --subject with a path to the compiler, or put llmll on PATH. A missing binary is a failure here, not a skip."]))
+
+  ;; ------------------------------- stage 2a, anchor to an ABSOLUTE path --
+  ;; scripts/build_smoke.sh:126, and the subject's comment there is the reason
+  ;; rather than a preference. Later stages run the compiler from a DIFFERENT
+  ;; directory: the replay stage works inside the scratch tree and the
+  ;; DRIVER-LL stage works inside tools/llmll-driver. A relative invocation
+  ;; re-resolves against that new directory and dies there. The subject
+  ;; measured it in CI run 30938236092, where stack took the temp output
+  ;; directory for its project root because that is where it was standing.
+  ;;
+  ;; The port hits this through `--subject stack` rather than through
+  ;; LLMLL_BIN="stack exec llmll --", because argv carries one word per member
+  ;; and the trailing `--` only ever separated stack's flags from the
+  ;; compiler's. Resolving once here, while the working directory is still the
+  ;; caller's, makes every later invocation independent of the directory.
+  (def-shell stack-shaped? [subj: string] -> bool
+    (or (= subj "stack") (string-contains subj "/stack")))
+
+  (def-shell bin-under [root: string] -> string
+    (string-concat root "/bin/llmll"))
+
+  (def-shell anchor-fail [] -> string
+    (string-concat-many
+      ["BUILD-GATE-1 FAIL: --subject names stack but no llmll binary exists under `stack path --local-install-root`, from either the working directory or <root>/compiler. Build it first: (cd compiler && stack build)."]))
+
+  ;; `stack path` writes the root and a line end. A path with a line end inside
+  ;; it is not a path, and the failure it causes names the wrong thing.
+  ;; string-split takes the SEPARATOR FIRST; the reversed call type-checks and
+  ;; returns a malformed result, which cost port 004 five call sites.
+  (def-shell chomp [s: string] -> string
+    (unwrap-or (list-head (string-split "\n" s)) s))
+
   (def-shell bs-init [] -> ((Bs, Ctl), Command)
-    (go (bs-mk json-object) Tool1
-        (wasi.proc.run "stack" ["--version"] "."
-                       "bs_stack.txt" "bs_stack.txt" 60 "/dev/null")))
+    (go (bs-mk json-object) Boot wasi.proc.args))
 
   (def-shell bs-step [s: (Bs, Ctl) input: string r: Response] -> ((Bs, Ctl), Command)
     (match s
       ((pair b p)
         (match p
+          ;; argv arrived. Record the contract's three values, then stage 1.
+          ((Boot)
+            (let [(as (argv-of r))]
+              (go (with-s (with-s (with-s b "subject" (flag-or as "--subject" "llmll"))
+                                  "root" (flag-or as "--root" "."))
+                          "work" (flag-or as "--work" "."))
+                  Tool1
+                  (wasi.proc.run "stack" ["--version"] "."
+                                 "bs_stack.txt" "bs_stack.txt" 60 "/dev/null"))))
           ;; stack answered. If it is absent, the subject still accepts ghc, so
           ;; a missing stack is not yet a failure.
           ((Tool1)
@@ -125,14 +266,86 @@
                 (go b Tool1Ghc
                     (wasi.proc.run "ghc" ["--version"] "."
                                    "bs_ghc.txt" "bs_ghc.txt" 60 "/dev/null"))
-                (go b Ending
-                    (wasi.io.stdout (pass-line "toolchain present (stack)")))))
-          ;; ghc answered, and it is the last chance.
+                (go b Comp2
+                    (wasi.proc.run (get-s b "subject") ["version"] "."
+                                   "bs_ver.txt" "bs_ver.txt" 60 "/dev/null"))))
+          ;; ghc answered, and it is the last chance for stage 1.
           ((Tool1Ghc)
             (if (absent? r)
                 (go b Ending (wasi.io.stdout (tool-fail)))
-                (go b Ending (wasi.io.stdout (pass-line "toolchain present (ghc)")))))
-          ((Boot)   (go b Ending (wasi.io.stdout "")))
+                (go b Comp2
+                    (wasi.proc.run (get-s b "subject") ["version"] "."
+                                   "bs_ver.txt" "bs_ver.txt" 60 "/dev/null"))))
+          ;; stage 2. The compiler answered, or it did not exist.
+          ((Comp2)
+            (if (absent? r)
+                (go b Ending (wasi.io.stdout (comp-fail (get-s b "subject"))))
+                ;; stage 2a fires only for the stack-shaped subject. A subject
+                ;; that is already a path is already absolute enough: it ran.
+                (if (stack-shaped? (get-s b "subject"))
+                    (go b Anchor2a
+                        (wasi.proc.run "stack" ["path" "--local-install-root"] "."
+                                       "bs_sir.txt" "bs_sir.txt" 120 "/dev/null"))
+                    (go b Ending
+                        (wasi.io.stdout (pass-line "compiler present"))))))
+          ;; stage 2a, first source: an install root for the working directory.
+          ;; BRANCH ON THE STATUS BEFORE READING THE ARTIFACT. This is the
+          ;; header's ordering rule, and it is the defect the RFC's own first
+          ;; probe shipped: reading bs_sir.txt without consulting the status
+          ;; would take a STALE root from a previous run as this run's answer.
+          ((Anchor2a)
+            (if (ok? r)
+                (go b Anchor2aR (wasi.fs.read "bs_sir.txt"))
+                (go b Anchor2aC
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (string-concat (get-s b "root") "/compiler")
+                                   "bs_sir2.txt" "bs_sir2.txt" 120 "/dev/null"))))
+          ((Anchor2aR)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Anchor2aC
+                      (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                     (string-concat (get-s b "root") "/compiler")
+                                     "bs_sir2.txt" "bs_sir2.txt" 120 "/dev/null"))
+                  (go (with-s b "subject" (bin-under sir)) Anchor2aX1
+                      (wasi.proc.run (bin-under sir) ["version"] "."
+                                     "bs_anc.txt" "bs_anc.txt" 60 "/dev/null")))))
+          ;; stage 2a, second source: the repository's own compiler project.
+          ((Anchor2aC)
+            (if (ok? r)
+                (go b Anchor2aCR (wasi.fs.read "bs_sir2.txt"))
+                (go b Ending (wasi.io.stdout (anchor-fail)))))
+          ((Anchor2aCR)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending (wasi.io.stdout (anchor-fail)))
+                  (go (with-s b "subject" (bin-under sir)) Anchor2aX2
+                      (wasi.proc.run (bin-under sir) ["version"] "."
+                                     "bs_anc.txt" "bs_anc.txt" 60 "/dev/null")))))
+          ;; stage 2a, the checks that make the resolution a measurement. The
+          ;; subject tests `-x` on the path; D3 established that attempting the
+          ;; run answers the same question and says WHICH way it failed.
+          ;;
+          ;; The first source failing is NOT the stage failing. `stack path`
+          ;; answers for whatever project the working directory belongs to, and
+          ;; in CI that is the scratch tree, which has no compiler under its
+          ;; root. The subject falls through to <root>/compiler for exactly
+          ;; this case.
+          ((Anchor2aX1)
+            (if (or (absent? r) (denied? r))
+                (go b Anchor2aC
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (string-concat (get-s b "root") "/compiler")
+                                   "bs_sir2.txt" "bs_sir2.txt" 120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (pass-line
+                      (string-concat "compiler anchored at " (get-s b "subject")))))))
+          ((Anchor2aX2)
+            (if (or (absent? r) (denied? r))
+                (go b Ending (wasi.io.stdout (anchor-fail)))
+                (go b Ending
+                    (wasi.io.stdout (pass-line
+                      (string-concat "compiler anchored at " (get-s b "subject")))))))
           ((Ending) (go b Done   (wasi.io.stdout "")))
           ((Done)   (go b Done   (wasi.io.stdout "")))))))
 
@@ -140,7 +353,9 @@
   ;; one past the last emitting phase rather than on it.
   (def-shell bs-done? [s: (Bs, Ctl)] -> bool
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
-                                 ((Tool1Ghc) false) ((Ending) false)))))
+                                 ((Tool1Ghc) false) ((Comp2) false)
+                                 ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
+                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Ending) false)))))
 
   (def-main
     :mode    console
