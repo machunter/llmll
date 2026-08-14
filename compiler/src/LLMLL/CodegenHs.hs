@@ -204,7 +204,10 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- Phase 2 bodies above, so runtimePreamble stays a top-level CAF the WASI-RT
   -- completeness fold can walk without knowing the program's import set. base
   -- only; no package.yaml entry is owed and the generated closure does not move.
-  , "import System.Environment (getArgs)"
+  -- lookupEnv is ENV-READ-1's. It is the Maybe-returning lookup, NOT getEnv,
+  -- and the difference is the whole point: getEnv throws on an unset name, and
+  -- an unset name must arrive as RErr rather than as an exception.
+  , "import System.Environment (getArgs, lookupEnv)"
   , "import System.Timeout (timeout)"
   , "import GHC.Clock (getMonotonicTimeNSec)"
   , "import qualified Data.ByteString as BS"
@@ -669,6 +672,36 @@ runtimePreamble =
   , "wasi_clock_monotonic = llmll_publish_io $ do"
   , "  ns <- getMonotonicTimeNSec"
   , "  return (RCode (fromIntegral ns))"
+  , ""
+  -- ENV-READ-1. lookupEnv, so unset is a Maybe rather than an exception.
+  --
+  -- THE UNSET ARM IS RErr AND NEVER RText "". A variable can be set AND empty,
+  -- and RErr is what separates that state from unset. Answering "" for absence
+  -- is the JSON-SCALAR-1 defect exactly: a port ran its whole corpus with 50
+  -- flags silently dropped, and the program type-checked and verified.
+  --
+  -- `evaluate (length v)` forces inside llmll_publish_io, on the wasi_fs_list
+  -- and wasi_proc_args rule: a failure must arrive as a VALUE (RErr) and not as
+  -- a thunk the program forces later, where the exception becomes a crash
+  -- instead of the arm the channel promises.
+  --
+  -- The RErr payload names the variable. For a literal name that reveals
+  -- nothing, the name being in the source already; for a computed name it puts
+  -- the computed name in an error string. Naming it is the deliberate choice,
+  -- because the alternative leaves a caller no diagnostic at all.
+  --
+  -- NO CAPTURE HAPPENS HERE, and none can: eventJsonL below writes the
+  -- `captures` array as a literal []. That is why :deterministic true on a
+  -- wasi.env import is refused in the TYPE CHECKER (TypeCheck.hs:1716) rather
+  -- than handled here. The guard lands before the mechanism, not after it.
+  , "wasi_env_get :: String -> IO ()"
+  , "wasi_env_get name = llmll_publish_io $ do"
+  , "  mv <- lookupEnv name"
+  , "  case mv of"
+  , "    Nothing -> return (RErr (\"wasi.env.get: \" ++ name ++ \" is not set\"))"
+  , "    Just v  -> do"
+  , "      _ <- evaluate (length v)"
+  , "      return (RText v)"
   , ""
   -- BS.readFile is strict, so unlike wasi_fs_read there is no lazy-IO thunk to
   -- force; the `evaluate` below forces the hex rendering instead, keeping an

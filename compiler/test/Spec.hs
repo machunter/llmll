@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel
-  , computeEffectSummary, primEffect, encodeEff, EffectSummary(..), EffectLabel(..)
+  , computeEffectSummary, primEffect, encodeEff, effectLabelText, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
@@ -11043,8 +11043,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       encode (encodeEff Unbounded) `shouldBe` "\"unbounded\""
       -- CAP-PROC: "random" -> "nondet". encodeEff sorts, and both strings sort
       -- between "net.http" and "stdout", so only the string moved.
+      -- ENV-READ-1 added "env.read". encodeEff sorts the TEXT, not the
+      -- constructor, so the new label lands between "crypto" and "fs.read"
+      -- rather than at the end where its constructor sits.
       encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
-        `shouldBe` "[\"crypto\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdout\"]"
+        `shouldBe` "[\"crypto\",\"env.read\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdout\"]"
 
   -- F-B0-1 regression: a JSON-AST `module` form must flatten into its
   -- imports ++ body (single-file model), mirroring the S-expression parser's
@@ -14742,8 +14745,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       encode (encodeEff (fromMaybe (Caps Set.empty) (primEffect "wasi.proc.run")))
         `shouldBe` "\"unbounded\""
 
-    it "CP-10: Sigma_eff stays six-wide (no EProc was added)" $
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+    -- The claim this assertion carries is "no EProc was added", and it still
+    -- carries it: wasi.proc.run reports the lattice top and the CP-9 assertion
+    -- above pins that. The WIDTH moved 6 to 7 for ENV-READ-1's env.read, which
+    -- is a different name for a different reason.
+    it "CP-10: Sigma_eff is seven-wide (no EProc was added)" $
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
 
   describe "CAP-PROC: Phase 2 codegen and dependencies" $ do
 
@@ -15078,8 +15085,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- match.
     -- 12 -> 13 with FS-COPY-1's wasi.fs.copy.
     -- 13 -> 14 with PROC-BOUNDARY-1's wasi.proc.args.
-    it "builtinEnv declares exactly the fourteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 14
+    -- 14 -> 15 with ENV-READ-1's wasi.env.get, the first name in a new
+    -- namespace since CAP-PROC. The FOLD below covers it with no change,
+    -- because extractWasiNamespace derives wasi.env from the name itself.
+    it "builtinEnv declares exactly the fifteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 15
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
@@ -15445,10 +15455,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- join-semilattices and coarsening is sound by construction; the
     -- enumeration-vs-read distinction language-team wanted is authority
     -- amplification, a property of value flow that no EffectLabel granularity
-    -- can express. Sigma_eff stays closed at six labels.
-    it "shares EFsRead with wasi.fs.read rather than taking a seventh label" $ do
+    -- can express. Sigma_eff is closed, and ENV-READ-1 later widened it to
+    -- seven; the SHARING claim below is unaffected, because it is a claim about
+    -- wasi.fs.list and not about the width.
+    it "shares EFsRead with wasi.fs.read rather than taking its own label" $ do
       primEffect "wasi.fs.list" `shouldBe` primEffect "wasi.fs.read"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
 
     it "the preamble defines wasi_fs_list" $
       T.isInfixOf "wasi_fs_list :: String -> IO ()" preambleText `shouldBe` True
@@ -15501,6 +15513,136 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- below pin the emitter shape it depends on.
   -- -----------------------------------------------------------------------
 
+  -- -----------------------------------------------------------------------
+  -- ENV-READ-1: wasi.env.get, and its three fail-closed side conditions.
+  --
+  -- EVERY SIDE CONDITION HERE IS WRITTEN AS A CONTRAST. A gate that cannot fail
+  -- proves nothing, so each refusal is paired with a sibling that differs by
+  -- exactly the thing under test and must NOT be refused.
+  --
+  -- MEASURED END TO END during implementation, on a built console program
+  -- reading a variable named on stdin:
+  --
+  --   ENVPROBE=hello   -> RText "hello"   (text=[hello])
+  --   ENVPROBE=        -> RText ""        (text=[])
+  --   unset name       -> RErr            (err)
+  --   name "A=B"       -> RErr            (err)
+  --
+  -- Row 2 is the reason the unset arm is RErr rather than RText "": a variable
+  -- that is set AND EMPTY stays distinguishable from one that is unset. Row 4
+  -- is the documented limit, measured rather than asserted: a COMPUTED name
+  -- containing "=" is indistinguishable from unset at run time, which is why
+  -- the literal side conditions exist and why they cannot be the whole answer.
+  -- -----------------------------------------------------------------------
+
+  describe "ENV-READ-1: wasi.env.get surface and side conditions" $ do
+
+    let preambleE  = T.unlines runtimePreamble
+        envImport det = SImport (Import "wasi.env" Nothing
+                          (Just (Capability CapRead "HOME" det)))
+        noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        shellWith body = SDefShell
+          { defShellName = "f", defShellParams = [("k", TString)]
+          , defShellReturn = Nothing, defShellContract = noContract
+          , defShellBody = body, defShellDecreases = [] }
+        kindsOf stmts =
+          mapMaybe diagKind (reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts))
+        getLit s = shellWith (EApp "wasi.env.get" [ELit (LitString s)])
+
+    it "ER-1: builtinEnv types it as a UNARY string -> Command" $ do
+      Map.lookup "wasi.env.get" builtinEnv
+        `shouldBe` Just (TFn [TString] (TCustom "Command"))
+      -- NOT nullary. The unary shape is least privilege (a call names ONE
+      -- variable), and it is deliberately not the CAP-NULLARY-1 argument, so it
+      -- survives a CAP-NULLARY-1 fix.
+      Map.lookup "wasi.env.get" builtinEnv `shouldNotBe` Just (TCustom "Command")
+
+    -- extractWasiNamespace is not exported, so the namespace derivation is
+    -- tested through the behaviour that depends on it rather than as a unit.
+    it "ER-2: a call with NO wasi.env import reports missing-capability" $
+      kindsOf [getLit "HOME"] `shouldContain` ["missing-capability"]
+
+    it "ER-3: the same call WITH the wasi.env import is clean" $
+      kindsOf [envImport False, getLit "HOME"] `shouldNotContain` ["missing-capability"]
+
+    -- Side condition 1, and its counter-witness. This is the proposal's §4
+    -- case 2 module. The two cases differ by EXACTLY the flag.
+    it "ER-4: :deterministic true on a wasi.env import is REFUSED" $
+      kindsOf [envImport True, getLit "HOME"]
+        `shouldContain` ["env-deterministic-refused"]
+
+    it "ER-5: the same module with the flag deleted is LEGAL" $
+      kindsOf [envImport False, getLit "HOME"]
+        `shouldNotContain` ["env-deterministic-refused"]
+
+    -- The refusal is scoped to ONE namespace. Without this, the rule would be
+    -- a change to every deterministic capability in the corpus.
+    it "ER-6: :deterministic true on a wasi.clock import is still LEGAL" $ do
+      let clockImp = SImport (Import "wasi.clock" Nothing
+                       (Just (Capability CapClockMonotonic "" True)))
+          body     = shellWith (EVar "wasi.clock.monotonic")
+      kindsOf [clockImp, body] `shouldNotContain` ["env-deterministic-refused"]
+
+    -- The diagnostic must name the deferred redaction work, because the reader
+    -- otherwise has no route from the refusal to what replaces it.
+    it "ER-7: the refusal diagnostic names redaction as a separate proposal" $ do
+      let ds = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv
+                                    [envImport True, getLit "HOME"])
+          msgs = map diagMessage (filter ((== Just "env-deterministic-refused") . diagKind) ds)
+      msgs `shouldSatisfy` any (T.isInfixOf "separate proposal")
+
+    -- Side conditions 2 and 3, each with a sibling that must NOT fire.
+    it "ER-8: a literal name containing \"=\" is REFUSED" $
+      kindsOf [envImport False, getLit "A=B"] `shouldContain` ["env-name-malformed"]
+
+    it "ER-9: a literal EMPTY name is REFUSED" $
+      kindsOf [envImport False, getLit ""] `shouldContain` ["env-name-malformed"]
+
+    it "ER-10: an ordinary literal name is CLEAN" $
+      kindsOf [envImport False, getLit "HOME"] `shouldNotContain` ["env-name-malformed"]
+
+    -- THE STATED LIMIT, PINNED. A literal rule cannot reach a computed
+    -- argument, and this asserts the gap rather than leaving it implied. If a
+    -- later change makes this fire, the limit moved and the proposal's §4 case
+    -- 3 needs rewriting.
+    it "ER-11: a COMPUTED name containing \"=\" is NOT refused (the limit)" $ do
+      let computed = shellWith (EApp "wasi.env.get"
+                       [EApp "string-concat" [EVar "k", ELit (LitString "=v")]])
+      kindsOf [envImport False, computed] `shouldNotContain` ["env-name-malformed"]
+
+    it "ER-12: primEffect maps it to its own label, not the wasi. fallthrough" $ do
+      primEffect "wasi.env.get" `shouldBe` Just (Caps (Set.singleton EEnvRead))
+      -- The NEGATIVE is the assertion that matters: a clause placed below the
+      -- `wasi.` fallthrough would report top here, and every transitive caller's
+      -- effect_summary would go vacuous with no other symptom.
+      primEffect "wasi.env.get" `shouldNotBe` Just Unbounded
+
+    it "ER-13: it does NOT share the clock's label" $
+      primEffect "wasi.env.get" `shouldNotBe` primEffect "wasi.clock.monotonic"
+
+    it "ER-14: the label renders as env.read" $
+      effectLabelText EEnvRead `shouldBe` "env.read"
+
+    it "ER-15: the preamble defines wasi_env_get" $
+      T.isInfixOf "wasi_env_get :: String -> IO ()" preambleE `shouldBe` True
+
+    -- lookupEnv, NOT getEnv. getEnv throws on an unset name, and an unset name
+    -- must arrive as a VALUE on the response channel.
+    it "ER-16: the emitted import list carries lookupEnv" $
+      T.isInfixOf "import System.Environment (getArgs, lookupEnv)"
+        (cgHsSource (generateHaskell "m" [envImport False, getLit "HOME"]))
+        `shouldBe` True
+
+    it "ER-17: the body publishes through llmll_publish_io" $
+      T.isInfixOf "wasi_env_get name = llmll_publish_io $ do" preambleE `shouldBe` True
+
+    -- The JSON-SCALAR-1 defect, refused by construction: a builtin answering
+    -- the empty string for ABSENCE lets a whole corpus run with values silently
+    -- dropped while the program type-checks and verifies.
+    it "ER-18: the unset arm returns RErr and never RText \"\"" $ do
+      T.isInfixOf "Nothing -> return (RErr" preambleE `shouldBe` True
+      T.isInfixOf "Nothing -> return (RText \"\")" preambleE `shouldBe` False
+
   describe "PROC-BOUNDARY-1: wasi.proc.args (half one)" $ do
 
     let preambleText = T.unlines runtimePreamble
@@ -15521,11 +15663,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       primEffect "wasi.proc.args" `shouldBe` Just (Caps (Set.singleton ENonDet))
       primEffect "wasi.proc.args" `shouldNotBe` Just Unbounded
 
-    -- Label SHARING, on the wasi.fs.list/EFsRead precedent, not a seventh
-    -- label. The catalog is closed at six and this change does not open it.
-    it "PB-3: shares ENonDet with the clock rather than taking a seventh label" $ do
+    -- Label SHARING, on the wasi.fs.list/EFsRead precedent, not its own label.
+    -- ENV-READ-1 later opened the catalog to seven, and that does NOT weaken
+    -- this assertion: argv still shares the clock's label, which is what the
+    -- first line pins. The width line moved with the catalog.
+    it "PB-3: shares ENonDet with the clock rather than taking its own label" $ do
       primEffect "wasi.proc.args" `shouldBe` primEffect "wasi.clock.monotonic"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 6
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
 
     -- The arm set does NOT move. CAP-PROC's rule is that needing a new arm is
     -- the signal EFFECT-RESP's arm set was wrong; a vector of strings is what

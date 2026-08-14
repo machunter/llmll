@@ -37,6 +37,11 @@
   ;; the verb (CAP-1-REAL) -- so `exec` here is documentation, not a bound.
   (import wasi.proc  (capability exec :deterministic false))
   (import wasi.clock (capability read :deterministic false))
+  ;; ENV-READ-1 opens a third namespace. `:deterministic true` HERE is a type
+  ;; error, unlike on every other import in this list, so the flag is written
+  ;; false explicitly rather than omitted: the explicit form is what a reader
+  ;; copying this fixture should copy.
+  (import wasi.env   (capability read "HOME" :deterministic false))
 
   (def-shell smoke-stdout [msg: string]
     (wasi.io.stdout msg))
@@ -91,6 +96,17 @@
   ;; executed rather than only compiled.
   (def-shell smoke-args [] -> Command
     wasi.proc.args)
+
+  ;; ENV-READ-1. Here for the same stated contract as smoke-args above: every
+  ;; wasi.* name with a preamble body is called at least once, so a builtinEnv
+  ;; entry landing without a body fails THIS build rather than a user's.
+  ;;
+  ;; The name is a PARAMETER and not a literal, deliberately. A literal would
+  ;; also exercise the two literal side conditions, and this fixture's job is
+  ;; the build, not the type rules; Spec.hs ER-8 through ER-11 own those, and
+  ;; stage 6 below owns the runtime arms.
+  (def-shell smoke-env [name: string] -> Command
+    (wasi.env.get name))
 
   ;; exec/argv: SEVEN positional parameters since PROC-STDIN-1, and argv is
   ;; list[string]. The gate covers the list-typed ARGUMENT here the way

@@ -23,6 +23,8 @@ module LLMLL.ObligationAssembly
   , primEffect          -- exported for the CAP-PROC label tests: a missing clause
                         -- silently degrades to Unbounded and the summary goes vacuous
   , encodeEff
+  , effectLabelText    -- ENV-READ-1: exported so a test can pin the wire string
+                       -- of a label independently of encodeEff's sort order
   , exprToSExpr
   , substExpr           -- α-rename a refinement predicate (OBLIG-1 assumptions wire + REFINE-REUSE)
   , deriveBacking
@@ -390,13 +392,28 @@ descentDischargedFns stmts measured bodyFaithful isSafe
 -- | Closed coarse capability catalog Σ_eff (v0.12).
 --
 -- CAP-PROC renamed ERandom -> ENonDet. The class is "ambient nondeterministic
--- read granting no outward authority", which covers a PRNG, a clock, and later
--- a PID or an environment read. The rename landed with wasi.clock.monotonic,
--- the label's second producer: at one producer the cost was three source lines
--- and one expected-JSON string with no fixture dependence, and it only grows.
--- The catalog stays SIX-wide. wasi.proc.run deliberately takes NO label; see
--- the primEffect note below.
-data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ENonDet | ECrypto
+-- read granting no outward authority", which covers a PRNG, a clock, and a PID.
+-- The rename landed with wasi.clock.monotonic, the label's second producer: at
+-- one producer the cost was three source lines and one expected-JSON string
+-- with no fixture dependence, and it only grows. wasi.proc.run deliberately
+-- takes NO label; see the primEffect note below.
+--
+-- ENV-READ-1 WIDENED THE CATALOG FROM SIX TO SEVEN, and this comment used to
+-- predict the opposite: it read "and later a PID or an environment read",
+-- putting an environment read in the ENonDet class. Language-team settled it the
+-- other way after a professor round, and the correction is recorded here rather
+-- than left as a comment contradicting the code beneath it.
+--
+-- The reason is that ENonDet cannot separate a clock read from a credential
+-- read, and an effect_summary reporting "nondet" for both is exactly the
+-- distinction the environment channel exists to make. Note what this does NOT
+-- do to the catalog's organising principle: env.read denotes an OPERATION, as
+-- fs.read does. Only the MOTIVE for naming it separately comes from what the
+-- operation returns. Sigma_eff still names operation occurrence, so the
+-- known limits recorded at the wasi.fs.list and wasi.fs.copy clauses below
+-- (this catalog cannot express authority amplification or payload shape) are
+-- unchanged by the widening.
+data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ENonDet | ECrypto | EEnvRead
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 effectLabelText :: EffectLabel -> Text
@@ -406,6 +423,7 @@ effectLabelText EFsWrite = "fs.write"
 effectLabelText ENetHttp = "net.http"
 effectLabelText ENonDet  = "nondet"
 effectLabelText ECrypto  = "crypto"
+effectLabelText EEnvRead = "env.read"
 
 -- | Authority summary. 'Unbounded' (⊤) is distinct from the full 6-set.
 data EffectSummary = Caps (Set EffectLabel) | Unbounded
@@ -480,6 +498,15 @@ primEffect n
   -- fallthrough at :476 or argv would silently report ⊤ and every caller's
   -- effect_summary would go vacuous.
   | n == "wasi.clock.monotonic" || n == "wasi.proc.args" = one ENonDet
+  -- ENV-READ-1. Its OWN label rather than a share of ENonDet, and the catalog
+  -- widened to seven to carry it; the reasoning is at the EffectLabel
+  -- declaration above.
+  --
+  -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below. Under it the name
+  -- reports the lattice top and every transitive caller's effect_summary goes
+  -- vacuous. PROC-BOUNDARY-1 records the same trap for wasi.proc.args, and a
+  -- test pins the negative (NOT Just Unbounded) rather than the positive alone.
+  | n == "wasi.env.get"                                = one EEnvRead
   | "haskell." `T.isPrefixOf` n                        = Just Unbounded
   | "c." `T.isPrefixOf` n                              = Just Unbounded
   -- wasi.proc.run REACHES THIS LINE BY DESIGN and must keep reaching it.

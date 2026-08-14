@@ -239,6 +239,30 @@ builtinEnv = Map.fromList $
   -- is no RBytes arm). Reading via wasi.fs.read first would hash decoded TEXT,
   -- not the file's bytes, and the driver uses this digest as a resume gate.
   , ("wasi.fs.sha256",     TFn [TString] (TCustom "Command"))
+  -- ENV-READ-1. Reads one environment variable. New namespace `wasi.env`;
+  -- extractWasiNamespace (:1878) takes the first two segments, so it derives
+  -- with no change to that function.
+  --
+  -- UNARY, and the justification is least privilege, NOT CAP-NULLARY-1. A call
+  -- names one variable, so the authority it exercises is one variable. An
+  -- earlier revision of the proposal argued from CAP-NULLARY-1 (a nullary
+  -- builtin never reaches checkWasiCapability, which fires only from the EApp
+  -- case at :2072). That is true and it is the wrong ground: choosing a
+  -- builtin's type so a traversal reaches a check is a compiler artifact. This
+  -- shape survives a CAP-NULLARY-1 fix.
+  --
+  -- Delivers RText on a set variable and RErr on an unset one. It NEVER answers
+  -- the empty string for absence: a variable can be set AND empty, and RErr is
+  -- what separates that state from unset. The precedent is JSON-SCALAR-1, where
+  -- a builtin answering "" for absence dropped 50 flags silently and the program
+  -- still type-checked and verified.
+  --
+  -- Three side conditions, all fail-closed. checkStatement (SImport) refuses
+  -- :deterministic true on this namespace (:1692). inferExpr refuses a literal
+  -- name that is empty or contains "=" (:2072 area). A COMPUTED name keeps the
+  -- conflation those two catch; the limit is stated rather than hidden, and
+  -- Spec.hs ER-14 pins it.
+  , ("wasi.env.get",       TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
   -- EFFECT-RESP (RC-1): the response channel's four constructors.
   --
@@ -1690,6 +1714,22 @@ checkStatement (SCheck prop) = do
         <> "': body must be bool, got " <> typeLabel bodyType
 
 checkStatement (SImport imp) = do
+  -- ENV-READ-1, side condition 1. This is the FIRST check in the compiler to
+  -- read importCapability at all: before this clause, checkStatement (SImport)
+  -- read importInterface and nothing else, and checkWasiCapability (:1910)
+  -- compares importPath only and never looks at the grant. So this is new
+  -- machinery rather than one more clause on an existing check.
+  --
+  -- The refusal is on the IMPORT and not on the call, deliberately. The import
+  -- IS the grant, so a module carrying the flag is refused whether or not it
+  -- ever calls wasi.env.get. That is the stricter reading and the simpler one.
+  case importCapability imp of
+    Just cap
+      | capDeterministic cap
+      , importPath imp == "wasi.env" ->
+          modify $ \s -> s
+            { tcErrors = tcErrors s ++ [mkEnvDeterministicRefused (importPath imp)] }
+    _ -> pure ()
   -- Register imported interface functions if specified
   case importInterface imp of
     Nothing -> pure ()
@@ -2070,6 +2110,22 @@ inferExpr (EApp func args) = do
   -- Check is here (in inferExpr, not checkStatement) because EApp can appear
   -- in any nesting context: let RHS, if branches, match arms, do steps, contracts.
   when ("wasi." `T.isPrefixOf` func) $ checkWasiCapability func
+  -- ENV-READ-1, side conditions 2 and 3. Placed HERE, beside the capability
+  -- check, for the same reason CAP-1 is here: an EApp appears in any nesting
+  -- context (let RHS, if branch, match arm, do step, contract), and a check in
+  -- checkStatement would miss every nested call.
+  --
+  -- The rule reaches a LITERAL argument only, which is the whole of what a
+  -- literal rule can reach. A computed name keeps the conflation these two
+  -- catch, and Spec.hs ER-14 pins that limit rather than leaving it implied.
+  when (func == "wasi.env.get") $ case args of
+    [ELit (LitString s)]
+      | T.null s ->
+          modify $ \st -> st { tcErrors = tcErrors st ++ [mkEnvNameMalformed s "empty"] }
+      | "=" `T.isInfixOf` s ->
+          modify $ \st -> st
+            { tcErrors = tcErrors st ++ [mkEnvNameMalformed s "contains-equals"] }
+    _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func
   -- S4: warn on dotted function names in app position (non-wasi)

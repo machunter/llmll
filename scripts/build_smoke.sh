@@ -188,6 +188,12 @@ fi
 # Guards against a fail-open runGhcCheck reporting success on an emitted file
 # that never reached GHC. Every wasi_* name the fixture calls must have a
 # top-level definition in the emitted preamble.
+#
+# ENV-READ-1 added wasi_env_get to the list below. It also added wasi_fs_copy,
+# which is NOT new: smoke.llmll has called wasi.fs.copy since FS-COPY-1 and this
+# list never carried it, so the guard did not cover a name the fixture calls.
+# The list is hand-maintained, so it drifts silently; Spec.hs's WASI-RT fold is
+# the one that derives its names from builtinEnv and cannot.
 
 LIB="$OUTDIR/src/Lib.hs"
 [ -f "$LIB" ] || fail "no src/Lib.hs emitted at $LIB"
@@ -197,6 +203,7 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_read wasi_fs_write wasi_fs_delete wasi_http_post \
             wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
             wasi_clock_monotonic wasi_proc_run wasi_proc_args \
+            wasi_env_get wasi_fs_copy \
             seq_commands \
             json_parse json_serialize json_get json_get_string json_get_int \
             json_get_bool json_get_number json_array json_object json_set \

@@ -37,6 +37,9 @@ module LLMLL.Diagnostic
   , mkCandidateUnvalidated
   -- * v0.4: Capability enforcement (CAP-1)
   , mkMissingCapability
+  -- * ENV-READ-1: the environment channel's three fail-closed side conditions
+  , mkEnvDeterministicRefused
+  , mkEnvNameMalformed
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
@@ -319,6 +322,68 @@ mkMissingCapability func namespace =
             <> "\x2014 wasi.* functions need an explicit capability import in each module"
   in (mkError Nothing msg)
        { diagKind       = Just "missing-capability"
+       , diagSuggestion = Just suggestion
+       }
+
+-- | ENV-READ-1: @:deterministic true@ on a @wasi.env@ import is refused.
+--
+-- REFUSED RATHER THAN DEFAULTED. A default that fails open writes a secret
+-- whenever somebody copies a clock import.
+--
+-- THE MESSAGE STATES A FORWARD CONDITION AND NOT A LIVE LEAK, and that wording
+-- is measured rather than cautious. At v0.14.99 no capture runs at all:
+-- 'capDeterministic' reaches exactly one consumer in the tree (@AstEmit.hs:443@,
+-- which serialises it to JSON), @CodegenHs.hs@'s emitted @eventJsonL@ writes the
+-- @captures@ array as a literal @[]@, and @Replay.hs@ never reads a capture. A
+-- witness program carrying @:deterministic true@ on a clock import was built and
+-- run: its log records @"captures":[]@ on every event. @LLMLL.md:1816@ describes
+-- the mechanism as though it exists, so the drift is in the spec.
+--
+-- The guard therefore lands BEFORE the leak rather than after it. A message
+-- claiming the flag writes a secret today would be false today.
+mkEnvDeterministicRefused
+  :: Text         -- ^ import path (e.g. "wasi.env")
+  -> Diagnostic
+mkEnvDeterministicRefused path =
+  let msg = ":deterministic true is refused on a " <> path <> " import. "
+            <> "A deterministic capability opts into event-log capture of a "
+            <> "command's return value (LLMLL.md 10a), and the environment "
+            <> "carries credentials by convention, so a captured environment "
+            <> "read would write a secret to <module>.event-log.jsonl in "
+            <> "plaintext. This is refused rather than defaulted, because a "
+            <> "default that fails open writes a secret whenever a clock import "
+            <> "is copied. Redaction of a captured value is a separate proposal."
+      suggestion = "Use (capability read \"...\" :deterministic false), or omit "
+                   <> "the flag entirely."
+  in (mkError Nothing msg)
+       { diagKind       = Just "env-deterministic-refused"
+       , diagSuggestion = Just suggestion
+       }
+
+-- | ENV-READ-1: a LITERAL environment variable name that cannot name a variable.
+--
+-- Two forms are refused: the empty name, and a name containing @=@. Measured
+-- 2026-08-14: an unset name, a name containing @=@, and the empty name all
+-- answer the same thing at the OS level, so @RErr@ conflates "unset" with "this
+-- name cannot name a variable". A variable that is set and empty stays
+-- distinguishable, so the conflation is on the NAME side and not the value side.
+--
+-- The rule reaches a LITERAL only. A computed name keeps the conflation, and
+-- that limit is pinned by a test rather than hidden.
+mkEnvNameMalformed
+  :: Text         -- ^ the offending literal
+  -> Text         -- ^ which rule fired ("empty" or "contains-equals")
+  -> Diagnostic
+mkEnvNameMalformed lit rule =
+  let what = case rule of
+        "empty" -> "a literal environment variable name cannot be empty"
+        _       -> "a literal environment variable name cannot contain \"=\""
+      msg = what <> " (got " <> tshow lit <> "). Such a name can never resolve, "
+            <> "so the call always answers RErr and its failure is "
+            <> "indistinguishable from an unset variable."
+      suggestion = "Pass a name that can name a variable, e.g. \"HOME\"."
+  in (mkError Nothing msg)
+       { diagKind       = Just "env-name-malformed"
        , diagSuggestion = Just suggestion
        }
 
