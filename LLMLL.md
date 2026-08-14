@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.99)
+# LLMLL: Large Language Model Logical Language (v0.15.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.99.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.15.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1146,6 +1146,15 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 
 > **Known compiler bug (parser, fix in progress).** `get-bytes` currently fails to parse: the capability-kind parser tries the `get` alternative before `get-bytes`, and `get` matches without a word-boundary check, consuming the prefix. This is the correct, intended grammar — not a documentation error — but it will not parse until the parser fix lands.
 
+> **`:deterministic true` is refused on a `wasi.env` import.** It is a type error, not a default.
+> §10a captures a deterministic capability's return value into the Event Log, and the environment
+> is the one namespace that carries credentials by convention, so a capture of an environment read
+> would write a secret to `<module>.event-log.jsonl` in plaintext. It is a refusal rather than a
+> default because a default that fails open writes a secret whenever somebody copies a clock
+> import. Redaction of a captured value is not designed yet. The consequence is disclosed rather
+> than hidden: a module that reads the environment is replayable in its control flow and is **not**
+> replayable in that value, because a replayed run reads the live environment.
+
 **External Bridge (FFI):** To use existing Haskell packages or C libraries, define a Verified Wrapper using the `haskell.*` or `c.*` prefix:
 
 ```lisp
@@ -2021,7 +2030,7 @@ The checkout response includes four optional fields (present when the compiler h
 
 These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report`.
 
-**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, calls into a module not loaded, and `wasi.proc.run`, which runs an arbitrary program and can therefore reach anything the catalog names and more). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. `effect_summary` arrived at obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
+**Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`, `env.read`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, calls into a module not loaded, and `wasi.proc.run`, which runs an arbitrary program and can therefore reach anything the catalog names and more). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. `effect_summary` arrived at obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
 **Pointer normalization:** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
 
@@ -2531,6 +2540,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
 | `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes. `(wasi.fs.copy src dst)` puts the **source first**; a reversed call type-checks and overwrites the source instead |
+| `wasi.env.get` | `string -> Command` | `(import wasi.env (capability read NAME))` | Read one environment variable. Delivers the value as `RText`, and an **unset** variable as `RErr`. A variable that is set and **empty** delivers `RText ""`, so empty and unset stay distinguishable. **`:deterministic true` on this import is a type error** (§10). A **literal** name that is empty or contains `=` is a type error; a computed one is not, and such a name delivers `RErr` indistinguishably from unset |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
 | `wasi.proc.run` | `string list[string] string string string int string -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds, stdin read from a path: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs stdin-path)`. The three trailing `string` parameters before the `int` are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks. **The stdin path sits AFTER the `int` deliberately**: `stdin-path` and `stdout-path` differ by one character and name opposite directions, so the `int` at position 6 makes that transposition a type error rather than a silent swap. **`"/dev/null"` means no input.** **Equal stdout and stderr path strings mean MERGE**, the counterpart to a shell's `2>&1`: one handle carries both streams. The test is **string equality, not path identity**, so `"log"` and `"./log"` do not merge. **No equality rule constrains the stdin path.** The three handles open in the order **stdout, stderr, stdin**, and that order is normative because it is observable: `WriteMode` truncates, so a caller naming one real file as both an output path and the stdin path gives the child an **empty** file, exactly as a shell's `cmd < f > f` does. **The interleaving is not specified**: it is the order the child flushes, not the order it writes, so a child that buffers one stream and not the other can emit them out of write order. **The child's stdin is never the caller's**: `std_in` is bound to the named path, so a child that reads stdin cannot consume the parent's own input (`PROC-STDIN-SHARE-1`) |
@@ -2565,6 +2575,17 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > as `RList` with zero entries rather than as `RNone`: `RNone` is what the response slot holds when
 > nothing published, so collapsing the two would make "invoked with no arguments" indistinguishable
 > from "no command published anything".
+>
+> **`wasi.env.get` delivers a set variable's value as `RText` and an unset one as `RErr`, and the
+> choice of `RErr` is the same distinction argued one paragraph above.** A variable can be set and
+> empty, so `RText ""` means "set, and empty" while `RErr` means "not set". A builtin answering the
+> empty string for absence would make the two indistinguishable, which is the defect `JSON-SCALAR-1`
+> records: a caller reads a missing value as a present empty one and the program still type-checks
+> and verifies. **The conflation that remains is on the name side, not the value side.** An unset
+> name, a name containing `=`, and the empty name all answer `RErr`, so a *computed* name that
+> cannot name a variable is indistinguishable from one that is merely unset. A **literal** empty
+> name, and a **literal** name containing `=`, are type errors for exactly that reason; the rule
+> reaches what a literal can express and no further.
 >
 > **`wasi.proc.args` reads argv through the response channel, not through an entry-point parameter.**
 > A program that wants its arguments issues it as `:init`'s command and receives the vector as the

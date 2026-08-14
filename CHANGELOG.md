@@ -4,6 +4,42 @@
 
 <a id="Latest"></a>
 
+## v0.15.0: a program can read its environment, and the flag that would log it is refused (2026-08-14)
+
+**`ENV-READ-1` ships the read direction of the environment channel and defers the set direction.** `wasi.env.get : string -> Command` reads one variable in a new `wasi.env` namespace. The `wasi.*` surface moves from fourteen names to fifteen. The two directions are one namespace and two rows: `PROC-ENV-1`, setting a variable for a child, stays open and must express add-to-inherited, because a replace-only record would hand a child one variable and take `PATH` away from it.
+
+### Added: `wasi.env.get`, and three refusals that are type errors rather than defaults
+
+**Unset delivers `RErr`, never the empty string.** A variable can be set *and* empty, and the two stay distinguishable: `ENVPROBE=hello` delivers `RText "hello"`, `ENVPROBE=` delivers `RText ""`, and an unset name delivers `RErr`. Measured on a built program, not asserted from the diff. A builtin answering `""` for absence is the `JSON-SCALAR-1` defect, where a port ran its whole corpus with 50 flags silently dropped and the program still type-checked and verified.
+
+**`:deterministic true` on a `wasi.env` import is a type error.** Capture writes a command's return value to `<module>.event-log.jsonl`, and the environment is the one namespace that carries credentials by convention. It is refused rather than defaulted because a default that fails open writes a secret whenever somebody copies a clock import.
+
+**A literal name that is empty or contains `=` is a type error.** An unset name, a name containing `=`, and the empty name all answer the same thing at the OS level, so `RErr` conflates "unset" with "this name cannot name a variable". The rule reaches a literal, which is all a literal rule can reach. **A computed name keeps the conflation and a test pins that limit rather than hiding it.**
+
+**The unary shape is least privilege, not a compiler artifact.** A call names one variable, so the authority it exercises is one variable. An earlier revision argued from `CAP-NULLARY-1`, which records that a nullary builtin never reaches `checkWasiCapability`; that is true and it was the wrong ground, and the shape now survives a `CAP-NULLARY-1` fix.
+
+Each refusal ships with a firing witness **and** a sibling that does not fire: the capture module is illegal with the flag and legal with it deleted, so the two differ by exactly the flag; the flag stays legal on a `wasi.clock` import; `"HOME"` is clean where `"A=B"` and `""` are not.
+
+### Changed: Σ_eff widens from six labels to seven
+
+`env.read` is its own label rather than a share of `ENonDet`. A summary reporting `nondet` cannot separate a clock read from a credential read, which is the distinction this channel exists to make. `effect_summary` in `verify --obligation-report` can now carry a seventh value. The label denotes an **operation**, as `fs.read` does; only the motive for naming it separately comes from what the operation returns, so `Σ_eff` still names operation occurrence and its recorded limits are unchanged. [`ObligationAssembly.hs`](compiler/src/LLMLL/ObligationAssembly.hs) carried a comment predicting the opposite outcome and it is corrected in the same commit.
+
+No JSON-AST schema change and no schema-version change: a builtin is an `EApp` with a name and adds no node shape. No QF-LIA obligation and nothing escapes to Lean: a `Command` result is not a value in the refinement logic, so every caller takes the `asserted` tier as it does for every other `wasi.*` name.
+
+### Found: `LLMLL.md` §10a describes a capture mechanism that does not exist
+
+**`:deterministic` reaches no consumer that captures anything.** `capDeterministic` has exactly one consumer in the source tree, [`AstEmit.hs`](compiler/src/LLMLL/AstEmit.hs), which serialises it to JSON. The emitted event log writes its `captures` array as a literal `[]`. [`Replay.hs`](compiler/src/LLMLL/Replay.hs) never reads a capture. `ReplayStatus` has no consumer outside [`Syntax.hs`](compiler/src/LLMLL/Syntax.hs). A program carrying `:deterministic true` on a clock import was built and run, and its log records `"captures":[]` on every event.
+
+So §10a's capture sentence and §10's item 8 bitwise-determinism claim both describe unbuilt machinery. **Neither side is moved here.** Building the capture and deleting the guarantee are different decisions, and both are language-team's. Filed as `EVENT-CAPTURE-1`. The `ENV-READ-1` refusal is unaffected and is the reason it ships now: it lands before the mechanism rather than after the leak.
+
+### Also in this release
+
+Six commits of `TOOL-RFC-006` port work ride along: the port's spine and stages 1 through 5, plus the restart record. **The port is incomplete and no release was owed for it alone.** Stage 5 is the first port stage that executes what it built rather than only compiling it. `FS-RMDIR-1` was filed from it rather than worked around.
+
+[`scripts/build_smoke.sh`](scripts/build_smoke.sh) also gains `wasi_fs_copy` in its preamble-name guard. That name is not new: [`smoke.llmll`](scripts/build-smoke/smoke.llmll) has called `wasi.fs.copy` since `FS-COPY-1` and the hand-maintained list never carried it, so the guard did not cover a name the fixture calls. The list is hand-maintained and will drift again; the `WASI-RT` fold in [`Spec.hs`](compiler/test/Spec.hs) derives its names from `builtinEnv` and cannot.
+
+**Tests:** 1707 Haskell examples, 179 Python (6 skipped).
+
 ## v0.14.99: a reference is deleted, and the only instrument that graded its replacement goes with it (2026-08-12)
 
 **TOOL-RFC-005 retires, on schedule and by the campaign's settled rule.** `scripts/doc_path_lint.py` is deleted one release after its LLMLL port landed at v0.14.97; read it at `git show v0.14.98:scripts/doc_path_lint.py`. DRIFT-DOC-4 is now [`pathlint.llmll`](tools/doc-path-lint/pathlint.llmll) and nothing else. This is the first retirement in the six-gate port campaign, so it is the first time the campaign has to answer what retirement actually costs rather than describe it.

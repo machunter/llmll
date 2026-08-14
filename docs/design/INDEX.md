@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-08-05  
+> **Last updated:** 2026-08-14  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -88,6 +88,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [driver-ll-phase4c-implementation-plan.md](driver-ll-phase4c-implementation-plan.md) | Engineer plan and record for sub-phase 4c: stages D, F, G and a proved content-shape channel | **IMPLEMENTED and MERGED**, release ceremony held; cover 31 to 39 cells, and it found `REGEX-LOWER-1` plus two defects only running the built driver could reach |
 | [proc-boundary-1-proposal.md](proc-boundary-1-proposal.md) | argv as `wasi.proc.args`, terminal status as a `def-main` projection; no catalog growth | **Rev 4, SETTLED, shipped v0.14.85**: Rev 4's §5.1 records that the range obligation is body-proved only for a scalar state; §6.3's `tcWarn` is still owed, so roadmap row `PROC-BOUNDARY-1` stays open |
 | [proc-boundary-1-implementation-plan.md](proc-boundary-1-implementation-plan.md) | Engineer plan and measurements for `wasi.proc.args` and `def-main :status` | **IMPLEMENTED, shipped v0.14.85**; its finding 1 became roadmap row `DONE-TYPE-1` |
+| [env-channel-proposal.md](env-channel-proposal.md) | Environment channel: the read direction ships, the set direction defers | **Rev 2, SETTLED, shipped v0.15.0**: `wasi.env.get` reads one variable; `:deterministic true` on the import is a type error; `PROC-ENV-1` (setting) stays open and must express add-to-inherited |
+| [env-read-1-implementation-plan.md](env-read-1-implementation-plan.md) | Engineer plan and measurements for `wasi.env.get` and its three refusals | **SHIPPED v0.15.0**: filed `EVENT-CAPTURE-1`, §10a specifying a capture the compiler does not implement; Σ_eff widened six to seven |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
