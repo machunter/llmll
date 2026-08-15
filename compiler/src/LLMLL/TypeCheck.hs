@@ -162,6 +162,15 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
+  -- FS-RMDIR-1. Removes a directory, EMPTY ONLY. Recursive deletion is
+  -- deliberately not implemented; see the runtime body in CodegenHs for why.
+  -- Idempotent on a missing path, matching wasi.fs.delete's convention, so a
+  -- caller clearing scratch state before a run does not have to probe first.
+  -- RErr when the directory is NOT EMPTY, and RErr when the path is a FILE:
+  -- neither is silently treated as success. Lands under the existing wasi.fs
+  -- capability (extractWasiNamespace takes the first two dotted segments) and
+  -- joins the existing EFsWrite label, so Sigma_eff stays seven-wide.
+  , ("wasi.fs.rmdir",      TFn [TString] (TCustom "Command"))
   -- FS-COPY-1. Byte-faithful copy, delivering RNone. No new Response arm and no
   -- new capability namespace: extractWasiNamespace takes the first two segments,
   -- so this lands under the existing `wasi.fs` capability with exactly the

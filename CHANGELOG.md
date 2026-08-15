@@ -4,6 +4,28 @@
 
 <a id="Latest"></a>
 
+## v0.16.0: a directory can be removed, and the name that claimed to remove one stops lying (2026-08-15)
+
+**`FS-RMDIR-1` ships `wasi.fs.rmdir`, and the same commit fixes a defect the row found on the way in.** `wasi.fs.delete` published `RNone` when handed a directory and removed nothing. `doesFileExist` answers `False` on a directory, so the idempotence guard took its false branch and reported success for a removal that did not happen. Measured on this tree before the change, and indistinguishable at the call site from a real deletion. It now delivers `RErr` naming `wasi.fs.rmdir`. **Zero in-tree call sites pass a directory**, measured across `tools/`, `examples/`, `scripts/` and `compiler/test/`, so nothing in the repository changes behaviour.
+
+### Added: `wasi.fs.rmdir`, empty-only and idempotent
+
+`wasi.fs.rmdir : string -> Command` removes an **empty** directory. A missing path delivers `RNone`, matching `wasi.fs.delete`'s convention rather than introducing a second one. A non-empty directory and a path naming a file both deliver `RErr`.
+
+**Recursive removal is deliberately absent, and the reason is a gap rather than a preference.** There is no runtime capability check: the compiler emits no capability code and the granted verb is not checked (`CAP-1-REAL`). A recursive delete would therefore run under a root that is declared and unenforced, and `wasi.fs.delete` is already marked sensitive under a review that is not implemented. Composing recursion in LLMLL is also unsound over symlinks today, because `listDirectory` follows a symlink to a directory (`LIST-KIND-1`).
+
+**The surface does not grow anywhere else.** No new `Response` arm: `wasi.fs.rmdir` delivers the existing `RNone` and `RErr`. No new effect label: it joins the existing `EFsWrite` alongside `wasi.fs.write`, `wasi.fs.delete` and `wasi.fs.mkdir`, so Σ_eff stays seven-wide. No new capability namespace, and no JSON-AST schema delta — the schema stays at 0.11.0. The `wasi.*` surface moves fifteen names to sixteen.
+
+### The port that raised it now grades what it could only report
+
+`tools/build-smoke/buildsmoke.llmll` stage 5 asserts that `wasi.fs.mkdir` created its scratch directory. The reference clears the directory with `rm -rf` first; the port could not, so a directory left by an earlier run satisfied the assertion whatever that run's `mkdir` did. The port measured whether it pre-existed and printed `NOT GRADED: wasi.fs.mkdir` rather than claiming a pass it had not earned.
+
+**It now clears the directory and the assertion is earned.** Three idempotent `wasi.fs.delete` calls remove the fixture's files, then `wasi.fs.rmdir` removes the directory. **The NOT-GRADED path stays and its trigger changes**: it fires when the clear did not succeed, not when a builtin is missing. Both cells were run. With the directory pre-existing and holding the three fixture files, the port prints the plain pass line. With an unexpected fourth entry, `wasi.fs.rmdir` refuses the non-empty directory, the entry and its siblings survive, and the NOT-GRADED line fires. The two cells differ only by that entry, so the graded pass is earned rather than unconditional.
+
+### Tests
+
+hspec 1707 to 1713. `FR-1` and `FR-2` pin capability gating in both directions. `FR-3` pins `primEffect` to `EFsWrite` **and** pins the negative, that it is not `Unbounded`, which is what catches the clause-ordering trap that would send the name to the `wasi.` fallthrough. `FR-4` pins the shared label and the seven-wide catalog. `FR-5` pins the `wasi.fs.delete` ordering, and it is a preamble-shape assertion rather than a behaviour test, which is a stated limit: the suite does not build and run generated programs. Every one of the five was checked by mutation. Removing `wasi.fs.rmdir` from the `EFsWrite` clause fails `FR-3` and `FR-4` with `Just Unbounded` while `FR-1` and `FR-2` stay green; restoring the pre-fix body shape fails `FR-5`.
+
 ## v0.15.0: a program can read its environment, and the flag that would log it is refused (2026-08-14)
 
 **`ENV-READ-1` ships the read direction of the environment channel and defers the set direction.** `wasi.env.get : string -> Command` reads one variable in a new `wasi.env` namespace. The `wasi.*` surface moves from fourteen names to fifteen. The two directions are one namespace and two rows: `PROC-ENV-1`, setting a variable for a child, stays open and must express add-to-inherited, because a replace-only record would hand a child one variable and take `PATH` away from it.

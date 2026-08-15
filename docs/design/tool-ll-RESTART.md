@@ -429,7 +429,9 @@ Open roadmap rows that this campaign filed or needs:
 | `STRLIT-BODY-1` | OPEN. It is the absence that 004 section 7 records | roadmap, search the tag |
 | `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
 | `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |
-| `FS-EXISTS-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
+| `FS-RMDIR-1` | **SHIPPED v0.16.0** 2026-08-15. Raised by 006, and it BLOCKED stage 5. `wasi.fs.rmdir` is empty-only and idempotent. Stage 5 now grades instead of printing `NOT GRADED`. The same release fixes `wasi.fs.delete` publishing `RNone` for a directory it did not remove | roadmap, Active Items |
+| `RESP-FACT-1` | **FILED 2026-08-15.** OPEN. A `Command` result carries no proved property to its caller. Found by the `FS-STAT-1` design work; six ports routed around it and none filed it | roadmap, Active Items |
+| `FS-EXISTS-1` | **FILED 2026-08-10.** OPEN. Raised by 005. **Its Rev 1 authority argument was REFUTED by measurement 2026-08-15** and it is held, not shipped | roadmap, Active Items |
 | `REGEX-CAPTURE-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
 | `REGEX-CASE-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |
 | `PATH-NORM-1` | **FILED 2026-08-10.** OPEN. Raised by 005 | roadmap, Active Items |

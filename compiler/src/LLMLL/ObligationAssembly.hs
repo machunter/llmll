@@ -458,8 +458,17 @@ primEffect n
   -- returns. Recorded as a known asymmetry; the Response arm set distinguishes
   -- RText from RList while this catalog does not.
   | n == "wasi.fs.read"     || n == "wasi.fs.list"     = one EFsRead
+  -- FS-RMDIR-1 joins this EXISTING clause rather than taking an eighth label.
+  -- Removing a directory is a filesystem mutation and grants no authority the
+  -- write/delete pair does not already grant, so the catalog stays SEVEN-wide.
+  --
+  -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below. Under it
+  -- wasi.fs.rmdir reports the lattice top and every transitive caller's
+  -- effect_summary goes vacuous. The same trap is recorded twice more in this
+  -- function, for wasi.proc.args and wasi.env.get; a test pins the negative
+  -- (NOT Just Unbounded) rather than the positive alone.
   | n == "wasi.fs.write"    || n == "wasi.fs.delete"
-    || n == "wasi.fs.mkdir"                            = one EFsWrite
+    || n == "wasi.fs.mkdir" || n == "wasi.fs.rmdir"    = one EFsWrite
   -- Reads the file AND hashes it, so it carries both labels. Set.union rather
   -- than a choice: coarsening upward on a join-semilattice is sound, dropping
   -- either label is not.

@@ -186,7 +186,11 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- listDirectory, not getDirectoryContents: it already omits "." and "..",
   -- so the exclusion is a property of the primitive rather than a filter that
   -- would need its own test.
-  , "import System.Directory (doesFileExist, removeFile, listDirectory, createDirectoryIfMissing, copyFile)"
+  -- FS-RMDIR-1 adds doesDirectoryExist and removeDirectory. removeDirectory,
+  -- NOT removeDirectoryRecursive: the empty-only restriction is a property of
+  -- the primitive chosen here, so widening it later is an edit a reviewer can
+  -- see rather than a flag someone flips.
+  , "import System.Directory (doesFileExist, doesDirectoryExist, removeFile, removeDirectory, listDirectory, createDirectoryIfMissing, copyFile)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
@@ -569,11 +573,62 @@ runtimePreamble =
   -- relies on. The doesFileExist guard is TOCTOU-racy under concurrency; the
   -- console harness is a single-threaded loop (see emitMainBody below), so no
   -- witness exists in this backend. Recorded, not paid for.
+  --
+  -- FS-RMDIR-1 fixes a DEFECT here, and the defect was in the idempotence
+  -- guard itself. MEASURED: doesFileExist returns False on a DIRECTORY, so a
+  -- delete aimed at a directory took the `when` false branch, removed nothing,
+  -- and published RNone. The caller read a successful deletion off an operation
+  -- that did nothing, which is worse than an error: RNone is the same answer a
+  -- real deletion gives, so no caller could tell the two apart.
+  --
+  -- The directory test therefore runs FIRST and raises. This is a BEHAVIOUR
+  -- CHANGE: a delete on a directory that answered RNone now answers RErr. The
+  -- file path below is unchanged, including its idempotence on a missing path.
   , "wasi_fs_delete :: String -> IO ()"
   , "wasi_fs_delete path = llmll_publish_io $ do"
-  , "  exists <- doesFileExist path"
-  , "  when exists (removeFile path)"
-  , "  return RNone"
+  , "  isDir <- doesDirectoryExist path"
+  , "  if isDir"
+  , "    then ioError (userError (\"wasi.fs.delete: \" ++ path ++ \" is a directory; use wasi.fs.rmdir\"))"
+  , "    else do"
+  , "      exists <- doesFileExist path"
+  , "      when exists (removeFile path)"
+  , "      return RNone"
+  , ""
+  -- FS-RMDIR-1. The directory counterpart of wasi_fs_delete above, and the
+  -- four cases are decided here rather than inherited from a primitive:
+  --
+  --   existing FILE       -> RErr, naming wasi.fs.delete. Silently succeeding
+  --                          on the wrong kind of path is the defect this
+  --                          commit fixes in the other direction.
+  --   missing path        -> RNone. Idempotent, on wasi_fs_delete's convention,
+  --                          so a gate clearing scratch state need not probe.
+  --   EMPTY directory     -> removeDirectory, RNone.
+  --   NON-EMPTY directory -> removeDirectory raises, llmll_publish_io catches
+  --                          it, RErr. Not enumerated as a branch: the
+  --                          primitive already decides it, and re-deciding it
+  --                          here would add a listDirectory race for nothing.
+  --
+  -- RECURSIVE DELETION IS DELIBERATELY NOT IMPLEMENTED, and the ground is the
+  -- capability gap rather than difficulty. There is NO runtime capability
+  -- check (CAP-1-REAL): CodegenHs emits no capability code at all, and
+  -- wasi.fs.delete's documented "sensitive" review (LLMLL.md §13.9) is not
+  -- implemented either. A recursive delete would therefore run under a root
+  -- that is DECLARED AND UNENFORCED, so the blast radius of a wrong path
+  -- argument would be bounded by nothing the compiler checks. Empty-only keeps
+  -- the damage of any single call to one directory entry.
+  --
+  -- The doesDirectoryExist/doesFileExist guards are TOCTOU-racy under
+  -- concurrency, on the wasi_fs_delete precedent directly above: the console
+  -- harness is a single-threaded loop, so no witness exists in this backend.
+  , "wasi_fs_rmdir :: String -> IO ()"
+  , "wasi_fs_rmdir path = llmll_publish_io $ do"
+  , "  isFile <- doesFileExist path"
+  , "  if isFile"
+  , "    then ioError (userError (\"wasi.fs.rmdir: \" ++ path ++ \" is a file; use wasi.fs.delete\"))"
+  , "    else do"
+  , "      isDir <- doesDirectoryExist path"
+  , "      when isDir (removeDirectory path)"
+  , "      return RNone"
   , ""
   -- EFFECT-RESP (RC-1): this is the command the response channel exists for.
   -- WASI-RT's stopgap body performed the read and discarded the contents,

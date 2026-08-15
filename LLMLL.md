@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.15.0)
+# LLMLL: Large Language Model Logical Language (v0.16.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.15.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.16.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2535,7 +2535,8 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | Constructs a POST of `body` to `url`: `(wasi.http.post url body)`, the **URL first**. Both parameters are `string`, so a reversed call type-checks. **No network runtime in the Haskell backend**: the body is discarded and the command publishes `RErr`. See the note below this table |
 | `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path: `(wasi.fs.write path contents)`, the **path first**. A reversed call type-checks and treats the contents as the filename |
-| `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below) |
+| `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below). Idempotent on a missing path. A path naming a **directory** delivers `RErr` naming `wasi.fs.rmdir`; before v0.16.0 it delivered `RNone` and removed nothing, which was success reported for a removal that did not happen |
+| `wasi.fs.rmdir` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Remove an **empty** directory at path (**sensitive**). Idempotent on a missing path. `RErr` when the directory is not empty, and `RErr` when the path is a file. **Recursive removal is deliberately absent**: there is no runtime capability check (`CAP-1-REAL`), so a recursive delete would run under a root that is declared and unenforced |
 | `wasi.fs.list` | `string -> Command` | `(import wasi.fs (capability read PATH))` | List directory entries at path, sorted |
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
@@ -2567,6 +2568,14 @@ These functions produce `Command` values. Each requires the corresponding `impor
 > `wasi.io.stderr` write UTF-8 under any `LANG` rather than failing to encode a non-ASCII string
 > under a POSIX one. The property is the same one the filesystem commands state: what a program puts
 > on a channel is a fact about the program, not about the shell that launched it.
+>
+> **`wasi.fs.rmdir` delivers `RNone` and removes only an EMPTY directory**, with `RErr` for a
+> non-empty one and `RErr` for a path that names a file. It is idempotent on a missing path, which
+> matches `wasi.fs.delete` rather than introducing a second convention. The pair is deliberately
+> split by kind: **`wasi.fs.delete` on a directory now delivers `RErr`**, where before v0.16.0 it
+> delivered `RNone` and removed nothing. That old answer was the collapse this section keeps warning
+> about, one arm carrying both "done" and "nothing happened", and a caller could not tell a real
+> deletion from a silent no-op.
 >
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as

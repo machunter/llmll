@@ -13,7 +13,7 @@
 ;;   --subject <abs path>              PASS compiler present
 ;;   --subject stack --root <repo>     PASS compiler anchored at <resolved>
 ;;   full run, real fixtures           PASS stage 4, 4b and 5 lines
-;;   scratch dir already present       PASS with NOT GRADED: wasi.fs.mkdir
+;;   scratch dir not clearable         PASS with NOT GRADED: wasi.fs.mkdir
 ;;   --subject /nonexistent/llmll      FAIL no llmll binary answered
 ;;   --subject stack --root /nonexist  FAIL no llmll under stack path
 ;;   PATH=/usr/bin:/bin                FAIL neither stack nor ghc
@@ -193,6 +193,10 @@
     (| Sir5)       ;; ran `stack path` in the fixture's own outdir
     (| Sir5R)      ;; read that root and form the binary path
     (| Feed5)      ;; wrote the run's stdin file
+    (| Del5in)     ;; cleared the scratch directory: in.txt
+    (| Del5out)    ;; cleared the scratch directory: out.txt
+    (| Del5err)    ;; cleared the scratch directory: err.txt
+    (| Rmd5)       ;; removed the scratch directory itself
     (| Pre5)       ;; listed the scratch directory BEFORE the run
     (| Run5)       ;; ran the binary; status arrives
     (| Out5)       ;; read the merged output
@@ -769,17 +773,34 @@
                       (wasi.fs.write (x-feed-of (get-s b "work")) (x-feed-text))))))
           ;; stage 5, the scratch directory BEFORE the run.
           ;;
-          ;; THE SUBJECT DELETES THIS DIRECTORY FIRST AND THE PORT CANNOT.
-          ;; `wasi.fs.delete` removes a FILE; no builtin removes a directory,
-          ;; which is filed as `FS-RMDIR-1`. Without the delete, a directory
+          ;; THE SUBJECT DELETES THIS DIRECTORY FIRST AND THE PORT NOW DOES TOO.
+          ;; `FS-RMDIR-1` shipped `wasi.fs.rmdir`, so the clear the subject gets
+          ;; from `rm -rf` is reproducible here. Without the clear, a directory
           ;; left by an earlier run satisfies the mkdir assertion whatever this
           ;; run's mkdir did, which is the stale-artifact class this file's
-          ;; header is about. So the port MEASURES whether it pre-existed and
-          ;; reports that the assertion was not graded when it did. A gate that
-          ;; cannot decide must not report that it decided; that is
-          ;; `SKIP-SILENT-1`, and it is the whole reason this phase exists.
+          ;; header is about.
+          ;;
+          ;; `wasi.fs.rmdir` is EMPTY-ONLY, so the three files the fixture
+          ;; writes come off first. Each delete is idempotent, so a first run
+          ;; with nothing there passes through them unchanged.
+          ;;
+          ;; THE NOT-GRADED PATH STAYS, and it is no longer about a missing
+          ;; builtin. It now fires when the clear did not succeed: an unexpected
+          ;; fourth entry leaves the directory non-empty, `wasi.fs.rmdir`
+          ;; answers `RErr`, and `Pre5` still lists it. A gate that cannot
+          ;; establish its own precondition must not report that it decided;
+          ;; that is `SKIP-SILENT-1`, and it is the whole reason this phase
+          ;; exists.
           ((Feed5)
-            (go b Pre5 (wasi.fs.list (x-scratch))))
+            (go b Del5in  (wasi.fs.delete (string-concat (x-scratch) "/in.txt"))))
+          ((Del5in)
+            (go b Del5out (wasi.fs.delete (string-concat (x-scratch) "/out.txt"))))
+          ((Del5out)
+            (go b Del5err (wasi.fs.delete (string-concat (x-scratch) "/err.txt"))))
+          ((Del5err)
+            (go b Rmd5    (wasi.fs.rmdir (x-scratch))))
+          ((Rmd5)
+            (go b Pre5    (wasi.fs.list (x-scratch))))
           ((Pre5)
             (go (with-s b "pre" (if (listed? r) "y" "n")) Run5
                 (wasi.proc.run (get-s b "exe") [] (get-s b "work")
@@ -812,7 +833,7 @@
                                 ["BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
                                  " (NOT GRADED: wasi.fs.mkdir. "
                                  (x-scratch)
-                                 " existed before this run and no builtin removes a directory, FS-RMDIR-1)"])))
+                                 " still listed after the clear, so this run could not establish that mkdir created it)"])))
                           (go b Ending
                               (wasi.io.stdout (pass-line "CAP-PROC operations executed and matched known answers"))))))))
           ((Ending) (go b Done   (wasi.io.stdout "")))
@@ -824,7 +845,9 @@
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
                                  ((Tool1Ghc) false) ((Comp2) false) ((Home2) false) ((Comp2b) false)
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
-                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false) ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false) ((Ending) false)))))
+                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false)
+                                 ((Del5in) false) ((Del5out) false) ((Del5err) false) ((Rmd5) false)
+                                 ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false) ((Ending) false)))))
 
   (def-main
     :mode    console

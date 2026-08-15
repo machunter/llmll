@@ -15088,8 +15088,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- 14 -> 15 with ENV-READ-1's wasi.env.get, the first name in a new
     -- namespace since CAP-PROC. The FOLD below covers it with no change,
     -- because extractWasiNamespace derives wasi.env from the name itself.
-    it "builtinEnv declares exactly the fifteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 15
+    -- 15 -> 16 with FS-RMDIR-1's wasi.fs.rmdir.
+    it "builtinEnv declares exactly the sixteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 16
 
     forM_ wasiNames $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
@@ -15488,6 +15489,100 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- command that published nothing.
     it "publishes through llmll_publish_io, so an IO failure is RErr not a crash" $
       T.isInfixOf "wasi_fs_list path = llmll_publish_io" preambleText `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- FS-RMDIR-1: wasi.fs.rmdir, the directory counterpart of wasi.fs.delete.
+  --
+  -- The preamble BODY is covered with no change by the WASI-RT completeness
+  -- fold above, which derives its names from builtinEnv; what needs its own
+  -- assertions is the capability gating and the effect label, neither of which
+  -- any fold can derive.
+  -- -----------------------------------------------------------------------
+
+  describe "FS-RMDIR-1: wasi.fs.rmdir" $ do
+
+    -- A DECLARED but UNGATED builtin would grant filesystem authority to a
+    -- module that never imported wasi.fs. The name lands under the existing
+    -- capability because extractWasiNamespace takes the first two dotted
+    -- segments, so this asserts the reuse actually reaches the enforcement path
+    -- rather than merely looking as though it should. FS-COPY-1's pair is the
+    -- precedent and this follows it.
+    it "FR-1: a call with NO wasi.fs import produces missing-capability" $ do
+      let src = T.pack $ unlines
+            [ "(def-shell clear [p: string]"
+            , "  (wasi.fs.rmdir p))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+              capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                                 (reportDiagnostics report)
+          length capErrors `shouldBe` 1
+          diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.fs.rmdir"
+
+    -- The positive half. Without it FR-1 could pass because the name is
+    -- rejected for some unrelated reason, which is the shape a gate that never
+    -- admits takes.
+    it "FR-2: the same call WITH (import wasi.fs ...) is accepted" $ do
+      let src = T.pack $ unlines
+            [ "(import wasi.fs (capability write \"/tmp\"))"
+            , "(def-shell clear [p: string]"
+            , "  (wasi.fs.rmdir p))"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+              diags  = reportDiagnostics report
+              capErrors = filter (\d -> diagKind d == Just "missing-capability") diags
+              errs      = [ diagMessage d | d <- diags, diagSeverity d == SevError ]
+          capErrors `shouldBe` []
+          errs `shouldBe` []
+
+    -- POSITIVE AND NEGATIVE, and the negative is the one that does the work.
+    -- primEffect's `wasi.` prefix fallthrough maps any unrecognized wasi.* name
+    -- to Unbounded, and joinEff makes Unbounded absorbing, so a clause placed
+    -- BELOW that fallthrough would make every transitive caller report
+    -- unbounded authority and the effect_summary vacuous. That degradation is
+    -- SILENT: `shouldBe` on the Caps value alone would fail, but only the
+    -- shouldNotBe states which failure it was. wasi.proc.args and wasi.env.get
+    -- each carry the same paired assertion for the same reason.
+    it "FR-3: primEffect maps it to EFsWrite, and NOT to the wasi.* Unbounded fallthrough" $ do
+      primEffect "wasi.fs.rmdir" `shouldBe` Just (Caps (Set.singleton EFsWrite))
+      primEffect "wasi.fs.rmdir" `shouldNotBe` Just Unbounded
+
+    -- It joins the EXISTING label rather than taking an eighth, so removing a
+    -- directory grants no authority the write/delete pair already grants.
+    it "FR-4: it shares EFsWrite with wasi.fs.delete and Sigma_eff stays seven-wide" $ do
+      primEffect "wasi.fs.rmdir" `shouldBe` primEffect "wasi.fs.delete"
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+
+    -- FR-5 guards the OTHER half of this change, which is a fix rather than an
+    -- addition, and which shipped with no regression guard until this case.
+    --
+    -- wasi_fs_delete used to read `exists <- doesFileExist path` and nothing
+    -- else. MEASURED: doesFileExist answers False on a directory, so deleting
+    -- one took the false branch and published RNone. That is success reported
+    -- for a removal that did not happen, and it is indistinguishable at the
+    -- call site from a real deletion.
+    --
+    -- This is a preamble-SHAPE assertion and not a behaviour test, which is a
+    -- stated limit: the hspec suite does not build and run generated programs,
+    -- so the runtime evidence for the fix is the witness recorded in the
+    -- FS-RMDIR-1 design record. What this case catches is the regression that
+    -- actually threatens the fix, which is somebody restoring the shorter body
+    -- because the guard looks redundant next to llmll_publish_io's catch.
+    it "FR-5: wasi_fs_delete tests doesDirectoryExist BEFORE its doesFileExist guard" $ do
+      let pre = T.unlines runtimePreamble
+      pre `shouldSatisfy` T.isInfixOf "wasi_fs_delete"
+      pre `shouldSatisfy` T.isInfixOf "doesDirectoryExist"
+      -- The ordering is the content. A doesFileExist-first body reproduces the
+      -- defect even with doesDirectoryExist present somewhere in the file.
+      let afterDelete = snd (T.breakOn "wasi_fs_delete path = " pre)
+          dirIdx      = T.length (fst (T.breakOn "doesDirectoryExist" afterDelete))
+          fileIdx     = T.length (fst (T.breakOn "doesFileExist"      afterDelete))
+      dirIdx `shouldSatisfy` (< fileIdx)
 
   -- -----------------------------------------------------------------------
   -- PROC-BOUNDARY-1: argv in, status out.
