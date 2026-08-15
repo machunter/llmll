@@ -201,6 +201,23 @@
     (| Run5)       ;; ran the binary; status arrives
     (| Out5)       ;; read the merged output
     (| Post5)      ;; listed the scratch directory AFTER the run
+    ;; stage 8, the DRIVER-LL 4a+4b+4c cover
+    (| Drv8)       ;; built sequencer.llmll; status arrives
+    (| Drv8S)      ;; ran `stack path` in the sequencer's out dir
+    (| Drv8R)      ;; read that install root
+    (| Drv8P)      ;; ran driver_ll_cover.py; status arrives
+    ;; stage 9, the DRIVER-LL 4e wave cover
+    (| Wav9)       ;; built wave.llmll; status arrives
+    (| Wav9S)      ;; ran `stack path` in the wave's out dir
+    (| Wav9R)      ;; read that install root
+    (| Wav9P)      ;; ran wave_cover.py; status arrives
+    ;; stage 10, DRIFT-CI-1 decided by an LLMLL program
+    (| Vg10)       ;; built versiongate.llmll; status arrives
+    (| Vg10S)      ;; ran `stack path` in the version gate's out dir
+    (| Vg10R)      ;; read that install root
+    (| Vg10C)      ;; ran version_gate_cover.py; status arrives
+    (| Vg10F)      ;; wrote the live run's stdin file
+    (| Vg10L)      ;; ran the gate against the LIVE tree; status arrives
     (| Ending)
     (| Done))
 
@@ -524,6 +541,85 @@
       ((RCode _)  false)
       ((RErr _)   false)))
 
+  ;; ---------------------------------------------------------------------
+  ;; Stages 8, 9 and 10. All three have the SAME shape and it is the
+  ;; simplest in the file: build an LLMLL program, ask stack where its binary
+  ;; landed, hand that binary to a Python cover script, and read one exit
+  ;; status. **The per-cell assertions are NOT here and are not ported**: the
+  ;; subject delegates them to `scripts/driver_ll_cover.py`,
+  ;; `scripts/wave_cover.py` and `scripts/version_gate_cover.py`, and it
+  ;; grades each by exit status alone. A port that re-implemented the cells
+  ;; would not be reproducing its reference; it would be replacing it.
+  ;;
+  ;; **The subject's `[ -f "$SRC" ]` guard is NOT reproduced, and that is a
+  ;; divergence rather than an omission.** No builtin answers "is there a file
+  ;; here" (`FS-EXISTS-1`), so a missing fixture reaches the port as a build
+  ;; failure where the subject skips the stage in silence. All three fixtures
+  ;; are committed, so the guard is true on every tree the gate runs against
+  ;; and the divergence is unreachable here. It is recorded because an
+  ;; unreachable divergence is still a divergence.
+  (def-shell d-dir-of   [root: string] -> string (string-concat root "/tools/llmll-driver"))
+  (def-shell d-out-of   [work: string] -> string (string-concat work "/driverll"))
+  (def-shell d-log-of   [work: string] -> string (string-concat work "/.driverll-build.log"))
+  (def-shell d-sir-of   [work: string] -> string (string-concat work "/.driverll-sir.txt"))
+  (def-shell d-cov-of   [work: string] -> string (string-concat work "/.driverll-cover.log"))
+  (def-shell d-cover-py [root: string] -> string (string-concat root "/scripts/driver_ll_cover.py"))
+
+  (def-shell w-out-of   [work: string] -> string (string-concat work "/waverun"))
+  (def-shell w-log-of   [work: string] -> string (string-concat work "/.wave-build.log"))
+  (def-shell w-sir-of   [work: string] -> string (string-concat work "/.wave-sir.txt"))
+  (def-shell w-cov-of   [work: string] -> string (string-concat work "/.wave-cover.log"))
+  (def-shell w-cover-py [root: string] -> string (string-concat root "/scripts/wave_cover.py"))
+
+  (def-shell v-dir-of   [root: string] -> string (string-concat root "/tools/version-gate"))
+  (def-shell v-out-of   [work: string] -> string (string-concat work "/versiongate"))
+  (def-shell v-log-of   [work: string] -> string (string-concat work "/.versiongate-build.log"))
+  (def-shell v-sir-of   [work: string] -> string (string-concat work "/.versiongate-sir.txt"))
+  (def-shell v-cov-of   [work: string] -> string (string-concat work "/.versiongate-cover.log"))
+  (def-shell v-live-of  [work: string] -> string (string-concat work "/.versiongate-live.log"))
+  (def-shell v-feed-of  [work: string] -> string (string-concat work "/.versiongate-stdin.txt"))
+  (def-shell v-cover-py [root: string] -> string (string-concat root "/scripts/version_gate_cover.py"))
+
+  ;; The subject feeds the live gate sixty lines, and the count is the step
+  ;; budget rather than data. It writes them with python3 and NOT with
+  ;; `yes x | head -n 60`, because `yes` dies of SIGPIPE and the subject runs
+  ;; under `set -o pipefail`. The port writes the same sixty lines directly,
+  ;; so neither hazard applies to it.
+  (def-shell v-feed-text [] -> string
+    (string-concat-many
+      (list-map [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+                 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40
+                 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60]
+                (fn [n: int] "x\n"))))
+
+  ;; Each of the three builds runs from the FIXTURE's own directory with a
+  ;; RELATIVE source argument, exactly as the subject does. That is not a
+  ;; style choice: sibling-module imports resolve relative to the source file,
+  ;; so an absolute path from another cwd does not find them.
+  (def-shell drv8-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" "sequencer.llmll" "-o" (d-out-of (get-s b "work"))]
+                   (d-dir-of (get-s b "root"))
+                   (d-log-of (get-s b "work"))
+                   (d-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
+  (def-shell wav9-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" "wave.llmll" "-o" (w-out-of (get-s b "work"))]
+                   (d-dir-of (get-s b "root"))
+                   (w-log-of (get-s b "work"))
+                   (w-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
+  (def-shell vg10-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" "versiongate.llmll" "-o" (v-out-of (get-s b "work"))]
+                   (v-dir-of (get-s b "root"))
+                   (v-log-of (get-s b "work"))
+                   (v-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
   (def-shell bs-init [] -> ((Bs, Ctl), Command)
     (go (bs-mk json-object) Boot wasi.proc.args))
 
@@ -828,14 +924,173 @@
                           (wasi.io.stdout (fail-line
                             (string-concat "wasi.fs.mkdir did not create " (x-scratch)))))
                       (if (= (get-s b "pre") "y")
-                          (go b Ending
-                              (wasi.io.stdout (string-concat-many
-                                ["BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
-                                 " (NOT GRADED: wasi.fs.mkdir. "
-                                 (x-scratch)
-                                 " still listed after the clear, so this run could not establish that mkdir created it)"])))
-                          (go b Ending
-                              (wasi.io.stdout (pass-line "CAP-PROC operations executed and matched known answers"))))))))
+                          (go b Drv8
+                              (seq-commands
+                                (wasi.io.stdout (string-concat-many
+                                  ["BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
+                                   " (NOT GRADED: wasi.fs.mkdir. "
+                                   (x-scratch)
+                                   " still listed after the clear, so this run could not establish that mkdir created it)"]))
+                                (drv8-build b)))
+                          (go b Drv8
+                              (seq-commands
+                                (wasi.io.stdout (pass-line "CAP-PROC operations executed and matched known answers"))
+                                (drv8-build b))))))))
+          ;; stage 8. The cover is a Python program and its exit status is the
+          ;; whole verdict; see the helper block's note on why the cells are
+          ;; not re-implemented here.
+          ((Drv8)
+            (if (ok? r)
+                (go b Drv8S
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (d-out-of (get-s b "work"))
+                                   (d-sir-of (get-s b "work"))
+                                   (d-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the DRIVER-LL sequencer does not build.")))))
+          ((Drv8S)
+            (if (ok? r)
+                (go b Drv8R (wasi.fs.read (d-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "built the DRIVER-LL sequencer but stack reported no install root for it. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
+          ((Drv8R)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        "built the DRIVER-LL sequencer but found no sequencer binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
+                  (go b Drv8P
+                      (wasi.proc.run "python3"
+                                     [(d-cover-py (get-s b "root"))
+                                      "--driver" (string-concat sir "/bin/sequencer")]
+                                     (get-s b "root")
+                                     (d-cov-of (get-s b "work"))
+                                     (d-cov-of (get-s b "work"))
+                                     900 "/dev/null")))))
+          ((Drv8P)
+            (if (ok? r)
+                (go b Wav9
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "DRIVER-LL 4a+4b+4c cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + registry)"))
+                      (wav9-build b)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the DRIVER-LL 4a+4b+4c acceptance cover did not pass. Every scenario is a DECISION the Python reference makes and this port must make identically; the log names the cell and the assertion: "
+                         (d-cov-of (get-s b "work"))]))))))
+          ;; stage 9.
+          ((Wav9)
+            (if (ok? r)
+                (go b Wav9S
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (w-out-of (get-s b "work"))
+                                   (w-sir-of (get-s b "work"))
+                                   (w-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the DRIVER-LL wave does not build.")))))
+          ((Wav9S)
+            (if (ok? r)
+                (go b Wav9R (wasi.fs.read (w-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "built the DRIVER-LL wave but stack reported no install root for it. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
+          ((Wav9R)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        "built the DRIVER-LL wave but found no wave binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
+                  ;; The cover drives the REAL compiler, not a stub, so the
+                  ;; subject passes it the same binary this port resolved for
+                  ;; itself at stage 2.
+                  (go b Wav9P
+                      (wasi.proc.run "python3"
+                                     [(w-cover-py (get-s b "root"))
+                                      "--wave" (string-concat sir "/bin/wave")
+                                      "--llmll" (get-s b "subject")]
+                                     (get-s b "root")
+                                     (w-cov-of (get-s b "work"))
+                                     (w-cov-of (get-s b "work"))
+                                     900 "/dev/null")))))
+          ((Wav9P)
+            (if (ok? r)
+                (go b Vg10
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "DRIVER-LL 4e wave cover (7 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree)"))
+                      (vg10-build b)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the DRIVER-LL 4e wave cover did not pass. Every cell is a DECISION driver-spec.txt sections 9 and 10 require of the fill protocol; the log names the cell and the assertion: "
+                         (w-cov-of (get-s b "work"))]))))))
+          ;; stage 10. Two invocations, and the second is the point: a cover of
+          ;; fourteen cells proves the gate DISCRIMINATES, and the live run
+          ;; proves it accepts the tree it actually ships with.
+          ((Vg10)
+            (if (ok? r)
+                (go b Vg10S
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (v-out-of (get-s b "work"))
+                                   (v-sir-of (get-s b "work"))
+                                   (v-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the LLMLL version gate does not build.")))))
+          ((Vg10S)
+            (if (ok? r)
+                (go b Vg10R (wasi.fs.read (v-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "built the LLMLL version gate but stack reported no install root for it. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
+          ((Vg10R)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        "built the LLMLL version gate but found no versiongate binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
+                  (go (with-s b "vgexe" (string-concat sir "/bin/versiongate"))
+                      Vg10C
+                      (wasi.proc.run "python3"
+                                     [(v-cover-py (get-s b "root"))
+                                      "--gate" (string-concat sir "/bin/versiongate")]
+                                     (get-s b "root")
+                                     (v-cov-of (get-s b "work"))
+                                     (v-cov-of (get-s b "work"))
+                                     900 "/dev/null")))))
+          ((Vg10C)
+            (if (ok? r)
+                (go b Vg10F
+                    (wasi.fs.write (v-feed-of (get-s b "work")) (v-feed-text)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the LLMLL version gate does not agree with scripts/version_gate.sh. The shell script is the reference: a divergence is the port's defect until argued otherwise, and the log names the cell and the two messages: "
+                         (v-cov-of (get-s b "work"))]))))))
+          ;; The live run's cwd is the WORK directory and not the repo root.
+          ;; The gate is a console program and drops its event log beside
+          ;; wherever it stands, so running it from the tree would litter a
+          ;; tracked directory on every gate run. The subject says the same.
+          ((Vg10F)
+            (go b Vg10L
+                (wasi.proc.run (get-s b "vgexe")
+                               ["--root" (get-s b "root")]
+                               (get-s b "work")
+                               (v-live-of (get-s b "work"))
+                               (v-live-of (get-s b "work"))
+                               300
+                               (v-feed-of (get-s b "work")))))
+          ((Vg10L)
+            (if (ok? r)
+                (go b Ending
+                    (wasi.io.stdout (pass-line "DRIFT-CI-1 decided by an LLMLL program (14 cover cells + the live tree)")))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["the LLMLL version gate rejected this tree. Its own output: "
+                         (v-live-of (get-s b "work"))]))))))
           ((Ending) (go b Done   (wasi.io.stdout "")))
           ((Done)   (go b Done   (wasi.io.stdout "")))))))
 
@@ -847,7 +1102,12 @@
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
                                  ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false)
                                  ((Del5in) false) ((Del5out) false) ((Del5err) false) ((Rmd5) false)
-                                 ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false) ((Ending) false)))))
+                                 ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false)
+                                 ((Drv8) false) ((Drv8S) false) ((Drv8R) false) ((Drv8P) false)
+                                 ((Wav9) false) ((Wav9S) false) ((Wav9R) false) ((Wav9P) false)
+                                 ((Vg10) false) ((Vg10S) false) ((Vg10R) false) ((Vg10C) false)
+                                 ((Vg10F) false) ((Vg10L) false)
+                                 ((Ending) false)))))
 
   (def-main
     :mode    console
