@@ -201,6 +201,28 @@
     (| Run5)       ;; ran the binary; status arrives
     (| Out5)       ;; read the merged output
     (| Post5)      ;; listed the scratch directory AFTER the run
+    ;; stage 5c, CAPTURE-ENCODING-1
+    (| Cenc)       ;; built capture_encoding.llmll; status arrives
+    (| CencS)      ;; ran `stack path`
+    (| CencR)      ;; read that install root; wrote the stdin file
+    (| CencRun)    ;; ran the fixture; status arrives
+    (| CencOd)     ;; ran `od` over its output; status arrives
+    (| CencP)      ;; read the hex dump
+    ;; stage 5d, JSON-SCALAR-1
+    (| Js)         ;; built json_scalar.llmll; status arrives
+    (| JsS)        ;; ran `stack path`
+    (| JsR)        ;; read that install root; wrote the stdin file
+    (| JsRun)      ;; ran the fixture; status arrives
+    (| JsP)        ;; read its output
+    ;; stage 5e, PROC-MERGE-1
+    (| Pm)         ;; built proc_merge.llmll; status arrives
+    (| PmS)        ;; ran `stack path`
+    (| PmR)        ;; read that install root; wrote the stdin file
+    (| PmRun)      ;; ran the fixture; status arrives
+    (| PmP)        ;; read that install root; wrote the stdin file
+    (| PmDone)     ;; ran the fixture; status arrives
+    (| PmOut)      ;; read its output
+    (| PmFin)      ;; both stream-shape lines asserted
     ;; stage 8, the DRIVER-LL 4a+4b+4c cover
     (| Drv8)       ;; built sequencer.llmll; status arrives
     (| Drv8S)      ;; ran `stack path` in the sequencer's out dir
@@ -592,6 +614,82 @@
                  41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60]
                 (fn [n: int] "x\n"))))
 
+  ;; ---------------------------------------------------------------------
+  ;; Stages 5c, 5d and 5e: CAPTURE-ENCODING-1, JSON-SCALAR-1, PROC-MERGE-1.
+  ;;
+  ;; All three assert on WHOLE LINES, because the subject uses `grep -Fqx`.
+  ;; `has-line?` is that predicate: a fixed string equal to an entire line.
+  ;; `string-contains` would NOT reproduce it, and the difference is not
+  ;; pedantic here: `X-AS-INT=err` is a substring of a line reporting
+  ;; `X-AS-INT=errand`, and the whole point of those cells is that a mis-typed
+  ;; read REFUSES rather than answering something adjacent.
+  (def-shell has-line? [out: string want: string] -> bool
+    (list-contains (string-split "\n" out) want))
+
+  ;; `tr -d ' \n'` over an `od` dump. Two passes, because string-split takes
+  ;; one separator: drop the line ends, then drop the spaces.
+  (def-shell strip-ws [s: string] -> string
+    (string-concat-many
+      (string-split " " (string-concat-many (string-split "\n" s)))))
+
+  (def-shell c-out-of  [work: string] -> string (string-concat work "/capenc"))
+  (def-shell c-log-of  [work: string] -> string (string-concat work "/.capenc-build.log"))
+  (def-shell c-sir-of  [work: string] -> string (string-concat work "/.capenc-sir.txt"))
+  (def-shell c-feed-of [work: string] -> string (string-concat work "/.capenc-stdin.txt"))
+  (def-shell c-run-of  [work: string] -> string (string-concat work "/.capenc.out"))
+  (def-shell c-hex-of  [work: string] -> string (string-concat work "/.capenc.hex"))
+  (def-shell c-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/capture_encoding.llmll"))
+  ;; UTF-8 for `BMP=...|AST=...|LEN=5|ALEN=1`. The port holds the HEX and not
+  ;; the characters: a source file carrying them would be checking that THIS
+  ;; file survived its own encoding, not that the fixture's output did.
+  (def-shell c-want [] -> string
+    "424d503de28692e29c94e29c98e29c85c2a77c4153543df09f98807c4c454e3d357c414c454e3d31")
+
+  (def-shell j-out-of  [work: string] -> string (string-concat work "/jsonscalar"))
+  (def-shell j-log-of  [work: string] -> string (string-concat work "/.jsonscalar-build.log"))
+  (def-shell j-sir-of  [work: string] -> string (string-concat work "/.jsonscalar-sir.txt"))
+  (def-shell j-feed-of [work: string] -> string (string-concat work "/.jsonscalar-stdin.txt"))
+  (def-shell j-run-of  [work: string] -> string (string-concat work "/.jsonscalar.out"))
+  (def-shell j-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/json_scalar.llmll"))
+  (def-shell j-want [] -> string
+    "STR=--strict-verified-core|INT=7|BOOL=true|NUM=1.5|X-AS-INT=err|N-AS-STR=err|OLD-GET=err")
+
+  (def-shell p-out-of  [work: string] -> string (string-concat work "/procmerge"))
+  (def-shell p-log-of  [work: string] -> string (string-concat work "/.procmerge-build.log"))
+  (def-shell p-sir-of  [work: string] -> string (string-concat work "/.procmerge-sir.txt"))
+  (def-shell p-feed-of [work: string] -> string (string-concat work "/.procmerge-stdin.txt"))
+  (def-shell p-run-of  [work: string] -> string (string-concat work "/.procmerge.out"))
+  (def-shell p-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/proc_merge.llmll"))
+
+  ;; One stdin line per step. The counts are the subject's own step budgets.
+  (def-shell c-feed-text [] -> string "x\nx\nx\nx\nx\nx\n")
+  (def-shell j-feed-text [] -> string "x\nx\nx\nx\n")
+  (def-shell p-feed-text [] -> string "x\nx\nx\nx\nx\nx\nx\nx\n")
+
+  (def-shell cenc-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" (c-fixture-of (get-s b "root")) "-o" (c-out-of (get-s b "work"))]
+                   (get-s b "root")
+                   (c-log-of (get-s b "work")) (c-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
+  (def-shell js-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" (j-fixture-of (get-s b "root")) "-o" (j-out-of (get-s b "work"))]
+                   (get-s b "root")
+                   (j-log-of (get-s b "work")) (j-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
+  (def-shell pm-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" (p-fixture-of (get-s b "root")) "-o" (p-out-of (get-s b "work"))]
+                   (get-s b "root")
+                   (p-log-of (get-s b "work")) (p-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
   ;; Each of the three builds runs from the FIXTURE's own directory with a
   ;; RELATIVE source argument, exactly as the subject does. That is not a
   ;; style choice: sibling-module imports resolve relative to the source file,
@@ -924,7 +1022,7 @@
                           (wasi.io.stdout (fail-line
                             (string-concat "wasi.fs.mkdir did not create " (x-scratch)))))
                       (if (= (get-s b "pre") "y")
-                          (go b Drv8
+                          (go b Cenc
                               (seq-commands
                                 (wasi.io.stdout (string-concat-many
                                   ["BUILD-GATE-1 PASS: CAP-PROC operations executed and matched known answers"
@@ -932,10 +1030,152 @@
                                    (x-scratch)
                                    " still listed after the clear, so this run could not establish that mkdir created it)"]))
                                 (drv8-build b)))
-                          (go b Drv8
+                          (go b Cenc
                               (seq-commands
                                 (wasi.io.stdout (pass-line "CAP-PROC operations executed and matched known answers"))
-                                (drv8-build b))))))))
+                                (cenc-build b))))))))
+          ;; stage 5c. The subject hex-dumps the program's stdout and compares
+          ;; against a literal, because the defect it catches is invisible in
+          ;; rendered text: a terminal shows the same glyphs whether the bytes
+          ;; are UTF-8 or a latin-1 re-decode of them.
+          ((Cenc)
+            (if (ok? r)
+                (go b CencS
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (c-out-of (get-s b "work"))
+                                   (c-sir-of (get-s b "work")) (c-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the capture-encoding fixture does not build.")))))
+          ((CencS)
+            (if (ok? r)
+                (go b CencR (wasi.fs.read (c-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "built the capture-encoding fixture but stack reported no install root for it.")))))
+          ((CencR)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line "built the capture-encoding fixture but found no capture-encoding binary.")))
+                  (go (with-s b "cexe" (string-concat sir "/bin/capture-encoding"))
+                      CencRun
+                      (wasi.fs.write (c-feed-of (get-s b "work")) (c-feed-text))))))
+          ((CencRun)
+            (go b CencOd
+                (wasi.proc.run (get-s b "cexe") [] (get-s b "work")
+                               (c-run-of (get-s b "work")) (c-run-of (get-s b "work"))
+                               300 (c-feed-of (get-s b "work")))))
+          ((CencOd)
+            (go b CencP
+                (wasi.proc.run "od" ["-An" "-tx1" (c-run-of (get-s b "work"))]
+                               (get-s b "work")
+                               (c-hex-of (get-s b "work")) (c-hex-of (get-s b "work"))
+                               120 "/dev/null")))
+          ((CencP)
+            (if (ok? r)
+                (go b Js (wasi.fs.read (c-hex-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "od could not dump the capture-encoding output.")))))
+          ;; stage 5d.
+          ((Js)
+            (let [(hex (strip-ws (bs-text r)))]
+              (if (string-contains hex (c-want))
+                  (go b JsS
+                      (seq-commands
+                        (wasi.io.stdout (pass-line "non-ASCII string literals survive captureStdout as UTF-8 (5 BMP + 1 astral)"))
+                        (js-build b)))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          ["a console program cannot put a non-ASCII character on its own stdout (CAPTURE-ENCODING-1). want (hex): "
+                           (c-want) " got (hex): " hex])))))))
+          ((JsS)
+            (if (ok? r)
+                (go b JsR
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (j-out-of (get-s b "work"))
+                                   (j-sir-of (get-s b "work")) (j-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the json-scalar fixture does not build.")))))
+          ((JsR)
+            (if (ok? r)
+                (go b JsRun (wasi.fs.read (j-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "built the json-scalar fixture but stack reported no install root for it.")))))
+          ((JsRun)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line "built the json-scalar fixture but found no json-scalar binary.")))
+                  (go (with-s b "jexe" (string-concat sir "/bin/json-scalar"))
+                      JsP
+                      (wasi.fs.write (j-feed-of (get-s b "work")) (j-feed-text))))))
+          ((JsP)
+            (go b Pm
+                (wasi.proc.run (get-s b "jexe") [] (get-s b "work")
+                               (j-run-of (get-s b "work")) (j-run-of (get-s b "work"))
+                               300 (j-feed-of (get-s b "work")))))
+          ;; stage 5e.
+          ((Pm)
+            (go b PmS (wasi.fs.read (j-run-of (get-s b "work")))))
+          ((PmS)
+            (if (has-line? (bs-text r) (j-want))
+                (go b PmR
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "scalar json-array elements project to values, and mis-typed reads refuse"))
+                      (pm-build b)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat-many
+                        ["a scalar element of a json-array does not read back correctly (JSON-SCALAR-1). want: "
+                         (j-want) " output: " (j-run-of (get-s b "work"))]))))))
+          ((PmR)
+            (if (ok? r)
+                (go b PmRun
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (p-out-of (get-s b "work"))
+                                   (p-sir-of (get-s b "work")) (p-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the proc-merge fixture does not build.")))))
+          ((PmRun)
+            (if (ok? r)
+                (go b PmP (wasi.fs.read (p-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "built the proc-merge fixture but stack reported no install root for it.")))))
+          ((PmP)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line "built the proc-merge fixture but found no proc-merge binary.")))
+                  (go (with-s b "pexe" (string-concat sir "/bin/proc-merge"))
+                      PmDone
+                      (wasi.fs.write (p-feed-of (get-s b "work")) (p-feed-text))))))
+          ((PmDone)
+            (go b PmOut
+                (wasi.proc.run (get-s b "pexe") [] (get-s b "work")
+                               (p-run-of (get-s b "work")) (p-run-of (get-s b "work"))
+                               300 (p-feed-of (get-s b "work")))))
+          ((PmOut)
+            (go b PmFin (wasi.fs.read (p-run-of (get-s b "work")))))
+          ;; BOTH lines are required and they are opposite claims: equal paths
+          ;; MERGE, unequal paths STAY SEPARATE. Asserting only the first would
+          ;; pass against an unconditional merge, which is the defect that
+          ;; breaks every two-file caller.
+          ((PmFin)
+            (let [(out (bs-text r))]
+              (if (and (has-line? out "MERGED|OUT=y|ERR=y")
+                       (has-line? out "SPLIT-ERRFILE|OUT=n|ERR=y"))
+                  (go b Drv8
+                      (seq-commands
+                        (wasi.io.stdout (pass-line "equal proc.run paths merge both streams; unequal paths stay separate"))
+                        (drv8-build b)))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          ["wasi.proc.run's stream redirection does not match PROC-MERGE-1. want both: MERGED|OUT=y|ERR=y and SPLIT-ERRFILE|OUT=n|ERR=y. output: "
+                           (p-run-of (get-s b "work"))])))))))
           ;; stage 8. The cover is a Python program and its exit status is the
           ;; whole verdict; see the helper block's note on why the cells are
           ;; not re-implemented here.
@@ -1103,6 +1343,10 @@
                                  ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false)
                                  ((Del5in) false) ((Del5out) false) ((Del5err) false) ((Rmd5) false)
                                  ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false)
+                                 ((Cenc) false) ((CencS) false) ((CencR) false) ((CencRun) false) ((CencOd) false) ((CencP) false)
+                                 ((Js) false) ((JsS) false) ((JsR) false) ((JsRun) false) ((JsP) false)
+                                 ((Pm) false) ((PmS) false) ((PmR) false) ((PmRun) false) ((PmP) false)
+                                 ((PmDone) false) ((PmOut) false) ((PmFin) false)
                                  ((Drv8) false) ((Drv8S) false) ((Drv8R) false) ((Drv8P) false)
                                  ((Wav9) false) ((Wav9S) false) ((Wav9R) false) ((Wav9P) false)
                                  ((Vg10) false) ((Vg10S) false) ((Vg10R) false) ((Vg10C) false)
