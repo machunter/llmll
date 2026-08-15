@@ -254,7 +254,7 @@ Planned cells, per stage that the port covers:
 
 | Cell | Mutation | Expected |
 |---|---|---|
-| 1 | control: an unmutated tree | both implementations PASS every stage |
+| 1 | control: an unmutated tree | both implementations PASS every stage, **except the `LC_ALL=C` encoding claim on Linux; see the note below the table** |
 | 2 | control: a fixture that does not compile | both FAIL stage 3, and name the fixture |
 | 3 | control: a stale artifact present under a failing build | both FAIL. **This cell exists because the stage probe passed it wrongly**; see §4 |
 | 4 | delete a definition the corroboration stage names | both FAIL stage 4 |
@@ -262,6 +262,21 @@ Planned cells, per stage that the port covers:
 | 6 | make `llmll build` succeed while the binary is absent | both FAIL, and neither reports PASS from a stale binary |
 | 7 | a build that exceeds the timeout | the port answers `RErr` and FAILS. The reference has no timeout, so this cell grades the PORT only, and it is labelled as such |
 | 8 | grep the port for a `/bin/sh` call site outside `drive` | zero hits. **D1 bounds the shell strings to one helper, and this cell is what keeps them there** |
+
+**The `LC_ALL=C` encoding claim is REFERENCE-ONLY on Linux, and cell 1 is
+labelled for it on cell 7's precedent.** `scripts/build_smoke.sh` sets
+`LC_ALL=C` for one child in the FS-ENCODING-1 stage. The port cannot set a
+child's environment: `PROC-ENV-1` is open, and `ENV-READ-1` does not close it,
+the two being opposite directions of one namespace. **On Darwin the two agree**,
+because GHC there resolves UTF-8 whatever `LC_ALL` says, so the reference prints
+`BUILD-GATE-1 NOT EXERCISED: the LC_ALL=C encoding claim (FS-ENCODING-1)` and
+the port reproduces that branch faithfully. **On Linux they diverge**: the
+reference settles the claim and the port still prints NOT EXERCISED. So cell 1's
+"both PASS every stage" does not hold for that one stage on Linux, and the cover
+must not read the divergence as a port defect. The asymmetry is the mirror of
+cell 7's: there the port can do something the shell cannot, and here the shell
+can do something the port cannot. **A cover that hid either would claim an
+agreement it did not measure.** The label comes off when `PROC-ENV-1` ships.
 
 **Cell 7 is not a differential cell and the plan says so.** `wasi.proc.run`
 takes a timeout and the shell does not. A cover that hides that asymmetry would

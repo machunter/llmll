@@ -82,6 +82,11 @@
   (import wasi.io   (capability stdout :deterministic false))
   (import wasi.proc (capability exec :deterministic false))
   (import wasi.fs   (capability read-write "." :deterministic false))
+  ;; ENV-READ-1, shipped v0.15.0, is what makes the subject's THIRD compiler
+  ;; source reachable. `:deterministic true` here is a TYPE ERROR, unlike on
+  ;; every other import above, so the flag is written false explicitly rather
+  ;; than omitted: the explicit form is what a reader copying this should copy.
+  (import wasi.env  (capability read "HOME" :deterministic false))
 
   ;; ------------------------------------------------------------------ state --
   ;; Json carries the accumulated verdicts so a field added by stage 9 does not
@@ -113,18 +118,22 @@
   ;; for the same three ideas would make the campaign's ports differ for no
   ;; reason.
   ;;
-  ;; WHAT THIS CONTRACT DOES NOT REACH, stated because the campaign's census
-  ;; says it does. `scripts/build_smoke.sh:118` tries THREE sources for the
-  ;; compiler in order: $LLMLL_BIN, then `command -v llmll`, then
+  ;; ALL THREE SOURCES ARE NOW REACHED. `scripts/build_smoke.sh:116-126` tries
+  ;; three for the compiler in order: $LLMLL_BIN, then `command -v llmll`, then
   ;; $HOME/.local/bin/llmll. `--subject` reproduces the first and a bare
-  ;; "llmll" reproduces the second. **The third is unreachable**, because it
-  ;; needs $HOME and nothing here reads the environment. The census row "no env
-  ;; access ... argv carries it" is dispositioned COSMETIC on the grounds that
-  ;; nothing is lost. That holds for port 005 and it does NOT hold here: argv
-  ;; carries what a caller passes, and $HOME is not passed. Reading it through
+  ;; "llmll" reproduces the second. The third needed $HOME.
+  ;;
+  ;; **It was unreachable until v0.15.0 and this comment used to say so.** The
+  ;; campaign census carried "no env access" as COSMETIC because "argv carries
+  ;; it". That held for port 005 and it FAILED here, because argv carries what
+  ;; a caller passes and $HOME is not passed. Reading it through
   ;; `sh -c 'echo $HOME'` would break D1's rule that this port hands no string
-  ;; to a shell. So the branch is dropped deliberately, and the caller supplies
-  ;; the path instead.
+  ;; to a shell, so the branch was dropped rather than faked. `ENV-READ-1`
+  ;; shipped `wasi.env.get` and the branch is now ported; the phases are Home2
+  ;; and Comp2b below.
+  ;;
+  ;; **The lesson is the more useful half: a disposition tested against one
+  ;; port measures that port, not the language.**
   (def-shell argv-of [x: Response] -> list[string]
     (match x
       ((RList as) as)
@@ -151,6 +160,11 @@
     (| Tool1)      ;; stage 1, toolchain present
     (| Tool1Ghc)   ;; stage 1, the ghc fallback the subject also accepts
     (| Comp2)      ;; stage 2, an llmll binary answers
+    ;; Stage 2's THIRD source, ported at v0.15.0. Two phases and not one,
+    ;; because reading $HOME and running what it points at are separate steps:
+    ;; the env read answers on the response channel like any other Command.
+    (| Home2)      ;; asked for $HOME; RText or RErr arrives
+    (| Comp2b)     ;; ran <home>/.local/bin/llmll version; status arrives
     ;; Stage 2a takes FIVE phases and not two, and the reason is the shape
     ;; rather than the task. `wasi.proc.run` answers the child's EXIT STATUS as
     ;; RCode; the child's stdout went to the path the call named. So reading
@@ -296,6 +310,55 @@
 
   (def-shell bin-under [root: string] -> string
     (string-concat root "/bin/llmll"))
+
+  ;; ---------------------------------------- stage 2, the THIRD source ----
+  ;; scripts/build_smoke.sh:120, `[ -x "$HOME/.local/bin/llmll" ]`.
+  (def-shell home-bin [h: string] -> string
+    (string-concat h "/.local/bin/llmll"))
+
+  ;; THE FIDELITY DECISION, and it is deliberate rather than convenient.
+  ;;
+  ;; The subject is bash, so an UNSET $HOME expands to the EMPTY STRING and the
+  ;; test becomes `[ -x "/.local/bin/llmll" ]`. `wasi.env.get` answers RErr for
+  ;; unset, so this port CAN tell unset from set and the reference cannot.
+  ;;
+  ;; The port reproduces the subject's BEHAVIOUR and keeps the language's
+  ;; DISTINCTION for the diagnostic only. `home-of` maps RErr to "", so the
+  ;; path formed is the same path the reference tests. `home-unset?` keeps the
+  ;; fact, and only the failure message spends it.
+  ;;
+  ;; The alternative was to FAIL on RErr. That diverges from the reference on a
+  ;; real input, and the differential cover grades per-stage agreement, so a
+  ;; port that answered differently here would be measuring its own opinion.
+  ;; Collapsing RErr to "" and FORGETTING it was the other alternative, and
+  ;; that is the JSON-SCALAR-1 shape this file's response section rejects.
+  (def-shell home-of [r: Response] -> string
+    (match r
+      ((RText h) h)
+      ((RErr _)  "")
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RList _) "")))
+
+  (def-shell home-unset? [r: Response] -> bool
+    (match r
+      ((RText _) false)
+      ((RErr _)  true)
+      ((RNone)   true)
+      ((RCode _) true)
+      ((RList _) true)))
+
+  ;; The third source's own failure line. It is NOT comp-fail: that one names
+  ;; the subject the caller passed, and by this point the subject is a path
+  ;; this port derived. Reusing it would report a path the caller never wrote.
+  (def-shell comp3-fail [path: string unset: bool] -> string
+    (string-concat-many
+      ["BUILD-GATE-1 FAIL: no llmll binary answered. The last source tried was '"
+       path "', which did not answer 'version'."
+       (if unset
+           " HOME IS UNSET, and that path is what the reference's own \"$HOME/.local/bin/llmll\" expands to with HOME empty; the reference cannot say this and this port can."
+           "")
+       " Pass --subject with a path to the compiler, or put llmll on PATH. A missing binary is a failure here, not a skip."]))
 
   (def-shell anchor-fail [] -> string
     (string-concat-many
@@ -491,9 +554,12 @@
                     (wasi.proc.run (get-s b "subject") ["version"] "."
                                    "bs_ver.txt" "bs_ver.txt" 60 "/dev/null"))))
           ;; stage 2. The compiler answered, or it did not exist.
+          ;; A compiler that did not answer is NOT yet a failure: the subject
+          ;; has a third source and so does this port now. Falling straight to
+          ;; comp-fail here is what dropped the branch before v0.15.0.
           ((Comp2)
             (if (absent? r)
-                (go b Ending (wasi.io.stdout (comp-fail (get-s b "subject"))))
+                (go b Home2 (wasi.env.get "HOME"))
                 ;; stage 2a fires only for the stack-shaped subject. A subject
                 ;; that is already a path is already absolute enough: it ran.
                 (if (stack-shaped? (get-s b "subject"))
@@ -501,6 +567,30 @@
                         (wasi.proc.run "stack" ["path" "--local-install-root"] "."
                                        "bs_sir.txt" "bs_sir.txt" 120 "/dev/null"))
                     (start-build b))))
+          ;; stage 2, third source: $HOME arrived. Form the same path the
+          ;; reference forms and try it. The subject becomes that path, so a
+          ;; later stage runs what this phase resolved rather than the name the
+          ;; caller passed and this port already found wanting.
+          ((Home2)
+            (let [(p (home-bin (home-of r)))]
+              (go (with-s (with-s b "subject" p)
+                          "homeunset" (if (home-unset? r) "yes" "no"))
+                  Comp2b
+                  (wasi.proc.run p ["version"] "."
+                                 "bs_ver.txt" "bs_ver.txt" 60 "/dev/null"))))
+          ;; stage 2, third source answered or it did not. This is the last
+          ;; source, so absence IS the failure here.
+          ;;
+          ;; The success path calls start-build directly and does NOT re-test
+          ;; stack-shaped?. The third source is an absolute path by
+          ;; construction, so that branch could never fire and a copy of it
+          ;; would be a dead arm a later edit could get wrong.
+          ((Comp2b)
+            (if (absent? r)
+                (go b Ending
+                    (wasi.io.stdout (comp3-fail (get-s b "subject")
+                                                (= (get-s b "homeunset") "yes"))))
+                (start-build b)))
           ;; stage 2a, first source: an install root for the working directory.
           ;; BRANCH ON THE STATUS BEFORE READING THE ARTIFACT. This is the
           ;; header's ordering rule, and it is the defect the RFC's own first
@@ -732,7 +822,7 @@
   ;; one past the last emitting phase rather than on it.
   (def-shell bs-done? [s: (Bs, Ctl)] -> bool
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
-                                 ((Tool1Ghc) false) ((Comp2) false)
+                                 ((Tool1Ghc) false) ((Comp2) false) ((Home2) false) ((Comp2b) false)
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
                                  ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false) ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false) ((Ending) false)))))
 

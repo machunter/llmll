@@ -170,9 +170,17 @@ write the stages that use them. Both are probed. The probe is
 environment. It does not use a changed source file.
 
 **Stages 2 and 2a are DONE, and building them found a gap.** The subject reads
-`$LLMLL_BIN`, then `PATH`, then `$HOME/.local/bin/llmll`. The port does the
-first two. **It cannot do the third**, because nothing reads the environment
-and `$HOME` is not in argv. This is filed as `ENV-READ-1`.
+`$LLMLL_BIN`, then `PATH`, then `$HOME/.local/bin/llmll`. The port did the
+first two. **It could not do the third**, because nothing read the environment
+and `$HOME` is not in argv. This was filed as `ENV-READ-1`.
+
+**`ENV-READ-1` SHIPPED at v0.15.0 and the third source is PORTED.** The port
+gains two phases in stage 2, `Home2` and `Comp2b`. It gains no stage number,
+because the subject puts the third source inside its own section 2. Five cells
+were run on the built binary. The third source fires when the first two fail.
+It does NOT fire when the subject works, which is the ordering control. An
+unset `HOME` forms `/.local/bin/llmll`, which is what the reference's own
+`"$HOME/.local/bin/llmll"` expands to, so the two agree on that input.
 
 **The campaign census was wrong here, and this is the lesson to carry.** That
 row said "no env access" is COSMETIC because "argv carries it". Port 005 tested
