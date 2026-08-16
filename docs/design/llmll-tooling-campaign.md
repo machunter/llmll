@@ -188,22 +188,55 @@ declaration, which is precisely why a rule written against FFI misses it.
 - **A gap, dispositioned SHAPES, and it owes a row.** The spawned program does
   work the LANGUAGE should do, and the subject reaches for it because it is a
   shell script rather than because the task requires a process. `od` for a hex
-  dump is this, and it is filed as `BYTES-READ-1`.
+  dump is this, and it is filed as `BYTES-READ-1`. `/usr/bin/printf` writing a
+  byte no string literal can hold is the same thing in the other direction, and
+  it is raised below as `BYTES-WRITE-1`.
 
 **A SECOND EXAMPLE STOOD HERE AND WAS WITHDRAWN ON 2026-08-15. The withdrawal
-is kept, because it is the sharper lesson.** The amendment first cited `awk`
-generating a repeated string, filed as `LIST-RANGE-1`. Port 006 then wrote that
-fixture with no `awk` at all: `string-concat` doubles a literal fourteen times
-and gives 147456 bytes, against the 108894 the subject's `seq` pipeline
-produces. **The example failed the correction two paragraphs below, which is
-this section's own rule**, and it failed it within a day of being written.
-`LIST-RANGE-1` stays open on what does not compose, which is N DISTINCT
-elements from the count N, and not on a repeated string.
+is kept, and on 2026-08-16 it got worse rather than smaller.** The amendment
+first cited `awk` generating a repeated string, filed as `LIST-RANGE-1`. Port
+006 then wrote that fixture with no `awk` at all: `string-concat` doubles a
+literal fourteen times and gives 147456 bytes, against the 108894 the subject's
+`seq` pipeline produces. That withdrew the prediction and left the row open on
+the half said not to compose, N DISTINCT elements from the count N.
+
+**THAT HALF IS ALSO FALSE, AND HAS BEEN SINCE v0.11.** `range` is a builtin.
+`builtinEnv` carries it at
+[`TypeCheck.hs:133`](../../compiler/src/LLMLL/TypeCheck.hs), typed
+`int int -> list[int]`;
+[`CodegenHs.hs:313`](../../compiler/src/LLMLL/CodegenHs.hs) emits
+`range from to = [from .. to - 1]`; and [`LLMLL.md`](../../LLMLL.md) documents it
+in the builtin table with a worked example covering the empty and the inverted
+case. **Fifteen call sites across five committed `.llmll` files already use it**,
+seven of them passing a `range` straight into `list-map`, `list-filter` or
+`list-fold`, which is the shape the row called absent. One of the five files is
+this campaign's own port 003,
+[`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll). **PROBED 2026-08-16
+against `llmll 0.16.0` on aarch64-osx, executed rather than read**: `range 1 6`
+answers 1 through 5, so the interval is half-open; `range 1 61` answers 60
+elements; `range 3 3` and the inverted `range 9 4` each answer 0 elements and
+neither crashes; and `list-map (range 1 13) int-to-string` answers 12 distinct
+strings. The witness the row was moved onto, `v-feed-text` in
+[`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll), now reads
+`(list-map (range 1 61) ...)`, measured in the working tree on 2026-08-16, and
+the row is closed as REFUTED in
+[`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
+
+**So the example was not merely unmeasured: the absence it named never
+existed.** That sharpens the lesson rather than softening it. The illustration
+was reached for, and the operation it called missing was already in the builtin
+table, already in the spec with a worked example, and already called by a
+sibling port in this same campaign. **The row broke the rule printed a few
+paragraphs below it**, which says to read the builtin list and check whether the
+operation COMPOSES before filing an absence, and it broke it while sitting in
+the section that states the rule.
 
 **The general shape is worth more than either example.** An amendment written
 to catch workarounds will itself reach for the nearest illustration, and the
-nearest illustration is the one nobody has tried yet. Prefer an example the
-campaign has already MEASURED over the one that reads best.
+nearest illustration is the one nobody has checked. Prefer an example the
+campaign has already MEASURED over the one that reads best. **One grep was the
+whole cost**: `builtinEnv` is one list in one file, and reading it would have
+stopped this filing twice over.
 
 **Count the spawn sites by class in each RFC's section 5.** A count of zero FFI
 declarations beside an uncounted spawn is a measurement of the wrong thing.
@@ -215,25 +248,177 @@ composes today in about four lines. The lesson generalises. Read the builtin
 list, then check whether the operation COMPOSES from what is there, before
 filing an absence.
 
-### The rule's first application, and it found nothing owed
+### A gap costs a capability, and the census has only ever counted lines
 
-**Measured 2026-08-15, over port 006's PROC-STDIN-1, REPLAY-FRAME and
-PROC-BOUNDARY-1 stages at `9806b78`.** Twenty-four spawn sites: four
-`llmll build`, six `llmll replay`, four `stack path`, and ten runs of the
-fixtures under test. Every one is the compiler, the toolchain, or the subject
-of the test, so none owes a row under the rule above.
+**Written 2026-08-16, after the `BYTES-READ-1` site was measured a second way.**
 
-**Seven shell utilities the subject uses were composed instead of spawned.**
-`cp` became `wasi.fs.copy`, `mkdir -p` became `wasi.fs.mkdir`, `rm -f` became
-`wasi.fs.delete`, `cmp` became string equality, and `grep` became
-`string-contains` or the port's own whole-line `has-line?`. Two more composed
-from existing builtins rather than being filed: `sed` replace-all from
-`string-split` plus a fold-join, and the `seq` volume from `string-concat`
-doubling.
+Every gap row in this campaign is scored on one axis, which is what the
+workaround costs the port in code lines. That axis is real and it is not the
+only one. A workaround also decides **which capability the program must
+declare**, and no census has recorded that.
 
-**A discipline that fires and finds nothing owed is a result, and it is
-recorded for that reason.** Silence reads as "not checked", and the campaign
-cannot tell those two apart a month later.
+**The capabilities are not equal, and two of the three take a scope.** A
+filesystem import names a root, as `(capability read-write ".")`. An environment
+import names one variable, as `(capability read "HOME")` in
+[`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll). **The process
+import names nothing.** `(capability exec)` admits any executable on the host: a
+compiler, a shell, a hex dumper, an agent CLI. It is the widest authority the
+language grants and it is the only one with no scope parameter.
+
+**The compiler already says the argv split does not narrow it.**
+`compiler/src/LLMLL/TypeCheck.hs` states that the split gives auditability and
+not authority bounding, that the argument vector is unconstrained, and that no
+capability check is enforced at that site. The missing enforcement is tracked as
+`CAP-1-REAL`.
+
+**So a spawn-shaped workaround does not only cost lines. It makes the program
+hold the widest capability in the language, and filling the gap gives that
+capability back.** A row scored on line count alone reports a gap as cheap when
+its workaround has widened what the program may do.
+
+**The rule.** Every row dispositioned SHAPES whose workaround spawns a process
+names two more things: the capability that workaround forces the program to
+declare, and whether the program would have needed that capability anyway.
+
+**The worked example.** `BYTES-READ-1` is filed because nothing gets a file's
+bytes into the language, so the port spawns `od -An -tx1`. Measured 2026-08-16:
+the language HAS a first-class `bytes` type, with construction, indexed read,
+indexed write and length, and **no `wasi.*` builtin carries a bytes type in its
+signature at all**. The gap is a missing pair of signatures rather than a
+missing type. Scored on lines the row is small. Scored on authority, a program
+that wants to inspect a file's bytes must be able to execute arbitrary
+binaries, which is the whole of `(capability exec)` bought to read a file the
+program can already open.
+
+**The counter-example, which keeps the axis narrow.** At port 006 this costs
+nothing. `buildsmoke.llmll` builds programs and runs them, so it declares
+`(capability exec)` whatever the language ships, and filling `BYTES-READ-1`
+would remove no capability from it. **The axis discriminates between programs
+and not within one.** It states what a gap costs the NEXT program, which is the
+population this campaign exists to serve. A row whose workaround forces `exec`
+on a port that already holds it scores zero here, and saying so is part of
+applying the rule.
+
+**What this does to the existing rows is nothing automatic.** The axis is
+recorded so the next RFC's section 5 carries it, and so a re-score is a
+measurement someone runs rather than an argument someone has. `BYTES-READ-1` and
+`BYTES-WRITE-1` move first, and both move for the same reason.
+
+### The rule applied to the whole port, and four sites owe a row
+
+**Measured 2026-08-16 in the working tree, over the whole of
+[`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll), after stage 5b
+landed and while it is still uncommitted.** Sixty `wasi.proc.run` call sites.
+Twenty-four name a CONSTANT executable and thirty-six COMPUTE one from state,
+almost always `(get-s b "subject")`, the compiler the gate was pointed at.
+Fifty-six are not a gap. Four are; three of those rows were already filed and
+the fourth is filed by this census.
+
+| What the site spawns | Sites | Executable | Class |
+|---|---|---|---|
+| the `llmll` under test: `build` 13, `version` 5, `replay` 4 | 22 | computed | not a gap |
+| `stack`: `path --local-install-root` 15, `--version` 1 | 16 | constant | not a gap |
+| a binary this gate itself just built (nine distinct executables) | 14 | computed | not a gap |
+| `python3` over a differential cover script | 3 | constant | not a gap |
+| `ghc --version` | 1 | constant | not a gap |
+| `od -An -tx1` over a captured stdout | 1 | constant | **SHAPES, `BYTES-READ-1`** |
+| `/usr/bin/env`, prefixing an assignment to an argv vector | 1 | constant | **SHAPES, `PROC-ENV-1`** |
+| `/usr/bin/uname -s`, reading the host platform | 1 | constant | **SHAPES, `PLATFORM-1`** |
+| `/usr/bin/printf`, expanding octal escapes into a binary fixture | 1 | constant | **SHAPES, `BYTES-WRITE-1`** |
+
+**Class (b) is FOUR sites carrying four tags, where the census taken earlier the
+same day found one.** Stage 5c hex-dumps a program's captured output with `od`
+because `wasi.fs.read` answers UTF-8 text and nothing in the language looks at
+bytes; `BYTES-READ-1` was filed off exactly that site on 2026-08-15. Stage 5b
+brings the other three. `/usr/bin/env` sets a child's environment, which is
+`PROC-ENV-1`, filed 2026-08-11 and open in the table above. `/usr/bin/uname -s`
+reads the host platform, which is `PLATFORM-1`, filed 2026-08-16.
+`/usr/bin/printf` writes a lone `0xFF` into the stage's `bin.dat` fixture,
+because `wasi.fs.write` takes a string and encodes it as UTF-8 and no `.llmll`
+literal can carry that byte. **Nothing in this section, in TOOL-RFC-006, or in
+the roadmap had named that last one.** It is raised here as `BYTES-WRITE-1`,
+dispositioned SHAPES, and it was filed in the roadmap the same day. Measured
+2026-08-16: the file that lands is
+`62 69 6e 61 72 79 20 ff fe 00 20 72 61 77 0a`, matching
+[`build_smoke.sh`](../../scripts/build_smoke.sh)'s own `printf` byte for byte.
+It is the opposite direction of `BYTES-READ-1` in one namespace, so it is a
+separate row on the `ENV-READ-1` versus `PROC-ENV-1` precedent rather than a
+second use of that one.
+
+**How `BYTES-WRITE-1` was found is `LIST-KIND-1` recurring with its halves
+swapped.** There, port 004 recorded a gap with NO TAG, so a search for tags
+could not see it, and it sat for a release. Here the port's own code NAMED the
+tag while no roadmap row existed for a search of the roadmap to find, and it was
+filed within hours rather than within a release. **The shorter window is luck
+about who looked, not a difference in mechanism.** The repair is the same in
+both directions: a tag and a row are owed at the moment a gap is recorded, and
+either one alone is invisible to whichever instrument looks for the other.
+
+**The two PENDING sites are discharged, and the third was never on the list.**
+The earlier census held `PLATFORM-1` and `PROC-ENV-1` out of its total because
+stage 5b was unported, and named them so that the next census would count them.
+It counts them. It did not name `BYTES-WRITE-1`, because a pending list can only
+hold gaps someone has already thought of. **A pending list is a forecast, and
+this one was two thirds right**, which is a better result than it sounds and is
+still not a census.
+
+**A CENSUS WAS MEASURED, PUBLISHED, AND INVALIDATED BY WORK LANDING THE SAME
+AFTERNOON.** The figures above replace fifty-five sites, twenty constant and
+thirty-five computed, measured at `cdd6438` and written into this section on
+2026-08-16. Stage 5b landed hours later and moved every one of them. The earlier
+count was not wrong; it was a measurement of a tree, and the tree moved.
+**That is why a census states its commit and its date rather than reading as a
+standing fact**, and it is why the paragraph above says which tree these sixty
+sites were counted in and that the code carrying them is not yet committed.
+
+**The earlier census counted a different thing over a fraction of the port, and
+both halves of that matter.** It reported twenty-four spawn sites over the
+PROC-STDIN-1, REPLAY-FRAME and PROC-BOUNDARY-1 stages at `9806b78`. Those three
+stages hold NINETEEN `wasi.proc.run` call sites; twenty-four is their RUNTIME
+spawn count, because REPLAY-FRAME loops over two modules and five of its sites
+therefore fire twice. The two figures are not two answers to one question. The
+earlier finding still stands over what it covered: none of those nineteen sites
+owes a row, and `od` is absent from them because `od` is in stage 5c.
+
+**The defect is this campaign's own recurring class.** A census over three
+stages was reported in a section whose subject is the port, and correcting the
+population moved the count from twenty-four to fifty-five.
+
+**Nine shell utilities the subject uses were composed instead of spawned, two
+more than the three-stage census found.**
+
+| [`build_smoke.sh`](../../scripts/build_smoke.sh) spawns | The port composes |
+|---|---|
+| `cp` | `wasi.fs.copy` |
+| `mkdir -p` | `wasi.fs.mkdir` |
+| `rm -f` | `wasi.fs.delete` |
+| `cmp -s` | string equality, at the replay tamper crux |
+| `grep -Fq`, `grep -Fqx`, `grep -qE` | `string-contains`, the port's whole-line `has-line?`, and `regex-match` |
+| `sed` replace-all | `string-split` plus a fold-join |
+| `printf 'LINE%s\n' $(seq 12000)` | `string-concat` doubling, fourteen times |
+| `tr -d ' \n'` | two `string-split` passes, one separator each |
+| `python3 -c` writing sixty lines | `list-map` over `(range 1 61)`, which was a literal sixty-element list until `LIST-RANGE-1` was refuted |
+
+**`python3` and `printf` each land in BOTH classes, and that is the test
+working.** Three `python3` sites spawn it over a cover script, which is what the
+subject does at the same point, and one use of it as a line generator composed
+away to nothing. `printf` composes away where it repeats a text line, in the row
+above, and it is spawned where it must emit a byte no string literal can hold,
+which is the `BYTES-WRITE-1` site. The rule asks what the spawned program is
+FOR at each site; it does not keep a list of forbidden names, and one name can
+answer differently at two sites in the same file.
+
+**One subject utility falls in neither class.** `mktemp -d` makes the scratch
+directory, which reaches the port on argv instead, so there is nothing to spawn
+and nothing to compose. It is named here so a later reader does not read its
+absence from both tables as an omission.
+
+**A discipline that fires is a result whichever way it comes out, and both
+outcomes are recorded for that reason.** Fifty-six sites cleared, four owed a
+row, and nine utilities never became a site at all. Silence reads as "not
+checked", and the campaign cannot tell those two apart a month later. The COUNT
+carries a claim the verdict does not: it says the rule was applied to the whole
+population, and not to whichever part of it happened to be in front of someone.
 
 ### A port can be complete and still not gate
 

@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-006-build-smoke
 title: "TOOL-RFC-006: BUILD-GATE-1, the build smoke harness, in LLMLL"
-status: "Rev 5, PORT NEARLY COMPLETE. SIXTEEN OF SEVENTEEN STAGE ROWS ARE PORTED at `9806b78`, and the seventeenth row did not exist until this revision: the section 2 table OMITTED the PROC-STDIN-1 stage, so every count in this file was taken over a census that was missing a member. The counts are now seventeen rows and 539 stage code lines. Only 5b FS-ENCODING-1 remains and it is BLOCKED on `PROC-ENV-1`, not unwritten. `tool_state` STAYS `blocked` AND THE REASON IS NEW: `oracle` asserts that both implementations decide over the same tree in one job, and this port is in NO job, which was checked against `.github/` and `scripts/` on 2026-08-15. THE TRI-STATE VOCABULARY GAP IS NOW A FILED ROW rather than a paragraph, in `llmll-tooling-campaign.md` section 5. Rev 2 and Rev 4 each spent prose arguing that `blocked` has no value for 'started and incomplete'; a third argument would be a record that describes a problem three times and fixes it never. THE LIST-RANGE-1 PREDICTION IS WITHDRAWN: the PROC-STDIN-1 stage spawns no `awk`, because a repeated string composes from `string-concat` doubling and the fixture never reads its own input. The row stays open on N distinct elements from a count. THE PORT PRINTED FAIL AND EXITED 0 until `9806b78`, across all of its stages and since it was written, because it declared no `:status`. Rev 4 follows.  The RFC was written before any port code, which is the campaign's order. State stays `blocked`, and that is now an APPROXIMATION rather than a fact: the tri-state is blocked, oracle, retired, and it has NO VALUE FOR 'started and incomplete'. `tools/build-smoke/buildsmoke.llmll` exists and holds the spine plus stage 1 of fourteen, so the earlier gloss 'blocked means the port module does not exist yet' is false as of 2026-08-12. (Rev 5 note: 'stage 1 of fourteen' was true on 2026-08-12 and both of its numbers are now wrong; the port holds sixteen of seventeen.) `blocked` is the only state the RFC standard gate accepts here, because `oracle` asserts both implementations decide over the same tree in one job and this port decides nothing yet. THE VOCABULARY GAP IS FILED IN THIS LINE RATHER THAN LEFT FOR A READER TO INFER. NO DECISION IS OPEN, and §9's opening line said otherwise until 2026-08-12: it still read 'one decision is open and it blocks the port', which was true at Rev 1 and false from the moment `PROC-STDIN-1` shipped. The frontmatter was corrected at Rev 2 and the section body was not, which is the campaign's own stale-record class. D3 IS NOW DISCHARGED: the two capability rows this RFC deliberately refused to assume were PROBED on 2026-08-12 against `llmll 0.14.99`, by one program that exercised both and printed what the runtime answers. `wasi.fs.sha256` gives `RText` lowercase hex matching `shasum -a 256` byte for byte, so it is a real SHA-256 and not the polynomial stub `LLMLL.md` §13 records for the sibling SHA-1, and the byte-compare row stays COSMETIC. A failed exec answers `RErr`, the step machine SURVIVES it, and the message separates *missing* from *present but not executable*, so at this call site `LIST-KIND-1` is a GAIN over the subject's one-bit `-perm -111` test rather than a loss; the row does not close, because nothing answers 'is this executable' without attempting the run. THE TWO GAPS THIS RFC RAISED AGAINST THE COMPILER ARE SHIPPED, at v0.14.98 on 2026-08-12, BEFORE the port was written, and that reorders the campaign: normally a port works around a gap and files it. `PROC-STDIN-1` gave `wasi.proc.run` a seventh parameter, a stdin path. `PROC-STDIN-SHARE-1` was a COMPILER DEFECT: `std_in` was unset, so `createProcess` inherited and a child could read a TORN fragment of the parent's own step input above the 8 KiB handle buffer, with three runs taking three different victims. It was latent in all five shipped ports, because `git ls-files` and `llmll version` do not read stdin. `PROC-ENV-1` stays open and no port needs it yet. THE PORT THEREFORE PASSES A PATH AND WRITES NO SHELL STRING. D1 is SUPERSEDED: it had bounded the `sh -c` cost to one `drive` helper, and no `drive` helper will be written. Section 4 and D1 are KEPT rather than deleted, because the census counts the gap the port surfaced, not the workaround it avoided; a reader who wants the current mechanism reads `LLMLL.md` section 13. The port is FEASIBLE: one complete stage was written in LLMLL, built, and run against a good fixture and a broken one, and it discriminates. A negative control caught that stage reporting PASS against a build that exited 1, by reading a stale artifact. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
+status: "Rev 6, `LIST-RANGE-1` IS REFUTED AND NOT MERELY NARROWED, AND THE HALF THIS FILE KEPT OPEN WAS NEVER TRUE. Rev 6 withdrew the `awk` prediction and wrote that the row stays open on N DISTINCT elements from a count. `range` has been a builtin since v0.11, typed `int int -> list[int]`: `builtinEnv` carries it at line 133 of `compiler/src/LLMLL/TypeCheck.hs`, line 313 of `compiler/src/LLMLL/CodegenHs.hs` emits a real body, `LLMLL.md` documents it in the builtin table with a worked example covering the empty and the inverted case, and FIFTEEN call sites across five committed `.llmll` files already use it, SEVEN of them passing a `range` straight into `list-map`, `list-filter` or `list-fold`, which is the shape the row called absent. One of the five files is this campaign's own port 003. PROBED 2026-08-16 against `llmll 0.16.0` on aarch64-osx, executed rather than read: `range 1 6` answers 1 through 5, so the interval is half-open; `range 1 61` answers 60 elements ending 58, 59, 60; `range 3 3` answers 0 elements; the inverted `range 9 4` answers 0 elements and does not crash; and `list-map (range 1 13) int-to-string` answers 12 DISTINCT strings. The witness the row was moved onto, `v-feed-text`, now reads `(range 1 61)`, and the row is CLOSED as REFUTED in `docs/compiler-team-roadmap.md`. A grep of `builtinEnv` before filing would have answered every part of it, which is the rule `llmll-tooling-campaign.md` section 5 prints a few paragraphs from where it discusses this very row. THAT ROW ALSO REDDENED THE STANDARD GATE AND NOBODY RAN IT: its disposition cell held COSMETIC and SHAPES at once, where `scripts/tests/test_tool_rfc_standard.py` requires exactly one of the three. Measured red on 2026-08-16 before this correction and green after it. ONE NEW GAP ROW IS RAISED AND FILED, `BYTES-WRITE-1`, dispositioned SHAPES, 2026-08-16, by the port's own stage 5b. Nothing in the language writes bytes that are not text: `wasi.fs.write` takes a string and encodes UTF-8, and the stage's `bin.dat` fixture carries a lone 0xFF that no `.llmll` literal can hold. The port spawns `/usr/bin/printf` with octal escapes, and the file that lands is `62 69 6e 61 72 79 20 ff fe 00 20 72 61 77 0a`, matching `scripts/build_smoke.sh` byte for byte. It is the OPPOSITE DIRECTION of `BYTES-READ-1` in one namespace, so it is a separate row on the `ENV-READ-1` versus `PROC-ENV-1` precedent. How it was found is the finding: the port's code NAMED the tag while the roadmap held no row for it, which is `LIST-KIND-1` recurring with its halves swapped, the gap there having had no tag where here the tag had no row. THE SPAWN CENSUS IS RE-MEASURED IN THE WORKING TREE ON 2026-08-16, AFTER STAGE 5b LANDED: 60 `wasi.proc.run` call sites, 24 naming a constant executable and 36 computing one, against the 55, 20 and 35 measured at `cdd6438`, and class (b) is FOUR sites rather than one, being `od`, `/usr/bin/env`, `/usr/bin/uname` and `/usr/bin/printf`. THAT LANDING ALSO DATES THE SENTENCE THAT FOLLOWS: stage 5b is in the working tree and uncommitted as of 2026-08-16, and nothing here re-runs the port, so section 2 keeps its `9806b78` stamp rather than gaining a count it did not earn. PORT NEARLY COMPLETE, AND THE LAST STAGE IS UNWRITTEN RATHER THAN BLOCKED. `tool_state` STAYS `blocked`, because the port still runs in no CI job and `oracle` asserts that both implementations decide over the same tree in one job. THE Rev 5 CLAIM THAT 5b FS-ENCODING-1 IS BLOCKED ON `PROC-ENV-1` IS REFUTED BY MEASUREMENT, taken 2026-08-16 against `llmll 0.16.0` on aarch64-osx: `wasi.proc.run` on `/usr/bin/env`, with `LC_ALL=C` first in the argv vector, SETS the child's environment, and a stdin path passed to that same call reaches the child through the exec. Five cells. `env` with no assignment answers `code:0` and the inherited environment holds no LC_ALL, 4719 bytes. `env LC_ALL=C env` answers `code:0` and the child's environment holds LC_ALL=C, 4728 bytes, a delta of exactly 9. `env LC_ALL=C LANG=C /bin/echo child-ran` answers `text:child-ran`, so two assignments and an argument-bearing child both work. `env LC_ALL=C /bin/cat` fed from a stdin path returned both fed lines, so THE STDIN PATH SURVIVES THE EXEC. `env /bin/echo no-assignment` works, so one helper also covers a site that sets nothing. So `PROC-ENV-1` NARROWS rather than closes, and what stays open is the cost: setting one variable costs one extra process and one executable outside the language. D6 IS TAKEN, by user adjudication 2026-08-16, and it FILES A NEW ROW. `env` does not supply stage 5b's `FSENC_LOCALE_HONOURED` flag, because GHC on macOS resolves UTF-8 whatever `LC_ALL` says, so the encoding claim is untestable there whoever sets the variable. Two compositions were checked BEFORE filing and both fail: `wasi.env.get` reads any variable and no EXPORTED variable names the platform portably; and `stack path --local-install-root` answers a string the port already holds, but a test on it must default to NOT EXERCISED for the safe direction, which INVERTS the subject's polarity and diverges on any third platform. So the port spawns `/usr/bin/uname` with `-s`, one new spawn site, and files `PLATFORM-1`, dispositioned SHAPES, 2026-08-16. SECTION 4'S ARGV-SPLIT ARGUMENT DOES NOT HOLD FOR THIS PORT, measured at `cdd6438`: `tools/build-smoke/buildsmoke.llmll` holds 55 `wasi.proc.run` call sites, of which 20 name a constant executable and 35 compute one from state, so 64 percent of the sites already run an executable no reader can enumerate from the module header. D1's outcome does not change, because D1 is superseded, but a later reader citing §4 would be citing a property this port does not meet. What `env` DOES preserve, and what `sh -c` would have lost, is that no metacharacter is interpreted: a path holding a space or a semicolon stays one argv member. `tools/build-smoke/buildsmoke.llmll` EXISTS and `adjudicate.llmll` is being written now, so §7's 'neither exists yet' is false and the reason it gave for `blocked` was never the operative one. FIVE STALE COUNTS ARE REPOINTED to the seventeen-row census, in §3, in §4 twice, in §5's `MODE-CLI-1` row and in D4; D1's option list KEEPS its fourteen, because a past-tense record of a superseded decision gets an exemption rather than a repoint. Rev 5 follows. SIXTEEN OF SEVENTEEN STAGE ROWS ARE PORTED at `9806b78`, and the seventeenth row did not exist until this revision: the section 2 table OMITTED the PROC-STDIN-1 stage, so every count in this file was taken over a census that was missing a member. The counts are now seventeen rows and 539 stage code lines. Only 5b FS-ENCODING-1 remains, and Rev 5 called it BLOCKED on `PROC-ENV-1` rather than unwritten, which the probe above refutes. `tool_state` STAYS `blocked` AND THE REASON IS NEW: `oracle` asserts that both implementations decide over the same tree in one job, and this port is in NO job, which was checked against `.github/` and `scripts/` on 2026-08-15. THE TRI-STATE VOCABULARY GAP IS NOW A FILED ROW rather than a paragraph, in `llmll-tooling-campaign.md` section 5. Rev 2 and Rev 4 each spent prose arguing that `blocked` has no value for 'started and incomplete'; a third argument would be a record that describes a problem three times and fixes it never. THE LIST-RANGE-1 PREDICTION IS WITHDRAWN: the PROC-STDIN-1 stage spawns no `awk`, because a repeated string composes from `string-concat` doubling and the fixture never reads its own input. The row stays open on N distinct elements from a count. THE PORT PRINTED FAIL AND EXITED 0 until `9806b78`, across all of its stages and since it was written, because it declared no `:status`. Rev 4 follows.  The RFC was written before any port code, which is the campaign's order. State stays `blocked`, and that is now an APPROXIMATION rather than a fact: the tri-state is blocked, oracle, retired, and it has NO VALUE FOR 'started and incomplete'. `tools/build-smoke/buildsmoke.llmll` exists and holds the spine plus stage 1 of fourteen, so the earlier gloss 'blocked means the port module does not exist yet' is false as of 2026-08-12. (Rev 5 note: 'stage 1 of fourteen' was true on 2026-08-12 and both of its numbers are now wrong; the port holds sixteen of seventeen.) `blocked` is the only state the RFC standard gate accepts here, because `oracle` asserts both implementations decide over the same tree in one job and this port decides nothing yet. THE VOCABULARY GAP IS FILED IN THIS LINE RATHER THAN LEFT FOR A READER TO INFER. NO DECISION IS OPEN, and §9's opening line said otherwise until 2026-08-12: it still read 'one decision is open and it blocks the port', which was true at Rev 1 and false from the moment `PROC-STDIN-1` shipped. The frontmatter was corrected at Rev 2 and the section body was not, which is the campaign's own stale-record class. D3 IS NOW DISCHARGED: the two capability rows this RFC deliberately refused to assume were PROBED on 2026-08-12 against `llmll 0.14.99`, by one program that exercised both and printed what the runtime answers. `wasi.fs.sha256` gives `RText` lowercase hex matching `shasum -a 256` byte for byte, so it is a real SHA-256 and not the polynomial stub `LLMLL.md` §13 records for the sibling SHA-1, and the byte-compare row stays COSMETIC. A failed exec answers `RErr`, the step machine SURVIVES it, and the message separates *missing* from *present but not executable*, so at this call site `LIST-KIND-1` is a GAIN over the subject's one-bit `-perm -111` test rather than a loss; the row does not close, because nothing answers 'is this executable' without attempting the run. THE TWO GAPS THIS RFC RAISED AGAINST THE COMPILER ARE SHIPPED, at v0.14.98 on 2026-08-12, BEFORE the port was written, and that reorders the campaign: normally a port works around a gap and files it. `PROC-STDIN-1` gave `wasi.proc.run` a seventh parameter, a stdin path. `PROC-STDIN-SHARE-1` was a COMPILER DEFECT: `std_in` was unset, so `createProcess` inherited and a child could read a TORN fragment of the parent's own step input above the 8 KiB handle buffer, with three runs taking three different victims. It was latent in all five shipped ports, because `git ls-files` and `llmll version` do not read stdin. `PROC-ENV-1` stays open and no port needs it yet. THE PORT THEREFORE PASSES A PATH AND WRITES NO SHELL STRING. D1 is SUPERSEDED: it had bounded the `sh -c` cost to one `drive` helper, and no `drive` helper will be written. Section 4 and D1 are KEPT rather than deleted, because the census counts the gap the port surfaced, not the workaround it avoided; a reader who wants the current mechanism reads `LLMLL.md` section 13. The port is FEASIBLE: one complete stage was written in LLMLL, built, and run against a good fixture and a broken one, and it discriminates. A negative control caught that stage reporting PASS against a build that exited 1, by reading a stale artifact. THE SIZE PROJECTION THIS RFC INHERITED WAS WRONG BY 1.8 TIMES: 4.8 is the FIRST port's ratio, the five ratios decline to 2.23, and the measured one-stage ratio is 2.6, so the port projects to about 1,400 code lines and not 2,500."
 date: 2026-08-11
 author: experiment-lead
 tool_state: blocked
@@ -73,10 +73,36 @@ cited in a failure report. **PROC-STDIN-1 was missing from this table until
 2026-08-15**, which is the same defect one level up: a stage absent from the
 census cannot be counted, and its absence is why the counts below were wrong.
 
-**Seventeen rows, 539 code lines, and SIXTEEN ARE PORTED as of `9806b78`.**
-Only 5b FS-ENCODING-1 remains. It is BLOCKED on `PROC-ENV-1` rather than
-unwritten: the stage needs `LC_ALL=C` for one child and the port cannot set a
-child's environment.
+**Seventeen rows, 539 code lines, and ALL SEVENTEEN ARE PORTED as of
+2026-08-16.** 5b FS-ENCODING-1 was the last, and it was written once the
+`PROC-ENV-1` block below was refuted by measurement.
+
+**The port was RUN END TO END rather than only compiled**, on aarch64-osx
+against `llmll 0.16.0`, using the invocation the CI step carries. It exited 0
+and printed FIFTEEN verdict lines: fourteen PASS and one NOT EXERCISED, that
+last being the LC_ALL half of 5b which Darwin cannot settle. **The reference has
+fifteen verdict-emitting sites, so the two counts agree.** Stage 5b was also run
+with three separate negative cells, each naming a different assertion and each
+exiting 1, so the stage's five assertion flags are independent rather than one
+flag wearing five names.
+
+**Rev 5 said the stage was BLOCKED on `PROC-ENV-1`, and that is REFUTED BY
+MEASUREMENT**, taken 2026-08-16 against `llmll 0.16.0` on aarch64-osx.
+`wasi.proc.run` on `/usr/bin/env`, with the assignment first in the argv vector
+and the real executable after it, sets the child's environment. Five cells:
+
+| Cell | Probe | Answer |
+|---|---|---|
+| A | `env` with no assignment | `code:0`, and the inherited environment holds no LC_ALL. 4719 bytes |
+| B | `env LC_ALL=C env` | `code:0`, and the child's environment holds LC_ALL=C. 4728 bytes, a delta of exactly 9 |
+| C | `env LC_ALL=C LANG=C /bin/echo child-ran` | `text:child-ran`. Two assignments and an argument-bearing child both work |
+| D | `env LC_ALL=C /bin/cat`, fed from the stdin path `feed.txt` | both fed lines came back. **The stdin path survives the exec**, so setting a variable does not cost the port its stdin channel |
+| E | `env /bin/echo no-assignment` | it works, so ONE helper covers a site that sets nothing as well as a site that sets one |
+
+**The block was a claim about a mechanism nobody had run.** The stage needs
+`LC_ALL=C` for one child, and the port can set it today. What the gap still
+costs is in §5's `PROC-ENV-1` row, and what the stage still lacks is the
+platform test D6 takes.
 
 ## 3. Distribution
 
@@ -91,7 +117,7 @@ relocate wholesale. **No relocation applies here.** The reference is already in 
 correct job. The port becomes a step adjacent to it, which is what states
 `oracle` requires.
 
-**The cost that does apply is time.** The port compiles fourteen fixtures with
+**The cost that does apply is time.** The port compiles seventeen fixtures with
 GHC, as the reference does. One warm `llmll build` of the smallest fixture took
 18.13 seconds, measured 2026-08-11 on aarch64-osx. Running both implementations
 adjacent therefore doubles the most expensive step in the job. D4 records that.
@@ -107,7 +133,7 @@ first; see F6.
 ### The scope question is answered by building one stage
 
 **One complete stage of the subject was written in LLMLL, built, and run.** The
-stage is 4b, REGEX-LOWER-1, the smallest of the fourteen. It creates a
+stage is 4b, REGEX-LOWER-1, the smallest of the seventeen. It creates a
 directory, calls `llmll build` on a fixture, keeps the exit status, reads the
 generated `Lib.hs`, and prints the subject's exact PASS line.
 
@@ -160,7 +186,7 @@ largest program in this campaign is
 | Read the captured text | **available**, `wasi.fs.read` | **Measured** in the stage probe |
 | Assert on the text | **available**, `string-contains` and `regex-match` | The subject's assertions are substring tests and one prefix test |
 | **Feed a child on stdin** | **gap** | See below. This is the finding of this RFC |
-| Set `LC_ALL=C` for a child | **gap** | `wasi.proc.run` takes six parameters and none is an environment. **Measured**: the child INHERITS the parent's environment, so `LC_ALL=C` set outside the port reaches the child, but the port cannot set it. One site, at line 443 |
+| Set `LC_ALL=C` for a child | **gap**, and NARROWED 2026-08-16 | `wasi.proc.run` takes seven parameters, since `PROC-STDIN-1` added the stdin path, and none is an environment. **Measured**: the child INHERITS the parent's environment, so `LC_ALL=C` set outside the port reaches the child. **This row read "the port cannot set it" until 2026-08-16, and that is refuted**: the port sets it by spawning `/usr/bin/env`, at the cost of one extra process. See §2 for the five cells. One site, at line 443 |
 | Compare two files byte for byte | **available**, `wasi.fs.sha256` | The subject uses `cmp` at three sites and `od` at one. A hash of each file answers the same question. Not yet exercised by a probe; D3 records that |
 | Exit with a distinct status | **available**, `console` mode | `:mode cli` performs no `Command`, per `MODE-CLI-1`, so this port is a stdin-driven step machine like the other five |
 
@@ -175,7 +201,7 @@ binary they just built**, at lines 327, 443, 535, 594, 655, 837, 843, 850, 858,
 line of stdin per step. Driving one therefore IS feeding it stdin. The subject
 exists to run console-mode programs, so the idiom is the subject's whole job.
 
-Seven of the sixteen stages contain such a site:
+Seven of the seventeen stages contain such a site:
 
 | Stage | Sites | Also needs |
 |---|---|---|
@@ -205,15 +231,37 @@ driven by input the port chose. It works. The port's own stdin was not
 disturbed.
 
 **So the port is not blocked, and the cost is precise.** `wasi.proc.run` splits
-the executable from its argument vector on purpose. `TypeCheck.hs:190-196`
-states the reason: the executable becomes a syntactic constant that a reader can
-enumerate from the module header, and shell metacharacter interpretation stops
-being a category. **Routing thirteen sites through `sh -c` puts the whole
-command back into one shell string.** The property the split exists to give is
-lost at exactly the sites that matter most, which are the sites that run the
-other ports.
+the executable from its argument vector on purpose.
+[`TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) lines 199-200 state the
+reason: the executable becomes a syntactic constant that a reader can enumerate
+from the module header, and shell metacharacter interpretation stops being a
+category. **Routing thirteen sites through `sh -c` puts the whole command back
+into one shell string.** The property the split exists to give is lost at
+exactly the sites that matter most, which are the sites that run the other
+ports.
 
 D1 puts that cost to the user.
+
+**THIS PORT DOES NOT HOLD THE PROPERTY THAT ARGUMENT RESTS ON, measured at
+`cdd6438`.** [`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll)
+holds 55 `wasi.proc.run` call sites. Twenty name a constant executable and
+thirty-five compute one from state, `(get-s b "subject")` among them, so **64
+percent of the sites already run an executable that no reader enumerates from
+the module header.** The port acquired that shape by porting a subject whose
+compiler path is chosen at run time, not by reaching for a shell.
+
+**This does not change D1's outcome**, because D1 is superseded and no shell
+string is written. It changes what §4 may be CITED for: a later reader quoting
+this section for the auditability property would be quoting a property this port
+meets at one site in three. The argument stands as a statement about
+`wasi.proc.run`, and it does not stand as a statement about `buildsmoke.llmll`.
+
+**What the split still gives this port, and what `sh -c` would still have taken,
+is a different property and it survives a computed executable.** No
+metacharacter is interpreted, so a path holding a space or a semicolon stays one
+argv member. That is what the `/usr/bin/env` spawn in §5's `PROC-ENV-1` row
+preserves: `env` prepends an assignment to an argv vector and reads none of it
+as syntax.
 
 ## 5. Gaps
 
@@ -221,14 +269,16 @@ D1 puts that cost to the user.
 |---|---|---|---|
 | `wasi.proc.run` cannot supply a child's stdin, and driving a console-mode LLMLL program is feeding it stdin | **SHAPES** | `PROC-STDIN-1`, filed 2026-08-11, shipped v0.14.98 | A seventh parameter, a stdin path, symmetric with the stdout and stderr paths the builtin already takes. Instead thirteen sites route through `/bin/sh -c` and rebuild the shell string that the argv split removes. **Measured**: `sh -c` does deliver the input, and a real console binary driven that way completes its loop, so this SHAPES the port rather than blocking it. The gap reaches 295 of 504 stage code lines |
 | A child spawned by `wasi.proc.run` SHARES the parent's stdin, and above the 8 KiB buffer it reads a torn fragment of the parent's own input | **SHAPES** | `PROC-STDIN-SHARE-1`, filed 2026-08-11, shipped v0.14.98 | `std_in` bound to an empty handle, or to the stdin path `PROC-STDIN-1` asks for. Instead the port must keep its own stdin under 8 KiB, which is a constraint nothing states or checks. **Measured**, and the numbers are in F2 below. This is a compiler defect as well as a gap, and it is routed to the compiler-engineer |
-| No environment channel: `wasi.proc.run` takes no environment and no `wasi.env.*` name exists | **SHAPES** | `PROC-ENV-1`, filed 2026-08-11, open | `LC_ALL=C cmd`, as the subject writes it at line 443. Instead the site goes through `sh -c`, which sets the variable in the shell string. **Measured**: a child INHERITS the parent's environment, so the campaign's older "no env access" row is about READING and this is about SETTING. The two are not the same row, and folding them is the mistake that made `FS-STAT-1` and `FS-EXISTS-1` need splitting |
-| A program cannot READ its own environment, so the subject's `$HOME/.local/bin/llmll` branch is unreachable | **SHAPES** | `ENV-READ-1`, filed 2026-08-12 | An env read, `wasi.env.get` answering a `Result` so unset and empty differ. Instead the port takes `--subject` and drops the branch, which is a BEHAVIOUR difference rather than an invocation one. **Found by building stage 2**, not by reading: the campaign census carried this COSMETIC on the rationale "argv carries it", tested at 005 where it held. Argv carries what a caller passes, and `$HOME` is not passed. `sh -c 'echo $HOME'` works and is refused under D1 |
-| `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: build, run, assert, exit. Instead the port is a stdin-driven step machine with an explicit control state. This is the campaign's largest line-count multiplier and it applies here fourteen times over, once per stage |
+| No environment channel on `wasi.proc.run`: the builtin takes no environment, and `wasi.env.get` reads one variable while nothing sets one | **SHAPES**, and the row NARROWS rather than closes | `PROC-ENV-1`, filed 2026-08-11, **narrowed 2026-08-16**, open | `LC_ALL=C cmd`, as the subject writes it at line 443. Instead the port spawns `/usr/bin/env` with the assignment first in the argv vector and the real executable after it. **This column said the site goes through `sh -c`, which sets the variable in the shell string, and that was wrong twice**: D1 is superseded so no `sh -c` is written, and `env` sets the variable with no shell string at all. **Measured 2026-08-16 against `llmll 0.16.0` on aarch64-osx**, five cells in §2: the child's environment holds `LC_ALL=C`, a stdin path passed to the same call still reaches the child, two assignments work, an argument-bearing child works, and a site that sets nothing runs through the same helper. **What stays open is the price**: setting one variable costs one extra process and one executable outside the language, at every site that needs one, and the language still has no way to say it. **Measured earlier**: a child INHERITS the parent's environment, so the campaign's older "no env access" row is about READING and this is about SETTING. The two are not the same row, and folding them is the mistake that made `FS-STAT-1` and `FS-EXISTS-1` need splitting |
+| Nothing names the host platform, so a stage cannot decide whether the claim it is about to make is exercisable here | **SHAPES** | `PLATFORM-1`, filed 2026-08-16, raised by TOOL-RFC-006 | A platform or host name available in the language, on the `wasi.env.get` precedent of one name answering one question. Instead the port spawns `/usr/bin/uname` with `["-s"]` and tests the answer for `Darwin`, which is what [`build_smoke.sh`](../../scripts/build_smoke.sh) line 445 does, so the two agree by construction on every platform. **The campaign's rule is to check whether an operation COMPOSES from existing builtins before filing an absence, so two compositions were checked and BOTH FAIL.** `wasi.env.get` ships and reads any variable, and no EXPORTED variable names the platform portably. `stack path --local-install-root` answers `aarch64-osx` or `x86_64-linux`, a string the port already holds for free, but a test on that string must default to NOT EXERCISED for the safe direction, which INVERTS the subject's polarity and creates a divergence on any third platform. So the platform does not compose and it owes a row. D6 records the adjudication and the option that was refused. A sibling filing carries the same tag in [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) |
+| A program cannot READ its own environment, so the subject's `$HOME/.local/bin/llmll` branch is unreachable | **SHAPES**, now closed | `ENV-READ-1`, filed 2026-08-12, **shipped v0.15.0** | An env read, `wasi.env.get` answering a `Result` so unset and empty differ. **The shipped name answers on the response channel instead, `RText` for set and `RErr` for unset, which keeps the property the row wanted.** The dropped branch is now ported: [`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll) imports `wasi.env` and calls `(wasi.env.get "HOME")` in its `Home2` phase, so the port reproduces all three of the subject's compiler sources. **The record of what it cost while the gap was open is kept, because that is what the census counts.** Before v0.15.0 the port took `--subject` and dropped the branch, which is a BEHAVIOUR difference rather than an invocation one. **Found by building stage 2**, not by reading: the campaign census carried this COSMETIC on the rationale "argv carries it", tested at 005 where it held. Argv carries what a caller passes, and `$HOME` is not passed. `sh -c 'echo $HOME'` works and is refused under D1 |
+| `:mode cli` performs no `Command` and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: build, run, assert, exit. Instead the port is a stdin-driven step machine with an explicit control state. This is the campaign's largest line-count multiplier and it applies here seventeen times over, once per stage |
 | A listing carries no entry kind, so nothing answers "is this file executable" | **SHAPES** | `LIST-KIND-1` | The subject's `-perm -111` test inside `exe_path`. Instead the port asks `stack path` for the directory and attempts the run, letting a failed exec answer. **PROBED 2026-08-12 and the design holds**: a failed exec answers `RErr`, the step machine survives it, and the message separates *missing* from *not executable*, which the subject's one-bit `-perm -111` test cannot. See D3 |
 | No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows. The twelve walk sites were deleted from the subject on 2026-08-11 and replaced by `stack path --local-install-root`. The row closed on 2026-08-10 and this port confirms the close |
 | Nothing removes a DIRECTORY, so stage 5 cannot clear the state it is about to measure | **BLOCKS**, now closed | `FS-RMDIR-1`, filed 2026-08-12, **shipped v0.16.0** | The subject's `rm -rf "$EXEC_SCRATCH"` before the fixture runs. Without it a directory left by an earlier run satisfies the `mkdir` assertion whatever this run's `mkdir` did, so the port measured whether it pre-existed and printed `NOT GRADED: wasi.fs.mkdir`. **`wasi.fs.rmdir` now ships and the port clears the directory**: three idempotent `wasi.fs.delete` calls, then one `rmdir`. It is **empty-only**, so recursion is not available and is not wanted here; the fixture writes three flat files and no subdirectory, measured. **The NOT-GRADED path stays and its trigger changed** to "the clear did not succeed", which fires when an unexpected fourth entry leaves the directory non-empty. Both cells were run and differ only by that entry. **The row also found a live compiler defect**: `wasi.fs.delete` published `RNone` for a directory and removed nothing, fixed in the same release |
 | Nothing gets a file's BYTES into the language, so the port spawns `od` to hex-dump a program's stdout | **SHAPES** | `BYTES-READ-1`, filed 2026-08-15 | A byte-level read, or a hex-text read on the `wasi.fs.sha256` precedent. Instead stage 5c runs `od -An -tx1` through `wasi.proc.run` and strips the whitespace in-language. **`wasi.fs.read` answers `RText` decoded as UTF-8**, so a file that is not valid UTF-8 cannot be read at all and a valid one cannot be inspected byte-wise. Caught by the amended discipline in the campaign's §gap discipline, not by the zero-FFI bar, which this port meets |
-| Nothing constructs a list from a count, so N DISTINCT elements cannot be built from the number N | **COSMETIC at this site**, and the SHAPES prediction is withdrawn | `LIST-RANGE-1`, filed 2026-08-15, **row narrowed 2026-08-15** | `list-range` plus the existing `int-to-string` and `list-map`. **THIS ROW WAS FILED AND REFUTED ON THE SAME DAY, BY THE STAGE IT WAS FILED AGAINST.** It predicted that the PROC-STDIN-1 stage would generate its fixture with one `awk BEGIN` program through `wasi.proc.run`, and marked itself "Predicted rather than measured". The stage is now ported at `9806b78` and **it spawns no `awk`**. Measured: the subject's `printf 'LINE%s\n' $(seq 12000)` is 108894 bytes, and the port nests a two-line doubling helper fourteen times over a 9-byte literal to get 147456 bytes, which exceeds it. The prediction assumed the fixture needed the bytes `LINE1` through `LINE12000`; [`proc_stdin.llmll`](../../scripts/build-smoke/proc_stdin.llmll) never inspects its own step input, so only the byte count was ever owed. **The row STAYS OPEN on the half that survives**: a repeated string composes from `string-concat`, and N distinct elements from a count still do not. Its witness moves to a measured in-tree site, `v-feed-text` in [`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll), which writes a LITERAL 60-element int list to make 60 stdin lines for the version-gate stage. Mirrored in [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) at `af102d7` |
+| Nothing writes bytes that are not text, so a fixture carrying a lone `0xFF` cannot be authored in the language | **SHAPES** | `BYTES-WRITE-1`, raised and filed 2026-08-16 | A byte-level write, or an escape-expanding one, whichever mirror `BYTES-READ-1` settles on. `wasi.fs.write` takes a string and encodes it as UTF-8, so no route runs from a `.llmll` literal to a byte outside that encoding. Stage 5b must CREATE the fixture input `bin.dat`, which carries a lone `0xFF`, so the port spawns `/usr/bin/printf` with octal escapes and lets the redirect be the write. **MEASURED 2026-08-16**: the file that lands is `62 69 6e 61 72 79 20 ff fe 00 20 72 61 77 0a`, which is [`build_smoke.sh`](../../scripts/build_smoke.sh)'s own `printf` output byte for byte. **This is the OPPOSITE DIRECTION of `BYTES-READ-1` and is deliberately NOT folded into it**, on the `ENV-READ-1` versus `PROC-ENV-1` precedent: one namespace, two directions, and one row cannot carry both. **How it was found is the finding.** The port's code NAMED the tag while the roadmap held no row for it, which is `LIST-KIND-1` recurring with its halves swapped: there a recorded gap had no tag, so a search for tags could not see it, and here the tag existed with nothing in the roadmap for a search of the roadmap to find. The row was filed the same day, so the window was hours rather than the release `LIST-KIND-1` sat through, and the mechanism is the same either way. Raised by the whole-port spawn census in [`llmll-tooling-campaign.md`](llmll-tooling-campaign.md) §5, which counts it as the fourth class (b) site |
+| Nothing constructs a list from a count, so N DISTINCT elements cannot be built from the number N. **THE ABSENCE THIS ROW NAMED DOES NOT EXIST, AND HAS NOT SINCE v0.11** | **COSMETIC**, and the row is REFUTED rather than narrowed | `LIST-RANGE-1`, filed 2026-08-15, **REFUTED 2026-08-16** | `range : int int -> list[int]`, which already ships and needed no design. **THIS ROW WAS WRONG IN BOTH HALVES, AND THE SECOND HALF WAS WRONG ON THE DAY IT WAS FILED.** Rev 6 recorded the first correction and it stands: the row predicted that the PROC-STDIN-1 stage would generate its fixture with one `awk BEGIN` program through `wasi.proc.run`, marked itself "Predicted rather than measured", and the ported stage spawns no `awk`, because the subject's `printf 'LINE%s\n' $(seq 12000)` is 108894 bytes and the port doubles a 9-byte literal fourteen times to 147456. Rev 6 then kept the row open on N distinct elements from a count. **That half is refuted too, and by reading rather than by a design round.** `builtinEnv` carries `range` at [`TypeCheck.hs:133`](../../compiler/src/LLMLL/TypeCheck.hs) typed `TFn [TInt, TInt] (TList TInt)`, [`CodegenHs.hs:313`](../../compiler/src/LLMLL/CodegenHs.hs) emits `range from to = [from .. to - 1]` under a `LT-INT (v0.11)` marker, and [`LLMLL.md`](../../LLMLL.md) documents it in the builtin table with a worked example covering the empty and the inverted case. **Fifteen call sites across five committed `.llmll` files already use it**, and seven of the fifteen pass a `range` straight into `list-map`, `list-filter` or `list-fold`, which is exactly the shape the row called absent; one of the five files is this campaign's own port 003, [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll). **PROBED 2026-08-16 against `llmll 0.16.0` on aarch64-osx, executed rather than read**: `range 1 6` answers 1 through 5, so the interval is half-open; `range 1 61` answers 60 elements ending 58, 59, 60; `range 3 3` answers 0 elements; the inverted `range 9 4` answers 0 elements and does not crash; and `list-map (range 1 13) int-to-string` answers 12 distinct strings. **The witness Rev 6 moved the row onto was removed rather than defended**: `v-feed-text` in [`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll) built 60 stdin lines from a LITERAL 60-element int list, and it now reads `(list-map (range 1 61) ...)`, measured in the working tree on 2026-08-16. [`proc_stdin.llmll`](../../scripts/build-smoke/proc_stdin.llmll) never inspects its own step input, which is why only the byte count was ever owed at the other site. **A grep of `builtinEnv` before filing would have answered all of it.** The row failed the composition rule that [`llmll-tooling-campaign.md`](llmll-tooling-campaign.md) §5 prints a few paragraphs from where it discusses this row, and failed it inside the section that states it. Closed as REFUTED in [`compiler-team-roadmap.md`](../compiler-team-roadmap.md); the narrowing mirrored there at `af102d7` is superseded |
 | No file-age predicate | **COSMETIC** | `FS-STAT-1` | Nothing follows. The subject reads no mtime, and the port must not introduce one |
 | Comparing two files byte for byte | **COSMETIC** | `wasi.fs.sha256` exists | Nothing follows. The subject uses `cmp` and `od`; a hash of each file answers the same question. **PROBED 2026-08-12**: the digest is `RText`, lowercase hex, and matches `shasum -a 256` byte for byte, so it is a real SHA-256 and not the polynomial stub `LLMLL.md` §13 records for the sibling SHA-1. See D3 |
 
@@ -266,29 +316,56 @@ Planned cells, per stage that the port covers:
 
 | Cell | Mutation | Expected |
 |---|---|---|
-| 1 | control: an unmutated tree | both implementations PASS every stage, **except the `LC_ALL=C` encoding claim on Linux; see the note below the table** |
+| 1 | control: an unmutated tree | both implementations PASS every stage, **including the `LC_ALL=C` encoding claim on BOTH platforms as of 2026-08-16, where this cell carried a Linux exception until then; see the note below the table** |
 | 2 | control: a fixture that does not compile | both FAIL stage 3, and name the fixture |
 | 3 | control: a stale artifact present under a failing build | both FAIL. **This cell exists because the stage probe passed it wrongly**; see §4 |
 | 4 | delete a definition the corroboration stage names | both FAIL stage 4 |
 | 5 | remove the `regex_match` prefix from the generated `Lib.hs` | both FAIL stage 4b |
 | 6 | make `llmll build` succeed while the binary is absent | both FAIL, and neither reports PASS from a stale binary |
 | 7 | a build that exceeds the timeout | the port answers `RErr` and FAILS. The reference has no timeout, so this cell grades the PORT only, and it is labelled as such |
-| 8 | grep the port for a `/bin/sh` call site outside `drive` | zero hits. **D1 bounds the shell strings to one helper, and this cell is what keeps them there** |
+| 8 | grep the port for `/bin/sh` call sites, and for `/usr/bin/env` call sites outside `bs-env` | zero `/bin/sh` sites AT ALL, and every `/usr/bin/env` site inside the single `bs-env` helper |
 
-**The `LC_ALL=C` encoding claim is REFERENCE-ONLY on Linux, and cell 1 is
-labelled for it on cell 7's precedent.** `scripts/build_smoke.sh` sets
-`LC_ALL=C` for one child in the FS-ENCODING-1 stage. The port cannot set a
-child's environment: `PROC-ENV-1` is open, and `ENV-READ-1` does not close it,
-the two being opposite directions of one namespace. **On Darwin the two agree**,
-because GHC there resolves UTF-8 whatever `LC_ALL` says, so the reference prints
-`BUILD-GATE-1 NOT EXERCISED: the LC_ALL=C encoding claim (FS-ENCODING-1)` and
-the port reproduces that branch faithfully. **On Linux they diverge**: the
-reference settles the claim and the port still prints NOT EXERCISED. So cell 1's
-"both PASS every stage" does not hold for that one stage on Linux, and the cover
-must not read the divergence as a port defect. The asymmetry is the mirror of
-cell 7's: there the port can do something the shell cannot, and here the shell
-can do something the port cannot. **A cover that hid either would claim an
-agreement it did not measure.** The label comes off when `PROC-ENV-1` ships.
+**Cell 8's target CHANGED on 2026-08-16, and the old target can no longer be
+met by accident.** It read "a `/bin/sh` call site outside `drive`", which bounds
+shell strings to one helper. **No `drive` helper will ever be written**, because
+D1 is superseded, so a cell phrased around it grades nothing and passes forever.
+The new target asserts two things: that the port hands NO string to a shell, and
+that the one spawn which sets an environment variable comes from one place a
+reader can audit at once, which is the bound D1 wanted applied to the mechanism
+the port actually uses. Measured at `cdd6438`, the port holds zero of each and
+`bs-env` is not yet written, so this cell first grades something when stage 5b
+lands.
+
+**The `LC_ALL=C` encoding claim WAS REFERENCE-ONLY on Linux, and cell 1 was
+labelled for it on cell 7's precedent. THE LABEL COMES OFF, and the trigger this
+paragraph named was the wrong one.** `scripts/build_smoke.sh` sets `LC_ALL=C`
+for one child in the FS-ENCODING-1 stage. Rev 5 wrote "the label comes off when
+`PROC-ENV-1` ships". The row is still open and the label comes off anyway,
+because the trigger is whether the PORT can set the variable, and it can: it
+spawns `/usr/bin/env`, measured 2026-08-16 and recorded with its five cells in
+§2. **A trigger written as "when the gap closes" was a guess about the only
+possible repair, and the repair came from somewhere else.**
+
+**So the port and the reference now agree on BOTH arms.** On Darwin both print
+`BUILD-GATE-1 NOT EXERCISED: the LC_ALL=C encoding claim (FS-ENCODING-1)`,
+because GHC there resolves UTF-8 whatever `LC_ALL` says and no implementation
+can test the claim. On Linux both settle the claim, because the port sets the
+variable the same way the reference does. Cell 1's "both PASS every stage"
+therefore holds on both platforms, and the divergence this paragraph existed to
+label is gone. **What replaced it is a smaller problem and it is D6's**: agreeing
+on both arms requires knowing which arm you are on, and nothing in the language
+names the platform. Cell 7's asymmetry stands and is untouched: there the port
+can do something the shell cannot. **A cover that hid either would claim an
+agreement it did not measure.**
+
+**`/usr/bin/env` was measured on Darwin ONLY, on aarch64-osx, and this campaign
+treats a one-platform measurement as a measurement of that platform.** The path
+is POSIX and the mechanism is not platform-specific, which is a reason to expect
+the Linux arm to hold and not evidence that it does. **So a cover cell settles
+the Linux arm on the first CI run and nothing settles it before then.** If
+`/usr/bin/env` is missing or behaves differently there, stage 5b fails on that
+run and the cover reports it as a port defect, which is the correct reading:
+the port made a claim about a platform it had not run on.
 
 **Cell 7 is not a differential cell and the plan says so.** `wasi.proc.run`
 takes a timeout and the shell does not. A cover that hides that asymmetry would
@@ -309,10 +386,24 @@ The port therefore splits, as 005 does:
   results are `Command` values and its recognizers compare strings, which falls
   back per `STRLIT-BODY-1`.
 
-Both files sit under `tools/build-smoke/`. Neither exists yet, and that is why
-this RFC's `tool_state` is `blocked`. The two names are written without a
-directory on purpose. A full path would make the prose citation lint report two
-files that the port has not written.
+Both files sit under `tools/build-smoke/`. **BOTH NOW EXIST.**
+`buildsmoke.llmll` held sixteen of seventeen stages and 55 `wasi.proc.run` call
+sites at `cdd6438`, and holds all seventeen stages and 60 call sites in the
+working tree on 2026-08-16 once stage 5b landed. **`adjudicate.llmll` verifies
+SAFE and its two contracts are PROVED rather than fallen back**: `llmll verify`
+names `fsenc-verdict` and `status-of` on the `body-faithful` line. Three
+refutation controls were run against copies, and each bit a DIFFERENT
+constraint, so neither post is vacuous: a body returning 2 unconditionally, a
+body returning 2 when the platform cannot test the claim, and a constant
+`status-of`. **Both figures are stamped on purpose.**
+§4's fifty-five and this line's sixty are the same measurement over two trees,
+and a count with no commit beside it reads as a standing fact when it is not. **"Neither exists yet" was this
+section's stated reason for `tool_state: blocked`, and it stopped being true on
+2026-08-12 without this line moving.** The operative reason is §3's: the port
+runs in no job, and `oracle` asserts that both implementations decide over the
+same tree in one job. `adjudicate.llmll` is still written without a directory on
+purpose. A full path would make the prose citation lint report a file the port
+has not written.
 
 **The ordering is a constraint and not a preference.** Port 005 measured this
 with no sidecar present. `llmll check` on the port warns that the core has an
@@ -351,7 +442,7 @@ removes before the deletion, not after CI reddens.
 
 ## 9. Decisions taken
 
-**NO DECISION IS OPEN. All five are taken, and D1 was taken twice.** This
+**NO DECISION IS OPEN. All SIX are taken, and D1 was taken twice.** This
 paragraph said "one decision is open and it blocks the port" until 2026-08-12,
 which was true when Rev 1 was written and false from the moment `PROC-STDIN-1`
 shipped at v0.14.98. The frontmatter was corrected at Rev 2 and this line was
@@ -451,7 +542,7 @@ one the row states.
 
 **D4. The job's time budget doubles at the most expensive step. TAKEN:
 accepted, and measured before the port lands.** One warm build of the smallest
-fixture is 18.13 seconds. Fourteen fixtures run twice is the cost of state
+fixture is 18.13 seconds. Seventeen fixtures run twice is the cost of state
 `oracle`, and that state lasts one release. If the job exceeds its limit, the
 port drops to a nightly step and this RFC gains a revision saying so.
 
@@ -459,6 +550,43 @@ port drops to a nightly step and this RFC gains a revision saying so.
 a distinct name.** The subject also leaves two stages with no number at all, at
 line 561 and line 619. A stage with no unique name cannot be cited in a failure
 report, and the cover in §6 needs one cell per stage.
+
+**D6. How stage 5b learns which platform it is on. TAKEN by user adjudication
+2026-08-16: spawn `/usr/bin/uname` with `["-s"]`.** The stage prints the
+subject's `FSENC_LOCALE_HONOURED` verdict, and setting `LC_ALL=C` does not
+supply it. GHC on macOS resolves UTF-8 whatever `LC_ALL` says, so the encoding
+claim is untestable there whoever sets the variable, and the subject answers
+this by asking `uname -s` at [`build_smoke.sh`](../../scripts/build_smoke.sh)
+line 445. **So `PROC-ENV-1`'s repair does not finish the stage**, which is the
+part of this that was easy to miss: the variable and the platform are two
+requirements and only one of them was in the census.
+
+**The negative test ran BEFORE the row was filed, which is the campaign's rule,
+and two compositions were checked. Both fail:**
+
+| Composition | Why it fails |
+|---|---|
+| `wasi.env.get` | It ships and reads any variable. **No EXPORTED variable names the platform portably**, so there is nothing to read |
+| `stack path --local-install-root` | It answers `aarch64-osx` or `x86_64-linux`, a string the port already holds and pays nothing for. **A test on it must default to NOT EXERCISED for the safe direction**, because an unrecognised string must not be read as "the claim is testable here". That INVERTS the subject's polarity, which defaults to exercised, and the two diverge on any third platform |
+
+So the platform does not compose from what exists, and it owes a row. Two
+answers were put to the user:
+
+1. **Spawn `/usr/bin/uname` with `["-s"]`.** One new spawn site. It agrees with
+   the subject on every platform, because it asks the same program the same
+   question. It files a new row, `PLATFORM-1`, dispositioned SHAPES.
+2. **Test the `stack path` string the port already holds.** No new spawn. It
+   files nothing, and it carries a labelled divergence on any platform that is
+   neither Darwin nor Linux.
+
+**The user chose option 1 on 2026-08-16.** The campaign's deliverable is the gap
+census, and option 2 buys one saved process at the price of an uncounted gap and
+a divergence the cover would have to be told to ignore. **A port that avoids a
+spawn by hiding a gap has spent the thing the campaign exists to produce.** The
+spawn is classified under the campaign's spawned-utility amendment, in
+[`llmll-tooling-campaign.md`](llmll-tooling-campaign.md) §5: `uname` does work
+the LANGUAGE should do, so it owes a row, where `stack` and the compiler are the
+subject of the test and owe none.
 
 ---
 
