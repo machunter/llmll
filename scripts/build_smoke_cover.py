@@ -501,10 +501,19 @@ if MODE == "drop-def" and fx == "smoke.llmll" and lib and os.path.exists(lib):
 
 if MODE == "drop-regex-call" and fx == "regex_lower.llmll" \\
         and lib and os.path.exists(lib):
+    # READ FIRST, INTO A NAME. Written as one expression,
+    # `open(lib,"w").write(open(lib).read()...)` truncates the file before the
+    # inner read runs, so the mutation EMPTIES Lib.hs instead of renaming one
+    # call. That is how it shipped, and cell 5 therefore never tested what it
+    # names: the reference's `[ -f ]` accepts an empty file and its later grep
+    # fails for the right-looking reason by accident, while the port's
+    # read-based check reports the file as not emitted. The sibling drop-def
+    # mode is two statements and was never affected.
+    #
     # Not the hyphenated spelling: that would trip the stage's THIRD assertion
     # and the cell would grade a different one than it names.
-    open(lib, "w").write(open(lib).read().replace("regex_match (",
-                                                  "regex_match_x ("))
+    src = open(lib).read()
+    open(lib, "w").write(src.replace("regex_match (", "regex_match_x ("))
 
 if MODE == "drop-exe" and fx == "capproc_exec.llmll" and out:
     root = subprocess.run(["stack", "path", "--local-install-root"], cwd=out,
@@ -916,6 +925,56 @@ def cell1(c: Cell, ctx) -> None:
 
 # --------------------------------------------------------- the shared cell body --
 
+def flat(s: str) -> str:
+    """Collapse every run of whitespace to one space.
+
+    A cause phrase spans a line break in the reference's source, so it reaches
+    stdout with a newline and an indent inside it. `build_smoke.sh` line 262
+    writes "src/Lib.hs has no\\n  prefix application of regex_match", and line
+    327 writes "found no capproc-exec\\n  binary under ...". Comparing on
+    normalised whitespace means an expectation survives someone re-flowing a
+    message, which hand-editing it to match one wrap position would not.
+    """
+    return " ".join(s.split())
+
+
+def fail_block(out: str) -> str:
+    """The first FAIL verdict INCLUDING its wrapped continuation lines.
+
+    `verdicts()` deliberately keeps only a verdict's first line, because the
+    port emits one line where the reference wraps and comparing full text would
+    report a divergence that is presentation rather than decision. That is the
+    right rule for comparing verdicts and the wrong one for asking WHY a run
+    failed, so the cause assertions read this instead.
+
+    THE TWO RULES CONTRADICTED EACH OTHER AND THE COVER SHIPPED THAT WAY. On
+    its first run against a real tree, cells 5 and 6 both failed on
+    `ref-names-cause` while both implementations were behaving correctly and
+    catching their mutants: the expected phrase lived on a continuation line
+    that never reached the comparison. Their `port-names-cause`,
+    `prior-stages-agree` and `exit-codes-agree` assertions were then reported
+    unreached, so TWO OF THE EIGHT DIFFERENTIAL CELLS GRADED THE PORT NOT AT
+    ALL. Had those phrases happened to sit on the first line, both cells would
+    have reported green while measuring nothing.
+
+    Continuation is decided by indentation, which is the shape the reference's
+    wrapped `fail` prose actually has. Anything unindented starts something
+    new and is not swallowed.
+    """
+    lines = out.splitlines()
+    for i, ln in enumerate(lines):
+        m = VERDICT.match(ln.rstrip())
+        if m is None or m.group(1) != "FAIL":
+            continue
+        block = [m.group(2)]
+        for cont in lines[i + 1:]:
+            if not cont.strip() or not cont[:1].isspace():
+                break
+            block.append(cont.strip())
+        return " ".join(block)
+    return ""
+
+
 def differential(c: Cell, ctx, tree: Path, subject: str, *, cause: str) -> None:
     """Run both over `tree` and require them to fail at the same stage.
 
@@ -936,7 +995,9 @@ def differential(c: Cell, ctx, tree: Path, subject: str, *, cause: str) -> None:
     rc_p, out_p = run_port(ctx["gate"], tree, portwork, rundir, subject,
                            ctx["env"])
     vr, vp = verdicts(out_r), verdicts(out_p)
-    fr, fp = terminal_fail(vr), terminal_fail(vp)
+    # First lines only, for the diagnostic below. The cause assertions read
+    # fail_block() instead, which keeps the wrapped continuation.
+    fr = terminal_fail(vr)
 
     c.check("ref-fails", rc_r != 0,
             "the REFERENCE did not catch this mutant, so the cell tests "
@@ -944,12 +1005,17 @@ def differential(c: Cell, ctx, tree: Path, subject: str, *, cause: str) -> None:
     c.check("port-fails", rc_p != 0,
             f"the port did not catch this mutant.\n"
             f"        reference said: {fr}")
-    c.check("ref-names-cause", cause in fr,
+    # The cause assertions read the WHOLE failure block, not the first line
+    # verdicts() keeps; see fail_block() for the two cells this silently
+    # blinded. Whitespace is normalised on both sides so an expectation
+    # survives a re-flowed message.
+    br, bp = fail_block(out_r), fail_block(out_p)
+    c.check("ref-names-cause", flat(cause) in flat(br),
             f"the reference failed for a different reason than the cell "
-            f"mutates. want {cause!r}, got: {fr}")
-    c.check("port-names-cause", cause in fp,
+            f"mutates. want {cause!r}, got: {br}")
+    c.check("port-names-cause", flat(cause) in flat(bp),
             f"both failed but at different places. want {cause!r}\n"
-            f"        reference: {fr}\n        port     : {fp}")
+            f"        reference: {br}\n        port     : {bp}")
 
     # The stages that PASSED before the failure. This is what tells a real
     # detection from a run that died early for the scratch tree's own reasons,
