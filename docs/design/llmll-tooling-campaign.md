@@ -188,8 +188,22 @@ declaration, which is precisely why a rule written against FFI misses it.
 - **A gap, dispositioned SHAPES, and it owes a row.** The spawned program does
   work the LANGUAGE should do, and the subject reaches for it because it is a
   shell script rather than because the task requires a process. `od` for a hex
-  dump is this, and it is filed as `BYTES-READ-1`. `awk` to generate a repeated
-  string is this, and it is filed as `LIST-RANGE-1`.
+  dump is this, and it is filed as `BYTES-READ-1`.
+
+**A SECOND EXAMPLE STOOD HERE AND WAS WITHDRAWN ON 2026-08-15. The withdrawal
+is kept, because it is the sharper lesson.** The amendment first cited `awk`
+generating a repeated string, filed as `LIST-RANGE-1`. Port 006 then wrote that
+fixture with no `awk` at all: `string-concat` doubles a literal fourteen times
+and gives 147456 bytes, against the 108894 the subject's `seq` pipeline
+produces. **The example failed the correction two paragraphs below, which is
+this section's own rule**, and it failed it within a day of being written.
+`LIST-RANGE-1` stays open on what does not compose, which is N DISTINCT
+elements from the count N, and not on a repeated string.
+
+**The general shape is worth more than either example.** An amendment written
+to catch workarounds will itself reach for the nearest illustration, and the
+nearest illustration is the one nobody has tried yet. Prefer an example the
+campaign has already MEASURED over the one that reads best.
 
 **Count the spawn sites by class in each RFC's section 5.** A count of zero FFI
 declarations beside an uncounted spawn is a measurement of the wrong thing.
@@ -200,6 +214,63 @@ pieces and `list-fold` rejoins them with the replacement, so the operation
 composes today in about four lines. The lesson generalises. Read the builtin
 list, then check whether the operation COMPOSES from what is there, before
 filing an absence.
+
+### The rule's first application, and it found nothing owed
+
+**Measured 2026-08-15, over port 006's PROC-STDIN-1, REPLAY-FRAME and
+PROC-BOUNDARY-1 stages at `9806b78`.** Twenty-four spawn sites: four
+`llmll build`, six `llmll replay`, four `stack path`, and ten runs of the
+fixtures under test. Every one is the compiler, the toolchain, or the subject
+of the test, so none owes a row under the rule above.
+
+**Seven shell utilities the subject uses were composed instead of spawned.**
+`cp` became `wasi.fs.copy`, `mkdir -p` became `wasi.fs.mkdir`, `rm -f` became
+`wasi.fs.delete`, `cmp` became string equality, and `grep` became
+`string-contains` or the port's own whole-line `has-line?`. Two more composed
+from existing builtins rather than being filed: `sed` replace-all from
+`string-split` plus a fold-join, and the `seq` volume from `string-concat`
+doubling.
+
+**A discipline that fires and finds nothing owed is a result, and it is
+recorded for that reason.** Silence reads as "not checked", and the campaign
+cannot tell those two apart a month later.
+
+### A port can be complete and still not gate
+
+**`buildsmoke.llmll` printed `BUILD-GATE-1 FAIL:` and exited 0, across every
+one of its stages, from the day it was written until `9806b78`.** It declared
+no `:status`. Measured on three negative controls: each printed its failure
+line and each answered 0. The two sibling ports
+[`pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) and
+[`versiongate.llmll`](../../tools/version-gate/versiongate.llmll) both declare
+`:status`, so this port was the outlier and nothing in this campaign asked.
+
+**The omission is INVISIBLE in any port whose stages all pass**, which is why
+it needs a checklist line rather than a paragraph. **Every port declares
+`:status`, and one negative control proves a failing run exits non-zero.** A
+port that only ever passes has not shown that it can fail.
+
+The repair writes the pass mark on the SUCCESS path and not on the thirty-nine
+failure paths. A stage appended later therefore inherits failure rather than an
+inherited pass, and the next author cannot make this mistake by omission.
+
+**One smaller item rides along and does not earn a row.** The port writes
+`bs_stack.txt` and `bs_ver.txt` into its own working directory on every run,
+from the two stages that use relative output paths under cwd `"."`. It is the
+same class as the port's own note about not running the version gate from
+inside the tree.
+
+### The tri-state has no value for "started and incomplete"
+
+**Filed here 2026-08-15 so that no further revision argues it in prose.**
+`tool_state` takes `blocked`, `oracle` or `retired`. A port that is written,
+building and deciding, but not yet in a job and not yet complete, is none of
+these. `blocked` is the only value the RFC standard gate accepts, so every such
+port carries a value that understates it.
+
+TOOL-RFC-006 spent a paragraph on this at Rev 2 and again at Rev 4. A record
+that describes the same gap three times and repairs it never is the shape this
+campaign exists to catch. **The row is the repair; a fourth paragraph is not.**
 
 **Known gaps, at v0.14.87.** Leverage order for the six gates in scope:
 
