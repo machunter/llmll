@@ -163,6 +163,44 @@ and all four are recorded at their sites; two of them were previously unknown
 defects. That is the yield this discipline is for, and it is the reason the
 ports are worth doing even where the shell script was fine.
 
+### A spawned utility is a workaround, and the FFI bar does not catch it
+
+**Amended 2026-08-15, after port 006 spawned `od` and no census held it.**
+
+The campaign's standing rule counts `haskell.*` and `c.*` declarations, and the
+bar from Phase 3 onward is zero. Port 006 meets that bar. It still reached
+outside the language, because `wasi.proc.run` takes an executable and an argv
+vector, and spawning a program is not an FFI declaration.
+
+**So the rule as written did not fire.** `od -An -tx1` went in with a code
+comment and no row. That is exactly the failure the SHAPES disposition above
+describes: skipping it is how a language limitation becomes an unexamined house
+style. A spawned utility is a more comfortable workaround than an FFI
+declaration, which is precisely why a rule written against FFI misses it.
+
+**The test is what the spawned program is for, not that a spawn happened.**
+
+- **Not a gap.** The port spawns because the SUBJECT spawns, and the two run the
+  same program at the same point. `stack`, the `llmll` compiler, `python3` over
+  a cover script, and a fixture the gate just built are all this. A gate whose
+  job is to build things and run them cannot port to a program that spawns
+  nothing.
+- **A gap, dispositioned SHAPES, and it owes a row.** The spawned program does
+  work the LANGUAGE should do, and the subject reaches for it because it is a
+  shell script rather than because the task requires a process. `od` for a hex
+  dump is this, and it is filed as `BYTES-READ-1`. `awk` to generate a repeated
+  string is this, and it is filed as `LIST-RANGE-1`.
+
+**Count the spawn sites by class in each RFC's section 5.** A count of zero FFI
+declarations beside an uncounted spawn is a measurement of the wrong thing.
+
+**One correction rides along, because the amendment was over-broad when first
+drafted.** `sed` for a replace-all is **not** a gap: `string-split` gives the
+pieces and `list-fold` rejoins them with the replacement, so the operation
+composes today in about four lines. The lesson generalises. Read the builtin
+list, then check whether the operation COMPOSES from what is there, before
+filing an absence.
+
 **Known gaps, at v0.14.87.** Leverage order for the six gates in scope:
 
 | Gap | Disposition | Blocks, of the six in scope | Status |
