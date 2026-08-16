@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## v0.16.0: a directory can be removed, and the name that claimed to remove one stops lying (2026-08-15)
+## v0.16.0: a directory can be removed, and the name that claimed to remove one stops lying (2026-08-16)
 
 **`FS-RMDIR-1` ships `wasi.fs.rmdir`, and the same commit fixes a defect the row found on the way in.** `wasi.fs.delete` published `RNone` when handed a directory and removed nothing. `doesFileExist` answers `False` on a directory, so the idempotence guard took its false branch and reported success for a removal that did not happen. Measured on this tree before the change, and indistinguishable at the call site from a real deletion. It now delivers `RErr` naming `wasi.fs.rmdir`. **Zero in-tree call sites pass a directory**, measured across `tools/`, `examples/`, `scripts/` and `compiler/test/`, so nothing in the repository changes behaviour.
 
@@ -25,6 +25,24 @@
 ### Tests
 
 hspec 1707 to 1713. `FR-1` and `FR-2` pin capability gating in both directions. `FR-3` pins `primEffect` to `EFsWrite` **and** pins the negative, that it is not `Unbounded`, which is what catches the clause-ordering trap that would send the name to the `wasi.` fallthrough. `FR-4` pins the shared label and the seven-wide catalog. `FR-5` pins the `wasi.fs.delete` ordering, and it is a preamble-shape assertion rather than a behaviour test, which is a stated limit: the suite does not build and run generated programs. Every one of the five was checked by mutation. Removing `wasi.fs.rmdir` from the `EFsWrite` clause fails `FR-3` and `FR-4` with `Just Unbounded` while `FR-1` and `FR-2` stay green; restoring the pre-fix body shape fails `FR-5`.
+
+### `BUILTIN-BODY-1`: a builtin the compiler declared and could not emit
+
+**`sha1` passed `llmll check`, verified SAFE, and then failed at GHC.** `builtinEnv` declares it ([`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs)) and §13.11 documents it. The codegen preamble defines `sha1_hash`, and nothing defined `sha1`, so the name reached the generic fallthrough, which derives the Haskell identifier from the LLMLL name, and emitted a call to an identifier that does not exist. The sibling `hmac-sha1` lowered correctly throughout, because `hmac_sha1` is the preamble's own name for it.
+
+**The check for this class already existed, scoped to a prefix.** The [`Spec.hs`](compiler/test/Spec.hs) fold written after `WASI-RT` filtered on `wasi.` and covered **16 of the 101** `builtinEnv` names. `sha1` sat outside that prefix in the same state the four `wasi.*` names had been in.
+
+**Measured partition, no residue.** 16 operators route to `emitOp` inside `emitApp`; 11 have hand-written `emitApp` cases; 9 resolve elsewhere (`abs`, `min`, `max` and `not` against GHC's Prelude, `RNone` through `RList` as constructors of the `data Response` block); 66 reach the fallthrough. **`sha1` was the only one of the 101 with no reachable definition.**
+
+The fold now classifies by running `emitApp` and reading the text it produces, so operators and the hand-written cases classify themselves rather than living in a list that someone must remember to extend. One literal list remains, at nine names, and each entry carries the measurement behind it. A pinned class-size assertion moves when a builtin is added, so whoever adds one must name its class.
+
+**The eleven hand-written cases stay uncovered, and that is deliberate.** Each was written by a person and is exercised by existing codegen tests. The class fixed here is mechanical name-to-identifier lowering with no author in the loop, which is the path `sha1` took.
+
+**Found while measuring, unfixed:** [`examples/totp_rfc6238/totp_filled.ast.json`](examples/totp_rfc6238/totp_filled.ast.json) does not typecheck at this version. See `TOTP-CHECK-1`.
+
+### Tests: `BUILTIN-BODY-1`
+
+hspec 1713 to 1768: 70 per-name examples in place of 16, plus one class-size assertion. **The test landed before the fix and was seen to fail**, once, naming `sha1` and the absent binding. A guard that has never fired is not known to work. Negative control: a probe calling `sha1`, `(sha1 (sha1 k))` and `hmac-sha1` builds through GHC and emits `(sha1_hash (k))`; mutating that call site back to the pre-fix lowering and rebuilding gives `Variable not in scope: sha1` at two sites, so the probe discriminates. **Every figure here is macOS-local, and no CI run has graded this change.**
 
 ## v0.15.0: a program can read its environment, and the flag that would log it is refused (2026-08-14)
 

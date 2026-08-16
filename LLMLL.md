@@ -2699,7 +2699,7 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 | Function | Signature | RFC Reference | Notes |
 |----------|-----------|---------------|-------|
 | `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 (HMAC) | `(hmac-sha1 key message)`: the **key comes first**. Key and message are both `bytes[20]`, so a reversed call type-checks and returns a different MAC. Returns 20-byte MAC. |
-| `sha1` | `bytes[20] → bytes[20]` | FIPS 180-4 (SHA-1) | Input is `bytes[20]`, output is 20-byte hash. |
+| `sha1` | `bytes[20] → bytes[20]` | FIPS 180-4 (SHA-1) | Input is `bytes[20]`, output is 20-byte hash. **Lowers to the preamble's `sha1_hash` binding, not to `sha1`**: the two names differ, and until `BUILTIN-BODY-1` a call to this builtin passed `check`, verified SAFE, and then failed at GHC. The declared input is narrower than FIPS 180-4, which admits any length; see `SHA1-DOMAIN-1`. |
 
 > [!IMPORTANT]
 > **Implementation note:** The preamble SHA-1 implementation in `CodegenHs.hs` is a **simplified stub** (polynomial hash, not a faithful SHA-1). The trust report correctly classifies all functions depending on these builtins as `asserted`. For production use, replace the preamble with a real Haskell crypto library (`crypton` or `cryptohash-sha1`). The `sha1_hash` binding in `CodegenHs.hs`'s runtime preamble carries a comment marking this. (`cryptohash-sha256` is already a dependency of every generated project, added for `wasi.fs.sha256`, so the sibling `cryptohash-sha1` costs no resolver movement.)
