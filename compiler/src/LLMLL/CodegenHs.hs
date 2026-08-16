@@ -529,12 +529,15 @@ runtimePreamble =
   , "  putStrLn (show (fromIntegral code :: Integer) ++ \" \" ++ body)"
   , "  llmll_publish (RCode (fromIntegral code))"
   , ""
-  -- WASI-RT: builtinEnv (TypeCheck.hs:154-160) declares seven wasi.* names;
-  -- only the three above had definitions, so a program calling any of the four
-  -- below type-checked clean and died at GHC with "Variable not in scope".
-  -- Keep this block in sync with the builtinEnv list: the Spec.hs describe
-  -- block "codegen: wasi preamble completeness" iterates the wasi. prefix of
-  -- builtinEnv and fails if any declared name has no definition here.
+  -- WASI-RT: builtinEnv declared seven wasi.* names and only the three above
+  -- had definitions, so a program calling any of the four below type-checked
+  -- clean and died at GHC with "Variable not in scope".
+  -- Keep this block in sync with the builtinEnv list. The Spec.hs describe
+  -- block "CodegenHs: builtin lowering completeness (BUILTIN-BODY-1, WASI-RT)"
+  -- fails if a declared name has no definition here.
+  -- BUILTIN-BODY-1 widened that check from the wasi. prefix to every name in
+  -- builtinEnv. The prefix covered 16 of 101 names, and sha1 sat outside it
+  -- in the same broken state these four were in.
   -- FS-ENCODING-1. writeFile encodes through the ambient locale, so a string
   -- carrying any character outside it fails with "cannot encode character",
   -- caught by llmll_publish_io and surfaced as RErr. That is a spurious failure
@@ -1508,6 +1511,14 @@ emitApp "bytes-set"     [b,i,v]  = "(bytes_set " <> wrap b <> " (fromIntegral " 
 emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " (fromIntegral " <> wrap i <> " :: Int))"
 emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " (fromIntegral " <> wrap f <> " :: Int) (fromIntegral " <> wrap t <> " :: Int))"
 emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " (fromIntegral " <> wrap i <> " :: Int))"
+-- BUILTIN-BODY-1. The preamble binding is sha1_hash, not sha1, so without
+-- this case the name reached the generic fallthrough below and emitted a
+-- call to an identifier nothing defines. A program calling sha1 passed
+-- `llmll check`, verified SAFE, and died at GHC with "Variable not in
+-- scope". Its sibling hmac-sha1 resolves through the fallthrough already,
+-- because hmac_sha1 IS the preamble's name for it. No coercion is needed
+-- here: bytes[20] lowers to [Word8], which is what sha1_hash takes.
+emitApp "sha1"          [b]      = "(sha1_hash " <> wrap b <> ")"
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
 

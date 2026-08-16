@@ -15069,13 +15069,66 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       typeToSort (TCustom "Json") `shouldBe` FQJson
       emitSort FQJson `shouldBe` "Jsn"
 
-  describe "CodegenHs: wasi preamble completeness (WASI-RT)" $ do
+  describe "CodegenHs: builtin lowering completeness (BUILTIN-BODY-1, WASI-RT)" $ do
 
     let preambleText = T.unlines runtimePreamble
         wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
-        -- Mangling mirrors CodegenHs's dotted-name lowering: wasi.fs.read
-        -- becomes wasi_fs_read.
-        mangle       = T.replace "." "_"
+        -- Mangling mirrors CodegenHs's toHsIdent (CodegenHs.hs:2230-2236),
+        -- which the module does not export. Keep these three cases in sync
+        -- with it: wasi.fs.read becomes wasi_fs_read, string-empty? becomes
+        -- string_empty'.
+        mangle = T.map (\c -> case c of
+                                '-' -> '_'
+                                '.' -> '_'
+                                '?' -> '\''
+                                _   -> c)
+
+        -- BUILTIN-BODY-1. The wasi. prefix filter this block shipped with
+        -- covered 16 of the 101 builtinEnv names. `sha1` sat outside it,
+        -- declared at TypeCheck.hs:305 with the preamble defining sha1_hash
+        -- and nothing defining sha1, so a program calling it passed
+        -- `llmll check`, verified SAFE, and died at GHC. The generalisation
+        -- below covers every name.
+        --
+        -- Classification runs emitApp and reads the text it PRODUCES. It does
+        -- not consult a list of names. That matters: operators route to
+        -- emitOp inside emitApp (CodegenHs.hs:1489-1492) and the eleven
+        -- hand-written cases emit their own shapes (CodegenHs.hs:1486-1510),
+        -- so both classes classify themselves and cannot drift out of a
+        -- literal list that someone forgot to extend.
+        arityOf (TFn as _) = length as
+        arityOf _          = 0
+
+        synthArgs ty = [ EVar (T.pack ("a" ++ show k)) | k <- [1 .. arityOf ty] ]
+
+        -- A name "fell through" when emitApp produced the generic form at
+        -- CodegenHs.hs:1511-1512, which is "(" <> toHsIdent name <> " ".
+        -- That is the only path where the Haskell identifier is derived
+        -- mechanically from the LLMLL name with no author in the loop, and
+        -- it is the path sha1 took.
+        fellThrough n ty = T.isPrefixOf ("(" <> mangle n <> " ") (emitApp n (synthArgs ty))
+
+        -- The ONLY literal list in this block. Each entry names a class that
+        -- resolves somewhere other than a top-level runtimePreamble binding.
+        --   abs, min, max  reach the fallthrough and resolve against GHC's
+        --                  Prelude (CodegenHs.hs:1511-1512).
+        --   not            reaches emitOp, which emits "(not x)"
+        --                  (CodegenHs.hs:1526). That is Prelude's `not` and it
+        --                  is shaped exactly like a fallthrough, so it lands
+        --                  here rather than in the derived operator class.
+        --   RNone..RList   are constructors of the `data Response` block
+        --                  (CodegenHs.hs:479-485). They sit on data
+        --                  continuation lines, never on a binding line.
+        -- Adding a name here is a decision. Measure the name first: all four
+        -- Prelude entries were confirmed to have zero preamble binding lines.
+        resolvedElsewhere =
+          [ "abs", "min", "max", "not"
+          , "RNone", "RText", "RCode", "RErr", "RList" ]
+
+        needsBinding =
+          [ n | (n, ty) <- Map.toList builtinEnv
+              , fellThrough n ty
+              , n `notElem` resolvedElsewhere ]
 
     -- Count moved 7 -> 8 when CAP-PROC's wasi.fs.list landed, then 8 -> 12 with
     -- CAP-PROC Phase 2 (proc.run, clock.monotonic, fs.mkdir, fs.sha256). The
@@ -15092,7 +15145,20 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "builtinEnv declares exactly the sixteen wasi.* names this block covers" $
       length wasiNames `shouldBe` 16
 
-    forM_ wasiNames $ \n ->
+    -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
+    -- builtin is added, or when an existing one changes lowering class.
+    -- Moving one is a DECISION: whoever adds a name must say which class it
+    -- is in and why. That is the same discipline the wasi count above has
+    -- carried since WASI-RT, widened from 16 names to all 101.
+    -- 71 -> 70 when sha1 gained its emitApp case: the fix moved that name out
+    -- of the fallthrough class and into the hand-written one, which is the
+    -- class change this assertion exists to make visible.
+    it "the lowering classes hold the sizes this block was measured against" $ do
+      Map.size builtinEnv      `shouldBe` 101
+      length needsBinding      `shouldBe` 70
+      length resolvedElsewhere `shouldBe` 9
+
+    forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
         let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart runtimePreamble)
         if defined
