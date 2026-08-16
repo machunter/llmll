@@ -548,6 +548,181 @@ jobs:
           LLMLL_BIN: stack exec llmll --
         run: bash ../scripts/build_smoke.sh
 
+      # TOOL-RFC-006: the same gate, in LLMLL, deciding beside the shell one.
+      # Adjacent to its reference on purpose, and that adjacency is the whole of
+      # what `tool_state: oracle` asserts: both implementations decide over the
+      # SAME tree in one job, and a reader compares their per-stage verdicts in
+      # one log rather than across two. RFC §3 records that this port costs
+      # nothing to place, because the reference already runs here and this job
+      # already carries a toolchain; what it costs is time, since both compile
+      # the same fixtures through GHC.
+      #
+      # THE CORE IS VERIFIED BEFORE THE PORT IS CHECKED, and RFC §7 makes the
+      # ordering a constraint rather than tidiness. adjudicate.llmll carries the
+      # stage-verdict logic the harness delegates its decision to, and its
+      # .verified.json sidecar is gitignored, so nothing in the checkout says
+      # the contract was proved. Port 005 measured what that costs when the step
+      # is absent: `llmll check` on the port warns that it inherits an unproven
+      # contract, and the warning disappears once the core is verified. The
+      # trust therefore comes from running verify HERE, on every run, and not
+      # from a file in the tree.
+      #
+      # THIS PAIR SITS AFTER THE SOLVER STEPS for the reason the TOOL-RFC-005
+      # pair above records: `llmll verify` needs liquid-fixpoint and z3, and
+      # placed with the documentation gates it exited 3 with "SOLVER NOT FOUND
+      # -- NOTHING WAS PROVEN". Do not move this pair up with them.
+      - name: Verify the build-gate adjudicator (LLMLL port core, TOOL-RFC-006)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          ( cd tools/build-smoke && "$SUBJECT" verify adjudicate.llmll )
+
+      # THE DIFFERENTIAL COVER, WIRED IN, AND IT IS WHAT LETS THIS RFC REACH
+      # `tool_state: oracle`. The comment that used to stand below said the
+      # cover was NOT in this job, and its reason was right: a green run from
+      # the live step is the port DECIDING, not evidence that the two
+      # implementations agree. scripts/build_smoke_cover.py is the thing that
+      # decides the second question. It drives BOTH implementations over the
+      # same mutated trees and compares their per-stage verdicts, which no live
+      # run does. Ports 003 and 004 found real defects only through their
+      # covers, and not one of those defects was reachable from a live tree.
+      #
+      # POSITION: before the port's live step, after the adjudicator verify.
+      # That is where every sibling cover in this job sits, for the reason they
+      # state: the grading runs before the run being graded, so a divergence
+      # fails the job without first spending the live pass. It does NOT replace
+      # either live step; see the redundancy paragraph at the end of this
+      # comment.
+      #
+      # IT BUILDS THE PORT INTO THE OUT DIRECTORY THE NEXT STEP NAMES, on
+      # purpose. The cover must grade the binary that then decides, and not a
+      # sibling built beside it from the same source. The next step keeps its
+      # own `build` line, which re-emits into the same directory: that is well
+      # defined (Main.hs builds with createDirectoryIfMissing, so a populated
+      # -o is not an error) and warm, so deleting THIS step leaves that one
+      # correct, and the shared directory costs one recompile rather than a
+      # second toolchain pass.
+      #
+      # WHICH CELLS RUN IS WRITTEN HERE AND NOT LEFT TO A DEFAULT. All of them
+      # except cell 7. Cell 7 makes a build outrun `wasi.proc.run`'s timeout;
+      # the port hands that call 900 seconds, the cover reads the number out of
+      # the port's source rather than carrying a copy, and the only way to
+      # exceed a timeout is to exceed it. So the cell's wall clock is a quarter
+      # of an hour and it grades the PORT alone, because the shell has no
+      # timeout to disagree about. `--no-slow` is passed explicitly, so the
+      # decision is legible in the step; the cover then prints the declined cell
+      # and its reason under "CELLS NOT RUN (named, not skipped)" either way.
+      #
+      # THIS STEP BLOCKS THE JOB. A cover that cannot fail is the dead-gate mode
+      # this campaign keeps finding, and TOOL-RFC-005 §8 records what the
+      # advisory choice cost there: nothing now stops a broken prose citation
+      # reaching main, because both remaining checks exit 0 on a finding. The
+      # cover's exit 1 is the only signal in this repository that says these two
+      # implementations disagree, so it is not written to a log for someone to
+      # notice later.
+      #
+      # TWO DIVERGENCES ARE REAL AND ARE TOLERATED BY NAME, NEVER DROPPED. The
+      # port prints a verdict line for the W-REPLAY-INIT check that the
+      # reference folds into stage 6, and the two PROC-STDIN-1 PASS lines each
+      # describe the feed that side built (12000 lines against 147456 bytes).
+      # Both sit in the cover's EXPECTED_DIVERGENCES table, both are printed on
+      # EVERY run, and each is asserted to still occur exactly as recorded: a
+      # repaired port fails the cell with "the entry must be DELETED", and a
+      # reworded verdict line fails it too. What is NOT done is widening the
+      # normalizer until the two stop showing, which would also stop grading
+      # every other difference of the same shape.
+      #
+      # TIME, WITH THE MEASURED PART SEPARATED FROM THE ARITHMETIC. Measured
+      # 2026-08-16 on aarch64-osx: the three static cells cost 0.23s together.
+      # Measured at RFC §3 on 2026-08-11, same host: one warm `llmll build` of
+      # the smallest fixture is 18.13s. ARITHMETIC from those, not a
+      # measurement: cells 2 and 3 fail on a fixture that does not parse and
+      # compile nothing through GHC; cells 4, 5 and 6 fail at stages 4, 4b and 5
+      # and so compile one, two and three fixtures per side, which is twelve
+      # builds and about four minutes. That figure is a FLOOR: the rate came
+      # from the smallest fixture on a faster machine than a two-core runner.
+      # Cell 1 is the term that dominates and it is UNMEASURED: it runs both
+      # implementations over the live tree in full, so it costs what the two
+      # live steps below cost, again. D4 accepted doubling this job's most
+      # expensive step; this step makes it roughly triple, plus four minutes.
+      # The first run of this step is what turns the cell 1 term into a number.
+      #
+      # WHAT IS NOW REDUNDANT, STATED RATHER THAN DELETED. Cell 1 runs both
+      # implementations over the live tree and requires both to exit 0, which is
+      # the decision the two live steps make. It is not a full replacement: the
+      # live steps print their verdict lines into the job log, and `oracle` is
+      # the claim that a reader compares those two transcripts in ONE log, while
+      # cell 1 prints them only when a cell fails. Dropping either live step is
+      # the user's call and not this file's.
+      - name: Run BUILD-GATE-1 differential cover (TOOL-RFC-006)
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/buildsmoke"
+          ( cd tools/build-smoke && "$SUBJECT" build buildsmoke.llmll -o "$OUT" )
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/buildsmoke"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no buildsmoke binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
+          # No --work: without it the cover builds under a temp directory it
+          # creates and REMOVES when it finishes. Its cells generate a stack
+          # project per fixture per side, and the two live steps below still
+          # need room on the same volume.
+          python3 scripts/build_smoke_cover.py \
+            --gate "$GATE" --subject "$SUBJECT" --root "$ROOT" --no-slow
+
+      # THE STEP BELOW IS THE PORT DECIDING, and it is the second half of the
+      # pair, not the whole of it. The cover above is what says the two
+      # implementations AGREE; this is what says the port answers correctly over
+      # the live corpus, which the cover's mutation cells never reach because
+      # they run against a partial tree. Neither is sufficient alone, which is
+      # why both are here and is the arrangement 002 and 003 already carry.
+      - name: Run end-to-end build gate (LLMLL port, TOOL-RFC-006)
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/buildsmoke"
+          ( cd tools/build-smoke && "$SUBJECT" build buildsmoke.llmll -o "$OUT" )
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/buildsmoke"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no buildsmoke binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/bs-work" "$RUNNER_TEMP/bs-run"
+          # $SUBJECT and NOT `stack exec llmll --`, which is what the reference
+          # step above is given. The port runs its subject from inside its own
+          # work directory and from the generated projects, and `stack exec`
+          # re-resolves against the stack project of whatever directory it is
+          # standing in. The reference handles that in its stage 2a by anchoring
+          # the command to an absolute path first; the port is handed the
+          # anchored path directly, which is the same fix applied earlier.
+          #
+          # The step budget comes from python3 and NOT `yes x | head -n N`,
+          # which dies of SIGPIPE under the pipefail this step sets. A starved
+          # console run exits 70, and 70 is a budget error rather than a
+          # verdict, so the count is deliberately far above the step count.
+          #
+          # Run from a scratch directory: a console program writes
+          # <module>.event-log.jsonl beside wherever it stands, and this job's
+          # cwd is the repo root. --work is a second scratch directory, because
+          # the port and the reference must not share build output.
+          ( cd "$RUNNER_TEMP/bs-run" \
+              && python3 -c "import sys; sys.stdout.write('x\n' * 4000)" \
+                   | "$GATE" --root "$ROOT" --subject "$SUBJECT" \
+                             --work "$RUNNER_TEMP/bs-work" ) > "$RUNNER_TEMP/bs.log" 2>&1 \
+            || { grep -v '^$' "$RUNNER_TEMP/bs.log" >&2; exit 1; }
+          # The console harness prints a blank line for every step whose command
+          # wrote nothing, so the log is mostly blank lines. The verdicts are
+          # the non-blank ones.
+          grep -v '^$' "$RUNNER_TEMP/bs.log"
+
       - name: Run spec_roundtrip.py against opt-in LLMLL.md blocks
         working-directory: compiler
         env:
