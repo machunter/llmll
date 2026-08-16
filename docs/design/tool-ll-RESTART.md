@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-12, after v0.14.99. FIVE ports of six are complete and PORT 006 IS THE ONLY WORK LEFT. PORT 005 IS RETIRED at v0.14.99, which is the campaign's FIRST retirement: the reference and its 22-cell differential cover are both deleted, and NO INSTRUMENT GRADES THE PORT NOW. The user accepted that cost on 2026-08-12 with the cost stated first. THE RETIREMENT PRODUCED A RULE AND PORT 006 MUST USE IT: move the subject script aside, run the gate, read the result, and do all three BEFORE you delete the subject. Deleting the 005 reference broke 13 prose citations in 6 files, which the RFC section 8 precondition list did not ask about, and the measurement was free. THE TAG DEBT IS ZERO: the banner, the last tag and the newest CHANGELOG entry agree, and the tag run published the image. Measure that anyway; section 0 gives the four commands and this line has been incorrect before. v0.14.98 SHIPPED THE TWO GAPS PORT 006 RAISED, before the port was written: PROC-STDIN-1 gave wasi.proc.run a stdin path, and PROC-STDIN-SHARE-1 closed with it. That is the campaign's FIRST gap closed by the compiler rather than worked around by a port. So DO NOT write a drive helper and DO NOT write /bin/sh -c; the port passes a path. THE RFC IS WRITTEN: read tool-rfc-006-build-smoke.md before any port code. NO QUESTION IS OPEN for port 006. The port projects to about 1,400 code lines, not the 2,500 an inherited 4.8x ratio gave; that ratio was the FIRST port's and the five decline to 2.23. v0.14.98 also removed the last four find | head -1 sites from version-gate.yml, so that idiom is absent from the repository. NOTHING NOW STOPS A BROKEN PATH CITATION FROM REACHING main: the user deleted the reference's pytest file on 2026-08-11, and the reference itself at v0.14.99. Both remaining checks report and do not decide. This file shows where the work is. llmll-tooling-campaign.md shows what the standard says. If the two disagree about the standard, use the campaign file. If they disagree about state, measure the state again."
-date: 2026-08-12
+status: "LIVE, 2026-08-16, after v0.16.0. PORT 006 IS COMPLETE: ALL SEVENTEEN STAGES ARE PORTED and the census is seventeen rows, not the fourteen this file said before. THE WORK IS ON BRANCH tool-006/proc-stdin-replay-boundary, 11 COMMITS AHEAD OF main, AND IT IS NOT PUSHED. NO CI RUN HAS SEEN ANY OF IT; every result here is local. THE TAG DEBT IS NOT ZERO AND THE 2026-08-12 LINE SAYING IT WAS IS INCORRECT: the banner says v0.16.0 and the last tag says v0.15.0, and the user DEFERRED the tag on 2026-08-16 until one green CI run of the cover. The port exits 0 and prints fifteen verdict lines against the reference's fifteen verdict-emitting sites; a bad --subject gives exit 1. adjudicate.llmll exists and verifies SAFE with both contracts body-faithful, proved by three refutation controls that each broke a different constraint. PROC-ENV-1 DID NOT BLOCK STAGE 5b: wasi.proc.run on /usr/bin/env sets a child environment and the stdin path survives the exec, so the row NARROWS and stays open. THE COVER RAN FOUR TIMES AND FOUND THREE DEFECTS IN ITSELF AND ONE IN THE PORT. 8 of 9 cells pass. CELL 6 IS A REAL PORT DEFECT AND IT IS NOT FIXED: the port carries the reference's "found no capproc-exec binary" text but tests whether stack returned an install root, so when the binary is truly absent the port reports NINE causes it never tested. That refutes the RFC section 5 LIST-KIND-1 claim that the design separates missing from not executable. LIST-RANGE-1 IS CLOSED AS REFUTED: range has been a builtin since v0.11 with fifteen call sites in five committed files, two of them this campaign's own ports, and the spec documented it. SPLIT-EMPTY-1 ASSERTS THE SAME FALSE ABSENCE and is not yet corrected. sha1 IS A MEASURED COMPILER DEFECT: check passes, verify reports SAFE and writes a sidecar, and GHC fails, because builtinEnv declares a name the preamble never defines. PLATFORM-1 and BYTES-WRITE-1 are filed. THREE DECISIONS ARE OPEN and section 2 lists them. tool_state STAYS blocked until a green CI run. Section 0 gives the commands; run them, because this line has been incorrect before and was incorrect about the tag debt today."
+date: 2026-08-16
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
@@ -50,19 +50,45 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-12, after v0.14.98
+## 1. State, measured 2026-08-16, after v0.16.0
+
+**THE WORK IS ON A BRANCH AND THE BRANCH IS NOT PUSHED.** No CI run has seen
+any of it. Every result in this file came from a local run.
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Last tag | `v0.14.99` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **0**, measured 2026-08-12 | `git rev-list --count v0.14.99..HEAD` |
-| Version banner | `v0.14.99` | `head -1 LLMLL.md` |
-| CI on `main` | measure it | `gh run list --branch main` |
-| Newest CHANGELOG entry | `v0.14.99` | `grep "^## " CHANGELOG.md` |
+| Branch | `tool-006/proc-stdin-replay-boundary` | `git branch --show-current` |
+| Commits ahead of `main` | **11**, and **0 are pushed** | `git rev-list --count main..HEAD` |
+| Last tag | `v0.15.0` | `git describe --tags --abbrev=0` |
+| Unreleased commits | **12** | `git rev-list --count v0.15.0..HEAD` |
+| Version banner | `v0.16.0` | `head -1 LLMLL.md` |
+| Working tree | clean | `git status --porcelain` |
+| CI on this branch | **none, ever** | `gh run list` |
 
-The banner, the last tag and the newest CHANGELOG entry agree, and **the tag
-debt is zero.** The tag run published `ghcr.io/machunter/llmll:v0.14.98` and
-moved `:latest` to the same digest.
+**THE TAG DEBT IS NOT ZERO AND THIS FILE SAID IT WAS.** The 2026-08-12 status
+line recorded a zero debt. The banner now says `v0.16.0` and the last tag says
+`v0.15.0`. The user deferred the tag on 2026-08-16 on purpose. The condition
+is one green CI run of the port cover. Do not tag before that run.
+
+### The gates, each run on 2026-08-16
+
+| Gate | Result | Command |
+|---|---|---|
+| Harness suite | 179 passed, 6 skipped | `python3 -m pytest scripts/tests/ -q` |
+| Version gate | passes, `v0.16.0` on all five banners | `bash scripts/version_gate.sh` |
+| Path lint | passes, 1081 citations in 177 files | build `pathlint.llmll`, then feed it 900 lines |
+| RFC standard | 13 passed | `python3 -m pytest scripts/tests/test_tool_rfc_standard.py -q` |
+
+**The RFC standard gate was FAILING before 2026-08-16 and nobody ran it.** A
+gap row cell held two disposition words where the gate accepts one.
+
+**Run a gate on its own line.** A pipe into `tail` gives you the exit status of
+`tail`. This happened again on 2026-08-16 during a probe.
+
+**The banner and the CHANGELOG agree at `v0.16.0`. The last tag does not.** Run
+`grep "^## " CHANGELOG.md` and compare all three. The tag is the one that lags.
+
+### History that is still true
 
 **v0.14.98 shipped the two gaps that port 006's RFC raised**, before the port
 was written. `PROC-STDIN-1` gave `wasi.proc.run` a stdin path and
@@ -107,12 +133,103 @@ Port 006 (`build_smoke.sh`) is the last port. **IT IS NOT BLOCKED.**
 `FS-WALK-1` closed as COSMETIC on 2026-08-10. The roadmap holds that row in its
 closed-rows section.
 
-### Port 006 is STARTED. Read this before you write a stage
+### Port 006 is COMPLETE. Read this before you do anything else
 
-**The port module exists.** It is
-[`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll).
-It holds the spine and **stages 1, 2, 2a, 3, 4 and 4b of fourteen**. It builds
-and it runs. **Eight stages remain.**
+**ALL SEVENTEEN STAGES ARE PORTED**, on 2026-08-16. The census is seventeen
+rows and not fourteen. Earlier text in this file says fourteen. That text is
+incorrect and section 2's table in the RFC is the count to use.
+
+Measured end to end with the CI invocation. The port exits 0 and prints
+fifteen verdict lines: fourteen PASS and one NOT EXERCISED. The reference has
+fifteen verdict-emitting sites, so the two counts agree. A negative control
+with a bad `--subject` gives exit 1 and a named FAIL line.
+
+[`tools/build-smoke/adjudicate.llmll`](../../tools/build-smoke/adjudicate.llmll)
+now exists. `llmll verify` reports SAFE. It puts `fsenc-verdict` and
+`status-of` on the `body-faithful` line, so both contracts are proved. Three
+refutation controls each broke a different constraint.
+
+**The last stage used `env(1)` and `PROC-ENV-1` did not block it.**
+`wasi.proc.run "/usr/bin/env" ["LC_ALL=C" exe]` sets a child's environment.
+A stdin path on the same call reaches the child. `env` runs `exec` in place.
+The row stays open, because the assignment needs one more process.
+
+### The cover: 8 of 9 cells pass. Cell 6 found a REAL port defect
+
+`scripts/build_smoke_cover.py` exists and runs in `spec-roundtrip`. The step
+blocks the job.
+
+**Run the cover before you push.** It ran four times on 2026-08-16. It found
+THREE defects in itself and ONE in the port. Section 0's rule applies to
+instruments too: a cover that never ran measures nothing.
+
+**Cell 6 is the port defect and it is NOT FIXED.** The port holds the
+reference's failure text and tests a different condition:
+
+- The reference asks whether the BINARY exists.
+- The port asks whether `stack path` returned an install ROOT.
+
+So the port's message "found no capproc-exec binary" fires only when `stack`
+itself fails. When the binary is truly absent, the port runs a path that is
+not there. Then it reports NINE assertion failures that it never tested.
+
+**This refutes a claim in the RFC.** Section 5's `LIST-KIND-1` row says the
+design "separates missing from not executable". The probe measured that `RErr`
+carries that difference. The port does not use it at this call site.
+
+**The fix is already measured.** `wasi.fs.list` on a parent directory plus
+`list-contains` decides existence at one listing. The builtin sweep found this
+composition. `FS-EXISTS-1` records the row.
+
+**Cell 7 has never run.** It needs `--slow`. Its cost is the port's own 900
+second build timeout.
+
+### Three defects the cover had, and what they teach
+
+1. The cause assertions read only a verdict's FIRST line. The reference wraps
+   its `fail` prose. So two cells died before they graded the port at all.
+2. A first fix normalised whitespace at the comparison and left the extraction
+   truncated. The re-run failed in the same way. Fix the layer that drops the
+   data.
+3. `open(lib,"w").write(open(lib).read()...)` truncates before it reads. Cell 5
+   emptied `Lib.hs` rather than renaming a call. The reference's `-f` test
+   accepts an empty file, so the cell failed for the correct-looking reason by
+   accident.
+
+**All three were invisible in a passing run.** The cover prints its unreached
+assertions. That output is what showed the cells measured nothing.
+
+### THREE DECISIONS ARE OPEN. Do not close them by assumption
+
+1. **The cell 6 port defect.** Fix the port's existence check with
+   `wasi.fs.list` plus `list-contains`, or accept the divergence and record
+   it. Nobody has chosen.
+2. **`sha1`.** Remove the builtin and both spec rows, or map it to
+   `sha1_hash` in codegen. See section 8 for the measurement. The
+   recommendation on 2026-08-16 was to remove it. The user did not answer.
+3. **A completeness test for builtin bodies.** `Spec.hs` checks that the spec
+   table and `builtinEnv` agree. Nothing checks that a declared builtin has an
+   emitted body. This is what let `sha1` ship.
+
+### Five measurements are owed
+
+1. One CI run of this branch. Nothing here has been through CI.
+2. Cell 7, with `--slow`.
+3. `P-C1`. Does `wasi.fs.list` on a parent decide existence? This is also the
+   cell 6 fix, so measure it first.
+4. The runtime halves of `P-A1`, `P-B1` and `P-B2`. Each one emits today.
+5. The job's real time cost. `D4` in the RFC rests on a stage count of
+   fourteen and the census is seventeen.
+
+The probe report is at `builtin-sweep.md` in the session scratchpad. It is not
+in the repository. Its probes are written but four are unrun, and the first
+probe that WAS run refuted its own prediction.
+
+### `tool_state` is still `blocked` and that was deliberate
+
+State `oracle` asserts that both implementations decide over the same tree in
+one job. The CI wiring now says that. No run has proved it. Move the state
+after a green run and not before.
 
 **Nine controls run against it and six are negative.** Two of the six matter
 more than the others.
@@ -411,8 +528,8 @@ Five ports of six are complete. Four are oracles. One is retired.
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
 | **005** doc-path-lint | **RETIRED at v0.14.99**, `tool_state: retired`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The reference and the cover are deleted. **The campaign's first retirement.** Section 2 gives its rule |
-| **006** build-smoke | Last. It runs the other gates. **STARTED 2026-08-12**: the RFC is Rev 4, D3 is discharged by probe, and `buildsmoke.llmll` holds the spine and stage 1 of 14. `tool_state: blocked`, which is approximate. Section 2 gives what stage 2 needs first |
-| **P1** tag debt | **DONE.** Four tags pushed. Four images published |
+| **006** build-smoke | Last. It runs the other gates. **ALL SEVENTEEN STAGES PORTED 2026-08-16**, with `adjudicate.llmll` verified SAFE and a cover at 8 of 9 cells. `tool_state: blocked` on purpose: the branch is unpushed and no CI run has graded it. Cell 6 holds an unfixed port defect. Section 2 gives the three open decisions |
+| **P1** tag debt | **DONE for v0.14.84 to v0.14.87.** Four tags pushed. Four images published. **This row is history and not the current state**: on 2026-08-16 the banner reads `v0.16.0` and the last tag reads `v0.15.0`. See section 1 |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE** |
 
