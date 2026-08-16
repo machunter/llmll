@@ -4,9 +4,15 @@
 ;; scripts/build_smoke.sh, which is the harness that builds and runs the other
 ;; five ports. So this program is an LLMLL program that tests LLMLL programs.
 ;;
-;; STATE OF THIS FILE: the spine and stages 1, 2, 2a, 3, 4, 4b and 5. Seven
-;; stages remain, and TOOL-RFC-006 section 2 tables them with a code-line count
-;; each. The RFC is the specification; this header does not restate it.
+;; STATE OF THIS FILE: the spine and stages 1, 2, 2a, 3, 4, 4b, 5, 5c, 5d, 5e,
+;; PROC-STDIN-1, 6, 7, 8, 9 and 10. ONE stage remains: 5b (FS-ENCODING-1), and
+;; it is blocked on PROC-ENV-1 rather than unwritten, because the port cannot
+;; set LC_ALL=C for a child. TOOL-RFC-006 section 2 tables every stage with a
+;; code-line count. The RFC is the specification; this header does not restate
+;; it.
+;;
+;; THE EXIT STATUS IS DECLARED, and it was not always. See bs-status at the
+;; foot of this file: the harness used to print FAIL and exit 0.
 ;;
 ;; TWELVE CONTROLS RUN AGAINST WHAT IS HERE, seven of them negative:
 ;;
@@ -21,6 +27,21 @@
 ;;   regex fixture that does not build FAIL the REGEX-LOWER-1 fixture ...
 ;;   regex fixture with NO call        FAIL no prefix application of regex_match
 ;;   capproc fixture answering WRONG   FAIL six of seven assertions, separately
+;;
+;; FIVE MORE RAN FOR THE PROC-STDIN-1, 6 AND 7 STAGES, four of them negative:
+;;
+;;   full run, real fixtures          PASS 13 lines, exit 0
+;;   fixture writes not-FEEDME        FAIL the child did not read its stdin
+;;                                    path, and the program printed
+;;                                    FED|FED=n|EMPTY=n
+;;   tamper needle that matches       FAIL the refute-crux perturbed nothing
+;;   nothing                          so it proves nothing
+;;   fixture :status returns 43       FAIL got code:43, so rc-is? reads the
+;;                                    EXACT code and not merely non-zero
+;;   any of the above, exit status    rc 1, against rc 0 for the clean run
+;;
+;; The last row is the one that had been missing for the whole file and not
+;; only for these stages. Before it, every FAIL above exited 0.
 ;;
 ;; Each negative uses a real environment or a real input rather than a changed
 ;; source, so each grades these stages as they ship.
@@ -223,6 +244,48 @@
     (| PmDone)     ;; ran the fixture; status arrives
     (| PmOut)      ;; read its output
     (| PmFin)      ;; both stream-shape lines asserted
+    ;; PROC-STDIN-1, the subject's unnumbered stage
+    (| Ps)         ;; built proc_stdin.llmll; status arrives
+    (| PsS)        ;; ran `stack path` in its out dir
+    (| PsR)        ;; read that install root; made the run dir and the feed
+    (| PsRun)      ;; ran the fixture against 147456 bytes of stdin
+    (| PsOut)      ;; read its output
+    (| PsFin)      ;; both halves asserted
+    ;; stage 6, REPLAY-FRAME. Twelve phases entered TWICE, then four
+    ;; witnesses. Rp is the entry and RpTRun is the re-entry point.
+    (| Rp)         ;; made the replay dir; resolve fixture 0 and copy it
+    (| RpCp)       ;; the copy answered; build it
+    (| RpB)        ;; built it; status arrives
+    (| RpS)        ;; ran `stack path` in its generated dir
+    (| RpR)        ;; read that install root; wrote the two-line feed
+    (| RpF)        ;; the feed is written; RECORD the run
+    (| RpRun)      ;; the recorded run finished; read its event log
+    (| RpLog)      ;; the event log arrived; REPLAY it
+    (| RpRep)      ;; replay finished; read what it printed
+    (| RpOut)      ;; asserted 2/2; TAMPER the log
+    (| RpTam)      ;; the tampered log is written; replay THAT
+    (| RpTRun)     ;; the tampered replay must FAIL; then re-enter or advance
+    (| RpWi)       ;; replayed replay_settle for its warning
+    (| RpWiP)      ;; W-REPLAY-INIT must be present; replay replay-demo
+    (| RpWd)       ;; that replay finished; read its output
+    (| RpFin)      ;; W-REPLAY-INIT must be ABSENT there
+    ;; stage 7, PROC-BOUNDARY-1. Seven child runs and their exit codes.
+    (| Pb)         ;; built proc_boundary.llmll; status arrives
+    (| PbS)        ;; ran `stack path` in its out dir
+    (| PbR)        ;; read that install root; wrote the two-line feed
+    (| PbF2)       ;; wrote the one-line feed
+    (| PbF1)       ;; ran (a), the :done? path
+    (| PbA)        ;; (a) must exit 42; run (b) with three arguments
+    (| PbAr)       ;; (b) finished; read what it printed
+    (| PbArP)      ;; argc=3 asserted; run (c) with none
+    (| PbA0)       ;; (c) finished; read what it printed
+    (| PbA0P)      ;; argc=0 asserted; run (d), the STARVED stdin
+    (| PbSt)       ;; (d) must exit 70; clear the event log
+    (| PbDel)      ;; the log is cleared; run (e), immediate EOF
+    (| PbEof)      ;; (e) must exit 70; read the event log
+    (| PbHdr)      ;; the header must have survived; run replay-demo
+    (| PbRd)       ;; a no-:done? program must exit 0; run it on empty stdin
+    (| PbRd0)      ;; and 0 again on immediate EOF
     ;; stage 8, the DRIVER-LL 4a+4b+4c cover
     (| Drv8)       ;; built sequencer.llmll; status arrives
     (| Drv8S)      ;; ran `stack path` in the sequencer's out dir
@@ -718,6 +781,190 @@
                    (v-log-of (get-s b "work"))
                    900 "/dev/null"))
 
+  ;; ---------------------------------------------------------------------
+  ;; PROC-STDIN-1. The subject's UNNUMBERED stage, build_smoke.sh:686-739.
+  ;;
+  ;; THE STDIN VOLUME IS THE WHOLE TEST, and the subject says so in capitals.
+  ;; Below the 8192-byte handle buffer the sharing defect is invisible. The
+  ;; subject measured it: a child read NOTHING at 7893 bytes of parent stdin,
+  ;; and read "NE1034", the torn tail of the parent's own "LINE1034", at 9693.
+  ;;
+  ;; THE SUBJECT BUILDS ITS VOLUME WITH `printf 'LINE%s\n' $(seq 12000)`,
+  ;; which is 108894 bytes, MEASURED. This port spawns neither seq nor awk,
+  ;; and the reason is a property of the fixture rather than a trick.
+  ;; proc_stdin.llmll NEVER INSPECTS ITS OWN STEP INPUT; it counts steps. So
+  ;; the line CONTENT is free and only the byte count is owed. Fourteen
+  ;; doublings of a 9-byte line give 16384 lines and 147456 bytes, which is
+  ;; ABOVE the subject's figure, so the subject's "do not lower it" holds.
+  ;;
+  ;; TOOL-RFC-006 PREDICTED an `awk BEGIN` workaround at this exact site and
+  ;; filed LIST-RANGE-1 against it. THAT PREDICTION IS WITHDRAWN, because it
+  ;; assumed the fixture needed the bytes LINE1 through LINE12000 and the
+  ;; fixture reads none of them. The row stays OPEN on a witness this port
+  ;; already carries: v-feed-text above builds 60 lines from a LITERAL
+  ;; 60-element int list, because nothing makes a list from a count. That
+  ;; site is measured and in the tree. The awk one never existed.
+  (def-shell dbl [s: string] -> string (string-concat s s))
+
+  (def-shell ps-feed-text [] -> string
+    (dbl (dbl (dbl (dbl (dbl (dbl (dbl
+      (dbl (dbl (dbl (dbl (dbl (dbl (dbl "LINE0001\n")))))))))))))))
+
+  (def-shell ps-out-of     [work: string] -> string (string-concat work "/procstdin"))
+  (def-shell ps-log-of     [work: string] -> string (string-concat work "/.procstdin-build.log"))
+  (def-shell ps-sir-of     [work: string] -> string (string-concat work "/.procstdin-sir.txt"))
+  (def-shell ps-feed-of    [work: string] -> string (string-concat work "/.procstdin-stdin.txt"))
+  (def-shell ps-run-of     [work: string] -> string (string-concat work "/.procstdin.out"))
+  (def-shell ps-rundir-of  [work: string] -> string (string-concat work "/.procstdin-run"))
+  (def-shell ps-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/proc_stdin.llmll"))
+
+  ;; Two halves that fail in OPPOSITE directions, and both are required. FED
+  ;; asserts a child reads the file the program named, which is the feature.
+  ;; EMPTY asserts a child given "/dev/null" reads nothing while the parent
+  ;; holds 147456 bytes, which is the defect. A build that CLOSES descriptor
+  ;; 0 rather than binding it passes EMPTY and fails FED, so dropping either
+  ;; assertion admits a wrong build.
+  (def-shell ps-want-fed  [] -> string "FED|FED=y|EMPTY=n")
+  (def-shell ps-want-null [] -> string "NULL|FED=n|EMPTY=y")
+
+  (def-shell ps-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" (ps-fixture-of (get-s b "root")) "-o" (ps-out-of (get-s b "work"))]
+                   (get-s b "root")
+                   (ps-log-of (get-s b "work")) (ps-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
+  ;; ---------------------------------------------------------------------
+  ;; Stage 6, REPLAY-FRAME. build_smoke.sh:741-847.
+  ;;
+  ;; ONE CHAIN, ENTERED TWICE. The subject calls a replay_case function twice.
+  ;; A Ctl phase cannot call a subroutine that spans steps, so the index sits
+  ;; in the record under "rpidx" and the last phase re-enters. The resolved
+  ;; strings are written into the record ONCE at entry rather than recomputed
+  ;; in each phase, so no phase carries a two-way branch and the two fixtures
+  ;; cannot drift apart.
+  ;;
+  ;; Index 0 is replay-demo, the SHIPPED example with no :done? and no :init.
+  ;; Index 1 is replay_settle, which declares both. The order is the
+  ;; subject's, and stage 7 below consumes the replay-demo binary that index
+  ;; 0 builds.
+  (def-shell rp-dir-of [work: string] -> string (string-concat work "/replay"))
+  (def-shell rp-mod-of [i: string] -> string
+    (if (= i "0") "replay-demo" "replay_settle"))
+  ;; BUG-2 (v0.14.3): the on-disk executable name is the hpack-sanitized
+  ;; package name, so an underscore becomes a hyphen. Stage 5 above hardcodes
+  ;; capproc-exec for the same reason, and the subject hardcodes it too.
+  (def-shell rp-exe-of [i: string] -> string
+    (if (= i "0") "replay-demo" "replay-settle"))
+  (def-shell rp-src-of [root: string i: string] -> string
+    (if (= i "0")
+        (string-concat root "/examples/replay-demo/replay-demo.llmll")
+        (string-concat root "/scripts/build-smoke/replay_settle.llmll")))
+
+  (def-shell rp-at [work: string i: string suffix: string] -> string
+    (string-concat-many [(rp-dir-of work) "/" (rp-mod-of i) suffix]))
+  (def-shell rp-llmll-of [work: string i: string] -> string (rp-at work i ".llmll"))
+  (def-shell rp-elog-of  [work: string i: string] -> string (rp-at work i ".event-log.jsonl"))
+  (def-shell rp-tam-of   [work: string i: string] -> string (rp-at work i ".tampered.jsonl"))
+  (def-shell rp-bl-of    [work: string i: string] -> string (rp-at work i ".build.log"))
+  (def-shell rp-sir-of   [work: string i: string] -> string (rp-at work i ".sir.txt"))
+  (def-shell rp-run-of   [work: string i: string] -> string (rp-at work i ".run.out"))
+  (def-shell rp-rep-of   [work: string i: string] -> string (rp-at work i ".replay.out"))
+  (def-shell rp-trep-of  [work: string i: string] -> string (rp-at work i ".treplay.out"))
+  (def-shell rp-warn-of  [work: string i: string] -> string (rp-at work i ".warn.out"))
+  (def-shell rp-feed-of  [work: string i: string] -> string (rp-at work i ".stdin.txt"))
+  (def-shell rp-gen-of   [work: string i: string] -> string
+    (string-concat-many [(rp-dir-of work) "/generated/" (rp-mod-of i)]))
+
+  (def-shell rp-feed-text [] -> string "x\nx\n")
+
+  ;; The chain's single entry point, used at index 0 and again at index 1. One
+  ;; definition rather than two copies, because a second copy is where the two
+  ;; fixtures would drift apart.
+  (def-shell rp-enter [b: Bs i: string] -> ((Bs, Ctl), Command)
+    (go (with-s b "rpidx" i) RpCp
+        (wasi.fs.copy (rp-src-of (get-s b "root") i)
+                      (rp-llmll-of (get-s b "work") i))))
+
+  ;; A SUBSTRING and NOT a whole line. The subject globs *"2/2 events
+  ;; matched"* at build_smoke.sh:792, because the emitter puts the count on a
+  ;; line with other text (Main.hs prints it beside the executable path it
+  ;; ran). has-line? is the house predicate in stages 5c to 5e and it is the
+  ;; WRONG one here: it would reject a correct run.
+  (def-shell rp-want [] -> string "2/2 events matched")
+  (def-shell rp-wi   [] -> string "W-REPLAY-INIT")
+
+  ;; `sed 's/"kind":"stdout","value":"/&TAMPERED-/g'` at build_smoke.sh:806.
+  ;; Replace-all COMPOSES from string-split and a join, so no builtin is owed
+  ;; and no gap row is filed. The campaign measured this when it filed
+  ;; LIST-RANGE-1 and BYTES-READ-1 and deliberately did not file a third.
+  (def-shell rp-needle [] -> string "\"kind\":\"stdout\",\"value\":\"")
+
+  (def-shell join-with [sep: string ps: list[string]] -> string
+    (first (list-fold ps (pair "" false)
+             (fn [acc: (string, bool) p: string]
+               (pair (if (second acc) (string-concat-many [(first acc) sep p]) p)
+                     true)))))
+
+  (def-shell tamper [log: string] -> string
+    (join-with (string-concat (rp-needle) "TAMPERED-")
+               (string-split (rp-needle) log)))
+
+  ;; wasi.fs.copy has NO idempotence guard: copyFile throws when the source is
+  ;; missing OR when the destination directory is absent, and llmll_publish_io
+  ;; turns that into RErr. So the mkdir runs BEFORE the copy, and the copy's
+  ;; response is the one filesystem response this port checks. Every other
+  ;; filesystem response here is discarded, exactly as the subject discards
+  ;; the status of its own cp, mkdir -p and rm -f.
+  (def-shell not-err? [r: Response] -> bool
+    (match r
+      ((RErr _)   false)
+      ((RNone)    true)
+      ((RCode _)  true)
+      ((RText _)  true)
+      ((RList _)  true)))
+
+  ;; ---------------------------------------------------------------------
+  ;; Stage 7, PROC-BOUNDARY-1. build_smoke.sh:849-969.
+  ;;
+  ;; TWO OF THE PROPERTIES ARE EXIT CODES, which a program cannot observe
+  ;; about itself. wasi.proc.run answers the child's status as RCode, so this
+  ;; port reads them directly and the subject's own note applies here in
+  ;; translated form: the `|| true` idiom stages 5 and 6 use to swallow an
+  ;; exit code CANNOT be used, because the exit code IS the observation.
+  ;;
+  ;; rc-is? and NOT ok?. ok? answers false for every non-zero code and for
+  ;; RErr alike, and this stage needs 42 told apart from 70 told apart from a
+  ;; timeout.
+  (def-shell rc-is? [r: Response n: int] -> bool
+    (match r
+      ((RCode c)  (= c n))
+      ((RText _)  false)
+      ((RList _)  false)
+      ((RNone)    false)
+      ((RErr _)   false)))
+
+  (def-shell pb-out-of  [work: string] -> string (string-concat work "/procboundary"))
+  (def-shell pb-log-of  [work: string] -> string (string-concat work "/.pb-build.log"))
+  (def-shell pb-sir-of  [work: string] -> string (string-concat work "/.pb-sir.txt"))
+  (def-shell pb-f2-of   [work: string] -> string (string-concat work "/.pb-2line.txt"))
+  (def-shell pb-f1-of   [work: string] -> string (string-concat work "/.pb-1line.txt"))
+  (def-shell pb-a3-of   [work: string] -> string (string-concat work "/.pb-argv3.out"))
+  (def-shell pb-a0-of   [work: string] -> string (string-concat work "/.pb-argv0.out"))
+  (def-shell pb-any-of  [work: string] -> string (string-concat work "/.pb-discard.out"))
+  (def-shell pb-elog-of [work: string] -> string
+    (string-concat (pb-out-of work) "/proc_boundary.event-log.jsonl"))
+  (def-shell pb-fixture-of [root: string] -> string
+    (string-concat root "/scripts/build-smoke/proc_boundary.llmll"))
+
+  (def-shell pb-build [b: Bs] -> Command
+    (wasi.proc.run (get-s b "subject")
+                   ["build" (pb-fixture-of (get-s b "root")) "-o" (pb-out-of (get-s b "work"))]
+                   (get-s b "root")
+                   (pb-log-of (get-s b "work")) (pb-log-of (get-s b "work"))
+                   900 "/dev/null"))
+
   (def-shell bs-init [] -> ((Bs, Ctl), Command)
     (go (bs-mk json-object) Boot wasi.proc.args))
 
@@ -1167,15 +1414,367 @@
             (let [(out (bs-text r))]
               (if (and (has-line? out "MERGED|OUT=y|ERR=y")
                        (has-line? out "SPLIT-ERRFILE|OUT=n|ERR=y"))
-                  (go b Drv8
+                  (go b Ps
                       (seq-commands
                         (wasi.io.stdout (pass-line "equal proc.run paths merge both streams; unequal paths stay separate"))
-                        (drv8-build b)))
+                        (ps-build b)))
                   (go b Ending
                       (wasi.io.stdout (fail-line
                         (string-concat-many
                           ["wasi.proc.run's stream redirection does not match PROC-MERGE-1. want both: MERGED|OUT=y|ERR=y and SPLIT-ERRFILE|OUT=n|ERR=y. output: "
                            (p-run-of (get-s b "work"))])))))))
+          ;; PROC-STDIN-1.
+          ((Ps)
+            (if (ok? r)
+                (go b PsS
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (ps-out-of (get-s b "work"))
+                                   (ps-sir-of (get-s b "work")) (ps-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the proc-stdin fixture does not build.")))))
+          ((PsS)
+            (if (ok? r)
+                (go b PsR (wasi.fs.read (ps-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "built the proc-stdin fixture but stack reported no install root for it.")))))
+          ((PsR)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line "built the proc-stdin fixture but found no proc-stdin binary.")))
+                  (go (with-s b "psexe" (string-concat sir "/bin/proc-stdin"))
+                      PsRun
+                      (seq-commands
+                        (wasi.fs.mkdir (ps-rundir-of (get-s b "work")))
+                        (wasi.fs.write (ps-feed-of (get-s b "work")) (ps-feed-text)))))))
+          ;; The run's cwd is a scratch directory, because the fixture writes
+          ;; ps_feed.txt beside wherever it stands. Its exit status is not
+          ;; consulted, exactly as the subject's `|| true` does not consult it.
+          ;; The two report lines are the observation.
+          ((PsRun)
+            (go b PsOut
+                (wasi.proc.run (get-s b "psexe") [] (ps-rundir-of (get-s b "work"))
+                               (ps-run-of (get-s b "work")) (ps-run-of (get-s b "work"))
+                               300 (ps-feed-of (get-s b "work")))))
+          ((PsOut)
+            (go b PsFin (wasi.fs.read (ps-run-of (get-s b "work")))))
+          ((PsFin)
+            (let [(out (bs-text r))]
+              (if (and (has-line? out (ps-want-fed))
+                       (has-line? out (ps-want-null)))
+                  (go b Rp
+                      (seq-commands
+                        (wasi.io.stdout (pass-line "a child reads its named stdin path, and a /dev/null child is not fed the parent's 147456 bytes"))
+                        (wasi.fs.mkdir (rp-dir-of (get-s b "work")))))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          ["wasi.proc.run's stdin channel does not match PROC-STDIN-1. want BOTH: "
+                           (ps-want-fed) " and " (ps-want-null) " program output: "
+                           (ps-run-of (get-s b "work"))])))))))
+          ;; stage 6, REPLAY-FRAME. Before this stage `llmll replay` was
+          ;; executed by NO gate. Its only coverage was three unit tests driving
+          ;; runReplay against bash mocks, and those mocks framed their output
+          ;; differently from the emitter, so they passed while three divergence
+          ;; classes shipped.
+          ((Rp) (rp-enter b "0"))
+          ((RpCp)
+            (let [(i (get-s b "rpidx"))]
+              (if (not-err? r)
+                  (go b RpB
+                      (wasi.proc.run (get-s b "subject")
+                                     ["build" (string-concat (rp-mod-of i) ".llmll")]
+                                     (rp-dir-of (get-s b "work"))
+                                     (rp-bl-of (get-s b "work") i) (rp-bl-of (get-s b "work") i)
+                                     900 "/dev/null"))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat "could not copy the replay fixture into the work tree: "
+                                       (rp-src-of (get-s b "root") i))))))))
+          ((RpB)
+            (let [(i (get-s b "rpidx"))]
+              (if (ok? r)
+                  (go b RpS
+                      (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                     (rp-gen-of (get-s b "work") i)
+                                     (rp-sir-of (get-s b "work") i) (rp-sir-of (get-s b "work") i)
+                                     120 "/dev/null"))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat "replay fixture does not build: " (rp-mod-of i))))))))
+          ((RpS)
+            (let [(i (get-s b "rpidx"))]
+              (if (ok? r)
+                  (go b RpR (wasi.fs.read (rp-sir-of (get-s b "work") i)))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat "built the replay fixture but stack reported no install root: "
+                                       (rp-mod-of i))))))))
+          ;; The replay-demo binary is saved under its OWN key as well, because
+          ;; stage 7's no-:done? witness needs it after index 1 has overwritten
+          ;; "rpexe". The subject rebuilds it there; this port keeps the one
+          ;; stage 6 already built.
+          ((RpR)
+            (let [(i (get-s b "rpidx"))]
+              (let [(sir (chomp (bs-text r)))]
+                (if (string-empty? sir)
+                    (go b Ending
+                        (wasi.io.stdout (fail-line
+                          (string-concat-many
+                            ["built " (rp-mod-of i) " but found no executable named "
+                             (rp-exe-of i) "; the replay stage would observe nothing"]))))
+                    (let [(exe (string-concat-many [sir "/bin/" (rp-exe-of i)]))]
+                      (go (if (= i "0")
+                              (with-s (with-s b "rpexe" exe) "rdexe" exe)
+                              (with-s b "rpexe" exe))
+                          RpF
+                          (wasi.fs.write (rp-feed-of (get-s b "work") i) (rp-feed-text))))))))
+          ((RpF)
+            (let [(i (get-s b "rpidx"))]
+              (go b RpRun
+                  (wasi.proc.run (get-s b "rpexe") [] (rp-dir-of (get-s b "work"))
+                                 (rp-run-of (get-s b "work") i) (rp-run-of (get-s b "work") i)
+                                 300 (rp-feed-of (get-s b "work") i)))))
+          ((RpRun)
+            (let [(i (get-s b "rpidx"))]
+              (go b RpLog (wasi.fs.read (rp-elog-of (get-s b "work") i)))))
+          ;; EQUAL stdout and stderr paths on EVERY replay call below, and that
+          ;; is not cosmetic. The match line goes to stdout and the
+          ;; W-REPLAY-INIT warning goes to stderr. Unequal paths would send the
+          ;; two assertions to two different files, and the witness that must
+          ;; NOT fire would then pass without reading anything.
+          ((RpLog)
+            (let [(i (get-s b "rpidx"))]
+              (let [(log (bs-text r))]
+                (if (not-err? r)
+                    (go (with-s b "rplog" log) RpRep
+                        (wasi.proc.run (get-s b "subject")
+                                       ["replay" (string-concat (rp-mod-of i) ".llmll")
+                                                 (string-concat (rp-mod-of i) ".event-log.jsonl")]
+                                       (rp-dir-of (get-s b "work"))
+                                       (rp-rep-of (get-s b "work") i) (rp-rep-of (get-s b "work") i)
+                                       300 "/dev/null"))
+                    (go b Ending
+                        (wasi.io.stdout (fail-line
+                          (string-concat-many
+                            [(rp-mod-of i) " produced no event log at "
+                             (rp-elog-of (get-s b "work") i)]))))))))
+          ((RpRep)
+            (let [(i (get-s b "rpidx"))]
+              (if (ok? r)
+                  (go b RpOut (wasi.fs.read (rp-rep-of (get-s b "work") i)))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          [(rp-mod-of i) " replayed but exited non-zero. A recorded run that cannot be replayed is the defect class this stage exists for. output: "
+                           (rp-rep-of (get-s b "work") i)])))))))
+          ((RpOut)
+            (let [(i (get-s b "rpidx"))]
+              (if (string-contains (bs-text r) (rp-want))
+                  (let [(tam (tamper (get-s b "rplog")))]
+                    (if (= tam (get-s b "rplog"))
+                        (go b Ending
+                            (wasi.io.stdout (fail-line
+                              (string-concat-many
+                                ["the " (rp-mod-of i)
+                                 " refute-crux did not perturb anything, so it proves nothing. Its needle no longer matches the log's recorded values"]))))
+                        (go b RpTam
+                            (wasi.fs.write (rp-tam-of (get-s b "work") i) tam))))
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          [(rp-mod-of i) " did not replay " (rp-want) ". output: "
+                           (rp-rep-of (get-s b "work") i)])))))))
+          ((RpTam)
+            (let [(i (get-s b "rpidx"))]
+              (go b RpTRun
+                  (wasi.proc.run (get-s b "subject")
+                                 ["replay" (string-concat (rp-mod-of i) ".llmll")
+                                           (string-concat (rp-mod-of i) ".tampered.jsonl")]
+                                 (rp-dir-of (get-s b "work"))
+                                 (rp-trep-of (get-s b "work") i) (rp-trep-of (get-s b "work") i)
+                                 300 "/dev/null"))))
+          ;; A tampered log MUST fail. A replay oracle whose verdict never
+          ;; reports divergence is indistinguishable from one that always
+          ;; answers 2/2, which is the dead-gate mode this file refuses. The
+          ;; assertion is on the EXIT CODE and not on the absence of a match
+          ;; line: replay prints a count either way, and a tampered log simply
+          ;; prints 0/2 before exiting non-zero.
+          ((RpTRun)
+            (let [(i (get-s b "rpidx"))]
+              (if (ok? r)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line
+                        (string-concat-many
+                          [(rp-mod-of i)
+                           " replayed a TAMPERED log successfully. The oracle does not discriminate, so its verdict on the real log means nothing"]))))
+                  (if (= i "0")
+                      (rp-enter b "1")
+                      (go b RpWi
+                          (seq-commands
+                            (wasi.io.stdout (pass-line "recorded runs replay clean and tampered logs are refuted"))
+                            (wasi.proc.run (get-s b "subject")
+                                           ["replay" "replay_settle.llmll" "replay_settle.event-log.jsonl"]
+                                           (rp-dir-of (get-s b "work"))
+                                           (rp-warn-of (get-s b "work") "1")
+                                           (rp-warn-of (get-s b "work") "1")
+                                           300 "/dev/null")))))))
+          ((RpWi)
+            (go b RpWiP (wasi.fs.read (rp-warn-of (get-s b "work") "1"))))
+          ((RpWiP)
+            (if (string-contains (bs-text r) (rp-wi))
+                (go b RpWd
+                    (wasi.proc.run (get-s b "subject")
+                                   ["replay" "replay-demo.llmll" "replay-demo.event-log.jsonl"]
+                                   (rp-dir-of (get-s b "work"))
+                                   (rp-warn-of (get-s b "work") "0")
+                                   (rp-warn-of (get-s b "work") "0")
+                                   300 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "W-REPLAY-INIT did not fire on a program declaring :init. The warning exists because an :init that prints breaks replay alignment; if it never fires it warns nobody.")))))
+          ((RpWd)
+            (go b RpFin (wasi.fs.read (rp-warn-of (get-s b "work") "0"))))
+          ((RpFin)
+            (if (string-contains (bs-text r) (rp-wi))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "W-REPLAY-INIT fired on replay-demo, which declares no :init. A warning that fires on every program is not a warning.")))
+                (go b Pb
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "W-REPLAY-INIT fires on an :init program and stays silent on one without"))
+                      (pb-build b)))))
+          ;; stage 7, PROC-BOUNDARY-1.
+          ((Pb)
+            (if (ok? r)
+                (go b PbS
+                    (wasi.proc.run "stack" ["path" "--local-install-root"]
+                                   (pb-out-of (get-s b "work"))
+                                   (pb-sir-of (get-s b "work")) (pb-sir-of (get-s b "work"))
+                                   120 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "the process-boundary fixture does not build.")))))
+          ((PbS)
+            (if (ok? r)
+                (go b PbR (wasi.fs.read (pb-sir-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "built the process-boundary fixture but stack reported no install root for it.")))))
+          ((PbR)
+            (let [(sir (chomp (bs-text r)))]
+              (if (string-empty? sir)
+                  (go b Ending
+                      (wasi.io.stdout (fail-line "built the process-boundary fixture but found no proc-boundary binary. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
+                  (go (with-s b "pbexe" (string-concat sir "/bin/proc-boundary"))
+                      PbF2
+                      (wasi.fs.write (pb-f2-of (get-s b "work")) "x\nx\n")))))
+          ((PbF2)
+            (go b PbF1 (wasi.fs.write (pb-f1-of (get-s b "work")) "x\n")))
+          ((PbF1)
+            (go b PbA
+                (wasi.proc.run (get-s b "pbexe") [] (get-s b "work")
+                               (pb-any-of (get-s b "work")) (pb-any-of (get-s b "work"))
+                               300 (pb-f2-of (get-s b "work")))))
+          ;; (a) the :done? path. Two lines reach (>= s 2) and :status yields
+          ;; 42, which is neither 0 nor 70 nor 1, so success, exhaustion and a
+          ;; crash cannot produce it.
+          ((PbA)
+            (if (rc-is? r 42)
+                (go b PbAr
+                    (wasi.proc.run (get-s b "pbexe") ["alpha" "beta" "gamma"] (get-s b "work")
+                                   (pb-a3-of (get-s b "work")) (pb-a3-of (get-s b "work"))
+                                   300 (pb-f2-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat ":done? path did not exit with the 42 that :status returns; got "
+                                     (bs-text r)))))))
+          ((PbAr)
+            (go b PbArP (wasi.fs.read (pb-a3-of (get-s b "work")))))
+          ((PbArP)
+            (if (string-contains (bs-text r) "argc=3")
+                (go b PbA0
+                    (wasi.proc.run (get-s b "pbexe") [] (get-s b "work")
+                                   (pb-a0-of (get-s b "work")) (pb-a0-of (get-s b "work"))
+                                   300 (pb-f2-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "wasi.proc.args did not deliver three arguments through RC-3.")))))
+          ;; The negative half. Without it a body publishing a constant
+          ;; three-element list passes the assertion above.
+          ((PbA0)
+            (go b PbA0P (wasi.fs.read (pb-a0-of (get-s b "work")))))
+          ((PbA0P)
+            (if (string-contains (bs-text r) "argc=0")
+                (go b PbSt
+                    (wasi.proc.run (get-s b "pbexe") [] (get-s b "work")
+                                   (pb-any-of (get-s b "work")) (pb-any-of (get-s b "work"))
+                                   300 (pb-f1-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "wasi.proc.args reported a non-empty vector for a no-argument run.")))))
+          ;; (c) THE POSITIVE WITNESS. One line does not reach :done?, so stdin
+          ;; is starved. Before PROC-BOUNDARY-1 this exited 0, with partial
+          ;; state written and no diagnostic. It is the only assertion in this
+          ;; file whose pre-change behaviour was SUCCESS.
+          ((PbSt)
+            (if (rc-is? r 70)
+                (go b PbDel (wasi.fs.delete (pb-elog-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat "a starved stdin did not exit 70, and it exited 0 before PROC-BOUNDARY-1; got "
+                                     (bs-text r)))))))
+          ;; The delete's response is DISCARDED, and that is deliberate rather
+          ;; than lax. wasi.fs.delete is idempotent on a missing path and
+          ;; answers RNone, so a clean tree arrives here with nothing to remove.
+          ;; Gating on ok? would fail the stage on exactly that tree, because
+          ;; ok? matches RCode 0 and RNone is not a code.
+          ((PbDel)
+            (go b PbEof
+                (wasi.proc.run (get-s b "pbexe") [] (pb-out-of (get-s b "work"))
+                               (pb-any-of (get-s b "work")) (pb-any-of (get-s b "work"))
+                               300 "/dev/null")))
+          ((PbEof)
+            (if (rc-is? r 70)
+                (go b PbHdr (wasi.fs.read (pb-elog-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat "an immediate EOF did not exit 70; got " (bs-text r)))))))
+          ;; The header is the ONLY log write with no following flush, so an
+          ;; exit that jumped over hClose would lose it entirely.
+          ((PbHdr)
+            (if (string-contains (bs-text r) "\"type\":\"header\"")
+                (go b PbRd
+                    (wasi.proc.run (get-s b "rdexe") [] (get-s b "work")
+                                   (pb-any-of (get-s b "work")) (pb-any-of (get-s b "work"))
+                                   300 (pb-f2-of (get-s b "work"))))
+                (go b Ending
+                    (wasi.io.stdout (fail-line "a zero-input run left no header in the event log; the exit jumped over hClose.")))))
+          ;; THE OTHER HALF OF THE RULE, and it needs a SHIPPED program rather
+          ;; than a purpose-built fixture. examples/replay-demo declares no
+          ;; :done?, so EOF is the normal end of its input and it must exit 0.
+          ;; The claim is a no-regression claim about the existing corpus, so
+          ;; only a program that predates the change can make it. Stage 6 built
+          ;; this binary and the port reuses it: an earlier revision of this
+          ;; rule exited 70 on ANY exhaustion, which made every run of a program
+          ;; with no :done? a false alarm. The discriminator is DECLARATION.
+          ((PbRd)
+            (if (rc-is? r 0)
+                (go b PbRd0
+                    (wasi.proc.run (get-s b "rdexe") [] (get-s b "work")
+                                   (pb-any-of (get-s b "work")) (pb-any-of (get-s b "work"))
+                                   300 "/dev/null"))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat "examples/replay-demo declares no :done?, so EOF is normal termination, but it did not exit 0; got "
+                                     (bs-text r)))))))
+          ((PbRd0)
+            (if (rc-is? r 0)
+                (go b Drv8
+                    (seq-commands
+                      (wasi.io.stdout (pass-line "argv on RList; :done? exits 42; starved exits 70; no-:done? exits 0"))
+                      (drv8-build b)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      (string-concat "examples/replay-demo did not exit 0 on immediate EOF; got "
+                                     (bs-text r)))))))
           ;; stage 8. The cover is a Python program and its exit status is the
           ;; whole verdict; see the helper block's note on why the cells are
           ;; not re-implemented here.
@@ -1324,7 +1923,8 @@
                                (v-feed-of (get-s b "work")))))
           ((Vg10L)
             (if (ok? r)
-                (go b Ending
+                ;; The ONLY write of the pass mark in this file. See bs-status.
+                (go (with-s b "verdict" "pass") Ending
                     (wasi.io.stdout (pass-line "DRIFT-CI-1 decided by an LLMLL program (14 cover cells + the live tree)")))
                 (go b Ending
                     (wasi.io.stdout (fail-line
@@ -1347,14 +1947,44 @@
                                  ((Js) false) ((JsS) false) ((JsR) false) ((JsRun) false) ((JsP) false)
                                  ((Pm) false) ((PmS) false) ((PmR) false) ((PmRun) false) ((PmP) false)
                                  ((PmDone) false) ((PmOut) false) ((PmFin) false)
+                                 ((Ps) false) ((PsS) false) ((PsR) false) ((PsRun) false) ((PsOut) false) ((PsFin) false)
+                                 ((Rp) false) ((RpCp) false) ((RpB) false) ((RpS) false) ((RpR) false) ((RpF) false)
+                                 ((RpRun) false) ((RpLog) false) ((RpRep) false) ((RpOut) false) ((RpTam) false) ((RpTRun) false)
+                                 ((RpWi) false) ((RpWiP) false) ((RpWd) false) ((RpFin) false)
+                                 ((Pb) false) ((PbS) false) ((PbR) false) ((PbF2) false) ((PbF1) false)
+                                 ((PbA) false) ((PbAr) false) ((PbArP) false) ((PbA0) false) ((PbA0P) false)
+                                 ((PbSt) false) ((PbDel) false) ((PbEof) false) ((PbHdr) false)
+                                 ((PbRd) false) ((PbRd0) false)
                                  ((Drv8) false) ((Drv8S) false) ((Drv8R) false) ((Drv8P) false)
                                  ((Wav9) false) ((Wav9S) false) ((Wav9R) false) ((Wav9P) false)
                                  ((Vg10) false) ((Vg10S) false) ((Vg10R) false) ((Vg10C) false)
                                  ((Vg10F) false) ((Vg10L) false)
                                  ((Ending) false)))))
 
+  ;; THE EXIT STATUS, AND THE DEFAULT IS FAILURE.
+  ;;
+  ;; Until this shipped the harness PRINTED `BUILD-GATE-1 FAIL:` and exited 0,
+  ;; because no :status was declared. Measured on three negative controls: each
+  ;; printed its failure line and each answered 0. A gate that cannot fail a
+  ;; job is the dead-gate mode this file's header refuses, and it would have
+  ;; reached CI the moment the port replaced scripts/build_smoke.sh. The
+  ;; sibling ports pathlint.llmll and versiongate.llmll both declare :status;
+  ;; this one was the outlier.
+  ;;
+  ;; WHY THE MARK IS ON THE PASS AND NOT ON THE FAILURES. Forty paths reach
+  ;; Ending and thirty-nine of them carry a fail-line. Marking each failure
+  ;; makes the fortieth the one that forgets, and a forgotten mark exits 0 on a
+  ;; failure it just printed, which is the exact defect being fixed. So the
+  ;; record starts unmarked, this function reads 1, and ONLY the last stage's
+  ;; success writes "pass". A stage appended after stage 10 inherits the
+  ;; failure default rather than an inherited pass, so the next author cannot
+  ;; make this mistake by omission.
+  (def-shell bs-status [s: (Bs, Ctl)] -> int
+    (match s ((pair b _) (if (= (get-s b "verdict") "pass") 0 1))))
+
   (def-main
     :mode    console
     :init    (bs-init)
     :step    bs-step
-    :done?   bs-done?))
+    :done?   bs-done?
+    :status  bs-status))
