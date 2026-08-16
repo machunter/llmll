@@ -1,0 +1,105 @@
+;; TOOL-RFC-006, the verified core of the build smoke harness.
+;;
+;; The RFC is docs/design/tool-rfc-006-build-smoke.md. Section 7 names this file
+;; and says what it is for: the port's stages are Command values over string
+;; recognizers and carry no proof, so the part that can carry one is split out
+;; and verified before the harness module is checked.
+;;
+;; WHY THIS IS ITS OWN MODULE AND NOT PART OF THE PORT. A `def` cannot call a
+;; sibling `def` in the same module: the failure is at check time, before
+;; verification, and no ordering escapes it. Cross-module calls to an
+;; already-verified callee do work, leaf-first. So each function below is
+;; self-contained, and the split is forced by the language rather than chosen
+;; for tidiness. Same reason as tools/doc-path-lint/adjudicate.llmll and
+;; tools/doc-archive/adjudicate.llmll.
+;;
+;; WHAT IS PROVABLE HERE AND WHAT IS NOT. Deciding WHETHER the output contains
+;; `text=section § marker`, or whether two digests are the same string, is a
+;; bool-valued body over string comparison, and every one of those falls to
+;; erBodyFallback (STRLIT-BODY-1). Those live in buildsmoke.llmll and carry no
+;; proof. Once the evidence is in hand as booleans, "what verdict does this
+;; stage report" and "what does this program exit with" are functions in the
+;; QF-LIA core, and those are here.
+;;
+;; THE CONTRACTS PIN THE POLICY AND NOT ONLY THE RANGE, and that is the point.
+;; A post that said no more than `0 <= result <= 2` would be satisfied by a body
+;; that returned 0 for everything, which is a stage that always fails, and by a
+;; body that returned 2 for everything, which is a stage that always passes.
+;; Both are dead gates. The implications below are what refuse them.
+
+(module adjudicate
+
+  ;; Stage 5b's verdict, TRI-VALUED, over the six pieces of evidence the port
+  ;; collects (scripts/build_smoke.sh:368-499):
+  ;;
+  ;;   marker    the program's output carried `text=section § marker`
+  ;;   digests   both the src and the dst digest are present and non-empty
+  ;;   faithful  the two digests are the same string
+  ;;   bincmp    bin.copy matches bin.dat on disk
+  ;;   bigcmp    big.copy matches big.txt, which is the truncation guard
+  ;;   honoured  GHC on this platform honours LC_ALL
+  ;;
+  ;; The first five are ASSERTIONS: any one of them false is a stage failure and
+  ;; the subject prints every one that fired. The sixth is not an assertion and
+  ;; must never be read as one. It selects WHICH VERDICT a passing run is
+  ;; entitled to print, because on a platform where GHC resolves UTF-8 whatever
+  ;; LC_ALL says, the encoding half of this stage is a structural no-op: the run
+  ;; cannot distinguish a working pin from a missing one, so it must not claim
+  ;; it. That is the whole reason the result is three-valued rather than a bool.
+  ;;
+  ;;   0  FAIL
+  ;;   1  PASS without the encoding claim; the caller prints NOT EXERCISED too
+  ;;   2  PASS with the encoding claim
+  ;;
+  ;; The three implications are each refutable, and each refutes a body someone
+  ;; would otherwise write. Dropping the first admits a stage that reports PASS
+  ;; over a failed assertion, which is the shipped defect this whole gate is
+  ;; about. Dropping the second loses the claim where it is earned. Dropping the
+  ;; third admits the OVER-claim, which is the one that cost v0.14.84: that
+  ;; release printed PASS for the LC_ALL=C property on a machine where the
+  ;; property was false, and CI run 31035476326 failed on the first line it
+  ;; printed.
+  (def fsenc-verdict [marker: bool digests: bool faithful: bool
+                      bincmp: bool bigcmp: bool honoured: bool] -> int
+    (post (and (and (>= result 0) (<= result 2))
+               (and (=> (not (and (and marker digests)
+                                  (and faithful (and bincmp bigcmp))))
+                        (= result 0))
+                    (and (=> (and (and (and marker digests)
+                                       (and faithful (and bincmp bigcmp)))
+                                  honoured)
+                             (= result 2))
+                         (=> (and (and (and marker digests)
+                                       (and faithful (and bincmp bigcmp)))
+                                  (not honoured))
+                             (= result 1))))))
+    (if (and (and marker digests) (and faithful (and bincmp bigcmp)))
+        (if honoured 2 1)
+        0))
+
+  ;; The exit status, and the whole of what this harness "decides".
+  ;;
+  ;; IT LIVES HERE RATHER THAN IN THE PORT, on the same ground port 005 records.
+  ;; A `:status` function is handed the composite state, and a `def` that
+  ;; projects a component out of a composite falls back (PROC-BOUNDARY-1 records
+  ;; that shape). Taking the answer as a plain parameter keeps the range
+  ;; obligation PROVED instead of asserted; buildsmoke.llmll's bs-status keeps
+  ;; the projection and calls this with the bool it read.
+  ;;
+  ;; THE RANGE IS WHAT STOPS A SILENT SUCCESS. POSIX truncates a status to the
+  ;; low 8 bits, so an unchecked 256 exits 0 and reports success on a failure it
+  ;; just printed. That is not hypothetical here: this harness printed
+  ;; `BUILD-GATE-1 FAIL:` and exited 0 across every one of its stages until
+  ;; v0.16.0, because it declared no :status at all.
+  ;;
+  ;; THE TWO IMPLICATIONS PIN THE DEFAULT, which is FAILURE. Only a run that
+  ;; reached the last stage and passed it writes the mark, so `passed` false is
+  ;; every other path through the machine, including the ones that never printed
+  ;; anything. A body that returned 0 unless told otherwise would satisfy the
+  ;; range and be refuted by the second implication, which is why both are
+  ;; written.
+  (def status-of [passed: bool] -> int
+    (post (and (and (>= result 0) (<= result 255))
+               (and (=> passed       (= result 0))
+                    (=> (not passed) (= result 1)))))
+    (if passed 0 1)))
