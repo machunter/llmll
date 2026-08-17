@@ -72,17 +72,17 @@ REPO = Path(__file__).resolve().parents[1]
 # retirement it also had to match the shell reference's FAMILIES array, so one
 # side of this duplication is now gone.
 #
-# THE COMMENT HERE USED TO CLAIM A TEST THAT DOES NOT EXIST, and finding that is
-# the only reason it is being said out loud. It read "test_refute_crux_ll.py
-# asserts this list against BOTH sources rather than trusting it, on
-# version_gate_cover.py's precedent". There is no such file in scripts/tests/ and
-# there never was; `ls scripts/tests/ | rg refute` returns
-# test_refute_crux_solver_preflight.py and nothing else. So this list is asserted
-# against neither source and a suite added to the port and not to this list is
-# silently untested by every cell below. That is a real gap, it predates the
-# retirement, and the retirement neither caused nor closed it. Filed rather than
-# fixed here, because a fix belongs with the other tri-state assertions in
-# test_tool_rfc_standard.py and not smuggled into a retirement commit.
+# scripts/tests/test_refute_crux_ll.py asserts this list against the port rather
+# than trusting it, on version_gate_cover.py's precedent, and it checks ORDER and
+# not only membership because `find_case` walks this list in order.
+#
+# THAT SENTENCE WAS FALSE FROM THE DAY THIS FILE WAS WRITTEN UNTIL 2026-08-17.
+# It named test_refute_crux_ll.py, the file did not exist, and nothing asserted
+# this list against anything, so a suite added to the port and not here would
+# have been copied by no cell and mutated by no cell while the cover went on
+# reporting sixteen. The comment is left true rather than deleted because what it
+# claimed was worth claiming; the file now exists and its three failure modes,
+# a dropped suite, an extra suite and a reordering, were each made to fire.
 FAMILIES = [
     "examples/tcp_rfc793",
     "examples/session-pay",
