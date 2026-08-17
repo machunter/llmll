@@ -50,25 +50,34 @@ incorrect. Correct section 1 before you do other work.
 
 ---
 
-## 1. State, measured 2026-08-16, after v0.16.0
+## 1. State, measured 2026-08-16, after v0.16.0 shipped
 
-**THE WORK IS ON A BRANCH AND THE BRANCH IS NOT PUSHED.** No CI run has seen
-any of it. Every result in this file came from a local run.
+**THIS SECTION WAS MEASURED TWICE ON THE SAME DAY.** The first measurement came
+before the release. Every row below changed after it. Read the date and the
+release together, and do not read the date alone.
+
+**THE WORK IS ON `main`. IT IS PUSHED. CI HAS GRADED IT.** The earlier version
+of this section said the opposite of all three.
 
 | Item | Value | How it was measured |
 |---|---|---|
-| Branch | `tool-006/proc-stdin-replay-boundary` | `git branch --show-current` |
-| Commits ahead of `main` | **11**, and **0 are pushed** | `git rev-list --count main..HEAD` |
-| Last tag | `v0.15.0` | `git describe --tags --abbrev=0` |
-| Unreleased commits | **12** | `git rev-list --count v0.15.0..HEAD` |
+| Branch | `main` | `git branch --show-current` |
+| Commits ahead of `main` | **0**, and all are pushed | `git rev-list --count main..HEAD` |
+| Last tag | **`v0.16.0`** | `git describe --tags --abbrev=0` |
+| Unreleased commits | **0** | `git rev-list --count v0.16.0..HEAD` |
 | Version banner | `v0.16.0` | `head -1 LLMLL.md` |
 | Working tree | clean | `git status --porcelain` |
-| CI on this branch | **none, ever** | `gh run list` |
+| CI on `main` | **run 31985443527, success** | `gh run list --branch main` |
 
-**THE TAG DEBT IS NOT ZERO AND THIS FILE SAID IT WAS.** The 2026-08-12 status
-line recorded a zero debt. The banner now says `v0.16.0` and the last tag says
-`v0.15.0`. The user deferred the tag on 2026-08-16 on purpose. The condition
-is one green CI run of the port cover. Do not tag before that run.
+**THE TAG DEBT IS ZERO.** The tag `v0.16.0` exists and it is pushed. The image
+`ghcr.io/machunter/llmll:v0.16.0` answers HTTP 200 to a request with no
+credentials. The condition for the tag was one CI run of the port cover. Run
+31985443527 met the condition first, and the tag came after it.
+
+**ONE MEASUREMENT IN THIS FILE IS NOW COMPLETE.** Section "Five measurements"
+item 1 asked for one CI run of the branch. Run 31985443527 is that run. It
+reports `NOT EXERCISED` zero times, so Linux decided every stage of
+BUILD-GATE-1. The `LC_ALL=C` stage cannot be decided on macOS and it passed.
 
 ### The gates, each run on 2026-08-16
 
@@ -229,9 +238,10 @@ recommendations that the earlier version of this section gave.
    that set. Only a build can grade those names. The fixture calls four of
    them.
 
-### Five measurements. FOUR are owed and item 3 is complete
+### Five measurements. THREE are owed. Items 1 and 3 are complete
 
-1. One CI run of this branch. Nothing here has been through CI.
+1. One CI run. COMPLETE on 2026-08-16. Run 31985443527 on `main` reports
+   success, and run 31985443538 for `docker-publish` also reports success.
 2. Cell 7, with `--slow`.
 3. `P-C1`. MEASURED on 2026-08-16, before the cell 6 fix was written.
    `wasi.fs.list` gives the NAMES of the files in a directory. It does not give
