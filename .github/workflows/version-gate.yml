@@ -19,10 +19,17 @@
 #                     BUILD-GATE-1 + the refute-crux verdict gate + the hspec
 #                     example suite. Builds llmll, runs `stack test` under
 #                     --fail-on=pending (CI-BUILD-TEST-1),
-#                     scripts/doc_claims_gate.sh (doc restriction-claims vs
-#                     compiler behaviour), scripts/refute-crux-gate.sh (frozen
-#                     verify verdicts), scripts/build_smoke.sh, and
+#                     tools/doc-claims/docclaims.llmll (doc restriction-claims
+#                     vs compiler behaviour), tools/refute-crux/refutecrux.llmll
+#                     (frozen verify verdicts), scripts/build_smoke.sh, and
 #                     scripts/spec_roundtrip.py against opt-in spec blocks.
+#                     THE FIRST TWO NAMES WERE SHELL SCRIPTS UNTIL 2026-08-17 and
+#                     are now the LLMLL ports, because TOOL-RFC-003 and
+#                     TOOL-RFC-002 retired their references. The doc-claims name
+#                     was left stale by 003's own commit and corrected by 002's:
+#                     a comment is not a prose citation, so DRIFT-DOC-4 cannot
+#                     see it, and grepping for survivors after a deletion is what
+#                     found it. Third time that class has been caught this way.
 #
 # Scope discipline: this workflow enforces the four drift gates. DRIFT-CI-1
 # (banner/schema equality) and DRIFT-DOC-3 (archive disposition vs directory) are
@@ -470,13 +477,21 @@ jobs:
       # Measured 80 passed / 0 failed at f555070 — on macOS, where the solver
       # happened to be on PATH. On Linux the same script scored 2 passed / 78
       # failed until the solver steps above existed.
-      - name: Run refute-crux verdict gate
-        run: bash scripts/refute-crux-gate.sh
+      #
+      # THE REFERENCE'S STEP IS REMOVED, not made conditional, at the 2026-08-17
+      # TOOL-RFC-002 retirement. It read `run: bash scripts/refute-crux-gate.sh`
+      # and the script is deleted. The paragraph above is kept in the past tense
+      # because the two measurements in it are the reason the solver steps
+      # earlier in this job exist, and deleting the record would leave those
+      # steps looking unmotivated.
 
-      # TOOL-RFC-002: the same gate, in LLMLL, deciding beside the shell one.
-      # Adjacent steps on purpose (RFC §8 decision 1): `tool_state: oracle`
-      # means both implementations run, and a reader compares their answers in
-      # one job log rather than across two jobs.
+      # TOOL-RFC-002: the gate, in LLMLL, and as of the 2026-08-17 retirement it
+      # is the ONLY implementation. The step above ran the shell reference
+      # adjacent to this one while `tool_state` was `oracle`, which is what that
+      # state asserts: both implementations decide over the same tree in one job
+      # and a reader compares their answers in one log. There is no second answer
+      # to compare now. What that costs is written in
+      # docs/design/tool-rfc-002-refute-crux.md §8 and in the cover's docstring.
       #
       # --subject is the freshly-built compiler and is passed EXPLICITLY (RFC
       # §8 decision 2). The harness and the compiler it grades are two
@@ -527,6 +542,20 @@ jobs:
           # CRITERIA; corpus coverage is the live run below, which is why both
           # are here and neither is sufficient alone.
           python3 scripts/refute_crux_cover.py --gate "$GATE" --llmll "$SUBJECT"
+          # The solver preflight, which MOVED HERE from the version-gate job at
+          # the 2026-08-17 retirement and is the cost that retirement pays.
+          # test_refute_crux_solver_preflight.py ran the shell reference, needed
+          # only bash, and therefore ran in the toolchain-free job in seconds. It
+          # tests the port now, the port must be built, and this is the first
+          # place in the workflow where a built port exists. So a missing-solver
+          # fault surfaces behind a Haskell build. Same move DRIFT-DOC-3 and
+          # DRIFT-DOC-4 made before it; see the comments in the version-gate job.
+          #
+          # The two variables are the ones the cover reads, deliberately: one
+          # step, one pair of paths, and no chance of the test and the cover being
+          # pointed at different binaries.
+          REFUTE_CRUX_BIN="$GATE" LLMLL_SUBJECT="$SUBJECT" \
+            python3 -m pytest scripts/tests/test_refute_crux_solver_preflight.py -v
           # Then the live corpus, which is the port deciding: all 80 frozen
           # verdicts against the compiler this job just built.
           ( cd "$RUNNER_TEMP/rc-run" \

@@ -359,7 +359,44 @@
             ;; Two of these nine the lint found only AFTER the first batch was
             ;; written, which is the loop working: edit, run the lint, repeat. Each sentence is about the
             ;; reference; naming the port would make them false.
-            "docs/design/critique-2026-07-19-triage.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-ll-phase01-implementation-plan.md\tscripts/doc_claims_gate.sh\ndocs/design/tool-rfc-003-doc-claims.md\tscripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\t../../scripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-in-llmll-campaign.md\tscripts/doc_claims_gate.sh\ndocs/design/effect-response-channel-proposal.md\tscripts/doc_claims_gate.sh\ndocs/compiler-team-roadmap.md\tscripts/doc_claims_gate.sh\nscripts/doc-claims/README.md\tscripts/doc_claims_gate.sh\n")))))
+            (string-concat
+              "docs/design/critique-2026-07-19-triage.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-ll-phase01-implementation-plan.md\tscripts/doc_claims_gate.sh\ndocs/design/tool-rfc-003-doc-claims.md\tscripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\t../../scripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-in-llmll-campaign.md\tscripts/doc_claims_gate.sh\ndocs/design/effect-response-channel-proposal.md\tscripts/doc_claims_gate.sh\ndocs/compiler-team-roadmap.md\tscripts/doc_claims_gate.sh\nscripts/doc-claims/README.md\tscripts/doc_claims_gate.sh\n"
+              ;; FOUR ENTRIES ADDED AT TOOL-RFC-002'S RETIREMENT, 2026-08-17, all
+              ;; naming scripts/refute-crux-gate.sh. Deleting it broke EIGHT
+              ;; citations in eight files, measured with the working method: remove
+              ;; the file from the index, move it aside, run this port, restore.
+              ;;
+              ;; Four were repointed rather than allowed, and they are the reason
+              ;; the split is worth stating. One is an actionable INSTRUCTION in an
+              ;; examples audit, "wire this example into the gate if a bad twin is
+              ;; added", which now names the port's `families` list and the
+              ;; per-suite manifest. One is the RFC's own §1 subject line, kept in
+              ;; the past tense with the deletion dated. One is the driver README's
+              ;; account of two design changes the gate needed, both of which the
+              ;; port INHERITED, so the sentence is about the port now. The fourth
+              ;; was a live error the retirement did not cause: the
+              ;; token-revocation README says the `stack build` preflight lives
+              ;; inside the gate, and it moved to the gate's CALLERS at a23e361, so
+              ;; that entry had been wrong for a release before the file went away.
+              ;;
+              ;; These four are past-tense records and naming the port would
+              ;; falsify each one. A shipped-release row for v0.14.35, which says
+              ;; the script was NEW then. A frozen gate-figure table in the closed
+              ;; DRIVER-LL restart record, measured at 7fcd9d3, whose neighbouring
+              ;; row already allows the retired scripts/doc_path_lint.py for the
+              ;; same reason. A phase-4a plan's context list, which cites the
+              ;; reference's own line 49. And an rfc-swarm findings log describing
+              ;; what the reference read at its lines 86-92.
+              (string-concat
+                "docs/compiler-team-roadmap.md\tscripts/refute-crux-gate.sh\ndocs/design/driver-ll-phase4-RESTART.md\tscripts/refute-crux-gate.sh\ndocs/design/driver-ll-phase4a-implementation-plan.md\tscripts/refute-crux-gate.sh\nexperiments/rfc-swarm/DRIVER-LL-PORT-FINDINGS.md\tscripts/refute-crux-gate.sh\n"
+                ;; THREE MORE, AND THEY ARE THE RETIREMENT'S OWN PROSE. Every one
+                ;; of the three files repointed above now explains that the shell
+                ;; gate was deleted, and explaining that cites it. This is the
+                ;; FOURTH retirement in a row to do it: 005 added four such
+                ;; citations, 004 added one, 003 added one, and this one adds
+                ;; three. It is a property of the edit and not a mistake in it, so
+                ;; the loop is edit, run this port, add what it names, repeat.
+                "docs/design/examples-audit-2026-07-20-compiler-followups.md\tscripts/refute-crux-gate.sh\ndocs/design/tool-rfc-002-refute-crux.md\tscripts/refute-crux-gate.sh\nexamples/token-revocation-emergent/README.md\tscripts/refute-crux-gate.sh\n")))))))
 
   (def-shell allowed? [f: string p: string] -> bool
     (string-contains (allow-tbl)

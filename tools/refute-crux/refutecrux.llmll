@@ -6,6 +6,13 @@
 ;; which is the campaign's whole point: TOOL-RFC-001 was retroactive and its
 ;; section 8 records three decisions made at the keyboard.
 ;;
+;; THE SCRIPT THIS PORTS WAS DELETED ON 2026-08-17 and this program is the gate.
+;; The sentence above stays because it says what this file IS: a port, and one
+;; whose messages were written to match another program's. RFC section 8 records
+;; what the deletion cost, which is the cross-implementation disagreement check.
+;; Nothing compares two answers here any more, so a message reworded in this file
+;; is now correct by definition rather than by agreement.
+;;
 ;; WHAT THIS GATE DOES. It runs `llmll verify` on 80 frozen cases across twelve
 ;; suites and compares verdict, exit code and localization against each suite's
 ;; EXPECTED_VERDICTS.json. It exists because refutation of the tcp_rfc793 and

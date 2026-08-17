@@ -79,7 +79,7 @@
    "expect_exit": 1,
    "expect": "refuted",
    "localized": "stage-j-pins",
-   "why": "INVENTED MUTANT, not a shipped defect: spine.llmll's stage-j-pins with the [J-COVERAGE] post moved to 63 against a body that admits 62. Guards the ENUM-EQ-FALLBACK shape this gate exists for (refute-crux-gate.sh:18-20) on the Phase 3 port: a pin that stops being enforced degrades the ported stage from proved to printed with no visible change in output. Measured at v0.14.82: refuted at constraint #0 standalone, and at constraint #3 when the same perturbation is applied in spine.llmll, because constraint indices are per-.fq. Perturbing contract and body TOGETHER verifies SAFE, so agreement with rfc_to_implementation.py:1412-1443 stays a reading obligation this frozen verdict does not discharge"
+   "why": "INVENTED MUTANT, not a shipped defect: spine.llmll's stage-j-pins with the [J-COVERAGE] post moved to 63 against a body that admits 62. Guards the ENUM-EQ-FALLBACK shape this gate exists for (tools/refute-crux/refutecrux.llmll; this named refute-crux-gate.sh:18-20 until TOOL-RFC-002 deleted that file on 2026-08-17) on the Phase 3 port: a pin that stops being enforced degrades the ported stage from proved to printed with no visible change in output. Measured at v0.14.82: refuted at constraint #0 standalone, and at constraint #3 when the same perturbation is applied in spine.llmll, because constraint indices are per-.fq. Perturbing contract and body TOGETHER verifies SAFE, so agreement with rfc_to_implementation.py:1412-1443 stays a reading obligation this frozen verdict does not discharge"
   },
   {
    "file": "crux-skip-presence-only.llmll",

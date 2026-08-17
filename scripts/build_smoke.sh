@@ -751,7 +751,11 @@ fi
 # --- 6. REPLAY gate (REPLAY-FRAME). -----------------------------------------
 #
 # Before this stage, `llmll replay` was executed by NO gate: not this script,
-# not check-examples.sh, not refute-crux-gate.sh, not pytest, not any CI job.
+# not check-examples.sh, not the refute-crux gate, not pytest, not any CI job.
+# The refute-crux gate was scripts/refute-crux-gate.sh when this was written and
+# is tools/refute-crux/refutecrux.llmll now, TOOL-RFC-002 having deleted the
+# script on 2026-08-17. Named by role rather than by path so the sentence stays
+# checkable across the next port.
 # Its only coverage was three unit tests driving runReplay against bash mocks,
 # and those mocks framed their output differently from the emitter, so they
 # passed while three separate divergence classes shipped (unlogged :init

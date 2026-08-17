@@ -7,7 +7,9 @@
 ;; published, 51/65 = 78.5% corrected).
 ;;
 ;; What it would catch is the ENUM-EQ-FALLBACK shape this whole gate exists for
-;; (refute-crux-gate.sh:18-20): a ported stage whose contract and body disagree
+;; (tools/refute-crux/refutecrux.llmll, and the line citation that used to sit
+;; here named refute-crux-gate.sh, which TOOL-RFC-002 deleted on 2026-08-17): a
+;; ported stage whose contract and body disagree
 ;; must be refuted, not silently accepted, and a pin that stops being enforced
 ;; degrades the port from proved to printed with no visible change in output.
 ;;

@@ -42,7 +42,7 @@ excluding comments and blanks:
 | Gate | Code | In CI? | Status |
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
+| `refute-crux-gate.sh` (DELETED 2026-08-17) | 124 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-002. The campaign's FOURTH retirement, and the first whose reference had a pytest |
 | `doc_claims_gate.sh` (DELETED 2026-08-17) | 97 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-003. The campaign's THIRD retirement |
 | `doc_archive_gate.sh` (DELETED 2026-08-17) | 125 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-004. The campaign's SECOND retirement |
 | `doc_path_lint.py` (DELETED v0.14.99) | 132 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-005. **The campaign's first retirement** |
@@ -191,7 +191,31 @@ in the commit that flips the state.
    toolchain cannot run a port. Adding a toolchain to a fast job is a cost to
    state, and it is not a detail.
 3. The deletion breaks no prose citation. Measure this the way the 005
-   retirement taught. Move the file aside. Run the lint. Restore the file.
+   retirement taught, with the correction the 004 retirement had to make: remove
+   the file from the git INDEX as well as from the filesystem, because
+   `tools/doc-path-lint/pathlint.llmll` resolves by `git ls-files` membership and
+   a file merely moved aside still resolves.
+
+   **AND CHECK THE LINK TARGETS SEPARATELY, because the lint does not.** Found at
+   the fourth retirement, 2026-08-17. `pathlint.llmll` blanks every markdown link
+   target before it scans, deliberately and with the reason at the site: a target
+   is not backticked, so it is not a prose citation. A citation and a working
+   link are therefore two different questions, and the ALLOW table answers only
+   the first. An entry there records that a LABEL is a correct past-tense
+   citation. It says nothing about whether the link beside it still goes
+   anywhere.
+
+   Measured across all four retirements at once: **19 markdown link targets in
+   the tree point at a retired reference and none of them resolve.** Three were
+   in the live restart record's gate table and the fourth retirement fixed those.
+   The rest are in `CHANGELOG.md`, which is append-only, in an archived professor
+   review, and in dated design documents whose labels this table already allows.
+   Retiring a reference should sweep for `](path)` forms naming it, not only for
+   backticked ones:
+
+   ```
+   rg -n '\]\([^)]*<the-deleted-file>\)' --glob '!*.jsonl'
+   ```
 
 ### Retirement proceeds. Each one accepts a NAMED loss
 
@@ -209,6 +233,38 @@ so nothing tested them. After a retirement each port keeps a mutation battery of
 12 to 19 cells. So a retired port is better tested than the gate was before the
 campaign started, and worse tested than it was during the campaign. Both halves
 of that sentence are true and a commit should say so.
+
+**AMENDED 2026-08-17 BY THE FOURTH RETIREMENT: the sentence above does not
+generalise, and `refute-crux-gate.sh` is the counterexample.** It HAD a pytest
+file, `scripts/tests/test_refute_crux_solver_preflight.py`, four cases pinning a
+real defect: before the gate grew a solver preflight it graded undecidable cases
+and its first Linux run reported 78 diverged verdicts when zero had diverged. So
+deleting the reference and deleting its test would have been a regression against
+the pre-campaign baseline, not merely against the campaign.
+
+**Which makes the test a fourth thing a retirement must measure.** Condition 2
+below asks whether every CI job that ran the reference can run the port. Ask it
+of the pytest suite as well as of the gate step. `refute-crux-gate.sh` had its
+gate step in `spec-roundtrip`, which carries a toolchain, and its pytest in
+`version-gate`, which deliberately does not. The gate step looked like the whole
+answer and it was half of it.
+
+**The move that works, and it is the one 004 and 005 already used for gates.**
+Retarget the test at the port, skip it unless an environment variable names a
+built binary, and run it from the toolchain-bearing job in the same step that
+built the port. What that costs is latency: a one-line environment fault used to
+surface in seconds and now surfaces behind a Haskell build. State the cost.
+
+**A retarget is not always mechanical, and this one was not.** The test asserted
+that no per-case marker appeared before the refusal, using the reference's three
+markers. The port writes different ones, so a copied assertion would have looked
+for characters no program emits. Measured, it was worse than that: the port
+accumulates its report and emits it once where the reference streamed, so under
+the test's small stdin budget a port that skipped the preflight would print
+nothing and the assertion would pass. **Check that a retargeted assertion can
+still fail.** The same rule applies to any assertion a retarget ADDS: the fourth
+retirement added a row-count floor to its cover and proved the floor fires by
+raising it and watching exactly the three negative controls miss.
 
 **What the campaign learned about where the yield is.** The covers found more
 defects than the ports did. `TOOL-ENCODING-1` was a defect that NEITHER

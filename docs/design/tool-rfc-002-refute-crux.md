@@ -1,11 +1,11 @@
 ---
 name: tool-rfc-002-refute-crux
 title: "TOOL-RFC-002: the refute-crux verdict gate, in LLMLL"
-status: "Rev 1, PORTED. Rev 0 was written BEFORE the code, which is the point: TOOL-RFC-001 was retroactive and its §8 records three decisions made at the keyboard. The three policy calls here were put to the user and answered first. Rev 1 records what BUILDING it then found, and §5 is where Rev 0 was wrong. State: oracle."
+status: "Rev 2, RETIRED 2026-08-17. Rev 0 was written BEFORE the code, which is the point: TOOL-RFC-001 was retroactive and its §8 records three decisions made at the keyboard. The three policy calls here were put to the user and answered first. Rev 1 records what BUILDING it then found, and §5 is where Rev 0 was wrong. Rev 2 deletes the reference, retargets the cover onto the port alone, and moves the port's solver-preflight test into the job that can build a port. State: retired."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
-tool_state: oracle
+tool_state: retired
 subject_script: scripts/refute-crux-gate.sh
 port_module: tools/refute-crux/refutecrux.llmll
 ---
@@ -14,17 +14,21 @@ port_module: tools/refute-crux/refutecrux.llmll
 
 ## 1. Subject
 
-[`scripts/refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh), 124 code
-lines excluding comments and blanks, 192 total.
+`scripts/refute-crux-gate.sh`, 124 code lines excluding comments and blanks, 192
+total. **DELETED 2026-08-17** at the retirement in §8;
+[`tools/refute-crux/refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll)
+is the gate. This section describes the subject as it stood, in the past tense,
+because a subject section rewritten to describe the port would leave the RFC with
+nothing to say about what was ported.
 
-**CI invokes it from
+**CI invoked it from
 [`.github/workflows/version-gate.yml`](../../.github/workflows/version-gate.yml),
 job `spec-roundtrip`, step "Run refute-crux verdict gate".** That wiring landed
 at `a23e361` as campaign prerequisite P3, and before it no workflow ran the gate
 at all. Naming the job matters here for the reason the template gives: the job
 determines §3, and `spec-roundtrip` is the Stack-bearing job while the
-`version-gate` job is deliberately toolchain-free. It is also a `make` target,
-`make refute-crux-gate`.
+`version-gate` job is deliberately toolchain-free. It was also a `make` target,
+`make refute-crux-gate`, which still exists and runs the port.
 
 The gate freezes **80 `llmll verify` verdicts** across twelve suites: eleven
 under `examples/` and one under `tools/llmll-driver/`. It is addressed by path
@@ -344,29 +348,80 @@ recognizer half (bytes to token) is not, because a bool-valued body whose result
 is a string comparison falls back even against a literal, and word equations over
 runtime strings are outside the automated fragment.
 
-## 8. Retirement
+## 8. Retirement. DONE 2026-08-17, and one condition below was NOT met
 
-**Not at the release the port lands.** The subject script is deleted one release
-after the port enters `oracle`, in the same commit that flips this file's
-`tool_state` to `retired`, per campaign §4.
+**The reference is deleted.** `scripts/refute-crux-gate.sh` is gone, this file's
+`tool_state` is `retired`, `subject_script` is removed, and the gate step that ran
+the reference is out of `.github/workflows/version-gate.yml`. The port is the only
+implementation.
 
-All of these must hold first:
+Rev 1 wrote four conditions here. Three were met and the fourth was not, and
+saying which is the point of this section.
 
-- `refute_crux_cover.py` green, every cell including the three negative controls;
-- the port wired into `spec-roundtrip` as its own step, deciding rather than
-  reporting, which is the condition P3 established for the reference and which
-  the port inherits;
-- one release elapsed with both running and agreeing on real CI traffic, not
-  only on the cover's trees;
-- **P1 cleared**, because until it is, §3's transitional state is the only
-  distribution the port has, and retiring the reference while the port depends
-  on a job-built binary removes the fallback before the pattern it is meant to
-  fall back to exists.
+**Met. `refute_crux_cover.py` passes, 16 cells, 3 negative controls.** Measured on
+the retargeted cover, which now grades the port alone.
 
-The last one is a constraint 001 did not carry and this port does, because this
-gate is the one that catches silently lost refutation. Deleting the reference
-early trades a gate that has caught a twenty-version regression for one that has
-run for a release.
+**Met. The port is wired into `spec-roundtrip` as its own step, deciding.** It
+runs the cover, then the live 80-verdict corpus, then the solver-preflight test.
+
+**Withdrawn, not met. "One release elapsed with both running and agreeing."**
+Campaign §4 was amended on 2026-08-17 and the amendment withdraws exactly this:
+"WHAT IS WITHDRAWN IS THE TIMER, AND NOT THE GOAL." A port now leaves `oracle`
+when three stated conditions hold, and elapsed time is not one of them.
+
+**NOT MET, AND THE RETIREMENT PROCEEDED ANYWAY. "P1 cleared."** P1 is the campaign
+prerequisite that CI jobs pull a published release image. `spec-roundtrip` still
+BUILDS the compiler and builds the port from source, so the port's distribution is
+still §3's transitional state. Rev 1's argument was that deleting the reference
+"removes the fallback before the pattern it is meant to fall back to exists", and
+that argument is unchanged and still applies.
+
+Three things weigh against it, and the user's instruction to retire this port was
+explicit and repeated.
+
+1. **The condition is already inconsistent with three shipped retirements.**
+   TOOL-RFC-005 retired on 2026-08-11 and TOOL-RFC-004 and TOOL-RFC-003 on
+   2026-08-17, and all three ports are built from source by the job. Enforced
+   here and not there, P1 is not a rule.
+2. **Campaign §4 is the amended and governing statement of when a port retires**,
+   and it lists three conditions. P1 is not among them. The condition that IS
+   among them, "every CI job that runs the reference can run the port", is the one
+   this retirement had to work for; see the next paragraph.
+3. **The risk P1 names is a build failure, and a build failure fails the job.** A
+   port that will not compile fails `spec-roundtrip` at its build step, loudly. The
+   fallback Rev 1 wanted was a second implementation that could still decide, and
+   that is the disagreement check, which every retirement in this campaign gives
+   up by design.
+
+### The condition this retirement had to work for, and what it cost
+
+Campaign §4 condition 2: every CI job that runs the reference can run the port.
+The gate's step was already in `spec-roundtrip`, which carries a toolchain, so
+that looked satisfied. **It was not.** `scripts/tests/test_refute_crux_solver_preflight.py`
+also ran the reference, in the `version-gate` job, which is deliberately
+toolchain-free. Four test cases, and they pin a real defect: before the solver
+preflight existed, the gate graded undecidable cases and its first Linux run
+printed `78 frozen verdict(s) diverged` when zero had diverged.
+
+Deleting the reference and deleting that test would have left the campaign
+strictly worse than before it started, which is the opposite of what the last two
+retirements could claim. So the test was retargeted at the port and moved into
+`spec-roundtrip`, gated on `REFUTE_CRUX_BIN`. **The cost is stated rather than
+waived:** a one-line missing-solver fault used to surface in seconds in a
+toolchain-free job and now surfaces behind a Haskell build. TOOL-RFC-004 and
+TOOL-RFC-005 paid the same cost for their gates; this is the first time a
+retirement paid it for a *test*.
+
+**The retarget was not mechanical, and one assertion had gone vacuous.** The old
+test asserted that no suite header and no per-case marker appeared before the
+refusal, using the reference's `▸`, `✅` and `❌`. The port writes `> `, `  PASS `
+and `  FAIL `, so carried over unchanged the assertion would have looked for
+characters no program emits. Worse, measured: the port ACCUMULATES its report and
+emits it once, where the reference streamed, so under the small stdin budget the
+test used, a port that skipped the preflight entirely would print nothing and pass.
+The test now runs that one case with a large budget so a preflight-skipping port
+runs to its report and reveals itself, and it asserts that the refusal is the whole
+of the output.
 
 ## 9. Decisions taken
 

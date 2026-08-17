@@ -274,8 +274,10 @@ llmll verify tools/llmll-driver/skip.llmll --strict-verified-core   # SAFE, exit
 llmll verify tools/llmll-driver/crux-skip-presence-only.llmll       # refuted, exit 1
 ```
 
-This suite is wired into `make refute-crux-gate` as `tools/llmll-driver`. Two changes to
-`scripts/refute-crux-gate.sh` were needed and both are worth knowing:
+This suite is wired into `make refute-crux-gate` as `tools/llmll-driver`. Two changes to the
+gate were needed and both are worth knowing. They were made to the shell reference that
+TOOL-RFC-002 has since retired, and
+[`tools/refute-crux/refutecrux.llmll`](../refute-crux/refutecrux.llmll) inherited both:
 
 - Suites are addressed by **repo-relative path** rather than by a bare name under `examples/`,
   since this one is not in `examples/`.
@@ -286,7 +288,7 @@ This suite is wired into `make refute-crux-gate` as `tools/llmll-driver`. Two ch
 
 The verdict vocabulary now has a third kind, `capability`, and
 `crux-shell-undeclared-authority` is graded under it. It was previously filed as `refuted`
-because the script greps for `error:`, though it fails at type-check rather than at the solver:
+because the gate greps for `error:`, though it fails at type-check rather than at the solver:
 both print `error:` and exit 1, so a program the type checker rejected stood in for one the
 solver disproved. `capability` matches the missing-capability diagnostic instead, and `refuted`
 now rejects that diagnostic explicitly, so the two cannot drift back together. Relabelling the

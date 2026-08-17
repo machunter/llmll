@@ -555,7 +555,7 @@ Five ports of six are complete. Four are oracles. One is retired.
 | Port | State |
 |---|---|
 | **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md) |
-| **002** refute-crux gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed |
+| **002** refute-crux gate | **RETIRED 2026-08-17**, `tool_state: retired`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed. The reference is deleted, the cover grades the port alone, and the port's solver-preflight test moved into `spec-roundtrip` because it ran the reference from the toolchain-free job |
 | **003** doc-claims | **PORTED**, `tool_state: oracle`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler |
 | **004** doc-archive | **PORTED**, `tool_state: oracle`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). **Released at v0.14.95.** See section 6 |
 | **005** doc-path-lint | **RETIRED at v0.14.99**, `tool_state: retired`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The reference and the cover are deleted. **The campaign's first retirement.** Section 2 gives its rule |
@@ -643,13 +643,13 @@ Every figure is from macOS and aarch64 unless the row says otherwise.
 |---|---|
 | `stack test` | **1683 examples, 0 failures.** Measured 2026-08-10 at v0.14.96 on macOS. **This gate now runs in CI**, since `CI-BUILD-TEST-1` at v0.14.94, in the `spec-roundtrip` job with `--fail-on=pending`. CI measured about 4m07s |
 | `pytest scripts/tests/` | **197 passed, 6 skipped.** Measured 2026-08-10 at v0.14.95 |
-| [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
+| `refute-crux-gate.sh` (DELETED 2026-08-17) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
 | [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) | 80 passed, 0 failed, 71s. **It has never run on Linux** |
 | [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells and 3 negative controls, all pass at v0.14.91. CI runs the 16 cells in 324s. The figure is 6 to 10 minutes |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 16 doc-claims match, exit 0. **It needs no solver** |
+| `doc_claims_gate.sh` (DELETED 2026-08-17) | 16 doc-claims match, exit 0. **It needs no solver** |
 | [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) | 16 match, exit 0, about 40s. **It passes on Linux** |
 | [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | 17 cells and 3 negative controls, all pass. About 2 minutes |
-| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | PASS. It runs in `spec-roundtrip` since TOOL-RFC-004 |
+| `doc_archive_gate.sh` (DELETED 2026-08-17) | PASS. It ran in `spec-roundtrip` from TOOL-RFC-004 until its retirement |
 | [`docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) | PASS. Output identical to the reference. **It passes on Linux** |
 | [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured on macOS and on Linux CI at `e5459c3` and again at `c4e7901`. **The cover is not its own CI step.** It runs inside the port's step, before the live run. Look in the step named `Run archive-disposition drift gate (LLMLL port, TOOL-RFC-004)` |
 | [`pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) | **986 citations in 173 files, all resolve.** Measured 2026-08-12 after the retirement commit. It reads `git ls-files '*.md'`, so it cannot see an untracked file. **This is the only DRIFT-DOC-4.** The last differential measurement was earlier in the same commit, at 977 citations, where the reference gave the same two numbers. The retirement's own prose added the other nine, and two of them needed `ALLOW` entries |

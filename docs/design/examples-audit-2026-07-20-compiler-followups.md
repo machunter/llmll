@@ -137,8 +137,11 @@ deliberately retired and is rejected.
   `neighbor-alive`) still sorts `FQInt` — synthesis must not fire on non-boolean
   bodies.
 - **End-to-end:** `llmll verify examples/conways_life_json_verifier/life.ast.json`
-  exits SAFE; wire this example into `scripts/refute-crux-gate.sh` only if a bad twin
-  is added (separate example-content task — the gate currently has no life entry).
+  exits SAFE; wire this example into the refute-crux gate only if a bad twin
+  is added (separate example-content task; the gate has no life entry). Wiring
+  means a suite path in [`tools/refute-crux/refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll)'s
+  `families` list plus an `EXPECTED_VERDICTS.json` in the example directory. This
+  line named `scripts/refute-crux-gate.sh` until TOOL-RFC-002 retired it.
 - **Test-count target:** 570 Haskell + 37 Python → **571 Haskell** + 37 Python.
 
 ### Rollback

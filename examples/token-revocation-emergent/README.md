@@ -89,9 +89,20 @@ body-faithful. Every prompt, reply, and verdict is under `audit/`.
    delegation now verifies body-faithfully (test A2S-12 is this exact pair).
 3. **F-3 (process, FIXED):** `refute-crux-gate` runs `stack exec`, which does
    not rebuild — a stale stack binary made this family's refutes vacuously
-   SAFE until `stack build` was rerun. Fixed: the gate now runs `stack build`
-   as a preflight (`scripts/refute-crux-gate.sh`), so verdicts are always
-   checked against the current compiler and a failed build aborts the gate.
+   SAFE until `stack build` was rerun. Fixed by a `stack build` preflight, so
+   verdicts are always checked against the current compiler and a failed build
+   aborts the gate.
+
+   This entry said the preflight lives inside `scripts/refute-crux-gate.sh` and
+   it has not lived there since `a23e361`, which moved the guard onto the gate's
+   CALLERS so the LLMLL port would carry no dependency on a Haskell build system.
+   The callers are the `refute-crux-gate` target in [`Makefile`](../../Makefile)
+   and the `Build llmll` step in
+   [`.github/workflows/version-gate.yml`](../../.github/workflows/version-gate.yml).
+   The script itself was deleted when TOOL-RFC-002 retired, and
+   [`tools/refute-crux/refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll)
+   is the gate now. Running the port with neither caller grades whatever binary
+   `--subject` names, which is the same hazard F-3 found under a different name.
 4. **F-4 (positive):** data-contract holes are fillable blind — 8/8 accepted
    within 2 attempts, one spontaneous 2-function cascade, one unprompted
    cross-module composition discharging an assume-guarantee obligation.

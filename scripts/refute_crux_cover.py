@@ -1,34 +1,53 @@
 #!/usr/bin/env python3
-"""TOOL-RFC-002: the LLMLL refute-crux gate against the shell version it ports.
+"""TOOL-RFC-002 mutation cover for the LLMLL refute-crux gate.
 
-Runs both implementations over the same tree and requires them to answer the
-same way: same exit code, and the same per-case verdicts in the same order.
+THIS WAS A DIFFERENTIAL COVER UNTIL 2026-08-17 AND IT IS NOT ONE NOW.
+`scripts/refute-crux-gate.sh` was deleted when TOOL-RFC-002 moved to
+`tool_state: retired`, so there is no second implementation to compare against.
+Every cell now runs the PORT alone and checks it against the cell's own declared
+`expect_fail`. That value was always written here in the `@cell` decorators and
+was never read off the reference, which is why the retarget was mechanical.
+
+WHAT WAS LOST, NAMED RATHER THAN LEFT FOR A READER TO NOTICE. Two checks die and
+no rewrite recovers either. The exit codes are no longer compared, and the
+per-case verdict ROWS are no longer compared, so this cover can no longer
+separate "the two implementations agree" from "neither of them works". That
+distinction had a defect to its name: at TOOL-ENCODING-1 every mutation cell
+AGREED while both sides failed identically for a reason unrelated to the
+mutation, and only a second implementation plus the negative controls could tell
+those two cases apart. A self-cover cannot detect that class at all.
+
+WHAT REPLACES ONE HALF OF IT, PARTLY. The row comparison also did a second job
+by accident: two runs that each produced ZERO graded rows compared equal, so an
+empty report could not pass a mutant cell but COULD pass a negative control.
+Alone, that hole is wide open. `MIN_ROWS` below closes it directly: a negative
+control must produce graded rows, and the count is asserted rather than assumed.
+That is a weaker instrument than a second implementation and it is not offered as
+an equal replacement.
+
+WHAT DOES NOT CHANGE. The 80-verdict freeze is not here and never was. It is the
+live corpus run, in `.github/workflows/version-gate.yml`, job `spec-roundtrip`,
+step "Run refute-crux verdict gate (LLMLL port, TOOL-RFC-002)", which grades all
+80 frozen verdicts against `EXPECTED_VERDICTS.json` with the compiler that job
+just built. The retirement removed the reference's step beside it and left that
+one untouched.
 
 AGREEMENT ON A PASSING TREE IS NOT EVIDENCE. Three of the cells below are
-negative controls that must PASS under both; every other cell is a mutant that
-must FAIL under both, and the suite fails if a mutant is not caught, separately
-from failing if the two implementations disagree. A port that always answered
-"everything diverged" would agree with nothing and still be caught by the
-negative controls; a port that always answered "fine" would be caught by the
-mutants.
+negative controls that must PASS; every other cell is a mutant that must FAIL. A
+port that always answered "everything diverged" is caught by the controls; a port
+that always answered "fine" is caught by the mutants.
 
-WHY A TRIMMED SCRATCH TREE. The live corpus is 80 cases and one full run is
-about seventy seconds per implementation, and keeping one case per
-expectation across all twelve suites still left sixteen cells at half an hour. `prepare()` copies all twelve suite
+WHY A TRIMMED SCRATCH TREE. The live corpus is 80 cases and one full run is about
+seventy seconds, and keeping one case per expectation across all twelve suites
+still left sixteen cells at half an hour. `prepare()` copies all twelve suite
 directories, then keeps ONE CASE PER EXPECTATION from each manifest. Not the
 first case: every suite's first case is `safe`, so a first-case trim leaves a
 corpus with no `refuted` and no `capability` in it and half the cells have
-nothing to mutate. Trimming rather than dropping whole suites is also
-deliberate, because the shell reference's FAMILIES array is hardcoded and a
-missing suite is a "not found" failure in every cell, which would drown the
-signal.
-
-WHY `compiler` IS A SYMLINK. The shell script derives REPO_ROOT from its own
-location and runs every verify as `cd "$REPO_ROOT/compiler" && stack exec llmll
--- verify ...`, so a scratch tree it can run in must have a compiler there. Symlinking the real one is what
-lets the reference run against a mutated corpus at all; the port needs no such
-thing, because --subject names the binary directly, which is TOOL-RFC-002 §8
-decision 2 paying for itself in the first place it is used.
+nothing to mutate. Trimming rather than dropping whole suites is also deliberate,
+because the port's `families` list is hardcoded and a missing suite is a "not
+found" failure in every cell, which would drown the signal. That reason used to
+be stated about the reference's FAMILIES array; the port hardcodes the same list
+in the same order, so the constraint outlived the reference.
 
 Usage:
     python3 scripts/refute_crux_cover.py --gate /path/to/refutecrux --llmll /path/to/llmll
@@ -48,11 +67,22 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-SHELL_GATE = REPO / "scripts" / "refute-crux-gate.sh"
 
-# Keep in step with refutecrux.llmll's `families` and the shell's FAMILIES.
-# test_refute_crux_ll.py asserts this list against BOTH sources rather than
-# trusting it, on version_gate_cover.py's precedent.
+# Keep in step with refutecrux.llmll's `families`. Until the 2026-08-17
+# retirement it also had to match the shell reference's FAMILIES array, so one
+# side of this duplication is now gone.
+#
+# THE COMMENT HERE USED TO CLAIM A TEST THAT DOES NOT EXIST, and finding that is
+# the only reason it is being said out loud. It read "test_refute_crux_ll.py
+# asserts this list against BOTH sources rather than trusting it, on
+# version_gate_cover.py's precedent". There is no such file in scripts/tests/ and
+# there never was; `ls scripts/tests/ | rg refute` returns
+# test_refute_crux_solver_preflight.py and nothing else. So this list is asserted
+# against neither source and a suite added to the port and not to this list is
+# silently untested by every cell below. That is a real gap, it predates the
+# retirement, and the retirement neither caused nor closed it. Filed rather than
+# fixed here, because a fix belongs with the other tri-state assertions in
+# test_tool_rfc_standard.py and not smuggled into a retirement commit.
 FAMILIES = [
     "examples/tcp_rfc793",
     "examples/session-pay",
@@ -78,10 +108,10 @@ MANIFEST = "EXPECTED_VERDICTS.json"
 
 
 # The suites that keep cases. Every OTHER suite is copied with an EMPTY case
-# list rather than being left out, because the shell reference's FAMILIES array
-# is hardcoded and a missing directory is a "not found" failure in every cell,
-# which would drown the signal. Both implementations handle a zero-case
-# manifest by moving on, so an empty suite costs one manifest read.
+# list rather than being left out, because the port's `families` list is
+# hardcoded and a missing directory is a "not found" failure in every cell,
+# which would drown the signal. The port handles a zero-case manifest by moving
+# on, so an empty suite costs one manifest read.
 #
 # These two between them carry all three expectations, and `capability` exists
 # in exactly one suite in the whole corpus. Five cases per run instead of
@@ -123,10 +153,14 @@ def prepare(dst: Path, *, trim: bool = True) -> None:
         if trim:
             doc["cases"] = trimmed(doc["cases"], fam)
         (out / MANIFEST).write_text(json.dumps(doc, indent=2))
-    # The reference needs a compiler where it expects one; the port does not.
-    (dst / "scripts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(SHELL_GATE, dst / "scripts" / SHELL_GATE.name)
-    (dst / "compiler").symlink_to(REPO / "compiler")
+    # THREE LINES WERE REMOVED HERE AT THE 2026-08-17 RETIREMENT, and they were
+    # all scaffolding for the reference. It derived REPO_ROOT from its own
+    # location and ran every verify as `cd "$REPO_ROOT/compiler" && stack exec
+    # llmll -- verify ...`, so a scratch tree it could run in needed a copy of
+    # the script under scripts/ and a `compiler` symlink beside it. The port
+    # needs neither: --subject names the binary directly, which is TOOL-RFC-002
+    # §8 decision 2 paying for itself a second time. A scratch tree is now the
+    # twelve suites and nothing else.
 
 
 def manifest(tree: Path, fam: str) -> dict:
@@ -163,49 +197,55 @@ def find_case(tree: Path, expect: str) -> tuple[str, int]:
 # Running the two implementations
 # ---------------------------------------------------------------------------
 
-VERDICT = re.compile(r"^\s*(PASS|FAIL|✅|❌)\s+(.*)$")
+# The ✅ and ❌ alternatives were the REFERENCE's markers and are removed at the
+# retirement, because a pattern that can only match output no program emits is
+# the dead branch this campaign reports on elsewhere. The port writes PASS and
+# FAIL. Keeping the reference's two would have cost nothing and asserted nothing,
+# which is worse than removing them.
+VERDICT = re.compile(r"^\s*(PASS|FAIL)\s+(.*)$")
+
+# The floor a negative control must clear. Five, measured: `trimmed()` keeps one
+# case per expectation, CASE_SUITES is two suites, `examples/gotofail` carries
+# `safe` and `refuted`, and `tools/llmll-driver` carries all three, so an
+# unmutated trimmed tree grades 2 + 3 cases.
+#
+# WHY THIS CONSTANT EXISTS AT ALL, and it is new at the retirement. The row
+# comparison that died was doing a second job by accident: it compared the two
+# implementations' rows, so a run that graded NOTHING still had to match a run
+# that graded nothing, and the mutant cells caught an empty report because an
+# empty report exits 0 where a mutant demands non-zero. A negative control has no
+# such backstop. Alone, a port that read no manifest, graded no case and exited 0
+# would pass all three controls. Asserting the count is the cheap direct answer,
+# and it is the same technique the covers in this campaign already use when they
+# report an assertion that was never reached.
+MIN_ROWS = 5
+
+# CAPTURE-ENCODING-1, kept as a direct check because the retarget would otherwise
+# have dropped it silently. A case label carries U+2192, and a console program
+# used to emit the bytes `c2 92` for it, the codepoint truncated to its low byte,
+# even with the emitted `main` pinning utf8 on stdout: System.Posix.IO.fdToHandle
+# returns a BINARY handle, so there is no codec for setLocaleEncoding to inform.
+# Fixed at v0.14.90 by pinning both ends of the capture pipe in captureStdout.
+#
+# The differential form caught a regression here for free. The two labels were
+# COMPARED, so a truncated arrow made the row comparison fail, and a comment on
+# that line said so. There is nothing to compare now, so the property is asserted
+# on its own. Testing for the mojibake directly is also the stronger form: it
+# fires whether or not the label happens to differ from something else.
+MOJIBAKE = "\u0092"  # the truncation, written as an escape so this file stays ASCII
 
 
 def normalise(out: str) -> list[str]:
-    """The comparable core of a run: the ordered per-case verdicts.
-
-    The two implementations do NOT print byte-identical reports and are not
-    asked to: the reference streams with ✅/❌ and box-drawing rules, the port
-    accumulates and emits once with PASS/FAIL, because a console step performs
-    exactly one Command and the filesystem work already claims it. What must
-    agree is the DECISION per case, in order, which is what this extracts.
-    """
+    """The graded core of a run: the ordered per-case verdicts."""
     rows = []
     for line in out.splitlines():
         m = VERDICT.match(line)
         if not m:
             continue
-        mark = "PASS" if m.group(1) in ("PASS", "✅") else "FAIL"
-        # The reference writes U+2192 in its label and the port writes `->`.
-        # That is NOT a stylistic choice in the port: measured, a console
-        # program emits the bytes `c2 92` for U+2192, the codepoint truncated
-        # to its low byte, even though the emitted `main` pins utf8 on stdout.
-        # Filed as CAPTURE-ENCODING-1.
-        #
-        # THAT NORMALISATION IS GONE AS OF v0.14.90, and the labels are now
-        # COMPARED rather than reconciled. System.Posix.IO.fdToHandle returns a
-        # BINARY handle -- no codec for setLocaleEncoding to inform -- so both
-        # ends of the capture pipe are pinned to utf8 in captureStdout, and the
-        # port's label became the real arrow in the same change. If a regression
-        # reintroduces the truncation, the port emits U+0092 here and this
-        # comparison FAILS, which is the point: the line that used to sit below
-        # would have hidden exactly that.
+        mark = m.group(1)
         label = m.group(2).strip()
         rows.append(f"{mark} {label}")
     return rows
-
-
-def run_shell(tree: Path) -> tuple[int, list[str], str]:
-    p = subprocess.run(
-        ["bash", str(tree / "scripts" / SHELL_GATE.name)],
-        capture_output=True, text=True, cwd=str(tree),
-    )
-    return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 
 
 def run_port(tree: Path, gate: str, subject: str) -> tuple[int, list[str], str]:
@@ -361,7 +401,7 @@ def _n2(tree: Path):
         write_manifest(tree, fam, doc)
 
 
-@cell("N3 unmutated tree", "both implementations agree the corpus is green",
+@cell("N3 unmutated tree", "the port passes an unmutated corpus and grades it",
       expect_fail=False)
 def _n3(tree: Path):
     pass
@@ -393,46 +433,50 @@ def main() -> int:
             prepare(tree)
             mutate(tree)
 
-            src, srows, sraw = run_shell(tree)
             prc, prows, praw = run_port(tree, args.gate, args.llmll)
-
-            shell_failed = src != 0
             port_failed = prc != 0
 
-            # 1. The mutant must be CAUGHT, under both. A battery where both
-            #    implementations pass everything agrees perfectly and detects
-            #    nothing.
-            if expect_fail and not (shell_failed and port_failed):
-                print(f"  MISS {name}: not caught "
-                      f"(shell exit {src}, port exit {prc}) -- {why}")
+            # 1. The mutant must be CAUGHT. RETARGETED AT RETIREMENT,
+            #    2026-08-17: this read `shell_failed and port_failed` and the
+            #    reference is deleted, so it reads the port alone. The retarget
+            #    is mechanical and not a rewrite, because `expect_fail` was
+            #    always declared data in the @cell decorator above and was never
+            #    read off the reference.
+            if expect_fail and not port_failed:
+                print(f"  MISS {name}: not caught (port exit {prc}) -- {why}")
                 bad += 1
                 continue
-            if not expect_fail and (shell_failed or port_failed):
+            if not expect_fail and port_failed:
                 print(f"  MISS {name}: negative control failed "
-                      f"(shell exit {src}, port exit {prc}) -- {why}")
-                print("\n".join(f"    shell| {l}" for l in sraw.splitlines()[-6:]))
+                      f"(port exit {prc}) -- {why}")
                 print("\n".join(f"    port | {l}" for l in praw.splitlines()[-6:]))
                 bad += 1
                 continue
 
-            # 2. Only then are the two answers compared. Agreement is checked
-            #    after detection, never instead of it.
-            if src != prc:
-                print(f"  DIVERGE {name}: exit {src} (shell) vs {prc} (port)")
+            # 2. TWO COMPARISONS USED TO RUN HERE AND BOTH ARE GONE: exit code
+            #    against exit code, and per-case rows against per-case rows. They
+            #    needed two implementations. Nothing below replaces them; see the
+            #    module docstring, which names the loss rather than leaving a
+            #    reader to infer it from an absence.
+            #
+            #    What runs instead are two checks the differential form got for
+            #    free and a self-cover does not. A negative control that grades
+            #    NOTHING would otherwise pass, so the row count is asserted; and
+            #    a label carrying the CAPTURE-ENCODING-1 truncation would
+            #    otherwise go unread, so it is asserted too.
+            if not expect_fail and len(prows) < MIN_ROWS:
+                print(f"  MISS {name}: negative control graded {len(prows)} "
+                      f"case(s), expected at least {MIN_ROWS} -- {why}")
+                print("\n".join(f"    port | {l}" for l in praw.splitlines()[-6:]))
                 bad += 1
                 continue
-            if srows != prows:
-                print(f"  DIVERGE {name}: per-case verdicts differ")
-                for a, b in zip(srows, prows):
-                    if a != b:
-                        print(f"    shell| {a}")
-                        print(f"    port | {b}")
-                if len(srows) != len(prows):
-                    print(f"    shell rows {len(srows)}, port rows {len(prows)}")
+            if MOJIBAKE in praw:
+                print(f"  MISS {name}: output carries the CAPTURE-ENCODING-1 "
+                      f"truncation (U+0092) -- a label lost its arrow")
                 bad += 1
                 continue
 
-            print(f"  ok   {name} ({len(srows)} cases, exit {src})")
+            print(f"  ok   {name} ({len(prows)} cases, exit {prc})")
         finally:
             if not args.keep:
                 shutil.rmtree(root, ignore_errors=True)
