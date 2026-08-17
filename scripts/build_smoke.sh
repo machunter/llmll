@@ -194,6 +194,15 @@ fi
 # list never carried it, so the guard did not cover a name the fixture calls.
 # The list is hand-maintained, so it drifts silently; Spec.hs's WASI-RT fold is
 # the one that derives its names from builtinEnv and cannot.
+#
+# BUILTIN-BODY-1 added sha1_hash, and it is the first entry here that is not a
+# wasi_* name. The fixture now calls `sha1`, whose preamble binding carries the
+# different spelling; that mismatch is what shipped a builtin the compiler
+# declared, typechecked, verified SAFE, and could not emit. Note what this line
+# is and is not: the BUILD is the assertion, because a bad emitApp equation
+# fails GHC above and never reaches here. This entry only keeps a fail-open
+# runGhcCheck from carrying a green verdict on an uncompiled fixture, which is
+# the same job it does for every wasi_* name.
 
 LIB="$OUTDIR/src/Lib.hs"
 [ -f "$LIB" ] || fail "no src/Lib.hs emitted at $LIB"
@@ -204,6 +213,7 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
             wasi_clock_monotonic wasi_proc_run wasi_proc_args \
             wasi_env_get wasi_fs_copy \
+            sha1_hash \
             seq_commands \
             json_parse json_serialize json_get json_get_string json_get_int \
             json_get_bool json_get_number json_array json_object json_set \

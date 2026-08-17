@@ -229,6 +229,7 @@
     (| Build5)     ;; built capproc_exec; status arrives
     (| Sir5)       ;; ran `stack path` in the fixture's own outdir
     (| Sir5R)      ;; read that root and form the binary path
+    (| Bin5)       ;; listed that root's bin/ to decide the binary EXISTS
     (| Feed5)      ;; wrote the run's stdin file
     (| Del5in)     ;; cleared the scratch directory: in.txt
     (| Del5out)    ;; cleared the scratch directory: out.txt
@@ -569,12 +570,19 @@
   ;; smoke.llmll has called wasi.fs.copy since FS-COPY-1. A hand-maintained
   ;; list drifts in silence, which is the subject's own warning at :192 and is
   ;; now this file's too.
+  ;;
+  ;; BUILTIN-BODY-1 added `sha1_hash`, the first non-wasi_* name on either side,
+  ;; and it is added HERE IN THE SAME CHANGE as the subject rather than being
+  ;; discovered later by a count. That is the whole lesson of the paragraph
+  ;; above: the two names it names went missing because the subject moved and
+  ;; this list did not.
   (def-shell preamble-names [] -> list[string]
     ["wasi_io_stdout" "wasi_io_stderr" "wasi_http_response"
      "wasi_fs_read" "wasi_fs_write" "wasi_fs_delete" "wasi_http_post"
      "wasi_fs_list" "wasi_fs_mkdir" "wasi_fs_sha256"
      "wasi_clock_monotonic" "wasi_proc_run" "wasi_proc_args"
      "wasi_env_get" "wasi_fs_copy"
+     "sha1_hash"
      "seq_commands"
      "json_parse" "json_serialize" "json_get" "json_get_string" "json_get_int"
      "json_get_bool" "json_get_number" "json_array" "json_object" "json_set"
@@ -700,6 +708,37 @@
       ((RList _)  true)
       ((RText _)  true)
       ((RNone)    true)
+      ((RCode _)  false)
+      ((RErr _)   false)))
+
+  ;; Does a directory hold an entry of this name? The second half of the
+  ;; subject's `exe_path`, which asks `[ ! -x "$p" ]` and this cannot.
+  ;;
+  ;; P-C1, MEASURED 2026-08-16 against llmll 0.16.0 before this was written,
+  ;; because measurement 3 of design/tool-ll-RESTART.md is owed to this fix.
+  ;; `wasi.fs.list` on a directory holding exactly one file answered
+  ;; `RList n=1` with `list-contains` true for that file's name, agreeing with
+  ;; the shell's own listing on both the count and the membership. So the
+  ;; entries are BASENAMES, not paths, and containment on the basename decides
+  ;; existence. The runtime is `listDirectory` followed by `sort`, which is
+  ;; where the basenames come from.
+  ;;
+  ;; EVERY NON-RList ARM IS false, and the RErr arm is the one that carries
+  ;; weight: `wasi.fs.list` on an absent path answers RErr, so a missing bin/
+  ;; and a present bin/ with no such entry both answer false here. Those are
+  ;; the same verdict for the subject too, whose two internal notes differ
+  ;; while the `fail` they reach is one message.
+  ;;
+  ;; -x IS NOT REPRODUCED. A listing decides existence and says nothing about
+  ;; the permission bit, so a present-but-unexecutable binary passes here and
+  ;; fails the subject. That is a real difference and it is narrower than the
+  ;; one it replaces: without this check the port ran a binary that was not
+  ;; there at all. FS-STAT-1 is the row that would close it.
+  (def-shell has-entry? [r: Response n: string] -> bool
+    (match r
+      ((RList xs) (list-contains xs n))
+      ((RText _)  false)
+      ((RNone)    false)
       ((RCode _)  false)
       ((RErr _)   false)))
 
@@ -1459,8 +1498,34 @@
                       (wasi.io.stdout (fail-line
                         "built the execution fixture but found no capproc-exec binary. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
                   (go (with-s b "exe" (string-concat sir "/bin/capproc-exec"))
-                      Feed5
-                      (wasi.fs.write (x-feed-of (get-s b "work")) (x-feed-text))))))
+                      Bin5
+                      (wasi.fs.list (string-concat sir "/bin"))))))
+          ;; A NON-EMPTY INSTALL ROOT IS NOT A BINARY, and this port asserted
+          ;; that it was until 2026-08-16. The subject's `exe_path` makes two
+          ;; checks and this made one: it took `stack path` answering at all as
+          ;; proof that the executable was under it.
+          ;;
+          ;; COVER CELL 6 IS THE WITNESS and it is why the check is here rather
+          ;; than argued for. That cell lets the build SUCCEED, removes the
+          ;; binary, and plants a working stale one elsewhere. The subject
+          ;; refuses at exe_path and names the missing binary. This port ran the
+          ;; absent path, read an empty capture, and reported all eight stage-5
+          ;; behaviour assertions as failures: a real defect described as eight
+          ;; imaginary ones, which is worse than the silence it replaced because
+          ;; it names wasi.fs.sha256, wasi.proc.run and json-parse as broken
+          ;; when nothing had run at all. Both sides failed, so an exit-code
+          ;; comparison graded it green; the cover compares the CAUSE, which is
+          ;; the whole reason it compares verdict text.
+          ;;
+          ;; The message is the empty-root branch's, verbatim, because the
+          ;; subject reaches ONE `fail` from both of exe_path's two notes.
+          ((Bin5)
+            (if (has-entry? r "capproc-exec")
+                (go b Feed5
+                    (wasi.fs.write (x-feed-of (get-s b "work")) (x-feed-text)))
+                (go b Ending
+                    (wasi.io.stdout (fail-line
+                      "built the execution fixture but found no capproc-exec binary. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
           ;; stage 5, the scratch directory BEFORE the run.
           ;;
           ;; THE SUBJECT DELETES THIS DIRECTORY FIRST AND THE PORT NOW DOES TOO.
@@ -2342,7 +2407,7 @@
     (match s ((pair b p) (match p ((Done) true) ((Boot) false) ((Tool1) false)
                                  ((Tool1Ghc) false) ((Comp2) false) ((Home2) false) ((Comp2b) false)
                                  ((Anchor2a) false) ((Anchor2aR) false) ((Anchor2aC) false) ((Anchor2aCR) false)
-                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Feed5) false)
+                                 ((Anchor2aX1) false) ((Anchor2aX2) false) ((Build3) false) ((Lib4) false) ((Log4) false) ((Build4b) false) ((Lib4b) false) ((Build5) false) ((Sir5) false) ((Sir5R) false) ((Bin5) false) ((Feed5) false)
                                  ((Del5in) false) ((Del5out) false) ((Del5err) false) ((Rmd5) false)
                                  ((Pre5) false) ((Run5) false) ((Out5) false) ((Post5) false)
                                  ((Fe) false) ((FeS) false) ((FeR) false)

@@ -163,23 +163,30 @@ blocks the job.
 THREE defects in itself and ONE in the port. Section 0's rule applies to
 instruments too: a cover that never ran measures nothing.
 
-**Cell 6 is the port defect and it is NOT FIXED.** The port holds the
-reference's failure text and tests a different condition:
+**Cell 6 was the port defect. It is FIXED on 2026-08-16.** The text below is
+the record of the defect. The port held the reference's failure text and tested
+a different condition:
 
 - The reference asks whether the BINARY exists.
-- The port asks whether `stack path` returned an install ROOT.
+- The port asked whether `stack path` returned an install ROOT.
 
-So the port's message "found no capproc-exec binary" fires only when `stack`
-itself fails. When the binary is truly absent, the port runs a path that is
-not there. Then it reports NINE assertion failures that it never tested.
+So the port's message "found no capproc-exec binary" operated only when `stack`
+itself failed. When the binary was truly absent, the port ran a path that was
+not there. Then it reported SEVEN assertion failures that it never tested.
+
+**The count was wrong here and the correction is a lesson.** This section said
+NINE. Seven is the length of the port's `x-miss` list. Two of the seven
+messages hold a semicolon of their own, and the joined output puts a semicolon
+between messages. So a count of the semicolons gives nine. Count the source
+list, not the output.
 
 **This refutes a claim in the RFC.** Section 5's `LIST-KIND-1` row says the
 design "separates missing from not executable". The probe measured that `RErr`
-carries that difference. The port does not use it at this call site.
+carries that difference. The port did not use it at this call site.
 
-**The fix is already measured.** `wasi.fs.list` on a parent directory plus
+**The fix is applied.** `wasi.fs.list` on the parent directory plus
 `list-contains` decides existence at one listing. The builtin sweep found this
-composition. `FS-EXISTS-1` records the row.
+composition and `P-C1` measured it. `FS-EXISTS-1` records the row.
 
 **Cell 7 has never run.** It needs `--slow`. Its cost is the port's own 900
 second build timeout.
@@ -199,24 +206,38 @@ second build timeout.
 **All three were invisible in a passing run.** The cover prints its unreached
 assertions. That output is what showed the cells measured nothing.
 
-### THREE DECISIONS ARE OPEN. Do not close them by assumption
+### THREE DECISIONS WERE OPEN. ALL THREE ARE CLOSED
 
-1. **The cell 6 port defect.** Fix the port's existence check with
-   `wasi.fs.list` plus `list-contains`, or accept the divergence and record
-   it. Nobody has chosen.
-2. **`sha1`.** Remove the builtin and both spec rows, or map it to
-   `sha1_hash` in codegen. See section 8 for the measurement. The
-   recommendation on 2026-08-16 was to remove it. The user did not answer.
-3. **A completeness test for builtin bodies.** `Spec.hs` checks that the spec
-   table and `builtinEnv` agree. Nothing checks that a declared builtin has an
-   emitted body. This is what let `sha1` ship.
+All three closed on 2026-08-16. Read the text below. Do not act on the
+recommendations that the earlier version of this section gave.
 
-### Five measurements are owed
+1. **The cell 6 port defect. CLOSED.** The port makes the existence check now.
+   A new phase lists the install root's `bin/`. It looks for the name in that
+   list. The message is the reference's message. The cover gives PASS for cell
+   6, and the two assertions in that cell that measured nothing now operate.
+   **`-x` is not part of the check.** A listing decides existence only. It says
+   nothing about the permission bit. `FS-STAT-1` is the row for that.
+2. **`sha1`. CLOSED, and NOT in the direction this section recommended.**
+   Codegen maps the name to `sha1_hash`. The recommendation was to remove the
+   builtin. A measurement of the call sites refuted it: a frozen benchmark
+   calls `sha1` two times, and `LLMLL.md` settled the name. Do not use section
+   8's recommendation. Row `BUILTIN-BODY-1` has the record.
+3. **A completeness test for builtin bodies. CLOSED.** The test is in
+   `Spec.hs`. It operates on all 101 names in `builtinEnv`. Before this it
+   operated on 16 names. **The test cannot see 12 of the names.** Those 12 have
+   a hand-written equation in `emitApp`. The fix for `sha1` moved `sha1` into
+   that set. Only a build can grade those names. The fixture calls four of
+   them.
+
+### Five measurements. FOUR are owed and item 3 is complete
 
 1. One CI run of this branch. Nothing here has been through CI.
 2. Cell 7, with `--slow`.
-3. `P-C1`. Does `wasi.fs.list` on a parent decide existence? This is also the
-   cell 6 fix, so measure it first.
+3. `P-C1`. MEASURED on 2026-08-16, before the cell 6 fix was written.
+   `wasi.fs.list` gives the NAMES of the files in a directory. It does not give
+   their paths. So `list-contains` on the name decides existence. The probe
+   agreed with the shell on the count and on the membership. The runtime is
+   `listDirectory` and then `sort`. This measurement is complete.
 4. The runtime halves of `P-A1`, `P-B1` and `P-B2`. Each one emits today.
 5. The job's real time cost. `D4` in the RFC rests on a stage count of
    fourteen and the census is seventeen.

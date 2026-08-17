@@ -14,6 +14,13 @@
 ;; that definitions EXIST, and this fixture checks that they COMPILE TOGETHER
 ;; against their real imports and dependency set.
 ;;
+;; BUILTIN-BODY-1 widened that division of labour and this file with it. Spec.hs
+;; no longer covers only the wasi.* names, and the names it now EXEMPTS are the
+;; eleven that codegen lowers through a hand-written emitApp equation rather
+;; than through the generic fallthrough. Those eleven are unreachable by any
+;; check that reads the emitter, so the only oracle left for them is a build.
+;; `sha1` is the first of them called here; see its def below for why.
+;;
 ;; Deliberately has no sibling imports and no def-interface: a build gate over
 ;; the preamble should fail for preamble reasons only. tools/llmll-driver/
 ;; shell.llmll was the other candidate and was rejected for that reason, and
@@ -121,6 +128,42 @@
   (def-shell smoke-seq [path: string body: string]
     (seq-commands (wasi.fs.write path body)
                   (wasi.fs.delete path)))
+
+  ;; BUILTIN-BODY-1. A crypto builtin in a fixture whose contract was written
+  ;; around the wasi.* group, and the widening is deliberate: it matches the one
+  ;; the same row made to Spec.hs, which grew from the sixteen wasi.* names to
+  ;; all 101 entries of builtinEnv.
+  ;;
+  ;; WHY A BUILD IS THE ONLY THING THAT CAN GRADE THIS CALL. `sha1` reached the
+  ;; generic fallthrough and emitted a call to an identifier nothing defines,
+  ;; because the preamble binding is `sha1_hash`. The fix adds a hand-written
+  ;; emitApp equation, and that equation is what puts the name OUT of reach of
+  ;; the very check that found it: Spec.hs's population is the names whose
+  ;; emission still starts with the mangled builtin name, so a name routed
+  ;; through emitApp is exempt by construction. The class-size assertion there
+  ;; moved 71 to 70 for exactly this reason. A typo in any of those equations
+  ;; type-checks, verifies SAFE, and dies at GHC, which is the defect this
+  ;; fixture's whole existence is about.
+  ;;
+  ;; MEASURED over scripts/build-smoke/*.llmll, so the gap is a number and not
+  ;; an impression: of the twelve hand-written equations, this corpus called
+  ;; three (`pair`, `list-length`, `string-length`) and now calls four. The
+  ;; eight still uncalled are `first`, `second`, `bytes-length`, `bytes-get`,
+  ;; `bytes-set`, `list-nth`, `string-slice` and `string-char-at`. Five of those
+  ;; eight wrap an ARGUMENT in fromIntegral at the LT-INT call seam, where a
+  ;; wrong wrapper is a GHC type error and nothing before a build sees it.
+  ;;
+  ;; So the call site below is the assertion. It needs no shell-side grep: if
+  ;; the equation emits a name nothing binds, THIS FILE does not compile and
+  ;; stage 4 fails on both implementations. `sha1_hash` is added to the emitted
+  ;; -preamble name lists in scripts/build_smoke.sh and its LLMLL port as the
+  ;; fail-open guard, the same way every wasi_* name above is guarded.
+  ;;
+  ;; bytes[20] in and bytes[20] out, per LLMLL.md 13.11. The declared domain is
+  ;; narrower than FIPS 180-4, which is the open SHA1-DOMAIN-1 row and is not
+  ;; this fixture's business.
+  (def-shell smoke-sha1 [k: bytes[20]] -> bytes[20]
+    (sha1 k))
 
   ;; EFFECT-RESP: the console harness. Every arm of Response is matched, so the
   ;; generated Main.hs only compiles if the emitted `data Response` declaration,
