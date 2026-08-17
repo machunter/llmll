@@ -1,6 +1,8 @@
 ;; TOOL-RFC-004: the archive-disposition drift gate (DRIFT-DOC-3), in LLMLL.
 ;;
-;; A port of scripts/doc_archive_gate.sh. The RFC is
+;; A port of scripts/doc_archive_gate.sh, which was DELETED on 2026-08-17
+;; when TOOL-RFC-004 moved to `tool_state: retired`. This module is now the only
+;; implementation of DRIFT-DOC-3. The RFC is
 ;; docs/design/tool-rfc-004-doc-archive.md and it was written before this file,
 ;; with both of its policy decisions put to the user rather than settled here.
 ;;
@@ -439,7 +441,7 @@
                                    " archived doc(s) declare no archive-disposition, above the bound of "
                                    (int-to-string (bound-of r)) "\n"
                                    "Add 'archive-disposition: shipped|superseded|dropped|deferred' to the new file's frontmatter,\n"
-                                   "or raise UNGATED_BOUND in scripts/doc_archive_gate.sh and say why in the commit message.\n"])))
+                                   "or raise the ungated bound in tools/doc-archive/docarchive.llmll and say why in the commit message.\n"])))
                           (go r (Ending 0)
                               (wasi.io.stdout
                                 (string-concat-many

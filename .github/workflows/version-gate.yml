@@ -146,8 +146,11 @@ jobs:
       # every solver-dependent step: this gate needs no solver, and RFC section
       # 3 requires it to run even when a later step would fail, so it is never
       # made conditional on anything.
-      - name: Run archive-disposition drift gate (DRIFT-DOC-3)
-        run: bash scripts/doc_archive_gate.sh
+      # DRIFT-DOC-3's shell reference ran here until the 2026-08-17 retirement.
+      # TOOL-RFC-004 is `tool_state: retired`, so the LLMLL port below is the
+      # only implementation and it decides alone. The step is removed rather
+      # than made conditional: a conditional step that never runs is the
+      # dead-gate shape this workflow already carries warnings about.
 
       # The absolute path, not `stack exec`: that idiom resolves against
       # whatever stack project the cwd sits in, and from a tools/ directory it

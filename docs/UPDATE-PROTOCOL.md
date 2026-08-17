@@ -70,7 +70,7 @@ Each archived doc may declare, in its YAML frontmatter, a value from a closed fo
 | `dropped` | explored and abandoned; no part shipped | `dormant-explorations/` |
 | `deferred` | not chosen and not abandoned; captured against a future need | `dormant-explorations/` |
 
-[`scripts/doc_archive_gate.sh`](../scripts/doc_archive_gate.sh) (**DRIFT-DOC-3**) asserts that every declared value sits in the directory its side names, and fails CI otherwise. The field is opt-in: files without it are not gated, but the gate counts them and fails if that count grows, so a newly archived doc either declares the field or forces a visible bound raise.
+[`tools/doc-archive/docarchive.llmll`](../tools/doc-archive/docarchive.llmll) (**DRIFT-DOC-3**) asserts that every declared value sits in the directory its side names, and fails CI otherwise. The field is opt-in: files without it are not gated, but the gate counts them and fails if that count grows, so a newly archived doc either declares the field or forces a visible bound raise.
 
 The field governs **only** these two directories. Declaring it in `professor-reviews/`, `wasm-investigations/`, or any future archive category also fails the gate, rather than being read and ignored: a review's disposition is its proposal's, and a field the gate cannot check but silently accepts is how an opt-in convention stops covering anything.
 

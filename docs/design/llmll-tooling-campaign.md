@@ -1,7 +1,7 @@
 ---
 name: llmll-tooling-campaign
 title: "TOOL-LL: this repository's CI gates, written in LLMLL and actually used"
-status: "Rev 5, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). SIX are ported. THE PORTING WORK IS COMPLETE as of 2026-08-16. DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95) run as oracles. 005 (doc-path-lint) is PORTED and `tool_state: oracle` (TOOL-RFC-005), green on run 31439956284; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 (build-smoke) is PORTED and `tool_state: oracle` as of 2026-08-16, released in v0.16.0. It is the last of the six and it runs the other five. Its differential cover passes 9 of 9 cells with 0 MISSING on CI run 31985443527. What remains is one release in state `oracle`, and then retirement. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced; ALL FOUR ARE FILED as of 2026-08-10, together with a fifth, `LIST-KIND-1`, that 004 had raised on 2026-08-09 and that NO census held, this one included. `FS-WALK-1` CLOSED COSMETIC 2026-08-10 on the measurement its own row asked for and nobody had run: 006's walk sites are twelve, not the nine the row claimed, and all twelve are one query at a fixed depth of 4, so nothing is owed to the compiler and 006 needs no builtin. That is the SECOND wrong count on that one gap, the first having over-stated its blast radius three-fold; see §5. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
+status: "Rev 6, IN FLIGHT. THE RETIREMENT CALENDAR IS WITHDRAWN IN §4, by user adjudication 2026-08-17, and REPLACEMENT REMAINS THE GOAL. What changed is that a port leaves `oracle` on three stated conditions rather than when a release ships, and that each retirement must NAME the loss it accepts. TOOL-RFC-004 IS RETIRED 2026-08-17, the campaign's SECOND retirement: `scripts/doc_archive_gate.sh` deleted, its cover retargeted from the reference onto the port, six citations measured before the deletion with two repointed and three carried in the lint's ALLOW table. Rev 5 said keep each original one release and then delete it. THREE MEASUREMENTS REFUTE IT. The first was WRITTEN DOWN WRONG AND IS CORRECTED HERE, and the corrected form is weaker: a retirement does NOT destroy a cover. Every cover runs its reference through `subprocess.run`, so the reference is an INPUT and not a duplicate. But every cover also declares its own per-cell expectation as data (`expect`, `expect_fail`, a must-be-caught assertion), so a mechanical rewrite retargets the battery onto the port and the battery survives. What does NOT survive any rewrite is the cross-implementation disagreement check, which needs two implementations and is the check that caught `TOOL-ENCODING-1`, a defect NEITHER side had. `scripts/version_gate.sh` runs in TWO jobs with no Haskell toolchain, one of them the `ghcr.io` publish job at `docker-publish.yml` line 820, so TOOL-RFC-001 cannot retire until someone adds a toolchain to the release path. And the one retirement on record is a LOSS: TOOL-RFC-005 retired with no replacement oracle and its own §8 says nothing now stops a broken prose citation from reaching `main`. `retired` is now reached by argument and never by a calendar, under three stated conditions. The tri-state vocabulary is unchanged, so §7's gate stays passing. THE SIX RFC §8 SECTIONS STILL DESCRIBE THE OLD SCHEDULE and are deliberately not edited; §4 governs. THE PORTING WORK IS COMPLETE, six of six, with 006 at `tool_state: oracle` since 2026-08-16. Rev 5 follows.  Rev 5, IN FLIGHT. Scope and retirement SETTLED by user adjudication 2026-08-07; DISTRIBUTION AMENDED 2026-08-10 in §3, at the second port to meet the same constraint, and it now distinguishes shipping a COMPILER from shipping a COMPILED PORT and requires a wholesale relocation rather than a split. Six CI gates in scope (~900 code lines). SIX are ported. THE PORTING WORK IS COMPLETE as of 2026-08-16. DRIFT-CI-1 (TOOL-RFC-001, retroactive), the refute-crux gate (TOOL-RFC-002, the first written RFC-first), doc-claims (TOOL-RFC-003, released v0.14.92) and doc-archive (TOOL-RFC-004, released v0.14.95) run as oracles. 005 (doc-path-lint) is PORTED and `tool_state: oracle` (TOOL-RFC-005), green on run 31439956284; it was unblocked at v0.14.96 by `REGEX-LOWER-1`, a compiler fix that took the critical path through compiler work for the first time and whose census corrected its own row; 006 (build-smoke) is PORTED and `tool_state: oracle` as of 2026-08-16, released in v0.16.0. It is the last of the six and it runs the other five. Its differential cover passes 9 of 9 cells with 0 MISSING on CI run 31985443527. What remains is one release in state `oracle`, and then retirement. 005's subject is ADVISORY and exits 0 by design, so its cover compares stdout text rather than exit codes, and it raised FOUR owed gaps, the largest number any port has produced; ALL FOUR ARE FILED as of 2026-08-10, together with a fifth, `LIST-KIND-1`, that 004 had raised on 2026-08-09 and that NO census held, this one included. `FS-WALK-1` CLOSED COSMETIC 2026-08-10 on the measurement its own row asked for and nobody had run: 006's walk sites are twelve, not the nine the row claimed, and all twelve are one query at a fixed depth of 4, so nothing is owed to the compiler and 006 needs no builtin. That is the SECOND wrong count on that one gap, the first having over-stated its blast radius three-fold; see §5. THE STANDARD HAS NINE SECTIONS, not eight: `## 7. Verification` was added at v0.14.94 and asks what survives the reference's deletion, since §8 deletes the instrument §6 is checked against. Each of the last three ports found something its own feasibility read had declared absent: 002 found three defects, 003's cover found a COMPILER defect (TOOL-ENCODING-1, shipped v0.14.93) that neither implementation had, and 004's cover found three defects that its live green run could not reach."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, professor, user]
@@ -44,7 +44,7 @@ excluding comments and blanks:
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
 | [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
-| [`doc_archive_gate.sh`](../../scripts/doc_archive_gate.sh) | 125 | yes, `spec-roundtrip` since 004 | **PORTED**, `tool_state: oracle`, TOOL-RFC-004 |
+| `doc_archive_gate.sh` (DELETED 2026-08-17) | 125 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-004. The campaign's SECOND retirement |
 | `doc_path_lint.py` (DELETED v0.14.99) | 132 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-005. **The campaign's first retirement** |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |
 
@@ -120,10 +120,12 @@ in [`driver-ll-phase4-RESTART.md`](driver-ll-phase4-RESTART.md) §10 and
 re-verified before each push. This was the first thing the campaign needed and
 it was release hygiene, not language work.
 
-## 4. Retirement, settled
+## 4. Retirement. AMENDED 2026-08-17. The CALENDAR is withdrawn, not the goal
 
-**Keep the original as a differential oracle for one release, then delete it.**
-Concretely, three states, and a tool is in exactly one:
+**The tri-state vocabulary does not change.** A tool is in exactly one of
+`blocked`, `oracle` and `retired`. The gate in §7 asserts the state against the
+filesystem, so a document that claims `retired` while the script is present
+fails.
 
 | State | The original | CI runs | The port's oracle |
 |---|---|---|---|
@@ -131,16 +133,98 @@ Concretely, three states, and a tool is in exactly one:
 | `retired` | deleted | the port | the port's own cover |
 | `blocked` | present | the original | the port does not exist |
 
-A port enters `oracle` when its differential cover is green, and leaves for
-`retired` at the next release, at which point the original is deleted **in the
-same commit** that flips the state. The gate in §7 asserts the tri-state against
-the filesystem, so a doc that claims `retired` while the script is still there
-reddens.
+**WHAT IS WITHDRAWN IS THE TIMER, AND NOT THE GOAL.** Rev 5 said this: keep the
+original for one release, then delete it. Replacement is still what this campaign
+is for. But a port no longer leaves `oracle` when a release ships. A port leaves
+when the three conditions below hold, and a commit states each one.
 
-**Why one release and not immediately.** The differential cover is the only
-oracle a port has that its author did not also write. Deleting the reference on
-merge trades that for nothing; keeping it forever doubles maintenance and means
-the scripts are never retired, which is the goal.
+### Why the schedule was wrong. Measured 2026-08-17
+
+Three measurements refute it. They appear in order of what they cost.
+
+**1. A deletion costs the DISAGREEMENT CHECK, and it does not cost the cover.**
+This measurement was first written down wrong, and the corrected form is the
+weaker claim. Every cover holds its reference as a path constant and runs it with
+`subprocess.run`. So the reference is an INPUT to the instrument and not a
+duplicate of the port, which is what Rev 5 assumed.
+
+But every cover ALSO declares its own per-cell expectation, as data in the cover
+file. `doc_archive_cover.py` uses `expect`. `doc_claims_cover.py` uses
+`expect_fail`. `version_gate_cover.py` asserts that a mutant must be caught.
+`refute_crux_cover.py` compares a per-cell `expect`. **None of those values is
+read off the reference.** So a cover survives a retirement by a mechanical
+rewrite that retargets the expectation from the reference to the port. The
+mutation battery does not die.
+
+**What dies is the cross-implementation disagreement check, and no rewrite
+recovers it.** That check needs two implementations. It is also the check with
+the highest yield in this campaign. `doc_archive_cover.py` says so in its own
+docstring: at `TOOL-ENCODING-1` every mutation cell AGREED while both sides
+failed identically, and only two implementations plus controls could separate
+"these agree" from "neither works". A second property dies with it. After a
+retirement the port is graded against expectations that this campaign wrote,
+where `doc_archive_cover.py` records that the expectation "is checked on the
+REFERENCE, which defines the correct behaviour".
+
+**2. Two jobs cannot run a port.** `scripts/version_gate.sh` runs in
+`.github/workflows/version-gate.yml` at line 77, in a job with no Haskell
+toolchain on purpose. It also runs in `.github/workflows/docker-publish.yml` at
+line 820, in the job that pushes an image to `ghcr.io`. That file sets up no
+Stack and no GHC. An LLMLL port needs a build. So TOOL-RFC-001 cannot retire
+until someone adds a toolchain to the release path.
+
+**3. The one retirement we have is recorded as a loss.** TOOL-RFC-005 retired on
+2026-08-11 with NO replacement oracle. No `doc_path_lint_cover.py` exists. Its
+own §8 says that nothing now stops a broken prose citation from reaching `main`,
+because both remaining checks exit 0 when they find one. That is one loss in one
+retirement.
+
+### The three conditions for `retired`
+
+A port leaves `oracle` only when all three conditions hold. State each condition
+in the commit that flips the state.
+
+1. The port's cover does not execute the reference. Either someone rewrote the
+   cover to grade the port alone, or this campaign accepts the loss of the cover
+   IN WRITING and names what stops deciding.
+2. Every CI job that runs the reference can run the port. A job with no Haskell
+   toolchain cannot run a port. Adding a toolchain to a fast job is a cost to
+   state, and it is not a detail.
+3. The deletion breaks no prose citation. Measure this the way the 005
+   retirement taught. Move the file aside. Run the lint. Restore the file.
+
+### Retirement proceeds. Each one accepts a NAMED loss
+
+Replacement is still the goal. Rev 5 was approximately right about that, and it
+was wrong only about the timing and about what a deletion costs.
+
+**Every retirement gives up the cross-implementation disagreement check for that
+gate.** State that loss in the commit. Do not describe a retirement as the
+removal of a duplicate, because the measurement above shows it is not one.
+
+**The loss is real and it is not a regression against the baseline.** That
+distinction decides whether a retirement is defensible. Before this campaign,
+`doc_claims_gate.sh` and `doc_archive_gate.sh` had NO pytest file and no cover,
+so nothing tested them. After a retirement each port keeps a mutation battery of
+12 to 19 cells. So a retired port is better tested than the gate was before the
+campaign started, and worse tested than it was during the campaign. Both halves
+of that sentence are true and a commit should say so.
+
+**What the campaign learned about where the yield is.** The covers found more
+defects than the ports did. `TOOL-ENCODING-1` was a defect that NEITHER
+implementation had. The cover for 004 found three defects that its live run
+could not reach. Cell 6 of the cover for 006 hid behind two implementations that
+failed with the same exit code and two different causes. That is one argument for
+keeping a gate at `oracle` longer, and it is not an argument for never
+retiring one.
+
+**So `retired` is reached by argument and never by a calendar.** A port stays at
+`oracle` for as long as the three conditions are unmet, and no longer.
+
+**THE SIX RFC §8 SECTIONS STILL DESCRIBE THE SCHEDULE.** This amendment does not
+edit them, and §4 governs. A reader who finds "deleted one release after the
+port lands" in an RFC must read it as the Rev 5 rule. Apply the three conditions
+above instead.
 
 ## 5. The gap discipline
 

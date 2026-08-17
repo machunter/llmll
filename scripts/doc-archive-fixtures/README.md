@@ -1,6 +1,6 @@
 # DRIFT-DOC-3 self-test fixtures
 
-Read by [`../doc_archive_gate.sh`](../doc_archive_gate.sh) before it scans `docs/archive/`.
+Read by [`../../tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) before it scans `docs/archive/`.
 
 The real corpus is expected to be conformant, so the gate's failure branch would otherwise never
 execute in CI: a documentation gate that only ever runs its passing path is untested code that

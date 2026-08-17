@@ -314,7 +314,28 @@
             ;; Both were added by the retirement pass and caught by rerunning
             ;; this port over the edited tree, which is the same measurement the
             ;; retirement rule asks for and the reason it is worth doing twice.
-            "docs/compiler-team-roadmap.md\tscripts/doc_path_lint.py\ndocs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint_cover.py\n")))))
+            "docs/compiler-team-roadmap.md\tscripts/doc_path_lint.py\ndocs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint_cover.py\n"
+            ;; THREE ENTRIES ADDED AT TOOL-RFC-004'S RETIREMENT, 2026-08-17, all
+            ;; naming scripts/doc_archive_gate.sh. Deleting it broke SIX
+            ;; citations in five files, measured before the deletion. Two were
+            ;; present-tense and were repointed at the port instead: the
+            ;; UPDATE-PROTOCOL row that says what the gate asserts, and the
+            ;; fixture README that says what reads the fixtures. These four are
+            ;; past-tense records of the reference: a shipped-release row for
+            ;; v0.14.68 that says the script was NEW then, a restart record's
+            ;; "The reference" table row, and the RFC's own status line, which
+            ;; measures the reference at 125 code lines. Repointing any of them
+            ;; at the port would falsify the sentence, because the port is not
+            ;; what v0.14.68 shipped and is not 125 lines.
+            ;;
+            ;; THE MEASUREMENT METHOD CHANGED AND THE RULE HAD NOT NOTICED.
+            ;; "Move the file aside, run the gate, restore" was written against
+            ;; the Python reference, which resolved with os.path.exists. This
+            ;; port resolves by `git ls-files` membership, per D2 above, so a
+            ;; file moved aside is still TRACKED and still resolves. That method
+            ;; silently measured nothing from the moment 005 retired. The
+            ;; working method removes the file from the index as well.
+            "docs/compiler-team-roadmap.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-ll-RESTART.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-rfc-004-doc-archive.md\tscripts/doc_archive_gate.sh\n")))))
 
   (def-shell allowed? [f: string p: string] -> bool
     (string-contains (allow-tbl)

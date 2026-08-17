@@ -1,34 +1,38 @@
 #!/usr/bin/env python3
-"""TOOL-RFC-004 differential cover: DRIFT-DOC-3's shell reference vs its LLMLL port.
+"""TOOL-RFC-004 mutation cover for DRIFT-DOC-3's LLMLL port.
 
-RFC: docs/design/tool-rfc-004-doc-archive.md section 6.
+RFC: docs/design/tool-rfc-004-doc-archive.md sections 6 and 8.
 
-WHAT THIS DECIDES, AND WHY A LIVE GREEN RUN DOES NOT DECIDE IT. Both
-implementations pass the unmutated tree, and that is nearly worthless here: the
-live corpus declares exactly ONE disposition, so it exercises one of four
-vocabulary values and zero of the four violation classes. Agreement on a passing
-tree is agreement about almost nothing. This cover mutates the tree and requires
-the two to agree on the FAILURE.
+THIS WAS A DIFFERENTIAL COVER UNTIL 2026-08-17 AND IT IS NOT ONE NOW.
+`scripts/doc_archive_gate.sh` was deleted when TOOL-RFC-004 moved to
+`tool_state: retired`, so there is no second implementation to compare against.
+Every cell now runs the PORT alone and checks it against the cell's own declared
+`expect`. That value was always written here in CELLS and was never read off the
+reference, which is why the retarget was mechanical.
 
-EVERY MUTANT IS ASSERTED TO FAIL UNDER BOTH BEFORE THEIR ANSWERS ARE COMPARED.
-Two implementations that both report success are not thereby correct: at
-TOOL-ENCODING-1 every mutation cell AGREED while both sides failed identically
-for a reason unrelated to the mutation, and only the negative controls, which
-require both to PASS an unmutated tree, could tell "these agree" from "neither
-can read the corpus". So the controls decide between those two cases, and a
-battery without them passes either way.
+WHAT WAS LOST, NAMED RATHER THAN LEFT FOR A READER TO NOTICE. This cover can no
+longer separate "the two implementations agree" from "neither of them works".
+That distinction had a defect to its name: at TOOL-ENCODING-1 every mutation
+cell AGREED while both sides failed identically for a reason unrelated to the
+mutation, and only a second implementation plus the negative controls could tell
+those two cases apart. **A self-cover cannot detect that class at all.** The
+negative controls are kept because they still catch a port that fails on an
+unmutated tree, which is the weaker half of what they used to do.
 
-BOTH SIDES GET THE SAME ENVIRONMENT. 003's cover let the port inherit the
-caller's PATH and it found an `llmll` the reference could not see, which compares
-two worlds rather than two implementations. The env here is scrubbed to a fixed
-minimum for both. It deliberately sets NO locale: with none set, this cover is
-one of the gates that fails if the compiler ever again decodes source through the
-environment (TOOL-ENCODING-1's acceptance criterion).
+WHY A LIVE GREEN RUN STILL DOES NOT DECIDE THIS. The live corpus declares
+exactly ONE disposition, so it exercises one of four vocabulary values and zero
+of the four violation classes. The mutation battery is the whole instrument, and
+it survives the retirement intact.
+
+THE ENVIRONMENT IS STILL SCRUBBED and it deliberately sets NO locale. With none
+set, this cover is one of the gates that fails if the compiler ever again decodes
+source through the environment (TOOL-ENCODING-1's acceptance criterion). That
+property does not need two implementations.
 
   --gate    the PORT binary (built from tools/doc-archive/docarchive.llmll)
   --repo    the repository to copy fixtures and docs/archive from
 
-Exit 0 iff every cell agrees and every control passes.
+Exit 0 iff every cell meets its expectation and every control passes.
 """
 
 from __future__ import annotations
@@ -44,7 +48,6 @@ import tempfile
 GOVERNED = ("shipped-design-specs", "dormant-explorations")
 FIXTURES = "scripts/doc-archive-fixtures"
 ARCHIVE = "docs/archive"
-GATE_SH = "scripts/doc_archive_gate.sh"
 
 # The env both sides are given. No locale on purpose; see the module docstring.
 ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/nonexistent"}
@@ -56,15 +59,8 @@ def stage(repo: pathlib.Path, dest: pathlib.Path) -> None:
     """A scratch copy holding only what the gate reads."""
     (dest / "scripts").mkdir(parents=True, exist_ok=True)
     (dest / "docs").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(repo / GATE_SH, dest / GATE_SH)
     shutil.copytree(repo / FIXTURES, dest / FIXTURES)
     shutil.copytree(repo / ARCHIVE, dest / ARCHIVE)
-
-
-def run_ref(tree: pathlib.Path) -> tuple[int, str]:
-    p = subprocess.run(["bash", GATE_SH], cwd=tree, env=ENV,
-                       capture_output=True, text=True)
-    return p.returncode, p.stdout + p.stderr
 
 
 def run_port(tree: pathlib.Path, gate: str) -> tuple[int, str]:
@@ -85,7 +81,8 @@ def norm(s: str) -> list[str]:
 
 
 # --------------------------------------------------------------------- cells --
-# Each mutate() takes the staged tree root. `expect` is what BOTH must do.
+# Each mutate() takes the staged tree root. `expect` is what the PORT must do.
+# It said BOTH until the 2026-08-17 retirement removed the second side.
 
 def _write(p: pathlib.Path, text: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -184,37 +181,41 @@ def main() -> int:
             tree = pathlib.Path(td)
             stage(repo, tree)
             mutate(tree)
-            rc_r, out_r = run_ref(tree)
             rc_p, out_p = run_port(tree, gate)
 
-        got_r = "PASS" if rc_r == 0 else "FAIL"
         got_p = "PASS" if rc_p == 0 else "FAIL"
-        agree = norm(out_r) == norm(out_p) and rc_r == rc_p
-        # The expectation is checked on the REFERENCE, which defines the
-        # behaviour; the port is then required to match it exactly. A cell where
-        # the reference does not do what the RFC says is a bug in the cell, and
-        # it is reported as such rather than silently tolerated.
-        ok = got_r == expect and agree
+        # RETARGETED AT RETIREMENT, 2026-08-17. The expectation used to be
+        # checked on the REFERENCE, with the port then required to match it
+        # exactly. `scripts/doc_archive_gate.sh` is deleted, so `expect` is now
+        # checked on the PORT directly. That retarget is mechanical and not a
+        # rewrite: `expect` was always declared data in CELLS above and was
+        # never read off the reference.
+        #
+        # WHAT THIS COVER NO LONGER DOES, stated because a silent loss is the
+        # thing this file's own docstring is about. It cannot compare two
+        # implementations, so it cannot separate "the two agree" from "neither
+        # works". That is exactly the class TOOL-ENCODING-1 fell in: every
+        # mutation cell AGREED while both sides failed identically, and only a
+        # second implementation plus the negative controls could tell those
+        # apart. Nothing here replaces that. The mutation battery survives; the
+        # disagreement detector does not.
+        ok = got_p == expect
 
         if ok:
-            print(f"  ok    {name:52s} both {got_r}")
+            print(f"  ok    {name:52s} port {got_p}")
         else:
             bad += 1
-            print(f"  FAIL  {name:52s} ref={got_r}(rc={rc_r}) port={got_p}(rc={rc_p})"
-                  f" expected={expect} agree={agree}")
-            if not agree:
-                import difflib
-                for ln in list(difflib.unified_diff(
-                        norm(out_r), norm(out_p), "reference", "port", lineterm=""))[:14]:
-                    print(f"        {ln}")
+            print(f"  FAIL  {name:52s} port={got_p}(rc={rc_p}) expected={expect}")
+            for ln in norm(out_p)[:14]:
+                print(f"        {ln}")
 
     total = len(CELLS)
     controls = sum(1 for n, _e, _m in CELLS if n.startswith("NC-"))
     if bad:
-        print(f"\nDRIFT-DOC-3 COVER FAIL: {bad} of {total} cell(s) diverged "
-              f"or missed their expectation")
+        print(f"\nDRIFT-DOC-3 COVER FAIL: {bad} of {total} cell(s) missed "
+              f"their expectation")
         return 1
-    print(f"\nDRIFT-DOC-3 COVER PASS: {total} cells agree "
+    print(f"\nDRIFT-DOC-3 COVER PASS: {total} cells met their expectation "
           f"({controls} negative controls, {total - controls} mutations)")
     return 0
 

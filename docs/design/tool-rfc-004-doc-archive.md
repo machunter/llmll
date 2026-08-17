@@ -5,7 +5,7 @@ status: "Rev 3, PORTED, state ORACLE, RELEASED at v0.14.95. Both implementations
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
-tool_state: oracle
+tool_state: retired
 subject_script: scripts/doc_archive_gate.sh
 port_module: tools/doc-archive/docarchive.llmll
 ---

@@ -26,7 +26,7 @@ Each archived doc may declare its side in YAML frontmatter:
 Where the successor was itself abandoned, the author writes `dropped` directly, so nothing has to
 follow a supersession chain it can only see the first link of.
 
-[`../../../scripts/doc_archive_gate.sh`](../../../scripts/doc_archive_gate.sh) (**DRIFT-DOC-3**)
+[`../../../tools/doc-archive/docarchive.llmll`](../../../tools/doc-archive/docarchive.llmll) (**DRIFT-DOC-3**)
 asserts every declared value against its directory and fails CI on disagreement. It is a
 consistency gate: it catches the field and the path disagreeing, not both being wrong together.
 
