@@ -43,7 +43,7 @@ excluding comments and blanks:
 |---|---|---|---|
 | [`version_gate.sh`](../../scripts/version_gate.sh) | 58 | yes, 2 jobs | **PORTED**, TOOL-RFC-001 |
 | [`refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 124 | yes, since P3 | **PORTED**, `tool_state: oracle`, TOOL-RFC-002 |
-| [`doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) | 97 | yes | **PORTED**, `tool_state: oracle`, TOOL-RFC-003 |
+| `doc_claims_gate.sh` (DELETED 2026-08-17) | 97 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-003. The campaign's THIRD retirement |
 | `doc_archive_gate.sh` (DELETED 2026-08-17) | 125 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-004. The campaign's SECOND retirement |
 | `doc_path_lint.py` (DELETED v0.14.99) | 132 | the port only, `spec-roundtrip` | **RETIRED**, `tool_state: retired`, TOOL-RFC-005. **The campaign's first retirement** |
 | [`build_smoke.sh`](../../scripts/build_smoke.sh) | 381 | yes | last, it runs the others |

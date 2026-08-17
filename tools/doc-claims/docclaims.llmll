@@ -1,6 +1,8 @@
 ;; TOOL-RFC-003: the doc-claim drift gate (DRIFT-CT-2), in LLMLL.
 ;;
-;; A port of scripts/doc_claims_gate.sh. Same criteria, same classification
+;; A port of scripts/doc_claims_gate.sh, which was DELETED on 2026-08-17 when
+;; TOOL-RFC-003 moved to `tool_state: retired`. This module is now the only
+;; implementation of DRIFT-CT-2. Same criteria, same classification
 ;; ORDER, same messages, same exit codes. The RFC is
 ;; docs/design/tool-rfc-003-doc-claims.md and it was written before this file,
 ;; with both of its section 8 questions put to the user rather than settled at

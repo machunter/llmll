@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Differential cover for TOOL-RFC-003: doc_claims_gate.sh vs docclaims.llmll.
+"""TOOL-RFC-003 mutation cover for DRIFT-CT-2's LLMLL port.
+
+WAS A DIFFERENTIAL COVER UNTIL 2026-08-17. `scripts/doc_claims_gate.sh` was
+deleted when TOOL-RFC-003 moved to `tool_state: retired`, so `docclaims.llmll` is
+the only implementation and every cell now checks it against its own declared
+`expect_fail`. TWO CHECKS DIED, not one: the exit-code comparison, and the report
+comparison that caught "same verdict, different report". No cell declares the
+report text it expects, so nothing replaces the second. This is a decision
+battery now.
 
 WHAT THIS IS FOR. The two implementations are declared `oracle`, meaning either
 answers for the other. A live green run does not establish that: two gates that
@@ -39,7 +47,6 @@ from pathlib import Path
 from typing import Callable
 
 REPO = Path(__file__).resolve().parent.parent
-SHELL_GATE = REPO / "scripts" / "doc_claims_gate.sh"
 FIXTURES = REPO / "scripts" / "doc-claims"
 
 # The port is a console step machine (MODE-CLI-1), so it is driven by a stdin
@@ -91,7 +98,6 @@ def prepare(dst: Path) -> None:
     (dst / "scripts" / "doc-claims").mkdir(parents=True, exist_ok=True)
     for f in FIXTURES.glob("*.llmll"):
         shutil.copy2(f, dst / "scripts" / "doc-claims" / f.name)
-    shutil.copy2(SHELL_GATE, dst / "scripts" / SHELL_GATE.name)
     # The reference resolves its subject from $LLMLL_BIN; the compiler symlink
     # is what lets `stack exec` style invocations still work if anyone uses one.
     (dst / "compiler").symlink_to(REPO / "compiler")
@@ -151,15 +157,6 @@ def normalise(out: str) -> list[str]:
     and %-11s padding so that this comparison can be exact.
     """
     return [l for l in out.splitlines() if l.strip()]
-
-
-def run_shell(tree: Path, subject: str) -> tuple[int, list[str], str]:
-    p = subprocess.run(
-        ["bash", str(tree / "scripts" / SHELL_GATE.name)],
-        capture_output=True, text=True, cwd=str(tree),
-        env={**ENV, "LLMLL_BIN": subject, "REPO_ROOT": str(tree)},
-    )
-    return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 
 
 def run_port(tree: Path, gate: str, subject: str) -> tuple[int, list[str], str]:
@@ -284,7 +281,13 @@ def _c11(tree):
 # The genuine SKIP path: nothing NAMES a compiler and none can be found. The
 # reference reaches it with $LLMLL_BIN empty and no llmll on PATH; the port
 # reaches it by being given no --subject at all.
-@cell("11b", "no compiler can be found at all (both SKIP)", expect_fail=False)
+# PINS AN OPEN DEFECT RATHER THAN A CORRECT BEHAVIOUR, and that is deliberate.
+# SKIP-SILENT-1 is open: this gate exits 0 having asserted nothing when no
+# compiler resolves. The cell used to assert the two implementations AGREE on
+# skipping; it now asserts the port skips, which pins the defect in place until
+# someone decides SKIP-SILENT-1. Read a passing cell here as "the known defect
+# is still here", not as "this is right".
+@cell("11b", "no compiler can be found at all (the port SKIPs: pins SKIP-SILENT-1)", expect_fail=False)
 def _c11b(tree):
     pass  # the runner omits the subject entirely for this cell
 
@@ -347,37 +350,31 @@ def main() -> int:
             else:
                 subject = args.llmll
 
-            src, srows, sraw = run_shell(tree, subject)
             prc, prows, praw = run_port(tree, args.gate, subject)
 
-            shell_failed = src != 0
             port_failed = prc != 0
 
-            if shell_failed != port_failed:
-                print(f"  DIVERGED {name:4s} shell exit {src}, port exit {prc}  ({why})")
-                print("    --- shell ---"); print(sraw)
-                print("    --- port  ---"); print(praw)
-                bad += 1
-                continue
-
-            if shell_failed is not expect_fail:
+            # RETARGETED AT RETIREMENT, 2026-08-17. This used to compare the
+            # port against `scripts/doc_claims_gate.sh` twice: once on the exit
+            # code and once on the report rows. The reference is deleted, so the
+            # only surviving check is the cell's own `expect_fail`, which was
+            # always declared data in the @cell decorator.
+            if port_failed is not expect_fail:
                 verb = "must fail" if expect_fail else "must NOT fail"
                 print(f"  VACUOUS  {name:4s} the mutation {verb} and did not  ({why})")
-                print(sraw)
+                print(praw)
                 bad += 1
                 continue
 
-            if compare_report and srows != prows:
-                print(f"  DIVERGED {name:4s} same verdict, different report  ({why})")
-                only_s = [l for l in srows if l not in prows]
-                only_p = [l for l in prows if l not in srows]
-                for l in only_s: print(f"    shell only: {l}")
-                for l in only_p: print(f"    port  only: {l}")
-                bad += 1
-                continue
-
-            note = "" if compare_report else "  [decision only]"
-            print(f"  ok   {name:4s} {why} ({len(srows)} lines, exit {src}){note}")
+            # THE REPORT COMPARISON IS GONE AND IT WAS DOING WORK. It caught
+            # "same verdict, different report", a class no per-cell boolean can
+            # reach, because no cell declares the report text it expects. This
+            # cover is now a decision battery and not a report battery. That is
+            # a larger loss than TOOL-RFC-004's retirement took, and it is
+            # recorded here rather than left for a reader to infer from the
+            # absent branch. `compare_report` is kept in the @cell signature so
+            # the cells need no edit; nothing reads it now.
+            print(f"  ok   {name:4s} {why} ({len(prows)} lines, exit {prc})  [decision only]")
         finally:
             if not args.keep:
                 shutil.rmtree(root, ignore_errors=True)

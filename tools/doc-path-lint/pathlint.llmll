@@ -335,7 +335,31 @@
             ;; file moved aside is still TRACKED and still resolves. That method
             ;; silently measured nothing from the moment 005 retired. The
             ;; working method removes the file from the index as well.
-            "docs/compiler-team-roadmap.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-ll-RESTART.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-rfc-004-doc-archive.md\tscripts/doc_archive_gate.sh\n")))))
+            "docs/compiler-team-roadmap.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-ll-RESTART.md\tscripts/doc_archive_gate.sh\ndocs/design/tool-rfc-004-doc-archive.md\tscripts/doc_archive_gate.sh\n"
+            ;; NINE ENTRIES ADDED AT TOOL-RFC-003'S RETIREMENT, 2026-08-17, all
+            ;; naming scripts/doc_claims_gate.sh. Deleting it broke SEVENTEEN
+            ;; citations in nine files. Two were present-tense and now name the
+            ;; port: the UPDATE-PROTOCOL row that says which gate executes the
+            ;; compiler, and rfc-genre-and-naming's "exists because" sentence.
+            ;; One was neither: the SKIP-SILENT-1 roadmap row, which is OPEN and
+            ;; describes a defect the port inherited, so it was rewritten rather
+            ;; than repointed.
+            ;;
+            ;; These seven are past-tense records. A dated triage from
+            ;; 2026-07-19, a phase-01 implementation plan, the RFC's own status
+            ;; line measuring the reference at 97 code lines, two citations of
+            ;; the reference's own lines 1-22, the driver campaign's note of
+            ;; which workflow line invoked it, and an effect-channel proposal
+            ;; dating the wiring to v0.14.57, and a roadmap line that dates the same
+            ;; wiring to v0.14.57 and cites the workflow line that carried it.
+            ;; The ninth is THE RETIREMENT'S OWN PROSE: the fixtures README now
+            ;; says the shell gate was deleted on 2026-08-17, and saying so cites
+            ;; it. The 005 retirement recorded this exact effect, four citations
+            ;; added by its own text, so it is expected rather than surprising.
+            ;; Two of these nine the lint found only AFTER the first batch was
+            ;; written, which is the loop working: edit, run the lint, repeat. Each sentence is about the
+            ;; reference; naming the port would make them false.
+            "docs/design/critique-2026-07-19-triage.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-ll-phase01-implementation-plan.md\tscripts/doc_claims_gate.sh\ndocs/design/tool-rfc-003-doc-claims.md\tscripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\t../../scripts/doc_claims_gate.sh\ndocs/design/archive-organization-proposal.md\tscripts/doc_claims_gate.sh\ndocs/design/driver-in-llmll-campaign.md\tscripts/doc_claims_gate.sh\ndocs/design/effect-response-channel-proposal.md\tscripts/doc_claims_gate.sh\ndocs/compiler-team-roadmap.md\tscripts/doc_claims_gate.sh\nscripts/doc-claims/README.md\tscripts/doc_claims_gate.sh\n")))))
 
   (def-shell allowed? [f: string p: string] -> bool
     (string-contains (allow-tbl)

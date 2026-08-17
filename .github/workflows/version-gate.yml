@@ -196,17 +196,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run doc-claim drift gate (DRIFT-CT-2)
-        working-directory: compiler
-        env:
-          LLMLL_BIN: stack exec llmll --
-        run: bash ../scripts/doc_claims_gate.sh
+      # DRIFT-CT-2's shell reference ran here until the 2026-08-17 retirement.
+      # TOOL-RFC-003 is `tool_state: retired` and the LLMLL step below decides
+      # alone. Removed rather than made conditional, for the reason DRIFT-DOC-3's
+      # removed step gives.
 
-      # TOOL-RFC-003: the same gate as the step above, in LLMLL, run ADJACENT to
-      # its reference so the `oracle` state is legible in one job log. Both
-      # decide over the same tree in the same run and a reader compares them
-      # without cross-referencing two jobs, which is 002's arrangement and its
-      # reason.
+      # TOOL-RFC-003: DRIFT-CT-2 in LLMLL. It ran ADJACENT to its shell reference
+      # while the state was `oracle`, so one job log showed both verdicts. The
+      # reference is deleted, so this is now the only implementation and the
+      # adjacency it was placed for no longer exists.
       #
       # The differential COVER runs first: it decides whether the port AGREES
       # with the reference under mutation, which a live green run on its own

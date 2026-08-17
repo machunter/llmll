@@ -54,12 +54,17 @@ forces the doc (named in `@doc`) to be updated in the same PR.
 
 ## Running
 
-```bash
-# locally (auto-detects llmll on PATH or ~/.local/bin/llmll)
-bash scripts/doc_claims_gate.sh
+The shell gate `scripts/doc_claims_gate.sh` was DELETED on 2026-08-17 when
+TOOL-RFC-003 retired. `tools/doc-claims/docclaims.llmll` is the only
+implementation, and it is an LLMLL program, so it is built before it runs.
 
-# explicit binary
-LLMLL_BIN=/path/to/llmll bash scripts/doc_claims_gate.sh
+```bash
+# build the gate, then run it
+( cd tools/doc-claims && llmll build docclaims.llmll -o /tmp/docclaims )
+GATE="$( (cd /tmp/docclaims && stack path --local-install-root) )/bin/docclaims"
+
+# run it, naming the compiler it should exercise
+"$GATE" --llmll "$(command -v llmll)"
 ```
 
 CI runs it in the `spec-roundtrip` job of `.github/workflows/version-gate.yml`, after the

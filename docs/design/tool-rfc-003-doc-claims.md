@@ -5,7 +5,7 @@ status: "Rev 1. Written before any code, which is now the campaign's default rat
 date: 2026-08-08
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
-tool_state: oracle
+tool_state: retired
 subject_script: scripts/doc_claims_gate.sh
 port_module: tools/doc-claims/docclaims.llmll
 ---

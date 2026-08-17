@@ -2,7 +2,7 @@
 # BUILD-GATE-1 — end-to-end build gate.
 #
 # Compiles scripts/build-smoke/smoke.llmll all the way through GHC and fails if
-# it does not link. Sibling of scripts/doc_claims_gate.sh (DRIFT-CT-2, doc
+# it does not link. Sibling of tools/doc-claims/docclaims.llmll (DRIFT-CT-2, doc
 # claims vs compiler behaviour) and scripts/version_gate.sh (DRIFT-CI-1,
 # banner/schema drift). This one is the only gate in the repository whose
 # oracle is the Haskell compiler.
@@ -27,7 +27,7 @@
 # the dead-gate failure mode this gate was created to prevent, so:
 #
 #   1. `stack` (or `ghc`) must be on PATH, or the gate FAILS. It does not skip.
-#      This is a deliberate departure from doc_claims_gate.sh, which skips when
+#      This is a deliberate departure from DRIFT-CT-2's gate, which skips when
 #      no binary is found. That is right for a behaviour-comparison gate and
 #      wrong for a build gate: a skipped build gate is indistinguishable from a
 #      passing one in the CI summary.

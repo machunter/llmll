@@ -86,7 +86,7 @@ vocabulary of its own (`BLOCKS` / `SHAPES` / `COSMETIC`).
 **The objection, which is this campaign's own idiom.** Normative keywords that
 nothing checks are the failure the campaign exists to prevent: finding 6 is "a
 gate that is not wired in decides nothing", and
-[`scripts/doc_claims_gate.sh`](../../scripts/doc_claims_gate.sh) exists because
+[`tools/doc-claims/docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) exists because
 docs made restriction claims the compiler did not honour. **So if 2119 is ever
 adopted here it should arrive with a coupling, not alone**: §2 clauses get
 identifiers, and each differential-cover cell cites the clause it tests. That is
