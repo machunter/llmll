@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-001-version-gate
 title: "TOOL-RFC-001: DRIFT-CI-1, the version gate, in LLMLL"
-status: "Rev 1, RETROACTIVE. The port shipped at 7d1de03 BEFORE this standard existed, so this document records decisions already taken rather than proposing them. That is a defect in the sequence and §8 says which decisions it cost. State: oracle."
+status: "Rev 2, 2026-08-17. THE STATE IS `oracle` AND IT STAYS `oracle` BY DECISION, so this is not a pending retirement. `scripts/version_gate.sh` runs in `docker-publish.yml`'s `publish` job, which carries no Haskell toolchain, and that step is what stops a mistagged image reaching ghcr.io, so campaign section 4 condition 2 fails. THE PRICE OF RETIRING IT WAS MEASURED BEFORE THE DECISION rather than assumed: 17 prose citations in 8 files, measured by removing the file from the git index and rerunning the lint, 14 markdown link targets in 12 files that the lint cannot see because it blanks targets before scanning, and 4 of the 5 tests in `test_version_gate_ll.py`. THOSE FOUR TESTS CANNOT BE RETARGETED, unlike TOOL-RFC-002's pytest: they read the shell source to assert that both implementations name the same criteria, so their subject IS the two sources agreeing and deleting one source deletes the subject. Section 5's env-access row cited **unfiled** until today and now cites `ENV-READ-1`, SHIPPED v0.15.0; an untagged gap row is the `LIST-KIND-1` failure mode, invisible to every search for tags. Rev 1 follows. Rev 1, RETROACTIVE. The port shipped at 7d1de03 BEFORE this standard existed, so this document records decisions already taken rather than proposing them. That is a defect in the sequence and §8 says which decisions it cost. State: oracle."
 date: 2026-08-07
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, user]
@@ -154,6 +154,13 @@ is a string comparison falls back even against a literal, and word equations ove
 runtime strings are outside the automated fragment.
 
 ## 8. Retirement
+
+> **DECIDED 2026-08-17: THIS PORT STAYS `oracle` AND THIS SECTION DESCRIBES A
+> RETIREMENT THAT IS NOT SCHEDULED.** Campaign §4 governs and records the
+> reason: `scripts/version_gate.sh` runs in `docker-publish.yml`'s `publish`
+> job, which carries no Haskell toolchain, so condition 2 fails. The section
+> below is kept as the analysis, not as a plan. Read any "one release" wording
+> in it as the withdrawn Rev 5 calendar.
 
 `scripts/version_gate.sh` is deleted, and this document flips to `retired`, when
 all of:

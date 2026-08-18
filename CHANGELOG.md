@@ -4,6 +4,46 @@
 
 <a id="Latest"></a>
 
+## v0.16.1: the cover that could not outlive its reference is rebuilt, and the campaign counts proof for the first time (2026-08-17)
+
+**No compiler change, no schema change, no language surface change.** The schema stays at 0.11.0 and `builtinEnv` is untouched. This release is tooling and records: a rebuilt mutation cover, three new CI guards, and the close of the TOOL-LL porting phase.
+
+### `scripts/doc_path_lint_cover.py` returns as a self-cover
+
+TOOL-RFC-005's retirement deleted the cover with its reference at v0.14.99, because the cover pinned `REF = "scripts/doc_path_lint.py"` and diffed the two implementations under mutation. The cost was stated at the time rather than discovered afterwards, and the DRIFT-DOC-4 port then ran ungraded for five days. **The live CI step could not close that gap and still cannot**: the gate is advisory and exits 0 whatever it finds, the live corpus reports zero findings, and so the entire REPORTING half of the gate never executes there.
+
+**24 cells, 20 mutations and 4 negative controls**, against the original's 22. The corpus is now SYNTHETIC, an eight-file tree, and that is the change that made a self-cover possible: the original staged the live tree, so its counts moved with every commit and it could pin no literal anywhere, comparing counts between two implementations instead. With one implementation there is nothing to compare a count against.
+
+**`NC-4` is the only cell that reads the real repository, and it asserts floors on the two counts and nothing else.** It closes the one failure the advisory live step cannot see, which is a port that reads no corpus at all, prints a clean zero and passes. **It deliberately does not assert that the live tree resolves.** That assertion would make DRIFT-DOC-4 fail-closed through the back door, and TOOL-RFC-005 §8 leaves that decision to a person.
+
+**The battery passed 24 of 24 on its first run**, which is the state this campaign has twice been wrong in, so three one-line broken ports were built and run through it. `hist-pat` written as the literal-plus-capitalized variant list decision D3 forbids fails cell 9 while cells 7, 8 and 13 pass. `excluded-dir?` returning false fails cell 13 on all three of its axes, and also fails cells 7, 8 and 9 on the living-file count, because the synthetic corpus always carries a `site/` file. `allowed?` ignoring the citing file passes cell 16 and fails cell 16b. **Three cells are known to discriminate; the other twenty-one are not individually shown to fail, and saying so is part of reporting the result.**
+
+**What no rebuild recovers.** A self-cover cannot separate "the two implementations agree" from "neither of them works". At `TOOL-ENCODING-1` every mutation cell agreed while both sides failed identically for a reason unrelated to the mutation. Nothing here replaces that.
+
+### An ALLOW entry that would have masked the next deletion
+
+`pathlint.llmll`'s table still suppressed `docs/design/tool-rfc-005-doc-path-lint.md` citing `scripts/doc_path_lint_cover.py`, added when the retirement deleted that file. With the file back the citation resolves on its own, so the entry suppressed nothing and would have hidden the NEXT real breakage of that path instead of reporting it. **An ALLOW entry outlives its reason silently**: nothing fails when one stops being needed, so the table needs checking whenever a file it names comes back.
+
+### `scripts/tests/test_doc_path_lint_ll.py`, because nothing was watching the instrument
+
+The 005 retirement deleted `test_doc_path_lint.py` on 2026-08-11 and put nothing in its place, so from 2026-08-12 this port had neither a cover nor a test. Three guards that need no toolchain: the cover is invoked with `--gate` from the job that has one, the cover's ALLOW pair is really in the port's table, and the corpus still reaches the port's filter prefixes. **Each guard was shown to FIRE** by breaking the thing it watches and restoring it. Suite 177 to 180.
+
+### TOOL-LL: the porting phase closes
+
+Six of six gates are ported and all six decide in CI. **The last two retirement questions are decided and both answers are `oracle`.** TOOL-RFC-001 stays because `scripts/version_gate.sh` runs in `docker-publish.yml`'s `publish` job, which carries no Haskell toolchain, and that step is what stops a mistagged image reaching `ghcr.io`. TOOL-RFC-006 stays on defect yield. Campaign §4 already said a port stays `oracle` for as long as its three conditions are unmet and no longer, so both are outcomes rather than delays.
+
+**The price of the 001 deletion was measured before the decision rather than assumed**: 17 prose citations in 8 files, measured by removing the file from the git index and rerunning the lint, 14 markdown link targets in 12 files that the lint cannot see because it blanks targets before scanning, and 4 of the 5 tests in `test_version_gate_ll.py`. Those four read the shell source to assert both implementations name the same criteria, so unlike TOOL-RFC-002's pytest nothing can retarget them: their subject IS the two sources agreeing.
+
+### The census counts proof for the first time
+
+The campaign scored every gap on lines, then on capability. It never counted how much of its own output carries a proof. Measured across all six ports: **268 of 5592 LLMLL lines sit in a module `llmll verify` runs over**, about five percent, and that is an UPPER BOUND because it counts lines rather than functions reaching `body-faithful`. **Three of the six gates carry no proved core at all**: version-gate, doc-claims and refute-crux.
+
+The claim that these gates are decided by LLMLL programs is true. A weaker sentence is also true: they are decided by TYPECHECKED LLMLL programs with a small proved adjudicator attached. **Two filed rows explain the shape and neither is a tooling problem.** `RESP-FACT-1`: `RCode` carries a bare `TInt` and `FixpointEmit.hs` holds zero occurrences of `Response`, so no effect can hand a proved property to its caller and every port's IO-shaped spine is unverifiable by construction rather than by neglect. `STRLIT-BODY-1`: a string recognizer reports `body-fallback` where an int control reports `body-faithful`, so gate logic leaves the verified fragment by subject matter. **Six ports routed around `RESP-FACT-1` and none filed it**, because writing a runtime guard looks like ordinary programming. `RESP-FACT-1` is the next work.
+
+### Records corrected
+
+`tool-ll-RESTART.md`'s `status` field contradicted its own body, which is the defect the previous release had just corrected in TOOL-RFC-006. Nine claims were wrong and each correction is measured: the branch and push state, the tag debt, cell 6, three `tool_state` values, the commit and CI-run counts, the withdrawn retirement calendar, `SPLIT-EMPTY-1`, and two "next work" pointers naming finished work. `docs/design/INDEX.md` carried a stale `Rev` and state for all six TOOL-RFC rows, including `blocked` for a port that has been an oracle since 2026-08-16. TOOL-RFC-001 §5's env-access gap read `**unfiled**` and now cites `ENV-READ-1`, SHIPPED v0.15.0; an untagged gap row is the `LIST-KIND-1` failure mode, invisible to every search for tags.
+
 ## v0.16.0: a directory can be removed, and a builtin that verified SAFE and died at GHC now lowers (2026-08-16)
 
 **`FS-RMDIR-1` ships `wasi.fs.rmdir`, and the same commit fixes a defect the row found on the way in.** `wasi.fs.delete` published `RNone` when handed a directory and removed nothing. `doesFileExist` answers `False` on a directory, so the idempotence guard took its false branch and reported success for a removal that did not happen. Measured on this tree before the change, and indistinguishable at the call site from a real deletion. It now delivers `RErr` naming `wasi.fs.rmdir`. **Zero in-tree call sites pass a directory**, measured across `tools/`, `examples/`, `scripts/` and `compiler/test/`, so nothing in the repository changes behaviour.

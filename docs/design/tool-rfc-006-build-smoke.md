@@ -427,6 +427,13 @@ subject's job.
 
 ## 8. Retirement
 
+> **DECIDED 2026-08-17: THIS PORT STAYS `oracle` AND THIS SECTION DESCRIBES A
+> RETIREMENT THAT IS NOT SCHEDULED.** Campaign §4 governs and records the
+> reason: this cover has the campaign's highest defect yield, and cell 6 caught
+> a port defect that both implementations hid behind one exit code. The section
+> below is kept as the analysis, not as a plan. Read any "one release" wording
+> in it as the withdrawn Rev 5 calendar.
+
 `scripts/build_smoke.sh` is deleted one release after the port lands, in the
 same commit that moves `tool_state` to `retired`. Before that, all of:
 
