@@ -1,7 +1,7 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-17, after four retirements. THE PORT IS COMPLETE AND THE CAMPAIGN IS NOT. All six gates have an LLMLL port, and all six decide in CI. Run 32064879596 on main passed. FOUR REFERENCES ARE DELETED: 002, 003, 004 and 005. Two stay as oracles: 001 (version_gate.sh) and 006 (build_smoke.sh). THE 2026-08-16 VERSION OF THIS FIELD WAS INCORRECT ABOUT SIX THINGS, and this list gives the measurement for each. The work is on main and it is pushed; no branch holds it. The tag debt is ZERO, because the tag v0.16.0 exists. CELL 6 IS FIXED, on 2026-08-16: the port lists the install root's bin/ and looks for the name in that list. The three decisions of section 2 are CLOSED. tool_state for 006 is oracle since 073ae4b, and 003, 004 and 005 read retired. sha1 is FIXED at v0.16.0, and row BUILTIN-BODY-1 holds the work that stays. SPLIT-EMPTY-1's design half is REFUTED and the roadmap row says so. TWO ITEMS STAY OPEN, and a third closed today. The 001 retirement needs a decision from the user, because docker-publish.yml runs the reference in a job with no Haskell toolchain. The 006 retirement is a judgement call, and the user reads it as keep. THE 005 COVER IS REBUILT, on 2026-08-17, and that item is CLOSED: scripts/doc_path_lint_cover.py grades the port alone with 24 cells over a synthetic corpus, three of them shown to fail against three broken ports, and NC-4 asserts floors on the live tree without asking it to resolve. Six commits sit after the tag v0.16.0. They change docs, scripts, tools and CI. They change no compiler file and no banner, so no release is owed. PROC-ENV-1 stays open and narrow. PLATFORM-1 and BYTES-WRITE-1 are filed. Section 0 gives the four commands. Run them, because this field was incorrect at three handoffs and was incorrect about six facts today."
+status: "LIVE, 2026-08-17, after four retirements. THE PORT IS COMPLETE AND THE CAMPAIGN IS NOT. All six gates have an LLMLL port, and all six decide in CI. Run 32064879596 on main passed. FOUR REFERENCES ARE DELETED: 002, 003, 004 and 005. Two stay as oracles: 001 (version_gate.sh) and 006 (build_smoke.sh). THE 2026-08-16 VERSION OF THIS FIELD WAS INCORRECT ABOUT SIX THINGS, and this list gives the measurement for each. The work is on main and it is pushed; no branch holds it. The tag debt is ZERO, because the tag v0.16.0 exists. CELL 6 IS FIXED, on 2026-08-16: the port lists the install root's bin/ and looks for the name in that list. The three decisions of section 2 are CLOSED. tool_state for 006 is oracle since 073ae4b, and 003, 004 and 005 read retired. sha1 is FIXED at v0.16.0, and row BUILTIN-BODY-1 holds the work that stays. SPLIT-EMPTY-1's design half is REFUTED and the roadmap row says so. NO PORT WORK IS OPEN. THE TWO RETIREMENT QUESTIONS ARE DECIDED, 2026-08-17, and both answers are ORACLE: 001 stays oracle because docker-publish.yml runs the reference in a job with no Haskell toolchain and that step stops a mistagged image, and 006 stays oracle on defect yield. Campaign section 4 holds both reasons and section 2 says not to reopen them. THE CAMPAIGN'S FINDING IS A MEASUREMENT NOBODY HAD TAKEN: 268 of 5592 LLMLL lines sit in a module CI verifies, about 5 percent, and THREE of the six gates carry no proved core at all. RESP-FACT-1 and STRLIT-BODY-1 explain the whole shape, and RESP-FACT-1 is the next work. THE 005 COVER IS REBUILT, on 2026-08-17, and that item is CLOSED: scripts/doc_path_lint_cover.py grades the port alone with 24 cells over a synthetic corpus, three of them shown to fail against three broken ports, and NC-4 asserts floors on the live tree without asking it to resolve. 9 commits sit after the tag v0.16.0. They change docs, scripts, tools and CI. They change no compiler file and no banner, so no release is owed. PROC-ENV-1 stays open and narrow. PLATFORM-1 and BYTES-WRITE-1 are filed. Section 0 gives the four commands. Run them, because this field was incorrect at three handoffs and was incorrect about six facts today."
 date: 2026-08-17
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
@@ -64,7 +64,7 @@ version of the frontmatter said the opposite of all three.
 | Branch | `main` | `git branch --show-current` |
 | Commits ahead of `origin/main` | **0**, and all are pushed | `git rev-list --count origin/main..HEAD` |
 | Last tag | **`v0.16.0`** | `git describe --tags --abbrev=0` |
-| Unreleased commits | **6** | `git rev-list --count v0.16.0..HEAD` |
+| Unreleased commits | **8**, and the close-out commit makes it 9 | `git rev-list --count v0.16.0..HEAD` |
 | Version banner | `v0.16.0` | `head -1 LLMLL.md` |
 | Working tree | clean | `git status --porcelain` |
 | CI on `main` | **run 32064879596, success** | `gh run list --branch main` |
@@ -74,7 +74,7 @@ version of the frontmatter said the opposite of all three.
 credentials. The condition for the tag was one CI run of the port cover. Run
 31985443527 met the condition first, and the tag came after it.
 
-**THE SIX UNRELEASED COMMITS OWE NO RELEASE, and that is a measurement.** They
+**THE UNRELEASED COMMITS OWE NO RELEASE, and that is a measurement.** They
 change `docs/`, `scripts/`, `tools/`, `.github/`, `examples/` and the
 `Makefile`. They change no file under `compiler/`, and they change no banner.
 Measure this again with `git diff --name-only v0.16.0..HEAD`. Do not read the
@@ -91,7 +91,7 @@ BUILD-GATE-1. The `LC_ALL=C` stage cannot be decided on macOS and it passed.
 |---|---|---|
 | Harness suite | 177 passed, 10 skipped | `python3 -m pytest scripts/tests/ -q` |
 | Version gate | passes, `v0.16.0` on all five banners | `bash scripts/version_gate.sh` |
-| Path lint | passes, 1109 citations in 177 files, all resolve | build `pathlint.llmll`, then feed it 900 lines |
+| Path lint | passes, 1116 citations in 177 files, all resolve | build `pathlint.llmll`, then feed it 900 lines |
 | RFC standard | 13 passed | `python3 -m pytest scripts/tests/test_tool_rfc_standard.py -q` |
 
 **THE HARNESS COUNTS MOVED AND THE TOTAL GREW.** On 2026-08-16 the suite gave
@@ -153,21 +153,28 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 
 ---
 
-## 2. The next work. THE PORTING IS DONE; TWO ITEMS STAY OPEN
+## 2. THE PORTING IS DONE. NO PORT WORK IS OPEN
 
 **ALL SIX PORTS ARE COMPLETE and all six decide in CI.** The campaign's porting
-goal is met. This section keeps the record of how ports 006 and 005 got there,
-because a retirement needs it. Read the two open items first. **Both need a
-decision from the user, and neither is port work.**
+goal is met. **The two retirement questions are DECIDED, on 2026-08-17, and
+both answers are `oracle`.** Campaign section 4 holds the reasons. Do not
+reopen either question at a handoff. Reopen one only if its stated reason
+changes.
 
-1. **The 001 retirement. IT NEEDS A DECISION FROM THE USER.** `version_gate.sh`
-   runs in `docker-publish.yml`, and that job carries no Haskell toolchain. So
-   campaign section 4 condition 2 fails. The user chooses one of three: add a
-   toolchain to the publish job, accept that the publish job runs no version
-   gate, or keep 001 at `oracle`. Do not choose this at the keyboard.
-2. **The 006 retirement. IT IS A JUDGEMENT CALL and the user reads it as keep.**
-   This cover has the campaign's highest defect yield. Cell 6 found a port
-   defect that both implementations hid behind one exit code.
+1. **001 stays `oracle`.** `version_gate.sh` runs in `docker-publish.yml`, and
+   that job carries no Haskell toolchain, so condition 2 fails. That step stops
+   a mistagged image. The price of a deletion was measured first: 17 prose
+   citations in 8 files, 14 link targets in 12 files, and 4 of the 5 tests in
+   `test_version_gate_ll.py`. Those four read the shell source, so nothing can
+   retarget them.
+2. **006 stays `oracle`.** Its cover has the campaign's highest defect yield.
+
+**THE NEXT WORK IS A LANGUAGE ROW AND NOT A PORT.** Section 5 gives the
+measurement that points at it. `RESP-FACT-1` is the row. Read
+`fs-capability-trio-proposal.md` section 5 before you start it.
+
+This section keeps the record of how ports 006 and 005 got there, because that
+record is what a later port needs.
 **A third item CLOSED on 2026-08-17.** The 005 port had no cover for five days.
 `scripts/doc_path_lint_cover.py` is rebuilt as a 24-cell self-cover and it runs
 in `spec-roundtrip` after the live run. See "Port 005 is RETIRED" below.
@@ -630,15 +637,44 @@ its own.
 
 | Port | State |
 |---|---|
-| **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md). The port runs from `build_smoke.sh`, with a 14-cell cover. **Its retirement needs a decision from the user**: `version_gate.sh` also runs in `docker-publish.yml`, and that job carries no Haskell toolchain. Section 2 item 1 gives the three choices |
+| **001** DRIFT-CI-1 version gate | **PORTED**, `tool_state: oracle`, [TOOL-RFC-001](tool-rfc-001-version-gate.md). The port runs from `build_smoke.sh`, with a 14-cell cover. **Its retirement is DECIDED, 2026-08-17: it STAYS `oracle`.** `version_gate.sh` also runs in `docker-publish.yml`, and that job carries no Haskell toolchain, so condition 2 fails. Campaign section 4 holds the reason and the measured price |
 | **002** refute-crux gate | **RETIRED 2026-08-17**, `tool_state: retired`, [TOOL-RFC-002](tool-rfc-002-refute-crux.md). It found four defects. All four are fixed. The reference is deleted, the cover grades the port alone with 16 cells, and the port's solver-preflight test moved into `spec-roundtrip` because it ran the reference from the toolchain-free job |
 | **003** doc-claims | **RETIRED 2026-08-17**, `tool_state: retired`, [TOOL-RFC-003](tool-rfc-003-doc-claims.md). Released at v0.14.92. It filed `SKIP-SILENT-1`. It found `TOOL-ENCODING-1` in the compiler. The cover keeps 17 cells and 3 negative controls |
 | **004** doc-archive | **RETIRED 2026-08-17**, `tool_state: retired`, [TOOL-RFC-004](tool-rfc-004-doc-archive.md). Released at v0.14.95. The cover keeps 17 cells: 14 mutations and 3 negative controls. See section 6 |
 | **005** doc-path-lint | **RETIRED at v0.14.99**, `tool_state: retired`, [TOOL-RFC-005](tool-rfc-005-doc-path-lint.md). The reference and the original 22-cell differential cover are deleted. **The campaign's first retirement.** Its cover was REBUILT on 2026-08-17 as a 24-cell self-cover after five days with no grader. Section 2 gives its rule |
-| **006** build-smoke | It runs the other gates. **ALL SEVENTEEN STAGES PORTED 2026-08-16**, with `adjudicate.llmll` verified SAFE. `tool_state: oracle` since `073ae4b`, after run 31985443527. The cover holds 10 cells and cell 6 is FIXED. **Its retirement is a judgement call and the user reads it as keep** |
+| **006** build-smoke | It runs the other gates. **ALL SEVENTEEN STAGES PORTED 2026-08-16**, with `adjudicate.llmll` verified SAFE. `tool_state: oracle` since `073ae4b`, after run 31985443527. The cover holds 10 cells and cell 6 is FIXED. **Its retirement is DECIDED, 2026-08-17: it STAYS `oracle`**, on defect yield |
 | **P1** tag debt | **DONE for v0.14.84 to v0.14.87.** Four tags pushed. Four images published. **DONE again at v0.16.0**: on 2026-08-17 the banner, the CHANGELOG and the last tag all read `v0.16.0`. Six commits sit after the tag and they owe no release. See section 1 |
 | **P2** file the gaps | **DONE**: `MODE-CLI-1`, `SPLIT-EMPTY-1`, `FS-WALK-1` |
 | **P3** wire refute-crux into CI | **DONE** |
+
+**THE CAMPAIGN'S FINDING, measured 2026-08-17 after the porting goal was met.**
+The census counted lines and gaps. It never counted proof.
+
+| Port | LLMLL lines | in a module CI verifies |
+|---|---|---|
+| build-smoke | 2574 | 105 |
+| doc-path-lint | 776 | 98 |
+| doc-archive | 577 | 65 |
+| refute-crux | 652 | **none** |
+| doc-claims | 543 | **none** |
+| version-gate | 470 | **none** |
+| **total** | **5592** | **268** |
+
+**268 of 5592 lines, and that number is an upper bound.** It counts each line of
+a module that `llmll verify` runs over. It does not count the functions that
+reach `body-faithful`. Three of the six gates hold no proved core.
+
+**Two rows explain the shape, and neither is a tooling problem.** `RESP-FACT-1`:
+`RCode` carries a bare `TInt`, and `FixpointEmit.hs` holds no occurrence of
+`Response`. Thus an effect cannot give a proved property to its caller. Each
+port's IO spine is unprovable by construction. `STRLIT-BODY-1`: a string
+recognizer reports `body-fallback` where an int control reports `body-faithful`.
+Thus gate logic leaves the verified fragment.
+
+**`RESP-FACT-1` IS THE NEXT WORK.** Read `fs-capability-trio-proposal.md`
+section 5 first. Six ports went around this row and none filed it, because a
+runtime guard looks like ordinary code. Campaign section 10 calls that a way to
+fail.
 
 Open roadmap rows that this campaign filed or needs:
 

@@ -89,7 +89,7 @@ This is the transitional state, not the pattern. It resolves when P1 clears.
 | no character decomposition, no ranges | SHAPES | `SPLIT-EMPTY-1` (one row with the entry above) | A character fold. Instead: the same bounded index-list fold. Filed as one row because a `string-split ""` that terminated would also be the decomposition. |
 | `:mode cli` emits `print (step args)`: no IO, no exit status, zero in-tree users | SHAPES | `MODE-CLI-1` | A straight-line program: read seven files, decide, exit. Instead: a nine-arm console state machine driven by stdin. This is the single largest contributor to 58 code lines becoming 278. |
 | nullary `wasi.*` builtins bypass capability enforcement | COSMETIC | `CAP-NULLARY-1` | Found by tripping over it: the module typechecked while using `wasi.proc.args` with no `wasi.proc` import. Filed 2f38d3a. Import added anyway. |
-| no env access | COSMETIC | **unfiled** | `REPO_ROOT` became `--root`. All four env uses in scope are config argv can carry, so nothing was lost. |
+| no env access | COSMETIC | `ENV-READ-1`, **SHIPPED v0.15.0**. This cell read **unfiled** until 2026-08-17, which is the `LIST-KIND-1` failure mode: a gap recorded with no tag is invisible to every search for tags, so nothing could route it and nothing could notice when the row shipped | `REPO_ROOT` became `--root`. All four env uses in scope are config argv can carry, so nothing was lost. |
 
 **Two of these were previously unknown**, and one is a divergent stdlib function
 that typechecks and verifies. That is the yield the gap discipline exists for.

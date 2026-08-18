@@ -138,6 +138,36 @@ original for one release, then delete it. Replacement is still what this campaig
 is for. But a port no longer leaves `oracle` when a release ships. A port leaves
 when the three conditions below hold, and a commit states each one.
 
+### THE LAST TWO RETIREMENTS ARE DECIDED. Both stay `oracle`, 2026-08-17
+
+**Decided by the user after the porting goal was met. Do not reopen either at
+a handoff; reopen them only if the stated reason changes.**
+
+**001 stays `oracle`, and condition 2 is the reason.**
+`scripts/version_gate.sh` runs in `docker-publish.yml`'s `publish` job, which
+carries no Haskell toolchain, and that step is what stops a mistagged image
+reaching `ghcr.io`. Retiring the reference means one of: adding a toolchain to
+the release path, passing the built port in as an artifact, reimplementing the
+four checks in workflow YAML, or leaving the release path ungated. **Measured
+before the decision, so the price is known rather than assumed**: the deletion
+also breaks 17 prose citations in 8 files and 14 markdown link targets in 12
+files, and it retires 4 of the 5 tests in `test_version_gate_ll.py`, which
+read the shell source to assert the two implementations name the same
+criteria. Unlike TOOL-RFC-002's pytest, that file cannot be retargeted,
+because its subject IS the two sources agreeing.
+
+**006 stays `oracle`, on defect yield.** Its cover has the campaign's highest,
+and cell 6 caught a port defect that both implementations hid behind one exit
+code. A gate at `oracle` costs a duplicated run; this one has been paying for
+it.
+
+**NEITHER DECISION COSTS THE CAMPAIGN ITS GOAL, and that is why they are
+cheap.** Both ports already decide in CI. §4's own rule says a port stays
+`oracle` for as long as the conditions are unmet, and no longer, so `oracle`
+is an outcome here rather than a delay. **A retirement writes no LLMLL and
+therefore files no gap.** The census in §5 is the deliverable; retirement work
+is a Python cover rewrite, prose citations and CI plumbing, none of which asks
+the language for anything.
 ### Why the schedule was wrong. Measured 2026-08-17
 
 Three measurements refute it. They appear in order of what they cost.
@@ -449,6 +479,51 @@ applying the rule.
 recorded so the next RFC's section 5 carries it, and so a re-score is a
 measurement someone runs rather than an argument someone has. `BYTES-READ-1` and
 `BYTES-WRITE-1` move first, and both move for the same reason.
+
+### A THIRD AXIS THE CENSUS NEVER COUNTED: how much of the port is VERIFIED
+
+**Measured 2026-08-17, across all six ports, after the porting goal was met.**
+The axis above says a gap costs lines and capabilities. It does not say what
+fraction of the result carries a proof, and that is the figure this campaign's
+own claim rests on.
+
+| Port | LLMLL lines | in a module CI verifies |
+|---|---|---|
+| build-smoke | 2574 | 105 |
+| doc-path-lint | 776 | 98 |
+| doc-archive | 577 | 65 |
+| refute-crux | 652 | **none** |
+| doc-claims | 543 | **none** |
+| version-gate | 470 | **none** |
+| **total** | **5592** | **268** |
+
+Reproduce it with `wc -l tools/*/[a-z]*.llmll` and read which directories hold
+an `adjudicate.llmll`.
+
+**268 of 5592 lines, and that is an UPPER BOUND rather than a result.** It
+counts every line of a module `llmll verify` runs over, not the functions that
+reach `body-faithful`. **Three of the six gates carry no proved core at all.**
+
+**THE CAMPAIGN'S CLAIM IS THAT THESE GATES ARE DECIDED BY LLMLL PROGRAMS, AND
+THAT CLAIM IS TRUE.** A weaker sentence is also true and is the one section 10
+asks for: they are decided by TYPECHECKED LLMLL programs with a small proved
+adjudicator attached. Both sentences belong in any account of this campaign.
+
+**Two filed rows explain the whole shape, and neither is a tooling problem.**
+`RESP-FACT-1`: `RCode` carries a bare `TInt` and `FixpointEmit.hs` holds zero
+occurrences of `Response`, so no effect can hand a proved property to its
+caller, and every port's IO-shaped spine is unverifiable by construction rather
+than by neglect. `STRLIT-BODY-1`: measured in TOOL-RFC-005's D3, both a
+`string-contains` recognizer and a `regex-match` recognizer report
+`body-fallback` where a control over ints reports `body-faithful`, so gate logic
+leaves the verified fragment by subject matter. A gate is string processing over
+effects. It is the shape this language proves least of.
+
+**This is the campaign's finding, and it was produced by doing the work rather
+than by arguing about it.** Six ports routed around `RESP-FACT-1` and none filed
+it, because writing a runtime guard looks like ordinary programming. Section 10
+names "gaps worked around silently" as a way this campaign fails; this row is
+that failure caught late rather than avoided.
 
 ### The rule applied to the whole port, and four sites owe a row
 
