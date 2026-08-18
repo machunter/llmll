@@ -309,12 +309,22 @@
             (string-concat
               "docs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint.py\ndocs/design/tool-ll-RESTART.md\tscripts/doc_path_lint.py\ndocs/design/driver-ll-phase4-RESTART.md\tscripts/doc_path_lint.py\n"
               "docs/design/driver-ll-open-work.md\tscripts/doc_path_lint.py\nexperiments/rfc-swarm/DRIVER-LL-PHASE4-HARNESS-FINDINGS.md\tscripts/doc_path_lint.py\n")
-            ;; The retirement's own records: the roadmap's shipped-release row
-            ;; and the RFC's status line name the two files the release deleted.
-            ;; Both were added by the retirement pass and caught by rerunning
-            ;; this port over the edited tree, which is the same measurement the
-            ;; retirement rule asks for and the reason it is worth doing twice.
-            "docs/compiler-team-roadmap.md\tscripts/doc_path_lint.py\ndocs/design/tool-rfc-005-doc-path-lint.md\tscripts/doc_path_lint_cover.py\n"
+            ;; The retirement's own record: the roadmap's shipped-release row
+            ;; names the reference the release deleted. It was added by the
+            ;; retirement pass and caught by rerunning this port over the edited
+            ;; tree, which is the same measurement the retirement rule asks for
+            ;; and the reason it is worth doing twice.
+            ;;
+            ;; A SECOND ENTRY HERE WAS REMOVED ON 2026-08-17 and the removal is
+            ;; the point of this note. It paired the 005 RFC with
+            ;; scripts/doc_path_lint_cover.py, because the retirement deleted
+            ;; that cover too. The cover is REBUILT, so the citation resolves on
+            ;; its own and the entry suppressed nothing. Left in place it would
+            ;; have masked the next deletion of that file rather than reporting
+            ;; it. AN ALLOW ENTRY OUTLIVES ITS REASON SILENTLY: nothing here
+            ;; fails when an entry stops being needed, so check the table
+            ;; whenever a file it names comes back.
+            "docs/compiler-team-roadmap.md\tscripts/doc_path_lint.py\n"
             ;; THREE ENTRIES ADDED AT TOOL-RFC-004'S RETIREMENT, 2026-08-17, all
             ;; naming scripts/doc_archive_gate.sh. Deleting it broke SIX
             ;; citations in five files, measured before the deletion. Two were

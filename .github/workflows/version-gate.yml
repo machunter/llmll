@@ -420,15 +420,25 @@ jobs:
       # precisely because it does not have one. Do not move this pair back up
       # with the other documentation gates.
       #
-      # THE COVER IS GONE, AND WITH IT THE ONLY INSTRUMENT THAT GRADED THIS
-      # PORT. doc_path_lint_cover.py pinned REF = scripts/doc_path_lint.py and
+      # THE COVER WAS GONE FROM 2026-08-12 TO 2026-08-17 AND IT IS BACK. The
+      # original doc_path_lint_cover.py pinned REF = doc_path_lint.py and
       # diffed the two implementations under mutation, so it could not outlive
-      # the reference. That was the accepted trade at retirement, taken with the
-      # cost stated rather than discovered: what remains below is a live run,
-      # and the live corpus reports zero findings, so the whole REPORTING half
-      # of the gate never executes here. A live green run is not evidence that
-      # this port is correct. TOOL-RFC-005 §6 recorded which two cells were
-      # measured to discriminate, cells 9 and 13, if anyone rebuilds a grader.
+      # the reference; that was the accepted trade at retirement, taken with the
+      # cost stated rather than discovered. For five days the live run below was
+      # the whole instrument, and it is a weak one: the live corpus reports zero
+      # findings, so the REPORTING half of the gate never executes here, and a
+      # live green run is not evidence that this port is correct.
+      #
+      # scripts/doc_path_lint_cover.py is the rebuild and it is a SELF-cover: it
+      # grades the port against its own declared expectations over a synthetic
+      # eight-file corpus, where every rule is reachable and every count is
+      # exact. What it cannot do is separate "the two implementations agree"
+      # from "neither works", which is the TOOL-ENCODING-1 class. Its NC-4 cell
+      # reads this repository and asserts FLOORS on the two counts, which closes
+      # the one hole the advisory live run cannot see: a port that reads no
+      # corpus at all prints a clean zero and exits 0. NC-4 does NOT
+      # assert that the live tree resolves, because that would make DRIFT-DOC-4
+      # fail-closed by the back door; TOOL-RFC-005 §8 leaves that to a person.
       - name: Run prose path-citation lint (LLMLL port, TOOL-RFC-005)
         run: |
           set -euo pipefail
@@ -448,6 +458,11 @@ jobs:
           # takes one step per living file plus five, so 900 is roughly five
           # times the current corpus.
           python3 -c "import sys; sys.stdout.write('x\n' * 900)" | "$GATE"
+          # The mutation battery, after the live run and not before: a live
+          # failure localizes to the corpus and a cover failure to the port, and
+          # reading them in that order says which one moved. The cover makes its
+          # own git repositories under TMPDIR and reads this one only for NC-4.
+          python3 scripts/doc_path_lint_cover.py --gate "$GATE"
 
       - name: Run hspec example suite (CI-BUILD-TEST-1)
         working-directory: compiler

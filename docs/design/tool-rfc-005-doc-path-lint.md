@@ -1,7 +1,7 @@
 ---
 name: tool-rfc-005-doc-path-lint
 title: "TOOL-RFC-005: the prose path-citation lint, in LLMLL"
-status: "Rev 5, PORTED, state RETIRED as of v0.14.99 on 2026-08-12, one release after the port landed at v0.14.97, which is the campaign's settled rule. `scripts/doc_path_lint.py` IS DELETED and so is `scripts/doc_path_lint_cover.py`: the cover pinned `REF = scripts/doc_path_lint.py` and diffed the two implementations, so it could not outlive its reference, and §6 said as much before the fact. THE PORT NOW RUNS UNGRADED, and that is the accepted trade rather than an oversight. THE DELETION BROKE 13 CITATIONS IN 6 FILES, measured by moving the reference aside and rerunning the lint BEFORE deleting anything, which is a step §8's precondition list did not ask for and should have. Two were present-tense and now name the port; five ALLOW entries carry the rest, all past-tense records of what the reference measured while it existed. THE LAST DIFFERENTIAL MEASUREMENT WAS TAKEN AT THE MOMENT OF DELETION: reference and port both report 977 citations in 173 living files, all resolve. ONE STALE RECORD FELL OUT OF THE RETIREMENT and is corrected here: `version-gate.yml` claimed in two places that `test_clean_on_live_repo` still guarded the fast job, and that test was deleted on 2026-08-11, so the workflow advertised a merge block that did not exist. Rev 4 and earlier, below, record how the port was graded while a grader existed. Rev 4, PORTED, state ORACLE. Both implementations ran as adjacent steps in spec-roundtrip and run 31439956284 is GREEN (18m12s), which is what made `oracle` a measurement rather than a claim. The port step costs 148s, against 14s for 004's port, because it verifies the core, builds, runs the 22-cell cover and then the live gate. THE COVER IS SHOWN TO DISCRIMINATE, not merely to pass: run against a port whose HIST_LINE uses the variant-list approximation, cell 9 FAILS while 7 and 8 pass; run against a port with no site/ filter, cell 13 FAILS on both the finding and the scanned-file count. Two cells are therefore known to fail; the other twenty are not individually shown to, and §6 says so. MEASURED END TO END: the port's output is BYTE-IDENTICAL to the reference's on the unmutated tree and on cell 1's mutant, from the first report line onward, and `--strict` exits 1 against findings where a plain run exits 0, matching STRICT=1. THE LIVE CORPUS EARNED ITS §7 ROW ON THE FIRST RUN: it reported 20 findings against the reference's 0, all twenty an S3 label case caused by handing the label lookup a body whose link targets had already been blanked, while the other 939 citations agreed exactly. A spot check would have passed. Two things the run established that no reading would have: console mode emits ONE BLANK LINE PER STEP, 177 of them before the report, so a cover cannot compare raw stdout; and computing the two expensive suppressors eagerly ran past two minutes, so the port defers them exactly as the reference's short-circuit `or` does. REV 1 CORRECTS THREE THINGS THE FIRST DRAFT GOT WRONG, all found by building rather than by re-reading. (i) §4 and §5 said a character-level scanner was forced; it is not. Splitting the body on the citation's own delimiter recovers what the capture group would have, and each segment is validated by one regex-match: measured exact against the reference at 955 citations over 172 files, zero disagreements. Two plausible parity-based versions of that split are WRONG and are tabled in §5. (ii) Cover cell 3 graded nothing, because it used an unbackticked link target, which is not a citation under PATH at all; it now uses a backticked target. (iii) §7 gains a second in-principle-invisible rule: the LINK substitution is a measured no-op on the live corpus, 955 citations with and without it. Written RFC-first, before any port code. THE SUBJECT IS ADVISORY AND EXITS 0 BY DESIGN, so a differential cover comparing exit codes grades nothing and §6 compares STDOUT TEXT instead. THE LIVE CORPUS IS NOT VACUOUS, and this RFC corrects the expectation it inherited from TOOL-RFC-004: measured 2026-08-10, all four exemption classes are live-exercised, each the SOLE rescuer of 13 to 19 citations, and the historical-file skip is worth 268; so the SUPPRESSION half has a live instrument and only the REPORTING half is fixture-only, because the corpus yields zero findings. THREE decisions settled by user adjudication 2026-08-10: D1 distribution, D2 existence by `git ls-files` membership, and D3 `regex-match` over a hand-rolled scanner. D3 REVERSES THE PRECEDENT SET BY `versiongate.llmll:25` AND `shape.llmll:26`, and it reverses it on a measurement: both recognizer shapes report `body-fallback`, a control reports `body-faithful`, so the verified tier those comments were protecting is not available to this function either way. `HIST_LINE` is written as per-letter bracket classes, which is exact case-insensitivity; the variant-list approximation is forbidden and cover cell 9 is what forbids it. The campaign's distribution sentence is AMENDED here rather than owed a third time. Three findings routed out: `shape.llmll:26` claims `^N\\d+$` ports verbatim and it does not, `llmll check` passes an unknown function at exit 0, and DONE-TYPE-1 fires on every console program built for this port."
+status: "Rev 6, 2026-08-17: THE PORT IS GRADED AGAIN AND THE REV 5 SENTENCE BELOW SAYING IT RUNS UNGRADED IS SUPERSEDED, not corrected: it was true for five days. `scripts/doc_path_lint_cover.py` is REBUILT as a SELF-cover and wired into `spec-roundtrip` after the live run. It is 24 cells: 20 mutations and 4 negative controls, against the original's 22. The corpus is SYNTHETIC, an eight-file tree defined in the cover, and that change is what made the rebuild possible: the original staged the live tree, so its counts moved with every commit and it could pin no literal, which is why it compared two implementations instead. With one implementation there is nothing to compare a count against. THE ONE CELL THAT READS THE REAL REPOSITORY IS NC-4 and it asserts FLOORS on the two counts and nothing else. It closes the hole the advisory live step cannot see, which is a port that reads NO corpus, prints a clean zero and exits 0. **NC-4 deliberately does not assert that the live tree resolves**, because that would make DRIFT-DOC-4 fail-closed by the back door, and §8 leaves that decision to a person. THREE CELLS ARE MEASURED TO DISCRIMINATE and the battery passed 24 of 24 on its first run, which is the state this campaign has twice been wrong in, so three one-line mutant ports were built and run: the `hist-pat` variant list fails cell 9 while 7, 8 and 13 pass; `excluded-dir?` returning false fails cell 13 on all three of its axes AND fails cells 7, 8 and 9 on the living-file count, because the synthetic corpus always carries a `site/` file; `allowed?` ignoring the citing file passes cell 16 and fails cell 16b. Cell 16b is NEW and it is the specificity half the original's cell 16 could not see, because that cell deleted an ALLOW entry from both implementations and a self-cover cannot do that without rebuilding the port. WHAT IS STILL LOST: a self-cover cannot separate 'the two agree' from 'neither works', which is the TOOL-ENCODING-1 class, and nothing here replaces it. Rev 5, PORTED, state RETIRED as of v0.14.99 on 2026-08-12, one release after the port landed at v0.14.97, which is the campaign's settled rule. `scripts/doc_path_lint.py` IS DELETED and so is `scripts/doc_path_lint_cover.py`: the cover pinned `REF = scripts/doc_path_lint.py` and diffed the two implementations, so it could not outlive its reference, and §6 said as much before the fact. THE PORT NOW RUNS UNGRADED, and that is the accepted trade rather than an oversight. THE DELETION BROKE 13 CITATIONS IN 6 FILES, measured by moving the reference aside and rerunning the lint BEFORE deleting anything, which is a step §8's precondition list did not ask for and should have. Two were present-tense and now name the port; five ALLOW entries carry the rest, all past-tense records of what the reference measured while it existed. THE LAST DIFFERENTIAL MEASUREMENT WAS TAKEN AT THE MOMENT OF DELETION: reference and port both report 977 citations in 173 living files, all resolve. ONE STALE RECORD FELL OUT OF THE RETIREMENT and is corrected here: `version-gate.yml` claimed in two places that `test_clean_on_live_repo` still guarded the fast job, and that test was deleted on 2026-08-11, so the workflow advertised a merge block that did not exist. Rev 4 and earlier, below, record how the port was graded while a grader existed. Rev 4, PORTED, state ORACLE. Both implementations ran as adjacent steps in spec-roundtrip and run 31439956284 is GREEN (18m12s), which is what made `oracle` a measurement rather than a claim. The port step costs 148s, against 14s for 004's port, because it verifies the core, builds, runs the 22-cell cover and then the live gate. THE COVER IS SHOWN TO DISCRIMINATE, not merely to pass: run against a port whose HIST_LINE uses the variant-list approximation, cell 9 FAILS while 7 and 8 pass; run against a port with no site/ filter, cell 13 FAILS on both the finding and the scanned-file count. Two cells are therefore known to fail; the other twenty are not individually shown to, and §6 says so. MEASURED END TO END: the port's output is BYTE-IDENTICAL to the reference's on the unmutated tree and on cell 1's mutant, from the first report line onward, and `--strict` exits 1 against findings where a plain run exits 0, matching STRICT=1. THE LIVE CORPUS EARNED ITS §7 ROW ON THE FIRST RUN: it reported 20 findings against the reference's 0, all twenty an S3 label case caused by handing the label lookup a body whose link targets had already been blanked, while the other 939 citations agreed exactly. A spot check would have passed. Two things the run established that no reading would have: console mode emits ONE BLANK LINE PER STEP, 177 of them before the report, so a cover cannot compare raw stdout; and computing the two expensive suppressors eagerly ran past two minutes, so the port defers them exactly as the reference's short-circuit `or` does. REV 1 CORRECTS THREE THINGS THE FIRST DRAFT GOT WRONG, all found by building rather than by re-reading. (i) §4 and §5 said a character-level scanner was forced; it is not. Splitting the body on the citation's own delimiter recovers what the capture group would have, and each segment is validated by one regex-match: measured exact against the reference at 955 citations over 172 files, zero disagreements. Two plausible parity-based versions of that split are WRONG and are tabled in §5. (ii) Cover cell 3 graded nothing, because it used an unbackticked link target, which is not a citation under PATH at all; it now uses a backticked target. (iii) §7 gains a second in-principle-invisible rule: the LINK substitution is a measured no-op on the live corpus, 955 citations with and without it. Written RFC-first, before any port code. THE SUBJECT IS ADVISORY AND EXITS 0 BY DESIGN, so a differential cover comparing exit codes grades nothing and §6 compares STDOUT TEXT instead. THE LIVE CORPUS IS NOT VACUOUS, and this RFC corrects the expectation it inherited from TOOL-RFC-004: measured 2026-08-10, all four exemption classes are live-exercised, each the SOLE rescuer of 13 to 19 citations, and the historical-file skip is worth 268; so the SUPPRESSION half has a live instrument and only the REPORTING half is fixture-only, because the corpus yields zero findings. THREE decisions settled by user adjudication 2026-08-10: D1 distribution, D2 existence by `git ls-files` membership, and D3 `regex-match` over a hand-rolled scanner. D3 REVERSES THE PRECEDENT SET BY `versiongate.llmll:25` AND `shape.llmll:26`, and it reverses it on a measurement: both recognizer shapes report `body-fallback`, a control reports `body-faithful`, so the verified tier those comments were protecting is not available to this function either way. `HIST_LINE` is written as per-letter bracket classes, which is exact case-insensitivity; the variant-list approximation is forbidden and cover cell 9 is what forbids it. The campaign's distribution sentence is AMENDED here rather than owed a third time. Three findings routed out: `shape.llmll:26` claims `^N\\d+$` ports verbatim and it does not, `llmll check` passes an unknown function at exit 0, and DONE-TYPE-1 fires on every console program built for this port."
 date: 2026-08-10
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -266,6 +266,15 @@ which reads every row under this heading as a gap and rejects a two-column one.
 
 ## 6. Differential plan
 
+**THIS SECTION DESCRIBES THE COVER THAT DIED WITH THE REFERENCE, and its table
+is still the cell index.** The rebuilt cover of 2026-08-17 is a SELF-cover and
+§8 records what changed: the corpus is synthetic, the counts are pinned, cell
+16 moved to the input side, cell 16b is new, and NC-4 reads the live repository
+for floors. Read every "both report" below as "the port reports". The numbering
+is kept on purpose, so a reader of
+[`scripts/doc_path_lint_cover.py`](../../scripts/doc_path_lint_cover.py) can
+find the cell's reason here.
+
 A cover in the shape of [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py),
 taking `--gate` (the port binary) and running the reference from a scratch copy,
 **both implementations in the same scrubbed environment**, because 003's cover
@@ -456,6 +465,14 @@ record of a measurement the reference took while it existed, which is the case
 the table is for. Rewriting those to name the port would falsify them, because
 the port did not take those measurements.
 
+**FOUR OF THOSE FIVE REMAIN, and the count above is the retirement's and stays
+as written.** The entry pairing this document with
+`scripts/doc_path_lint_cover.py` was removed on 2026-08-17, because the rebuild
+put that file back and the citation resolves on its own. An `ALLOW` entry that
+outlives its reason does not fail anything; it silently suppresses the next
+real breakage of the same path. **Check the table whenever a file it names comes
+back.**
+
 **A retirement rule for the campaign, and port 006 should carry it.** Before you
 delete a subject, move it aside and run the gate. The citation breakage is
 measurable in advance and free; discovering it from a red board afterwards is
@@ -470,12 +487,46 @@ obtainable, because the next paragraph is why.
 **WHAT RETIREMENT COST, stated because §6 saw it coming.**
 `doc_path_lint_cover.py` pinned `REF = "scripts/doc_path_lint.py"` at line 45
 and diffed the two implementations under mutation. It could not outlive its
-reference, so the 22-cell cover died with it. The port is now graded by nothing:
-the live corpus reports zero findings, so the whole REPORTING half never
-executes, and four cover cells tested rules no corpus state can reach. **A live
-green run is not evidence that this port is correct.** §6 records that cells 9
-and 13 were measured to discriminate, which is where a rebuilt grader starts.
-The user took this trade knowingly on 2026-08-12, with the cost stated first.
+reference, so the 22-cell cover died with it. The port was then graded by
+nothing: the live corpus reports zero findings, so the whole REPORTING half
+never executes, and four cover cells tested rules no corpus state can reach. **A
+live green run is not evidence that this port is correct.** §6 records that
+cells 9 and 13 were measured to discriminate, which is where a rebuilt grader
+starts. The user took this trade knowingly on 2026-08-12, with the cost stated
+first.
+
+**THE COST WAS PAID BACK ON 2026-08-17 AND THE PARAGRAPH ABOVE IS HISTORY.**
+[`scripts/doc_path_lint_cover.py`](../../scripts/doc_path_lint_cover.py) exists
+again, as a SELF-cover of 24 cells, and it did start from cells 9 and 13. The
+gap lasted five days. Read the paragraph above as the record of that gap, and
+read the rebuild below.
+
+**THE REBUILD IS NOT A RESTORE, and one change made it possible.** The original
+staged the LIVE tree, so its counts moved with every commit and it could pin no
+literal anywhere; it compared counts between two implementations instead. With
+one implementation there is nothing to compare a count against. So the rebuild
+uses a SYNTHETIC eight-file corpus, where every count is exact and every rule is
+reachable, and it keeps one cell, NC-4, that reads the real repository.
+
+**NC-4 ASSERTS FLOORS AND NOTHING ELSE, and that is a policy decision rather
+than a shortcut.** It closes the one hole the advisory live step cannot see: a
+port that reads no corpus at all prints a clean zero and exits 0, which is the
+shape of TOOL-ENCODING-1. It does NOT assert that the live tree resolves.
+Asserting that would make DRIFT-DOC-4 fail-closed through the back door, and the
+"one door stays open" note below leaves that to a person.
+
+**THREE CELLS ARE MEASURED TO DISCRIMINATE, one more than before.** The battery
+passed 24 of 24 on its first run, so three one-line mutant ports were built and
+run through it, extending the drill this section already required. Cell 16b is
+new: the original cell 16 deleted an ALLOW entry from both implementations, and
+a self-cover cannot do that without rebuilding the port, so 16b tests the same
+rule from the input side by citing an allowed path from a file the table does
+not name.
+
+**WHAT NO REBUILD RECOVERS.** A self-cover cannot separate "the two
+implementations agree" from "neither of them works". At TOOL-ENCODING-1 every
+mutation cell agreed while both sides failed identically. Nothing in the rebuild
+replaces that, and the cover's own docstring says so at the top.
 
 **One stale record fell out of the work and is fixed in the same commit.**
 `version-gate.yml` claimed in two places that `test_clean_on_live_repo` still

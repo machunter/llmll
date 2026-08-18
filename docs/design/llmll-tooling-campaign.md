@@ -174,10 +174,16 @@ Stack and no GHC. An LLMLL port needs a build. So TOOL-RFC-001 cannot retire
 until someone adds a toolchain to the release path.
 
 **3. The one retirement we have is recorded as a loss.** TOOL-RFC-005 retired on
-2026-08-11 with NO replacement oracle. No `doc_path_lint_cover.py` exists. Its
-own §8 says that nothing now stops a broken prose citation from reaching `main`,
-because both remaining checks exit 0 when they find one. That is one loss in one
-retirement.
+2026-08-11 with NO replacement oracle. Its own §8 says that nothing now stops a
+broken prose citation from reaching `main`, because both remaining checks exit 0
+when they find one. That is one loss in one retirement.
+
+**AMENDED 2026-08-17: HALF OF THAT LOSS IS PAID BACK.**
+`scripts/doc_path_lint_cover.py` exists again, rebuilt as a self-cover of 24
+cells over a synthetic corpus, with three cells measured to discriminate. What
+is NOT paid back is the sentence above it: the gate is still advisory, so a
+broken prose citation still reaches `main`, by the design decision the RFC
+defends. The two halves are separate and this paragraph corrects only the first.
 
 ### The three conditions for `retired`
 
@@ -731,9 +737,12 @@ no toolchain required:
   the two implementations, so it could not outlive the reference: **22 cells, 19
   mutations and 3 negative controls, all deleted**, after having been SHOWN TO
   FAIL against two deliberately broken ports rather than merely to pass. The
-  port is now ungraded. **Deleting the subject broke 13 prose citations in 6
-  files**, measured before the deletion rather than after it, which is the rule
-  port 006 inherits: move the subject aside, run the gate, then delete.
+  port was ungraded for five days. **REBUILT 2026-08-17 as a self-cover: 24
+  cells over a synthetic corpus, 20 mutations and 4 negative controls, three of
+  them shown to fail against three deliberately broken ports.**
+  **Deleting the subject broke 13 prose citations in 6 files**, measured before
+  the deletion rather than after it, which is the rule port 006 inherits: move
+  the subject aside, run the gate, then delete.
   It was gated on `REGEX-LOWER-1`, and **this is where the campaign first stopped
   being port work**: that row was a compiler fix, so the critical path ran
   through the compiler team for one release and is now back on ports. The fix's
