@@ -13,8 +13,26 @@
 | Verification matrix (QF-LIA / nonlinear / Lean) | `LLMLL.md §5.3.3 / §5.3.5` | README, roadmap, design docs (cite by section) |
 | JSON-AST schema | `docs/llmll-ast.schema.json` | README, LLMLL.md (cite by version) |
 | Trust-report JSON schema | `docs/llmll-trust-report.schema.json` (engineer-owned — schema-tied-to-output) | `LLMLL.md §4.4.4` (cite by `trust_report_version`) |
-| Per-experiment findings | `experiments/<harness>/findings.md` (H2-per-role) | Roadmap (cite by harness + finding ID) |
+| Per-experiment findings | **Consolidated answer:** the harness's `SUMMARY.md` where one exists, otherwise `experiments/<harness>/findings.md`. **Audit trail:** `experiments/<harness>/findings/postmortem-NNN-<slug>.md` | Roadmap (cite by harness + finding ID) |
 | Triage routing decisions | The triage doc itself | Roadmap Active Items (cite by routing tag) |
+
+> **The per-experiment row was corrected on 2026-08-18, measured across all ten harnesses.** It had named
+> `experiments/<harness>/findings.md` (H2-per-role) as the sole canonical location, and that was wrong for the two
+> harnesses carrying most of the citations. `minimal-agent` (70 inbound) retired its `findings.md` to a 12-line
+> pointer that reads "This file is a pointer, not a ledger" and redirects to `SUMMARY.md`; `rfc-swarm` (68 inbound)
+> has **no** `findings.md` at all and keeps its answer in `SUMMARY.md` plus two `DRIVER-LL-*-FINDINGS.md`. So the
+> canonical location was a stub in one case and absent in the other, exactly where readers were being sent. The
+> minimal-agent retirement was deliberate and recorded in the file; this row simply never caught up.
+>
+> **Measured shape, 2026-08-18.** `SUMMARY.md`: 2 of 10 (`minimal-agent`, `rfc-swarm`). `findings.md`: 8 of 10.
+> `findings/postmortem-NNN-*.md`: 6 of 10. `spec-agree-1` has none of the three. **Only 2 of 10 harnesses are cited
+> from the roadmap by harness + finding ID as the "Linked-only from" column requires** (`rfc1982-eval`,
+> `adv-spec-weaken-0`, six citations total), so that half of the contract is aspirational and is left stated rather
+> than weakened.
+>
+> **`experiments/` has no archive policy and is outside doc-lead's scope.** The Archive policy below and the
+> DRIFT-DOC-3 gate cover `docs/` only. Retiring a harness, `repair-loop` being the standing candidate at 5,250
+> lines with zero roadmap citations, is an experiment-lead decision with no precedent to follow.
 
 ## Per-change update matrix (D1)
 
@@ -26,7 +44,7 @@
 | Professor reviews a proposal | New standalone `<proposal>-review.md`; nothing else | The proposal file itself (LT folds on revision) |
 | Doc-lead folds a settled review | Append `## Appendix — Professor review log` to proposal; archive `<proposal>-review.md` to `docs/archive/professor-reviews/` | Proposal frontmatter (no change) |
 | Engineer ships a settled proposal's ticket | Roadmap row status; CHANGELOG if user-visible; `LLMLL.md` relevant reference section (§3 / §5 / §13, wherever the feature lives) if user-visible; INDEX status label | Proposal frontmatter (untouched at ship). Batch-archive to `shipped-design-specs/` later — once shipped **and** no longer actively referenced (Archive policy P1) — not immediately on ship, not only on supersession |
-| Experiment-lead closes a run with findings | `experiments/<harness>/findings.md` H2-per-role; new `findings/postmortem-NNN-<slug>.md` if applicable | Anything else — hand off to relevant role |
+| Experiment-lead closes a run with findings | The run's `findings/postmortem-NNN-<slug>.md`, then the harness's consolidated answer (`SUMMARY.md` where the harness keeps one, else `findings.md`). H2-per-role is **not** required and was retired at `minimal-agent` as a redundant re-index of the postmortems | Anything else — hand off to relevant role. Do **not** re-accumulate findings in a `findings.md` the harness has retired to a pointer |
 | Triage routing item closes | Triage doc routing-table row + roadmap Active Items row | Anywhere else |
 | Doc gets superseded | Archive to `docs/archive/<category>/`; 2-line redirect stub at old path; delete stub after one release cycle | Other docs (redirect stub absorbs links during cycle) |
 | A page is added to, or removed from, the published blog | `site/` only — the page file, `site/_data/series.yml` (reading order; nothing else derives it), and `site/index.md`'s series list | `docs/` (not published); `CHANGELOG.md` (the site is not a release surface); the version banner |
