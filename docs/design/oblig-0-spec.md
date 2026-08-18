@@ -1,11 +1,17 @@
 # OBLIG-0 — Design Specification
 
-> **Version:** Rev 8 — Seventh review incorporated  
-> **Date:** 2026-05-02  
+> **Version:** Rev 9 — reconciled against the shipped compiler 2026-08-18  
+> **Date:** 2026-05-02 (Rev 9 reconciliation 2026-08-18)  
 > **Implements:** compiler-team-roadmap.md § v0.10 (Obligation-Guided Agent Coding)  
 > **Prerequisites:** v0.9.0 (COMP-0) shipped, v0.9.1 (module hardening) shipped  
 > **Reviewed:** Professor — Rev 2 (6), Rev 3 (6), Rev 4 (6), Rev 5 (4), Rev 6 (5), Rev 7 (4), Rev 8 (3)  
-> **Status:** APPROVED — OBLIG-1/MOD-1 unblocked; OBLIG-2 gates on §4.2.3/§4.2.4
+> **Status:** APPROVED and SHIPPED. **Rev 9 changes no design.** It corrects every value this
+> document stated about the running compiler, all of which had drifted, and retires two
+> forward-looking instructions that the implementation answered differently. The architecture
+> described here is the architecture that shipped: `deriveBacking`
+> ([ObligationAssembly.hs:210](../../compiler/src/LLMLL/ObligationAssembly.hs#L210)) carries the
+> signature and the per-function per-clause-type semantics of §2.4. What was stale was every
+> version-bearing number and both "a future change must" clauses. See §14 Rev 9.
 
 ---
 
@@ -25,9 +31,9 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 
 ```json
 {
-  "schema_version": "0.12.0",
+  "schema_version": "0.12.2",
   "source_file": "withdraw.llmll",
-  "cross_module": "unsupported",
+  "cross_module": "single-file",
   "obligations": [ ... ],
   "summary": { "total": 5, "open": 3, "discharged": 1, "deferred": 1, "asserted": 0, "refuted": 0 },
   "refuted_fns": [ ],
@@ -35,7 +41,7 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 }
 ```
 
-**`effect_summary` (Bundle B0, shipped `b2d9c1a`).** A top-level array, one entry per function (name-sorted): `{ "function": <name>, "effects": <X> }`, where `<X>` is either a sorted array of coarse capability labels — `stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto` — or the string `"unbounded"` (⊤: "may exercise any capability, including outside the catalog"). It is a sound **may-over-approximation** of the capabilities a function may reach through its call graph; ⊤ is reached at opaque boundaries (`?delegate` / `?delegate-async` / `?delegate-pending` / `?scaffold` holes, `haskell.*` / `c.*` FFI, unrecognized `wasi.*`). **Informational** — it never affects a function's trust tier, `EvidenceRecord`, or `verified` / `--strict-verified-core` admissibility (authority ⊥ trust). Added at `schema_version` `0.12.0` (`0.11.0` → `0.12.0`). See [`bundle-b0-effect-summary-proposal.md`](../archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
+**`effect_summary` (Bundle B0, shipped `b2d9c1a`).** A top-level array, one entry per function (name-sorted): `{ "function": <name>, "effects": <X> }`, where `<X>` is either a sorted array of coarse capability labels — `stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`, `env.read` — or the string `"unbounded"` (⊤: "may exercise any capability, including outside the catalog"). It is a sound **may-over-approximation** of the capabilities a function may reach through its call graph; ⊤ is reached at opaque boundaries (`?delegate` / `?delegate-async` / `?delegate-pending` / `?scaffold` holes, `haskell.*` / `c.*` FFI, unrecognized `wasi.*`). **Informational** — it never affects a function's trust tier, `EvidenceRecord`, or `verified` / `--strict-verified-core` admissibility (authority ⊥ trust). Added at `schema_version` `0.12.0` (`0.11.0` → `0.12.0`); the report now emits `0.12.2`. **Rev 9 correction, measured at [`ObligationAssembly.hs:419-425`](../../compiler/src/LLMLL/ObligationAssembly.hs#L419-L425):** the catalog is **seven** labels, not six. Rev 8 listed `random`, which is spelled **`nondet`** in the emitter, and **`env.read`** was added by `ENV-READ-1` at v0.15.0. The emitter own comment at `:428` still reads "the full 6-set" and is stale by exactly that addition; that is compiler surface and is left for the engineer rather than edited from a design doc. See [`bundle-b0-effect-summary-proposal.md`](../archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
 ### 2.2 Single Obligation Object
 
@@ -327,10 +333,24 @@ guardToPredPresentation :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe 
 
 ### 4.2.4 Drift Mitigation: `guardToPredM` ↔ `guardToPredPresentation` (Rev 6 — Finding 2)
 
-> [!WARNING]
-> Two implementations of the same predicate semantics in different modules will drift. A future change to `guardToPredM` (e.g., adding a new operator, changing sort treatment) that isn't mirrored produces silently inconsistent reports.
+> [!IMPORTANT]
+> **RESOLVED at Rev 9, by mitigation 1 below. The hazard this section warned about no longer exists.**
+> Measured 2026-08-18: [`GuardClassifier.hs`](../../compiler/src/LLMLL/GuardClassifier.hs) exists and
+> exports `classifyGuardM`, and `ObligationAssembly.classifyGuard` ([:231](../../compiler/src/LLMLL/ObligationAssembly.hs#L231))
+> calls it rather than carrying its own copy. **No function named `guardToPredPresentation` exists.** Its
+> one remaining occurrence in the tree is a stale comment at
+> [`GuardClassifier.hs:48`](../../compiler/src/LLMLL/GuardClassifier.hs#L48) naming a caller that has since
+> been renamed to `classifyGuard`. There are no longer two implementations to drift, so the fuzz test of
+> mitigation 2 has nothing to compare and was not built.
+> `compiler/test/golden/` does not exist at any path. The Rev 6 text is kept below because it records
+> why the shared core was preferred, not because either mitigation is still owed.
 
-**Mitigation (two-pronged):**
+> [!WARNING]
+> **Rev 6 text, superseded.** Two implementations of the same predicate semantics in different modules
+> will drift. A future change to `guardToPredM` (e.g., adding a new operator, changing sort treatment)
+> that isn't mirrored produces silently inconsistent reports.
+
+**Mitigation (two-pronged, as written at Rev 6). Mitigation 1 shipped; mitigation 2 is moot as a result.**
 
 1. **Shared sort-checking core (preferred).** Extract a `GuardClassifier` module from `FixpointEmit.hs` that exposes the sort-aware predicate classification logic. Both `guardToPredM` (verification) and `guardToPredPresentation` (presentation) call this shared core. The duplication is bounded to the tail: `guardToPredM` produces `FQPred` for the solver; `guardToPredPresentation` produces `Just ()` / `Nothing` for the classifier. The shared core handles variable lookup, operator dispatch, and recursive structure.
 
@@ -339,6 +359,10 @@ guardToPredPresentation :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe 
    ∀ guard ∈ corpus: isJust (guardToPredM env se guard) == isJust (guardToPredPresentation env se guard)
    ```
    This test is added to `compiler/test/golden/oblig/` and gates OBLIG-2 merge. If the shared-core refactor is deferred, this test is the minimum viable drift detection.
+
+   > **Rev 9:** the refactor was **not** deferred, so this test was never owed. `compiler/test/golden/`
+   > does not exist. The condition "if the shared-core refactor is deferred" is false, and the sentence
+   > is kept only so the conditional is visible rather than looking like an unmet mandate.
 
 **Properties:** Read-only AST walker, not TCB. Cap at 16 entries → `path_truncated: true`.
 
@@ -377,7 +401,25 @@ Mitigation:
 4. **No silent staleness:** Agents that skip re-checkout get a hard error, not silently stale data.
 
 > [!NOTE]
-> **Rev 6 (Finding 3):** `ctVerifiedHash` covers only the local `.verified.json` under v0.10 (single-module scope). After MOD-1 ships, `ctAssumptions` will legitimately depend on imported modules' contract verification (via `meContracts`), and those evidence records live in other modules' sidecar files. **MOD-1 must extend the staleness guard** to hash all imported `.verified.json` files (or a Merkle digest thereof). This is a MOD-1 implementation requirement, not a v0.10 design change.
+> **Rev 6 (Finding 3), SUPERSEDED at Rev 9 — the risk is covered, by a different mechanism than this
+> note prescribed.** Rev 6 read: "`ctVerifiedHash` covers only the local `.verified.json` under v0.10
+> (single-module scope). After MOD-1 ships, `ctAssumptions` will legitimately depend on imported
+> modules' contract verification (via `meContracts`) ... **MOD-1 must extend the staleness guard** to
+> hash all imported `.verified.json` files (or a Merkle digest thereof)."
+>
+> **Measured 2026-08-18.** `ctVerifiedHash` is still a single `Maybe Text`
+> ([Checkout.hs:214](../../compiler/src/LLMLL/Checkout.hs#L214)) and no imported-sidecar hash or Merkle
+> digest exists anywhere. **That is not a gap.** Cross-module evidence is guarded at use time instead:
+> [`TrustReport.hs:685-694`](../../compiler/src/LLMLL/TrustReport.hs#L685-L694) runs
+> `downgradeStaleVerifiedSidecar` over each cached module against its own live statements before its
+> keys are qualified, so a stale or absent `erVerifiedHash` on an imported sidecar is demoted to
+> `asserted` and cannot upgrade a caller tier. This is the same staleness discipline same-file
+> ADMIT-VERIFIED admission uses.
+>
+> **Why the shipped design is the better one, recorded so it is not re-litigated:** a token-level digest
+> requires the checkout token to enumerate the import closure at checkout time and re-hash it at patch
+> time, which fails open if the closure changes shape. Per-module revalidation at use time needs no
+> enumeration and fails closed. The prescription is retired; the requirement it protected is met.
 
 ```haskell
 data CheckoutToken = CheckoutToken
@@ -456,7 +498,19 @@ Before MOD-1: same-module only. After MOD-1: imported module exports matching fi
 
 ## 9. CLI Integration
 
-New `--obligation-report` flag. Existing `--obligations` unchanged in v0.10; deprecated v0.11; removed v0.12. JSON versioning via `"schema_version": "0.10.0"`.
+New `--obligation-report` flag. JSON versioning via `schema_version`.
+
+> [!IMPORTANT]
+> **Rev 9 correction: the deprecation never happened, and the version here was wrong twice.** Rev 8
+> read "Existing `--obligations` unchanged in v0.10; deprecated v0.11; removed v0.12. JSON versioning
+> via `schema_version` `0.10.0`". Measured at v0.16.1: **both flags are live** on `llmll verify` (the
+> [`README.md`](../../README.md) command table lists `--obligations` and `--obligation-report`), so
+> `--obligations` was neither deprecated at v0.11 nor removed at v0.12, four minor versions past the
+> stated removal. The emitted version is **`0.12.2`**
+> ([ObligationAssembly.hs:1156](../../compiler/src/LLMLL/ObligationAssembly.hs#L1156)), so §2.1 `0.12.0`
+> and this section `0.10.0` were both wrong and disagreed with each other. **Whether to retire
+> `--obligations` is a live decision, not a settled plan**, and this document no longer asserts a
+> schedule for it.
 
 ---
 
@@ -520,6 +574,7 @@ OBLIG-B: Benchmark suite (tiered gating)
 | `Main.hs` | `--obligation-report` flag | OBLIG-2 |
 | `ObligationMining.hs` | Export `isQfLia`; candidate search | OBLIG-4 |
 | `Syntax.hs` | `meContracts` in `ModuleEnv` | MOD-1 |
+| **[NEW] `GuardClassifier.hs`** | The shared sort-checking core of §4.2.4 mitigation 1. Added at Rev 9 because it shipped and this table did not list it; `guardToPredPresentation` no longer exists | OBLIG-2 |
 
 ---
 
@@ -602,6 +657,35 @@ OBLIG-B: Benchmark suite (tiered gating)
 | 1 | `deriveBacking` not truly per-site; `ConstraintOrigin` lacks sub-function identity | Weakened claim to per-function per-clause-type; documented `ConstraintOrigin` fields. §2.4 |
 | 2 | Partial-path claim false; `EIf`/`EMatch` are all-or-nothing | Corrected prose: all-or-nothing with forward pointer for future partial-path work. §2.4 |
 | 3 | Termination obligations omitted | Added `termination-obligation` kind for `decreases` constraints. §2.3 |
+
+### Rev 9 (6 corrections, no design change)
+
+Not a review round. A reconciliation against the compiler at v0.16.1, prompted by the question "is this
+document still current?". Every claim below was measured, not remembered. The pattern is uniform and
+worth naming: **the architecture held and every number describing it drifted**, because nothing joins a
+design document to the code whose values it quotes.
+
+| # | Claim as written | Measured | Resolution |
+|---|---|---|---|
+| 1 | `schema_version` `0.12.0` (§2.1) **and** `0.10.0` (§9) | Emitter sends `0.12.2` ([ObligationAssembly.hs:1156](../../compiler/src/LLMLL/ObligationAssembly.hs#L1156)) | Both corrected. The document had also disagreed with itself since Rev 8 |
+| 2 | `"cross_module": "unsupported"` (§2.1) | Emits `"single-file"` or `"supported"` ([:1158](../../compiler/src/LLMLL/ObligationAssembly.hs#L1158)); cross-module shipped v0.14.17-20 | Example corrected to `"single-file"` |
+| 3 | `--obligations` deprecated v0.11, removed v0.12 (§9) | Both flags live at v0.16.1, four minor versions past the stated removal | Schedule withdrawn; retirement recorded as a live decision, not a plan |
+| 4 | Six effect labels including `random` (§2.1) | Seven, and `random` is spelled `nondet`; `env.read` added by `ENV-READ-1` at v0.15.0 ([:419-425](../../compiler/src/LLMLL/ObligationAssembly.hs#L419-L425)) | Catalog corrected. The emitter own comment at `:428` is stale the same way and is left for the engineer |
+| 5 | Two guard classifiers "will drift"; golden test at `compiler/test/golden/oblig/` mandatory (§4.2.4) | Mitigation 1 shipped: `GuardClassifier.hs` exists, `guardToPredPresentation` is gone. `compiler/test/golden/` does not exist | Hazard marked RESOLVED. Mitigation 2 is moot because there are no longer two implementations to compare. `guardToPredPresentation` survives only as a stale comment at [GuardClassifier.hs:48](../../compiler/src/LLMLL/GuardClassifier.hs#L48), which names a caller now called `classifyGuard` |
+| 6 | "MOD-1 **must** extend the staleness guard" to hash imported sidecars or a Merkle digest (§5.3) | No such hash exists; the risk is covered at use time by `downgradeStaleVerifiedSidecar` ([TrustReport.hs:685-694](../../compiler/src/LLMLL/TrustReport.hs#L685-L694)) | Marked SUPERSEDED, not open. The shipped design needs no import enumeration and fails closed |
+
+**Two stale comments in the compiler were found on the way and are deliberately not edited here**, since
+`compiler/src/` is the engineer surface and this is a design doc:
+[`ObligationAssembly.hs:428`](../../compiler/src/LLMLL/ObligationAssembly.hs#L428) says "the full 6-set"
+above a seven-constructor catalog, and [`GuardClassifier.hs:48`](../../compiler/src/LLMLL/GuardClassifier.hs#L48)
+names `ObligationAssembly.guardToPredPresentation` as its caller, which is now `classifyGuard`. Both drifted
+the same way this document did, which is the point: prose that quotes a value is not joined to the value.
+
+**Findings 5 and 6 are the ones worth generalizing.** Both were forward-looking mandates ("a future
+change must", "MOD-1 must"), and in both cases the implementation answered the concern by a different
+route than the mandate named. A design document that states a mandate and is never revisited reads,
+years later, as unmet work. Neither was unmet. Reading either as a to-do would have produced a golden
+test with nothing to compare and a digest the trust report does not need.
 
 ---
 

@@ -13,7 +13,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [oblig-0-spec.md](oblig-0-spec.md) | Obligation report schema; three channels; EMatch branch obligations; benchmark suite | **Approved (Rev 8)** — residual obligation work open |
+| [oblig-0-spec.md](oblig-0-spec.md) | Obligation report schema; three channels; EMatch branch obligations; benchmark suite | **Rev 9, APPROVED and SHIPPED** — reconciled against the compiler 2026-08-18; no design change. Six values had drifted (`schema_version`, `cross_module`, the `--obligations` retirement schedule, the effect-label catalog) and two forward-looking mandates were retired: §4.2.4 RESOLVED by `GuardClassifier.hs`, §5.3 Rev 6 F3 SUPERSEDED by the sidecar demotion rule |
 | [verification-debate.md](verification-debate.md) | Formal-methods critique; "sound modulo trust" framing | Active reference |
 | [specification-sources.md](specification-sources.md) | Five sources of good specs: standards, back-translation, refinement, hub, synthesis | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel vs borrowed; positioning guardrails | Active reference |
