@@ -4,7 +4,7 @@ title: "DRIFT-DOC-3: retire version buckets, gate the shipped/dormant invariant"
 status: "Rev 2, professor review folded. FLAT settled by the user 2026-07-26; not reopened. P3 respecified: an opt-in frontmatter field replaces the prose regex, and the gate acquires a live witness plus a fixture pair. P1+P2 ready for documentation-lead; P3 + the edge-case-6 fixture ready for compiler-engineer."
 date: 2026-07-26
 author: language-team
-reviewed_by: docs/design/archive-organization-review.md
+reviewed_by: docs/archive/professor-reviews/archive-organization-review.md
 consumers: [user, professor, compiler-engineer, documentation-lead]
 ---
 

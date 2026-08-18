@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -90,14 +91,33 @@ def _write(p: pathlib.Path, text: str) -> None:
 
 
 def _live_gated(t: pathlib.Path) -> pathlib.Path:
-    """The one file in docs/archive that declares a disposition. Located rather
-    than hardcoded: hardcoding it would make this cover pass vacuously the day
-    the file is renamed."""
+    """A file in docs/archive that declares a disposition. Located rather than
+    hardcoded: hardcoding it would make this cover pass vacuously the day the
+    file is renamed.
+
+    This used to say "the one file", and cell 9 relied on that: it moved this
+    file into shipped-design-specs unconditionally, which is a violation only
+    while the single gated file is dormant-side. The second archived doc to
+    declare a disposition made that cell vacuous, and the cell reported the
+    miss rather than hiding it. Cell 9 now derives the destination from the
+    declared value, so it stays a violation whichever file this returns and
+    however many are gated."""
     for p in (t / ARCHIVE).rglob("*.md"):
         head = p.read_text(encoding="utf-8", errors="replace").split("---")
         if len(head) > 1 and "archive-disposition:" in head[1]:
             return p
     raise SystemExit("cover: no file in docs/archive declares archive-disposition")
+
+
+def _opposite_side(p: pathlib.Path) -> str:
+    """The governed directory the file's declared disposition does NOT belong
+    in. `shipped` and `superseded` are shipped-side, so their wrong side is
+    dormant-explorations; `dropped` and `deferred` are the reverse."""
+    block = p.read_text(encoding="utf-8", errors="replace").split("---")[1]
+    m = re.search(r"^archive-disposition:\s*(\S+)\s*$", block, re.M)
+    if not m:
+        raise SystemExit("cover: %s declares no disposition" % p)
+    return GOVERNED[1] if m.group(1) in ("shipped", "superseded") else GOVERNED[0]
 
 
 def _an_ungated(t: pathlib.Path) -> pathlib.Path:
@@ -133,7 +153,7 @@ CELLS = [
      lambda t: (t / FIXTURES / "fail" / "professor-reviews" / "stray-declaration.md").unlink()),
     ("9  live gated file moved to the wrong side", "FAIL",
      lambda t: shutil.move(str(_live_gated(t)),
-                           str(t / ARCHIVE / GOVERNED[0] / "_moved.md"))),
+                           str(t / ARCHIVE / _opposite_side(_live_gated(t)) / "_moved.md"))),
     ("10 live gated file given an unknown value", "FAIL",
      lambda t: _write(_live_gated(t), FM.format(v="probably-shipped?"))),
     ("11 stray declaration in an ungoverned archive dir", "FAIL",

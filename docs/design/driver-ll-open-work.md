@@ -1,8 +1,8 @@
 ---
 name: driver-ll-open-work
 title: "DRIVER-LL open work: what v0.14.80 owes, and the two findings that must not close with it"
-status: "ACTIVE ROUTING RECORD, opened 2026-08-03, updated 2026-08-03 after CAP-PROC Phase 2. Phases 0 and 1 SHIPPED as v0.14.80 (ef2bd49, pushed and tagged); §1's ceremony content is discharged and replaced by the v0.14.81 ceremony now owed for two unreleased commits on branch cap-proc/four-operations. CAP-PROC is 5 of 6 and now CLOSES AT FIVE: wasi.http.get is dropped and refiled as R-11 (HTTP-GET-1). Both formerly-unanswered open questions in §2 are DISCHARGED with their answers recorded. Four residues added: R-10 (CRYPTO-2, a trust channel that exists only in prose and propagated into two archived proposals), R-11, R-12 (REPORT-GATE-1, no gate covers report-shape doc claims), R-13 (random-int declared nowhere and admitted anyway). This file exists so a session with no prior context can finish the release and route the open findings without re-measuring anything. Delete it when every row below is either shipped or has a roadmap row of its own."
-date: 2026-08-03
+status: "ACTIVE ROUTING RECORD, opened 2026-08-03. Its body describes the v0.14.80 and v0.14.81 line and is correct for that line; the stamp said `updated 2026-08-03` while the tree moved to v0.16.1, so it was REMEASURED on 2026-08-18. All three blockers it filed still have live roadmap rows: HTTP-GET-1 (stage A STOPPED on it), CAP-1-REAL and CONSOLE-INIT-1. R-11 was promoted to HTTP-GET-1 and R-13 closed at v0.14.81, both unchanged. Nothing in this file was discharged since it was written; the routing is what is live, not the release narrative around it."
+date: 2026-08-18
 author: compiler-engineer
 consumers: [documentation-lead, compiler-engineer, language-team, user]
 ---

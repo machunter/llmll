@@ -283,5 +283,5 @@ Ship Stage 1. The three findings above change text, not the design.
    quantifier former, that ground disappears and the map arm becomes a live FACT-AG candidate under
    the same argument that motivates the bytes arm. State whether the closed disposition note for the
    range arm should carry that reopening trigger explicitly, in the manner of
-   [`strict-sibling-disposition.md`](../../design/strict-sibling-disposition.md), rather than being closed
+   [`strict-sibling-disposition.md`](../shipped-design-specs/strict-sibling-disposition.md), rather than being closed
    unconditionally.

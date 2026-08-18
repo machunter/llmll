@@ -2390,7 +2390,7 @@ verified. `A1-4` gains the axiom conjunct alongside the reflection assertions it
   that `Σ_auto` is unchanged by the axiom, which introduces no new symbol, sort, or theory.
 
 Design: [`docs/design/fact-ag-proposal.md`](docs/design/fact-ag-proposal.md) (Rev 3), with the
-standalone [`docs/design/fact-ag-proposal-review.md`](docs/design/fact-ag-proposal-review.md).
+standalone [`docs/archive/professor-reviews/fact-ag-proposal-review.md`](docs/archive/professor-reviews/fact-ag-proposal-review.md).
 
 ## v0.14.76: the bytes[n] length is earned at the call site, not asserted from the declaration (2026-08-01)
 
@@ -2462,7 +2462,7 @@ exact pinning and no family-2 range facts. New `A1-10` covers an aliased `bytes[
 CR-01 shape at the head position.
 
 Design: [`docs/design/fact-ag-proposal.md`](docs/design/fact-ag-proposal.md) (Rev 2), with the
-standalone [`docs/design/fact-ag-proposal-review.md`](docs/design/fact-ag-proposal-review.md).
+standalone [`docs/archive/professor-reviews/fact-ag-proposal-review.md`](docs/archive/professor-reviews/fact-ag-proposal-review.md).
 
 ## v0.14.75: one type-admissibility predicate, so the checker and the emitter cannot disagree (2026-08-01)
 
@@ -3180,7 +3180,7 @@ removed.
   Adjudicated by the user 2026-07-26 on
   [`docs/design/archive-organization-proposal.md`](docs/design/archive-organization-proposal.md)
   Rev 2, with a professor review at
-  [`archive-organization-review.md`](docs/design/archive-organization-review.md).
+  [`docs/archive/professor-reviews/archive-organization-review.md`](docs/archive/professor-reviews/archive-organization-review.md).
 
 - **Two named criteria replace taste for the next filing question.** *Criterion R* (retrieval): does
   the partition narrow a scan a reader performs, measured by **effective** class count rather than

@@ -1,7 +1,7 @@
 ---
 name: native-json-proposal
 title: "JSON-1: the fourteen builtins the driver needs, and the native-JSON work that is not on its path"
-status: "Rev 4, SETTLED, reconciled against the shipped compiler. The surface is FOURTEEN builtins, not thirteen. `json-get-number` was re-admitted during implementation (`TypeCheck.hs:290`) on the rationale recorded at `TypeCheck.hs:283-289`, which measured Rev 3's exclusion premise false: Rev 3 dropped the name because the ported spine reads no float, which is true of stage E as a stage and false of Phase 3's acceptance clause, four of whose six pinned results are floats (`rfc_to_implementation.py:1405-1409`). Without it the LLMLL driver can produce the artifact but not check it, and the check falls back to Python. Rev 4 therefore reopens and re-closes §11's first adjudicated question at fourteen, half-ships D-3, and withdraws §2's claim that the name is deliberately absent. The drift was confined to this file: `LLMLL.md:152`, LLMLL.md §13.13 and `CHANGELOG.md:13` already said fourteen. Shipped in v0.14.82. Rev 3, SETTLED by user adjudication 2026-08-03; ready for compiler-engineer. The thirteen-builtin surface was accepted as scoped, and the two §11 open questions were closed with it: the count stands (every name is a measured call site), and D-5's datatype encoding is not taken. Rescoped from Rev 2 after the byte-identity premise that drove most of Rev 0-2's clause burden was measured false: the resume gate at `rfc_to_implementation.py:1758-1769` compares a digest THIS RUN recorded against the file as it is now, in one workdir, so byte-identity with Python's `json.dumps` is required by nothing. Removing that premise removes insertion-ordered objects, the CPython layout clause, the float-formatting obligation, and half the trust-channel disclosures, and it demotes aeson's rejection from two grounds to one (the measured +40-package closure). Rev 2 folded `native-json-review.md`, whose F2 proposed replacing the opaque carrier with a matchable seven-constructor datatype; F2's two empirical claims were checked and both are wrong in the same direction, but its conclusion still does not follow, because a `list`-carrying match arm forces `body-fallback` (measured) and every exhaustive match on `json` has two. Rev 1 folded a professor critique: equality at `Json` is unspecified and reaches through `list-contains` as well as `=`; duplicate keys are rejected per RFC 7493 rather than last-wins. Rev 0 established the carrier design and four spec-drift findings. Roadmap row: JSON-1"
+status: "Rev 4, SETTLED, reconciled against the shipped compiler. The surface is FOURTEEN builtins, not thirteen. `json-get-number` was re-admitted during implementation (`TypeCheck.hs:290`) on the rationale recorded at `TypeCheck.hs:283-289`, which measured Rev 3's exclusion premise false: Rev 3 dropped the name because the ported spine reads no float, which is true of stage E as a stage and false of Phase 3's acceptance clause, four of whose six pinned results are floats (`rfc_to_implementation.py:1405-1409`). Without it the LLMLL driver can produce the artifact but not check it, and the check falls back to Python. Rev 4 therefore reopens and re-closes §11's first adjudicated question at fourteen, half-ships D-3, and withdraws §2's claim that the name is deliberately absent. The drift was confined to this file: `LLMLL.md:152`, LLMLL.md §13.13 and `CHANGELOG.md:13` already said fourteen. Shipped in v0.14.82. Rev 3, SETTLED by user adjudication 2026-08-03; ready for compiler-engineer. The thirteen-builtin surface was accepted as scoped, and the two §11 open questions were closed with it: the count stands (every name is a measured call site), and D-5's datatype encoding is not taken. Rescoped from Rev 2 after the byte-identity premise that drove most of Rev 0-2's clause burden was measured false: the resume gate at `rfc_to_implementation.py:1758-1769` compares a digest THIS RUN recorded against the file as it is now, in one workdir, so byte-identity with Python's `json.dumps` is required by nothing. Removing that premise removes insertion-ordered objects, the CPython layout clause, the float-formatting obligation, and half the trust-channel disclosures, and it demotes aeson's rejection from two grounds to one (the measured +40-package closure). Rev 2 folded `docs/archive/professor-reviews/native-json-review.md`, whose F2 proposed replacing the opaque carrier with a matchable seven-constructor datatype; F2's two empirical claims were checked and both are wrong in the same direction, but its conclusion still does not follow, because a `list`-carrying match arm forces `body-fallback` (measured) and every exhaustive match on `json` has two. Rev 1 folded a professor critique: equality at `Json` is unspecified and reaches through `list-contains` as well as `=`; duplicate keys are rejected per RFC 7493 rather than last-wins. Rev 0 established the carrier design and four spec-drift findings. Roadmap row: JSON-1"
 date: 2026-08-03
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -181,7 +181,7 @@ RFC 8259 §4 leaves the behaviour "unpredictable", and the inputs here are agent
 H, and M, which the campaign's threat model treats as adversarial. Rejection makes two independent
 parsers agree by construction; last-wins makes them silently disagree. Rejection also makes
 `json-set`'s law unconditional: with no duplicates possible, replace-in-place is the only rule and
-`json-get (json-set v k x) k = ok x` holds. Under retention it does not, which is `native-json-review.md`
+`json-get (json-set v k x) k = ok x` holds. Under retention it does not, which is `docs/archive/professor-reviews/native-json-review.md`
 F4.
 
 ### 3.5 Serialization
@@ -340,7 +340,7 @@ dropped `wasi.http.get` (`effect-response-channel-proposal.md:479-481`).
 
 ### 7.3 Match-arm payload class decides body-faithfulness
 
-The decisive measurement against `native-json-review.md` F2, which proposes a matchable
+The decisive measurement against `docs/archive/professor-reviews/native-json-review.md` F2, which proposes a matchable
 seven-constructor `json` datatype.
 
 | Probe | Sum type | `def` body | Verdict |
@@ -451,7 +451,7 @@ Each is real at HEAD, independent of whether JSON-1 ships, and wants its own dis
   textual reading is false under any implementation. Phase 4's "reproduces a committed campaign's
   artifacts" (`:307`) has the same defect and is additionally unachievable for agent-authored
   content. Both need restating on their own terms. Independently found by
-  `native-json-review.md` F8.
+  `docs/archive/professor-reviews/native-json-review.md` F8.
 - **R-D. The `list[a]` justification is false.** `docs/compiler-team-roadmap.md:58` and
   `driver-in-llmll-campaign.md:260-261` justify opacity by claiming a sealed `Json` "never enters a
   body-faithful VC, exactly as `list[a]` does not today". Measured: `(def count-them [xs:
@@ -460,7 +460,7 @@ Each is real at HEAD, independent of whether JSON-1 ships, and wants its own dis
   uninterpreted projection; `list-length` is an in-`Σ_auto` measure (`LLMLL.md:959`) and
   `sortableComponent` admits `TList _` (`FixpointEmit.hs:2475`). **What is firewalled is list
   *element* reasoning.** Reached independently by this proposal at Rev 0 and by
-  `native-json-review.md` F8; two reading paths, one conclusion.
+  `docs/archive/professor-reviews/native-json-review.md` F8; two reading paths, one conclusion.
 - **R-E. `sealedTypeNames` cannot seal an opaque type.** It is `Map.keys builtinAliases`
   (`TypeAdmissibility.hs:275-276`), and `builtinAliases` maps a name to a `TSumType` body, which
   `Json` does not have. Today `(def-shell takes-json [j: Json] 1)` checks clean with `Json`
@@ -469,7 +469,7 @@ Each is real at HEAD, independent of whether JSON-1 ships, and wants its own dis
 
 ---
 
-## 10. Relationship to `native-json-review.md`
+## 10. Relationship to `docs/archive/professor-reviews/native-json-review.md`
 
 That file reviews a **different draft**: a 20-builtin design with `(json-lit …)`, a `JsonTag` enum,
 and `jsonTag` / `jsonSize` measures, staged as Layers 1a/1b/2. This proposal contained none of those
@@ -482,7 +482,7 @@ measurement, two of its claims settled), **F3** into §3.5 (resolved rather than
 recommendation into D-1. Its D1 and D2 are discharged by measurement (§7.3); its D4, D5, and D6 are
 dissolved by §3.4 and §3.3 and need no decision.
 
-When this file is adjudicated, `native-json-review.md` §2 should be replaced by a pointer to §2 here,
+When this file is adjudicated, `docs/archive/professor-reviews/native-json-review.md` §2 should be replaced by a pointer to §2 here,
 with a note that the restatement described an earlier draft.
 
 ---

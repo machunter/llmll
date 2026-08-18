@@ -25,7 +25,7 @@ different questions, and the design's own §3 has already decided it in a way §
    rows **where witness adjudication changed the frozen contract**. Decisive; see hazard 2.
 2. `docs/design/spec-agreement-proposal.md` §4 (`:195-200`) — the eliminative claim, F-8 adopted
    without qualification.
-3. `docs/design/spec-agreement-review.md` F-13 (`:259-277`) — the exhibit is the mechanism credited
+3. `docs/archive/professor-reviews/spec-agreement-review.md` F-13 (`:259-277`) — the exhibit is the mechanism credited
    for the design's advantage over open-ended audit, grounded in Jackson's instance-level
    validation, and F-13's own bound already says the witness is "absent on C1 transition rows,
    where audit is hardest and where the pipeline's documented failure lives (`step-weak`)".

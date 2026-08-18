@@ -15,7 +15,7 @@ SPEC-AGREE-1 replaces the single-author contract step (playbook stage K) with N 
 against frozen signatures, decides their logical relationship by bidirectional contract subsumption, emits a solver-generated
 distinguishing witness on non-equivalence, and adjudicates that witness against the verbatim RFC text rather than by vote. The target is
 the pipeline's admitted gap: `:source` is a traceability pointer and fidelity rests on human audit
-([`spec-from-rfc-pipeline.md`](spec-from-rfc-pipeline.md) §2).
+([`spec-from-rfc-pipeline.md`](../../design/spec-from-rfc-pipeline.md) §2).
 
 The idea is right, the epistemology needs rebuilding, and the shipped-primitives claim in §1 and §6 does not survive contact with the
 code.

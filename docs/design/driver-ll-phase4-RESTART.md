@@ -1,8 +1,8 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE. Rewritten 2026-08-07, fifth session; rewritten again the same day by the sixth, which landed the state machine and then CLOSED THE SUB-PHASE. SUB-PHASE 4e IS COMPLETE: wave.llmll runs end to end, fills the two-hole fixture through a real agent process, seals the tree with a whole-tree --strict-verified-core, and carries a seven-cell cover (including the two-brief contention cell Rev 15 mandates, driven against the real compiler with no stub) wired into build_smoke.sh stage 9, a 20-test no-toolchain tier, and a frozen verdict. The callerless census is down from twelve to eight. All gates green. THE NEXT THING IS THE CI-GATE PORT, which is the actual dogfooding; 4d is PARKED by an agreed pivot and 4f, program unification and stage A stay deferred."
-date: 2026-08-07
+status: "LIVE, and its NEXT POINTER WAS STALE until 2026-08-18. Sub-phase 4e is complete: wave.llmll landed with its seven-cell cover at commit fa859b7, first contained by tag v0.14.88. This file then said the next thing is the CI-gate port. THAT PORT IS NOW COMPLETE AND CLOSED: TOOL-LL ported all six gates and its porting phase closed at v0.16.1, recorded in docs/design/tool-ll-RESTART.md. So Phase 4 has no queued sub-phase. What stays open is what section 10 and the roadmap row already name: 4d parked (though oracle.llmll and --llmll-cmd landed at v0.14.88), 4f and program unification deferred, and stage A a filed STOP on HTTP-GET-1. Delete this file when Phase 4 closes."
+date: 2026-08-18
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
 ---

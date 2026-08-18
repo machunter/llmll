@@ -1,3 +1,8 @@
+---
+name: strict-sibling-disposition
+archive-disposition: shipped
+---
+
 # STRICT-SIBLING (Same-Run Sibling Evidence for Strict-Core Admission) — Disposition
 
 > **Status:** Settled (language-team disposition, 2026-07-12): **the bottom-up staging discipline

@@ -11,7 +11,7 @@ consumers: [user, language-team, compiler-engineer, documentation-lead]
 
 Four rounds against a proposal whose rule text stopped changing after round 1. Rounds 3 and 4 found a
 live soundness defect that is not RET-RESOLVE's, routed to
-[`finding-arg-position-false-safe.md`](finding-arg-position-false-safe.md). This file preserves the
+[`finding-arg-position-false-safe.md`](../../design/finding-arg-position-false-safe.md). This file preserves the
 findings in the order they were made, plus the two literature answers the language-team requested.
 
 ## Round 1: seven findings against Rev 0

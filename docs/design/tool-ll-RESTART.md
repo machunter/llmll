@@ -1,8 +1,8 @@
 ---
 name: tool-ll-restart
 title: "TOOL-LL: session restart record"
-status: "LIVE, 2026-08-17, after four retirements. THE PORT IS COMPLETE AND THE CAMPAIGN IS NOT. All six gates have an LLMLL port, and all six decide in CI. Run 32064879596 on main passed. FOUR REFERENCES ARE DELETED: 002, 003, 004 and 005. Two stay as oracles: 001 (version_gate.sh) and 006 (build_smoke.sh). THE 2026-08-16 VERSION OF THIS FIELD WAS INCORRECT ABOUT SIX THINGS, and this list gives the measurement for each. The work is on main and it is pushed; no branch holds it. The tag debt is ZERO, because the tag v0.16.0 exists. CELL 6 IS FIXED, on 2026-08-16: the port lists the install root's bin/ and looks for the name in that list. The three decisions of section 2 are CLOSED. tool_state for 006 is oracle since 073ae4b, and 003, 004 and 005 read retired. sha1 is FIXED at v0.16.0, and row BUILTIN-BODY-1 holds the work that stays. SPLIT-EMPTY-1's design half is REFUTED and the roadmap row says so. NO PORT WORK IS OPEN. THE TWO RETIREMENT QUESTIONS ARE DECIDED, 2026-08-17, and both answers are ORACLE: 001 stays oracle because docker-publish.yml runs the reference in a job with no Haskell toolchain and that step stops a mistagged image, and 006 stays oracle on defect yield. Campaign section 4 holds both reasons and section 2 says not to reopen them. THE CAMPAIGN'S FINDING IS A MEASUREMENT NOBODY HAD TAKEN: 268 of 5592 LLMLL lines sit in a module CI verifies, about 5 percent, and THREE of the six gates carry no proved core at all. RESP-FACT-1 and STRLIT-BODY-1 explain the whole shape, and RESP-FACT-1 is the next work. THE 005 COVER IS REBUILT, on 2026-08-17, and that item is CLOSED: scripts/doc_path_lint_cover.py grades the port alone with 24 cells over a synthetic corpus, three of them shown to fail against three broken ports, and NC-4 asserts floors on the live tree without asking it to resolve. 9 commits sit after the tag v0.16.0. They change docs, scripts, tools and CI. They change no compiler file and no banner, so no release is owed. PROC-ENV-1 stays open and narrow. PLATFORM-1 and BYTES-WRITE-1 are filed. Section 0 gives the four commands. Run them, because this field was incorrect at three handoffs and was incorrect about six facts today."
-date: 2026-08-17
+status: "CLOSURE RECORD, 2026-08-18. The porting phase is CLOSED at v0.16.1. All six gates have an LLMLL port and all six decide in CI. Four shell references are deleted (002, 003, 004, 005); two stay oracle by decision (001, 006). This file was a session restart record of 1030 lines while the campaign ran. The per-port narrative moved to the six RFCs, which stay in docs/design because scripts/tests/test_tool_rfc_standard.py reads them. What stays here is cross-port: the state and how to measure it (section 0 and 1), the three owed measurements (section 2), records that were incorrect (section 3), findings and gotchas not to rediscover (sections 8 and 9), and open debt (section 10). Section numbers are unchanged because tool-rfc-005-doc-path-lint.md cites section 3."
+date: 2026-08-18
 author: experiment-lead
 consumers: [compiler-engineer, documentation-lead, experiment-lead, user]
 style: "ASD-STE100 Simplified Technical English. Trial. See section 0."
@@ -153,136 +153,29 @@ The CI row covers three runs: `version-gate` on `main`, and `docker-publish` on
 
 ---
 
-## 2. THE PORTING IS DONE. NO PORT WORK IS OPEN
 
-**ALL SIX PORTS ARE COMPLETE and all six decide in CI.** The campaign's porting
-goal is met. **The two retirement questions are DECIDED, on 2026-08-17, and
-both answers are `oracle`.** Campaign section 4 holds the reasons. Do not
-reopen either question at a handoff. Reopen one only if its stated reason
-changes.
+## 2. THE PORTING IS CLOSED. THIS SECTION IS A POINTER
 
-1. **001 stays `oracle`.** `version_gate.sh` runs in `docker-publish.yml`, and
-   that job carries no Haskell toolchain, so condition 2 fails. That step stops
-   a mistagged image. The price of a deletion was measured first: 17 prose
-   citations in 8 files, 14 link targets in 12 files, and 4 of the 5 tests in
-   `test_version_gate_ll.py`. Those four read the shell source, so nothing can
-   retarget them.
-2. **006 stays `oracle`.** Its cover has the campaign's highest defect yield.
+All six gates have an LLMLL port. All six decide in CI. The porting phase closed
+at v0.16.1. The per-port record moved to the six RFCs, which stay in
+`docs/design/` because `scripts/tests/test_tool_rfc_standard.py` reads them:
 
-**THE NEXT WORK IS A LANGUAGE ROW AND NOT A PORT.** Section 5 gives the
-measurement that points at it. `RESP-FACT-1` is the row. Read
-`fs-capability-trio-proposal.md` section 5 before you start it.
+| Port | RFC | State |
+|---|---|---|
+| 001 version gate | `docs/design/tool-rfc-001-version-gate.md` | `oracle` |
+| 002 refute crux | `docs/design/tool-rfc-002-refute-crux.md` | `retired` |
+| 003 doc claims | `docs/design/tool-rfc-003-doc-claims.md` | `retired` |
+| 004 doc archive | `docs/design/tool-rfc-004-doc-archive.md` | `retired` |
+| 005 doc path lint | `docs/design/tool-rfc-005-doc-path-lint.md` | `retired` |
+| 006 build smoke | `docs/design/tool-rfc-006-build-smoke.md` | `oracle` |
 
-This section keeps the record of how ports 006 and 005 got there, because that
-record is what a later port needs.
-**A third item CLOSED on 2026-08-17.** The 005 port had no cover for five days.
-`scripts/doc_path_lint_cover.py` is rebuilt as a 24-cell self-cover and it runs
-in `spec-roundtrip` after the live run. See "Port 005 is RETIRED" below.
+Each RFC carries its own cover result, its gap table and its decisions. Read the
+RFC for a port. Do not look for that record here.
 
-**Port 005 is retired.** It is `tool_state: retired` since v0.14.99. Run
-`31439956284` passed while both implementations still ran in `spec-roundtrip`.
+### THREE MEASUREMENTS ARE STILL OWED
 
-Port 006 (`build_smoke.sh`) was the last port. **IT WAS NOT BLOCKED.**
-`FS-WALK-1` closed as COSMETIC on 2026-08-10. The roadmap holds that row in its
-closed-rows section.
-
-### Port 006 is COMPLETE. Read this before you do anything else
-
-**ALL SEVENTEEN STAGES ARE PORTED**, on 2026-08-16. The census is seventeen
-rows and not fourteen. Earlier text in this file says fourteen. That text is
-incorrect and section 2's table in the RFC is the count to use.
-
-Measured end to end with the CI invocation. The port exits 0 and prints
-fifteen verdict lines: fourteen PASS and one NOT EXERCISED. The reference has
-fifteen verdict-emitting sites, so the two counts agree. A negative control
-with a bad `--subject` gives exit 1 and a named FAIL line.
-
-[`tools/build-smoke/adjudicate.llmll`](../../tools/build-smoke/adjudicate.llmll)
-now exists. `llmll verify` reports SAFE. It puts `fsenc-verdict` and
-`status-of` on the `body-faithful` line, so both contracts are proved. Three
-refutation controls each broke a different constraint.
-
-**The last stage used `env(1)` and `PROC-ENV-1` did not block it.**
-`wasi.proc.run "/usr/bin/env" ["LC_ALL=C" exe]` sets a child's environment.
-A stdin path on the same call reaches the child. `env` runs `exec` in place.
-The row stays open, because the assignment needs one more process.
-
-### The cover: 10 cells. Cell 6 found a REAL port defect and it is FIXED
-
-`scripts/build_smoke_cover.py` exists and runs in `spec-roundtrip`. The step
-blocks the job.
-
-**Run the cover before you push.** It ran four times on 2026-08-16. It found
-THREE defects in itself and ONE in the port. Section 0's rule applies to
-instruments too: a cover that never ran measures nothing.
-
-**Cell 6 was the port defect. It is FIXED on 2026-08-16.** The text below is
-the record of the defect. The port held the reference's failure text and tested
-a different condition:
-
-- The reference asks whether the BINARY exists.
-- The port asked whether `stack path` returned an install ROOT.
-
-So the port's message "found no capproc-exec binary" operated only when `stack`
-itself failed. When the binary was truly absent, the port ran a path that was
-not there. Then it reported SEVEN assertion failures that it never tested.
-
-**The count was wrong here and the correction is a lesson.** This section said
-NINE. Seven is the length of the port's `x-miss` list. Two of the seven
-messages hold a semicolon of their own, and the joined output puts a semicolon
-between messages. So a count of the semicolons gives nine. Count the source
-list, not the output.
-
-**This refutes a claim in the RFC.** Section 5's `LIST-KIND-1` row says the
-design "separates missing from not executable". The probe measured that `RErr`
-carries that difference. The port did not use it at this call site.
-
-**The fix is applied.** `wasi.fs.list` on the parent directory plus
-`list-contains` decides existence at one listing. The builtin sweep found this
-composition and `P-C1` measured it. `FS-EXISTS-1` records the row.
-
-**Cell 7 has never run.** It needs `--slow`. Its cost is the port's own 900
-second build timeout.
-
-### Three defects the cover had, and what they teach
-
-1. The cause assertions read only a verdict's FIRST line. The reference wraps
-   its `fail` prose. So two cells died before they graded the port at all.
-2. A first fix normalised whitespace at the comparison and left the extraction
-   truncated. The re-run failed in the same way. Fix the layer that drops the
-   data.
-3. `open(lib,"w").write(open(lib).read()...)` truncates before it reads. Cell 5
-   emptied `Lib.hs` rather than renaming a call. The reference's `-f` test
-   accepts an empty file, so the cell failed for the correct-looking reason by
-   accident.
-
-**All three were invisible in a passing run.** The cover prints its unreached
-assertions. That output is what showed the cells measured nothing.
-
-### THREE DECISIONS WERE OPEN. ALL THREE ARE CLOSED
-
-All three closed on 2026-08-16. Read the text below. Do not act on the
-recommendations that the earlier version of this section gave.
-
-1. **The cell 6 port defect. CLOSED.** The port makes the existence check now.
-   A new phase lists the install root's `bin/`. It looks for the name in that
-   list. The message is the reference's message. The cover gives PASS for cell
-   6, and the two assertions in that cell that measured nothing now operate.
-   **`-x` is not part of the check.** A listing decides existence only. It says
-   nothing about the permission bit. `FS-STAT-1` is the row for that.
-2. **`sha1`. CLOSED, and NOT in the direction this section recommended.**
-   Codegen maps the name to `sha1_hash`. The recommendation was to remove the
-   builtin. A measurement of the call sites refuted it: a frozen benchmark
-   calls `sha1` two times, and `LLMLL.md` settled the name. Do not use section
-   8's recommendation. Row `BUILTIN-BODY-1` has the record.
-3. **A completeness test for builtin bodies. CLOSED.** The test is in
-   `Spec.hs`. It operates on all 101 names in `builtinEnv`. Before this it
-   operated on 16 names. **The test cannot see 12 of the names.** Those 12 have
-   a hand-written equation in `emitApp`. The fix for `sha1` moved `sha1` into
-   that set. Only a build can grade those names. The fixture calls four of
-   them.
-
-### Five measurements. THREE are owed. Items 1 and 3 are complete
+The porting closed with three measurements unrun. They are the only port work
+that is open. Items 1 and 3 are complete and stay here because they say what the
 
 1. One CI run. COMPLETE on 2026-08-16. Run 31985443527 on `main` reports
    success, and run 31985443538 for `docker-publish` also reports success.
@@ -299,273 +192,6 @@ recommendations that the earlier version of this section gave.
 The probe report is at `builtin-sweep.md` in the session scratchpad. It is not
 in the repository. Its probes are written but four are unrun, and the first
 probe that WAS run refuted its own prediction.
-
-### `tool_state` was `blocked` on purpose. IT IS `oracle` SINCE 073ae4b
-
-State `oracle` asserts that both implementations decide over the same tree in
-one job. The CI wiring said that on 2026-08-16, and no run had proved it. Run
-31985443527 proved it, and commit `073ae4b` moved the state after that run.
-**Move a state after a run that passes and not before.** That rule holds.
-
-**The flip cost one day of a contradiction, and the RFC records it.** Commit
-`073ae4b` changed one line of the 006 RFC: the field. The prose under the field
-still argued for `blocked`. RFC-006 Rev 7 corrected the prose on 2026-08-17.
-**Change the field and the prose in one commit.** Section 3 holds this class.
-
-**Nine controls run against it and six are negative.** Two of the six matter
-more than the others.
-
-- A fixture that does not compile, with a complete generated `Lib.hs` left in
-  the work directory by an earlier good run. That is the scenario that defeated
-  the RFC's own first probe. The port reports the status. It does not read the
-  stale file.
-- A `regex_lower` fixture that COMPILES and calls nothing. This fires stage
-  4b's second assertion, which the subject says does not decay. The preamble
-  defines `regex_match` and no code calls it. Only an assertion on the CALL
-  SITE sees that state.
-
-**One assertion is NOT shown to fire, and this record says so.** Stage 4b also
-asserts that the hyphenated spelling appears zero times in the emitted Haskell.
-That state needs a compiler regression and not a changed input. No control
-reaches it.
-
-**`seq-commands` gives the LAST command's Response to the next step.**
-`LLMLL.md` section 9.3 gives the order of execution. It does not give this.
-Stage 4 prints and starts 4b's build in one step, so stage 4b showed it.
-
-**The argument contract is settled. Use it.** The port takes `--subject` for the
-compiler, `--root` for the repository and `--work` for a scratch directory.
-`refutecrux.llmll` takes the same three names. Do not invent a fourth spelling.
-
-**The vocabulary gap is FILED and it stays open.** The tri-state is `blocked`,
-`oracle` and `retired`. It has NO value for "started and incomplete", so a port
-in that condition carries a value that understates it. Campaign section 5 holds
-the row, filed 2026-08-15. Port 006 carried `blocked` for that reason until
-`073ae4b`. **Do not argue this in prose again, and do not invent a fourth
-state.** The campaign asked for the row instead, and the row exists.
-
-**Two facts the spine settled. Copy them; do not re-derive them.**
-
-1. The state is `((Bs, Ctl), Command)`. `Bs` holds a `Json`. `sequencer.llmll`
-   and `pathlint.llmll` use this shape. A positional tuple grows one field for
-   each stage. Then it renumbers each call site.
-2. `:done?` needs a `Done` phase after an `Ending` phase. The `Ending` phase
-   prints. The `Done` phase stops.
-
-**D3 IS DISCHARGED, 2026-08-12.** The RFC told you to probe two rows before you
-write the stages that use them. Both are probed. The probe is
-[`scripts/build-smoke/d3_probe.llmll`](../../scripts/build-smoke/d3_probe.llmll).
-
-- `wasi.fs.sha256` gives `RText`. The digest is lowercase hex. It agrees with
-  `shasum -a 256` for each byte. **This needed a measurement.** `LLMLL.md` §13
-  says the SHA-1 in the preamble is a simplified stub.
-- A failed run gives `RErr`. **The step machine continues after it.** The
-  message shows `does not exist` for an absent file. It shows
-  `permission denied` for a file with no execute permission. The subject's
-  `-perm -111` test gives one bit. Thus the port can say more than the subject.
-
-**Stage 1 is done and it FAILS correctly.** Give the program a `PATH` with no
-`stack` and no `ghc`. It prints `BUILD-GATE-1 FAIL`. This control uses a real
-environment. It does not use a changed source file.
-
-**Stages 2 and 2a are DONE, and building them found a gap.** The subject reads
-`$LLMLL_BIN`, then `PATH`, then `$HOME/.local/bin/llmll`. The port did the
-first two. **It could not do the third**, because nothing read the environment
-and `$HOME` is not in argv. This was filed as `ENV-READ-1`.
-
-**`ENV-READ-1` SHIPPED at v0.15.0 and the third source is PORTED.** The port
-gains two phases in stage 2, `Home2` and `Comp2b`. It gains no stage number,
-because the subject puts the third source inside its own section 2. Five cells
-were run on the built binary. The third source fires when the first two fail.
-It does NOT fire when the subject works, which is the ordering control. An
-unset `HOME` forms `/.local/bin/llmll`, which is what the reference's own
-`"$HOME/.local/bin/llmll"` expands to, so the two agree on that input.
-
-**The campaign census was wrong here, and this is the lesson to carry.** That
-row said "no env access" is COSMETIC because "argv carries it". Port 005 tested
-it and it held. **It failed at its second use.** A disposition tested against
-one port measures that port. It does not measure the language.
-
-**TWO PORTING DEFECTS were found by running the controls, not by reading.**
-
-1. `wasi.proc.run` answers the child's EXIT STATUS. It does not answer the
-   child's output. The output goes to the path in the call. So a command and a
-   read of what it printed are TWO steps. Stage 2a needs five phases.
-2. The subject's fallback test is a DISJUNCTION:
-   `[ -z "$_SIR" ] || [ ! -x "$_SIR/bin/llmll" ]`. A root that resolves but
-   holds no compiler must still fall through to `<root>/compiler`. One shared
-   execute-check cannot do this, because it does not know which source it
-   checks. The first version reported FAIL against a tree whose compiler was
-   built and present.
-
-**A THIRD porting defect, and the compiler found it.** `llmll check` gave OK
-with two warnings: `call to unknown function 'list-empty?'` and
-`call to unknown function 'string-join'`. Neither name exists. **The old gotcha
-said `check` passes an unknown callee at exit 0, and it still does**, but it now
-prints a warning that names each one. Read the warnings. Use `list-length` and
-`string-concat-many` instead.
-
-**Stage 5 WAS next when this paragraph was written, and every stage is ported
-now.** Keep the mechanism, because a later port needs it. Stage 5 is CAP-PROC,
-at 38 subject code lines. It is the first stage that BUILDS a fixture and then
-RUNS the binary, and it matches the output against known answers. Stages 1 to 4b
-only build. The run needs the `exe_path` mechanism: ask `stack path` for the
-install root of the fixture's own output directory, then execute the binary
-under its `bin/`. Stage 2a already does this for the compiler, so copy that
-five-phase shape.
-
-**THE RFC IS WRITTEN and it is Rev 7 as of 2026-08-17.** The text below was
-measured at Rev 4, and each of the four items still holds. Read
-[`tool-rfc-006-build-smoke.md`](tool-rfc-006-build-smoke.md) before you write
-any port code. Four things it settled, each by a probe:
-
-1. **The port is feasible.** One complete stage was written in LLMLL, built and
-   run. It passes on a good fixture and fails on a broken one.
-2. **The size fear was wrong.** The port projects to about 1,400 code lines, not
-   2,500. The 4.8 ratio is the FIRST port's; the five decline to 2.23.
-3. **The real scope question was stdin, and the compiler answered it.**
-   Thirteen sites feed a child on stdin and `wasi.proc.run` could not.
-   **`PROC-STDIN-1` SHIPPED a seventh parameter, a stdin path, at v0.14.98 on
-   2026-08-12.**
-   The port passes a path, as it passes a stdout path. **Do not write a `drive`
-   helper and do not write `/bin/sh -c`.** D1 chose that workaround before the
-   compiler moved, and the RFC records it as superseded.
-4. **Three gaps are filed and TWO ARE SHIPPED at v0.14.98**: `PROC-STDIN-1`,
-   `PROC-STDIN-SHARE-1` and
-   `PROC-ENV-1`. The second was a compiler defect. It was latent in all five
-   shipped ports and it is now fixed.
-
-**A rule the RFC's own probe proved again.** Its first stage printed PASS
-against a build that exited 1, because it read a stale artifact. The negative
-control caught it. Write the negative control first.
-
-**The row asked for a measurement. Nobody ran it for three days. The answer
-closed the row.** These were the figures. `build_smoke.sh` had **twelve** walk
-sites, and the row said nine. Each of the twelve was the same query. Each one
-found one executable file by name below a `.stack-work/install` directory. That
-directory is **four levels deep on both platforms**. macOS gives
-`aarch64-osx/<hash>/9.6.6/bin`. Linux gives
-`x86_64-linux-tinfo6/<hash>/9.6.6/bin`, read from the log of run
-`31441364939`, which passed.
-
-**THE TWELVE WALK SITES ARE GONE. Do not port them.** A later measurement showed
-the search was the defect. `build_smoke.sh` now calls
-`stack path --local-install-root` through one `exe_path` helper, changed
-2026-08-11. Stack gives the exact path. Thus the reference does no search, and
-no ambiguity exists.
-
-**Port 006 must copy the new mechanism.** `wasi.proc.run` takes a cwd, so the
-port calls `stack path` in the same way. Port 005 reaches `git ls-files` by that
-same method. **Do not use an mtime.** No `wasi.fs.stat` exists; see `FS-STAT-1`.
-
-**Caution 1. SETTLED 2026-08-11. Read this before you write a search.** A search
-had no defined answer, because a tree can hold more than one install root. Two
-measurements decided it. The repository's compiler tree holds two roots. `find`
-gives the 2026-08-10 build, which is `llmll 0.14.96`. A sorted pick gives the
-2026-06-19 build, which is `llmll 0.13.0`. **A sorted pick is deterministic and
-two months stale.** Thus neither pick was correct.
-
-Stack keeps an old install root on purpose. The directory name is a hash of the
-build config. Stack keeps the old root as a cache. Stack has no command that
-removes all roots except the newest.
-
-**Caution 2. This no longer applies to port 006, and it stays on `LIST-KIND-1`.**
-A symlink cycle makes a recursive walk continue forever. `wasi.fs.list` cannot
-see a symlink. Port 006 does no walk now, so port 006 cannot meet this. Any
-future recursive walk must answer it first.
-
-### Port 005 is RETIRED at v0.14.99. Read this before you retire port 006
-
-**A retirement rule that this retirement produced. Use it for port 006.** Move
-the subject script aside. Then run the gate. Then read the result. Do this
-BEFORE you delete the subject.
-
-Deleting `scripts/doc_path_lint.py` broke **13 prose citations in 6 files**. The
-measurement took one minute and it was free. The RFC section 8 precondition list
-did not ask for it. Two citations now name the port. Five `ALLOW` entries in the
-port carry the others. Each of the five is a past-tense record.
-
-**Do not rewrite a past-tense record to name the port.** The port did not take
-that measurement. A rewrite makes the record false.
-
-**The differential cover died with the reference.** The first
-`doc_path_lint_cover.py` held `REF = "scripts/doc_path_lint.py"`. It compared
-the two implementations. So it could not work without the reference. Its 22
-cells were deleted.
-
-**No instrument graded the port for five days.** The live corpus gives zero
-findings. Thus the reporting half of the gate does not execute. **A live run
-that passes is not evidence that the port is correct.** The user accepted this
-cost on 2026-08-12.
-
-**THE COVER IS REBUILT, on 2026-08-17, and it started at cells 9 and 13.**
-`scripts/doc_path_lint_cover.py` grades the port alone. It has 24 cells: 20
-mutations and 4 negative controls. The corpus is synthetic, so each count is
-exact. One cell, NC-4, reads this repository and asserts floors on two counts.
-
-**NC-4 asserts floors and nothing more, and that choice is a decision.** A port
-that reads no corpus prints a clean zero and exits 0. The advisory live step
-cannot see that failure and NC-4 can. **NC-4 does not ask the live tree to
-resolve.** That assertion would make DRIFT-DOC-4 fail-closed, and a person takes
-that decision.
-
-**Three cells are measured to discriminate.** The battery passed 24 of 24 on the
-first run. So three broken ports were built. The `hist-pat` variant list fails
-cell 9. An `excluded-dir?` that answers false fails cell 13. An `allowed?` that
-ignores the citing file fails cell 16b. **Show a new battery a failure before
-you trust it.** Twenty-one cells are still not shown to fail.
-
-**A self-cover cannot find one class of defect. Say so.** It cannot separate
-"the two agree" from "neither works". `TOOL-ENCODING-1` was in that class.
-
-**One record was incorrect and the retirement found it.** `version-gate.yml`
-said in two places that `test_clean_on_live_repo` keeps the fast job
-fail-closed. That test was deleted on 2026-08-11. So the workflow advertised a
-merge block for one day that did not exist. `docs/UPDATE-PROTOCOL.md` said the
-same. Both are corrected.
-
-### Port 005 left two items. Both are DONE
-
-1. **The retirement question. ANSWERED 2026-08-11. This item is DONE.** The user
-   chose to delete the test and to accept the loss.
-   The test file `test_doc_path_lint.py` is deleted. The test count goes from
-   197 to 179.
-
-   **Know what the repository lost.** That test ran `scripts/doc_path_lint.py`
-   over the tree and failed if one file path was broken. CI then failed. Thus a
-   broken path could not go into `main`. **Nothing stops a broken path now.**
-   The two remaining checks report and do not decide. Each one exits 0 when it
-   finds a broken path, by design.
-
-   **Do not report this as a defect.** It is a decision, and section 8 of the
-   005 RFC holds the reason.
-
-   **One door stays open.** Make the port's CI step fail when it finds a broken
-   path. The merge block then lives in the LLMLL port. A person must choose
-   that; it changes when CI fails.
-2. **The gap rows. This item is DONE.** The roadmap holds five rows as of
-   2026-08-10: `FS-EXISTS-1`, `REGEX-CAPTURE-1`, `REGEX-CASE-1`, `PATH-NORM-1`
-   and `LIST-KIND-1`.
-
-   **There were five rows and not four.** Port 004 raised `LIST-KIND-1` on
-   2026-08-09. It gave the gap no tag name. Thus no census held it, and this
-   record did not hold it. A search for tag names cannot find a gap that has no
-   tag. **Give each new gap a name when you record it.**
-
-### What port 005 measured. Keep these
-
-- **Console mode writes one blank line for each step.** A cover must start at
-  the first `DRIFT-DOC-4` line. Do not compare raw output.
-- **A report text must not end with a line end.** The harness adds one.
-- **`:done?` is read on the state a step RETURNS.** That step's Command does not
-  run. Thus a phase must not print AND finish. Use two phases.
-- **`llmll verify` needs the solver.** Put a step that verifies BELOW the
-  toolchain assertion. Port 005 is the first port to verify in CI.
-- **TDFA is not Python.** `regex-match` gives POSIX ERE. It has `\b`. It has no
-  `\d`. It refuses `(?i)`. Measure each new pattern.
-- **A first-run pass is not evidence.** The cover passed 22 of 22 at once. Two
-  broken ports then showed that cell 9 and cell 13 can fail. Do this for each
-  new cover.
 
 ---
 
@@ -708,88 +334,15 @@ number.
 
 ## 6. Port 004, and the three defects its cover found
 
-Port 004 is complete. These are its parts:
-
-| Part | Path |
-|---|---|
-| The port | [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) |
-| The verified core | [`tools/doc-archive/adjudicate.llmll`](../../tools/doc-archive/adjudicate.llmll) |
-| The reference | `scripts/doc_archive_gate.sh`, **DELETED 2026-08-17.** [TOOL-RFC-004](tool-rfc-004-doc-archive.md) holds the retirement |
-| The cover | [`scripts/doc_archive_cover.py`](../../scripts/doc_archive_cover.py) |
-
-The cover has **17 cells: 14 mutations and 3 negative controls.** All 17 pass.
-The count was measured from the `CELLS` list on 2026-08-09. The retirement
-rewrote the cover to grade the port alone, so it keeps the cells and loses the
-comparison.
-
-Both implementations ran in the `spec-roundtrip` job, next to each other, until
-2026-08-17. That is what `tool_state: oracle` means: both decide over the same
-tree in the same run, and a reader compares them in one job log. Only the port
-decides now.
-
-### The cover found three defects that the live run did not
-
-The live corpus declares exactly one disposition. So a live run exercises one
-of four vocabulary values and none of the four violation classes. **A live run
-that passes is not evidence that the port is correct.**
-
-| Defect | Description |
-|---|---|
-| 1 | Criterion 1 was not implemented in the port |
-| 2 | Criterion 7 did not print the remedy epilogue |
-| 3 | Two cover cells were incorrect when they were written |
-
-Defect 3 is the useful one. A cover can be wrong in the same way as the thing
-it grades. Cells that agree by accident prove nothing.
+Moved to `docs/design/tool-rfc-004-doc-archive.md`, sections 6 and 9. That RFC is
+`retired`, so it is the only record of a shell reference this repository deleted.
 
 ---
 
 ## 7. Gate measurements
 
-**Warning: each row below is a separate claim. Each row becomes incorrect on
-its own schedule.** Finding 13 records two rows that were false for two days
-while section 1 was correct. Measure this section again. Do not measure only
-section 1.
-
-Every figure below was measured at v0.14.92 unless the row says otherwise.
-Every figure is from macOS and aarch64 unless the row says otherwise.
-
-| Gate | Figure |
-|---|---|
-| `stack test` | **1683 examples, 0 failures.** Measured 2026-08-10 at v0.14.96 on macOS. **This gate now runs in CI**, since `CI-BUILD-TEST-1` at v0.14.94, in the `spec-roundtrip` job with `--fail-on=pending`. CI measured about 4m07s |
-| `pytest scripts/tests/` | **197 passed, 6 skipped.** Measured 2026-08-10 at v0.14.95 |
-| `refute-crux-gate.sh` (DELETED 2026-08-17) | 80 passed, 0 failed on macOS with a solver on `PATH`. On Linux it scored 2 passed and 78 failed until the job built a solver. See finding 12 |
-| [`refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) | 80 passed, 0 failed, 71s. **It has never run on Linux** |
-| [`refute_crux_cover.py`](../../scripts/refute_crux_cover.py) | 16 cells and 3 negative controls, all pass at v0.14.91. CI runs the 16 cells in 324s. The figure is 6 to 10 minutes |
-| `doc_claims_gate.sh` (DELETED 2026-08-17) | 16 doc-claims match, exit 0. **It needs no solver** |
-| [`docclaims.llmll`](../../tools/doc-claims/docclaims.llmll) | 16 match, exit 0, about 40s. **It passes on Linux** |
-| [`doc_claims_cover.py`](../../scripts/doc_claims_cover.py) | 17 cells and 3 negative controls, all pass. About 2 minutes |
-| `doc_archive_gate.sh` (DELETED 2026-08-17) | PASS. It ran in `spec-roundtrip` from TOOL-RFC-004 until its retirement |
-| [`docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) | PASS. Output identical to the reference. **It passes on Linux** |
-| [`doc_archive_cover.py`](../../scripts/doc_archive_cover.py) | **17 cells: 14 mutations and 3 negative controls. All pass.** Measured on macOS and on Linux CI at `e5459c3` and again at `c4e7901`. **The cover is not its own CI step.** It runs inside the port's step, before the live run. Look in the step named `Run archive-disposition drift gate (LLMLL port, TOOL-RFC-004)` |
-| [`pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) | **986 citations in 173 files, all resolve.** Measured 2026-08-12 after the retirement commit. It reads `git ls-files '*.md'`, so it cannot see an untracked file. **This is the only DRIFT-DOC-4.** The last differential measurement was earlier in the same commit, at 977 citations, where the reference gave the same two numbers. The retirement's own prose added the other nine, and two of them needed `ALLOW` entries |
-| [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed. Needs a rebuilt sequencer through `--driver` |
-| [`wave_cover.py`](../../scripts/wave_cover.py) | 7 passed. Needs `--wave` |
-| [`version_gate_cover.py`](../../scripts/version_gate_cover.py) | 14 passed. Needs `--gate` |
-| [`version_gate.sh`](../../scripts/version_gate.sh) | **PASS at 0.14.95** across all five banner sites. Measured 2026-08-10 |
-| [`build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, all stages. **It gained the `REGEX-LOWER-1` stage at v0.14.96.** That stage is the only gate that can see a builtin which checks, verifies and then does not build |
-
-### How to rebuild a port
-
-Several rows above need a rebuilt port. Use these commands:
-
-```
-export PATH=$(cd compiler && stack path --local-install-root)/bin:$PATH
-cd tools/<tool> && llmll build <tool>.llmll -o <outdir>
-```
-
-Run the port from a scratch directory. Give it an absolute `--root`. A console
-program writes `<module>.event-log.jsonl` into its working directory.
-
-```
-python3 -c "import sys; sys.stdout.write('x\n'*4000)" \
-  | <outdir>/.../<tool> --root <repo>
-```
+Each port measures its own gate. Read section 6 of that port's RFC. The campaign
+totals are in `docs/design/llmll-tooling-campaign.md` section 5.
 
 ---
 
@@ -996,6 +549,23 @@ They are not re-verified. Test one before you depend on it.**
 - **There is no `starts-with` builtin.**
 - **`json-object` is the empty object value.** It is not a constructor.
 - **The `:done?` warning is benign on a shipped program.**
+
+---
+
+### What port 005 measured. Keep these
+
+- **Console mode writes one blank line for each step.** A cover must start at
+  the first `DRIFT-DOC-4` line. Do not compare raw output.
+- **A report text must not end with a line end.** The harness adds one.
+- **`:done?` is read on the state a step RETURNS.** That step's Command does not
+  run. Thus a phase must not print AND finish. Use two phases.
+- **`llmll verify` needs the solver.** Put a step that verifies BELOW the
+  toolchain assertion. Port 005 is the first port to verify in CI.
+- **TDFA is not Python.** `regex-match` gives POSIX ERE. It has `\b`. It has no
+  `\d`. It refuses `(?i)`. Measure each new pattern.
+- **A first-run pass is not evidence.** The cover passed 22 of 22 at once. Two
+  broken ports then showed that cell 9 and cell 13 can fail. Do this for each
+  new cover.
 
 ---
 

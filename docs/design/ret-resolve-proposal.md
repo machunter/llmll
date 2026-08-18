@@ -323,7 +323,7 @@ is not attributable.
 ## Review log
 
 Four standalone professor review rounds, transcribed at
-[`ret-resolve-proposal-review.md`](ret-resolve-proposal-review.md), ready for fold-and-archive per
+[`docs/archive/professor-reviews/ret-resolve-proposal-review.md`](../archive/professor-reviews/ret-resolve-proposal-review.md), ready for fold-and-archive per
 DOC-CONSOLIDATE M2. Rev 0 → Rev 1 folded the SCC condition on the join preference, the admissibility
 channel, the corrected deferral rationale, the gradual-`Dyn` reclassification, sandboxing, the brief
 asymmetry, and the join-notation correction. Rev 1 → Rev 2 folded the effective-post channel, added

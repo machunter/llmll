@@ -25,7 +25,7 @@ an agreement check is a mechanical signal exactly there.
 ## Rev 1 changes
 
 Rev 0's §1 applicability claim and §6 effort table are withdrawn. The professor review
-([`spec-agreement-review.md`](spec-agreement-review.md)) raised both as BLOCKERs (F-1, F-2) and
+([`docs/archive/professor-reviews/spec-agreement-review.md`](../archive/professor-reviews/spec-agreement-review.md)) raised both as BLOCKERs (F-1, F-2) and
 its F-1 disposition named a measurement to settle the scope question. That measurement is now
 taken and reported in §0. Its result settles both open questions the review addressed to the
 language-team, and it settles them against both shapes the review offered.

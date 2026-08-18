@@ -23,9 +23,9 @@ concrete-but-different.
 
 ## Context located
 
-1. [`ret-branch-pref-proposal.md`](ret-branch-pref-proposal.md): Rev 0, the proposal under
+1. [`ret-branch-pref-proposal.md`](../../design/ret-branch-pref-proposal.md): Rev 0, the proposal under
    review. Stage 1 narrowed to self-recursion; Stage 2 recorded and not proposed.
-2. [`finding-fq-result-sort-default.md`](finding-fq-result-sort-default.md): Rev 3, the
+2. [`finding-fq-result-sort-default.md`](../../design/finding-fq-result-sort-default.md): Rev 3, the
    accepted residual this rule closes, and the corpus measurement behind it.
 3. `compiler/src/LLMLL/TypeCheck.hs:1320-1331`: the both-concrete path. `tcWarnOrError` on
    incompatibility, then `pure thenType` regardless.
