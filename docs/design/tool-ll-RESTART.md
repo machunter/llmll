@@ -224,6 +224,50 @@ section told the reader to look for a fifth place.
 before you trust this table. The 004 RFC shows why: a document can record its own
 instrument incorrectly while the instrument passes.
 
+### A SIXTH record, and a DIFFERENT failure class (2026-08-19)
+
+The count above stays five. This one is kept apart because it failed in a
+different way, and merging it would lose the lesson.
+[`tool-rfc-005-doc-path-lint.md`](tool-rfc-005-doc-path-lint.md) §8 says "§3
+lists it among five such records", so the five stay five and this table is not
+renumbered.
+
+**The five failed to propagate a change. These three propagated a claim that
+nobody checked.** Three records stated the cause of `MATCH-TERM-EQ-1` and all
+three said the same wrong thing:
+
+| Record | What it claimed |
+|---|---|
+| `docs/compiler-team-roadmap.md`, the row | A match arm never emits the term equation `scrutinee = Ctor`. It pointed at `$tag` |
+| `docs/design/tool-ll-RESTART.md`, the debt table | `MATCH-TERM-EQ-1` is OPEN, and the 004 core is written around it |
+| `tools/doc-archive/adjudicate.llmll`, the header | The same term-equation sentence, plus "written the other way this file would not verify" |
+
+**All three were wrong, and they agreed because they were copied from each
+other.** The emitted `.fq` holds NO `$tag` variable for this shape. The real
+cause was the param binder: `emitParamBind` bound every param at
+`{ v : int | true }`, while a nullary enum is int-tag encoded to `0..n-1`. The
+last arm's guard is the negation of its siblings, so the constraint was
+unsatisfiable at `a=7`. One binder refinement fixed it at v0.16.2.
+
+**The 004 claim was wrong twice over, and the second way is the instructive
+one.** `side-of` maps `Disposition` to `Side`. These are two DIFFERENT sum
+types, so `(post (= result d))` is a TYPE ERROR and not a refutation. Measured:
+`error: type mismatch in '=': expected SpecDir | DormantDir | NoSide, got
+Shipped | Superseded | Dropped | Deferred | UnknownD`. The file could never have
+been written the other way, before the fix or after it. `MATCH-TERM-EQ-1` never
+constrained this file at all.
+
+**Name the class: agreement was mistaken for verification.** Three records
+concurring is not evidence, because concurrence is what copying produces. This
+is the same error the campaign names elsewhere about its own instruments, and
+it appeared here in the campaign's own records. What settled it was reading the
+emitted constraint system and patching one binder by hand.
+
+**The check that would have caught it is cheap.** A record that states a CAUSE
+should cite the artifact the cause is read from. None of the three cited the
+`.fq`. A cause with no artifact citation is a hypothesis, and it should be
+written as one.
+
 ---
 
 ## 4. Settled decisions
@@ -311,7 +355,7 @@ Open roadmap rows that this campaign filed or needs:
 | `RUN-STDIN-1` | OPEN. Filed by a 004 feasibility probe | roadmap :70 |
 | `SKIP-SILENT-1` | OPEN | roadmap :62 |
 | `FS-WALK-1` | **CLOSED COSMETIC 2026-08-10.** Port 006 does not need it | roadmap, closed-rows section |
-| `MATCH-TERM-EQ-1` | OPEN. The 004 core is written around it | roadmap, search the tag |
+| `MATCH-TERM-EQ-1` | SHIPPED v0.16.2, with one item owed. This cell said "the 004 core is written around it" and that was WRONG. Section 3 records why | roadmap, search the tag |
 | `STRLIT-BODY-1` | OPEN. It is the absence that 004 section 7 records | roadmap, search the tag |
 | `TOOL-ENCODING-1` | SHIPPED v0.14.93 | roadmap :486 |
 | `CI-BUILD-TEST-1` | SHIPPED v0.14.94 | roadmap :498 |

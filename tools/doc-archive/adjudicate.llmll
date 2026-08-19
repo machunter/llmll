@@ -12,13 +12,23 @@
 ;; imports this.
 ;;
 ;; THE CONTRACT IS INPUT-SIDE AND THAT IS NOT A STYLE CHOICE. It constrains
-;; `result` per constructor of the INPUT, which is the classify.llmll shape. The
-;; natural alternative, a post relating `result` to the scrutinee VARIABLE, is
-;; FALSELY REFUTED by this compiler: a match arm on a nullary constructor
-;; refines the int-tag discriminant and never emits the term equation
-;; `scrutinee = Ctor`, so even the identity function fails such a post
-;; (MATCH-TERM-EQ-1). Written the other way this file would not verify and the
-;; defect would look like ours.
+;; `result` per constructor of the INPUT, which is the classify.llmll shape.
+;; THE TYPES FORCE THIS, and nothing else does. `side-of` maps `Disposition` to
+;; `Side`, which are two different sum types, so there is no identity-shaped
+;; post to write: `(post (= result d))` is a TYPE ERROR here. Measured:
+;; "type mismatch in '=': expected SpecDir | DormantDir | NoSide, got
+;; Shipped | Superseded | Dropped | Deferred | UnknownD".
+;;
+;; THIS COMMENT USED TO SAY SOMETHING ELSE AND IT WAS WRONG TWICE OVER, which
+;; is worth keeping because the error propagated. It said the input-side shape
+;; was forced by MATCH-TERM-EQ-1, and that a post relating `result` to the
+;; scrutinee VARIABLE was falsely refuted by the compiler. First: that row's
+;; cause was misstated everywhere it appeared, and the real cause was the param
+;; binder carrying no int-tag domain, fixed at v0.16.2. Second, and the reason
+;; this file was never affected: the alternative it described is not refutable
+;; here, it is ill-typed, before the fix and after it. Three records agreed on
+;; the wrong cause because they were copied from each other. See
+;; docs/design/tool-ll-RESTART.md section 3.
 ;;
 ;; `and` is binary here, not variadic, so the conjunction nests.
 ;;
