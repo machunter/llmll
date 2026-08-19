@@ -4,6 +4,42 @@
 
 <a id="Latest"></a>
 
+## v0.16.2: a correct match was reported wrong, because the binder never said which values the type could hold (2026-08-19)
+
+**One compiler change, no schema change, no language surface change.** The schema stays at 0.11.0, `builtinEnv` is untouched, and no builtin, flag, CLI surface or `Response` arm moves. `MATCH-TERM-EQ-1` closes a **false refutation**, which is worse than a fallback: the verifier reported that correct code violated its contract. The rest of the release is records.
+
+### `MATCH-TERM-EQ-1`: the tag domain the encoding always guaranteed, finally stated
+
+A correct `match` over a nullary enum was refuted whenever its postcondition related `result` to the scrutinee **variable**. The discriminating pair is two body-faithful functions on `(type Level (| Lo) (| Mid) (| Hi))` carrying the identical clause `(post (= result a))`: the direct body `a` verified, and the semantically identical exhaustive match was refuted with `else-branch does not satisfy postcondition`. Both are the identity.
+
+**The row's own stated cause was wrong, and the correction is the substance of this entry.** The row attributed the defect to a missing arm term equation and pointed at `$tag`. The emitted `.fq` contains **no** `$tag` variable for this shape: `tagKeys` does not contribute here, and the arm guards already refine the scrutinee directly. An implementer following the row would have gone to a seam with no bearing on the defect.
+
+**The real cause is visible in the constraint system rather than inferable from the source.** `emitParamBind` bound every parameter at `{ v : int | true }`. A pure nullary enum is int-tag encoded to its declaration index `0..n-1` (`buildCtorTagMap` uses `zip [0..] ctors`), but the binder never said so. The last arm's guard is the negation of its siblings, so the final constraint read `(not (a=0)) && (not (a=1)) && (result=2) => (result=a)`, which is genuinely unsatisfiable when `a` is an unconstrained int. The witness is `a=7`.
+
+The fix is one binder refinement: `nullaryEnumArity` in `TypeAdmissibility.hs`, consulted by `emitParamBind`, emitting `(v >= 0) && (v <= n-1)`. It reuses the same nullary test `isIntLike` applies at its `TSumType` arm, which is what decides binder membership in the first place, so the gate and the fact stay derived from one predicate rather than two that can drift apart. **Fragment unchanged**: two linear bounds on a variable already sorted `FQInt`, no new sort, no new theory.
+
+**This is not the `bytes[n]` situation that SAFE-ARG corrected**, and the difference was executed rather than argued. A `bytes[n]` length is a caller obligation and rode this same refinement until it moved to the effective precondition. A nullary enum's domain is guaranteed by the type checker: `(id-direct 7)` fails with `type mismatch, expected Lo | Mid | Hi, got int`, and a constructor name shared across two type definitions is rejected outright, so the tag-ambiguity hazard raised in planning is unreachable rather than mitigated. The fact also enters as an environment **antecedent**, so it can only weaken an obligation, never strengthen one. The single unsound direction is a wrong arity, which the new tests pin at three different constructor counts.
+
+**Evidence, measured on the built compiler.** Three fixtures under `compiler/test/fixtures/match-term-eq/`: the direct control verifies as before, the matched subject moves from refuted to verified, and a refuting sibling whose `Mid` arm is wrong is still refuted. That third file is what shows the contract still discriminates rather than the verifier merely going quiet. A nine-cell census changed **exactly one** verdict. In `tools/llmll-driver/`, all **20** refute cruxes still refute and all **16** modules still verify, which is the corpus built to catch a verifier that stopped discriminating.
+
+**One item is owed and is not fixed here.** The `result` binder keeps `{ v : ... | true }`. The parameter binder alone moved the census case, so the result binder is not needed for this defect, but whether a postcondition over a **returned** enum needs the same fact is unmeasured.
+
+### The census the row demanded is run, and payload arms do not share the gap
+
+The row required a census of whether payload-carrying arms have the same defect. They do not, and the reason is a deliberate firewall rather than an oversight. `clauseOverOpaqueSumParam` (MATCH-WIDEN, v0.14.12) forces contract-only fallback whenever a contract clause names a **payload-bearing** sum parameter by its bare name, because an opaque sum has no value sort and the clause would leave the variable free and crash liquid-fixpoint with `Constraint with free vars`. Such a function reports `body-fallback`, so its verdict is disclosed as ungraded rather than claimed, and `--strict-verified-core` rejects it.
+
+**The discriminator is the contract clause, not the type's position in the signature.** A payload sum in parameter position with a post that does not name it stays body-faithful, and `examples/outcome-totality/classify.llmll` returns one and is body-faithful. That same guard carries the `ENUM-EQ-FALLBACK` note recording that firing it on nullary enums silently lost refutation between v0.14.12 and v0.14.31, which is this release's defect seen from the other side.
+
+### Records: the archive sweep, two triage documents, and a specification measured against its compiler
+
+`oblig-0-spec.md` reached **Rev 9** by reconciliation against the shipped compiler. The architecture held and six values describing it had drifted. Four professor reviews and one disposition moved into `docs/archive/`, and the redirect stubs whose grace had elapsed were deleted.
+
+`UPDATE-PROTOCOL.md` rows P1 and D1 named `experiments/<harness>/findings.md` as the canonical location for per-experiment findings. Measured across all ten harnesses, that was wrong for the two carrying most of the citations: `minimal-agent` had retired its `findings.md` to a pointer, and `rfc-swarm` has none at all.
+
+`CRYPTO-2` received the roadmap row it had been adjudicated into fifteen days earlier. `LLMLL.md` §13.11 documents an `asserted-with-stub-backend` trust channel that the trust report does not emit, and an untagged gap is invisible to every search for tags. The two triage documents were reconciled: the archive trigger for the 2026-05-23 triage was evaluated and did **not** fire, and four rows that had outlived their tags were corrected.
+
+**Tests:** 1774 examples, 0 failures (Haskell); 180 passed, 10 skipped (Python).
+
 ## v0.16.1: the cover that could not outlive its reference is rebuilt, and the campaign counts proof for the first time (2026-08-17)
 
 **No compiler change, no schema change, no language surface change.** The schema stays at 0.11.0 and `builtinEnv` is untouched. This release is tooling and records: a rebuilt mutation cover, three new CI guards, and the close of the TOOL-LL porting phase.
