@@ -37,42 +37,86 @@ stale". A defect *causes a failure*. It does not "bite".
 ### Measure the state before you use it
 
 A record in this repository became incorrect at a handoff three times. Do these
-four steps first. Do them before you read section 1.
+five steps first. Do them before you read section 1.
 
 1. Run `git describe --tags --abbrev=0`. This gives the last tag.
 2. Run `git rev-list --count $(git describe --tags --abbrev=0)..HEAD`. This
    gives the count of unreleased commits.
 3. Run `head -1 LLMLL.md`. This gives the version banner.
 4. Run `gh run list --branch main --limit 3`. This gives the CI result.
+5. Run the command below. This gives the open work items.
 
-Compare the four results with section 1. If one result disagrees, section 1 is
-incorrect. Correct section 1 before you do other work.
+Compare the first four results with section 1. If one result disagrees, section
+1 is incorrect. Correct section 1 before you do other work.
+
+### The roadmap census, and the command that gets it wrong
+
+Run this command. Copy it as one line.
+
+```sh
+awk -F'|' '/^### Open work/{s=1} /^### Adversarial/{s=0} s && /^\| \*\*/ {t=$2; sub(/^ \*\*/,"",t); sub(/\*\*.*/,"",t); st=$3; sub(/^ *\*\*/,"",st); if (st ~ /^OPEN/) print t}' docs/compiler-team-roadmap.md
+```
+
+**Do not count the open rows with a plain text search for the bold word OPEN.**
+That command is `grep -c '\*\*OPEN\*\*' docs/compiler-team-roadmap.md`, and it
+is wrong in two directions. It was measured on 2026-08-19. It gave 42 and the
+correct count was 44.
+
+It missed five rows. A status cell can read `**OPEN, and ...**` or `**OPEN.**`
+or `**OPEN — UNSCHEDULED**`. The literal `**OPEN**` is not in that text. The
+missed rows were `REPLAY-INJECT`, `HTTP-GET-1`, `DRIVER-LL`, `CAP-1-REAL` and
+`CONSOLE-INIT-1`. `DRIVER-LL` is the largest campaign in the file.
+`HTTP-GET-1` is the one row on the `DRIVER-LL` critical path. The command hid
+both.
+
+It also gave three rows that are not open. A shipped row keeps the text of its
+original filing, and that text holds the literal. The three were `FS-RMDIR-1`,
+`ENV-READ-1` and `LIST-RANGE-1`.
+
+The command above reads the STATUS CELL, which is field 3 of the table row. Do
+not read the row text. This failure is the same class as the three incorrect
+handoffs: a person took a figure from prose and not from the field that decides.
+
+**The section guard is inert today.** Both forms of the command give 43. Keep
+the guard. It stops a row in a different section from entering the count.
 
 ---
 
-## 1. State, measured 2026-08-17, after the fourth retirement
+## 1. State, measured 2026-08-19
 
-**THIS SECTION WAS MEASURED AGAIN ON 2026-08-17.** The 2026-08-16 measurement
-came before four retirements. Read the date and the commit count together, and
-do not read the date alone.
+**THIS SECTION WAS MEASURED AGAIN ON 2026-08-19.** The 2026-08-17 measurement
+came before the `v0.16.1` and `v0.16.2` releases. Read the date and the commit
+count together, and do not read the date alone.
 
-**THE WORK IS ON `main`. IT IS PUSHED. CI HAS GRADED IT.** The 2026-08-16
-version of the frontmatter said the opposite of all three.
+**THE 2026-08-17 TABLE GAVE THE RIGHT NUMBER AGAINST THE WRONG TAG, and that
+is the failure mode to watch.** It said eight unreleased commits, measured from
+`v0.16.0`. The count today is also eight, and it is measured from `v0.16.2`.
+The number agreed and the referent did not. Read the command in the third
+column, and do not read the value alone.
+
+**THE WORK IS ON `main`. IT IS PUSHED. CI HAS GRADED IT.**
 
 | Item | Value | How it was measured |
 |---|---|---|
 | Branch | `main` | `git branch --show-current` |
 | Commits ahead of `origin/main` | **0**, and all are pushed | `git rev-list --count origin/main..HEAD` |
-| Last tag | **`v0.16.0`** | `git describe --tags --abbrev=0` |
-| Unreleased commits | **8**, and the close-out commit makes it 9 | `git rev-list --count v0.16.0..HEAD` |
-| Version banner | `v0.16.0` | `head -1 LLMLL.md` |
+| Last tag | **`v0.16.2`** | `git describe --tags --abbrev=0` |
+| Unreleased commits | **9**, counting the commit that writes this table | `git rev-list --count v0.16.2..HEAD` |
+| Version banner | `v0.16.2` | `head -1 LLMLL.md` |
 | Working tree | clean | `git status --porcelain` |
-| CI on `main` | **run 32064879596, success** | `gh run list --branch main` |
+| CI on `main` | **run 32272901843, success**, on commit `a6fddc8` | `gh run list --branch main` |
+| Open roadmap rows | **43** | the census command in section 0 |
 
-**THE TAG DEBT IS ZERO.** The tag `v0.16.0` exists and it is pushed. The image
-`ghcr.io/machunter/llmll:v0.16.0` answers HTTP 200 to a request with no
-credentials. The condition for the tag was one CI run of the port cover. Run
-31985443527 met the condition first, and the tag came after it.
+**THE TAG DEBT IS ZERO.** The tags `v0.16.0`, `v0.16.1` and `v0.16.2` exist and
+all three are pushed. This was measured on 2026-08-19 with
+`git ls-remote --tags origin`.
+
+**ONE PART OF THIS PARAGRAPH IS NOT RE-MEASURED, and it says so rather than
+letting a reader assume.** The image `ghcr.io/machunter/llmll:v0.16.0` answered
+HTTP 200 to a request with no credentials on 2026-08-17. The equivalent images
+for `v0.16.1` and `v0.16.2` were NOT checked on 2026-08-19. The condition for
+the `v0.16.0` tag was one CI run of the port cover. Run 31985443527 met the
+condition first, and the tag came after it.
 
 **THE UNRELEASED COMMITS OWE NO RELEASE, and that is a measurement.** They
 change `docs/`, `scripts/`, `tools/`, `.github/`, `examples/` and the
