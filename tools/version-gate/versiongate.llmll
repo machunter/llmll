@@ -64,6 +64,13 @@
   ;; because the authority is real whether or not the compiler asks for it.
   (import wasi.proc (capability args :deterministic false))
 
+  ;; TOOL-ORACLE-1: the exit-status clamp moved to its own module so it can
+  ;; carry a contract. A `def` cannot call a sibling `def`, so a proved core is
+  ;; a separate module the port imports. See adjudicate.llmll for what is proved
+  ;; and, more importantly, for what is not.
+  (import adjudicate)
+  (open adjudicate)
+
   ;; ---- the scanner ---------------------------------------------------------
   ;;
   ;; The leading run of characters drawn from `alphabet`, and the bound is
@@ -458,9 +465,14 @@
   ;; The clamp fails in the safe direction: 256 exits 255, not 0. This gate has
   ;; only two codes, so the clamp is a guard against a future third rather than
   ;; a live concern.
+  ;;
+  ;; THE DECISION MOVED OUT AND THE PROJECTION STAYED, which is the shape
+  ;; buildsmoke.llmll already uses. `status-of` in adjudicate.llmll carries the
+  ;; contract; this function only projects the code out of the composite state,
+  ;; because a `def-shell` over a composite falls back and would take the range
+  ;; obligation down with it (PROC-BOUNDARY-1).
   (def-shell vg-status [s: (Vg, VCtl)] -> int
-    (let [(c (done-code s))]
-      (if (< c 0) 1 (if (> c 255) 255 c))))
+    (status-of (done-code s)))
 
   (def-main
     :mode    console

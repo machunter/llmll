@@ -167,6 +167,19 @@ jobs:
         run: |
           set -euo pipefail
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          # TOOL-ORACLE-1. This verify was MISSING until 2026-08-19: the job
+          # built the port and never checked its proved core, so adjudicate.llmll
+          # decided nothing in CI. That is the "a gate that is not wired in
+          # decides nothing" shape, the same class as TOTP-CHECK-1.
+          ( cd tools/doc-archive && "$SUBJECT" verify adjudicate.llmll )
+          # The contract must REFUTE a wrong body, not merely accept the right
+          # one. Verifying only the correct core is a green light, and once this
+          # port's reference is deleted the differential cover cannot tell the
+          # difference. The crux is the instrument that outlives the reference.
+          if ( cd tools/doc-archive && "$SUBJECT" verify crux-side-of-misroute.llmll ) >/dev/null 2>&1; then
+            echo "FAIL: crux-side-of-misroute.llmll VERIFIED. side-of stopped refuting the Superseded misroute."
+            exit 1
+          fi
           OUT="$RUNNER_TEMP/docarchive-build"
           ( cd tools/doc-archive && "$SUBJECT" build docarchive.llmll -o "$OUT" )
           # ASK STACK WHERE IT PUT THE BINARY. DO NOT SEARCH FOR IT. The full
@@ -444,6 +457,12 @@ jobs:
           set -euo pipefail
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           ( cd tools/doc-path-lint && "$SUBJECT" verify adjudicate.llmll )
+          # TOOL-ORACLE-1: the contract must REFUTE a wrong body. `reports?`
+          # consults six suppressors; the crux drops `hist` and must fail.
+          if ( cd tools/doc-path-lint && "$SUBJECT" verify crux-reports-drops-hist.llmll ) >/dev/null 2>&1; then
+            echo "FAIL: crux-reports-drops-hist.llmll VERIFIED. reports? stopped refuting the dropped suppressor."
+            exit 1
+          fi
           OUT="$RUNNER_TEMP/pathlint-build"
           ( cd tools/doc-path-lint && "$SUBJECT" build pathlint.llmll -o "$OUT" )
           # Ask stack, do not search; see the archive gate step above and
@@ -621,6 +640,15 @@ jobs:
           set -euo pipefail
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           ( cd tools/build-smoke && "$SUBJECT" verify adjudicate.llmll )
+          # TOOL-ORACLE-1: the contract must REFUTE a wrong body. `status-of`
+          # turns pass/fail into an exit status; the crux returns 0 whatever
+          # happened, so a failing build would report success. The range clause
+          # alone does not catch that, and the crux is what shows the policy
+          # implication is doing the work.
+          if ( cd tools/build-smoke && "$SUBJECT" verify crux-status-fails-open.llmll ) >/dev/null 2>&1; then
+            echo "FAIL: crux-status-fails-open.llmll VERIFIED. status-of stopped refuting the fail-open."
+            exit 1
+          fi
 
       # THE DIFFERENTIAL COVER, WIRED IN, AND IT IS WHAT LETS THIS RFC REACH
       # `tool_state: oracle`. The comment that used to stand below said the

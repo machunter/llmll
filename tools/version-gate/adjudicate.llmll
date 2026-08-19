@@ -1,0 +1,54 @@
+;; TOOL-RFC-001, the verified core of the version gate.
+;;
+;; The RFC is docs/design/tool-rfc-001-version-gate.md. This module exists for
+;; TOOL-ORACLE-1: this port passed `--strict-verified-core` VACUOUSLY, with zero
+;; body-faithful functions, so that flag decided nothing about it. A gate whose
+;; only instrument is "it agrees with itself" is a green light and not a proof.
+;;
+;; WHY THIS IS ITS OWN MODULE AND NOT PART OF THE PORT. A `def` cannot call a
+;; sibling `def` in the same module: the failure is at check time, before
+;; verification, and no ordering escapes it. Cross-module calls to an
+;; already-verified callee do work, leaf-first. So the module split is forced by
+;; the language rather than chosen for tidiness, and the port imports this. Same
+;; reason as tools/doc-archive/adjudicate.llmll and tools/doc-path-lint/.
+;;
+;; WHAT IS PROVABLE HERE AND WHAT IS NOT, and the boundary is not where a reader
+;; would first guess. The gate's ORDER is what TOOL-RFC-001 pins: fourteen
+;; conditions in the shell reference's sequence, "same order, same messages,
+;; same exit codes". That order is NOT proved here, and it is not a criterion
+;; ordering: measured on this file, the criterion labels interleave, with C2 at
+;; positions 3 and 7 among C1s. Proving it would need a fourteen-boolean
+;; function over a fifteen-constructor enum, which is a rewrite of a live gate
+;; whose messages are compared byte for byte. That is out of scope here and is
+;; recorded so the next reader does not mistake this file for it.
+;;
+;; Every recognizer is also out. `semver?`, `version-in` and `heading-version`
+;; are bool- or string-valued bodies over string comparison, which fall to
+;; erBodyFallback (STRLIT-BODY-1) and carry no proof.
+;;
+;; WHAT IS PROVED IS THE EXIT STATUS, which is the whole of what this gate hands
+;; to CI. The range refinement is what stops a silent success: POSIX truncates to
+;; the low 8 bits, so an unclamped 256 would exit 0 and report a PASS over a
+;; failing tree. The three implications pin the policy and not merely the range,
+;; because a body that clamped in the wrong direction would satisfy the range
+;; and still fail open.
+;;
+;; MEASURED at v0.16.2: this module verifies SAFE and reports
+;; `body-faithful: status-of`, so the pass is not a fallback. Removing the clamp
+;; is REFUTED. That refuting case is committed as crux-status-unclamped.llmll,
+;; because naming a refuting case in a comment is not running one.
+
+(module adjudicate
+
+  ;; `c` is the code the console loop carries out of its Done state. The port
+  ;; projects it and passes it here as a scalar: a `:status` function is a
+  ;; strict-core `def` and may call only body-faithful functions, while every
+  ;; accessor in the port is a `def-shell` over a composite state and falls back
+  ;; (PROC-BOUNDARY-1 records the same shape). Taking an int keeps the range
+  ;; obligation PROVED rather than asserted.
+  (def status-of [c: int] -> int
+    (post (and (and (>= result 0) (<= result 255))
+               (and (=> (< c 0) (= result 1))
+                    (and (=> (> c 255) (= result 255))
+                         (=> (and (>= c 0) (<= c 255)) (= result c))))))
+    (if (< c 0) 1 (if (> c 255) 255 c))))

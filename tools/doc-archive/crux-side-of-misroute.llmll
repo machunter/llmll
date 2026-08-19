@@ -1,0 +1,41 @@
+(module crux-side-of-misroute)
+;; THE MISROUTE the archive-disposition gate exists to prevent: a document that
+;; is Superseded is filed under dormant-explorations/ instead of
+;; shipped-design-specs/. The two directories are governed differently, so a
+;; misroute is not a tidiness defect: it moves a record out of the partition a
+;; reader scans for it.
+;;
+;; This is the mutation tools/doc-archive/adjudicate.llmll names in its own
+;; header. It is committed here because naming a refuting case in a comment is
+;; not running one. TOOL-ORACLE-1: every port's differential cover goes
+;; inoperable when its reference is deleted, and what survives is the port
+;; agreeing with itself. A committed crux is what distinguishes a proof from a
+;; green light, because a fallback body cannot be refuted at all.
+;;
+;; MEASURED at v0.16.2: REFUTED at constraint #1. The unmutated sibling reports
+;; `body-faithful: side-of` and verifies SAFE, so the refutation is the contract
+;; discriminating and not a fallback declining to decide.
+(type Disposition
+  (| Shipped)
+  (| Superseded)
+  (| Dropped)
+  (| Deferred)
+  (| UnknownD))
+
+(type Side
+  (| SpecDir)
+  (| DormantDir)
+  (| NoSide))
+
+(def side-of [d: Disposition] -> Side
+  (post (and (and (=> (= d Shipped)    (= result SpecDir))
+                  (=> (= d Superseded) (= result SpecDir)))
+             (and (=> (= d Dropped)    (= result DormantDir))
+                  (and (=> (= d Deferred) (= result DormantDir))
+                       (=> (= d UnknownD) (= result NoSide))))))
+  (match d
+    ((Shipped)    SpecDir)
+    ((Superseded) DormantDir)
+    ((Dropped)    DormantDir)
+    ((Deferred)   DormantDir)
+    ((UnknownD)   NoSide)))

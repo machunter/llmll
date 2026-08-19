@@ -1,0 +1,20 @@
+(module crux-reports-drops-hist)
+;; THE DROPPED SUPPRESSOR. `reports?` decides whether one citation is reported.
+;; Six pieces of evidence suppress a report; this body consults five and drops
+;; `hist`, the historical-line marker. The gate then reports every citation on a
+;; past-tense line, which is the false-positive class the ALLOW table and the
+;; history marker exist to prevent.
+;;
+;; This is the mutation tools/doc-path-lint/adjudicate.llmll names in its own
+;; header. It is committed here because naming a refuting case in a comment is
+;; not running one (TOOL-ORACLE-1).
+;;
+;; THE POST IS AN EQUALITY AND THAT IS WHY THIS IS CAUGHT. An implication in
+;; either direction is satisfied by a body that reports everything or one that
+;; reports nothing. Only the equality pins both directions.
+;;
+;; MEASURED at v0.16.2: REFUTED at constraint #0. The unmutated sibling reports
+;; `body-faithful: reports?` and verifies SAFE.
+(def reports? [root: bool rel: bool label: bool ph: bool allow: bool hist: bool] -> bool
+  (post (= result (not (or (or (or root rel) (or label ph)) (or allow hist)))))
+  (not (or (or (or root rel) (or label ph)) allow)))

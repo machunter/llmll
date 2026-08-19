@@ -1114,6 +1114,31 @@ if [ -f "$VG_SRC" ]; then
   versiongate binary under $VG_OUTDIR/.stack-work/install. Without running it
   this stage observes nothing, which is the failure mode it exists to prevent."
 
+  # TOOL-ORACLE-1: THE PORT'S PROVED CORE, AND ITS REFUTING CASE.
+  #
+  # Until 2026-08-19 this port passed `--strict-verified-core` VACUOUSLY: it had
+  # zero body-faithful functions, so that flag decided nothing about it. The
+  # exit-status clamp now lives in adjudicate.llmll with a contract.
+  #
+  # Both halves run here, and the second is the one that matters. Verifying only
+  # the correct core is a green light. The crux is what makes it a proof, and it
+  # is the instrument that keeps working after a port's reference is deleted,
+  # which is the whole of what TOOL-ORACLE-1 is about.
+  if ! ( cd "$REPO_ROOT/tools/version-gate" \
+           && "${LLMLL_CMD[@]}" verify adjudicate.llmll ) \
+         > "$OUTDIR/.versiongate-adjudicate.log" 2>&1; then
+    cat "$OUTDIR/.versiongate-adjudicate.log" >&2
+    fail "the LLMLL version gate's proved core (adjudicate.llmll) does not verify."
+  fi
+
+  if ( cd "$REPO_ROOT/tools/version-gate" \
+         && "${LLMLL_CMD[@]}" verify crux-status-unclamped.llmll ) \
+       > "$OUTDIR/.versiongate-crux.log" 2>&1; then
+    fail "crux-status-unclamped.llmll VERIFIED, and it must be REFUTED. The
+  contract on status-of stopped catching an unclamped exit status, so a code of
+  256 would truncate to 0 under POSIX and report a PASS over a rejected tree."
+  fi
+
   if ! python3 "$REPO_ROOT/scripts/version_gate_cover.py" --gate "$VG_EXE" \
          > "$OUTDIR/.versiongate-cover.log" 2>&1; then
     cat "$OUTDIR/.versiongate-cover.log" >&2

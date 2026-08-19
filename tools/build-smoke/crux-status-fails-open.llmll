@@ -1,0 +1,19 @@
+(module crux-status-fails-open)
+;; THE FAIL-OPEN. `status-of` is the whole of what the build-smoke gate decides:
+;; it turns a pass/fail boolean into a process exit status. This body returns 0
+;; unconditionally, so a failing build reports success and CI passes over it.
+;;
+;; A gate that fails open is worse than an absent gate, because the absent one
+;; does not claim to have decided anything. TOOL-ORACLE-1 exists for exactly
+;; this: once a port's reference is deleted, nothing else catches it.
+;;
+;; THE RANGE CLAUSE ALONE DOES NOT CATCH THIS. `0` satisfies (>= result 0) and
+;; (<= result 255). The second implication is what refutes it, which is why the
+;; contract states the policy and not merely the range.
+;;
+;; MEASURED at v0.16.2: REFUTED. The unmutated sibling verifies SAFE.
+(def status-of [passed: bool] -> int
+  (post (and (and (>= result 0) (<= result 255))
+             (and (=> passed       (= result 0))
+                  (=> (not passed) (= result 1)))))
+  0)
