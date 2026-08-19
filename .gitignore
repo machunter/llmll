@@ -45,6 +45,11 @@ tools/doc-path-lint/**/*.verified.json
 # Same for the build-smoke port's adjudicator: TOOL-RFC-006 §7 states the
 # sidecar is gitignored, so the trust comes from running verify in the job.
 tools/build-smoke/**/*.verified.json
+# TOOL-ORACLE-1 gave these two ports an adjudicator at 2026-08-19, so they now
+# drop sidecars like the four above. Same policy: the trust comes from the job
+# running verify, not from a committed sidecar.
+tools/refute-crux/**/*.verified.json
+tools/doc-claims/**/*.verified.json
 # The doc-path-lint port captures `git ls-files` through a file, because
 # wasi.proc.run writes a child's stdout to a path rather than returning it.
 pathlint-all.txt

@@ -1,0 +1,38 @@
+;; The verified core of this port's exit status.
+;;
+;; TOOL-ORACLE-1: this port had NO contract at all, so `--strict-verified-core`
+;; decided nothing about it and its only instrument was a cover whose reference
+;; is deleted. What survived was the port agreeing with itself.
+;;
+;; WHY THIS IS ITS OWN MODULE. A `def` cannot call a sibling `def`: the failure
+;; is at check time, before verification, and no ordering escapes it. Cross-module
+;; calls to an already-verified callee do work, leaf-first. The split is forced by
+;; the language and the port imports this. Same shape as tools/version-gate/,
+;; tools/doc-path-lint/ and tools/build-smoke/.
+;;
+;; WHAT IS NOT PROVED HERE, said plainly so the file is not mistaken for more
+;; than it is. Every recognizer in the port is a bool- or string-valued body over
+;; string comparison and falls to erBodyFallback (STRLIT-BODY-1). The port's
+;; ORDER of checks is not proved either. What is proved is the exit status.
+;;
+;; THE RANGE IS WHAT STOPS A SILENT SUCCESS. POSIX truncates a status to the low
+;; 8 bits, so an unclamped 256 exits 0 and reports a PASS over a rejected tree.
+;; The three implications pin the policy and not merely the range, because a body
+;; clamping the wrong way satisfies the range and still fails open.
+;;
+;; MEASURED at v0.16.2: verifies SAFE, reports `body-faithful: status-of`. The
+;; refuting case is committed as crux-status-unclamped.llmll and asserted to FAIL.
+
+(module adjudicate
+
+  ;; `c` is the code the console loop carries out of its Done state. The port
+  ;; projects it and passes it here as a scalar: a `:status` function is a
+  ;; strict-core `def` and may call only body-faithful functions, while the
+  ;; port's own projection is a `def-shell` over a composite state and falls
+  ;; back (PROC-BOUNDARY-1). Taking an int keeps the range obligation PROVED.
+  (def status-of [c: int] -> int
+    (post (and (and (>= result 0) (<= result 255))
+               (and (=> (< c 0) (= result 1))
+                    (and (=> (> c 255) (= result 255))
+                         (=> (and (>= c 0) (<= c 255)) (= result c))))))
+    (if (< c 0) 1 (if (> c 255) 255 c))))

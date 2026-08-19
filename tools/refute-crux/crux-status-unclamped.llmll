@@ -1,0 +1,19 @@
+(module crux-status-unclamped)
+;; THE SILENT SUCCESS. `status-of` turns this gate's exit code into the process
+;; status CI reads. This body returns it unclamped.
+;;
+;; POSIX truncates an exit status to the low 8 bits, so a code of 256 exits 0 and
+;; CI reads a PASS over a tree the gate rejected. There is no error line, because
+;; the gate believes it succeeded. The shipped clamp fails the other way.
+;;
+;; THE RANGE CLAUSE CATCHES THIS ONE. A body clamping in the WRONG direction
+;; would satisfy the range and be caught by the implications instead. Writing both
+;; is what makes the contract discriminate rather than merely pass.
+;;
+;; MEASURED at v0.16.2: REFUTED. The unmutated sibling verifies SAFE.
+(def status-of [c: int] -> int
+  (post (and (and (>= result 0) (<= result 255))
+             (and (=> (< c 0) (= result 1))
+                  (and (=> (> c 255) (= result 255))
+                       (=> (and (>= c 0) (<= c 255)) (= result c))))))
+  c)

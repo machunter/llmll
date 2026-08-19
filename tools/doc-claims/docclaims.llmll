@@ -51,6 +51,14 @@
   (import wasi.fs (capability read-write "/"))
   (import wasi.proc (capability run :deterministic false))
 
+  ;; TOOL-ORACLE-1: the exit-status clamp moved to its own module so it can carry
+  ;; a contract. A `def` cannot call a sibling `def`, so a proved core is a
+  ;; separate module the port imports. See adjudicate.llmll for what is proved
+  ;; and, more importantly, for what is not.
+  (import adjudicate)
+  (open adjudicate)
+
+
   ;; ---- helpers over Json ---------------------------------------------------
   ;;
   ;; Same discipline as the refute-crux port: every scalar in the run record
@@ -531,9 +539,13 @@
 
   ;; Clamped, failing in the safe direction: POSIX truncates to the low 8 bits,
   ;; so an unchecked 256 would exit 0 and report success.
+  ;;
+  ;; THE DECISION MOVED OUT AND THE PROJECTION STAYED. `status-of` in
+  ;; adjudicate.llmll carries the contract; this function only projects the code
+  ;; out of the composite state, because a `def-shell` over a composite falls
+  ;; back and would take the range obligation down with it (PROC-BOUNDARY-1).
   (def-shell dc-status [s: (Rc, Ctl)] -> int
-    (let [(c (done-code s))]
-      (if (< c 0) 1 (if (> c 255) 255 c))))
+    (status-of (done-code s)))
 
   (def-main
     :mode    console

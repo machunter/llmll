@@ -240,6 +240,15 @@ jobs:
         run: |
           set -euo pipefail
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          # TOOL-ORACLE-1. This port had NO contract at all until 2026-08-19, so
+          # --strict-verified-core decided nothing about it and its cover lost its
+          # reference at v0.14.92. Both halves run: the core must verify, and the
+          # crux must FAIL. Verifying only the correct core is a green light.
+          ( cd tools/doc-claims && "$SUBJECT" verify adjudicate.llmll )
+          if ( cd tools/doc-claims && "$SUBJECT" verify crux-status-unclamped.llmll ) >/dev/null 2>&1; then
+            echo "FAIL: crux-status-unclamped.llmll VERIFIED. status-of stopped refuting the unclamped exit status."
+            exit 1
+          fi
           OUT="$RUNNER_TEMP/docclaims-build"
           ( cd tools/doc-claims && "$SUBJECT" build docclaims.llmll -o "$OUT" )
           # Ask stack, do not search; see the archive gate step above and
@@ -544,6 +553,15 @@ jobs:
           set -euo pipefail
           ROOT="$PWD"
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          # TOOL-ORACLE-1. This port had NO contract at all until 2026-08-19, and
+          # its reference was deleted at v0.14.91, so its cover became a self-cover
+          # and what survived was the port agreeing with itself. Both halves run:
+          # the core must verify, and the crux must FAIL.
+          ( cd tools/refute-crux && "$SUBJECT" verify adjudicate.llmll )
+          if ( cd tools/refute-crux && "$SUBJECT" verify crux-status-unclamped.llmll ) >/dev/null 2>&1; then
+            echo "FAIL: crux-status-unclamped.llmll VERIFIED. status-of stopped refuting the unclamped exit status."
+            exit 1
+          fi
           OUT="$RUNNER_TEMP/refutecrux"
           # $SUBJECT and NOT `stack exec llmll --`, which is what this line used
           # to say and what made its first run fail. `stack exec` resolves
