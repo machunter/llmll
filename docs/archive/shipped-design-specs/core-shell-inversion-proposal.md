@@ -162,6 +162,13 @@ If neither predicate holds, the typechecker emits a *core-membership-violation* 
 | `sha1`, `hmac-sha1` (crypto stubs per §13.11) | no | **NOT admitted** — `asserted-with-stub-backend` per the v0.10.6 CRYPTO-1 disclosure; verifier should not admit programs whose `def`-form claim of `verified` rests on a known-incorrect runtime implementation |
 | `?delegate` / `?delegate-async` / `?scaffold` resolved values | no | **NOT admitted** by default; post-resolution re-typecheck per §3.5 Rev 2 |
 
+> **Correction, 2026-08-19 (`CRYPTO-2`).** This document is archived and is left otherwise unchanged
+> as a record. The `sha1` / `hmac-sha1` row above cites `asserted-with-stub-backend` as though it
+> were a trust-report channel. That channel was never implemented and has been retracted from
+> `LLMLL.md` §13.11. The row's verdict is unaffected: what holds is the ordinary `asserted` cap on
+> any function whose trust closure reaches `sha1` or `hmac-sha1`, which is sufficient to exclude
+> those builtins from the admitted set. Read the citation as naming that cap, not a separate channel.
+
 The `builtinEnv` admission leg covers `EApp` nodes in contract clause expressions (`pre`/`post`) as well as function bodies, because `withCoreMode` wraps the full `checkStatement (SDef …)` block including contract-clause `inferExpr` calls ([`TypeCheck.hs:707–729`](../../compiler/src/LLMLL/TypeCheck.hs#L707-L729)).
 
 The whitelist is settled by language-team via a separate REF-META-3-adjacent settlement (the predicate WF rule's *trusted-axiomatization* sub-rule); the table above is the v0.11 starting set. Engineer-audit confirms each row by inspecting the `LLMLL.md §13` axiomatization and the codegen lowering; entries that pass audit ship in the v0.11 trusted prelude.
