@@ -1483,9 +1483,23 @@ emitParamBind aliases freshBid addBind (n, t) = do
   -- SORT stays 'byteArraySort':
   -- dropping the whole clause would fall through to typeToSort's conservative
   -- FQInt default and emit ill-sorted `bytesLen` applications.
-  let reft = case bytesLenOf aliases t of
+  -- MATCH-TERM-EQ-1: a pure nullary enum is int-tag encoded to its declaration
+  -- index (buildCtorTagMap, @zip [0..] ctors@), so its values occupy 0..n-1.
+  -- The binder used to carry FQTrue, which left the scrutinee an unconstrained
+  -- int; the LAST match arm's guard is the negation of its siblings and so could
+  -- not pin it, and a post relating result to the scrutinee VARIABLE was refuted
+  -- on a correct body. The domain is a TYPE fact, not a caller obligation (the
+  -- checker rejects an int at an enum position, and rejects a constructor name
+  -- shared across type definitions), which is what distinguishes it from the
+  -- bytes[n] length that SAFE-ARG moved out of this reft. It enters as an
+  -- environment ANTECEDENT, so it can only weaken an obligation, never
+  -- strengthen one.
+  let tagDomain n = FQAnd [ FQBinPred FQGe (FQVar "v") (FQLit 0)
+                          , FQBinPred FQLe (FQVar "v") (FQLit (fromIntegral n - 1)) ]
+      reft = case bytesLenOf aliases t of
         Just _   -> FQReft "v" byteArraySort FQTrue
-        Nothing  -> FQReft "v" (typeToSort (resolveAliasTy aliases t)) FQTrue
+        Nothing  -> FQReft "v" (typeToSort (resolveAliasTy aliases t))
+                      (maybe FQTrue tagDomain (nullaryEnumArity aliases t))
       b = FQBind bid n reft
   addBind b
   return b

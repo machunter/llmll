@@ -1,0 +1,9 @@
+;; MATCH-TERM-EQ-1 fixture 1 of 3 — THE CONTROL.
+;; A post relating `result` to the scrutinee VARIABLE, discharged by a direct body.
+;; This was SAFE before the fix and must stay SAFE after it. It is what shows the
+;; matched sibling agrees with something, rather than merely no longer complaining.
+(type Level (| Lo) (| Mid) (| Hi))
+
+(def id-direct [a: Level] -> Level
+  (post (= result a))
+  a)

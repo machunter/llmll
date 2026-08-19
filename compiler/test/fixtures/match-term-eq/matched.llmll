@@ -1,0 +1,10 @@
+;; MATCH-TERM-EQ-1 fixture 2 of 3 — THE SUBJECT.
+;; Semantically identical to direct.llmll and carrying the identical post clause.
+;; REFUTED before the fix with "else-branch does not satisfy postcondition": the
+;; param binder was { v : int | true }, so the last arm's negation guard could not
+;; pin the scrutinee and a=7 refuted a correct body. Must be SAFE after the fix.
+(type Level (| Lo) (| Mid) (| Hi))
+
+(def id-match [a: Level] -> Level
+  (post (= result a))
+  (match a ((Lo) Lo) ((Mid) Mid) ((Hi) Hi)))

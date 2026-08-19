@@ -17077,6 +17077,47 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "json-ast-versioning" src `shouldBe` False
 
   -- -----------------------------------------------------------------------
+  -- MATCH-TERM-EQ-1: a pure nullary enum's param binder carries its int-tag
+  -- domain (0..n-1). Without it the binder was { v : int | true }, the LAST
+  -- match arm's guard is the negation of its siblings and could not pin the
+  -- scrutinee, and a post relating result to the scrutinee VARIABLE was refuted
+  -- on a correct body. Fixtures: test/fixtures/match-term-eq/.
+  -- -----------------------------------------------------------------------
+  describe "MATCH-TERM-EQ-1: nullary-enum tag domain on the param binder" $ do
+    let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        level3 = "(type Level (| Lo) (| Mid) (| Hi))\n"
+
+    it "MTE-1: a 3-constructor nullary enum param binds at 0..2" $ do
+      er <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) a)")
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
+
+    it "MTE-2: a 2-constructor nullary enum binds at 0..1 (arity is read, not assumed)" $ do
+      er <- emitSrc "(type Pair2 (| P) (| Q))\n(def-shell f [a: Pair2] -> Pair2 (post (= result a)) a)"
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 1) }"
+
+    it "MTE-3: a 5-constructor nullary enum binds at 0..4" $ do
+      er <- emitSrc "(type Five (| A) (| B) (| C) (| D) (| E))\n(def-shell f [a: Five] -> Five (post (= result a)) a)"
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 4) }"
+
+    it "MTE-4: a plain int param is untouched (guards against an over-broad gate)" $ do
+      er <- emitSrc "(def-shell g [x: int] -> int (post (>= result 0)) x)"
+      erFQText er `shouldSatisfy`    T.isInfixOf "x : { v : int | true }"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "x : { v : int | (v >= 0) && (v <="
+
+    it "MTE-5: a payload-bearing sum param gets no tag domain (it is not int-like)" $ do
+      er <- emitSrc "(type Outcome (| Accepted int) (| Rejected int))\n(def-shell h [o: Outcome] -> int (post (>= result 0)) 0)"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "o : { v : int | (v >= 0) && (v <="
+
+    it "MTE-6: the direct and matched siblings both stay body-faithful (the pair, not the subject alone)" $ do
+      direct  <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) a)")
+      matched <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) (match a ((Lo) Lo) ((Mid) Mid) ((Hi) Hi)))")
+      erBodyFaithfulFns direct  `shouldSatisfy` elem "f"
+      erBodyFaithfulFns matched `shouldSatisfy` elem "f"
+      erFQText matched `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec

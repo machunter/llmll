@@ -202,6 +202,7 @@ module LLMLL.TypeAdmissibility
   , isBoolLike
   , isStrLike
   , isScalarLike
+  , nullaryEnumArity
     -- * Fact-injection type gates
   , bytesLenOf
   , boolValuedMapTy
@@ -434,6 +435,41 @@ isStrLike am = go Set.empty
 -- pure for the int-only decisions (measure carriers, etc.).
 isScalarLike :: AliasMap -> Type -> Bool
 isScalarLike am t = isIntLike am t || isBoolLike am t
+
+-- | MATCH-TERM-EQ-1: the constructor count of a PURE NULLARY enum, after alias
+-- resolution. 'Nothing' for every other type, including a payload-bearing sum.
+--
+-- The int-tag encoding maps each constructor to its declaration index
+-- ('LLMLL.FixpointEmit.buildCtorTagMap' uses @zip [0..] ctors@ over the same
+-- list), so a value of an n-constructor nullary enum occupies exactly @0..n-1@.
+-- 'LLMLL.FixpointEmit.emitParamBind' reads this to put that domain on the param
+-- binder. Without it the binder is @{ v : int | true }@ and the LAST match arm,
+-- whose guard is the negation of its siblings, cannot pin the scrutinee: a post
+-- relating @result@ to the scrutinee VARIABLE is then refuted on a correct body.
+--
+-- The nullary test is deliberately the same one 'isIntLike' applies at its
+-- 'TSumType' arm. That is what decides membership in the emitter's binder set in
+-- the first place, so the gate and the fact stay derived from one predicate
+-- rather than from two that can drift apart.
+--
+-- This is NOT the 'bytesLenOf' situation. A @bytes[n]@ length is a caller
+-- obligation and rode this same binder until SAFE-ARG moved it to the effective
+-- precondition. A nullary enum's domain is guaranteed by the type checker
+-- instead: it rejects an int at an enum-typed position, and it rejects a
+-- constructor name shared across two type definitions, so no value can carry an
+-- out-of-range tag.
+nullaryEnumArity :: AliasMap -> Type -> Maybe Int
+nullaryEnumArity am = go Set.empty
+  where
+    go seen (TDependent _ base _) = go seen base
+    go seen (TCustom n)
+      | n `Set.member` seen = Nothing                        -- Norm-Stuck: non-contractive
+      | otherwise           = Map.lookup n am >>= go (Set.insert n seen)
+    go _    (TSumType ctors)
+      | all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
+      , not (null ctors)    = Just (length ctors)
+      | otherwise           = Nothing
+    go _    _               = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Fact-injection type gates

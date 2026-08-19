@@ -1,0 +1,9 @@
+;; MATCH-TERM-EQ-1 fixture 3 of 3 — THE REFUTING SIBLING.
+;; The Mid arm returns Hi. Same signature, same post clause as matched.llmll.
+;; Must be REFUTED after the fix. Without this file the pair above proves only
+;; that the verifier stopped complaining, not that the contract still discriminates.
+(type Level (| Lo) (| Mid) (| Hi))
+
+(def id-match [a: Level] -> Level
+  (post (= result a))
+  (match a ((Lo) Lo) ((Mid) Hi) ((Hi) Hi)))
