@@ -1131,12 +1131,21 @@ if [ -f "$VG_SRC" ]; then
     fail "the LLMLL version gate's proved core (adjudicate.llmll) does not verify."
   fi
 
-  if ( cd "$REPO_ROOT/tools/version-gate" \
-         && "${LLMLL_CMD[@]}" verify crux-status-unclamped.llmll ) \
-       > "$OUTDIR/.versiongate-crux.log" 2>&1; then
-    fail "crux-status-unclamped.llmll VERIFIED, and it must be REFUTED. The
-  contract on status-of stopped catching an unclamped exit status, so a code of
-  256 would truncate to 0 under POSIX and report a PASS over a rejected tree."
+  # THE GUARD DEMANDS POSITIVE EVIDENCE, and the first version of it did not.
+  # Written as "if verify SUCCEEDS then fail", a MISSING SOLVER made it pass:
+  # `llmll verify` exits 3 with "SOLVER NOT FOUND -- NOTHING WAS PROVEN", the
+  # guard read that non-zero exit as a refutation, and nothing had been proven.
+  # A parse error and a deleted crux file exit non-zero too. So the test is the
+  # solver's own refutation line, not the exit status.
+  ( cd "$REPO_ROOT/tools/version-gate" \
+      && "${LLMLL_CMD[@]}" verify crux-status-unclamped.llmll ) \
+    > "$OUTDIR/.versiongate-crux.log" 2>&1 || true
+  if ! grep -q "body verification of .* failed" "$OUTDIR/.versiongate-crux.log"; then
+    cat "$OUTDIR/.versiongate-crux.log" >&2
+    fail "crux-status-unclamped.llmll produced NO REFUTATION, and it must be
+  refuted. Either the contract on status-of stopped catching an unclamped exit
+  status (a code of 256 truncates to 0 under POSIX and reports a PASS over a
+  rejected tree), or the check never ran. The log above says which."
   fi
 
   if ! python3 "$REPO_ROOT/scripts/version_gate_cover.py" --gate "$VG_EXE" \
