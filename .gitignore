@@ -54,6 +54,10 @@ tools/doc-claims/**/*.verified.json
 # wasi.proc.run writes a child's stdout to a path rather than returning it.
 pathlint-all.txt
 pathlint-md.txt
+# The doc-claims port captures a child's two streams through ONE file
+# (PROC-MERGE-1). The cover gives `--work` a scratch directory, but an
+# interactive run from the repo root drops the capture here.
+capture.txt
 
 # Console-mode programs write <module>.event-log.jsonl into their working
 # directory (LLMLL.md §10a). The covers now run them from scratch directories,

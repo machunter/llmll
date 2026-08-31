@@ -82,11 +82,12 @@ the guard. It stops a row in a different section from entering the count.
 
 ---
 
-## 1. State, measured 2026-08-19
+## 1. State, measured 2026-08-29
 
-**THIS SECTION WAS MEASURED AGAIN ON 2026-08-19.** The 2026-08-17 measurement
-came before the `v0.16.1` and `v0.16.2` releases. Read the date and the commit
-count together, and do not read the date alone.
+**THIS SECTION WAS MEASURED AGAIN ON 2026-08-29.** No commit came after
+`07147f9`. Ten days passed and the tree did not move. So four of the eight
+rows keep their 2026-08-19 values, and the CI row does not. Read the date and
+the commit count together, and do not read the date alone.
 
 **THE 2026-08-17 TABLE GAVE THE RIGHT NUMBER AGAINST THE WRONG TAG, and that
 is the failure mode to watch.** It said eight unreleased commits, measured from
@@ -101,10 +102,10 @@ column, and do not read the value alone.
 | Branch | `main` | `git branch --show-current` |
 | Commits ahead of `origin/main` | **0**, and all are pushed | `git rev-list --count origin/main..HEAD` |
 | Last tag | **`v0.16.2`** | `git describe --tags --abbrev=0` |
-| Unreleased commits | **9**, counting the commit that writes this table | `git rev-list --count v0.16.2..HEAD` |
+| Unreleased commits | **9**, counting `07147f9`, which writes this table | `git rev-list --count v0.16.2..HEAD` |
 | Version banner | `v0.16.2` | `head -1 LLMLL.md` |
 | Working tree | clean | `git status --porcelain` |
-| CI on `main` | **run 32272901843, success**, on commit `a6fddc8` | `gh run list --branch main` |
+| CI on `main` | **run 32276019729, success**, on commit `07147f9`, the tip | `gh run list --branch main` |
 | Open roadmap rows | **43** | the census command in section 0 |
 
 **THE TAG DEBT IS ZERO.** The tags `v0.16.0`, `v0.16.1` and `v0.16.2` exist and
@@ -685,3 +686,11 @@ They are not re-verified. Test one before you depend on it.**
   `HConflictResolution` reach the HOLE-STATUS-SIBLING catch-all with no test.**
 - **DRIVER-LL 4d is parked.** Sub-phase 4f, program unification and stage A
   stay deferred. Five of the eight remaining callerless rows belong to 4d.
+- **The `C5 opt-in spec round-trip` job hung once, and the cause is not
+  known.** Run 32274264562 on commit `d650029` stopped at the 6-hour maximum
+  and GitHub cancelled it. The `C1-C4` job in that same run passed in 35
+  seconds. The next push ran `C5` on commit `07147f9`, and it passed in 21
+  minutes. **The commit has no defect. Do not read the cancelled run as a
+  failed grade of `d650029`.** The job usually takes about 20 minutes, so the
+  hang is an increase of at least eighteen times. No record held this event
+  before 2026-08-29.
