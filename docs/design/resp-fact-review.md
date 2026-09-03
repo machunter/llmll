@@ -2,7 +2,7 @@
 name: resp-fact-review
 title: "RESP-FACT-1 professor review: the match-arm binder does not know which command answered"
 status: "Rev 1 review, standalone. Verdict: REJECT the Rev 1 shape. Rev 2 direction given in Recommendation."
-date: 2026-08-29
+date: 2026-08-31
 author: professor
 consumers: [language-team, user, compiler-engineer]
 reviews: docs/design/resp-fact-proposal.md
