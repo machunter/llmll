@@ -1780,9 +1780,15 @@ that payload out of the event log. That cost is accepted deliberately and is tra
 `REPLAY-INJECT` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 > [!NOTE]
-> Matching on `Response` is outside the body-faithful verification fragment, exactly as matching on
-> any payload-carrying sum type is (§5.3.5). A `def` that matches on it falls back to contract-only
-> verification. This is a pre-existing Σ_auto boundary rather than anything specific to `Response`.
+> Matching on `Response` sits under the §5.3.5 row for an n-arm admissible sum, so it is
+> body-faithful or contract-only depending on the arms the match names. A `def` or `def-shell` is
+> verified body-faithfully when every arm it names binds its payload to a name and no named arm
+> carries a payload sort outside the fragment. Two things return it to contract-only verification:
+> naming the `RList` arm, whose `list[string]` payload is not admissible, and writing a payload as
+> `_` instead of binding it. Because exhaustiveness is type-checked, a body-faithful `Response`
+> match names the arms it reads and covers `RList` with a wildcard arm. Neither trigger is specific
+> to `Response`: both are the pre-existing Σ_auto boundary of §5.3.5, and an identically shaped user
+> sum behaves the same way.
 
 ## 10. Compilation & Execution Pipeline
 
