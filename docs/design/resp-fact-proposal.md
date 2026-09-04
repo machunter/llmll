@@ -1,8 +1,8 @@
 ---
 name: resp-fact-proposal
 title: "RESP-FACT-1: an effect's result carries a proved property to its caller"
-status: "Rev 3, PROPOSED. Rev 1 was REJECTED at professor round 1. Round 2 accepted the direction and refused the §5.2 issuing rule. Rev 3 restates the collection over pair-RETURNING defs, withdraws rule 3 against a measurement, and corrects the positive witness. Not scheduled."
-date: 2026-09-04
+status: "Rev 4, PROPOSED. Rounds 1 to 3 are folded. Rev 4 states that an unreadable def withholds every binding in its module, makes that a hard error, and excludes the transparent constructor that made the Rev 3 rule bind nothing. Not scheduled."
+date: 2026-09-04  # Rev 4
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
 reviewed_by: docs/design/resp-fact-review.md
@@ -380,34 +380,74 @@ the returned pair determines its command.
 
 **The collection runs over the defs that RETURN the pair, not over the expressions that build it.**
 Rev 2 collected "every site that builds a `(State, Command)` pair". Professor round 2 refuted that
-against the measured consumer: `docclaims.llmll` has eight defs returning the pair
-(`:369`, `:375`, `:395`, `:407`, `:420`, `:426`, `:433`, plus `dc-init` at `:497`) and only two
-expressions that build one. `go` (`:273`) builds every pair in the program out of its own
+against the measured consumer. **The census is thirteen defs, and both earlier counts were wrong.**
+`docclaims.llmll` declares thirteen defs whose return type is `((Rc, Ctl), Command)`: `go` (`:272`),
+`finish` (`:369`), `skip` (`:375`), `boot-step` (`:395`), `probe-step` (`:407`), `listing-step`
+(`:420`), `next-fixture` (`:426`), `readfix-step` (`:433`), `ran-step` (`:453`), `readout-step`
+(`:456`), `score` (`:489`), `dc-init` (`:496`) and `dc-step` (`:506`). Only two of them build a pair
+directly. Professor round 3 said eight, from a truncated search, and its table omitted `ran-step`,
+`readout-step`, `score` and `dc-step`. That count is corrected here and routed back in §17. The
+omission does not change round 3's conclusion, because adding defs cannot remove a `⊥`. `go` (`:273`) builds every pair in the program out of its own
 parameters, so its command component is the variable `c`, and a rule reading build sites binds
 nothing at all. §1.4's own acceptance cell is written through `(go r (Listing) …)`, so Rev 2's test
 already assumed the rule reads call sites.
 
-Define `Sites(D)` for a def `D` whose declared return type is a `(σ, Command)` pair. Each element is
-a pair of a control tag and a builtin name. The definition is a structural recursion on `D`'s body.
+**A transparent constructor is excluded from the collection, and Rev 3 did not exclude it.** A
+pair-returning def whose tag component or command component is one of its own parameters builds a
+pair it does not choose. `go` (`:273`) is exactly that: its body is `(pair (pair r p) c)` over the
+parameters `p` and `c`. Under Rev 3's text `go` is itself a pair-returning def, so the collection
+analyzed it directly, found a parameter where it wanted a constructor, and returned `⊥`. Professor
+round 3 measured what that costs and Rev 4 fixes it: a transparent constructor contributes **no
+sites of its own** and is read only through the substitution row, at each of its call sites.
+
+Define `Sites(D)` for a def `D` whose declared return type is a `(σ, Command)` pair, and which is not
+a transparent constructor. Each element is a pair of a control tag and a builtin name. The definition
+is a structural recursion on `D`'s body, in an environment `ρ` that carries the let bindings in
+scope.
 
 | Body form | `Sites` |
 |---|---|
-| `(pair (pair _ T) C)`, with `T` a nullary constructor written in the source, and `C` either a builtin name or an application whose head is one | `{(T, head C)}` |
+| `(pair (pair _ T) C)`, with `T` a nullary constructor written in the source, and `C` either a builtin name, an application whose head is one, or a variable that `ρ` maps to either | `{(T, head C)}` |
 | `(if e a b)` | `Sites(a)` union `Sites(b)` |
 | `(match e (p₁ a₁) … (pₙ aₙ))` | the union of every `Sites(aᵢ)` |
-| `(let x e b)` | `Sites(b)` |
-| `(D' e₁ … eₙ)`, where `D'` also returns a `(σ, Command)` pair | `Sites(D')`, with each `eᵢ` substituted for `D'`'s parameter `i` |
+| `(let [(x₁ e₁) … (xₖ eₖ)] b)` | `Sites(b)`, in `ρ` extended by each `xᵢ` whose `eᵢ` is a builtin name or an application whose head is one |
+| `(D' e₁ … eₙ)`, where `D'` returns a `(σ, Command)` pair, transparent or not | `Sites(D')`, with each `eᵢ` substituted for `D'`'s parameter `i` |
 | any other form | `⊥` |
 
+Two rows changed from Rev 3. The `let` row now carries the surface form the language actually uses,
+a bracketed binding group (`docclaims.llmll:396`), and it propagates a binding whose right side is a
+command. Without that propagation, `(let [(c (wasi.fs.list p))] (go r (Listing) c))` reaches the pair
+row with a variable and yields `⊥`. The propagation is syntactic copy propagation over one form, so
+it terminates and it adds no analysis power beyond reading what the program wrote.
+
+**`⊥` withholds every binding in the module, and it is a hard error.** Rev 3 said only "No element is
+`⊥`" and professor round 3 found two readings of it. The local reading, where a `⊥` def contributes
+nothing and other defs still bind, is **unsound**: a `⊥` def is the one the analysis could not read,
+so it may pair the same tag with a different builtin. Rev 4 takes the module-global reading and
+states it.
+
 A tag `T` is **bound** to builtin `B` when both of these hold, over the union of `Sites(D)` for every
-pair-returning `D` in the module and over the `:init` pair.
+pair-returning `D` in the module that is not a transparent constructor, and over `Sites` of the
+`:init` expression.
 
 1. Every element carrying `T` carries the same `B`.
-2. No element is `⊥`.
+2. No `Sites` computation in that union returned `⊥`.
+
+**When rule 2 fails, the compiler reports an error and names the def.** It does not withhold the fact
+quietly. A module that declares no control-tag fact is unaffected, so the rule is opt-in per module.
+The quiet alternative fails in a way this project has already routed as a defect: §16 finding 2
+records a `def-shell` that downgrades silently where a `def` rejects loudly, and the issuing rule
+must not add a second instance of that shape. A withheld fact shows up as a refuted post in an
+unrelated def, with nothing naming the cause.
 
 Otherwise `T` is bound to nothing and no fact reaches a step preconditioned on it. Cell R-3 in §1.4
 tests rule 1, and because it is written through `go` it also tests that the collection reads call
-sites.
+sites through a transparent constructor.
+
+**`:init` is an expression and `Sites` applies to it.** `LLMLL.md:1533` declares `:init init-expr`
+and `:1555` requires only that it return a `(State, Command)` pair. The measured consumer writes
+`:init (dc-init)` (`docclaims.llmll:552`), which is a call and which the substitution row reads. An
+inline pair reaches the pair row. Anything else is `⊥` and rule 2 then fails.
 
 **Termination.** The substitution row follows the call graph of pair-returning defs. Require that
 subgraph to be acyclic, and treat a cycle as `⊥`. The measured consumer needs two hops:
@@ -551,11 +591,14 @@ name it. §10 records that constraint against the measured consumer.
    behaviour. This is the migration story: no corpus moves until a program adds a precondition.
    **Channel: spec is silent (intentional).**
 4. **A tag paired with a computed command.** The body does not match §5.2's pair row, so `Sites` is
-   `⊥` and rule 2 fails. The tag binds to nothing.
+   `⊥`. Under Rev 4 rule 2 then **fails with an error naming the def**, in a module that declares a
+   control-tag fact. A module that declares none is unaffected.
    A program that selects its command with an `if` inside the command position gets no fact.
    **Channel: type, §5.2.**
-5. **A control tag that is not an all-nullary enum.** `docclaims.llmll:260-268` is the measured
-   case: `Ctl` carries `(| Ending int)` and `(| Done int)`. `nullaryEnumArity`
+5. **A control tag that is not an all-nullary enum.** The rule is opt-in per module, so a program
+   that declares no fact sees no change. A program that declares one, and that still carries a
+   payload arm on the tag it pairs, gets the §5.2 error rather than a quiet withdrawal.
+   `docclaims.llmll:260-268` is the measured case: `Ctl` carries `(| Ending int)` and `(| Done int)`. `nullaryEnumArity`
    (`TypeAdmissibility.hs:461-472`) returns `Nothing` for a payload-bearing sum, and
    `clauseOverOpaqueSumParam` (`FixpointEmit.hs:1515-1526`) then treats the parameter as opaque and
    forces contract-only verification. **The one measured consumer does not qualify today.** §10
@@ -569,15 +612,25 @@ name it. §10 records that constraint against the measured consumer.
    **Channel: type, measured at `llmll 0.16.2`.**
 8. **A program with no `:init`.** The first response is `RNone`, so the start tag binds to nothing
    and no fact is granted on the first turn. **Channel: type, §5.2 and §5.4.**
-9. **A match shape that leaves the body-faithful fragment.** Two shapes do it, and a granted fact is
+9. **A transparent constructor.** `go` (`:273`) returns the pair and builds it from its parameters
+   `p` and `c`. It contributes no sites of its own and is read at its call sites. Under Rev 3 it was
+   `⊥`, and rule 2 then withheld every binding in the module, whatever else the program did.
+   **Channel: type, §5.2.**
+10. **Positive witness for the new error.** A module declares one control-tag fact, and it also holds
+    one pair-returning def whose body the table cannot read, for example a def that returns the pair
+    out of a `match` on a string. `Sites` for that def is `⊥`, rule 2 fails, and the compiler
+    **reports an error naming that def**. It does not verify with the fact withheld. This is the
+    firing case: without it the rule would be a guard that only ever stays quiet.
+    **Channel: type, §5.2.**
+11. **A match shape that leaves the body-faithful fragment.** Two shapes do it, and a granted fact is
    then unused rather than unsound. Writing a payload as `_`, as in `((RText _) 1)` instead of
    `((RText t) 1)`, downgrades the whole def: cell c11 against c10 isolates that to one token.
    Naming the `RList` arm does the same: cells c24, c25 and c28. In a `def` the first shape is
    rejected loudly; in a `def-shell` both are silent. Neither depends on a catch-all, which c27 and
    c28 refute in both directions. **Channel: spec is silent (gap, and §16 routes it).**
-10. **A wrong fact in the table.** The single unsound direction, identical in kind to a wrong arity
+12. **A wrong fact in the table.** The single unsound direction, identical in kind to a wrong arity
    in `nullaryEnumArity`. Tests must pin it, and §12 discloses it. **Channel: trust.**
-11. **A program whose own contract names the `Response` parameter by bare name.** Still falls back
+13. **A program whose own contract names the `Response` parameter by bare name.** Still falls back
     through `clauseOverOpaqueSumParam`. Not fixed here; this is Rev 1's P2 and it belongs with
     `MATCH-WIDEN`. **Channel: spec is silent (gap).**
 
@@ -628,6 +681,22 @@ rule does read them, so the program needs no rewrite for this reason. The cost m
 compiler instead: the rule is now a recursion over pair-returning defs with substitution at calls,
 and it needs an acyclicity condition. That is a larger piece of work than a check over literal
 build sites, and §14 says it has no existing home.
+
+**The acceptance target is concrete, and it is eight tags.** After the `Ctl` repair above, and with
+transparent constructors excluded, `Sites` over `docclaims.llmll` binds `Boot` to `wasi.proc.args`,
+`Probe` to `wasi.proc.run`, `Listing` to `wasi.fs.list`, `ReadFix` to `wasi.fs.read`, `Ran` to
+`wasi.proc.run`, `ReadOut` to `wasi.fs.read`, `Ending` to `wasi.io.stdout` and `Done` to
+`wasi.io.stdout`. Two tags may name one builtin; the rule constrains a tag to one builtin and not the
+other direction. That set is what an acceptance test asserts, and it replaces Rev 3's weaker
+statement that the delivered value is zero until a program changes.
+
+**A recursive step machine disables the feature for its module.** §5.2 treats a cycle among
+pair-returning defs as `⊥`, and `⊥` is now module-global, so one step function that loops by calling
+itself withholds every binding in that module and reports the error. Recursion is otherwise supported
+with a measure and a total-correctness discharge (`LLMLL.md` §4.2). The measured consumer has no such
+cycle: `listing-step` reaches `next-fixture`, which reaches `finish`, and the graph closes. Rev 4
+states the cost rather than hiding it in a termination note, because a program that adopts the
+feature must choose between the fact and a self-calling step.
 
 **`RList` gains nothing** (§7), and several open builtin rows deliver `RText`, which stays out.
 
@@ -710,21 +779,25 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
 
 ## 15. Risks
 
-1. **The issuing rule is a whole-module analysis, and its completeness rests on a measurement.**
+1. **One unreadable pair-returning def stops the feature for its whole module.** Verification
+   ergonomics. §5.2. `⊥` is module-global, by design and for soundness. The failure is now loud, so
+   a program learns which def to rewrite, but a module with one unanalyzable step gets no facts at
+   all until that def changes. **Effect: complicates. It is the price of the sound reading.**
+2. **The issuing rule is a whole-module analysis, and its completeness rests on a measurement.**
    Soundness. §5.2. The collection is module-local. It is complete only because an importing module
    cannot apply the tag's constructor, which cells c30 and c31 measure at `llmll 0.16.2`. That is a
    property of the current compiler and not a stated language guarantee, so a future change to
    constructor visibility would make the collection incomplete and let a fact reach an unbound tag.
    **Effect: blocks unless the property is pinned. Pin it with c30 and c31 in the gate, beside cell
    R-3, which tests rule 1.**
-2. **The fact and the codegen must land together.** Soundness. §11 item 2.
+3. **The fact and the codegen must land together.** Soundness. §11 item 2.
    **Effect: blocks. One commit, not two.**
-3. **Undisclosed assumed facts.** Trust. `TRUST-AXIOM`, and §12.
+4. **Undisclosed assumed facts.** Trust. `TRUST-AXIOM`, and §12.
    **Effect: complicates. Settle the granularity first.**
-4. **The delivered value is zero until a program changes.** Verification-ergonomics. §10.
+5. **The delivered value is zero until a program changes.** Verification-ergonomics. §10.
    **Effect: only matters at scale, and it makes the row hard to demonstrate. Pair it with the
    `docclaims` `Ctl` change so the first cell is real.**
-5. **The wildcard-payload cliff makes a granted fact silently inert.** Verification-ergonomics.
+6. **The wildcard-payload cliff makes a granted fact silently inert.** Verification-ergonomics.
    Edge case 8, cell c11. **Effect: complicates. §16 routes it.**
 6. **Rev 1's P2 stays open.** Spec-drift. A bare `Response` parameter in a clause still falls back.
    **Effect: complicates. Name it; do not imply it is fixed.**
@@ -792,6 +865,26 @@ granting module) is answered by **withdrawing rule 3**: the two-module witness t
 was built, and it shows a second module cannot produce the tag, so the completeness rule 3 asserted
 is already a property of the language. Finding 3 is fixed in §8. Finding 4 is accepted and moved
 into §14. Finding 5 is recorded in §10.
+
+**Professor round 3, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 3`). Verdict: accept
+the direction, do not send §5.2 to the engineer until `⊥` is decided. The round executed `Sites` by
+hand and found two readings, one unsound and one that binds nothing. Rev 4 answers all five findings:
+it states the module-global reading, makes the failure a hard error, adds the transparent-constructor
+exclusion, adds let copy propagation with the language's own binding form, and applies `Sites` to the
+`:init` expression.
+
+**One correction back to that round.** Its table says `docclaims.llmll` has eight pair-returning defs
+and lists them. The file has thirteen. The round missed `ran-step` (`:453`), `readout-step` (`:456`),
+`score` (`:489`) and `dc-step` (`:507`), and it did not count `go` (`:272`) itself. The conclusion is
+unaffected, because adding defs cannot remove a `⊥`, and one of the omitted facts strengthens it:
+`go` is a pair-returning def whose components are parameters, so under Rev 3 the module held a `⊥`
+that no program change could remove. §5.2 carries the corrected census.
+
+**Rev 4, 2026-09-04.** Excludes transparent constructors from the collection. States that `⊥` is
+module-global and reports an error naming the def. Adds copy propagation for a let-bound command and
+corrects the `let` form to the bracketed binding group. Applies `Sites` to the `:init` expression.
+Records the acceptance target in §10: eight tags bind on the measured consumer after the `Ctl`
+repair. Adds edge cases 9 and 10, the second of which is the positive witness for the new error.
 
 **Rev 3, 2026-09-04.** Restates the §5.2 collection over pair-returning defs, with substitution at
 call sites, an acyclicity condition, and the two-hop case the measured consumer needs. Withdraws
