@@ -1,8 +1,8 @@
 ---
 name: resp-fact-proposal
 title: "RESP-FACT-1: an effect's result carries a proved property to its caller"
-status: "Rev 5, SETTLED and READY FOR THE COMPILER-ENGINEER. Rounds 1 to 4 are folded. Rev 5 classifies a transparent constructor on the `Sites` result rather than on its syntax, which fixes the one item round 4 blocked on. Shipping still waits on `TRUST-AXIOM` granularity, per §11 prerequisite 3."
-date: 2026-09-04  # Rev 4
+status: "Rev 6, PROPOSED after professor round 5 and the compiler-engineer's plan. Rev 5's receiving rule admitted a false SAFE (cell R-4) and its completeness measurement missed `open` (cells R-5, R-6). Rev 6 adds the delivery rule (§5.3), the entry-module rule and the export condition (§5.2), folds the three cells, lowers `(Serve)` in the emitter instead of refusing it (§11), and states the premise's three disclosure cases (§12). Awaiting round 6 or user settlement. Shipping still waits on `TRUST-AXIOM` per §11 prerequisite 3."
+date: 2026-09-04  # Rev 6
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
 reviewed_by: docs/design/resp-fact-review.md
@@ -13,7 +13,9 @@ reviewed_by: docs/design/resp-fact-review.md
 **One line.** A builtin that establishes a property cannot hand it to the program, so the caller
 writes a runtime guard. Rev 1 attached the fact to the **match-arm binder** and the professor round
 refuted that: one arm carries the replies of many builtins. Rev 2 attaches the fact to the
-program's **own control tag**, which the program must prove it holds.
+program's **own control tag**, which the program must prove it holds. Rev 6 adds the half Rev 2 left
+implicit: the tag a step proves and the response it reads must both be the ones the harness delivered
+on the current turn (§5.3).
 
 ---
 
@@ -120,6 +122,90 @@ depends on it must be refuted. If the fact is granted, the implementation collec
 site and not all of them, and Rev 1's defect has reappeared at a new seam. An implementation that
 walks a single `def`, rather than the whole module, fails this cell.
 
+### 1.5 R-4: a delivered response reaches a step under a different tag
+
+Rev 5's receiving rule grants the fact to any def whose `pre` proves `(= p T)`. Nothing ties `p` or
+`x` to the current turn. This cell satisfies every Rev 5 rule and reaches a false SAFE.
+
+```lisp
+(type Ctl (| Probe) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+;; Ran is BOUND to wasi.http.response: probe-step is its only producer.
+(def-shell h [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+;; outer runs under Probe, whose reply is wasi.proc.run's exit code, and
+;; hands that reply to h with a tag it wrote itself.
+(def-shell outer [q: Ctl x: Response] -> int
+  (pre (= q Probe))
+  (post (>= result 100))
+  (let [(t Ran)] (h t x)))
+(def-shell probe-step [r: int x: Response] -> ((int, Ctl), Command)
+  (go (outer Probe x) Ran (wasi.http.response 200 "")))
+;; :init pairs Probe with (wasi.proc.run "/bin/sh" ["-c" "exit 1"] ...), and
+;; step dispatches on (second s). Full file: resp-fact-implementation-plan.md, appendix.
+```
+
+**What running it shows.** At HEAD `verify` refutes `h` and nothing else, so `outer`'s call-pre
+`(= t Ran)` discharges through the let equality. Under Rev 5, `Probe` binds to `wasi.proc.run`,
+`Ran` binds to `wasi.http.response`, and `h` receives `n >= 100` on its `RCode` binder. `h` then
+verifies. At runtime the first reply is `RCode 1`, `outer` passes it to `h`, and `h` returns 1.
+**A verified verdict stands over a false post.** The delta is the one granted fact. A constructed
+value, `(h Ran (RCode 5))`, is the same defect: `RCode` is a callable value (`TypeCheck.hs:292-300`)
+and that file checks, verifies and builds (c42). §5.3 adds the rule that refuses both.
+
+### 1.6 R-5: `open` puts the tag constructor in an importer's expression position
+
+Rev 5 §5.2 said a second module cannot produce the tag and cannot write the precondition. Cells c30,
+c31 and c33 measured that without `open`. With it, both halves cross.
+
+```lisp
+;; lib.llmll
+(type Ctl (| Boot) (| Ran))
+(def-shell mk-lib [] -> Ctl Ran)
+```
+
+```lisp
+;; main.llmll
+(import lib)
+(open lib)
+(def-shell mk [] -> Ctl Ran)
+(def-shell mk2 [] -> Ctl (Ran))
+(def-shell recv [p: Ctl] -> int
+  (pre (= p Ran))
+  (post (= result 0))
+  0)
+```
+
+**What running it shows.** `llmll check` passes. `llmll verify` reports `recv` body-faithful and
+SAFE. `llmll build` passes. `Module.hs:274-283` exports constructors as values under the same
+`(export …)` filter as functions, and `TypeCheck.hs:1748-1752` injects opened exports as bare names.
+So a library-declared tag type is producible and preconditionable wherever the library is opened.
+
+### 1.7 R-6: a program module is importable, and an importer can replace its command
+
+The engineer's plan proposed an entry-module rule and argued that no module can import the entry
+module without a cycle. Professor round 5 refuted the argument with this cell.
+
+```lisp
+;; amain.llmll: Ctl, go, a step a-step, and a console def-main. No export list.
+;; bmain.llmll:
+(import amain)
+(open amain)
+(def-shell b-step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (pair (first (a-step s input x))
+        (wasi.proc.run "/bin/true" [] "." "/dev/null" "/dev/null" 5 "/dev/null")))
+```
+
+**What running it shows.** `bmain` checks, verifies SAFE and builds. It keeps the tag `a-step`
+set and replaces the command, so on the next turn the harness delivers `wasi.proc.run`'s reply
+under `amain`'s tag. If `amain` held a fact-requesting step reached from `a-step`, that step would
+run on a reply its fact does not describe, and `amain`'s sidecar would say verified. `bmain`
+requests no fact, so an analysis that is opt-in per module is inert there. The condition that
+closes this is on `amain`'s exports, and §5.2 states it.
+
 ---
 
 ## 2. What was measured, at `llmll 0.16.2`
@@ -157,6 +243,16 @@ correct body-faithful verdict is a refutation. A `SAFE` line therefore reports a
 | c31 | c30 as a `def-shell` | n/a | `check` **passes with a warning**; `llmll build` **fails** with the same text as an error |
 | c32 | an importing module takes the tag type as a parameter and matches on it | n/a | **checks clean**. Patterns cross the module boundary |
 | c33 | an importing module writes `(pre (= p Ran))` on that parameter | n/a | **`error: unbound variable 'Ran'`**. A contract clause is expression position, so the receiving side is module-local |
+| c34 | `def-shell` returning `((int, Ctl), Command)`, with a `post` | n/a | **body-fallback** (`sigPairUnsafe`, `FixpointEmit.hs:2508-2513`): `Command` is not sortable |
+| c35 | an importing module writes `(open lib)`, then `Ran`, `(Ran)` and `(pre (= p Ran))` | n/a | **checks, verifies SAFE, builds** (R-5) |
+| c36 | a module imports and opens a `def-main` module, wraps its step, replaces the command | n/a | **checks, verifies SAFE, builds** (R-6) |
+| c37 | `(export)` with no names | n/a | **parses** (`Parser.hs:420-427`, `many pIdent`) |
+| c38 | a caller passes a literal tag, `(h Ran x)`, to a def with `(pre (= p Ran))` | n/a | **liquid-fixpoint crash**: "RHS without single conjunct" on the closed-true `(1 = 1)` |
+| c39 | `(let [(p (second s))] (match p …))` over a pair parameter | n/a | **liquid-fixpoint crash**: "Constraint with free vars [s]" |
+| c40 | a body-faithful dispatcher passes `(ctl-of s)` to a tag-preconditioned def | n/a | **liquid-fixpoint crash**: free call-result binder |
+| c41 | a dispatcher takes `p: Ctl` as a parameter and passes it bare inside its `((Ran) …)` arm | n/a | **body-faithful**, `call-pre` emitted, SAFE |
+| c42 | a `def-shell` writes `(RCode 5)` and passes it to a `Response` parameter | n/a | **checks, verifies, builds** |
+| c43 | the generated `data Response` | n/a | `RCode Integer` (`CodegenHs.hs:479-482`): the pass-through does not wrap |
 
 Four results decide this proposal.
 
@@ -191,6 +287,10 @@ Four results decide this proposal.
    `call-pre obligations: dispatch`).
 
 Together those four say the seam Rev 2 needs is shipped. Only the fact is missing.
+
+Cells c34 to c43 were added at Rev 6. Three of them decide the receiving side: c35 and c36 refute the
+module-local completeness claim, and c42 shows a `Response` value is constructible. c34 and c38 to c41
+bound the shapes a program can write today, and §10 and §16 carry them.
 
 ### 2.2 The c10 reconciliation
 
@@ -372,6 +472,11 @@ and the caller proves it. Write the constructor **bare** in the clause. §11 say
 The JSON-AST does not change. The fact is compiler-side, the tag is an ordinary parameter, and the
 precondition is an ordinary `pre`.
 
+**A fact request, defined (Rev 6).** A def holds a fact request when its `pre` has a conjunct
+`(= p T)` or `(= T p)`, `p` is a parameter whose type is a sum declared in this module, `T` is a
+constructor of that sum, and the def has a parameter of type `Response`. Every rule of §5.2 and
+§5.3 is inert in a module with no request, which is what makes the design opt-in.
+
 ### 5.2 The issuing rule: which builtin a tag is bound to
 
 This rule is syntactic and the compiler checks it. It is `bytes-zero`'s discipline, moved to the
@@ -476,18 +581,18 @@ subgraph to be acyclic, and treat a cycle as `⊥`. The measured consumer needs 
 `next-fixture` (`:426-432`) returns `(finish r)` on one branch, and `finish` (`:369-371`) returns
 `(go r (Ending …) …)`. A one-hop rule does not read it.
 
-**Cross-module completeness is a property of the language, and not a rule this proposal adds.**
+**Cross-module completeness needs one local condition, and Rev 6 states it below.**
 Rev 2 rule 3 required the control-tag type to be declared in the same module as every def that
 returns it. Professor round 2 objected that the granting module cannot check a condition about
 modules it does not see. Measured at `llmll 0.16.2`, the objection does not apply, because a second
-module cannot produce the tag at all. A `def` in an importing module that writes `(Ran)` is rejected
+module cannot produce the tag unless it opens the declaring module (cell c35, Rev 6). A `def` in an importing module that writes `(Ran)` is rejected
 at `check`: "callee 'Ran' is not body-faithful and not in the trusted prelude". A `def-shell` that
 writes it passes `check` with `warning: call to unknown function 'Ran'`, and then **fails
 `llmll build` with that same text as an error**. The type itself does cross the boundary: an
 importing module may take a `Ctl` parameter and `match` on its constructors, and that checks clean.
 So constructor patterns cross and constructor application does not. A module-local collection is
-therefore complete for a tag whose type the module declares. **Rule 3 is withdrawn** and this
-measured property replaces it. §16 routes the `check`-against-`build` asymmetry, which is a defect
+therefore complete for a tag whose type the module declares and whose constructors no importer can
+open. **Rule 3 is withdrawn**, and the export condition below is the local rule that replaces it. §16 routes the `check`-against-`build` asymmetry, which is a defect
 on its own.
 
 **The receiving side is module-local too, and that is the stronger half of the argument.** Professor
@@ -496,31 +601,99 @@ round 4 measured it. An importing module that writes `(pre (= p Ran))` fails wit
 **pattern** `((Ran) …)` checks clean in the same module. A constructor resolves in pattern position
 across a module boundary and does not resolve in expression position, and a contract clause is
 expression position. So a step that could receive a fact cannot be written outside the declaring
-module at all. That does not depend on finding every producer, which the producer half does.
+module at all. That does not depend on finding every producer, which the producer half does. Professor round 5
+measured the same clause under `(open lib)`, and it checks and verifies (c35). So this half also rests
+on the export condition below.
 
-**The scope limit follows and Rev 5 states it.** A program that splits its step machine across
-modules cannot use this feature. The control-tag type and every step that preconditions on it must
-share one module. The measured consumer satisfies that today. A program that grows past one module
-keeps them together or gives up the fact.
+**The entry-module rule, Rev 6.** The control-tag type, every pair-returning def, `def-main` and
+every step that preconditions on the tag must be statements of the entry module, the module
+`llmll verify` runs on. Two facts of the compiler force it. Per-function VC emission is entry-only
+(`FixpointEmit.hs:430-432`), so a requesting step in an imported module is never verified with a
+fact in any run. The delivery rule of §5.3 takes its source from `:step`, which lives beside
+`def-main`. A tag type declared in an imported module, or a pair-returning callee in an imported
+module, is refused with an error naming the type or the def. The measured consumer satisfies the
+rule today. A program that grows past one module keeps the machine together or gives up the fact.
+
+**The export condition, Rev 6.** The entry-module rule does not close the import boundary on its
+own, because a module with `def-main` is importable and openable (cell c36, R-6). A module that
+holds a fact request must declare an `(export …)` list, and that list must name no constructor of
+the control-tag type and no def from whose body a requesting step is reachable in the call graph.
+`(export)` with no names satisfies both and is the idiom this proposal teaches for a program module.
+Rev 6 states the two-part rule rather than "export nothing" because the two-part rule is exactly
+the condition the soundness argument uses, and it leaves a program free to export a helper that
+touches neither the tag nor a requesting step. Both parts are local: the call graph exists
+(`HoleAnalysis.hs:606-616`) and the export filter exists (`Module.hs:280-283`). A module with a
+request and no export list, or with a list naming such a def, gets an error naming the def and the
+requesting step it reaches. This answers professor round 2's objection to Rev 2 rule 3: the
+granting module checks a property of its own export list, not of modules it does not see.
+
+**The state shape is scope.** The pair row reads `(pair (pair _ T) C)`, so the supported state is
+`(σ, Ctl)` with the tag second, under a `((σ, Ctl), Command)` return. A bare `Ctl` state, or a pair
+with the tag first, is `⊥` at every site. Two ordinary idioms are `⊥` as well, and correctly:
+`(pair s c)` with `s` the incoming state pairs every tag with one command, and a `do` body discards
+every command but the last (`CodegenHs.hs:1592-1600`). The error for either names the rewrite: write
+the tag constructor in the returned pair.
 
 **`seq-commands` is handled, not excluded.** When the command component is
 `(seq-commands a b)`, take the head of `b`, recursively. `LLMLL.md:1512` makes that the response's
 producer, and the rule is deterministic.
 
-### 5.3 The receiving rule: the fact enters under a proved precondition
+### 5.3 The receiving rule: the fact enters under a proved precondition, on delivered values
 
-A step whose declared precondition entails `(= p T)`, for a control-tag parameter `p` and a bound
-tag `T`, receives the declared fact for `(B, arm)` on each arm binder, where `B` is `T`'s bound
-builtin. A step with no such precondition receives `FQTrue`, which is today's behaviour.
+A step `D` receives the declared fact for `(B, arm)` on each `Response` arm binder when three
+conditions hold. First, `D`'s declared precondition entails `(= p T)` for a parameter `p` of the
+control-tag type and a tag `T` bound to `B` by §5.2. Second, `p` is a **delivered tag** of `D`.
+Third, every `Response` parameter of `D` is a **delivered response** of `D`. A step with no such
+precondition receives `FQTrue`, which is today's behaviour. A step with the precondition and a
+parameter that is not delivered gets a hard error naming `D`, the parameter and the first call site
+that refuses it. Rev 5 had the first condition only, and cell R-4 refutes it.
 
 The caller discharges `(= p T)` on the call-pre channel. Cell c22 measures that the obligation is
 raised and reaches the caller. Cell c20 against c21 measures that the precondition then does work.
 
+**Delivered values, defined.** Let `S` be the `:step` function, a def named in `def-main` or a `fn`
+form written there. `checkStepArity` (`TypeCheck.hs:1895`) fixes its parameters as a state, an
+input string and a `Response`. `S`'s state parameter is the **delivered state** and `S`'s
+`Response` parameter is the **delivered response**, by the harness edge (§5.4). For every other
+def `D` in the entry module, a parameter at position `i` is delivered when every call
+`(D e₁ … eₙ)` in the entry module passes, at position `i`, an expression the grammar below admits
+in the scope of the calling def. An in-module call of `S` is checked like any other call. The
+definition is a greatest fixpoint: start with every parameter delivered, remove a parameter when
+one call site refuses it, and repeat until nothing changes.
+
+**The grammar of delivered expressions.** Scope tracks `let` and `fn` bindings. A name rebound by a
+`let` or by a `fn` parameter is not delivered inside that binding's extent, whatever it was outside.
+
+| Kind | Admitted form |
+|---|---|
+| state | a bare variable that is a delivered-state parameter of the enclosing def |
+| tag | (t1) a bare variable that is a delivered-tag parameter of the enclosing def |
+| tag | (t2) `(second v)` with `v` a delivered state |
+| tag | (t3) `(F v)` with `v` a delivered state and `F` an entry-module def of one parameter `q` whose body is `(second q)` |
+| tag | (t4) a `let`-bound name whose right side is (t2) or (t3), read inside the binding's extent |
+| tag | (t5) the bare constructor `T`, or `(T)`, written inside the arm `((T) …)` of a `match` whose scrutinee is (t1) to (t4) |
+| response | a bare variable that is a delivered-response parameter of the enclosing def |
+
+Every other form is not delivered: a literal tag outside its own arm, a `let`-bound literal, a
+constructor application, a call result, a projection other than `second` of the state, and a value
+taken out of a `Result` or a user sum. Row (t5) is sound because the arm establishes that the
+scrutinee equals `T`, so passing `T` passes the delivered tag's value. It also matters for
+ergonomics: c40 measures that passing `(ctl-of s)` crashes the solver today, and c38 measures that
+passing a literal produces a closed-true call-pre, which the engineer's plan folds. A dispatcher
+therefore writes `(ran-step Ran (rc-of s) x)` inside its `((Ran) …)` arm.
+
+**What the rule is.** It is an integrity-flow discipline. The harness is the only source of a
+delivered value, a bare-variable copy preserves the property, and everything the program builds does
+not. Professor round 5 names the tradition: the tag is an auxiliary variable in the sense of Owicki
+and Gries, and it is sound only when the program cannot assign it independently of the value it
+describes. `CMD-A` retires the rule, because a `Command[a]` index puts the producer in the type of
+`x` (§5.5).
+
 **Why this is not Rev 1 with extra words.** In Rev 1 the fact and its attachment came from two
-sources: a table keyed by builtin, and a binder typed by arm. Nothing joined them. In Rev 2 both
-come from one source, the tag. The tag names the builtin by rule 5.2, and the tag is proved by the
-caller under 5.3. That is the property §5 of Rev 1 said `nullaryEnumArity` has and a per-builtin
-fact lacks, and the review's finding 1 is the statement that Rev 1 did not have it.
+sources: a table keyed by builtin, and a binder typed by arm. Nothing joined them. In Rev 6 the tag
+names the builtin by rule 5.2, the caller proves the tag under the precondition, and the delivery
+rule ties both the tag and the response to the turn the harness produced. Cell R-4 is the case
+where the third link was missing.
 
 ### 5.4 The three delivery rules, each checked
 
@@ -533,6 +706,18 @@ fact lacks, and the review's finding 1 is the statement that Rev 1 did not have 
   receives no response, so any fact keyed on it is unused rather than unsound.
 - **One response per performed command.** This is what makes the chain close. Step N returns tag `T`
   with command `B`. Step N+1 is dispatched on `T` and receives `B`'s reply.
+
+**The harness lemma, Rev 6.** The console loop is `loop s r = let (s', cmd) = step s line r in …
+loop s' (perform cmd)` (`CodegenHs.hs:1839-1844`), with `r0 = perform initCmd`. So on every turn
+the state `s` and the response `r` that `step` receives belong together: `r` is the reply to the
+command that was returned in the same pair as `s`, by the previous step or by `:init`. Rule 5.2
+says every returned pair whose tag is `T` carries a command whose head is `B_T`. Together: if
+`(second s)` is `T`, then `r` is `B_T`'s reply. The delivery rule of §5.3 makes a step's `p` equal
+to `(second s)` and its `x` equal to `r` for the current turn, so `(= p T)` entails that `x` is
+`B_T`'s reply. `seq-commands` keeps the lemma, because the reply is the right operand's
+(`LLMLL.md:1512`). RC-4 keeps it vacuously, because a terminating step's command is not performed
+and no step receives its reply. The lemma rests on `harness_assumptions` (`TrustReport.hs:304-325`),
+which the trust report already discloses.
 
 ### 5.5 This is not the existential that `CMD-A` rules out
 
@@ -550,6 +735,11 @@ it is in. Nothing is existential: the tag is a first-order value the program alr
 equality is integer equality after desugaring, and the fact applies only under that proved equality.
 Rev 2 therefore **anticipates** `CMD-A` and does not substitute for it. When `CMD-A` lands, the
 issuing rule becomes redundant and the fact rides the type.
+
+**Rev 6 adds one sentence to that link.** The delivery rule of §5.3 is the syntactic surrogate for
+the index `CMD-A` would put in the type of `x`. When `Command[a]` lands, the `Response` a step
+receives carries its producer, the tag precondition is redundant for the fact, and the delivery rule
+retires with it.
 
 ---
 
@@ -672,6 +862,39 @@ name it. §10 records that constraint against the measured consumer.
     through `clauseOverOpaqueSumParam`. Not fixed here; this is Rev 1's P2 and it belongs with
     `MATCH-WIDEN`. **Channel: spec is silent (gap).**
 
+14. **A delivered response passed under a tag the program wrote.** Cell R-4. `outer` holds the
+    delivered response under `Probe` and passes it to `h` with a `let`-bound `Ran`. The delivery
+    rule refuses the call: `t` is a `let`-bound literal, not (t1) to (t5). The error names `outer`,
+    the call `(h t x)` and the parameter `p`. **Channel: type, §5.3. This is the positive witness
+    for the delivery error.**
+15. **A constructed `Response`.** `(h Ran (RCode 5))`, cell c42. The second argument is a
+    constructor application, so `x` is not delivered and the call is refused. **Channel: type,
+    §5.3.**
+16. **A dispatcher passes the literal tag inside its arm.** `(match (ctl-of s) ((Ran) (ran-step Ran
+    (rc-of s) x)) …)` with `s` the delivered state. `(ctl-of s)` is (t3), so the arm admits `Ran`
+    under (t5), and `x` is `S`'s response. The call-pre `(= p Ran)` is closed and true after the
+    tag desugaring, and the emitter folds it rather than emitting the constraint c38 crashes on.
+    **Channel: type for the admission, contract for the fold. §5.3 and §16 item 7.**
+17. **The stay-put idiom.** `(pair s (wasi.io.stdout ""))` with `s` the incoming state. `Sites` is
+    `⊥` and the error says to write the tag constructor in the returned pair. The measured
+    consumer already does (`docclaims.llmll:515-516`). **Channel: type, §5.2.**
+18. **A `do` body in a pair-returning def.** `Sites` is `⊥`, because `emitDo` discards every
+    command but the last. Same error. **Channel: type, §5.2.**
+19. **An importer opens the tag type.** Cell R-5. The importer is the entry of its own run, and
+    `Ctl` is declared elsewhere, so the entry-module rule refuses its request with an error naming
+    `Ctl`. **Channel: type, §5.2.**
+20. **An importer wraps the machine.** Cell R-6. With `(export)` in `amain`, `bmain` cannot name
+    `a-step`, and `check` reports an unbound name. Without an export list, `amain`'s own `check`
+    fails first: it holds a request and exports `a-step`, from which the requesting step is
+    reachable. **Channel: type, §5.2. This is the positive witness for the export error.**
+21. **A closed-false call-pre.** `(h Boot x)` where `h` requires `(= p Ran)`. The substituted
+    predicate is `(0 = 1)`. The emitter must keep it, so the refutation stands. **Channel:
+    contract.**
+22. **Two `Response` parameters on one requesting step.** Both must be delivered, and then both are
+    the same value. **Channel: type, §5.3.**
+23. **A requesting step that calls itself.** `(h p x)` inside `h` passes bare delivered parameters,
+    and the greatest fixpoint keeps them delivered. **Channel: type, §5.3.**
+
 ---
 
 ## 9. Verification mapping
@@ -681,6 +904,9 @@ name it. §10 records that constraint against the measured consumer.
 | The control-tag precondition `(= p T)` at a call site | **contract** (effective precondition) | **QF-LIA**, auto-discharged. The tag desugars to its declaration index, and an all-nullary enum parameter is not value-opaque (`FixpointEmit.hs:1523-1526`). Measured: c20, c21, c22 |
 | An `RCode` payload bound at a match-arm binder, under a proved tag | **contract** | **QF-LIA**, auto-discharged by liquid-fixpoint. `LLMLL.md` §5.3.3 |
 | Tag-to-builtin binding (rule 5.2) | **type** | Not an SMT obligation. A syntactic check over the module's returned pairs, in the class of `bytes-zero`'s determining-context rule (`TypeCheck.hs:1595-1600`) |
+| Delivery of `p` and `x` (rule 5.3) | **type** | Not an SMT obligation. A greatest fixpoint over the entry module's call sites, with the grammar of §5.3 |
+| The export condition and the entry-module rule (§5.2) | **type** | Not an SMT obligation. A read of the module's `(export …)` list against the call graph, and of the declaring module of the tag type |
+| The program-determined premise at an issuing site | **contract** | Three cases. A literal argument folds at `check`: it passes or it is an error. A scalar parameter of the issuing def yields one `call-pre:<builtin>` constraint in **QF-LIA**, with the issuing def's `pre` as hypothesis and no path guard, which is sound and incomplete. Any other argument is a `check` error naming the site |
 | The declared fact's own validity, program-determined | **trust**, reduced | The value property is proved by the program. The residue is codegen's pass-through, on `codegen_semantics_version` (`LLMLL.md` §3.5) |
 | The declared fact's own validity, codegen-determined | **trust** | Not discharged. Rides `codegen_semantics_version`, as `bytes-zero` does |
 | The declared fact's own validity, OS-determined | **trust** | Rides no stamp that exists. **Excluded from Rev 2** (§6) |
@@ -732,6 +958,16 @@ that declares `Ctl`, and §5.2 records why they must: a control-tag precondition
 outside the declaring module. An acceptance test split across two modules fails for a reason that has
 nothing to do with the issuing rule.
 
+**Two more program-side changes stack, and Rev 6 states the verdict they buy.** The consumer has
+no `(export …)` list, so it must add `(export)` before it can request a fact. Its steps must take
+the tag as a parameter, and its dispatcher must pass the literal tag inside each arm (edge case 16)
+or `(ctl-of s)` (row t3). `dc-step` (`:506`) falls back under `sigPairUnsafe` because `Rc` is a
+`Json` value (c34), so it emits no call-pre and never discharges a step's `(= p T)` in the
+fragment. Every issuing def falls back for the same reason, so the premise of a program-determined
+fact chains to an asserted `pre` unless the argument is a literal. The verdict the consumer can earn
+is therefore: the requesting step verifies body-faithfully, under one asserted caller obligation and
+one disclosed assumed fact. §12 requires the trust report to say exactly that.
+
 **A recursive step machine disables the feature for its module.** §5.2 treats a cycle among
 pair-returning defs as `⊥`, and `⊥` is now module-global, so one step function that loops by calling
 itself withholds every binding in that module and reports the error. Recursion is otherwise supported
@@ -746,15 +982,15 @@ feature must choose between the fact and a self-calling step.
 
 ## 11. Prerequisites, in order
 
-1. **Write the constructor bare in a contract clause.** `(pre (= p Serve))` verifies. `(pre (= p
-   (Serve)))` crashes liquid-fixpoint with "The sort Phase is not numeric". Cell c23 differs from
-   cell c20 by that one pair of parentheses. The parameter desugars to `int` and the parenthesized
-   constructor stays an uninterpreted constant at the sum's own sort, and the two do not unify. The
-   type checker accepts both forms. This is a defect and §16 routes it. It does **not** block this proposal,
-   because the working form exists and is measured. Professor round 2 asks that the restriction
-   become a type-checker rule instead of a convention, because this proposal teaches a surface
-   whose one-token error is a solver crash. **Rev 3 agrees**, and §14 carries it as a required
-   check rather than as advice in §5.1.
+1. **The emitter lowers a parenthesized nullary constructor; the type checker does not refuse it.**
+   `(pre (= p Serve))` verifies. `(pre (= p (Serve)))` crashes liquid-fixpoint with "The sort Phase
+   is not numeric" (cell c23). `desugarCtorValues` (`FixpointEmit.hs:2636-2670`) lowers a bare
+   `EVar` to its tag and leaves `EApp "Serve" []` intact at its `EApp` row (`:2648`). The type
+   checker already treats `(Serve)` as the value `Serve` (`TypeCheck.hs:2209-2214`). Rev 3 asked
+   for a type-checker rule that refuses the parenthesized form in a clause. Rev 6 withdraws that
+   rule: it would make clause position stricter than body position for one form the checker
+   admits. The fix is one row in `desugarCtorValues`, and the test is that c23 and c20 emit
+   byte-identical `.fq`. The same row lowers `(h (Ran) x)` in a body.
 2. **The fact and the runtime must land in one commit.** A declared fact whose emitted code does not
    establish it is simply false.
 3. **`TRUST-AXIOM` must settle its granularity before this ships.** §12.
@@ -777,6 +1013,13 @@ Rev 2 reduces the population rather than only enlarging it. Program-determined f
 value property on the contract channel, so only the pass-through is disclosed. Codegen-determined
 facts are disclosed whole. OS-determined facts are excluded until the channel carries them, which is
 why §6 draws the line where it does.
+
+**The line must also say what discharges the premise, Rev 6.** For a program-determined fact the
+issuing argument is one of three things: a literal that folded at `check`, a parameter whose
+`call-pre:<builtin>` constraint the solver proved under the issuing def's `pre`, or that same
+constraint where the issuing def's `pre` is itself an asserted caller obligation because its caller
+fell back (c34). The trust report names the case per fact. A line that says only "assumed fact"
+repeats, on the reporting surface, the discrimination failure this section exists to prevent.
 
 ---
 
@@ -804,12 +1047,20 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
   (`:461-472`)
 - `compiler/src/LLMLL/FixpointEmit.hs`: the match-arm binder seam, beside the `adtKeys` seeding
   (`:968-974`); the module has zero `Response` occurrences today
-- A new module-level pass, or a new leg of an existing one, for the issuing rule (§5.2). This is the
-  one piece with no existing home, and it is the engineer's call where it lands. Rev 3 makes it a
-  recursion over pair-returning defs, with substitution at call sites and an acyclicity condition,
-  so it is larger than Rev 2's check over literal build sites
-- A type-checker rule that refuses a parenthesized nullary constructor in a contract clause (§11
-  prerequisite 1). Without it the surface §5.1 teaches has a one-token path to a solver crash
+- A new pure module, `compiler/src/LLMLL/RespFact.hs`, holding the fact table, the request scan,
+  `Sites`, and the delivery pass. The engineer's plan puts it there because `FixpointEmit.hs` does
+  not import `TypeCheck.hs` and both need the table. The checker calls it once per module and turns
+  every failure into a hard error; the emitter calls it for the `refEnv` entries; the trust report
+  calls it for the disclosure line
+- `compiler/src/LLMLL/TypeCheck.hs`: the call from `checkStatements` (`:1352`), and the export
+  condition read against the module's `(export …)` list
+- `compiler/src/LLMLL/VerifiedCache.hs`: `checkerSoundnessVersion` (`:325-326`) changes, because a
+  verdict now depends on the fact table
+- `compiler/src/LLMLL/FixpointEmit.hs:2648`: the `EApp` row of `desugarCtorValues` lowers a
+  parenthesized nullary constructor (§11 prerequisite 1). The type-checker rejection Rev 3 asked
+  for is withdrawn
+- `compiler/src/LLMLL/FixpointEmit.hs:1340-1360`: a call-pre whose substituted predicate is closed
+  and true is folded, not emitted (c38); a closed and false one is kept (edge case 21)
 - `LLMLL.md` §13 (per-builtin facts), §9.7 (`Response`, and the incorrect NOTE at `:1782-1786`),
   §5.3.3 and §5.3.5 (the boundary)
 - `docs/design/fs-capability-trio-proposal.md` §5: this proposal supersedes that placeholder
@@ -845,6 +1096,17 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
    **Effect: complicates. Name it; do not imply it is fixed.**
 7. **Strings stay out.** Verification-ergonomics. `STRLIT-BODY-1`. Several open builtin rows deliver
    `RText`. **Effect: only matters at scale.**
+
+8. **Only one dispatcher shape verifies today.** Verification ergonomics. c39 and c40 crash the
+   solver on a let-bound projection and on a call-result argument; c41 is the shape that works,
+   and row (t5) admits the literal-in-arm form. §16 routes the two crashes. **Effect: complicates
+   adoption for a scalar-state program. The measured consumer falls back instead of crashing.**
+9. **The delivery rule is syntactic and conservative.** Verification ergonomics. §5.3. A value that
+   is delivered by any route the grammar does not name is refused, loudly. **Effect: complicates.
+   The grammar grows by measurement, one row per refused idiom, as the pair row did.**
+10. **The export condition forces `(export)` onto program modules.** Scope. §5.2. A program that
+    wants a fact and exports a def reaching a requesting step must split the export or drop the
+    fact. **Effect: complicates. It is the local price of a sound import boundary.**
 
 ---
 
@@ -882,6 +1144,23 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
    cache comment. The restriction is real and lives at `TypeCheck.hs:1595-1600`, `:1633-1634` and
    `:2655-2657`. The review quoted the comment accurately, so the defect is in the comment.
    **To compiler-engineer.**
+
+7. **A call-pre whose substituted predicate is closed and true crashes liquid-fixpoint.** Cell c38:
+   `(h Ran x)` yields `(1 = 1)` and the sanitizer reports "RHS without single conjunct". The
+   engineer's plan folds it in-row, because the row's own witness produces the shape.
+   **To compiler-engineer, in-row.**
+8. **A let-bound projection of a pair parameter leaves the parameter free.** Cell c39. **To
+   compiler-engineer, as a new row `PAIR-PROJ-LET-1`.**
+9. **A call-result argument to a call-pre leaves its binder free.** Cell c40. **To
+   compiler-engineer, as a new row `CALL-PRE-ARGCALL-1`.**
+10. **A qualified imported constructor does not type-check.** `(def-shell mkq [] -> lib.Ctl lib.Ran)`
+    reports `expected lib.Ctl, got Ctl`. So `open` is the only cross-module route to a constructor,
+    which is what makes R-5 the whole boundary. **To compiler-engineer, as a new row
+    `XMOD-QUAL-CTOR-1`.**
+11. **A module with `def-main` is importable and openable.** Cell c36. Whether a program module
+    should be a library at all is a language question this proposal does not decide; the export
+    condition makes the answer irrelevant to soundness here. **To language-team, as a scope
+    question for a later revision of the module section.**
 
 ---
 
@@ -929,6 +1208,26 @@ just made a hard error. The round also measured the receiving side and found it 
 is a stronger completeness argument than the producer half Rev 4 gave. Rev 5 folds the measurement,
 states the scope limit that follows, adds the memoization note and puts the module condition on
 §10's acceptance target.
+
+**Compiler-engineer plan, 2026-09-04** (`docs/design/resp-fact-implementation-plan.md`). Built
+cells W and D and found the two defects Rev 6 answers. Proposed a delivery rule and an entry-module
+rule, the `desugarCtorValues` lowering in place of the type-checker rejection, the closed-true
+call-pre fold, the `checker_soundness_version` change, and the per-function `assumed_facts` line.
+Measured c34, c38 to c42.
+
+**Professor round 5, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 5`). Verdict:
+accept the plan's direction; do not implement until Rev 6 carries the delivery rule, the export
+condition and the folded cells. Built cell E (c36), which refutes the entry-module rule on its own,
+and measured c37 and c43. Named the delivery rule's tradition and the harness lemma it needs, and
+added row (t5). Two questions: the admission grammar with its scoping, and the form of the export
+condition. Rev 6 answers both in §5.3 and §5.2.
+
+**Rev 6, 2026-09-04.** Adds the delivery rule to §5.3 with its grammar (t1) to (t5), the harness
+lemma to §5.4, the entry-module rule and the two-part export condition to §5.2, and the state-shape
+scope. Defines a fact request in §5.1. Folds cells R-4, R-5 and R-6 into §1 and c34 to c43 into
+§2.1. Withdraws the type-checker rejection of §11 item 1 in favour of the emitter lowering. Adds
+the three-case premise disclosure to §9 and §12. Adds edge cases 14 to 23, risks 8 to 10, and
+routed findings 7 to 11. Corrects §5.2's sentence that a second module cannot produce the tag.
 
 **Rev 5, 2026-09-04.** Classifies a transparent constructor on the `Sites` result rather than on the
 def's syntax, using a `PARAM` marker distinct from `⊥`, so a wrapper at any depth classifies with
