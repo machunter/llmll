@@ -1,7 +1,7 @@
 ---
 name: resp-fact-review
-title: "RESP-FACT-1 professor review, rounds 1 and 2"
-status: "Standalone, not folded. Round 1 REJECTED Rev 1. Round 2 ACCEPTS Rev 2's direction and returns five findings; the §5.2 issuing rule must be restated before an engineer reads it."
+title: "RESP-FACT-1 professor review, rounds 1 to 3"
+status: "Standalone, not folded. Round 1 REJECTED Rev 1. Round 2 accepted the direction and refused Rev 2 §5.2. Round 3 finds that Rev 3 §5.2 has two readings, one unsound and one that binds nothing on the measured consumer. Rev 4 must decide which."
 date: 2026-08-31
 author: professor
 consumers: [language-team, user, compiler-engineer]
@@ -9,7 +9,7 @@ reviews: docs/design/resp-fact-proposal.md
 style: "ASD-STE100 Simplified Technical English."
 ---
 
-# RESP-FACT-1: professor review, rounds 1 and 2
+# RESP-FACT-1: professor review, rounds 1 to 3
 
 ## Restatement
 
@@ -400,3 +400,156 @@ Round 1's finding 5 is discharged by that.
 
 None. Both of round 1's questions are answered in Rev 2, and the five findings above say what to
 change rather than what to justify.
+
+---
+
+## Round 3: Rev 3, and what `⊥` means
+
+Reviewed 2026-09-04, against `docs/design/resp-fact-proposal.md` Rev 3 (`ed760bf`) at
+`llmll 0.16.2`.
+
+### Restatement
+
+Rev 3 keeps the control-tag design and rewrites the issuing rule. `Sites(D)` is now a structural
+recursion over the defs that **return** a `(σ, Command)` pair, with actual arguments substituted at
+a call to another pair-returning def, and with an acyclicity condition on that call subgraph. Rule 3
+of Rev 2 is withdrawn against a measurement.
+
+### Context located
+
+1. `docs/design/resp-fact-proposal.md` §5.2, Rev 3. The rule under review.
+2. `tools/doc-claims/docclaims.llmll:369`, `:375`, `:395`, `:407`, `:420`, `:426`, `:433`, `:497`.
+   The eight pair-returning defs. I executed `Sites` over all eight by hand.
+3. `tools/doc-claims/docclaims.llmll:260-268`. `Ctl` carries `(| Ending int)` and `(| Done int)`.
+4. `tools/doc-claims/docclaims.llmll:552`. The program declares `:init (dc-init)`.
+5. `LLMLL.md:1533` and `:1555`. `:init` takes an **expression**, not a def name.
+6. Cells c30, c31 and c32, which I built in round 2's follow-up. They support Rev 3's withdrawal of
+   rule 3, and that withdrawal refuted my own round 2 finding 2.
+
+### The rule 3 withdrawal is correct
+
+Round 2 finding 2 claimed a cross-module soundness hazard. It does not exist. An importing module
+cannot apply the tag's constructor: a `def` is rejected at `check`, and a `def-shell` passes `check`
+with a warning and then fails `llmll build`. Patterns cross the module boundary and construction
+does not. Rev 3 withdraws rule 3 rather than repairing it, which is the right move, and §15 risk 1
+correctly demands that the gate pin the property with cells c30 to c32. The property is compiler
+behaviour and not a stated language guarantee, so pinning it is not optional.
+
+### Gaps and hazards
+
+#### 1. `⊥` has two readings. One is unsound, and the other binds nothing on the measured consumer
+
+**Classification: soundness, and specification incompleteness. It blocks.**
+
+§5.2 says a tag `T` is bound to `B` when, "over the union of `Sites(D)` for every pair-returning `D`
+in the module and over the `:init` pair", every element carrying `T` carries the same `B`, and "No
+element is `⊥`". Two readings follow, and Rev 3 does not say which it means.
+
+**Reading A, local.** A def whose `Sites` is `⊥` contributes nothing to the union, and other defs
+still bind their tags. This reading is **unsound**. A `⊥` def is exactly the def the analysis could
+not read, so it may pair `T` with a different builtin. The rule would then grant a fact that one
+producing site contradicts. That is Rev 1's defect at a new seam, which is the failure §1.4's cell
+R-3 exists to catch.
+
+**Reading B, module-global.** One `⊥` anywhere withholds every tag binding in the module. This
+reading is sound. It also disables the feature on the program Rev 3 was written from.
+
+I executed `Sites` by hand over the eight pair-returning defs, under reading B:
+
+| Def | `Sites` | Why |
+|---|---|---|
+| `finish` (`:369`) | `⊥` | calls `go` with the tag `(Ending (if …))`, which is a payload-carrying constructor, so the pair row does not match |
+| `skip` (`:375`) | `⊥` | same, with `(Ending 0)` |
+| `boot-step` (`:395`) | `{(Probe, wasi.proc.run), (Listing, wasi.fs.list)}` | lets, then an `if` over two `go` calls |
+| `probe-step` (`:407`) | `⊥` | one branch calls `skip` |
+| `listing-step` (`:420`) | `⊥` | one branch calls `skip` |
+| `next-fixture` (`:426`) | `⊥` | one branch calls `finish` |
+| `readfix-step` (`:433`) | `{(Ran, wasi.proc.run)}` | lets, then one `go` call |
+| `dc-init` (`:497`) | `{(Boot, wasi.proc.args)}` | a literal pair, with a bare builtin name |
+
+Five of the eight are `⊥`, so under reading B **no tag in the module binds to anything**. Rev 2's
+rule bound nothing because it read build sites. Rev 3's rule binds nothing because `⊥` propagates
+from two helpers that carry an `int` on their tag.
+
+**This is not §8 edge case 5 restated.** Edge case 5 concerns the receiving side: a contract clause
+naming a payload-bearing `Ctl` parameter falls back through `clauseOverOpaqueSumParam`. The finding
+here is on the issuing side, and it survives the §10 repair. Make `Ctl` all-nullary and the `Ending`
+rows above stop being `⊥`, but the rule keeps the property that **one unreadable pair-returning def
+anywhere in a module silently withdraws every fact in that module**. The symptom is a refuted post
+in an unrelated def, with no diagnostic naming the cause.
+
+Rev 3 already routes a defect of exactly this shape. §16 finding 2 says a `def-shell` downgrades
+silently where a `def` rejects loudly, and calls that a defect worth a row. The issuing rule must
+not introduce a second instance of it.
+
+**The repair is small and it is the project's own discipline.** Take reading B, state it, and make
+an unreadable pair-returning def a **hard error** in any module that declares a control-tag fact.
+The feature is opt-in per module, so the error only reaches programs that asked for the fact. A
+guard must demand positive evidence rather than fail quiet.
+
+#### 2. The `let` row discards its binding, so a let-bound command is `⊥`
+
+**Classification: ergonomic, with the same silent-withdrawal failure. It complicates the proposal.**
+
+The table sends `(let x e b)` to `Sites(b)` and keeps no environment. A program that writes the
+command into a binding first, as `(let [(c (wasi.fs.list p))] (go r (Listing) c))`, reaches the pair
+row with a variable in the command position and yields `⊥`. That is a natural way to write a step,
+and under finding 1's reading B it withdraws every fact in the module.
+
+The repair is one row: propagate a let binding whose right side is a builtin name or an application
+whose head is one. That is syntactic copy propagation, it terminates, and it stays inside the rule's
+existing character.
+
+#### 3. `:init` is an expression, and the rule treats it as a pair
+
+**Classification: specification incompleteness. It complicates the proposal.**
+
+§5.2 runs the union "over every pair-returning `D` in the module and over the `:init` pair".
+`LLMLL.md:1533` declares `:init init-expr`, and `:1555` requires only that it return a
+`(State, Command)` pair. `docclaims.llmll:552` writes `:init (dc-init)`, which is a call. So `:init`
+is an arbitrary expression and the rule must apply `Sites` to it, not read a pair out of it. In the
+measured consumer the substitution row covers the call. An inline `:init` that builds the pair
+directly needs the pair row, and one that does anything else is `⊥`.
+
+#### 4. The `let` form in the table is not the language's surface
+
+**Classification: ergonomic. It only matters when an engineer executes the table.**
+
+The table writes `(let x e b)`. The language writes a bracketed binding group:
+`(let [(as (argv-of x))] …)` at `docclaims.llmll:396`. An engineer implementing from the table will
+find the shapes do not match.
+
+#### 5. Acyclicity compounds finding 1
+
+**Classification: scope. It only matters at scale.**
+
+§5.2 treats a cycle in the pair-returning call subgraph as `⊥`. Under reading B, one recursive step
+function disables the feature for its whole module. Recursion is otherwise supported, with measures
+and total-correctness discharge (`LLMLL.md` §4.2). A step machine that loops by self-call is a
+natural shape, so this cost should be stated in §10 rather than left in the termination paragraph.
+
+### Recommendation
+
+**Accept Rev 3's direction. Do not send §5.2 to the compiler-engineer until `⊥` is decided.** The
+two readings differ in soundness, so an engineer implementing from the current text can produce a
+sound rule or an unsound one and satisfy the document either way. That is the one thing a
+specification must not leave open.
+
+Rev 4 needs three changes and they are all small.
+
+1. **State reading B, and make an unreadable pair-returning def a hard error** in a module that
+   declares a control-tag fact. Add the positive cell: a module with one `⊥` def and one otherwise
+   well-formed tag must fail with a diagnostic naming the def, not verify quietly with the fact
+   withheld.
+2. **Add the copy-propagation row for `let`**, and correct the `let` form to the language's
+   bracketed binding group.
+3. **Apply `Sites` to the `:init` expression**, and say so.
+
+Rev 3's own §10 should also record what finding 1 shows: after the `Ctl` repair the measured
+consumer binds `Probe`, `Listing`, `ReadFix`, `Ran` and `Boot`, and it binds them only once every
+pair-returning def is readable. That is a sharper statement of the delivered value than "zero until
+a program changes", and it gives the row a concrete acceptance target.
+
+### Open questions for the language-team
+
+None. Finding 1 names the decision, and the other four say what to change.
