@@ -1,7 +1,7 @@
 ---
 name: resp-fact-proposal
 title: "RESP-FACT-1: an effect's result carries a proved property to its caller"
-status: "Rev 4, PROPOSED. Rounds 1 to 3 are folded. Rev 4 states that an unreadable def withholds every binding in its module, makes that a hard error, and excludes the transparent constructor that made the Rev 3 rule bind nothing. Not scheduled."
+status: "Rev 5, SETTLED and READY FOR THE COMPILER-ENGINEER. Rounds 1 to 4 are folded. Rev 5 classifies a transparent constructor on the `Sites` result rather than on its syntax, which fixes the one item round 4 blocked on. Shipping still waits on `TRUST-AXIOM` granularity, per §11 prerequisite 3."
 date: 2026-09-04  # Rev 4
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -156,6 +156,7 @@ correct body-faithful verdict is a refutation. A `SAFE` line therefore reports a
 | c30 | an importing module, `def`, writes an imported nullary constructor | n/a | **rejected at `check`**: callee not body-faithful, not in the trusted prelude |
 | c31 | c30 as a `def-shell` | n/a | `check` **passes with a warning**; `llmll build` **fails** with the same text as an error |
 | c32 | an importing module takes the tag type as a parameter and matches on it | n/a | **checks clean**. Patterns cross the module boundary |
+| c33 | an importing module writes `(pre (= p Ran))` on that parameter | n/a | **`error: unbound variable 'Ran'`**. A contract clause is expression position, so the receiving side is module-local |
 
 Four results decide this proposal.
 
@@ -392,18 +393,33 @@ parameters, so its command component is the variable `c`, and a rule reading bui
 nothing at all. §1.4's own acceptance cell is written through `(go r (Listing) …)`, so Rev 2's test
 already assumed the rule reads call sites.
 
-**A transparent constructor is excluded from the collection, and Rev 3 did not exclude it.** A
-pair-returning def whose tag component or command component is one of its own parameters builds a
-pair it does not choose. `go` (`:273`) is exactly that: its body is `(pair (pair r p) c)` over the
-parameters `p` and `c`. Under Rev 3's text `go` is itself a pair-returning def, so the collection
-analyzed it directly, found a parameter where it wanted a constructor, and returned `⊥`. Professor
-round 3 measured what that costs and Rev 4 fixes it: a transparent constructor contributes **no
-sites of its own** and is read only through the substitution row, at each of its call sites.
+**A transparent constructor is excluded from the collection, and it is classified on the result
+rather than on the syntax.** A pair-returning def builds a pair it does not choose when a component
+resolves to one of that def's own parameters. `go` (`:273`) is the measured case: its body is
+`(pair (pair r p) c)` over the parameters `p` and `c`. Rev 3 analyzed `go` directly, found a
+parameter where it wanted a constructor, and returned `⊥`, which under Rev 4's module-global reading
+would stop every module that has such a helper.
 
-Define `Sites(D)` for a def `D` whose declared return type is a `(σ, Command)` pair, and which is not
-a transparent constructor. Each element is a pair of a control tag and a builtin name. The definition
-is a structural recursion on `D`'s body, in an environment `ρ` that carries the let bindings in
-scope.
+Rev 4 classified transparency by reading the def's own pair expression. Professor round 4 found that
+test is one level deep. A wrapper that returns `(go r (Listing) c)`, with `c` its own parameter,
+builds no pair of its own. It is not classified transparent, its `Sites` reaches `go`'s pair through
+the substitution row, and the command component is then a variable that `ρ` does not map. The result
+is `⊥` and the module stops. **Rev 5 classifies on the result, so a wrapper at any depth classifies
+with `go`.**
+
+`Sites(D)` returns one of three things: a set of `(tag, builtin)` pairs, the marker `PARAM`, or the
+marker `⊥`. `PARAM` means every failure came from a component that resolved to one of `D`'s **own**
+parameters. `⊥` means some other form defeated the recursion. `⊥` wins over `PARAM` when both occur.
+
+**`D` is a transparent constructor when `Sites(D)` contains `PARAM`.** It then contributes nothing of
+its own to the module union, and it is read only through the substitution row at each of its call
+sites, where its parameters are bound to actual arguments. `go` yields `PARAM` directly. The wrapper
+above yields `PARAM` through the substitution, because the component resolves to the wrapper's own
+parameter. Both classify the same way and at any depth.
+
+Define `Sites(D)` for a def `D` whose declared return type is a `(σ, Command)` pair. Each element of a
+set result is a pair of a control tag and a builtin name. The definition is a structural recursion on
+`D`'s body, in an environment `ρ` that carries the let bindings in scope.
 
 | Body form | `Sites` |
 |---|---|
@@ -412,6 +428,7 @@ scope.
 | `(match e (p₁ a₁) … (pₙ aₙ))` | the union of every `Sites(aᵢ)` |
 | `(let [(x₁ e₁) … (xₖ eₖ)] b)` | `Sites(b)`, in `ρ` extended by each `xᵢ` whose `eᵢ` is a builtin name or an application whose head is one |
 | `(D' e₁ … eₙ)`, where `D'` returns a `(σ, Command)` pair, transparent or not | `Sites(D')`, with each `eᵢ` substituted for `D'`'s parameter `i` |
+| `(pair (pair _ T) C)` where `T` or `C` resolves to one of `D`'s own parameters | `PARAM` |
 | any other form | `⊥` |
 
 Two rows changed from Rev 3. The `let` row now carries the surface form the language actually uses,
@@ -427,11 +444,16 @@ so it may pair the same tag with a different builtin. Rev 4 takes the module-glo
 states it.
 
 A tag `T` is **bound** to builtin `B` when both of these hold, over the union of `Sites(D)` for every
-pair-returning `D` in the module that is not a transparent constructor, and over `Sites` of the
-`:init` expression.
+pair-returning `D` in the module whose result is a set, and over `Sites` of the `:init` expression. A
+def whose result is `PARAM` contributes through its call sites and not on its own.
 
 1. Every element carrying `T` carries the same `B`.
 2. No `Sites` computation in that union returned `⊥`.
+
+**An implementation may memoize, and the key is the substitution.** `Sites(D')` changes with the
+arguments substituted at a call, so a cache keyed on the def alone is wrong. Key it on the def
+together with its substituted arguments. The acyclicity condition is what keeps that table finite:
+without it the same def could be reached under unboundedly many substitutions.
 
 **When rule 2 fails, the compiler reports an error and names the def.** It does not withhold the fact
 quietly. A module that declares no control-tag fact is unaffected, so the rule is opt-in per module.
@@ -467,6 +489,19 @@ So constructor patterns cross and constructor application does not. A module-loc
 therefore complete for a tag whose type the module declares. **Rule 3 is withdrawn** and this
 measured property replaces it. §16 routes the `check`-against-`build` asymmetry, which is a defect
 on its own.
+
+**The receiving side is module-local too, and that is the stronger half of the argument.** Professor
+round 4 measured it. An importing module that writes `(pre (= p Ran))` fails with
+`error: unbound variable 'Ran' (may be in scope at runtime)`. Cell c32 already showed the matching
+**pattern** `((Ran) …)` checks clean in the same module. A constructor resolves in pattern position
+across a module boundary and does not resolve in expression position, and a contract clause is
+expression position. So a step that could receive a fact cannot be written outside the declaring
+module at all. That does not depend on finding every producer, which the producer half does.
+
+**The scope limit follows and Rev 5 states it.** A program that splits its step machine across
+modules cannot use this feature. The control-tag type and every step that preconditions on it must
+share one module. The measured consumer satisfies that today. A program that grows past one module
+keeps them together or gives up the fact.
 
 **`seq-commands` is handled, not excluded.** When the command component is
 `(seq-commands a b)`, take the head of `b`, recursively. `LLMLL.md:1512` makes that the response's
@@ -612,10 +647,13 @@ name it. §10 records that constraint against the measured consumer.
    **Channel: type, measured at `llmll 0.16.2`.**
 8. **A program with no `:init`.** The first response is `RNone`, so the start tag binds to nothing
    and no fact is granted on the first turn. **Channel: type, §5.2 and §5.4.**
-9. **A transparent constructor.** `go` (`:273`) returns the pair and builds it from its parameters
-   `p` and `c`. It contributes no sites of its own and is read at its call sites. Under Rev 3 it was
-   `⊥`, and rule 2 then withheld every binding in the module, whatever else the program did.
-   **Channel: type, §5.2.**
+9. **A transparent constructor, at two depths.** `go` (`:273`) returns the pair and builds it from
+   its parameters `p` and `c`, so `Sites(go)` is `PARAM` directly. A wrapper that returns
+   `(go r (Listing) c)` with `c` its own parameter builds no pair of its own, and reaches `go`'s pair
+   through the substitution row, where the command component resolves to the wrapper's own
+   parameter. `Sites` is `PARAM` there too. Both contribute nothing of their own and both are read
+   at their call sites. Rev 4 classified on the def's syntax and caught only the first, so the second
+   became `⊥` and stopped the module. **Channel: type, §5.2.**
 10. **Positive witness for the new error.** A module declares one control-tag fact, and it also holds
     one pair-returning def whose body the table cannot read, for example a def that returns the pair
     out of a `match` on a string. `Sites` for that def is `⊥`, rule 2 fails, and the compiler
@@ -688,7 +726,11 @@ transparent constructors excluded, `Sites` over `docclaims.llmll` binds `Boot` t
 `wasi.proc.run`, `ReadOut` to `wasi.fs.read`, `Ending` to `wasi.io.stdout` and `Done` to
 `wasi.io.stdout`. Two tags may name one builtin; the rule constrains a tag to one builtin and not the
 other direction. That set is what an acceptance test asserts, and it replaces Rev 3's weaker
-statement that the delivered value is zero until a program changes.
+statement that the delivered value is zero until a program changes. **The test must be written inside
+one module.** All eight tags, every producing def and every preconditioned step sit in the module
+that declares `Ctl`, and §5.2 records why they must: a control-tag precondition does not resolve
+outside the declaring module. An acceptance test split across two modules fails for a reason that has
+nothing to do with the issuing rule.
 
 **A recursive step machine disables the feature for its module.** §5.2 treats a cycle among
 pair-returning defs as `⊥`, and `⊥` is now module-global, so one step function that loops by calling
@@ -879,6 +921,19 @@ and lists them. The file has thirteen. The round missed `ran-step` (`:453`), `re
 unaffected, because adding defs cannot remove a `⊥`, and one of the omitted facts strengthens it:
 `go` is a pair-returning def whose components are parameters, so under Rev 3 the module held a `⊥`
 that no program change could remove. §5.2 carries the corrected census.
+
+**Professor round 4, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 4`). Verdict: Rev 4
+is sound. One item blocked the hand-off, and Rev 5 fixes it: the transparent-constructor test read
+the def's own syntax, so a wrapper one level out was not classified and became `⊥`, which Rev 4 had
+just made a hard error. The round also measured the receiving side and found it module-local, which
+is a stronger completeness argument than the producer half Rev 4 gave. Rev 5 folds the measurement,
+states the scope limit that follows, adds the memoization note and puts the module condition on
+§10's acceptance target.
+
+**Rev 5, 2026-09-04.** Classifies a transparent constructor on the `Sites` result rather than on the
+def's syntax, using a `PARAM` marker distinct from `⊥`, so a wrapper at any depth classifies with
+`go`. Adds cell c33. **Rev 5 is settled and ready for the compiler-engineer.** Shipping still waits
+on `TRUST-AXIOM`, per §11 prerequisite 3.
 
 **Rev 4, 2026-09-04.** Excludes transparent constructors from the collection. States that `⊥` is
 module-global and reports an error naming the def. Adds copy propagation for a let-bound command and
