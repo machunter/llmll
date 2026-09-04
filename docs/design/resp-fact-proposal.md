@@ -1,8 +1,8 @@
 ---
 name: resp-fact-proposal
 title: "RESP-FACT-1: an effect's result carries a proved property to its caller"
-status: "Rev 2, PROPOSED. Rev 1 was REJECTED by the professor round (`resp-fact-review.md`). Rev 2 withdraws Rev 1 §4.1 and keys the fact on the program's own control tag, on the effective-precondition channel. Not scheduled."
-date: 2026-09-03
+status: "Rev 3, PROPOSED. Rev 1 was REJECTED at professor round 1. Round 2 accepted the direction and refused the §5.2 issuing rule. Rev 3 restates the collection over pair-RETURNING defs, withdraws rule 3 against a measurement, and corrects the positive witness. Not scheduled."
+date: 2026-09-04
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
 reviewed_by: docs/design/resp-fact-review.md
@@ -153,6 +153,9 @@ correct body-faithful verdict is a refutation. A `SAFE` line therefore reports a
 | c27 | a user **five**-arm sum, all payloads `int`/`string`, no catch-all | n/a | **body-faithful**, refuted |
 | c28 | `def-shell`, `(RCode n)`, `(RList l)`, and a catch-all `_` | **yes** | **body-fallback**, SAFE |
 | c29 | a user sum with a `list[string]` arm named, catch-all present | n/a | **body-fallback**, SAFE |
+| c30 | an importing module, `def`, writes an imported nullary constructor | n/a | **rejected at `check`**: callee not body-faithful, not in the trusted prelude |
+| c31 | c30 as a `def-shell` | n/a | `check` **passes with a warning**; `llmll build` **fails** with the same text as an error |
+| c32 | an importing module takes the tag type as a parameter and matches on it | n/a | **checks clean**. Patterns cross the module boundary |
 
 Four results decide this proposal.
 
@@ -351,8 +354,9 @@ fact takes one, and declares a precondition naming it.
 ```lisp
 (type Ctl (| Boot) (| Probe) (| Listing) (| Ran))
 
-;; Every producer of (Ran) pairs it with wasi.proc.run, so (Ran) is BOUND to
-;; wasi.proc.run. The declared fact for (wasi.proc.run, RCode) is {v : int | v >= 0}.
+;; Every producer of (Ran) pairs it with wasi.http.response, so (Ran) is BOUND
+;; to it. The declared fact for (wasi.http.response, RCode) is {v : int | v >= 100},
+;; which is program-determined under section 6 and therefore admitted.
 (def-shell ran-step [p: Ctl r: Rc x: Response] -> int
   (pre (= p Ran))
   (post (>= result 0))
@@ -374,20 +378,55 @@ seam where the command is in scope. `TypeCheck.hs:1595-1600` and `:1633-1634` ad
 only where the declared return determines its length. The rule below admits a tag binding only where
 the returned pair determines its command.
 
-Collect every site in the module that builds a `(State, Command)` pair, including the pair in
-`:init`. For each site, read two things: the **control tag** in the state component, and the **head
-name** of the command component.
+**The collection runs over the defs that RETURN the pair, not over the expressions that build it.**
+Rev 2 collected "every site that builds a `(State, Command)` pair". Professor round 2 refuted that
+against the measured consumer: `docclaims.llmll` has eight defs returning the pair
+(`:369`, `:375`, `:395`, `:407`, `:420`, `:426`, `:433`, plus `dc-init` at `:497`) and only two
+expressions that build one. `go` (`:273`) builds every pair in the program out of its own
+parameters, so its command component is the variable `c`, and a rule reading build sites binds
+nothing at all. §1.4's own acceptance cell is written through `(go r (Listing) …)`, so Rev 2's test
+already assumed the rule reads call sites.
 
-A tag `T` is **bound** to builtin `B` when all of the following hold.
+Define `Sites(D)` for a def `D` whose declared return type is a `(σ, Command)` pair. Each element is
+a pair of a control tag and a builtin name. The definition is a structural recursion on `D`'s body.
 
-1. Every collected site producing `T` has a command component whose head is `B`.
-2. At every such site the tag is a nullary constructor written in the source, and the head is a
-   builtin name written in the source. A computed tag or a computed command binds nothing.
-3. The control-tag type is declared in the same module as every def that returns it. This keeps the
-   collection complete. Without it a second module could construct the tag unseen.
+| Body form | `Sites` |
+|---|---|
+| `(pair (pair _ T) C)`, with `T` a nullary constructor written in the source, and `C` either a builtin name or an application whose head is one | `{(T, head C)}` |
+| `(if e a b)` | `Sites(a)` union `Sites(b)` |
+| `(match e (p₁ a₁) … (pₙ aₙ))` | the union of every `Sites(aᵢ)` |
+| `(let x e b)` | `Sites(b)` |
+| `(D' e₁ … eₙ)`, where `D'` also returns a `(σ, Command)` pair | `Sites(D')`, with each `eᵢ` substituted for `D'`'s parameter `i` |
+| any other form | `⊥` |
+
+A tag `T` is **bound** to builtin `B` when both of these hold, over the union of `Sites(D)` for every
+pair-returning `D` in the module and over the `:init` pair.
+
+1. Every element carrying `T` carries the same `B`.
+2. No element is `⊥`.
 
 Otherwise `T` is bound to nothing and no fact reaches a step preconditioned on it. Cell R-3 in §1.4
-is the test of rule 1.
+tests rule 1, and because it is written through `go` it also tests that the collection reads call
+sites.
+
+**Termination.** The substitution row follows the call graph of pair-returning defs. Require that
+subgraph to be acyclic, and treat a cycle as `⊥`. The measured consumer needs two hops:
+`next-fixture` (`:426-432`) returns `(finish r)` on one branch, and `finish` (`:369-371`) returns
+`(go r (Ending …) …)`. A one-hop rule does not read it.
+
+**Cross-module completeness is a property of the language, and not a rule this proposal adds.**
+Rev 2 rule 3 required the control-tag type to be declared in the same module as every def that
+returns it. Professor round 2 objected that the granting module cannot check a condition about
+modules it does not see. Measured at `llmll 0.16.2`, the objection does not apply, because a second
+module cannot produce the tag at all. A `def` in an importing module that writes `(Ran)` is rejected
+at `check`: "callee 'Ran' is not body-faithful and not in the trusted prelude". A `def-shell` that
+writes it passes `check` with `warning: call to unknown function 'Ran'`, and then **fails
+`llmll build` with that same text as an error**. The type itself does cross the boundary: an
+importing module may take a `Ctl` parameter and `match` on its constructors, and that checks clean.
+So constructor patterns cross and constructor application does not. A module-local collection is
+therefore complete for a tag whose type the module declares. **Rule 3 is withdrawn** and this
+measured property replaces it. §16 routes the `check`-against-`build` asymmetry, which is a defect
+on its own.
 
 **`seq-commands` is handled, not excluded.** When the command component is
 `(seq-commands a b)`, take the head of `b`, recursively. `LLMLL.md:1512` makes that the response's
@@ -496,10 +535,13 @@ name it. §10 records that constraint against the measured consumer.
 
 ## 8. Edge cases and degenerate inputs
 
-1. **Positive witness, concrete, with shipped builtins.** `wasi.proc.run` declares its `RCode`
-   payload `{v : int | v >= 0}` as an OS-determined fact, or `wasi.http.response` declares
-   `{v : int | v >= 100}` as a program-determined one. Every `go` producing `(Ran)` pairs it with
-   that builtin. `ran-step` in §5.1 declares `(pre (= p Ran))` and `(post (>= result 0))`, and its
+1. **Positive witness, concrete, with a shipped builtin and an admitted category.**
+   `wasi.http.response` (`TypeCheck.hs:160`) declares its `RCode` payload `{v : int | v >= 100}`.
+   That fact is **program-determined** under §6, which is a category this proposal admits.
+   **`wasi.proc.run` is not the witness.** §6's composition rule makes its `RCode` arm
+   OS-determined, through the `ExitFailure c` path, and §6 excludes that category. Rev 2 offered
+   both builtins here, and professor round 2 found that the first names a fact this proposal does
+   not grant. Every `go` producing `(Ran)` pairs it with that builtin. `ran-step` in §5.1 declares `(pre (= p Ran))` and `(post (>= result 0))`, and its
    body is the match in §5.1. Today, measured as cell c22, the binder is unconstrained and the def
    is refuted. Under this proposal it verifies body-faithfully.
    **Channel: contract. Fragment: QF-LIA.**
@@ -508,7 +550,8 @@ name it. §10 records that constraint against the measured consumer.
 3. **A step with no control-tag precondition.** The binder gets `FQTrue`, exactly today's
    behaviour. This is the migration story: no corpus moves until a program adds a precondition.
    **Channel: spec is silent (intentional).**
-4. **A tag paired with a computed command.** Rule 5.2 item 2 fails, so the tag binds to nothing.
+4. **A tag paired with a computed command.** The body does not match §5.2's pair row, so `Sites` is
+   `⊥` and rule 2 fails. The tag binds to nothing.
    A program that selects its command with an `if` inside the command position gets no fact.
    **Channel: type, §5.2.**
 5. **A control tag that is not an all-nullary enum.** `docclaims.llmll:260-268` is the measured
@@ -519,17 +562,22 @@ name it. §10 records that constraint against the measured consumer.
    states what that costs.
 6. **`seq-commands` in the command position.** The head is taken from the right operand,
    recursively, per `LLMLL.md:1512`. **Channel: type, §5.2.**
-7. **A program with no `:init`.** The first response is `RNone`, so the start tag binds to nothing
+7. **An importing module that names the tag.** It cannot produce one. A `def` writing `(Ran)` is
+   rejected at `check`, and a `def-shell` writing it fails `llmll build`. A `match` on an imported
+   tag type checks clean, so patterns cross and construction does not. The module-local collection
+   in §5.2 is complete for that reason, and not because of a rule this proposal states.
+   **Channel: type, measured at `llmll 0.16.2`.**
+8. **A program with no `:init`.** The first response is `RNone`, so the start tag binds to nothing
    and no fact is granted on the first turn. **Channel: type, §5.2 and §5.4.**
-8. **A match shape that leaves the body-faithful fragment.** Two shapes do it, and a granted fact is
+9. **A match shape that leaves the body-faithful fragment.** Two shapes do it, and a granted fact is
    then unused rather than unsound. Writing a payload as `_`, as in `((RText _) 1)` instead of
    `((RText t) 1)`, downgrades the whole def: cell c11 against c10 isolates that to one token.
    Naming the `RList` arm does the same: cells c24, c25 and c28. In a `def` the first shape is
    rejected loudly; in a `def-shell` both are silent. Neither depends on a catch-all, which c27 and
    c28 refute in both directions. **Channel: spec is silent (gap, and §16 routes it).**
-9. **A wrong fact in the table.** The single unsound direction, identical in kind to a wrong arity
+10. **A wrong fact in the table.** The single unsound direction, identical in kind to a wrong arity
    in `nullaryEnumArity`. Tests must pin it, and §12 discloses it. **Channel: trust.**
-10. **A program whose own contract names the `Response` parameter by bare name.** Still falls back
+11. **A program whose own contract names the `Response` parameter by bare name.** Still falls back
     through `clauseOverOpaqueSumParam`. Not fixed here; this is Rev 1's P2 and it belongs with
     `MATCH-WIDEN`. **Channel: spec is silent (gap).**
 
@@ -574,6 +622,13 @@ through a catch-all instead of naming it. The phase 4a plan already records the 
 discipline for `def` bodies (`driver-ll-phase4a-implementation-plan.md:150-154`); the second half is
 new here and §16 routes it.
 
+**A third program-side change stacks under §5.2.** Professor round 2 found that the collection rule
+must read call sites, because every pair in the measured consumer is built inside `go`. Rev 3's
+rule does read them, so the program needs no rewrite for this reason. The cost moved into the
+compiler instead: the rule is now a recursion over pair-returning defs with substitution at calls,
+and it needs an acyclicity condition. That is a larger piece of work than a check over literal
+build sites, and §14 says it has no existing home.
+
 **`RList` gains nothing** (§7), and several open builtin rows deliver `RText`, which stays out.
 
 ---
@@ -584,8 +639,11 @@ new here and §16 routes it.
    (Serve)))` crashes liquid-fixpoint with "The sort Phase is not numeric". Cell c23 differs from
    cell c20 by that one pair of parentheses. The parameter desugars to `int` and the parenthesized
    constructor stays an uninterpreted constant at the sum's own sort, and the two do not unify. The
-   type checker accepts both forms. This is a defect and §16 routes it. It does **not** block Rev 2,
-   because the working form exists and is measured.
+   type checker accepts both forms. This is a defect and §16 routes it. It does **not** block this proposal,
+   because the working form exists and is measured. Professor round 2 asks that the restriction
+   become a type-checker rule instead of a convention, because this proposal teaches a surface
+   whose one-token error is a solver crash. **Rev 3 agrees**, and §14 carries it as a required
+   check rather than as advice in §5.1.
 2. **The fact and the runtime must land in one commit.** A declared fact whose emitted code does not
    establish it is simply false.
 3. **`TRUST-AXIOM` must settle its granularity before this ships.** §12.
@@ -636,7 +694,11 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
 - `compiler/src/LLMLL/FixpointEmit.hs`: the match-arm binder seam, beside the `adtKeys` seeding
   (`:968-974`); the module has zero `Response` occurrences today
 - A new module-level pass, or a new leg of an existing one, for the issuing rule (§5.2). This is the
-  one piece with no existing home, and it is the engineer's call where it lands
+  one piece with no existing home, and it is the engineer's call where it lands. Rev 3 makes it a
+  recursion over pair-returning defs, with substitution at call sites and an acyclicity condition,
+  so it is larger than Rev 2's check over literal build sites
+- A type-checker rule that refuses a parenthesized nullary constructor in a contract clause (§11
+  prerequisite 1). Without it the surface §5.1 teaches has a one-token path to a solver crash
 - `LLMLL.md` §13 (per-builtin facts), §9.7 (`Response`, and the incorrect NOTE at `:1782-1786`),
   §5.3.3 and §5.3.5 (the boundary)
 - `docs/design/fs-capability-trio-proposal.md` §5: this proposal supersedes that placeholder
@@ -648,9 +710,13 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
 
 ## 15. Risks
 
-1. **The issuing rule is a whole-module analysis and rule 3 is its side condition.** Soundness.
-   §5.2. If the control-tag type escapes its module, the collection is incomplete and a fact can be
-   granted on an unbound tag. **Effect: blocks. Rule 3 is not optional, and cell R-3 tests rule 1.**
+1. **The issuing rule is a whole-module analysis, and its completeness rests on a measurement.**
+   Soundness. §5.2. The collection is module-local. It is complete only because an importing module
+   cannot apply the tag's constructor, which cells c30 and c31 measure at `llmll 0.16.2`. That is a
+   property of the current compiler and not a stated language guarantee, so a future change to
+   constructor visibility would make the collection incomplete and let a fact reach an unbound tag.
+   **Effect: blocks unless the property is pinned. Pin it with c30 and c31 in the gate, beside cell
+   R-3, which tests rule 1.**
 2. **The fact and the codegen must land together.** Soundness. §11 item 2.
    **Effect: blocks. One commit, not two.**
 3. **Undisclosed assumed facts.** Trust. `TRUST-AXIOM`, and §12.
@@ -689,7 +755,14 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
    (`:1062`), and the "§4.1" is
    `docs/archive/shipped-design-specs/proof-artifact-proposal.md:52`. Rev 1 §8, the review's
    finding 2, and the roadmap `TRUST-AXIOM` row all repeat it. **To doc-lead.**
-5. **`FixpointEmit.hs:3425-3427` cites stale line numbers.** The comment says `TypeCheck.hs:1216`
+5. **A cross-module constructor application warns at `check` and fails at `build`.** Cells c30 to
+   c32. A `def-shell` in an importing module that writes an imported nullary constructor passes
+   `llmll check` with `warning: call to unknown function 'Ran'`, and `llmll build` then fails with
+   the same text as an error. A `def` is rejected at `check`. The condition is identical and the
+   severity is not, so a program can pass the check gate and fail the build gate on one token.
+   This proposal depends on the behaviour (§5.2 cross-module completeness) and does not need the
+   asymmetry. **To compiler-engineer, as a new row.**
+6. **`FixpointEmit.hs:3425-3427` cites stale line numbers.** The comment says `TypeCheck.hs:1216`
    and `:1250` restrict `(bytes-zero)`. At HEAD those lines are the `typeCheck` entry point and a
    cache comment. The restriction is real and lives at `TypeCheck.hs:1595-1600`, `:1633-1634` and
    `:2655-2657`. The review quoted the comment accurately, so the defect is in the comment.
@@ -709,6 +782,21 @@ review's refuting cell passes vacuously and names a builtin that does not exist 
 `RList` guarantor claim inverts which half is codegen's (§6); and `seq-commands` closes the
 receiving route only, not the issuing one (§3). Records that Rev 1's own §1 probe row contradicted
 its §6 (§2.3).
+
+**Professor round 2, 2026-09-03** (`docs/design/resp-fact-review.md`, `## Round 2`). Verdict:
+accept the direction, refuse §5.2 as written. Five findings. The review upholds none of Rev 2's
+claims against itself by default: it records that all four of Rev 2's rebuttals against round 1 are
+correct, and then raises new findings. Rev 3 answers all five. Finding 1 (the collection rule reads
+build sites and the consumer has none) is fixed in §5.2. Finding 2 (rule 3 is not checkable in the
+granting module) is answered by **withdrawing rule 3**: the two-module witness the review asked for
+was built, and it shows a second module cannot produce the tag, so the completeness rule 3 asserted
+is already a property of the language. Finding 3 is fixed in §8. Finding 4 is accepted and moved
+into §14. Finding 5 is recorded in §10.
+
+**Rev 3, 2026-09-04.** Restates the §5.2 collection over pair-returning defs, with substitution at
+call sites, an acyclicity condition, and the two-hop case the measured consumer needs. Withdraws
+rule 3 against cells c30 to c32. Corrects the positive witness to `wasi.http.response`, the one
+builtin whose fact §6 admits. Adds the `check`-against-`build` asymmetry to §16.
 
 **Independent re-run of §2, 2026-09-03.** A second reader could not replicate cell c10 and reported
 `body-fallback`. §2.2 reconciles it: c10 replicates verbatim, and the other reader ran the
