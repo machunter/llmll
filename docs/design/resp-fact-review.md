@@ -1,7 +1,7 @@
 ---
 name: resp-fact-review
-title: "RESP-FACT-1 professor review, rounds 1 to 3"
-status: "Standalone, not folded. Round 1 REJECTED Rev 1. Round 2 accepted the direction and refused Rev 2 §5.2. Round 3 finds that Rev 3 §5.2 has two readings, one unsound and one that binds nothing on the measured consumer. Rev 4 must decide which."
+title: "RESP-FACT-1 professor review, rounds 1 to 4"
+status: "Standalone, not folded. Rounds 1 to 3 rejected or refused. Round 4 finds Rev 4 sound and nearly settled: one definitional gap remains, the transparent-constructor test is one level deep. Fix it and the proposal is ready for the compiler-engineer."
 date: 2026-08-31
 author: professor
 consumers: [language-team, user, compiler-engineer]
@@ -9,7 +9,7 @@ reviews: docs/design/resp-fact-proposal.md
 style: "ASD-STE100 Simplified Technical English."
 ---
 
-# RESP-FACT-1: professor review, rounds 1 to 3
+# RESP-FACT-1: professor review, rounds 1 to 4
 
 ## Restatement
 
@@ -553,3 +553,137 @@ a program changes", and it gives the row a concrete acceptance target.
 ### Open questions for the language-team
 
 None. Finding 1 names the decision, and the other four say what to change.
+
+---
+
+## Round 4: Rev 4, and the half of the argument that was missing
+
+Reviewed 2026-09-04, against `docs/design/resp-fact-proposal.md` Rev 4 (`d4c811a`) at
+`llmll 0.16.2`.
+
+### Restatement
+
+Rev 4 states that `⊥` withholds every binding in its module, makes that a compile-time error naming
+the def, and excludes a **transparent constructor**, which is a pair-returning def whose tag or
+command component is one of its own parameters. It also adds let copy propagation and applies
+`Sites` to the `:init` expression.
+
+### Context located
+
+1. `docs/design/resp-fact-proposal.md` §5.2, §8, §10, §15 and §17, Rev 4.
+2. A new cell, run for this round. An importing module declares
+   `(def recv [p: Ctl] -> int (pre (= p Ran)) …)`. The compiler answers
+   `error: unbound variable 'Ran' (may be in scope at runtime)`.
+3. Round 3's cell c32, which showed a `match` on an imported tag type checks clean. The two together
+   separate pattern position from expression position.
+4. `tools/doc-claims/docclaims.llmll:272-273`, `:369-377`, `:426-432`, `:489-495`. The transparent
+   constructor and the call chains that reach it.
+
+### Rev 4 answers round 3, and the census correction is accepted
+
+The three substantive answers land. `⊥` is now the module-global reading, which is the sound one.
+The failure is an error naming the def, which removes the silent-withdrawal shape §16 finding 2
+already routes. The transparent-constructor exclusion identifies the real cause: `go` was a `⊥` that
+no program change could remove.
+
+Rev 4 §17 also corrects round 3's census, and the correction is right. `docclaims.llmll` declares
+thirteen defs returning `((Rc, Ctl), Command)`, not eight. Round 3 built its table from a search
+truncated at eight rows, and it omitted `ran-step` (`:453`), `readout-step` (`:456`), `score`
+(`:489`) and `dc-step` (`:506`), and did not count `go` (`:272`). The omission did not change round
+3's conclusion, and one omitted row strengthened it. A count taken from a truncated view is not a
+census, and this round rechecked all thirteen against their def lines.
+
+### The completeness argument is one-sided, and the missing half is the stronger one
+
+Rev 4 argues that a module-local collection is complete because a second module cannot **produce**
+the tag. That is the producer half. The receiving half is also module-local, and Rev 4 does not say
+so.
+
+Measured for this round: a control-tag precondition cannot be written outside the tag's declaring
+module. An importing module that writes `(pre (= p Ran))` fails with
+`error: unbound variable 'Ran' (may be in scope at runtime)`. Round 3's cell c32 showed the
+matching **pattern** `((Ran) …)` checks clean in the same position. So a constructor resolves in
+pattern position across a module boundary and does not resolve in expression position, and a
+contract clause is expression position.
+
+Both ends of the design are therefore confined to one module. That is a better completeness argument
+than the one Rev 4 gives, because it does not depend on a step's producers being found: a step that
+could receive a fact cannot even be written elsewhere.
+
+It carries a scope limit that Rev 4 should state. **A program that splits its step machine across
+modules cannot adopt this feature.** The step functions must live in the module that declares the
+control-tag type. The measured consumer satisfies that today. A program that grows past one module
+must keep the tag type and every preconditioned step together.
+
+### Gaps and hazards
+
+#### 1. The transparent-constructor test is one level deep
+
+**Classification: specification incompleteness. It complicates the proposal, and under Rev 4 it now
+stops a build.**
+
+§5.2 defines a transparent constructor as "a pair-returning def whose tag component or command
+component is one of its own parameters". That reads the def's own pair expression. `go` has one, so
+`go` is recognized.
+
+A helper one level further out has no pair expression of its own. Consider, illustratively, a def
+that returns `(go r (Listing) c)` where `c` is its own parameter. It builds no pair, so the
+definition does not classify it as transparent. `Sites` then takes the substitution row, reaches
+`go`'s pair, and finds the command component is a variable that `ρ` does not map, because `ρ` carries
+let bindings and not parameters. The result is `⊥`. Under Rev 4 that is no longer a quiet
+withdrawal. It is a compile-time error, so a single such helper stops the module.
+
+The measured consumer has no two-level helper today, so nothing fails now. The hazard arrives with
+the first program that adapts to this feature, which is exactly the population Rev 4 is written for.
+
+**The repair is definitional and small.** Define transparency on the result rather than on the
+syntax: a pair-returning def is transparent when its `Sites` computation would fail only because a
+tag or command component resolved to one of that def's own parameters. Then `go` and every wrapper
+over it classify the same way, at any depth, and a genuine `⊥` still reports.
+
+#### 2. The substitution row has no memoization rule, and the call graph is a DAG
+
+**Classification: ergonomic. It only matters at scale.**
+
+`Sites(D')` is recomputed under each call's substitution, and substitution changes the result, so a
+naive implementation cannot cache on the def alone. `dc-step` (`:506`) calls six step defs, and
+several of those reach `skip`, `finish` and `next-fixture`. The work is exponential in the depth of
+the pair-returning call DAG in the worst case.
+
+§5.2 states the acyclicity condition and stops there. Rev 5 should say that an implementation may
+memoize on the pair of the def and the substituted arguments, and that the acyclicity condition is
+what makes that table finite. This is guidance for the engineer, not a change to the rule.
+
+#### 3. §10's acceptance target should name the module condition
+
+**Classification: scope. It complicates nothing, and it prevents a wrong acceptance test.**
+
+§10 now says eight tags bind on the measured consumer after the `Ctl` repair. I checked the set and
+it is right. The target should also record that every one of those tags, and every step that
+preconditions on one, sits in the module that declares `Ctl`. An acceptance test written across two
+modules would fail for a reason unrelated to the issuing rule.
+
+### Recommendation
+
+**Rev 4 is sound. Fix finding 1 and send it to the compiler-engineer.**
+
+This is the first round where the design survives the reading. `⊥` has one meaning, and it is the
+sound one. The failure is loud. The transparent-constructor exclusion removes the cause that made
+Rev 3 bind nothing. The positive witness in §8 edge case 10 is a real firing input rather than an
+abstract description, which is the standard this project sets for a guard.
+
+Rev 5 is three small changes and none of them touches the design.
+
+1. **Restate transparency on the `Sites` result**, not on the def's own syntax, so a wrapper at any
+   depth classifies with `go`. This is the one item that would otherwise reach the engineer as a
+   rule that stops a build on a shape the proposal encourages.
+2. **Fold in the receiving-side measurement.** Both ends are module-local, and that is a stronger
+   completeness argument than the producer half alone. State the scope limit that follows: the step
+   machine and the control-tag type must share a module.
+3. **Add the memoization note and the module condition to §10's acceptance target.**
+
+`TRUST-AXIOM` still gates the ship, per §11 prerequisite 3, and that is unchanged.
+
+### Open questions for the language-team
+
+None. The three items above say what to change.
