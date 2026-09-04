@@ -109,7 +109,7 @@ of a payload that codegen did not compute.
 OS behaviour. §4.3 admits `RList` length facts with **no criterion** separating the
 two cases, and §7 maps every fact to one stamp. A fact resting on the OS would then
 be stamped as resting on codegen. That is a mis-citation of the trust channel, and
-`LLMLL.md` §4.1 exists to prevent exactly that.
+`LLMLL.md` §5.4 exists to prevent exactly that.
 
 ### 3. The precedent's soundness argument is the part §3 did not carry over
 
