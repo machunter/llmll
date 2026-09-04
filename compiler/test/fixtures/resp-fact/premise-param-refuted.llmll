@@ -1,0 +1,25 @@
+;; @expect: check clean; verify REFUTED on call-pre:wasi.http.response in ran-issue (no pre bounds code)
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell ran-issue [r: int code: int] -> ((int, Ctl), Command)
+
+  (go r Ran (wasi.http.response code "")))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (ran-issue (first s) 200))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)

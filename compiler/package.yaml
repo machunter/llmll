@@ -66,6 +66,7 @@ library:
     - LLMLL.TypeAdmissibility
     - LLMLL.TypeCheck
     - LLMLL.HoleAnalysis
+    - LLMLL.RespFact
     - LLMLL.Contracts
     - LLMLL.PBT
     - LLMLL.CodegenHs

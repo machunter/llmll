@@ -1,0 +1,18 @@
+;; @expect: check ERROR (cell D, §8 item 19): recv requests a fact on Ctl, which is declared in the imported module lib; the entry-module rule names Ctl
+(import wasi.io (capability stdout :deterministic false))
+(import lib)
+(open lib)
+(export)
+(def-shell recv [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (= result 0))
+  0)
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (pair (pair 0 Ran) (wasi.io.stdout "")))
+    ((Ran)  (pair (pair (recv Ran x) Boot) (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool false)
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout ""))
+  :step step
+  :done? done?)

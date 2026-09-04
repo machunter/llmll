@@ -1,0 +1,3 @@
+;; @expect: (library half of cell D, §1.6 R-5) declares the tag type an importer opens
+(type Ctl (| Boot) (| Ran))
+(def-shell mk-lib [] -> Ctl Ran)

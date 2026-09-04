@@ -78,6 +78,7 @@ import LLMLL.Diagnostic
 -- this module does not import.
 import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
+import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
 -- ---------------------------------------------------------------------------
@@ -1452,6 +1453,18 @@ checkStatements stmts = do
       -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
       forM_ (zip [0 :: Int ..] stmts) $ \(i, stmt) ->
         withSegment "statements" $ withSegment (tshow i) (checkStatement stmt)
+      -- RESP-FACT-1 (resp-fact-proposal.md §5.1 to §5.3): the control-tag fact
+      -- analyses, run once per module over the merged alias map (local ∪ imported
+      -- ∪ builtin, so a tag type an importer merely opens is seen and refused by
+      -- the entry-module rule). Inert when the module holds no fact request.
+      -- Every failure is a HARD ERROR here, so check, verify and build all stop
+      -- and no fact is withheld quietly (§5.2: the quiet alternative is the
+      -- def-shell silent-downgrade shape §16 already routes as a defect). The
+      -- emitter and the trust report re-run the same pure analysis for the plan.
+      am <- gets tcAliasMap
+      case analyzeRespFacts am stmts of
+        Left errs  -> forM_ errs (tcErrorK "resp-fact")
+        Right plan -> forM_ (rpWarnings plan) tcWarn
 
 -- | Extract (name, type) for top-level definitions (for forward references).
 collectTopLevel :: Statement -> Maybe (Name, Type)

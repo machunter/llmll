@@ -322,8 +322,13 @@ reservedCallerObligationsKey = "caller_obligations"
 -- INT-3 without one (finding-arg-position-false-safe.md Rev 1).
 --
 -- Bumped when a checker defect invalidates verdicts produced by older binaries.
+--
+-- "2" (RESP-FACT-1): a verdict may now rest on the compiler's fact table
+-- ('LLMLL.RespFact.respFactTable') and on the delivery rule, so a sidecar
+-- written by a binary without them must not be admitted. One re-verify per
+-- tree, the cost the SAFE-ARG precedent already accepted.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "1"
+checkerSoundnessVersion = "2"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

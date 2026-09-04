@@ -1,0 +1,26 @@
+;; @expect: check ERROR (cell W, §8 item 14): in outer, the call (h t x) passes t for parameter p of h; t is let-bound, not delivered
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Probe) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell h [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell outer [q: Ctl x: Response] -> int
+  (pre (= q Probe))
+  (post (>= result 100))
+  (let [(t Ran)] (h t x)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Probe) (go (outer Probe x) Ran (wasi.http.response 200 "")))
+    ((Ran)   (go (h Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt)  (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Probe) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Probe) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)

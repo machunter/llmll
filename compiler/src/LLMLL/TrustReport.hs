@@ -16,6 +16,9 @@ module LLMLL.TrustReport
   , OverAnnotationInfo(..)      -- F-001 (adv-spec-weaken-0): module-level over-annotation JSON surface
   , CallerObligation(..)        -- TRUST-PRE (Part 2): per-function caller-obligation axis
   , callerObligationJson        -- TRUST-PRE: shared JSON shape (report + sidecar persistence)
+  , AssumedFact(..)             -- RESP-FACT-1: per-function assumed-fact disclosure row (§12)
+  , assumedFactJson             -- RESP-FACT-1: its JSON shape
+  , markAssumedFacts            -- RESP-FACT-1: per-entry setter
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
@@ -58,7 +61,10 @@ import qualified Data.Text.Lazy as TL
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
-import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap)  -- DEF-RET Unit 2
+import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap, cacheAwareAliasMap)  -- DEF-RET Unit 2; RESP-FACT-1 merged aliases
+-- RESP-FACT-1 (§12): the disclosure rows come from the same pure analysis the
+-- checker and the emitter run, so the three surfaces cannot drift.
+import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), AssumedFact(..))
 import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotationRatio, overAnnotationThreshold, DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet, dqLabel, dqNumScore)
 import LLMLL.AstEmit (exprToJson)
 import LLMLL.HoleAnalysis (buildCallGraph)  -- REC-PARTIAL-MARK: SCC over the call graph
@@ -110,6 +116,14 @@ data TrustEntry = TrustEntry
   -- static contract property — it cannot go stale like a solver verdict, the
   -- deliberate inverse of the non-persisted 'refuted' axis).
   , teCallerObligations  :: [CallerObligation]
+  -- RESP-FACT-1 (§12): the assumed facts this function's verdict rests on, one
+  -- row per (tag, builtin, arm), each naming what discharged its premise
+  -- (`folded-literal`, or `call-pre:<issuing def>` — follow that def's own
+  -- effective-pre line to see whether the premise was proved or asserted).
+  -- Populated from the live source by 'markAssumedFacts' on every report path;
+  -- empty for every function outside a requesting module. Additive JSON key
+  -- 'assumed_facts', no emit-version change (the 'harness_assumptions' precedent).
+  , teAssumedFacts       :: [AssumedFact]
   } deriving (Show, Eq)
 
 -- | TRUST-PRE (Part 2): one caller-precondition obligation carried on a
@@ -402,7 +416,13 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- entry names ('buildModuleEntries' prefixing).
       declaredReqs = collectDeclaredRequires cache entryStmts
       jointMarked  = map (markJointPostWitness jointHashes) enrichedEntries
-      markedEntries = markCallerObligations declaredReqs jointMarked
+      -- RESP-FACT-1 (§12): per-function assumed-fact rows, entry module only
+      -- (the entry-module rule confines every requesting def there). The
+      -- checker has already raised every analysis error, so a Left here reads
+      -- as "no rows"; entry names are bare, matching 'buildModuleEntries ""'.
+      assumedRows  = rpDisclosures (respFactPlanOrEmpty
+                       (analyzeRespFacts (cacheAwareAliasMap entryStmts cache) entryStmts))
+      markedEntries = markAssumedFacts assumedRows (markCallerObligations declaredReqs jointMarked)
       -- Compute summary
       summary = computeSummary markedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
@@ -875,6 +895,7 @@ mkEntry qname contract body allCS =
        , teEffectivePostLevel = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
        , teJointPostWitness   = False    -- OBLIG-PBT-5a: marked by markJointEntries
        , teCallerObligations  = []       -- TRUST-PRE: filled by markCallerObligations
+       , teAssumedFacts       = []       -- RESP-FACT-1: filled by markAssumedFacts
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -1273,6 +1294,21 @@ markCallerObligations declaredReqs entries = map mark entries
           combined = own ++ [ o | o <- transitive, coObFn o `notElem` map coObFn own ]
       in e { teCallerObligations = combined }
 
+-- | RESP-FACT-1: attach each disclosure row to the entry it names.
+markAssumedFacts :: [AssumedFact] -> [TrustEntry] -> [TrustEntry]
+markAssumedFacts rows = map (\e -> e { teAssumedFacts = [ r | r <- rows, afDef r == teName e ] })
+
+-- | RESP-FACT-1: the JSON shape of one assumed-fact row.
+assumedFactJson :: AssumedFact -> Value
+assumedFactJson a = object
+  [ "tag"       .= afTag a
+  , "builtin"   .= afBuiltin a
+  , "arm"       .= afArm a
+  , "predicate" .= afPredicate a
+  , "category"  .= afCategory a
+  , "premise"   .= afPremise a
+  ]
+
 -- ---------------------------------------------------------------------------
 -- Summary
 -- ---------------------------------------------------------------------------
@@ -1450,7 +1486,12 @@ formatEntry e =
                            <> ", post: " <> maybe "—" dlLabel (tdPostLevel d) <> ")")
                      (teDeps e)
       driftLines = map ("    ⚠ " <>) (teDrifts e)
-  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines
+      -- RESP-FACT-1 (§12): one line per assumed fact, naming the premise case.
+      assumedLines = map (\a -> "    ≈ assumes " <> afTag a <> " ⇒ " <> afBuiltin a <> "/" <> afArm a
+                                <> " " <> afPredicate a <> " [" <> afCategory a
+                                <> "; premise: " <> afPremise a <> "]")
+                         (teAssumedFacts e)
+  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =
@@ -1600,6 +1641,11 @@ formatTrustReportJson report =
       [ "carries_caller_obligations" .= not (null (teCallerObligations e)) ] ++
       [ "caller_obligations" .= map callerObligationJson (teCallerObligations e)
       | not (null (teCallerObligations e)) ] ++
+      -- RESP-FACT-1 (§12): per-entry assumed-fact rows, only-when-present so a
+      -- report outside a requesting module stays byte-identical. Additive; no
+      -- 'trust_report_version' change (the 'harness_assumptions' precedent).
+      [ "assumed_facts" .= map assumedFactJson (teAssumedFacts e)
+      | not (null (teAssumedFacts e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

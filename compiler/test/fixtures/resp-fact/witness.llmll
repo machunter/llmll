@@ -1,0 +1,27 @@
+;; RESP-FACT-1 positive witness (resp-fact-proposal.md §8 item 1, §5.1).
+;; @expect: check clean; verify SAFE; ran-step body-faithful with its x$RCode arm
+;; binder refined to (v >= 100); trust report row on ran-step:
+;;   assumes Ran ⇒ wasi.http.response/RCode {v : int | (>= v 100)} [program-determined; premise: folded-literal]
+;; The dispatcher passes the literal tag INSIDE the ((Ran) …) arm of a match on
+;; (second s), which is delivery row (t5); the response x is :step's own.
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (first s) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)
