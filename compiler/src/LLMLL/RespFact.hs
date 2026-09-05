@@ -107,10 +107,16 @@ import LLMLL.HoleAnalysis (buildCallGraph)
 -- site, and the compiler proves that premise ('PremiseSite'). The residue is
 -- codegen's pass-through, disclosed on @codegen_semantics_version@.
 --
--- A @FactCodegen@ category (the value is fixed by generated code, e.g. a clamp)
--- is deliberately NOT declared: no shipped builtin is in it. @FS-STAT-1@ adds
--- it with its clamp as the firing witness, so the constructor is not dead code
--- here waiting for a producer.
+-- A @FactCodegen@ category (the value is fixed by generated code) is
+-- deliberately NOT declared: no shipped builtin is in it. @FS-STAT-1@ adds it,
+-- so the constructor is not dead code here waiting for a producer.
+--
+-- ITS FIRING WITNESS IS THE ERROR BRANCH, NOT A CLAMP. This comment said
+-- "with its clamp as the firing witness" and that was already wrong when it was
+-- written: @fs-capability-trio-proposal.md@ Rev 2 §4 withdrew the clamp on
+-- 2026-08-19, because clamping a negative age to zero reports maximal freshness
+-- to a liveness check. @wasi.fs.stat@ answers @RErr@ instead, so its @RCode@ arm
+-- carries @v >= 0@ because the negative case never reaches the arm.
 newtype FactCategory
   = FactProgram Int   -- ^ program-determined; the Int is the ARGUMENT INDEX of
                       --   the builtin that carries the value into the arm
