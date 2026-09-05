@@ -1,11 +1,11 @@
 ---
-name: resp-fact-review
-title: "RESP-FACT-1 professor review, rounds 1 to 4"
-status: "Standalone, not folded. Rounds 1 to 3 rejected or refused. Round 4 finds Rev 4 sound and nearly settled: one definitional gap remains, the transparent-constructor test is one level deep. Fix it and the proposal is ready for the compiler-engineer."
+name: resp-fact-proposal-review
+title: "Professor review of resp-fact-proposal.md, rounds 1 to 5"
+status: "FOLDED and ARCHIVED at v0.17.0 (DOC-CONSOLIDATE M2), into docs/design/resp-fact-proposal.md's Appendix review log. Five rounds. Round 1 rejected the Rev 1 shape, because a per-arm attachment lets a fact reach a binder no builtin guarantees. Rounds 2 to 4 settled the issuing rule. Round 5 refuted Rev 5's receiving side with cells W, D and E, and supplied the delivery rule and the export condition that Rev 6 carries."
 date: 2026-08-31
 author: professor
 consumers: [language-team, user, compiler-engineer]
-reviews: docs/design/resp-fact-proposal.md
+reviews: docs/design/resp-fact-proposal.md (Rev 1 to Rev 6)
 style: "ASD-STE100 Simplified Technical English."
 ---
 

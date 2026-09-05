@@ -16,7 +16,7 @@ Implement `docs/design/resp-fact-proposal.md` Rev 6. The compiler declares a fac
 ## Context located
 
 1. `docs/design/resp-fact-proposal.md` Rev 6: §1.5-1.7 (cells R-4, R-5, R-6), §2.1 rows c34-c43, §5.1 (fact request, defined), §5.2 (entry-module rule, export condition, state shape), §5.3 (delivery rule, grammar t1-t5), §5.4 (harness lemma), §8 items 14-23, §9, §10, §11 item 1, §12, §14, §16 items 7-11.
-2. `docs/design/resp-fact-review.md` `## Round 5`: accepts the direction; refuses implementation until Rev 6 carries the three changes; adds cell E and row (t5).
+2. `docs/archive/professor-reviews/resp-fact-proposal-review.md` `## Round 5`: accepts the direction; refuses implementation until Rev 6 carries the three changes; adds cell E and row (t5).
 3. `docs/compiler-team-roadmap.md` rows `RESP-FACT-1` (:87), `FS-STAT-1` (:60), `TRUST-AXIOM` (:102), `CMD-A` (:98).
 4. **Correction to revision 1.** Revision 1 argued that no module can import the entry module without a cycle. Cell E (`amain.llmll` with `def-main`, imported and opened by `bmain.llmll`) checks, verifies SAFE and builds. The argument was wrong. The export condition of Rev 6 §5.2 replaces it, and `(export)` with no names parses (`Parser.hs:420-427`).
 5. `compiler/src/LLMLL/HoleAnalysis.hs:52-53` (imports `Syntax` and `Diagnostic` only) and `:606-616` (`buildCallGraph`). `TypeCheck.hs:80`, `FixpointEmit.hs:129` and `TrustReport.hs:64` already import it. So a new module that imports `Syntax`, `TypeAdmissibility` and `HoleAnalysis` closes no cycle when the three consumers import it.
@@ -54,7 +54,7 @@ Ordered from entry to output.
 - `compiler/src/LLMLL/FixpointEmit.hs:1340-1360`. Fold a closed RHS: skip the constraint when it reduces to true; emit `FQFalse` when it reduces to false. Closed means every leaf is a literal after `desugarCtorValues`.
 - `compiler/src/LLMLL/FixpointEmit.hs:426-475`, `:531-570`, `:650-676`. Compute the plan once; thread `Map Name RefEnv` into `emitFnConstraints` (new parameter, five call sites); after the statement loop emit premise constraints with binders from `buildSortEnv aliases params` of the origin def, `lhs` = the origin def's desugared `pre` (or `FQTrue`), `rhs` = the fact with `v := param`, tag `[origin, "call-pre:" <> builtin]`, origin pointer `/statements/<idx>/body`, recorded through `addCallPre`.
 - `compiler/src/LLMLL/FixpointEmit.hs:1031`. `refEnv = Map.union respRefs (Map.fromList (resultRefs ++ adtRefs))`.
-- `compiler/src/LLMLL/FixpointEmit.hs:3425-3427`. Replace the stale `TypeCheck.hs:1216 / :1250` citation with `:1595-1600`, `:1633-1634`, `:2655-2657` (§16 item 6).
+- `compiler/src/LLMLL/FixpointEmit.hs`, the `reifyBytesZeroLen` and `(bytes-zero)` comments. Replace the stale `TypeCheck.hs:1216 / :1250` citation by NAMING the LEVER-A0 determining-context arms rather than citing lines, which drift (§16 item 6). The same citation is repeated in `Contracts.hs`'s `reifyBytesLen` twin.
 - `compiler/src/LLMLL/TrustReport.hs:74-120`, `:343`, `:1529-1532`. `teAssumedFacts :: [AssumedFact]` with tag, builtin, arm, rendered predicate, category, and `premise` ∈ {`folded-literal`, `call-pre:<origin def>`}. The second form names the def whose `pre` the premise rests on, and the reader follows that def's existing effective-pre line (`teEffectivePreLevel`) to see whether it was proved or asserted. Text render one line per row; JSON key `assumed_facts`, additive, no emit-version change (precedent `:300-303`).
 - `compiler/src/LLMLL/VerifiedCache.hs:326`. `checkerSoundnessVersion` from `"1"` to `"2"`.
 - `compiler/test/fixtures/resp-fact/` (new, twenty fixtures; test plan).
@@ -99,8 +99,8 @@ Fixtures under `compiler/test/fixtures/resp-fact/`, each with an `@expect` heade
 4. `w-ctor.llmll`. Cell c42 shape. Expect a `check` error naming the constructor argument.
 5. `bottom.llmll`, `stay-put.llmll`, `do-body.llmll`. §8 items 10, 17, 18. Expect a `check` error naming the def; the last two must state the rewrite.
 6. `payload-ctl.llmll`. §8 item 5. Expect an error naming `Ctl` and the requesting def.
-7. `open-lib/lib.llmll`, `open-lib/main.llmll`. Cell D. Expect the entry-module error naming `Ctl`.
-8. `wrap-machine/amain.llmll`, `wrap-machine/bmain.llmll`. Cell E with `(export)` in `amain`. Expect `bmain` to fail `check` on the unbound name `a-step`.
+7. `compiler/test/fixtures/resp-fact/open-lib/lib.llmll`, `compiler/test/fixtures/resp-fact/open-lib/main.llmll`. Cell D. Expect the entry-module error naming `Ctl`.
+8. `compiler/test/fixtures/resp-fact/wrap-machine/amain.llmll`, `compiler/test/fixtures/resp-fact/wrap-machine/bmain.llmll`. Cell E with `(export)` in `amain`. Expect `bmain` to fail `check` on the unbound name `a-step`.
 9. `export-missing.llmll`, `export-reaching.llmll`, `export-ctor.llmll`, `export-ok.llmll`. §8 item 20 and its neighbours: no list; a list naming the dispatcher that reaches the requesting step; a list naming `Ran`; a list naming a helper that reaches nothing. Expect three errors naming the offending name and the reached step, and one pass.
 10. `arm-literal.llmll`. §8 item 16. Expect `check` clean, no call-pre constraint in the `.fq` for the folded `(1 = 1)`, and SAFE.
 11. `closed-false.llmll`. §8 item 21: `(h Boot x)` inside the `((Boot) …)` arm. Expect the delivery rule to admit it and the solver to refute the `(0 = 1)` call-pre.

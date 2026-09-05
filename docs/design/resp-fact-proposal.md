@@ -1,11 +1,11 @@
 ---
 name: resp-fact-proposal
 title: "RESP-FACT-1: an effect's result carries a proved property to its caller"
-status: "Rev 6, PROPOSED after professor round 5 and the compiler-engineer's plan. Rev 5's receiving rule admitted a false SAFE (cell R-4) and its completeness measurement missed `open` (cells R-5, R-6). Rev 6 adds the delivery rule (§5.3), the entry-module rule and the export condition (§5.2), folds the three cells, lowers `(Serve)` in the emitter instead of refusing it (§11), and states the premise's three disclosure cases (§12). Awaiting round 6 or user settlement. Shipping still waits on `TRUST-AXIOM` per §11 prerequisite 3."
+status: "Rev 6, SETTLED and SHIPPED as v0.17.0 (`d5dd5a8`, 2026-09-04). Rev 5's receiving rule admitted a false SAFE (cell R-4) and its completeness measurement missed `open` (cells R-5, R-6). Rev 6 adds the delivery rule (§5.3), the entry-module rule and the export condition (§5.2), folds the three cells, lowers `(Serve)` in the emitter instead of refusing it (§11), and states the premise's three disclosure cases (§12). All three §11 prerequisites are discharged; §16 records which routed findings the ship closed and which stay open."
 date: 2026-09-04  # Rev 6
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
-reviewed_by: docs/design/resp-fact-review.md
+reviewed_by: docs/archive/professor-reviews/resp-fact-proposal-review.md (folded into the Appendix below at v0.17.0)
 ---
 
 # RESP-FACT-1: an effect's result carries a proved property to its caller
@@ -993,7 +993,12 @@ feature must choose between the fact and a self-calling step.
    byte-identical `.fq`. The same row lowers `(h (Ran) x)` in a body.
 2. **The fact and the runtime must land in one commit.** A declared fact whose emitted code does not
    establish it is simply false.
-3. **`TRUST-AXIOM` must settle its granularity before this ships.** §12.
+3. **`TRUST-AXIOM` must settle its granularity before this ships.** §12. **DISCHARGED at
+   v0.17.0.** The prerequisite asked for the granularity to settle, not for the `TRUST-AXIOM` row
+   to close. §12 states the granularity, and `d5dd5a8` implements it as the per-function
+   `assumed_facts` rows. The roadmap `TRUST-AXIOM` row records this ship as its first disclosed
+   population. That row stays **OPEN** for the `bytes-set` and `bytes-zero` axioms, which this
+   proposal does not touch.
 
 ---
 
@@ -1112,61 +1117,101 @@ it falls inside the categories Rev 2 admits and needs no new disclosure.
 
 ## 16. Findings routed out of this proposal
 
+**Closure state, measured against HEAD on 2026-09-05.** Items 1, 4, 6 and 7 are closed. Items 2, 3,
+5, 8, 9 and 10 stay open and each one needs a roadmap row. Item 11 is deferred to a named row. Do
+not read this list as the record of what shipped; the CHANGELOG entry `## v0.17.0` and `d5dd5a8`
+are that record.
+
 1. **`LLMLL.md:1782-1786` states a per-arm boundary as a whole-type one.** §2.3. The NOTE is
    correct for a match that names the `RList` arm (c24, c25, c28) and wrong for one that does not
    (c1, c6, c10, c22). The accurate sentence is that a match **naming the `RList` arm** falls back,
    as any list-mentioning body does, which is what `TypeAdmissibility.hs:265-268` already says.
-   **To doc-lead.**
+   **To doc-lead. CLOSED** (`2c0a6f3`). The NOTE in `LLMLL.md` §9.7 now names the `RList` arm and
+   the `_`-payload trigger, and says that neither trigger is specific to `Response`.
 2. **Two shapes silently downgrade a `def-shell` to body-fallback, and both can hide a false post.**
    First, naming an arm whose payload sort is outside the fragment (c24, c25, c28, and c29 on a
    user sum). Second, writing a payload as `_` rather than binding it (c11, c13, isolated to one
    token against c10 and c14). In a `def` the second shape is rejected at `check` with "unrestricted
    match", which is loud and is recorded (`driver-ll-phase4a-implementation-plan.md:150-154`,
    `Syntax.hs:810`). In a `def-shell` neither shape is reported, and a false post then reaches SAFE.
-   Both are general, not `Response` specific. **To compiler-engineer, as a new row.**
+   Both are general, not `Response` specific. **To compiler-engineer, as a new row. OPEN, and the
+   row is not filed.** The row needs a tag; this proposal does not assign one.
 3. **A parenthesized nullary constructor in a contract clause crashes liquid-fixpoint.** Cell c23
    against c20. The type checker accepts both forms and only one reaches a verdict.
-   **To compiler-engineer, as a new row.**
+   **To compiler-engineer, as a new row. OPEN, and the row is not filed.** The row needs a tag;
+   this proposal does not assign one. `d5dd5a8` lowers the parenthesized form in
+   `desugarCtorValues` (§11 prerequisite 1), so this proposal's own witness no longer crashes. The
+   general defect in contract-clause position is unchanged.
 4. **"`LLMLL.md` §4.1" is the wrong citation for the anti-laundering clause.** `LLMLL.md:419` is
    "Function Declarations". The clause is at `LLMLL.md:1068`, inside §5.4 "The Proof Artifact"
    (`:1062`), and the "§4.1" is
    `docs/archive/shipped-design-specs/proof-artifact-proposal.md:52`. Rev 1 §8, the review's
-   finding 2, and the roadmap `TRUST-AXIOM` row all repeat it. **To doc-lead.**
+   finding 2, and the roadmap `TRUST-AXIOM` row all repeat it. **To doc-lead. CLOSED.** No live
+   document cites `§4.1` for the anti-laundering clause now. The roadmap `TRUST-AXIOM` row and the
+   `v0.14.0` row both cite `§5.4`.
 5. **A cross-module constructor application warns at `check` and fails at `build`.** Cells c30 to
    c32. A `def-shell` in an importing module that writes an imported nullary constructor passes
    `llmll check` with `warning: call to unknown function 'Ran'`, and `llmll build` then fails with
    the same text as an error. A `def` is rejected at `check`. The condition is identical and the
    severity is not, so a program can pass the check gate and fail the build gate on one token.
    This proposal depends on the behaviour (§5.2 cross-module completeness) and does not need the
-   asymmetry. **To compiler-engineer, as a new row.**
+   asymmetry. **To compiler-engineer, as a new row. OPEN, and the row is not filed.** The row
+   needs a tag; this proposal does not assign one. `d5dd5a8` keeps the warning at `check` for
+   cell E's importer, which the CHANGELOG records as a deviation from the plan.
 6. **`FixpointEmit.hs:3425-3427` cites stale line numbers.** The comment says `TypeCheck.hs:1216`
    and `:1250` restrict `(bytes-zero)`. At HEAD those lines are the `typeCheck` entry point and a
    cache comment. The restriction is real and lives at `TypeCheck.hs:1595-1600`, `:1633-1634` and
    `:2655-2657`. The review quoted the comment accurately, so the defect is in the comment.
-   **To compiler-engineer.**
+   **To compiler-engineer. CLOSED, and both the item and its replacement targets were wrong.**
+   `d5dd5a8` repaired one comment and left `CodegenHs.hs:582-586` incorrect inside that same
+   comment. A sweep of every cross-file citation in `compiler/src` on 2026-09-05 found **nine**
+   incorrect citations, not one: four in the `(bytes-zero)` family, two for the map and `=` typing
+   rules, and three in `HoleAnalysis.hs`, `LeanTranslate.hs` and `TypeCheck.hs`. All nine are
+   repaired. The targets this item names (`:1595-1600`, `:1633-1634`, `:2655-2657`) had themselves
+   drifted before the repair ran; the rule is at `checkStatement`'s LEVER-A0 arms for `SDef` and
+   `SDefShell`, and at the polymorphic-builtin error path.
+
+   **The durable lesson is the repair method, not the count.** A citation that names a line becomes
+   incorrect when any line above it moves, and `d5dd5a8` itself moved `TypeCheck.hs` by one line at
+   the import and by twelve more at `checkStatements`. The repairs therefore name the construct and
+   tell the reader to grep. No gate catches this class, so it can recur; see the routing note
+   below.
 
 7. **A call-pre whose substituted predicate is closed and true crashes liquid-fixpoint.** Cell c38:
    `(h Ran x)` yields `(1 = 1)` and the sanitizer reports "RHS without single conjunct". The
    engineer's plan folds it in-row, because the row's own witness produces the shape.
-   **To compiler-engineer, in-row.**
+   **To compiler-engineer, in-row. CLOSED** (`d5dd5a8`, `evalClosedFQ`). A closed and true call-pre
+   is folded and not emitted. A closed and false one is emitted as `false`, per edge case 21.
 8. **A let-bound projection of a pair parameter leaves the parameter free.** Cell c39. **To
-   compiler-engineer, as a new row `PAIR-PROJ-LET-1`.**
+   compiler-engineer, as a new row `PAIR-PROJ-LET-1`. OPEN, and the row is not filed.**
 9. **A call-result argument to a call-pre leaves its binder free.** Cell c40. **To
-   compiler-engineer, as a new row `CALL-PRE-ARGCALL-1`.**
+   compiler-engineer, as a new row `CALL-PRE-ARGCALL-1`. OPEN, and the row is not filed.**
 10. **A qualified imported constructor does not type-check.** `(def-shell mkq [] -> lib.Ctl lib.Ran)`
     reports `expected lib.Ctl, got Ctl`. So `open` is the only cross-module route to a constructor,
     which is what makes R-5 the whole boundary. **To compiler-engineer, as a new row
-    `XMOD-QUAL-CTOR-1`.**
+    `XMOD-QUAL-CTOR-1`. OPEN, and the row is not filed.**
 11. **A module with `def-main` is importable and openable.** Cell c36. Whether a program module
     should be a library at all is a language question this proposal does not decide; the export
     condition makes the answer irrelevant to soundness here. **To language-team, as a scope
-    question for a later revision of the module section.**
+    question for a later revision of the module section. DEFERRED, not taken now.** The
+    language-team defers it to a `[DESIGN]` roadmap row, `MOD-PROGLIB-1`. The question is normative
+    and not empirical: cell c36 measures that a `def-main` module imports and opens today, so no
+    grep settles whether it should. It does not belong in `docs/design/theory-questions.md`, which
+    holds questions the repository cannot answer. This proposal's export condition makes the answer
+    irrelevant to `RESP-FACT-1`'s soundness, so the deferral costs nothing here.
+
+---
+
+**Rows this section owes.** Seven, not three. Items 2, 3 and 5 are routed "as a new row" and carry
+no tag. Items 8, 9 and 10 carry `PAIR-PROJ-LET-1`, `CALL-PRE-ARGCALL-1` and `XMOD-QUAL-CTOR-1`.
+Item 11 is deferred to `MOD-PROGLIB-1`. Item 6's sweep found a defect class that no gate catches,
+which is an eighth candidate row for the compiler-engineer to accept or refuse.
 
 ---
 
 ## 17. Review history
 
-**Professor round 1, 2026-08-29** (`docs/design/resp-fact-review.md`). Verdict: reject the Rev 1
+**Professor round 1, 2026-08-29** (`docs/archive/professor-reviews/resp-fact-proposal-review.md`). Verdict: reject the Rev 1
 shape. Six findings, two open questions. §0 maps each finding to its Rev 2 response. Both open
 questions are answered: question 1 in §4 and §5, question 2 in §6.
 
@@ -1177,7 +1222,7 @@ review's refuting cell passes vacuously and names a builtin that does not exist 
 receiving route only, not the issuing one (§3). Records that Rev 1's own §1 probe row contradicted
 its §6 (§2.3).
 
-**Professor round 2, 2026-09-03** (`docs/design/resp-fact-review.md`, `## Round 2`). Verdict:
+**Professor round 2, 2026-09-03** (`docs/archive/professor-reviews/resp-fact-proposal-review.md`, `## Round 2`). Verdict:
 accept the direction, refuse §5.2 as written. Five findings. The review upholds none of Rev 2's
 claims against itself by default: it records that all four of Rev 2's rebuttals against round 1 are
 correct, and then raises new findings. Rev 3 answers all five. Finding 1 (the collection rule reads
@@ -1187,7 +1232,7 @@ was built, and it shows a second module cannot produce the tag, so the completen
 is already a property of the language. Finding 3 is fixed in §8. Finding 4 is accepted and moved
 into §14. Finding 5 is recorded in §10.
 
-**Professor round 3, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 3`). Verdict: accept
+**Professor round 3, 2026-09-04** (`docs/archive/professor-reviews/resp-fact-proposal-review.md`, `## Round 3`). Verdict: accept
 the direction, do not send §5.2 to the engineer until `⊥` is decided. The round executed `Sites` by
 hand and found two readings, one unsound and one that binds nothing. Rev 4 answers all five findings:
 it states the module-global reading, makes the failure a hard error, adds the transparent-constructor
@@ -1201,7 +1246,7 @@ unaffected, because adding defs cannot remove a `⊥`, and one of the omitted fa
 `go` is a pair-returning def whose components are parameters, so under Rev 3 the module held a `⊥`
 that no program change could remove. §5.2 carries the corrected census.
 
-**Professor round 4, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 4`). Verdict: Rev 4
+**Professor round 4, 2026-09-04** (`docs/archive/professor-reviews/resp-fact-proposal-review.md`, `## Round 4`). Verdict: Rev 4
 is sound. One item blocked the hand-off, and Rev 5 fixes it: the transparent-constructor test read
 the def's own syntax, so a wrapper one level out was not classified and became `⊥`, which Rev 4 had
 just made a hard error. The round also measured the receiving side and found it module-local, which
@@ -1215,7 +1260,7 @@ rule, the `desugarCtorValues` lowering in place of the type-checker rejection, t
 call-pre fold, the `checker_soundness_version` change, and the per-function `assumed_facts` line.
 Measured c34, c38 to c42.
 
-**Professor round 5, 2026-09-04** (`docs/design/resp-fact-review.md`, `## Round 5`). Verdict:
+**Professor round 5, 2026-09-04** (`docs/archive/professor-reviews/resp-fact-proposal-review.md`, `## Round 5`). Verdict:
 accept the plan's direction; do not implement until Rev 6 carries the delivery rule, the export
 condition and the folded cells. Built cell E (c36), which refutes the entry-module rule on its own,
 and measured c37 and c43. Named the delivery rule's tradition and the harness lemma it needs, and
@@ -1231,8 +1276,8 @@ routed findings 7 to 11. Corrects §5.2's sentence that a second module cannot p
 
 **Rev 5, 2026-09-04.** Classifies a transparent constructor on the `Sites` result rather than on the
 def's syntax, using a `PARAM` marker distinct from `⊥`, so a wrapper at any depth classifies with
-`go`. Adds cell c33. **Rev 5 is settled and ready for the compiler-engineer.** Shipping still waits
-on `TRUST-AXIOM`, per §11 prerequisite 3.
+`go`. Adds cell c33. **Rev 5 was settled and ready for the compiler-engineer.** At Rev 5, shipping still
+waited on `TRUST-AXIOM`, per §11 prerequisite 3; Rev 6 discharged that prerequisite and shipped.
 
 **Rev 4, 2026-09-04.** Excludes transparent constructors from the collection. States that `⊥` is
 module-global and reports an error naming the def. Adds copy propagation for a let-bound command and
@@ -1253,3 +1298,55 @@ the fault and is corrected. The re-run forced §2.1's rule to be narrowed from "
 c29) to find the discriminator. The catch-all rule proposed to explain the disagreement was itself
 refuted by c27 and c28. §2.3 now separates which shape the spec NOTE describes correctly from which
 it gets wrong, and states why the severity claim in §1.1 survives the narrowing.
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal is
+folded here and the source file archived to
+[`docs/archive/professor-reviews/resp-fact-proposal-review.md`](../archive/professor-reviews/resp-fact-proposal-review.md).
+Folded at the close of the line, v0.17.0, with `RESP-FACT-1` shipped.
+
+**Source:** `docs/archive/professor-reviews/resp-fact-proposal-review.md` at commit
+`51a428a9f98ae2750e78d1b3767e0e22e9d0645d` (reviewed 2026-08-29 to 2026-09-04; reviewer: Lead Consultant for Formal Language Design).
+Five rounds. The per-round dispositions are in [17. Review history](#17-review-history) above and are
+not repeated; what follows is each round's ranked recommendation and where it landed.
+
+### Round 1 recommendation, against Rev 1, and its outcome
+
+**Reject the Rev 1 shape; do not send §4.1 to the compiler-engineer.** The match-arm binder cannot
+carry a per-builtin fact, because the arm does not name which command the response answers. The
+reviewer's direction came from `LLMLL.md` itself: a program that needs to know which command a
+response answers records that in its own state, so make the coupling the program already records
+readable by the verifier rather than inventing a provenance the type does not carry.
+
+Ranked first was **a projection whose precondition names the program's own state tag**. Rev 2 adopted
+exactly that and it is the shape that shipped: the fact is keyed on the program's control tag and
+reaches a binder only under a proved precondition. Rev 1 §4.1 is withdrawn.
+
+### Rounds 2 to 4, against Revs 2 to 4, and their outcomes
+
+Round 2 accepted the direction and settled the rule that binds a tag to a builtin. Round 3 forced the
+meaning of `⊥` to be module-global and to report an error naming the def. Round 4 found Rev 4 sound
+and named one definitional gap: the transparent-constructor test was one level deep. Rev 5 closed it
+by classifying a transparent constructor on the `Sites` result rather than on the def's syntax, so a
+wrapper at any depth classifies. Round 4 also supplied the missing stronger half of the completeness
+argument.
+
+### Round 5 recommendation, against Rev 5 and the engineer's plan, and its outcome
+
+**Refuse implementation until Rev 6 carries three changes.** Round 5 reviewed the plan and Rev 5
+together and refuted the receiving side with cells it built:
+
+1. **Cell W** reaches a false SAFE under every Rev 5 rule. The answer is the **delivery rule** (§5.3):
+   a fact is admitted only on values that reach the step from `:step` unchanged. Rev 6 carries it.
+2. **Cell D** shows `(open lib)` lets an importer write the tag constructor in a `pre`. The answer is
+   the **export condition** (§5.2), and `(export)` with no names is the idiom. Rev 6 carries it.
+3. **Cell E**, new for that round, shows a module with `def-main` is importable and openable, and an
+   importer can keep the imported machine's tag while replacing its command. Rev 6 carries the
+   entry-module rule; the residual normative question is deferred as roadmap row `MOD-PROGLIB-1`
+   (§16 item 11).
+
+All three landed in Rev 6 and shipped at v0.17.0. The round also produced §16 items 7 to 11, of which
+item 7 was fixed in-row by `d5dd5a8`.
