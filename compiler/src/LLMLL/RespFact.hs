@@ -51,6 +51,7 @@ module LLMLL.RespFact
   ( -- * The fact table
     RespFact(..)
   , FactCategory(..)
+  , factCategoryName
   , respFactTable
   , respFactsOf
     -- * Requests (§5.1)
@@ -117,10 +118,23 @@ import LLMLL.HoleAnalysis (buildCallGraph)
 -- 2026-08-19, because clamping a negative age to zero reports maximal freshness
 -- to a liveness check. @wasi.fs.stat@ answers @RErr@ instead, so its @RCode@ arm
 -- carries @v >= 0@ because the negative case never reaches the arm.
-newtype FactCategory
+data FactCategory
   = FactProgram Int   -- ^ program-determined; the Int is the ARGUMENT INDEX of
                       --   the builtin that carries the value into the arm
+  | FactCodegen       -- ^ codegen-determined: the generated body cannot publish
+                      --   a violating value. There is NO argument and therefore
+                      --   NO premise to prove. This is an AXIOM about a sealed
+                      --   builtin, of the same class as @bytes-set@'s
+                      --   length-preservation fact, and it is DISCLOSED rather
+                      --   than discharged (FS-STAT-1).
   deriving (Show, Eq)
+
+-- | The disclosed name of a category (§12). A reader must be able to tell a
+-- proved fact from an assumed one, so this is derived and never written as a
+-- literal at the disclosure site.
+factCategoryName :: FactCategory -> Text
+factCategoryName (FactProgram _) = "program-determined"
+factCategoryName FactCodegen     = "codegen-determined"
 
 data RespFact = RespFact
   { rfCategory  :: FactCategory
@@ -141,6 +155,16 @@ respFactTable :: Map (Name, Name) RespFact
 respFactTable = Map.fromList
   [ ( ("wasi.http.response", "RCode")
     , RespFact (FactProgram 0) "v" (EOp ">=" [EVar "v", ELit (LitInt 100)]) )
+  -- FS-STAT-1. The age is the FILESYSTEM's, not an argument the program passes,
+  -- so there is no premise and the category is 'FactCodegen'.
+  --
+  -- THE FACT HOLDS BECAUSE THE NEGATIVE CASE NEVER REACHES THIS ARM. The
+  -- emitted 'wasi_fs_stat' answers RErr on a negative computed age; it does NOT
+  -- clamp. A clamp would keep this predicate true and make it a lie, by
+  -- reporting maximal freshness to a liveness check (SKIP-SILENT-1's class).
+  -- Changing that codegen branch INVALIDATES this row.
+  , ( ("wasi.fs.stat", "RCode")
+    , RespFact FactCodegen "v" (EOp ">=" [EVar "v", ELit (LitInt 0)]) )
   ]
 
 -- | Every @(arm, fact)@ the table declares for one builtin.
@@ -843,8 +867,16 @@ analyzeRespFacts am0 stmts
       | Just b <- Map.lookup (seTag el) bound, b == seBuiltin el, seTag el `elem` requestedTags =
           foldr (site el) (ps, es) (respFactsOf b)
       | otherwise = (ps, es)
+    -- FS-STAT-1: this was `let FactProgram i = rfCategory f`, an IRREFUTABLE
+    -- pattern that a second constructor makes partial. A 'FactCodegen' fact
+    -- emits NO premise site and NO error: an axiom has no argument to check,
+    -- which is exactly what distinguishes it from a program-determined fact.
+    site _ (_, f) acc
+      | FactCodegen <- rfCategory f = acc
     site el (arm, f) (ps, es) =
-      let FactProgram i = rfCategory f
+      let i = case rfCategory f of
+                FactProgram k -> k
+                FactCodegen   -> error "unreachable: FactCodegen is handled above"
           here = "at the pair returned by '" <> seOriginDef el <> "' for '" <> seTag el <> "'"
       in case drop i (seArgs el) of
            (SALit n : _) -> case evalClosedBool (substVar (rfBinder f) (ELit (LitInt n)) (rfPredicate f)) of
@@ -870,15 +902,22 @@ analyzeRespFacts am0 stmts
       , let facts = respFactsOf b
       , not (null facts) ]
     disclosures =
-      [ AssumedFact (frDef r) (frTag r) b arm (renderFact f) "program-determined" (premiseText (frTag r) b)
+      [ AssumedFact (frDef r) (frTag r) b arm (renderFact f)
+                    (factCategoryName (rfCategory f)) (premiseText f (frTag r) b)
       | r <- reqs
       , Just b <- [Map.lookup (frTag r) bound]
       , (arm, f) <- respFactsOf b ]
-    premiseText t b = T.intercalate ", " $ nub
-      [ case psCase p of
-          PremiseFolded _   -> "folded-literal"
-          PremiseParam d _ _ -> "call-pre:" <> d
-      | p <- premises, psTag p == t, psBuiltin p == b ]
+    -- FS-STAT-1: a 'FactCodegen' fact has no premise site, so the list
+    -- comprehension below yields nothing and 'T.intercalate' renders "". An
+    -- EMPTY FIELD READS AS A MISSING VALUE rather than as an absent obligation,
+    -- which is the opposite of what this row must say. Name the axiom instead.
+    premiseText f t b = case rfCategory f of
+      FactCodegen -> "codegen:" <> b
+      FactProgram _ -> T.intercalate ", " $ nub
+        [ case psCase p of
+            PremiseFolded _   -> "folded-literal"
+            PremiseParam d _ _ -> "call-pre:" <> d
+        | p <- premises, psTag p == t, psBuiltin p == b ]
 
 renderFact :: RespFact -> Text
 renderFact f = "{" <> rfBinder f <> " : int | " <> renderExprS (rfPredicate f) <> "}"

@@ -1,0 +1,8 @@
+;; @expect: FS-STAT-1. :deterministic true on a wasi.fs import is a TYPE ERROR, on ENV-READ-1's
+;; @expect: precedent. The reason DIFFERS from wasi.env's: wasi.fs.stat reads the wall clock, so
+;; @expect: the flag would claim replay determinism over an operation that has none. The refusal
+;; @expect: is on the IMPORT, so it fires whether or not the module calls wasi.fs.stat.
+(import wasi.fs (capability read "/tmp" :deterministic true))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(def-shell noop [r: int] -> int r)

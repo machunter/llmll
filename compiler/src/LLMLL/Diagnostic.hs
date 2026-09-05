@@ -39,6 +39,7 @@ module LLMLL.Diagnostic
   , mkMissingCapability
   -- * ENV-READ-1: the environment channel's three fail-closed side conditions
   , mkEnvDeterministicRefused
+  , mkFsDeterministicRefused
   , mkEnvNameMalformed
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
@@ -341,6 +342,43 @@ mkMissingCapability func namespace =
 --
 -- The guard therefore lands BEFORE the leak rather than after it. A message
 -- claiming the flag writes a secret today would be false today.
+-- | FS-STAT-1. The @wasi.fs@ counterpart, and the REASON IS DIFFERENT, which is
+-- why this is a second diagnostic rather than one more path on the environment
+-- one above. The environment refusal is about SECRECY: a captured environment
+-- read writes a credential to the event log. This refusal is about a CLAIM THAT
+-- WOULD BE FALSE: @wasi.fs.stat@ differences the wall clock against a file's
+-- modification time, so two runs of the same program over the same tree return
+-- different values. A capability marked deterministic would promise replay
+-- determinism over an operation that has none.
+--
+-- The refusal is on the IMPORT and not the call, matching the environment rule
+-- directly above. The import IS the grant, so a module carrying the flag is
+-- refused whether or not it calls @wasi.fs.stat@. That is the stricter reading
+-- and the simpler one.
+--
+-- MEASURED before shipping: the in-tree population carrying @:deterministic
+-- true@ on a @wasi.fs@ import is ZERO. Two files match a text search for the
+-- flag beside a @wasi.fs@ import, and in both the flag appears inside a COMMENT
+-- explaining that it would be refused on @wasi.env@. Every real import in both
+-- carries @:deterministic false@.
+mkFsDeterministicRefused
+  :: Text         -- ^ import path (e.g. "wasi.fs")
+  -> Diagnostic
+mkFsDeterministicRefused path =
+  let msg = ":deterministic true is refused on a " <> path <> " import. "
+            <> "A deterministic capability opts into event-log capture of a "
+            <> "command's return value (LLMLL.md 10a), and wasi.fs.stat "
+            <> "differences the wall clock against a file's modification time, "
+            <> "so it returns a different value on a later run over an "
+            <> "unchanged tree. The flag would claim replay determinism over an "
+            <> "operation that does not have it."
+      suggestion = "Use (capability read \"...\" :deterministic false), or omit "
+                   <> "the flag entirely."
+  in (mkError Nothing msg)
+       { diagKind       = Just "fs-deterministic-refused"
+       , diagSuggestion = Just suggestion
+       }
+
 mkEnvDeterministicRefused
   :: Text         -- ^ import path (e.g. "wasi.env")
   -> Diagnostic

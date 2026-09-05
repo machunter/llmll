@@ -1,0 +1,27 @@
+;; @expect: FS-STAT-1 POSITIVE WITNESS. 'Probed' binds to wasi.fs.stat, so the RCode arm binder
+;; @expect: carries {v : int | v >= 0} and (post (>= result 0)) is DISCHARGED FROM THE FACT with
+;; @expect: no runtime guard. check clean, no RESP-FACT error, no W-RESP-FACT-NONE; verify SAFE.
+;; @expect: DISCRIMINATING: delete the (wasi.fs.stat, RCode) row from respFactTable and this same
+;; @expect: file must REFUTE ("body verification of 'age-step' failed"). A fixture that verifies
+;; @expect: under both tables proves nothing about the fact.
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Probed) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell age-step [p: Ctl x: Response] -> int
+  (pre (= p Probed))
+  (post (>= result 0))
+  (match x ((RCode age) age) (_ 0)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot)   (go (first s) Probed (wasi.fs.stat "/tmp")))
+    ((Probed) (go (age-step Probed x) Halt (wasi.io.stdout "done")))
+    ((Halt)   (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Probed) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)
