@@ -4,6 +4,80 @@
 
 <a id="Latest"></a>
 
+## v0.18.0: an effect answers how old a file is, and the caller does not re-prove it (2026-09-05)
+
+**`FS-STAT-1` and `FS-EXISTS-1` ship together.** Two `wasi.fs` builtins share one
+`getModificationTime` probe classified through `System.IO.Error`, so the same call answers presence
+and age. No schema change and no CLI change; the `wasi.*` surface moves sixteen to eighteen and
+Σ_eff stays seven-wide. `directory` and `base` carry the probe, so there is no `unix` dependency and
+neither operation is POSIX-only.
+
+### The two builtins
+
+- **`wasi.fs.stat : string -> Command`** delivers the artifact's age in **seconds** as `RCode`,
+  carrying `Caps {EFsRead, ENonDet}`. A **negative computed age delivers `RErr`** and is **not
+  clamped to zero**. Clamping reports maximal freshness to a liveness check, so the one input that
+  should make `liveness.advancing` abstain would become its strongest evidence of progress. An
+  absent path delivers `RErr`, because there is no age of a missing file. `ENonDet` is the second
+  use of that label after `wasi.clock.monotonic`: an age changes with the clock even when the
+  filesystem does not move.
+- **`wasi.fs.exists : string -> Command`** delivers `RText` carrying `"absent"`, `"file"`, `"dir"`
+  or `"symlink"`, carrying `Caps {EFsRead}` alone. The kind is `RText` and not `RCode`, because
+  `RCode` already carries exit statuses, monotonic nanoseconds and now ages; a kind enum there would
+  make `RCode 0` mean exit success, zero nanoseconds, age zero **and** path absent.
+- **`:deterministic true` on a `wasi.fs` import is now a type error**, on `ENV-READ-1`'s precedent
+  and with its own message. The environment refusal argues from secrecy; this one argues from a
+  claim that would be false, `wasi.fs.stat` having no replay determinism to promise.
+- `doesFileExist` is **not** the primitive, and could not be: it answers `False` for a file that
+  exists and cannot be reached, which conflates undecidable with absent.
+
+### The first codegen-determined fact
+
+`wasi.fs.stat`'s `RCode` arm declares `{v : int | v >= 0}`, so a step that preconditions on the
+control tag bound to it receives a non-negative age and stops guarding what the builtin already
+established. **The fact holds because the `RErr` rule keeps a negative age out of the arm**, not
+because a clamp rewrote the value.
+
+The age is the filesystem's and not an argument the program passes, so there is **no premise to
+prove** and **no `call-pre` constraint is emitted**. This is a codegen-faithfulness **axiom** of the
+`bytes-set` class, and the trust report says so rather than presenting it as a proof:
+
+```
+≈ assumes Probed ⇒ wasi.fs.stat/RCode {v : int | (>= v 0)} [codegen-determined; premise: codegen:wasi.fs.stat] (ASSUMED, not proved: it rides codegen_semantics_version)
+```
+
+A program-determined fact carries no such note. `checker_soundness_version` stays `"2"`: the
+affected population is empty, because no tracked `.verified.json` can name a builtin that did not
+exist. The delivery rule and the export condition of §9.7 are unchanged and read no category.
+
+**Acceptance was discriminating.** `fs-stat-fact.llmll` and `fs-exists-refutes.llmll` carry the same
+post on the same shape and differ only in whether the bound builtin declares a fact: SAFE and
+refuted respectively. Deleting the table row and rebuilding makes the first refute as well, which is
+what separates a fact that does work from one that rides along.
+
+### Residues, recorded rather than fixed
+
+- A **dangling symlink delivers `"absent"`**, because `getModificationTime` follows the link and
+  cannot distinguish a broken link from a missing path.
+- `wasi.fs.exists` answers about a path under a directory the program cannot enumerate: under a
+  parent at mode 0111 the probe succeeds where `wasi.fs.list` on that same parent delivers `RErr`.
+  This is **disclosed, not asserted away**: the probe grants an authority bounded by the operating
+  system, which the declared capability clause does not constrain, and that is true of every
+  `wasi.fs` name because no capability code runs (`CAP-1-REAL`).
+- `RCode` now carries exit statuses, monotonic nanoseconds and ages, with the unit nowhere in the
+  type. That is a scope boundary LLMLL has chosen; the in-scope move is to name the unit in the
+  declared contract.
+
+Generated projects gain `time`, a GHC boot package that is already a compiler dependency, so the
+resolver does not move; the closure goes from 33 packages to 34.
+
+Design: [`docs/archive/shipped-design-specs/fs-capability-trio-proposal.md`](docs/archive/shipped-design-specs/fs-capability-trio-proposal.md) Rev 3, archived at this release; plan:
+[`docs/design/fs-stat-1-implementation-plan.md`](docs/design/fs-stat-1-implementation-plan.md).
+
+1846 examples, 0 failures. pytest 180 passed, 10 skipped.
+
+---
+
 ## v0.17.0: a Command result carries a proved property to its caller, keyed on the control tag (2026-09-04)
 
 **`RESP-FACT-1` ships. No new builtin, no schema change, no CLI change; the language surface grows by one opt-in rule set.** A step that preconditions on the program's own control tag now receives the compiler's declared fact for the builtin that tag is bound to, on the `Response` arm binder, so a program stops guarding what the builtin already guaranteed. One fact is declared today: `wasi.http.response`'s `RCode` payload is `{v : int | v >= 100}`, the program's own first argument. `wasi.proc.run` declares none; its exit code is the operating system's, and [`docs/design/resp-fact-proposal.md`](docs/design/resp-fact-proposal.md) §6 draws that line. The row was filed by `FS-STAT-1`'s design work, whose clamp made a fact true at runtime with no channel to reach the caller; that prerequisite has now landed.

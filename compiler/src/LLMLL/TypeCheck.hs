@@ -249,6 +249,41 @@ builtinEnv = Map.fromList $
   -- is no RBytes arm). Reading via wasi.fs.read first would hash decoded TEXT,
   -- not the file's bytes, and the driver uses this digest as a resume gate.
   , ("wasi.fs.sha256",     TFn [TString] (TCustom "Command"))
+  -- FS-STAT-1. The artifact's age in SECONDS, on the RCode arm. A negative
+  -- computed age answers RErr and is NOT clamped to zero: clamping reports
+  -- MAXIMAL FRESHNESS to a liveness check, so the one input that should make
+  -- `liveness.advancing` abstain would become its strongest evidence of
+  -- progress. That is SKIP-SILENT-1's class. The clamp was withdrawn by
+  -- `fs-capability-trio-proposal.md` Rev 2 section 4.
+  --
+  -- Carries ENonDet as well as EFsRead, because an age changes with the clock
+  -- even when the filesystem does not move. `wasi.fs.exists` below does NOT.
+  --
+  -- Its RCode payload declares {v : int | v >= 0} in LLMLL.RespFact. The fact
+  -- holds because the negative case never reaches the arm, NOT because a clamp
+  -- rewrote the value. It is a codegen-faithfulness AXIOM, so it is disclosed
+  -- rather than proved; see RespFact's FactCodegen.
+  , ("wasi.fs.stat",       TFn [TString] (TCustom "Command"))
+  -- FS-EXISTS-1. A three-way presence answer on the RText arm, one of
+  -- "absent", "file", "dir", "symlink". SHARES ONE PROBE with wasi.fs.stat
+  -- above: the same getModificationTime call answers presence and age.
+  --
+  -- The kind is RText and NOT RCode. RCode already carries exit statuses,
+  -- monotonic nanoseconds and now ages; adding a kind enum would make RCode 0
+  -- mean exit success, zero nanoseconds, age zero AND path absent. One meaning
+  -- per arm is the benefit and a string comparison is the cost.
+  --
+  -- `doesFileExist` is the WRONG primitive and Rev 2 killed it: it answers
+  -- False for a file that exists and cannot be reached, conflating undecidable
+  -- with absent. getModificationTime classified through System.IO.Error gives
+  -- the three-way answer using `base` alone, so there is no `unix` dependency
+  -- and no POSIX-only restriction.
+  --
+  -- DISCLOSED, not asserted: this probe answers about a directory the program
+  -- cannot enumerate. Under a parent at mode 0111 the probe answers and
+  -- wasi.fs.list on that same parent fails, so it is NOT a subset of listing.
+  -- Rev 1 claimed the subset relation and running the argument refuted it.
+  , ("wasi.fs.exists",     TFn [TString] (TCustom "Command"))
   -- ENV-READ-1. Reads one environment variable. New namespace `wasi.env`;
   -- extractWasiNamespace (:1878) takes the first two segments, so it derives
   -- with no change to that function.
@@ -1751,6 +1786,16 @@ checkStatement (SImport imp) = do
       , importPath imp == "wasi.env" ->
           modify $ \s -> s
             { tcErrors = tcErrors s ++ [mkEnvDeterministicRefused (importPath imp)] }
+    -- FS-STAT-1. The wasi.fs counterpart, on the wasi.env precedent directly
+    -- above and with a DIFFERENT reason: wasi.fs.stat reads the wall clock, so
+    -- the flag would claim replay determinism over an operation that has none.
+    -- The message is its own diagnostic because the environment one argues from
+    -- secrecy, which is not the reason here.
+    Just cap
+      | capDeterministic cap
+      , importPath imp == "wasi.fs" ->
+          modify $ \s -> s
+            { tcErrors = tcErrors s ++ [mkFsDeterministicRefused (importPath imp)] }
     _ -> pure ()
   -- Register imported interface functions if specified
   case importInterface imp of

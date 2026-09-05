@@ -457,7 +457,14 @@ primEffect n
   -- granularity can express it: Sigma_eff has no notion of what an operation
   -- returns. Recorded as a known asymmetry; the Response arm set distinguishes
   -- RText from RList while this catalog does not.
-  | n == "wasi.fs.read"     || n == "wasi.fs.list"     = one EFsRead
+  -- FS-EXISTS-1 joins this EXISTING clause. A presence probe reads the
+  -- filesystem and grants no authority the read/list pair does not already
+  -- grant, so the catalog stays SEVEN-wide. It carries EFsRead ALONE: unlike
+  -- wasi.fs.stat below, a kind answer does not change with the clock.
+  --
+  -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below.
+  | n == "wasi.fs.read"     || n == "wasi.fs.list"
+    || n == "wasi.fs.exists"                           = one EFsRead
   -- FS-RMDIR-1 joins this EXISTING clause rather than taking an eighth label.
   -- Removing a directory is a filesystem mutation and grants no authority the
   -- write/delete pair does not already grant, so the catalog stays SEVEN-wide.
@@ -484,6 +491,20 @@ primEffect n
   -- by the text channel's UTF-8 domain. Sigma_eff names operation occurrence,
   -- not payload shape, so no granularity of EffectLabel expresses it. Recorded.
   | n == "wasi.fs.copy"      = Just (Caps (Set.fromList [EFsRead, EFsWrite]))
+  -- FS-STAT-1. Reads the filesystem AND reads the clock, so it carries both
+  -- labels, on the sha256 and copy precedent directly above. Set.union rather
+  -- than a choice: coarsening upward on the join-semilattice is sound, dropping
+  -- either label is not.
+  --
+  -- ENonDet is the point of the pair. An age changes between two calls with no
+  -- filesystem movement, so this is not a pure read. wasi.clock.monotonic was
+  -- the sole ENonDet producer before this name; it is now the second.
+  --
+  -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below. Under it
+  -- wasi.fs.stat reports the lattice top and every transitive caller's
+  -- effect_summary goes vacuous. The trap is recorded three times more in this
+  -- function; a test pins the negative (NOT Just Unbounded), not the positive.
+  | n == "wasi.fs.stat"      = Just (Caps (Set.fromList [EFsRead, ENonDet]))
   | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
   -- wasi.clock.monotonic is the sole ENonDet producer. NOT bottomEff: for a
   -- name in builtinEnv, 'calleeEff' tests knownPure (:489) BEFORE consulting

@@ -1487,9 +1487,18 @@ formatEntry e =
                      (teDeps e)
       driftLines = map ("    ⚠ " <>) (teDrifts e)
       -- RESP-FACT-1 (§12): one line per assumed fact, naming the premise case.
+      -- FS-STAT-1: a codegen-determined fact is an AXIOM. Its premise is not
+      -- proved anywhere, so the line must say what the verdict rests on. A
+      -- program-determined fact names a discharged premise and needs no such
+      -- note. Leaving the two indistinguishable is the TRUST-AXIOM failure,
+      -- inside the mechanism that first disclosed that class.
+      assumedNote a
+        | afCategory a == "codegen-determined" =
+            " (ASSUMED, not proved: it rides codegen_semantics_version)"
+        | otherwise = ""
       assumedLines = map (\a -> "    ≈ assumes " <> afTag a <> " ⇒ " <> afBuiltin a <> "/" <> afArm a
                                 <> " " <> afPredicate a <> " [" <> afCategory a
-                                <> "; premise: " <> afPremise a <> "]")
+                                <> "; premise: " <> afPremise a <> "]" <> assumedNote a)
                          (teAssumedFacts e)
   in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
 

@@ -190,7 +190,15 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   -- NOT removeDirectoryRecursive: the empty-only restriction is a property of
   -- the primitive chosen here, so widening it later is an edit a reviewer can
   -- see rather than a flag someone flips.
-  , "import System.Directory (doesFileExist, doesDirectoryExist, removeFile, removeDirectory, listDirectory, createDirectoryIfMissing, copyFile)"
+  -- FS-STAT-1 / FS-EXISTS-1 add getModificationTime and pathIsSymbolicLink.
+  -- Both are in `directory`, already a dependency.
+  , "import System.Directory (doesFileExist, doesDirectoryExist, removeFile, removeDirectory, listDirectory, createDirectoryIfMissing, copyFile, getModificationTime, pathIsSymbolicLink)"
+  -- FS-STAT-1 / FS-EXISTS-1. The shared probe classifies getModificationTime's
+  -- failure three ways using `base` alone. NOT `unix`: Rev 2 chose base
+  -- classification so the operations carry no POSIX-only restriction.
+  , "import System.IO.Error (isDoesNotExistError, catchIOError)"
+  -- FS-STAT-1. An age is a difference of two wall-clock readings.
+  , "import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime)"
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
@@ -691,6 +699,81 @@ runtimePreamble =
   , "wasi_fs_mkdir :: String -> IO ()"
   , "wasi_fs_mkdir path ="
   , "  llmll_publish_io (createDirectoryIfMissing True path >> return RNone)"
+  , ""
+  -- FS-STAT-1 and FS-EXISTS-1 --------------------------------------------
+  --
+  -- ONE PROBE SERVES BOTH. `getModificationTime` answers presence and age in a
+  -- single call, and 'System.IO.Error' classifies its failure. `Just t` is
+  -- present, `Nothing` is absent, and any OTHER IOException is re-raised so
+  -- 'llmll_publish_io' publishes RErr.
+  --
+  -- `doesFileExist` CANNOT do this and Rev 2 killed it as the primitive.
+  -- Measured under a parent at mode 0000 it returns False rather than raising,
+  -- so it reports a present-but-unreachable file as absent. That conflation is
+  -- exactly what the three-way answer exists to prevent, and it would make an
+  -- unreadable path indistinguishable from a missing one.
+  , "llmll_fs_probe :: String -> IO (Maybe UTCTime)"
+  , "llmll_fs_probe path ="
+  , "  (Just <$> getModificationTime path)"
+  , "    `catchIOError` \\e ->"
+  , "      if isDoesNotExistError e then return Nothing else ioError e"
+  , ""
+  -- FS-STAT-1. The artifact's age in SECONDS on the RCode arm.
+  --
+  -- A NEGATIVE AGE ANSWERS RErr AND IS NOT CLAMPED TO ZERO. Rev 2 section 4
+  -- withdrew the clamp the roadmap row specified for a release. The consumer is
+  -- `liveness.advancing`, a liveness check, and clamping reports MAXIMAL
+  -- FRESHNESS: the one input that should make the gate abstain would become its
+  -- strongest evidence of progress. That is SKIP-SILENT-1's class. Reachable by
+  -- `touch -d tomorrow`, by an archive unpack, and by clock skew across machines.
+  --
+  -- THE RErr RULE IS WHAT MAKES THE DECLARED FACT TRUE. LLMLL.RespFact declares
+  -- {v : int | v >= 0} on this arm, and it holds because the negative case never
+  -- reaches the arm — not because a clamp rewrote the value. Changing this
+  -- branch to a clamp would keep the predicate true and make it a lie.
+  --
+  -- An ABSENT path answers RErr, not RCode. There is no age of a missing file,
+  -- and zero would be the same maximal-freshness report the clamp gave.
+  , "wasi_fs_stat :: String -> IO ()"
+  , "wasi_fs_stat path = llmll_publish_io $ do"
+  , "  probed <- llmll_fs_probe path"
+  , "  case probed of"
+  , "    Nothing -> ioError (userError (\"wasi.fs.stat: \" ++ path ++ \" does not exist\"))"
+  , "    Just mtime -> do"
+  , "      now <- getCurrentTime"
+  , "      let age = truncate (diffUTCTime now mtime) :: Integer"
+  , "      if age < 0"
+  , "        then ioError (userError (\"wasi.fs.stat: \" ++ path ++ \" has a modification time in the future; the age is negative and is NOT clamped\"))"
+  , "        else return (RCode age)"
+  , ""
+  -- FS-EXISTS-1. A three-way presence answer on the RText arm.
+  --
+  -- THE SYMLINK TEST RUNS BEFORE THE DIRECTORY TEST, and the order is the
+  -- design. `doesDirectoryExist` FOLLOWS a symlink to a directory, so testing
+  -- it first would report "dir" for a symlink and the "symlink" kind would be
+  -- unreachable.
+  --
+  -- The kind refinement runs only AFTER the probe reports present, so the
+  -- permission case is already excluded when these two run.
+  --
+  -- RESIDUE, recorded rather than fixed: a DANGLING symlink answers "absent".
+  -- `getModificationTime` follows the link, so a link whose target is gone
+  -- fails with a does-not-exist error and the probe cannot distinguish it from
+  -- a missing path. Rev 3 section 7 does not enumerate this case. Fixing it
+  -- means testing `pathIsSymbolicLink` BEFORE the probe, which changes the
+  -- settled order, so it is routed rather than taken here.
+  , "wasi_fs_exists :: String -> IO ()"
+  , "wasi_fs_exists path = llmll_publish_io $ do"
+  , "  probed <- llmll_fs_probe path"
+  , "  case probed of"
+  , "    Nothing -> return (RText \"absent\")"
+  , "    Just _  -> do"
+  , "      isLink <- pathIsSymbolicLink path"
+  , "      if isLink"
+  , "        then return (RText \"symlink\")"
+  , "        else do"
+  , "          isDir <- doesDirectoryExist path"
+  , "          return (RText (if isDir then \"dir\" else \"file\"))"
   , ""
   -- PROC-BOUNDARY-1 half one. The argument vector, on the EXISTING RList arm.
   --
@@ -2168,6 +2251,16 @@ emitPackageYaml modName hasMain hackagePkgs =
   , "  - process"
   , "  - cryptohash-sha256"
   , "  - bytestring"
+  -- FS-STAT-1: wasi_fs_stat differences getCurrentTime against
+  -- getModificationTime, and both UTCTime and diffUTCTime come from `time`.
+  -- `time` is a GHC boot package and is already a compiler dependency
+  -- (compiler/package.yaml, `time >= 1.12`), so the LTS snapshot is already
+  -- cached in CI and this entry costs no resolver movement — the same argument
+  -- `directory` carries above. Measured closure: 33 packages to 34.
+  --
+  -- The `unix` alternative (getFileStatus) is REFUSED: it would make both
+  -- operations POSIX-only, which is what base classification exists to avoid.
+  , "  - time"
   ] ++
   -- src/Main.hs (emitted whenever hasMain) imports System.Posix.IO for the
   -- event-log capture harness; hpack's default source-dirs auto-discovery

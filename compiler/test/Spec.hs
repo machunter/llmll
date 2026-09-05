@@ -45,7 +45,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash, canonicalExpr)
 import LLMLL.Module (mergeCS, buildModuleEnv)
-import LLMLL.RespFact (respFactTable, respFactsOf, RespFact(..), FactCategory(..), factRequests, FactRequest(..), moduleSites, tagBindings, sitesOfDef, SitesResult(..), analyzeRespFacts, RespFactPlan(..), PremiseSite(..), PremiseCase(..), AssumedFact(..), emptyRespFactPlan, evalClosedBool)
+import LLMLL.RespFact (respFactTable, respFactsOf, RespFact(..), FactCategory(..), factCategoryName, factRequests, FactRequest(..), moduleSites, tagBindings, sitesOfDef, SitesResult(..), analyzeRespFacts, RespFactPlan(..), PremiseSite(..), PremiseCase(..), AssumedFact(..), emptyRespFactPlan, evalClosedBool)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON, checkerSoundnessVersion)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit, ReplayObs(..), expectedLineCount, obsMatches, describeObs, escapeForDiag)
@@ -14719,6 +14719,33 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                             (Set.singleton EFsWrite)))
       copyEff `shouldBe` readWrite
 
+    -- FS-STAT-1 / FS-EXISTS-1 ------------------------------------------------
+    --
+    -- THE NEGATIVE IS THE POINT OF BOTH CELLS. A missing clause does not fail
+    -- loudly: the `wasi.` fallthrough answers Just Unbounded, the lattice top,
+    -- and every transitive caller's effect_summary goes vacuous. So each cell
+    -- pins the positive AND asserts it is not the top. That trap is recorded
+    -- three times in primEffect itself.
+    it "FS-STAT-1: wasi.fs.stat carries BOTH EFsRead and ENonDet" $ do
+      primEffect "wasi.fs.stat"
+        `shouldBe` Just (Caps (Set.fromList [EFsRead, ENonDet]))
+      primEffect "wasi.fs.stat" `shouldNotBe` Just Unbounded
+
+    -- ENonDet is not decoration. An age differences the wall clock, so two
+    -- calls over an unchanged tree return different values. wasi.clock.monotonic
+    -- was the sole producer of this label before wasi.fs.stat.
+    it "FS-STAT-1: wasi.fs.stat is NOT pure and NOT a plain read" $ do
+      primEffect "wasi.fs.stat" `shouldNotBe` Just (Caps Set.empty)
+      primEffect "wasi.fs.stat" `shouldNotBe` Just (Caps (Set.singleton EFsRead))
+
+    -- The asymmetry with wasi.fs.stat is deliberate: a kind answer does not
+    -- change with the clock, so wasi.fs.exists carries EFsRead ALONE.
+    it "FS-EXISTS-1: wasi.fs.exists carries EFsRead alone, not ENonDet" $ do
+      primEffect "wasi.fs.exists" `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.exists" `shouldNotBe` Just Unbounded
+      primEffect "wasi.fs.exists"
+        `shouldNotBe` Just (Caps (Set.fromList [EFsRead, ENonDet]))
+
     -- NOT bottomEff. For a name in builtinEnv, calleeEff tests knownPure before
     -- primEffect and bottomEff is joinEffs' identity, so Just bottomEff is
     -- observationally the "pure builtin" case — false for an operation that
@@ -15144,8 +15171,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- namespace since CAP-PROC. The FOLD below covers it with no change,
     -- because extractWasiNamespace derives wasi.env from the name itself.
     -- 15 -> 16 with FS-RMDIR-1's wasi.fs.rmdir.
-    it "builtinEnv declares exactly the sixteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 16
+    -- 16 -> 18 with FS-STAT-1's wasi.fs.stat and FS-EXISTS-1's wasi.fs.exists,
+    -- which ship together because they share one getModificationTime probe.
+    it "builtinEnv declares exactly the eighteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 18
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -15156,8 +15185,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- of the fallthrough class and into the hand-written one, which is the
     -- class change this assertion exists to make visible.
     it "the lowering classes hold the sizes this block was measured against" $ do
-      Map.size builtinEnv      `shouldBe` 101
-      length needsBinding      `shouldBe` 70
+      -- 101 -> 103 with FS-STAT-1 / FS-EXISTS-1. Both are hand-written preamble
+      -- bodies, so both land in needsBinding: 70 -> 72.
+      Map.size builtinEnv      `shouldBe` 103
+      length needsBinding      `shouldBe` 72
       length resolvedElsewhere `shouldBe` 9
 
     forM_ needsBinding $ \n ->
@@ -17190,14 +17221,79 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         witnessLike pre = prog [hdr, ranStep pre, stepWith bootHttp ranCall, tailMain]
 
     describe "the fact table (§6, §8 item 12) and the runtime it rests on" $ do
-      it "RF-T1 declares exactly one fact: (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
-        Map.size respFactTable `shouldBe` 1
+      it "RF-T1 declares exactly two facts, and (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
+        Map.size respFactTable `shouldBe` 2
         case Map.lookup ("wasi.http.response", "RCode") respFactTable of
           Just f -> do
             rfCategory f `shouldBe` FactProgram 0
             rfBinder f `shouldBe` "v"
             rfPredicate f `shouldBe` EOp ">=" [EVar "v", ELit (LitInt 100)]
           Nothing -> expectationFailure "the wasi.http.response/RCode row is missing"
+
+      -- FS-STAT-1. The second row, and the FIRST codegen-determined fact.
+      -- A WRONG ROW HERE IS THE SINGLE UNSOUND DIRECTION of the design, so the
+      -- category, binder and predicate are all pinned by content.
+      it "RF-T1b (wasi.fs.stat, RCode) is codegen-determined with v >= 0" $
+        case Map.lookup ("wasi.fs.stat", "RCode") respFactTable of
+          Just f -> do
+            rfCategory f `shouldBe` FactCodegen
+            rfBinder f `shouldBe` "v"
+            rfPredicate f `shouldBe` EOp ">=" [EVar "v", ELit (LitInt 0)]
+          Nothing -> expectationFailure "the wasi.fs.stat/RCode row is missing"
+
+      -- The disclosed name is DERIVED from the category. It was a string
+      -- literal at v0.17.0, which would have printed "program-determined" for
+      -- an axiom and presented an assumption as a proof.
+      it "RF-T1c the disclosed category name is derived from the category" $ do
+        factCategoryName (FactProgram 0) `shouldBe` "program-determined"
+        factCategoryName FactCodegen     `shouldBe` "codegen-determined"
+
+      it "RF-T1d wasi.fs.exists declares NO fact (its kind is RText; predicates are int-only)" $
+        respFactsOf "wasi.fs.exists" `shouldBe` []
+
+      -- FS-STAT-1 fixtures. The first two are check-level; the discriminating
+      -- solver cell lives with the other solver-gated cells below.
+      it "RF-T1e fs-stat-fact: the positive witness has no RESP-FACT error and no NONE warning" $ do
+        src <- fixture "fs-stat-fact"
+        respErrs src `shouldBe` []
+        respWarns src `shouldBe` []
+
+      -- The fact must actually REACH the binder. rpRefEnvs is what FixpointEmit
+      -- reads, so an empty entry here means the fact was declared and never
+      -- delivered, which no verdict would distinguish from a weak contract.
+      it "RF-T1f fs-stat-fact: the fact reaches age-step's Response binder" $ do
+        src <- fixture "fs-stat-fact"
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan ->
+            [ (d, x) | (d, es) <- Map.toList (rpRefEnvs plan), (x, _) <- es ]
+              `shouldBe` [("age-step", "x$RCode")]
+
+      -- The disclosure row is the price of the axiom. It must name the category
+      -- AND the axiom, and its premise must NOT be empty: an empty field reads
+      -- as a missing value rather than as an absent obligation.
+      it "RF-T1g fs-stat-fact: the disclosure names the axiom, and no premise site is emitted" $ do
+        src <- fixture "fs-stat-fact"
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan -> do
+            map (\a -> (afDef a, afTag a, afBuiltin a, afArm a, afCategory a, afPremise a))
+                (rpDisclosures plan)
+              `shouldBe` [("age-step", "Probed", "wasi.fs.stat", "RCode",
+                           "codegen-determined", "codegen:wasi.fs.stat")]
+            -- An axiom has no argument to prove, so the premise-site list is empty.
+            rpPremises plan `shouldBe` []
+
+      it "RF-T1h fs-exists-nofact: a tag bound to wasi.fs.exists warns W-RESP-FACT-NONE" $ do
+        src <- fixture "fs-exists-nofact"
+        respErrs src `shouldBe` []
+        length (respWarns src) `shouldBe` 1
+        any ("W-RESP-FACT-NONE" `T.isInfixOf`) (respWarns src) `shouldBe` True
+
+      it "RF-T1i fs-deterministic: :deterministic true on a wasi.fs import is refused" $ do
+        src <- fixture "fs-deterministic"
+        any (\m -> "deterministic" `T.isInfixOf` m && "wasi.fs" `T.isInfixOf` m)
+            (errsOf src) `shouldBe` True
 
       it "RF-T2 wasi.proc.run declares NO fact (its RCode arm is OS-determined, §6)" $
         respFactsOf "wasi.proc.run" `shouldBe` []
@@ -17405,6 +17501,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         originTags er `shouldNotSatisfy` elem "call-pre:ran-step"
         erCallPreFns er `shouldSatisfy` elem "wrap"
         solverSays "arm-literal" er "Safe"
+      -- FS-STAT-1. THE DISCRIMINATING PAIR, and it is the row's acceptance
+      -- criterion. Both fixtures carry the SAME post on the same shape. The only
+      -- difference is the builtin the tag binds to: wasi.fs.stat declares
+      -- {v : int | v >= 0} and wasi.fs.exists declares nothing. If the second
+      -- cell ever reports Safe, the fact is not doing the work and the first
+      -- cell proves nothing.
+      it "RF-M4a fs-stat-fact: the codegen-determined fact discharges the post, SAFE" $ do
+        src <- fixture "fs-stat-fact"
+        er <- emitSrc src
+        -- No call-pre is emitted for an axiom: there is no premise to prove.
+        originTags er `shouldNotSatisfy` elem "call-pre:wasi.fs.stat"
+        solverSays "fs-stat-fact" er "Safe"
+      it "RF-M4b fs-exists-refutes: the SAME post without a declared fact is UNSAFE" $ do
+        src <- fixture "fs-exists-refutes"
+        er <- emitSrc src
+        solverSays "fs-exists-refutes" er "Unsafe"
       it "RF-M5 closed-false call-pre is KEPT and refuted (§8 item 21)" $ do
         src <- fixture "closed-false"
         er <- emitSrc src

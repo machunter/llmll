@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.17.0)
+# LLMLL: Large Language Model Logical Language (v0.18.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.17.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.18.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1820,6 +1820,10 @@ discharges `(= p T)` on the call-pre channel. A module with no request sees none
   argument folds at `check` (a literal that violates the fact is an error), and a scalar parameter of
   the issuing def yields one `call-pre:<builtin>` constraint under that def's `pre`. The trust report
   names the fact and its premise per function (§4.4.4).
+- **A codegen-determined fact has no premise and emits no constraint.** Its value is not the
+  program's, so there is nothing to prove at the issuing site; the argument rules above do not apply
+  to it. It is assumed rather than proved, and the trust report marks it so (see **Declared facts**,
+  §13.9). The delivery rule and the export condition are unchanged and do not read the category.
 - **The control-tag type must be all-nullary** and declared in the entry module beside `def-main`;
   a payload-bearing tag, an imported tag type and a module without a console `def-main` are errors.
 
@@ -2599,6 +2603,8 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
 | `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes. `(wasi.fs.copy src dst)` puts the **source first**; a reversed call type-checks and overwrites the source instead |
+| `wasi.fs.stat` | `string -> Command` | `(import wasi.fs (capability read PATH))` | The file's **age in seconds** as `RCode`, measured from its modification time to now. A **negative** computed age delivers `RErr` and is **not clamped to zero**: a future modification time means clock skew, a tampered timestamp or an unpacked archive, and reporting zero would claim maximal freshness to a liveness check. A **missing** path delivers `RErr`. **`:deterministic true` on this import is a type error** (§10). Its `RCode` arm carries a declared fact; see **Declared facts** below |
+| `wasi.fs.exists` | `string -> Command` | `(import wasi.fs (capability read PATH))` | A three-way presence answer as `RText`: `"absent"`, `"file"`, `"dir"` or `"symlink"`. Shares one probe with `wasi.fs.stat`, so the same call decides presence and age. A path that exists but **cannot be reached** delivers `RErr` rather than `"absent"`, so undecidable and absent stay distinguishable. A **dangling** symlink delivers `"absent"`, the probe following the link |
 | `wasi.env.get` | `string -> Command` | `(import wasi.env (capability read NAME))` | Read one environment variable. Delivers the value as `RText`, and an **unset** variable as `RErr`. A variable that is set and **empty** delivers `RText ""`, so empty and unset stay distinguishable. **`:deterministic true` on this import is a type error** (§10). A **literal** name that is empty or contains `=` is a type error; a computed one is not, and such a name delivers `RErr` indistinguishably from unset |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
@@ -2607,12 +2613,29 @@ These functions produce `Command` values. Each requires the corresponding `impor
 
 **Declared facts.** The compiler declares one property per `(constructor, Response arm)` that the
 generated runtime is known to establish, and a program receives it only through the control-tag
-rule of §9.7 (`RESP-FACT-1`). The table is program-determined only: the value is the program's own
-argument, passed through unchanged, so the residue rides `codegen_semantics_version` (§3.5).
+rule of §9.7 (`RESP-FACT-1`). Every fact rides `codegen_semantics_version` (§3.5), and the
+**category says what the fact rests on**.
 
 | Constructor | Arm | Fact | Category |
 |-------------|-----|------|----------|
 | `wasi.http.response` | `RCode` | `{v : int | v >= 100}` | program-determined (argument 0) |
+| `wasi.fs.stat` | `RCode` | `{v : int | v >= 0}` | codegen-determined |
+
+**The two categories are not equally strong, and the trust report distinguishes them.** A
+**program-determined** fact is *proved*: the value is the program's own argument, and the compiler
+discharges the premise at the issuing site (a literal folds at `check`; a scalar parameter yields
+one `call-pre:<builtin>` constraint). A **codegen-determined** fact is *assumed*: the value is not
+the program's, no premise exists to prove, and the fact holds only because the generated code cannot
+publish a violating value. `wasi.fs.stat`'s age satisfies `v >= 0` because a negative age is
+delivered as `RErr` and never reaches the `RCode` arm — not because it was clamped.
+
+A codegen-determined fact is therefore an **axiom about a sealed builtin**, the same class as
+`bytes-set`'s length-preservation fact, and it enlarges the trusted set. The trust report says so
+in the row itself rather than leaving the two indistinguishable:
+
+```
+≈ assumes Probed ⇒ wasi.fs.stat/RCode {v : int | (>= v 0)} [codegen-determined; premise: codegen:wasi.fs.stat] (ASSUMED, not proved: it rides codegen_semantics_version)
+```
 
 `wasi.proc.run` declares no fact: its `RCode` is the child's exit status, which the operating system
 determines.
@@ -2646,6 +2669,24 @@ determines.
 > delivered `RNone` and removed nothing. That old answer was the collapse this section keeps warning
 > about, one arm carrying both "done" and "nothing happened", and a caller could not tell a real
 > deletion from a silent no-op.
+>
+> **`wasi.fs.stat` delivers an age in seconds as `RCode`, and a negative age as `RErr`.** The
+> clamp an earlier design specified was withdrawn: clamping a negative age to zero reports
+> *maximal freshness*, so the one input that should make a liveness check abstain would become its
+> strongest evidence of progress. That is the same collapse this section warns about elsewhere, one
+> answer carrying both "fresh" and "the clock is wrong". **`wasi.fs.exists` delivers a kind as
+> `RText`** and shares `wasi.fs.stat`'s probe. Its kind is `RText` rather than `RCode` because
+> `RCode` already carries exit statuses, monotonic nanoseconds and now ages, and a kind enum there
+> would make `RCode 0` mean exit success, zero nanoseconds, age zero **and** path absent.
+>
+> **`wasi.fs.exists` answers about a path the program cannot enumerate, and the spec discloses that
+> rather than asserting a subset relation.** Under a parent directory at mode 0111 (search, no read)
+> the probe succeeds while `wasi.fs.list` on that same parent delivers `RErr`. So the probe is *not*
+> bounded by what listing grants. The authority it exercises is bounded by the operating system,
+> which the declared capability clause does not constrain — true of every `wasi.fs` name, because no
+> capability code runs (`CAP-1-REAL`). Capsicum and WASI preview 1 resolve a path beneath a
+> pre-opened directory descriptor so a name outside the grant cannot be written; LLMLL takes an
+> absolute string, and that is a scope boundary this version has chosen.
 >
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as

@@ -1712,6 +1712,48 @@ Four things the checker requires, each a hard `RESP-FACT-1:` error when missing:
 
 A literal passed to `wasi.http.response` is checked against the fact at `check` (`42` is an error); a parameter needs a `pre` on the issuing def, and the trust report then says `premise: call-pre:<that def>`.
 
+**Two kinds of fact, and the trust report tells them apart (v0.18.0).** The fact above is
+**program-determined**: the value is the program's own argument, so the compiler *proves* the
+premise. `wasi.fs.stat` declares the other kind. Its `RCode` arm carries `{v : int | v >= 0}`,
+and the age is the filesystem's, not an argument you passed — so there is no premise to prove and
+no `call-pre` is emitted:
+
+```lisp
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(type Ctl (| Boot) (| Probed) (| Halt))
+
+(def-shell age-step [p: Ctl x: Response] -> int
+  (pre  (= p Probed))
+  (post (>= result 0))            ;; discharged FROM THE FACT, with no runtime guard
+  (match x ((RCode age) age) (_ 0)))
+
+;; ... and in :step, Probed is the tag paired with the stat command:
+;;   ((Boot) (go (first s) Probed (wasi.fs.stat "/tmp")))
+```
+
+```
+$ llmll verify probe.llmll
+   body-faithful: age-step
+   Running liquid-fixpoint ...
+✅ probe.llmll — SAFE (liquid-fixpoint)
+$ llmll verify --trust-report probe.llmll
+  age-step:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+    ≈ assumes Probed ⇒ wasi.fs.stat/RCode {v : int | (>= v 0)} [codegen-determined; premise: codegen:wasi.fs.stat] (ASSUMED, not proved: it rides codegen_semantics_version)
+```
+
+Run `verify` first, as above. `--trust-report` reads the `.verified.json` sidecar the plain run
+writes, so on a first run against a fresh tree the post reads `asserted` rather than `verified`.
+
+**Read that note as the warning it is.** A codegen-determined fact is *assumed*, not proved: it
+holds only because the generated runtime cannot publish a violating value — `wasi.fs.stat` delivers
+`RErr` on a negative age rather than clamping it to zero. Your `verified` post rests on that, and
+the report names it so you can see the dependency. `:deterministic true` on a `wasi.fs` import is a
+type error for the same underlying reason: an age reads the wall clock.
+
+`wasi.fs.exists` declares no fact — its kind is `RText` and fact predicates are integer-only — so a
+tag bound to it warns `W-RESP-FACT-NONE` and receives nothing.
+
 ## Part 5 — Core Language Quick Reference
 
 ```lisp
