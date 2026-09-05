@@ -125,7 +125,7 @@ exprToLeanScoped scope (EVar v)
   | otherwise            = Left ("residual free variable `" <> v <> "` (fail-closed)")
 -- Operators reach us as EOp (S-expr parser) or, in some AST forms, as EApp;
 -- normalize both through one handler (mirrors 'isNonLinear''s EOp→EApp
--- normalization, HoleAnalysis.hs:348).
+-- normalization, in its @EOp@ clause in HoleAnalysis).
 exprToLeanScoped scope (EOp op args)  = opAppToLean scope op args
 exprToLeanScoped scope (EApp op args) = opAppToLean scope op args
 exprToLeanScoped _ e =

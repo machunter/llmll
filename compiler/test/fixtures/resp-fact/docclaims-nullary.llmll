@@ -1,0 +1,568 @@
+;; RESP-FACT-1 acceptance fixture (resp-fact-proposal.md §10, plan test 14).
+;; @expect: check clean (one W-RESP-FACT-NONE warning: Ran is bound to wasi.proc.run,
+;; which declares no fact); Sites binds EIGHT tags: Boot→wasi.proc.args,
+;; Probe→wasi.proc.run, Listing→wasi.fs.list, ReadFix→wasi.fs.read, Ran→wasi.proc.run,
+;; ReadOut→wasi.fs.read, Ending→wasi.io.stdout, Done→wasi.io.stdout.
+;; Derived from tools/doc-claims/docclaims.llmll; the live tool is NOT edited.
+;;
+;; TOOL-RFC-003: the doc-claim drift gate (DRIFT-CT-2), in LLMLL.
+;;
+;; A port of scripts/doc_claims_gate.sh, which was DELETED on 2026-08-17 when
+;; TOOL-RFC-003 moved to `tool_state: retired`. This module is now the only
+;; implementation of DRIFT-CT-2. Same criteria, same classification
+;; ORDER, same messages, same exit codes. The RFC is
+;; docs/design/tool-rfc-003-doc-claims.md and it was written before this file,
+;; with both of its section 8 questions put to the user rather than settled at
+;; the keyboard.
+;;
+;; WHAT THIS GATE DOES. It runs each fixture in scripts/doc-claims/ through the
+;; subject compiler and asserts the OBSERVED verdict matches the fixture's
+;; `;; @expect:` header. It exists for documentation that has drifted from
+;; compiler behaviour, specifically stale RESTRICTION claims: a doc saying a
+;; program is rejected when the compiler accepts it, or the reverse.
+;;
+;; TWO BINARIES, AND CONFLATING THEM IS THE FAILURE THE CAMPAIGN EXISTS TO
+;; CATCH. The harness is this program; the SUBJECT is the `llmll` it grades,
+;; named by --subject. The reference takes its subject from $LLMLL_BIN and CI
+;; passes "stack exec llmll --", which resolves against whatever stack project
+;; the cwd happens to be. That idiom, run from tools/refute-crux, once installed
+;; GHC 9.10.3 on a Linux runner before answering "Executable named llmll not
+;; found". An explicit argument cannot do that. RFC section 8 decision 2.
+;;
+;; THE MERGED CAPTURE IS THE FIRST USE OF PROC-MERGE-1. The reference captures
+;; `2>&1`; before v0.14.91 `wasi.proc.run` opened one handle per path and equal
+;; paths raced. Passing the same path twice now merges onto one handle, so this
+;; port reads ONE file where the refute-crux port had to read two and
+;; concatenate. Ordering inside the merged stream is the CHILD's flush order and
+;; is not relied on: every criterion here tests containment.
+;;
+;; THE `✅` TEST IS THE FIRST USE OF CAPTURE-ENCODING-1. `check-ok` requires the
+;; check mark in the output, so this program holds a non-ASCII character in a
+;; string literal and compares it against captured bytes. Before v0.14.90 the
+;; literal reached the running program as `05`.
+;;
+;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits a pure
+;; `print (step args)`: no Command performed, no exit status. `console` is the
+;; only entry mode that can touch the world, so a gate is a stdin-driven step
+;; machine that exits 70 on EOF.
+;;
+;; THE TWO SKIP PATHS ARE REPRODUCED FAITHFULLY AND DELIBERATELY. The reference
+;; exits 0 without asserting anything when it finds no compiler and again when
+;; the fixture directory is empty. That is a gate reporting success when it
+;; could not decide, and it is filed as its own roadmap row rather than fixed
+;; here: a port reproduces, it does not improve. RFC section 8 question 1,
+;; answered by the user 2026-08-08.
+
+(module docclaims
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.fs (capability read-write "/"))
+  (import wasi.proc (capability run :deterministic false))
+
+  ;; TOOL-ORACLE-1: the exit-status clamp moved to its own module so it can carry
+  ;; a contract. A `def` cannot call a sibling `def`, so a proved core is a
+  ;; separate module the port imports. See adjudicate.llmll for what is proved
+  ;; and, more importantly, for what is not.
+  ;; RESP-FACT-1 fixture: the consumer copied with its Ctl NULLARY, the exit
+  ;; code moved into Rc ("code"), (export) added, a local status-of in place of
+  ;; the adjudicate import, and ran-step REQUESTING a fact with the dispatcher
+  ;; passing the literal tag inside its ((Ran) …) arm (proposal §10).
+  (export)
+  (def-shell status-of [c: int] -> int (if (< c 0) 1 (if (> c 255) 1 c)))
+
+
+  ;; ---- helpers over Json ---------------------------------------------------
+  ;;
+  ;; Same discipline as the refute-crux port: every scalar in the run record
+  ;; travels as a NAMED Json field rather than a positional slot, because a
+  ;; fixture carries several strings that all hold names (@doc, @expect,
+  ;; @claim, @cmd) and positional fields give every call site a chance to swap
+  ;; two of them and still typecheck.
+
+  (def-shell jget [v: Json k: string] -> Json
+    (match (json-get v k)
+      ((Success x) x)
+      ((Error _)   json-object)))
+
+  (def-shell jstr [v: Json k: string] -> string
+    (unwrap-or (json-get-string v k) ""))
+
+  (def-shell jint [v: Json k: string] -> int
+    (unwrap-or (json-get-int v k) 0))
+
+  (def-shell jlist [v: Json k: string] -> list[Json]
+    (unwrap-or (json-array (jget v k)) (list-empty)))
+
+  (def-shell sets [v: Json k: string s: string] -> Json
+    (unwrap-or (json-set v k (json-of-string s)) v))
+
+  (def-shell seti [v: Json k: string n: int] -> Json
+    (unwrap-or (json-set v k (json-of-int n)) v))
+
+  (def-shell setl [v: Json k: string xs: list[Json]] -> Json
+    (unwrap-or (json-set v k (json-of-list xs)) v))
+
+  ;; JSON-SCALAR-1 shipped in v0.14.91, so a scalar element of a json-array has
+  ;; a reader. The default is a SENTINEL and not "": a malformed record is a
+  ;; defect and should be visible, not absorbed.
+  (def-shell strs-of [xs: list[Json]] -> list[string]
+    (list-map xs (fn [x: Json] (unwrap-or (json-as-string x) "<non-string>"))))
+
+  (def-shell of-strs [xs: list[string]] -> list[Json]
+    (list-map xs (fn [s: string] (json-of-string s))))
+
+  (def-shell nth-str [xs: list[string] i: int] -> string
+    (unwrap-or (list-nth xs i) ""))
+
+  ;; ---- small string utilities ---------------------------------------------
+
+  (def-shell join2 [a: string b: string] -> string
+    (string-concat-many [a "/" b]))
+
+  (def-shell ends-with? [s: string suf: string] -> bool
+    (let [(n (string-length s))]
+      (let [(m (string-length suf))]
+        (and (>= n m) (= (string-slice s (- n m) n) suf)))))
+
+  (def-shell starts-with? [s: string pfx: string] -> bool
+    (let [(m (string-length pfx))]
+      (and (>= (string-length s) m) (= (string-slice s 0 m) pfx))))
+
+  (def-shell llmll-files [entries: list[string]] -> list[string]
+    (list-filter entries (fn [e: string] (ends-with? e ".llmll"))))
+
+  ;; The reference's `${expect%%:*}`: everything before the FIRST colon.
+  (def-shell before-colon [s: string] -> string
+    (nth-str (string-split ":" s) 0))
+
+  ;; The reference's `${expect#*:}`: everything after the FIRST colon, with any
+  ;; further colons PUT BACK. `warn:no such member: x` must yield
+  ;; "no such member: x" and not "no such member". A naive element-1 read is the
+  ;; bug this exists to avoid, and it would only show on a fixture whose pinned
+  ;; substring contains a colon.
+  (def-shell after-colon [s: string] -> string
+    (let [(parts (string-split ":" s))]
+      (if (<= (list-length parts) 1)
+          ""
+          (list-fold (unwrap-or (list-tail parts) (list-empty)) ""
+            (fn [acc: string p: string]
+              (if (string-empty? acc) p (string-concat-many [acc ":" p])))))))
+
+  (def-shell has-colon? [s: string] -> bool
+    (> (list-length (string-split ":" s)) 1))
+
+  ;; A global replace of `{file}`, written as a fold over the split because
+  ;; there is no replace builtin. Same shape the refute-crux port uses to turn a
+  ;; suite path into a directory name.
+  (def-shell replace-file [s: string path: string] -> string
+    (let [(parts (string-split "{file}" s))]
+      (list-fold parts ""
+        (fn [acc: string p: string]
+          (if (string-empty? acc) p (string-concat-many [acc path p]))))))
+
+  ;; ---- header fields -------------------------------------------------------
+  ;;
+  ;; The reference is `grep -m1 "@$2:" "$1" | sed "s/.*@$2:[[:space:]]*//"`:
+  ;; the FIRST line carrying the marker, with everything up to and including the
+  ;; marker removed and leading whitespace trimmed. `-m1` matters, since a
+  ;; fixture body may legitimately mention `@expect:` in a comment below its
+  ;; header.
+
+  (def-shell first-line-with [lines: list[string] marker: string] -> string
+    (unwrap-or (list-head (list-filter lines
+                            (fn [l: string] (string-contains l marker))))
+               ""))
+
+  ;; The marker already ENDS in the colon, so splitting on it leaves the value
+  ;; whole in element 1 and a further colon-strip would be wrong: it would
+  ;; return "" for every header, and worse, it would silently truncate a value
+  ;; that legitimately contains a colon (`warn:no such member: x`). Written out
+  ;; because the first draft did exactly that and it typechecked.
+  (def-shell header-field [lines: list[string] field: string] -> string
+    (let [(marker (string-concat-many ["@" field ":"]))]
+      (let [(line (first-line-with lines marker))]
+        (if (string-empty? line)
+            ""
+            (string-trim (nth-str (string-split marker line) 1))))))
+
+  ;; ---- verdict classification ----------------------------------------------
+  ;;
+  ;; THE ORDER IS THE BEHAVIOUR, and the reference says so in its own comment: a
+  ;; parse error prints as `(error :phase parse ...)`, which ALSO matches the
+  ;; generic semantic test, so it must be asked first. A port that reorders
+  ;; these two answers `check-error` for every parse error and still passes any
+  ;; test that only exercises one of them.
+
+  ;; REGEX-LOWER-1: the reference's `grep -qE '(^|[[:space:]])error:'` has no
+  ;; counterpart, `regex-match` typechecking and verifying and then failing at
+  ;; GHC. Reproduced as a line scan: `error:` at the start of a line, or
+  ;; preceded by a space or a tab.
+  ;;
+  ;; THE RESIDUE IS REAL AND IS RECORDED RATHER THAN GLOSSED. POSIX
+  ;; `[[:space:]]` also matches vertical tab, form feed and carriage return,
+  ;; which this does not. No fixture's output contains those today, so the
+  ;; divergence has an empty firing population and is a trap for whoever adds
+  ;; one. RFC section 5.
+  (def-shell line-has-error? [l: string] -> bool
+    (or (starts-with? l "error:")
+        (or (string-contains l " error:")
+            (string-contains l "	error:"))))
+
+  (def-shell has-error-token? [out: string] -> bool
+    (list-fold (string-split "\n" out) false
+      (fn [acc: bool l: string] (or acc (line-has-error? l)))))
+
+  (def-shell observed-verdict [out: string] -> string
+    (if (string-contains out ":phase parse")
+        "parse-error"
+        (if (has-error-token? out)
+            "check-error"
+            ;; BOTH the check mark and OK, which is the reference's `&&`. The
+            ;; check mark is why this port depends on CAPTURE-ENCODING-1.
+            (if (and (string-contains out "✅") (string-contains out "OK"))
+                "check-ok"
+                "unknown"))))
+
+  ;; ---- the run record ------------------------------------------------------
+
+  (type Rc (| Rc Json))
+  (def-shell f-of [r: Rc] -> Json (match r ((Rc j) j)))
+  (def-shell mk [j: Json] -> Rc (Rc j))
+
+  (def-shell root-of    [r: Rc] -> string (jstr (f-of r) "root"))
+  (def-shell subject-of [r: Rc] -> string (jstr (f-of r) "subject"))
+  (def-shell work-of    [r: Rc] -> string (jstr (f-of r) "work"))
+  (def-shell fi-of      [r: Rc] -> int    (jint (f-of r) "fi"))
+  (def-shell pass-of    [r: Rc] -> int    (jint (f-of r) "pass"))
+  (def-shell fail-of    [r: Rc] -> int    (jint (f-of r) "fail"))
+  (def-shell code-of    [r: Rc] -> int    (jint (f-of r) "code"))
+  (def-shell rep-of     [r: Rc] -> string (jstr (f-of r) "rep"))
+  (def-shell fails-of   [r: Rc] -> string (jstr (f-of r) "fails"))
+  (def-shell expect-of  [r: Rc] -> string (jstr (f-of r) "expect"))
+  (def-shell claim-of   [r: Rc] -> string (jstr (f-of r) "claim"))
+  (def-shell docref-of  [r: Rc] -> string (jstr (f-of r) "docref"))
+  (def-shell files-of   [r: Rc] -> list[string] (strs-of (jlist (f-of r) "files")))
+
+  (def-shell with-s [r: Rc k: string v: string] -> Rc (mk (sets (f-of r) k v)))
+  (def-shell with-i [r: Rc k: string v: int]    -> Rc (mk (seti (f-of r) k v)))
+  (def-shell with-l [r: Rc k: string v: list[string]] -> Rc
+    (mk (setl (f-of r) k (of-strs v))))
+
+  (def-shell say [r: Rc line: string] -> Rc
+    (with-s r "rep" (string-concat-many [(rep-of r) line "\n"])))
+
+  (def-shell add-fail [r: Rc block: string] -> Rc
+    (with-s r "fails" (string-concat-many [(fails-of r) block "\n\n"])))
+
+  ;; The current fixture's absolute path.
+  (def-shell fixture-dir [r: Rc] -> string
+    (string-concat-many [(root-of r) "/scripts/doc-claims"]))
+
+  (def-shell cur-file [r: Rc] -> string
+    (nth-str (files-of r) (fi-of r)))
+
+  (def-shell cur-path [r: Rc] -> string
+    (join2 (fixture-dir r) (cur-file r)))
+
+  ;; ONE capture path, used for BOTH streams: PROC-MERGE-1.
+  (def-shell cap-path [r: Rc] -> string
+    (join2 (work-of r) "capture.txt"))
+
+  ;; ---- the machine ---------------------------------------------------------
+
+  (type Ctl
+    (| Boot)
+    (| Probe)
+    (| Listing)
+    (| ReadFix)
+    (| Ran)
+    (| ReadOut)
+    (| Ending)
+    (| Done))
+
+  (def-shell rc-of  [s: (Rc, Ctl)] -> Rc  (first s))
+  (def-shell ctl-of [s: (Rc, Ctl)] -> Ctl (second s))
+  (def-shell go [r: Rc p: Ctl c: Command] -> ((Rc, Ctl), Command)
+    (pair (pair r p) c))
+
+  (def-shell text-of [x: Response] -> string
+    (match x
+      ((RText t) t)
+      ((RErr _)  "")
+      ((RNone)   "")
+      ((RCode _) "")
+      ((RList _) "")))
+
+  (def-shell list-of [x: Response] -> list[string]
+    (match x
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell code-in [x: Response] -> int
+    (match x
+      ((RCode c) c)
+      ((RErr _)  127)
+      ((RNone)   127)
+      ((RText _) 127)
+      ((RList _) 127)))
+
+  (def-shell argv-of [x: Response] -> list[string]
+    (match x
+      ((RList as) as)
+      ((RNone)    (list-empty))
+      ((RText _)  (list-empty))
+      ((RCode _)  (list-empty))
+      ((RErr _)   (list-empty))))
+
+  (def-shell flag-value [as: list[string] f: string] -> string
+    (first (list-fold as (pair "" false)
+             (fn [acc: (string, bool) a: string]
+               (if (second acc)
+                   (pair a false)
+                   (if (= a f) (pair (first acc) true) acc))))))
+
+  (def-shell flag-or [as: list[string] f: string d: string] -> string
+    (let [(v (flag-value as f))] (if (string-empty? v) d v)))
+
+  ;; ---- reporting -----------------------------------------------------------
+
+  ;; The reference is `printf '  \342\234\224 %-30s expect=%-11s [%s]\n'`, so the
+  ;; basename is LEFT-PADDED TO 30 and the expectation to 11. Reproduced rather
+  ;; than approximated with fixed spacing: v0.14.90's lesson is that two
+  ;; implementations should have their labels COMPARED, not reconciled by a
+  ;; normalising step in the cover. A `%-Ns` that overflows its width is not
+  ;; truncated, which is why this pads and never slices.
+  (def-shell spaces [n: int] -> string
+    (if (<= n 0) ""
+        (list-fold (range 0 n) "" (fn [acc: string i: int] (string-concat acc " ")))))
+
+  (def-shell pad-right [s: string w: int] -> string
+    (string-concat s (spaces (- w (string-length s)))))
+
+  (def-shell tick-line [r: Rc] -> string
+    (string-concat-many
+      ["  ✔ " (pad-right (cur-file r) 30) " expect=" (pad-right (expect-of r) 11)
+       " [" (docref-of r) "]"]))
+
+  ;; The reference's five-line block, with the captured output indented five
+  ;; spaces under a rule. Reproduced rather than tidied: RFC section 2.
+  (def-shell fail-block [r: Rc obs: string out: string] -> string
+    (string-concat-many
+      ["  ✘ " (cur-file r) "\n"
+       "     expect : " (expect-of r) "\n"
+       "     observed: " obs "\n"
+       "     doc    : " (docref-of r) "\n"
+       "     claim  : " (claim-of r) "\n"
+       "     --- llmll check output ---\n"
+       (indent5 out)]))
+
+  (def-shell indent5 [s: string] -> string
+    (list-fold (string-split "\n" s) ""
+      (fn [acc: string l: string]
+        (if (string-empty? acc)
+            (string-concat "     " l)
+            (string-concat-many [acc "\n     " l])))))
+
+  (def-shell summary [r: Rc] -> string
+    (if (= (fail-of r) 0)
+        (string-concat-many
+          ["\nDRIFT-CT-2 PASS: " (int-to-string (pass-of r))
+           " doc-claim(s) match compiler behaviour"])
+        (string-concat-many
+          ["\nDRIFT-CT-2 FAIL: " (int-to-string (fail-of r)) " of "
+           (int-to-string (+ (pass-of r) (fail-of r)))
+           " doc-claim(s) drifted from compiler behaviour\n\n"
+           (fails-of r)
+           "A failing claim means the docs and the compiler disagree. Fix BOTH the fixture's\n"
+           "@expect header AND the doc section named in @doc, then re-run."])))
+
+  (def-shell finish [r: Rc] -> ((Rc, Ctl), Command)
+    (go (with-i r "code" (if (> (fail-of r) 0) 1 0)) (Ending)
+        (wasi.io.stdout (string-concat-many [(rep-of r) (summary r)]))))
+
+  ;; Both SKIP paths exit 0 having decided nothing. Faithful to the reference,
+  ;; filed as a roadmap row against it. RFC section 8 question 1.
+  (def-shell skip [r: Rc why: string] -> ((Rc, Ctl), Command)
+    (go (with-i r "code" 0) (Ending) (wasi.io.stdout (string-concat "DRIFT-CT-2 SKIP: " why))))
+
+  ;; ---- steps ---------------------------------------------------------------
+
+  ;; The reference resolves $LLMLL_BIN, else `llmll` on PATH, else
+  ;; ~/.local/bin/llmll, else SKIP. Here the subject is an explicit argument, so
+  ;; the analogue is: can it run at all? A spawn failure scores 127 via code-in
+  ;; and a nonexistent subject cannot answer `version`.
+  ;; THE PROBE FIRES ONLY WHEN THE SUBJECT WAS NOT NAMED, and that asymmetry is
+  ;; the reference's rather than a convenience. `LLMLL_BIN="${LLMLL_BIN:-}"`
+  ;; means an EXPLICITLY SET binary is used as given: the gate does not
+  ;; second-guess it, and a nonexistent one produces 15 loud per-fixture
+  ;; failures rather than a skip. The SKIP path exists only for "I could not
+  ;; find a compiler by searching", which here means no --subject was passed and
+  ;; the default `llmll` does not run.
+  ;;
+  ;; The first draft probed unconditionally and therefore SKIPPED where the
+  ;; reference FAILED. Cell 11 of the differential cover caught it; nothing in
+  ;; the live corpus could have, because the live corpus always names a subject.
+  (def-shell boot-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(as (argv-of x))]
+      (let [(named (flag-value as "--subject"))]
+        (let [(r2 (with-s (with-s (with-s r "root" (flag-or as "--root" "."))
+                                  "subject" (if (string-empty? named) "llmll" named))
+                          "work" (flag-or as "--work" ".")))]
+          (if (string-empty? named)
+              (go r2 (Probe)
+                  (wasi.proc.run (subject-of r2) ["version"] (work-of r2)
+                                 (cap-path r2) (cap-path r2) 60 "/dev/null"))
+              (go r2 (Listing) (wasi.fs.list (fixture-dir r2))))))))
+
+  (def-shell probe-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (if (= (code-in x) 0)
+        (go r (Listing) (wasi.fs.list (fixture-dir r)))
+        ;; VERBATIM, INCLUDING ADVICE THIS PROGRAM CANNOT ACT ON. The reference
+        ;; says "set LLMLL_BIN to enable"; this port reads --subject and never
+        ;; looks at that variable. Reproduced anyway, on the same ground as the
+        ;; refute-crux port reproducing its reference's quoted/bare asymmetry:
+        ;; a port is not the place to change what a gate says. Recorded in RFC
+        ;; section 5 as a cosmetic divergence-in-ADVICE, to be corrected at
+        ;; retirement when the reference is deleted and there is only one
+        ;; message left to be right.
+        (skip r "no llmll binary found (set LLMLL_BIN to enable)")))
+
+  (def-shell listing-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(fs (llmll-files (list-of x)))]
+      (if (= (list-length fs) 0)
+          (skip r (string-concat-many ["no fixtures in " (fixture-dir r)]))
+          (next-fixture (with-i (with-l r "files" fs) "fi" 0)))))
+
+  (def-shell next-fixture [r: Rc] -> ((Rc, Ctl), Command)
+    (if (>= (fi-of r) (list-length (files-of r)))
+        (finish r)
+        (go r (ReadFix) (wasi.fs.read (cur-path r)))))
+
+  ;; Headers parsed, then the subcommand spawned. `@cmd` defaults to
+  ;; "check {file}" and `{file}` is replaced with the fixture's path.
+  (def-shell readfix-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(lines (string-split "\n" (text-of x)))]
+      (let [(cmd0 (header-field lines "cmd"))]
+        (let [(cmd (if (string-empty? cmd0) "check {file}" cmd0))]
+          (let [(r2 (with-s (with-s (with-s r "expect" (header-field lines "expect"))
+                                    "claim" (header-field lines "claim"))
+                            "docref" (header-field lines "doc")))]
+            (go r2 (Ran)
+                (wasi.proc.run (subject-of r2)
+                               (string-split " " (replace-file cmd (cur-path r2)))
+                               (work-of r2)
+                               (cap-path r2)
+                               (cap-path r2)
+                               120
+                               "/dev/null")))))))
+
+  ;; The reference discards the child's exit status entirely: the verdict comes
+  ;; from the OUTPUT. Reproduced, and worth stating because a port that graded
+  ;; the exit code would agree on most fixtures and diverge on the ones that
+  ;; matter.
+  (def-shell ran-step [p: Ctl r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (pre (= p Ran))
+    (go r (ReadOut) (wasi.fs.read (cap-path r))))
+
+  (def-shell readout-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(out (text-of x))]
+      (let [(expect (expect-of r))]
+        (let [(base (before-colon expect))]
+          (let [(sub (if (has-colon? expect) (after-colon expect) ""))]
+            ;; `matched?` FIRST, because for the `warn` base the observed
+            ;; value depends on the whole match and not on the trigger. The
+            ;; reference initialises obs to "no-warning" and promotes it to
+            ;; "warn" only inside the arm where BOTH `warning:` and the pinned
+            ;; substring were found. A port that reported "warn" on the trigger
+            ;; alone answers differently exactly when a warning fires with the
+            ;; wrong text, which is the case the fixture pins. Caught by cell 5
+            ;; of the differential cover on its first run.
+            (let [(obs0 (observed-verdict out))]
+              (let [(ok (matched? base sub out obs0))]
+                (let [(obs (if (= base "output")
+                               "output"
+                               (if (= base "warn")
+                                   (if ok "warn" "no-warning")
+                                   obs0)))]
+                  (score r ok obs out)))))))))
+
+  (def-shell matched? [base: string sub: string out: string obs: string] -> bool
+    (if (= base "output")
+        (and (not (string-empty? sub)) (string-contains out sub))
+        (if (= base "warn")
+            (and (string-contains out "warning:")
+                 (or (string-empty? sub) (string-contains out sub)))
+            (and (= obs base)
+                 (or (string-empty? sub) (string-contains out sub))))))
+
+  ;; A pass appends its tick immediately; a failure is held and printed AFTER
+  ;; the summary line, which is the reference's order. RFC section 2 rule 2.
+  (def-shell score [r: Rc ok: bool obs: string out: string] -> ((Rc, Ctl), Command)
+    (let [(r2 (if ok
+                  (say (with-i r "pass" (+ (pass-of r) 1)) (tick-line r))
+                  (add-fail (with-i r "fail" (+ (fail-of r) 1))
+                            (fail-block r obs out))))]
+      (next-fixture (with-i r2 "fi" (+ (fi-of r2) 1)))))
+
+  (def-shell dc-init [] -> ((Rc, Ctl), Command)
+    (pair (pair (mk (sets (sets (seti (seti (seti (sets json-object "rep" "")
+                                                  "pass" 0)
+                                            "fail" 0)
+                                      "fi" 0)
+                                "fails" "")
+                          "expect" ""))
+                (Boot))
+          wasi.proc.args))
+
+  (def-shell dc-step [s: (Rc, Ctl) input: string x: Response]
+      -> ((Rc, Ctl), Command)
+    (match (ctl-of s)
+      ((Boot)     (boot-step    (rc-of s) x))
+      ((Probe)    (probe-step   (rc-of s) x))
+      ((Listing)  (listing-step (rc-of s) x))
+      ((ReadFix)  (readfix-step (rc-of s) x))
+      ((Ran)      (ran-step Ran (rc-of s) x))
+      ((ReadOut)  (readout-step (rc-of s) x))
+      ((Ending)   (go (rc-of s) (Done) (wasi.io.stdout "")))
+      ((Done)     (go (rc-of s) (Done) (wasi.io.stdout "")))))
+
+  (def-shell dc-done? [s: (Rc, Ctl)] -> bool
+    (match (ctl-of s)
+      ((Boot)     false)
+      ((Probe)    false)
+      ((Listing)  false)
+      ((ReadFix)  false)
+      ((Ran)      false)
+      ((ReadOut)  false)
+      ((Ending)   false)
+      ((Done)     true)))
+
+  (def-shell done-code [s: (Rc, Ctl)] -> int
+    (match (ctl-of s)
+      ((Boot)     1)
+      ((Probe)    1)
+      ((Listing)  1)
+      ((ReadFix)  1)
+      ((Ran)      1)
+      ((ReadOut)  1)
+      ((Ending)   1)
+      ((Done)     (code-of (rc-of s)))))
+
+  ;; Clamped, failing in the safe direction: POSIX truncates to the low 8 bits,
+  ;; so an unchecked 256 would exit 0 and report success.
+  ;;
+  ;; THE DECISION MOVED OUT AND THE PROJECTION STAYED. `status-of` in
+  ;; adjudicate.llmll carries the contract; this function only projects the code
+  ;; out of the composite state, because a `def-shell` over a composite falls
+  ;; back and would take the range obligation down with it (PROC-BOUNDARY-1).
+  (def-shell dc-status [s: (Rc, Ctl)] -> int
+    (status-of (done-code s)))
+
+  (def-main
+    :mode    console
+    :init    (dc-init)
+    :step    dc-step
+    :done?   dc-done?
+    :status  dc-status))

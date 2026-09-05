@@ -128,6 +128,9 @@ import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic, mkWarning)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
+-- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
+-- def, premise sites, warnings). Pure; the checker already raised every error.
+import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..))
 
 -- ---------------------------------------------------------------------------
 -- Configuration (v0.8.0)
@@ -457,6 +460,13 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         where
           getRecursive (AcyclicSCC _) = []
           getRecursive (CyclicSCC ns) = ns
+  -- RESP-FACT-1: the control-tag fact plan. The checker has already turned every
+  -- failure into a hard error before verify reaches here, so a Left (reachable
+  -- only through a checker-less caller such as a unit test) is read as "no plan":
+  -- no refinement, no premise, no warning. Entry-module statements only, as the
+  -- entry-module rule requires (§5.2); 'aliases' already merges builtinAliases.
+  let respPlan = respFactPlanOrEmpty (analyzeRespFacts aliases stmts)
+      respRefs = Map.map Map.fromList (rpRefEnvs respPlan)
   ctrRef    <- newIORef (0 :: Int)  -- constraint ID counter
   bindRef   <- newIORef (0 :: Int)  -- binder ID counter
   tableRef  <- newIORef (Map.empty :: ConstraintTable)
@@ -530,20 +540,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -560,17 +570,54 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
+
+  -- RESP-FACT-1 (§9, "the program-determined premise at an issuing site"): one
+  -- `call-pre:<builtin>` constraint per premise site whose issuing argument is a
+  -- SCALAR PARAMETER of the issuing def:   pre(def) ⇒ fact[v := param].
+  -- No path guard (sound and incomplete: a branch-chosen code must be lifted
+  -- into a parameter with a pre). A literal argument was folded at check and
+  -- emits nothing. The pre is dropped to `true` when it mentions a non-scalar
+  -- parameter, which makes the goal STRONGER, never weaker, and keeps every
+  -- referenced symbol declared (only the scalar params are bound here).
+  forM_ (rpPremises respPlan) $ \ps -> case psCase ps of
+    PremiseFolded _ -> pure ()
+    PremiseParam d _ p ->
+      forM_ [ (i, params, c) | (i, s) <- zip [0 :: Int ..] stmts
+                             , Just (n, params, _, c, _) <- [normalizeDefStmt s], n == d ]
+            $ \(di, params, contract) -> do
+        let fact      = psFact ps
+            ctorTags  = buildCtorTagMap aliases
+            dsE       = desugarCtorValues ctorTags (Set.fromList (map fst params))
+            scalarPs  = [ (n, t) | (n, t) <- params, isScalarLike aliases t ]
+            preUsable e = not (any (\(n, t) -> not (isScalarLike aliases t) && exprMentionsVar n e) params)
+            mPre = case contractPre (augmentContractPre aliases params contract) of
+                     Just pre | preUsable pre -> exprToPred (dsE pre)
+                     _                        -> Nothing
+        case exprToPred (dsE (renameVar (rfBinder fact) p (rfPredicate fact))) of
+          Nothing -> pure ()
+          Just factPred -> do
+            paramBinds <- mapM (emitParamBind aliases freshBid addBind) scalarPs
+            cid <- freshCid
+            let cpTag = "call-pre:" <> psBuiltin ps
+                lhs   = FQReft "v" FQInt (fromMaybe FQTrue mPre)
+                rhs   = FQReft "v" FQInt factPred
+            addConst (FQConstraint cid (map bindId paramBinds) lhs rhs [d, cpTag])
+            addCallPre d
+            addOrigin cid (ConstraintOrigin d cpTag ("/statements/" <> T.pack (show di) <> "/body") srcFile)
+  -- RESP-FACT-1: the checker prints these on `check`; verify prints only
+  -- checker ERRORS, so the emitter surfaces the same warnings on its own path.
+  forM_ (rpWarnings respPlan) (addDiag . mkWarning Nothing)
 
   -- Assemble result
   dataDecs  <- readIORef dataRef
@@ -666,6 +713,7 @@ emitFnConstraints
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
   -> Set.Set Name          -- v0.9.0: recursive SCC set
   -> Map Name ([Name], [Expr]) -- REC-DESCENT: name → (params, measure tuple)
+  -> Map Name RefEnv       -- RESP-FACT-1: per-def Response arm-binder refinements (§5.3)
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
@@ -676,7 +724,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet measureMap
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
@@ -1028,7 +1076,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   , (c, Just pt) <- ctors
                   , admissiblePayload aliases pt
                   , Just ref <- [payloadRefinement aliases pt] ]
-                refEnv = Map.fromList (resultRefs ++ adtRefs)
+                -- RESP-FACT-1 (§5.3): a requesting def whose tag is bound and
+                -- whose tag and Response parameters are delivered gets the
+                -- declared fact on each delivered Response arm binder, keyed
+                -- <x>$<Arm> exactly like 'adtRefs'. 'bindArm' declares the arm
+                -- payload at that refinement. Left-biased: the fact wins over a
+                -- declared payload refinement of the same key (Response arms
+                -- carry none, so no key collides today). Empty for every def
+                -- outside a requesting module → byte-identical .fq.
+                refEnv = Map.union (Map.findWithDefault Map.empty name respRefs)
+                                   (Map.fromList (resultRefs ++ adtRefs))
             -- LEVER-A2: a gated function RETURNING an admissible map[int,int]
             -- takes a dedicated emission: the body's component pair is PINNED
             -- to fresh result$has/result$val env binders on the constraint LHS
@@ -1312,7 +1369,20 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let callObligations = collectCallPreObligations bvc
                     unless (null callObligations) $ do
                       addCallPre name
-                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard, ctxCalls, pathLbs)) -> do
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred0, pathGuard, ctxCalls, pathLbs)) ->
+                       -- RESP-FACT-1 (§16 item 7, cell c38; §8 item 21): a callee
+                       -- precondition that is CLOSED after argument substitution and
+                       -- constructor lowering — `(= p Ran)` at `(h Ran x)` becomes
+                       -- `(1 = 1)` — is decided here. Closed-true: nothing to prove,
+                       -- and liquid-fixpoint's sanitizer rejects a `true` RHS ("RHS
+                       -- without single conjunct"), so the constraint is not emitted.
+                       -- Closed-false (`(0 = 1)` from a literal tag that violates the
+                       -- pre): KEPT, as `false`, so the refutation stands. Open: as
+                       -- before. Only a closed predicate changes; the corpus has none
+                       -- that reaches a verdict today (the closed-true case crashed).
+                       let mClosed = evalClosedFQ prePred0
+                           prePred = if mClosed == Just False then FQFalse else prePred0
+                       in unless (mClosed == Just True) $ do
                         -- F-NIW-4: declare the prior-call result vars on this path so
                         -- a precondition referencing one is not a free variable; their
                         -- assumed posts join the LHS hypothesis (assume-guarantee).
@@ -1594,8 +1664,12 @@ byteArraySort = FQArr FQInt FQInt
 --
 -- The match is HEAD-SYNTACTIC on @TBytes n@, deliberately NOT through
 -- 'bytesLenOf'. The checker's determining-context rule matches @retTy\@(TBytes _)@
--- with no alias expansion ('TypeCheck.hs:1216', ':1250') and codegen matches the
--- same way ('CodegenHs.hs:586'). Four readers of one annotation, one match shape;
+-- with no alias expansion -- the LEVER-A0 arms in 'checkStatement' for @SDef@ and
+-- @SDefShell@, both @(Just retTy\@(TBytes _), EApp "bytes-zero" [])@ -- and codegen
+-- matches the same way, in @emitExpr@'s @(Just (TBytes n), EApp "bytes-zero" [])@
+-- arm. Grep @bytes-zero@ in TypeCheck.hs and CodegenHs.hs; this comment used to
+-- cite line numbers and they drifted (resp-fact-proposal.md §16 item 6).
+-- Four readers of one annotation, one match shape;
 -- chasing aliases here would let the emitter admit a construct the checker
 -- rejects (an aliased @-> Key@ return over @(type Key bytes[32])@ is a type error
 -- today, proposal edge case 9).
@@ -1972,7 +2046,8 @@ mapClauseBlocked am params mRet mPost mPre =
 -- int-element @$val@ array. Only literals bridge; a bool VAR value returns
 -- Nothing → the enclosing op falls back (an @ite@-bridge for bool vars is
 -- deferred). The typechecker's homogeneous value typing guarantees a bool
--- literal here implies a bool-valued map (TypeCheck.hs:162-164), so this is
+-- literal here implies a bool-valued map (the @map-get@/@map-put@ signatures in
+-- TypeCheck.hs's @builtinEnv@, homogeneous in the value type), so this is
 -- context-free and sound.
 boolValLit :: Expr -> Maybe FQPred
 boolValLit (ELit (LitBool True))  = Just (FQLit 1)
@@ -2645,6 +2720,14 @@ desugarCtorValues tags = go
       ELit _      -> e
       EHole _     -> e
       EOp op as   -> EOp op (map (go bound) as)
+      -- RESP-FACT-1 (§11 item 1, cell c23): a PARENTHESIZED nullary constructor
+      -- `(Serve)` is the value `Serve` — the checker already η-identifies the two
+      -- (TypeCheck COMP-4 rule) — so it lowers to the same int tag. Left intact it
+      -- reached the solver as an application of an undeclared symbol and crashed
+      -- liquid-fixpoint ("The sort Phase is not numeric"). Same bound-set rule as
+      -- the EVar row: a let/param sharing the name wins.
+      EApp f []
+        | f `Map.member` tags && not (f `Set.member` bound) -> tagLit f
       EApp f as   -> EApp f (map (go bound) as)
       EPair a b   -> EPair (go bound a) (go bound b)
       EAwait a    -> EAwait (go bound a)
@@ -2796,7 +2879,8 @@ exprToPred (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
 -- @(map-get m k)@ compared against a bool literal reflects the value select
 -- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
 -- ill-sorted @FQEq (Map_select …) FQTrue@. Either operand order. Sound and
--- context-free: the homogeneous @=@ typing (TypeCheck.hs:81) means a bool
+-- context-free: the homogeneous @=@ typing (@("=", TFn [TVar "a", TVar "a"]
+-- TBool)@ in TypeCheck.hs's @builtinEnv@) means a bool
 -- literal opposite a map-get forces the map bool-valued. The value-range fact
 -- (injectBoolValRangeFacts) supplies @0 ≤ v ≤ 1@ so a @/=@ here is exact, not a
 -- ℤ over-approximation (professor review 2026-07-13). Must precede the generic
@@ -3420,10 +3504,15 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
 --
 -- The axiom's VALIDITY is a TRUST-channel dependency, not a contract discharge:
 -- it holds because codegen reads the same annotation to emit an n-length zero
--- value ('CodegenHs.hs:582-586'), so it rides the codegen_semantics_version stamp
+-- value (@emitExpr@'s @(Just (TBytes n), EApp "bytes-zero" [])@ arm; grep
+-- @bytes-zero@ in CodegenHs.hs), so it rides the codegen_semantics_version stamp
 -- (§3.5). Same category as `bytes-set`'s length-preservation fact above. There is
--- no laundering path into it: 'TypeCheck.hs:1216' / ':1250' restrict
--- `(bytes-zero)` to the whole body of a def with a literal `-> bytes[n]` return.
+-- no laundering path into it: the checker restricts `(bytes-zero)` to the whole
+-- body of a def with a literal `-> bytes[n]` return — the LEVER-A0
+-- "determining context" arms in 'checkStatement' for SDef and SDefShell
+-- (`(Just retTy@(TBytes _), EApp "bytes-zero" [])`) and the polymorphic-builtin
+-- note on 'inferExpr' (grep "bytes-zero" in TypeCheck.hs; the line numbers this
+-- comment used to cite had drifted, resp-fact-proposal.md §16 item 6).
 bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
   r <- freshName "call_bytes_zero"
   let post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 0])
@@ -4068,6 +4157,39 @@ conjoin p      q      = FQAnd [p, q]
 -- | Conjoin a list of predicates.
 conjoinAll :: [FQPred] -> FQPred
 conjoinAll = foldr conjoin FQTrue
+
+-- | RESP-FACT-1: decide a CLOSED predicate (no variable, k-var or application
+-- leaf) over int literals. @Nothing@ for an open predicate. Used to fold a
+-- closed call-pre RHS (true → not emitted; false → emitted as @false@).
+evalClosedFQ :: FQPred -> Maybe Bool
+evalClosedFQ p = case p of
+  FQTrue          -> Just True
+  FQFalse         -> Just False
+  FQAnd ps        -> and <$> mapM evalClosedFQ ps
+  FQOr ps         -> or  <$> mapM evalClosedFQ ps
+  FQNot q         -> not <$> evalClosedFQ q
+  FQBinPred op a b -> do
+    x <- closedInt a
+    y <- closedInt b
+    case op of
+      FQGe  -> Just (x >= y)
+      FQGt  -> Just (x > y)
+      FQLe  -> Just (x <= y)
+      FQLt  -> Just (x < y)
+      FQEq  -> Just (x == y)
+      FQNeq -> Just (x /= y)
+      _     -> Nothing
+  _ -> Nothing
+  where
+    closedInt (FQLit n) = Just n
+    closedInt (FQBinArith op a b) = do
+      x <- closedInt a
+      y <- closedInt b
+      case op of
+        FQAdd -> Just (x + y)
+        FQSub -> Just (x - y)
+        _     -> Nothing
+    closedInt _ = Nothing
 
 -- | Lexicographic strict-less predicate: gs <_lex fs (callee tuple strictly below
 -- caller tuple). REC-DESCENT lexicographic (k>1). k=1 collapses to a bare '<' so a

@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.17.0: a Command result carries a proved property to its caller, keyed on the control tag (2026-09-04)
+
+**`RESP-FACT-1` ships. No new builtin, no schema change, no CLI change; the language surface grows by one opt-in rule set.** A step that preconditions on the program's own control tag now receives the compiler's declared fact for the builtin that tag is bound to, on the `Response` arm binder, so a program stops guarding what the builtin already guaranteed. One fact is declared today: `wasi.http.response`'s `RCode` payload is `{v : int | v >= 100}`, the program's own first argument. `wasi.proc.run` declares none; its exit code is the operating system's, and [`docs/design/resp-fact-proposal.md`](docs/design/resp-fact-proposal.md) §6 draws that line. The row was filed by `FS-STAT-1`'s design work, whose clamp made a fact true at runtime with no channel to reach the caller; that prerequisite has now landed.
+
+### What the program writes, and what the compiler checks
+
+A def **requests** a fact when its `pre` has a conjunct `(= p T)`, `p` a parameter of an all-nullary sum declared in the entry module, and the def takes a `Response`. Three syntactic rules then run at `check`, and every failure is a hard `RESP-FACT-1:` error, because a fact withheld quietly shows up as a refuted post in an unrelated def with nothing naming the cause (proposal §5.2). A module with no request sees no rule, no error and no `.fq` change.
+
+- **The issuing rule** reads every `(σ, Command)` pair the module returns, through helpers such as `go` by substitution at each call, through a `let`-bound command and through `seq-commands`, and binds tag `T` to builtin `B` only when every producing site agrees. A pair it cannot read is `⊥` for the whole module and the error names the def and the form; the stay-put idiom `(pair s cmd)` and a `do` body are `⊥` and the error states the rewrite. A tag paired with two builtins binds to nothing and the request is warned `W-RESP-FACT-UNBOUND`; a tag bound to a builtin that declares no fact is warned `W-RESP-FACT-NONE`.
+- **The delivery rule** admits the fact only when the tag and the `Response` reach the requesting def from `:step` by a bare variable, `(second s)`, a one-line projection def, a `let` alias of those, or the bare constructor written inside its own `((T) …)` arm. A `let`-bound literal, a constructor application and a call result are refused, and the error names the def, the call and the parameter (proposal §1.5 cell W, §8 item 15).
+- **The export condition** requires an `(export …)` list that names no tag constructor and no def from which a requesting def is reachable. `(export)` is the idiom (proposal §1.7 cell E).
+
+### The trust report says which fact and which premise
+
+Each requesting function gains one line per fact: `≈ assumes Ran ⇒ wasi.http.response/RCode {v : int | (>= v 100)} [program-determined; premise: folded-literal]`. The premise is what makes the program-determined claim true, and the line names how it was discharged. A literal argument folds at `check`, and a literal that violates the fact (`(wasi.http.response 42 "")`) is an error. A scalar parameter of the issuing def becomes one `call-pre:wasi.http.response` constraint under that def's own `pre`, disclosed as `call-pre:<def>`; whether that `pre` was proved or asserted is on the def's existing effective-pre line. JSON: an additive per-entry `assumed_facts` array, no `trust_report_version` change, on the `harness_assumptions` precedent. This is `TRUST-AXIOM`'s first disclosed population, at the granularity proposal §12 fixes; the `bytes-set` and `bytes-zero` axioms stay under that row.
+
+### Two emitter defects the row's own witness exposed
+
+`(pre (= p (Ran)))` crashed liquid-fixpoint ("The sort ... is not numeric") while `(= p Ran)` verified, because the checker η-identifies the two forms and the emitter did not. `desugarCtorValues` now lowers the parenthesized nullary constructor to the same tag, in a clause and in a body (proposal §11 item 1). A call-pre whose substituted predicate is closed and true, `(1 = 1)` from `(h Ran x)` inside the `((Ran) …)` arm, was rejected by the sanitizer ("RHS without single conjunct"); it is now folded, and a closed-false one, `(0 = 1)` from `(h Boot x)`, is kept as `false` so the refutation stands (proposal §8 items 16 and 21).
+
+### The sidecar epoch moves
+
+`checker_soundness_version` is `"2"`: a verdict may now rest on the fact table and the delivery rule, so a sidecar written by a binary without them is discarded once. One re-verify per tree, the cost the SAFE-ARG precedent accepted.
+
+### Records
+
+Proposal Rev 6 folds cells W, D and E: the receiving side was refuted three times before the delivery rule and the export condition held, and the professor's round 5 supplied both. Recorded deviations from the approved plan: `Sites` is not memoized (the proposal permits one and does not require it; a cycle guard bounds the recursion); delivery row (t4) admits a `let` alias of (t2) or (t3) only, as §5.3 states; cell E's importer gets `warning: call to unknown function 'a-step'` at `check` and the error at `build`, which is the §16 item 5 asymmetry the proposal routes; `W-RESP-FACT-NONE` is new; `verify` prints `W-RESP-FACT-UNBOUND` twice on a refuted run, once from the emitter and once from the checker. The measured consumer qualifies as a fixture copy only: `compiler/test/fixtures/resp-fact/docclaims-nullary.llmll` carries `Ctl` nullary, the exit code in `Rc`, and `(export)`, and binds the eight tags §10 lists; `tools/doc-claims/docclaims.llmll` is not edited.
+
+**Tests:** 1831 examples, 0 failures (Haskell); 180 passed, 10 skipped (Python). Measured twice on `d5dd5a8`'s bytes; the docs commit after it changes no test.
+
 ## v0.16.2: a correct match was reported wrong, because the binder never said which values the type could hold (2026-08-19)
 
 **One compiler change, no schema change, no language surface change.** The schema stays at 0.11.0, `builtinEnv` is untouched, and no builtin, flag, CLI surface or `Response` arm moves. `MATCH-TERM-EQ-1` closes a **false refutation**, which is worse than a fallback: the verifier reported that correct code violated its contract. The rest of the release is records.

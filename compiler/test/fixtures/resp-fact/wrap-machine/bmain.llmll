@@ -1,0 +1,12 @@
+;; @expect: check ERROR (cell E, §1.7 R-6): with (export) in amain, a-step is not in scope here
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.proc (capability run :deterministic false))
+(import amain)
+(open amain)
+(def-shell b-step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (pair (first (a-step s input x)) (wasi.proc.run "/bin/true" [] "." "/dev/null" "/dev/null" 5 "/dev/null")))
+(def-shell b-done [s: (int, Ctl)] -> bool false)
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "b"))
+  :step b-step
+  :done? b-done)

@@ -351,7 +351,8 @@ isNonLinear (EApp op args)
   where isLit (ELit _) = True; isLit _ = False
 -- Parsers route operators (incl. * and /) to EOp, not EApp; normalize to the
 -- EApp logic above so operator-form nonlinearity is flagged too (mirrors
--- FixpointEmit.hs:1535's EOp→EApp normalization). Over-flagging is sound (:337).
+-- FixpointEmit's own EOp→EApp normalization, e.g. 'exprToPred'). Over-flagging
+-- is sound (:337).
 isNonLinear (EOp op args)   = isNonLinear (EApp op args)
 isNonLinear (ELet _ body)   = isNonLinear body
 isNonLinear (EIf c t f)     = isNonLinear c || isNonLinear t || isNonLinear f

@@ -1,11 +1,11 @@
 ---
-name: resp-fact-review
-title: "RESP-FACT-1 professor review, rounds 1 to 4"
-status: "Standalone, not folded. Rounds 1 to 3 rejected or refused. Round 4 finds Rev 4 sound and nearly settled: one definitional gap remains, the transparent-constructor test is one level deep. Fix it and the proposal is ready for the compiler-engineer."
+name: resp-fact-proposal-review
+title: "Professor review of resp-fact-proposal.md, rounds 1 to 5"
+status: "FOLDED and ARCHIVED at v0.17.0 (DOC-CONSOLIDATE M2), into docs/design/resp-fact-proposal.md's Appendix review log. Five rounds. Round 1 rejected the Rev 1 shape, because a per-arm attachment lets a fact reach a binder no builtin guarantees. Rounds 2 to 4 settled the issuing rule. Round 5 refuted Rev 5's receiving side with cells W, D and E, and supplied the delivery rule and the export condition that Rev 6 carries."
 date: 2026-08-31
 author: professor
 consumers: [language-team, user, compiler-engineer]
-reviews: docs/design/resp-fact-proposal.md
+reviews: docs/design/resp-fact-proposal.md (Rev 1 to Rev 6)
 style: "ASD-STE100 Simplified Technical English."
 ---
 
@@ -687,3 +687,90 @@ Rev 5 is three small changes and none of them touches the design.
 ### Open questions for the language-team
 
 None. The three items above say what to change.
+
+## Round 5: the engineer's plan, and the two cells that refute the receiving side
+
+Reviewed 2026-09-04, against `docs/design/resp-fact-implementation-plan.md` (compiler-engineer, untracked) and `docs/design/resp-fact-proposal.md` Rev 5 (`213fceb`), at `llmll 0.16.2`. Every cell named below was re-run for this round.
+
+### Restatement
+
+The plan implements Rev 5 and adds two rules. A *delivery rule* grants a fact only when the step's tag parameter and `Response` parameter trace, by bare variables, to the `:step` function's state tag and response of the same turn. An *entry-module rule* confines the tag type, the producers, `def-main` and the requesting steps to the module `verify` runs on. The plan rests both on cells it built: cell W reaches a false SAFE under every Rev 5 rule, and cell D shows `(open lib)` lets an importer write the tag constructor in a `pre`.
+
+### Context located
+
+1. `docs/design/resp-fact-implementation-plan.md`, all sections and the appendix. The plan under review.
+2. `docs/design/resp-fact-proposal.md` §5.2 (:375-508), §5.3 (:510-523), §5.4 (:525-535). The rules the cells test.
+3. Cell W, re-run: `h` refuted and nothing else. Cell D, re-run: `main_open.llmll` checks, verifies SAFE and builds. Both replicate.
+4. **Cell E, new for this round.** `amain.llmll` declares `Ctl`, `go`, a step and a console `def-main`. `bmain.llmll` writes `(import amain) (open amain)` and a `:step` whose body is `(pair (first (a-step s input x)) (wasi.proc.run …))`. `llmll check` passes, `llmll verify` reports SAFE, `llmll build` passes. A module with `def-main` is importable and openable, and an importer can keep the imported machine's tag while replacing its command.
+5. `compiler/src/LLMLL/Parser.hs:420-427`. `(export)` with no names parses (`many pIdent`), so a module can export nothing.
+6. `compiler/src/LLMLL/Module.hs:274-283`. Constructors are exported as values, and the `(export …)` filter governs them like functions. `TypeCheck.hs:1748-1752` injects opened exports as bare names.
+7. `compiler/src/LLMLL/CodegenHs.hs:479-482`. The generated `Response` carries `RCode Integer`, so the pass-through at `:526-530` does not wrap. The program-determined claim holds at the value level.
+8. `compiler/src/LLMLL/CodegenHs.hs:1839-1844`. The harness loop: `loop s r = let (s', cmd) = step s line r in … loop s' (perform cmd)`. The state and the response a step receives come from one turn, and the response answers the command paired with that state's tag.
+9. `compiler/src/LLMLL/FixpointEmit.hs:2508-2513` (`sigPairUnsafe`). Every pair-returning def falls back, so an issuing def's own `pre` is never discharged at a caller in the fragment.
+10. `compiler/src/LLMLL/FixpointEmit.hs:2648`, `TypeCheck.hs:2209-2214`. The `EApp C []` form is η-identified with `C` by the checker and not by the emitter.
+11. Round 4 of this file. It measured c33 without `open` and built no receiving-side counterexample. Both findings below correct that round.
+
+### Gaps and hazards
+
+#### 1. Rev 5's receiving rule is unsound, and the plan's delivery rule is the right repair
+
+**Classification: soundness. Blocks Rev 5 as written.**
+
+Cell W replicates. The tag `p` in `(pre (= p T))` is an auxiliary variable in the sense of Owicki and Gries (CACM 19(5), 1976) and Kleymann (Formal Aspects of Computing 11, 1999): it records provenance that the value `x` does not carry. An auxiliary variable is sound only when the program cannot assign it independently of the state it describes. Rev 5 lets a program write `(let [(t Ran)] (h t x))`, which assigns the auxiliary freely, and the fact then describes a value with a different origin. In the singletons reading (Eisenberg and Weirich, Haskell Symposium 2012), `p` is `Sing T` and soundness needs `x : Response T` to name the same index. `Response` is monomorphic, so the index must be recovered syntactically. That is what the delivery rule does.
+
+The delivery rule is an integrity-flow discipline: the harness is the sole high-integrity source, a bare-variable copy preserves the label, and a literal, a constructor application, a let-bound literal or a projection out of the state is low (Biba, MITRE ESD-TR-76-372, 1977; the dual of Volpano, Smith and Irvine, JCS 4(2-3), 1996). Its soundness argument is the non-interference one: along every path, a delivered variable's value equals the harness's assignment for that turn, by item 8. The rule subsumes the stricter direct-callee-of-`:step` form and admits helper depth, so it wins.
+
+One admission the plan omits, and should add, because it is sound and it avoids a measured crash. Inside the arm `((T) …)` of a `match` whose scrutinee is a delivered tag, the bare constructor `T` denotes a value equal to the delivered tag. Passing `T` there is passing the delivered tag. This lets a dispatcher write `(ran-step Ran (rc-of s) x)` inside its `((Ran) …)` arm, which yields a closed-true call-pre that the plan folds, instead of `(ran-step (ctl-of s) …)`, which crashes the solver today (plan item 20).
+
+#### 2. The entry-module rule does not close the import boundary; cell E crosses it
+
+**Classification: soundness. Blocks the plan's rule as stated.**
+
+The plan argues that no module can import the entry module without a cycle. Cell E shows a module with `def-main` is importable and openable. `bmain` wraps `a-step`, keeps the tag `a-step` set, and replaces the command with `wasi.proc.run`. On the next turn the harness delivers `wasi.proc.run`'s reply under that tag. If `amain` held a fact-requesting step reached from `a-step`, that step would run on a reply its fact does not describe, and `amain`'s sidecar would say verified. `bmain` requests no fact, so the plan's analysis is inert there, and the import is silent.
+
+The abstraction reading says why the tag type alone cannot fix this. Hiding the constructors is opaque ascription over the type (Harper and Lillibridge, POPL 1994; Leroy, POPL 1994), and it stops an importer from writing `Ran`. It does not stop an importer from calling an exported operation that consumes a client-supplied response. In the existential-package reading (Mitchell and Plotkin, TOPLAS 10(3), 1988), every exported operation is an entry point at which the invariant "the response is the harness's" must be re-established, and no client can establish it. So the local condition is on the operations. **A module with a fact request must carry an `(export …)` list, and that list must name no constructor of the tag type and no def from whose body a requesting step is reachable in the call graph** (`HoleAnalysis.hs:606-616` already builds the graph). `(export)` with no names satisfies both and is the natural idiom for a program module. The condition is local, so it answers round 2's objection that a granting module cannot check a property of modules it does not see. Keep the entry-module rule beside it: VC emission is entry-only (`FixpointEmit.hs:430-432`) and the delivery source is `:step`, so a requesting step outside the entry module can never be verified with a fact in any run.
+
+#### 3. The program-determined premise rests on an asserted caller obligation in every measured shape
+
+**Classification: scope, and a disclosure requirement. Complicates the assurance claim; does not block.**
+
+The plan proves `pre(D) ⇒ φ[v := arg]` at an issuing site with a parameter argument. `D` returns a pair, so `D` falls back (item 9), so no caller discharges `pre(D)` in the fragment. The premise therefore chains to an asserted caller obligation unless the argument is a literal, in which case the plan folds it and no obligation exists. That is sound under the existing `TRUST-PRE` disclosure and it is not a defect. The `assumed_facts` line must say which of the three cases holds for each fact: folded literal, proved premise, or premise resting on an asserted `pre`. A line that says only "assumed fact" repeats the discrimination failure §12 of the proposal was written to prevent.
+
+#### 4. Two ordinary step idioms are `⊥`, and `⊥` is now a hard error
+
+**Classification: ergonomic. Complicates adoption.**
+
+`Sites` has no row for `(pair s cmd)` with `s` the incoming state, which is the idiom for "stay in this state". It has no row for `EDo`. Both are `⊥`, correctly: the first pairs every tag with one command, and `emitDo` (`CodegenHs.hs:1592-1600`) discards every command but the last. The measured consumer rewrites the tag explicitly on both of its stay-put arms (`docclaims.llmll:515-516`), so it passes. A new program will not know to. The error must name the rewrite: write the tag constructor in the returned pair. The pair row also admits only the `((σ, Ctl), Command)` nesting; a state that is a bare `Ctl`, or a pair with the tag first, is `⊥` everywhere. Rev 6 should state that shape as the scope.
+
+#### 5. The η-lowering replaces §14's rejection rule, and §14 should say so
+
+**Classification: spec-drift. Complicates nothing.**
+
+The checker treats `(Ran)` as `Ran` (item 10). A type-checker rejection of `(Ran)` in a clause would make clause position stricter than body position for one form. Lowering `EApp C []` in `desugarCtorValues` is the consistent fix, and cell b23 becoming byte-identical to b20 is the right test. Rev 6 withdraws §14's rejection item.
+
+#### 6. The closed-true call-pre fold is required and must keep the closed-false case
+
+**Classification: soundness of the fix itself. Complicates nothing.**
+
+liquid-fixpoint's sanitizer rejects a constraint whose RHS reduces to `true` (measured: `RHS without single conjunct` on `(1 = 1)`). Skipping such a constraint drops nothing. A closed-false RHS, `(0 = 1)` from a literal tag that violates the callee's `pre`, must still be emitted so the refutation stands. The plan says so; the test plan must pin both directions.
+
+#### 7. `checker_soundness_version` is the right stamp
+
+**Classification: trust. Only matters at scale.**
+
+A verdict now depends on the fact table, so a sidecar from a binary without the table must not be admitted. `VerifiedCache.hs:290-291` discards on mismatch. The one-time re-verify of every tree is the cost the precedent already accepted.
+
+### Recommendation
+
+**Accept the plan's direction. Do not implement until Rev 6 carries three changes, and put finding 2's export condition into the plan before approval.**
+
+1. **Adopt the delivery rule as §5.3's condition**, with the admission grammar stated in the spec: a delivered tag parameter, `(second s)` on a delivered state, a projection def whose body is `(second …)` of its parameter, an unshadowed let alias of those, and the bare constructor `T` inside the `((T) …)` arm of a match on a delivered tag. State the lemma it rests on: by the harness loop, the state and the response a step receives belong to one turn, and the response answers the command paired with that state's tag. Name the rule for what it is, an integrity-flow check with the harness as the sole source, so a later reader knows which literature to consult when extending it.
+2. **Add the export condition to §5.2** beside the entry-module rule: an `(export …)` list that names no tag constructor and no def reaching a requesting step. Record cell E as its witness and `(export)` as the idiom.
+3. **Fold cells W, D and E** into §1 as the refuting cells of the receiving side, and correct §5.2's sentence "a second module cannot produce the tag" to "cannot produce the tag unless it opens the module". Withdraw §14's rejection item in favour of the η-lowering. State the `((σ, Ctl), Command)` shape as scope.
+
+Two of the plan's routes are confirmed: the free-variable crashes on a let-bound pair projection and on a call-result argument to a call-pre bound the dispatcher shapes today and belong in their own rows. `CMD-A` retires the delivery rule when it lands, because the index then lives in the type of `x`; Rev 6 should say so in §5.5.
+
+### Open questions for the language-team
+
+1. Write the delivery rule's admission grammar in §5.3, including the shadowing and lambda cases and the match-arm literal, and state the harness lemma it rests on in §5.4.
+2. Choose the spec form of the export condition: the two-part rule (no tag constructor, no def reaching a requesting step) or the simpler "a requesting module exports nothing". State which one, and why.

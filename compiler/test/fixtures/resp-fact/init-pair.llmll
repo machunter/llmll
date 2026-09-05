@@ -1,0 +1,24 @@
+;; @expect: check clean; Sites: :init is walked as an expression; here it is a CALL (the substitution row), so Boot binds to wasi.io.stdout through boot
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell boot [] -> ((int, Ctl), Command)
+  (pair (pair 0 Boot) (wasi.io.stdout "start")))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (first s) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (boot)
+  :step step
+  :done? done?)

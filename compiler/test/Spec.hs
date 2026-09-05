@@ -12,7 +12,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Text.Encoding as TE
 
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
-import LLMLL.Parser (parseStatements, parseExpr)
+import LLMLL.Parser (parseStatements, parseExpr, parseTopLevel)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
@@ -44,7 +44,8 @@ import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContra
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash, canonicalExpr)
-import LLMLL.Module (mergeCS)
+import LLMLL.Module (mergeCS, buildModuleEnv)
+import LLMLL.RespFact (respFactTable, respFactsOf, RespFact(..), FactCategory(..), factRequests, FactRequest(..), moduleSites, tagBindings, sitesOfDef, SitesResult(..), analyzeRespFacts, RespFactPlan(..), PremiseSite(..), PremiseCase(..), AssumedFact(..), emptyRespFactPlan, evalClosedBool)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON, erToJSON, erFromJSON, checkerSoundnessVersion)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit, ReplayObs(..), expectedLineCount, obsMatches, describeObs, escapeForDiag)
@@ -4537,6 +4538,7 @@ main = hspec $ do
             , teEffectivePostLevel = Nothing
             , teJointPostWitness   = False    -- OBLIG-PBT-5a: not exercised here
             , teCallerObligations  = []       -- TRUST-PRE: not exercised in TP-* tests
+            , teAssumedFacts       = []       -- RESP-FACT-1: not exercised in TP-* tests
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -10649,7 +10651,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -12605,7 +12607,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           sidecarPath = verifiedPath path
           -- SAFE-ARG: stamped, so this test still isolates the overflow_tainted
           -- axis rather than the (orthogonal) checker-soundness epoch.
-          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}},\"checker_soundness_version\":\"1\"}"
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}},\"checker_soundness_version\":\"" <> BLC.pack (T.unpack checkerSoundnessVersion) <> "\"}"
       BL.writeFile sidecarPath stale
       back <- loadVerified path
       removeFile sidecarPath
@@ -12616,7 +12618,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "T14 v0.10.7 sidecar with only DLAsserted entries loads under v0.10.8 reader" $ do
       let path = "/tmp/llmll-int1-asserted-only.llmll"
           sidecarPath = verifiedPath path
-          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"asserted\"}}},\"checker_soundness_version\":\"1\"}"
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"asserted\"}}},\"checker_soundness_version\":\"" <> BLC.pack (T.unpack checkerSoundnessVersion) <> "\"}"
       BL.writeFile sidecarPath stale
       back <- loadVerified path
       removeFile sidecarPath
@@ -17116,6 +17118,371 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns direct  `shouldSatisfy` elem "f"
       erBodyFaithfulFns matched `shouldSatisfy` elem "f"
       erFQText matched `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
+
+  -- -----------------------------------------------------------------------
+  -- RESP-FACT-1: a Command result carries a proved property to its caller,
+  -- keyed on the program's own control tag. Design: docs/design/
+  -- resp-fact-proposal.md Rev 6 (§5.1 to §5.4, §8, §9, §12); plan:
+  -- docs/design/resp-fact-implementation-plan.md revision 2. Fixtures under
+  -- test/fixtures/resp-fact/, each with an `;; @expect:` header the test asserts.
+  -- Solver-gated cells pend when liquid-fixpoint is absent (the A1 pattern).
+  -- -----------------------------------------------------------------------
+  describe "RESP-FACT-1: control-tag facts on Response arm binders" $ do
+    let fixture name = TIO.readFile ("test/fixtures/resp-fact/" ++ name ++ ".llmll")
+        parseSrc src = case parseTopLevel GrammarCoreInversion "<resp-fact>" src of   -- parseTopLevel: the consumer copy keeps its (module …) form
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> stmts
+        diagsOf src = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv (parseSrc src))
+        errsOf  src = [ diagMessage d | d <- diagsOf src, diagSeverity d == SevError ]
+        warnsOf src = [ diagMessage d | d <- diagsOf src, diagSeverity d == SevWarning ]
+        respErrs  src = [ m | m <- errsOf src, "RESP-FACT-1" `T.isInfixOf` m ]
+        respWarns src = [ m | m <- warnsOf src, "RESP-FACT" `T.isInfixOf` m ]
+        emitSrc src = emitFixpointWith (EmitOptions True Nothing) "resp-fact.llmll" (parseSrc src)
+        analyze src = let stmts = parseSrc src in analyzeRespFacts (buildAliasMap stmts) stmts
+        bindingsOf src = let stmts = parseSrc src
+                             (elems, _) = moduleSites (buildAliasMap stmts) stmts
+                         in fst (tagBindings elems)
+        bottomsOf src = let stmts = parseSrc src in snd (moduleSites (buildAliasMap stmts) stmts)
+        originTags er = [ coClause o | o <- Map.elems (erConstraintTable er) ]
+        findSolver = do a <- findExecutable "liquid-fixpoint"
+                        maybe (findExecutable "fixpoint") (pure . Just) a
+        solveFq tag er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/resp-fact-" <> tag <> ".fq"
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- findSolver
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              pure (Just (T.pack out))
+        solverSays tag er want = do
+          m <- solveFq tag er
+          case m of
+            Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf want
+        -- Program builder: the witness's pieces, so a variant changes one arm.
+        hdr = [ "(import wasi.http (capability response :deterministic false))"
+              , "(import wasi.io (capability stdout :deterministic false))"
+              , "(export)"
+              , "(type Ctl (| Boot) (| Ran) (| Halt))"
+              , "(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)"
+              , "  (pair (pair r p) c))" ]
+        ranStep pre = [ "(def-shell ran-step [p: Ctl x: Response] -> int"
+                      , "  (pre " <> pre <> ")"
+                      , "  (post (>= result 100))"
+                      , "  (match x ((RCode n) n) (_ 100)))" ]
+        stepWith bootArm ranArm =
+          [ "(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)"
+          , "  (match (second s)"
+          , "    ((Boot) " <> bootArm <> ")"
+          , "    ((Ran)  " <> ranArm <> ")"
+          , "    ((Halt) (go (first s) Halt (wasi.io.stdout \"\")))))" ]
+        tailMain = [ "(def-shell done? [s: (int, Ctl)] -> bool"
+                   , "  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))"
+                   , "(def-main :mode console"
+                   , "  :init (pair (pair 0 Boot) (wasi.io.stdout \"start\"))"
+                   , "  :step step"
+                   , "  :done? done?)" ]
+        prog parts = T.unlines (concat parts)
+        bootHttp = "(go (first s) Ran (wasi.http.response 200 \"\"))"
+        ranCall  = "(go (ran-step Ran x) Halt (wasi.io.stdout \"done\"))"
+        witnessLike pre = prog [hdr, ranStep pre, stepWith bootHttp ranCall, tailMain]
+
+    describe "the fact table (§6, §8 item 12) and the runtime it rests on" $ do
+      it "RF-T1 declares exactly one fact: (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
+        Map.size respFactTable `shouldBe` 1
+        case Map.lookup ("wasi.http.response", "RCode") respFactTable of
+          Just f -> do
+            rfCategory f `shouldBe` FactProgram 0
+            rfBinder f `shouldBe` "v"
+            rfPredicate f `shouldBe` EOp ">=" [EVar "v", ELit (LitInt 100)]
+          Nothing -> expectationFailure "the wasi.http.response/RCode row is missing"
+
+      it "RF-T2 wasi.proc.run declares NO fact (its RCode arm is OS-determined, §6)" $
+        respFactsOf "wasi.proc.run" `shouldBe` []
+
+      it "RF-T3 the runtime passes the program's code through unchanged (RCode (fromIntegral code))" $
+        any (T.isInfixOf "llmll_publish (RCode (fromIntegral code))") runtimePreamble `shouldBe` True
+
+    describe "fact requests (§5.1)" $ do
+      let reqTags src = [ (frDef r, frTagParam r, frTag r, frResponseParams r) | r <- factRequests (buildAliasMap (parseSrc src)) (parseSrc src) ]
+      it "RF-R1 a bare (= p Ran) conjunct on a def with a Response parameter is a request" $
+        reqTags (witnessLike "(= p Ran)") `shouldBe` [("ran-step", "p", "Ran", ["x"])]
+      it "RF-R2 the flipped (= Ran p) is the same request" $
+        reqTags (witnessLike "(= Ran p)") `shouldBe` [("ran-step", "p", "Ran", ["x"])]
+      it "RF-R3 the parenthesized (= p (Ran)) is the same request" $
+        reqTags (witnessLike "(= p (Ran))") `shouldBe` [("ran-step", "p", "Ran", ["x"])]
+      it "RF-R4 an and-conjunct (and (>= 1 0) (= p Ran)) is split and read" $
+        reqTags (witnessLike "(and (>= 1 0) (= p Ran))") `shouldBe` [("ran-step", "p", "Ran", ["x"])]
+      it "RF-R5 a def with the clause but no Response parameter is NOT a request" $ do
+        let src = prog [ hdr
+                       , [ "(def-shell tagged [p: Ctl] -> int (pre (= p Ran)) (post (>= result 0)) 0)" ]
+                       , stepWith bootHttp "(go (tagged Ran) Halt (wasi.io.stdout \"\"))", tailMain ]
+        reqTags src `shouldBe` []
+      it "RF-R6 a module with no request is inert: the empty plan, no error, no RESP warning" $ do
+        let src = prog [ hdr, stepWith bootHttp "(go (first s) Halt (wasi.io.stdout \"\"))", tailMain ]
+        analyze src `shouldBe` Right emptyRespFactPlan
+        respErrs src `shouldBe` []
+        respWarns src `shouldBe` []
+
+    describe "the issuing rule, Sites (§5.2)" $ do
+      it "RF-S1 the witness binds Boot and Halt to wasi.io.stdout and Ran to wasi.http.response" $ do
+        src <- fixture "witness"
+        bindingsOf src `shouldBe` Map.fromList [("Boot", "wasi.io.stdout"), ("Ran", "wasi.http.response"), ("Halt", "wasi.io.stdout")]
+      it "RF-S2 go is a transparent constructor: Sites(go) is PARAM and contributes nothing of its own" $ do
+        src <- fixture "witness"
+        let stmts = parseSrc src
+        sitesOfDef (buildAliasMap stmts) stmts "go" `shouldBe` Just (SitesResult [] True)
+      it "RF-S3 a wrapper at depth two is transparent too, and Ran binds at ITS call site (§8 item 9)" $ do
+        src <- fixture "wrapper-depth"
+        let stmts = parseSrc src
+        sitesOfDef (buildAliasMap stmts) stmts "go2" `shouldBe` Just (SitesResult [] True)
+        Map.lookup "Ran" (bindingsOf src) `shouldBe` Just "wasi.http.response"
+        respErrs src `shouldBe` []
+      it "RF-S4 the let row copies a command binding (let-cmd)" $ do
+        src <- fixture "let-cmd"
+        Map.lookup "Ran" (bindingsOf src) `shouldBe` Just "wasi.http.response"
+      it "RF-S5 seq-commands binds the head of its RIGHT operand (§8 item 6)" $ do
+        src <- fixture "seq-cmd"
+        Map.lookup "Ran" (bindingsOf src) `shouldBe` Just "wasi.http.response"
+      it "RF-S6 :init is walked as an expression, through a call (init-pair)" $ do
+        src <- fixture "init-pair"
+        Map.lookup "Boot" (bindingsOf src) `shouldBe` Just "wasi.io.stdout"
+      it "RF-S7 the same transparent def reached under two substitutions binds two tags (the key is the substitution, not the def)" $ do
+        let src = prog [ hdr
+                       , [ "(def-shell go3 [r: int p: Ctl c: Command] -> ((int, Ctl), Command) (go r p c))" ]
+                       , ranStep "(= p Ran)"
+                       , stepWith "(go3 (first s) Ran (wasi.http.response 200 \"\"))" "(go3 (ran-step Ran x) Halt (wasi.io.stdout \"done\"))"
+                       , tailMain ]
+        bindingsOf src `shouldBe` Map.fromList [("Boot", "wasi.io.stdout"), ("Ran", "wasi.http.response"), ("Halt", "wasi.io.stdout")]
+      it "RF-S8 a tag paired with two builtins binds to nothing, and the request gets W-RESP-FACT-UNBOUND naming both (R-3)" $ do
+        src <- fixture "r3-fan"
+        Map.lookup "Ran" (bindingsOf src) `shouldBe` Nothing
+        respErrs src `shouldBe` []
+        respWarns src `shouldSatisfy` any (\m -> "W-RESP-FACT-UNBOUND" `T.isInfixOf` m
+                                                 && "'Ran'" `T.isInfixOf` m
+                                                 && "wasi.http.response" `T.isInfixOf` m
+                                                 && "wasi.io.stdout" `T.isInfixOf` m)
+      it "RF-S9 a cycle among pair-returning defs is ⊥ and a hard error naming the def" $ do
+        let src = prog [ hdr
+                       , [ "(def-shell loop-step [r: int] -> ((int, Ctl), Command) (if (> r 0) (loop-step (- r 1)) (go r Halt (wasi.io.stdout \"\"))))" ]
+                       , ranStep "(= p Ran)", stepWith bootHttp ranCall, tailMain ]
+        bottomsOf src `shouldSatisfy` any (\(d, why) -> d == "loop-step" && "cycle" `T.isInfixOf` why)
+        respErrs src `shouldSatisfy` any (\m -> "'loop-step'" `T.isInfixOf` m && "cycle" `T.isInfixOf` m)
+      it "RF-S10 a computed command is ⊥ and the error names the def that supplied it, not go (§8 items 4, 10)" $ do
+        src <- fixture "bottom"
+        respErrs src `shouldSatisfy` any (\m -> "'pick'" `T.isInfixOf` m && "(if b" `T.isInfixOf` m)
+      it "RF-S11 the stay-put idiom is ⊥ and the error states the rewrite (§8 item 17)" $ do
+        src <- fixture "stay-put"
+        respErrs src `shouldSatisfy` any (\m -> "'stay'" `T.isInfixOf` m && "pairing the incoming state" `T.isInfixOf` m)
+      it "RF-S12 a do body is ⊥ and the error states the rewrite (§8 item 18)" $ do
+        src <- fixture "do-body"
+        respErrs src `shouldSatisfy` any (\m -> "'two'" `T.isInfixOf` m && "do body" `T.isInfixOf` m)
+      it "RF-S13 ⊥ is module-global: the requesting def in the bottom fixture is unchanged and still refused with the module" $ do
+        src <- fixture "bottom"
+        length (respErrs src) `shouldSatisfy` (>= 1)
+        reportSuccess (typeCheck GrammarCoreInversion builtinEnv (parseSrc src)) `shouldBe` False
+
+    describe "the delivery rule (§5.3)" $ do
+      it "RF-D1 cell W: a let-bound literal tag is refused; the error names outer, (h t x) and p (§8 item 14)" $ do
+        src <- fixture "w-provenance"
+        respErrs src `shouldSatisfy` any (\m -> "'outer'" `T.isInfixOf` m && "(h t x)" `T.isInfixOf` m && "'p'" `T.isInfixOf` m)
+      it "RF-D2 cell c42: a constructed Response is refused (§8 item 15)" $ do
+        src <- fixture "w-ctor"
+        respErrs src `shouldSatisfy` any (\m -> "(RCode 5)" `T.isInfixOf` m && "constructed value" `T.isInfixOf` m)
+      it "RF-D3 a literal tag OUTSIDE its own arm is refused, inside it is admitted (t5)" $ do
+        let outside = prog [ hdr, ranStep "(= p Ran)", stepWith "(go (ran-step Ran x) Ran (wasi.http.response 200 \"\"))" ranCall, tailMain ]
+        respErrs outside `shouldSatisfy` any (\m -> "'Ran'" `T.isInfixOf` m && "outside a ((Ran)" `T.isInfixOf` m)
+        respErrs (witnessLike "(= p Ran)") `shouldBe` []
+      it "RF-D4 a name rebound by a let is refused (shadowing)" $ do
+        let src = prog [ hdr, ranStep "(= p Ran)", stepWith bootHttp "(let [(x (RCode 5))] (go (ran-step Ran x) Halt (wasi.io.stdout \"\")))", tailMain ]
+        respErrs src `shouldSatisfy` any (\m -> "'x' is rebound" `T.isInfixOf` m)
+      it "RF-D5 (t4): a let-bound (second s) is a delivered tag, and matching on it admits the arm literal" $ do
+        let src = prog [ hdr, ranStep "(= p Ran)"
+                       , [ "(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)"
+                         , "  (let [(t (second s))]"
+                         , "    (match t"
+                         , "      ((Boot) " <> bootHttp <> ")"
+                         , "      ((Ran)  (go (ran-step t x) Halt (wasi.io.stdout \"done\")))"
+                         , "      ((Halt) (go (first s) Halt (wasi.io.stdout \"\"))))))" ]
+                       , tailMain ]
+        respErrs src `shouldBe` []
+      it "RF-D6 (t3): a one-parameter (second q) projection def delivers the tag" $ do
+        let src = prog [ hdr, [ "(def-shell ctl-of [q: (int, Ctl)] -> Ctl (second q))" ], ranStep "(= p Ran)"
+                       , [ "(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)"
+                         , "  (match (ctl-of s)"
+                         , "    ((Boot) " <> bootHttp <> ")"
+                         , "    ((Ran)  (go (ran-step (ctl-of s) x) Halt (wasi.io.stdout \"done\")))"
+                         , "    ((Halt) (go (first s) Halt (wasi.io.stdout \"\")))))" ]
+                       , tailMain ]
+        respErrs src `shouldBe` []
+      it "RF-D7 (t1) through a helper: a bare delivered parameter passes on; a literal into the helper cascades to a refusal" $ do
+        let mid = [ "(def-shell mid [p: Ctl x: Response] -> int (pre (= p Ran)) (post (>= result 100)) (ran-step p x))" ]
+            good = prog [ hdr, ranStep "(= p Ran)", mid, stepWith bootHttp "(go (mid Ran x) Halt (wasi.io.stdout \"done\"))", tailMain ]
+            bad  = prog [ hdr, ranStep "(= p Ran)", mid, stepWith "(go (mid Ran x) Ran (wasi.http.response 200 \"\"))" ranCall, tailMain ]
+        respErrs good `shouldBe` []
+        respErrs bad `shouldSatisfy` any (\m -> "'mid'" `T.isInfixOf` m)
+      it "RF-D8 two Response parameters must both be delivered, and then both are the same value (§8 item 22)" $ do
+        let two = [ "(def-shell h2 [p: Ctl x: Response y: Response] -> int (pre (= p Ran)) (post (>= result 100)) (match y ((RCode n) n) (_ 100)))" ]
+            good = prog [ hdr, two, stepWith bootHttp "(go (h2 Ran x x) Halt (wasi.io.stdout \"done\"))", tailMain ]
+            bad  = prog [ hdr, two, stepWith bootHttp "(go (h2 Ran x (RCode 7)) Halt (wasi.io.stdout \"done\"))", tailMain ]
+        respErrs good `shouldBe` []
+        respErrs bad `shouldSatisfy` any (\m -> "'y'" `T.isInfixOf` m)
+      it "RF-D9 an in-module call of :step with a constructed response un-delivers its own x (the greatest fixpoint)" $ do
+        let src = prog [ hdr, ranStep "(= p Ran)"
+                       , [ "(def-shell again [s: (int, Ctl)] -> ((int, Ctl), Command) (step s \"\" (RCode 5)))" ]
+                       , stepWith bootHttp ranCall, tailMain ]
+        respErrs src `shouldSatisfy` any (\m -> "'ran-step'" `T.isInfixOf` m && "'x'" `T.isInfixOf` m)
+      it "RF-D10 the :step written inline as a fn is a delivery source too" $ do
+        let src = prog [ hdr, ranStep "(= p Ran)"
+                       , [ "(def-shell done? [s: (int, Ctl)] -> bool false)"
+                         , "(def-main :mode console"
+                         , "  :init (pair (pair 0 Boot) (wasi.io.stdout \"start\"))"
+                         , "  :step (fn [s: (int, Ctl) input: string x: Response]"
+                         , "          (match (second s)"
+                         , "            ((Boot) " <> bootHttp <> ")"
+                         , "            ((Ran)  " <> ranCall <> ")"
+                         , "            ((Halt) (go (first s) Halt (wasi.io.stdout \"\")))))"
+                         , "  :done? done?)" ] ]
+        respErrs src `shouldBe` []
+        Map.lookup "Ran" (bindingsOf src) `shouldBe` Just "wasi.http.response"
+
+    describe "the entry-module rule, the tag shape and the export condition (§5.2, §8 items 5, 19, 20)" $ do
+      it "RF-E1 cell D: a request on a tag type the entry module only OPENS is refused, naming Ctl" $ do
+        libSrc  <- fixture "open-lib/lib"
+        mainSrc <- fixture "open-lib/main"
+        let cache = Map.fromList [(["lib"], buildModuleEnv ["lib"] (parseSrc libSrc) Map.empty emptyEnv)]
+            report = typeCheckWithCache GrammarCoreInversion cache builtinEnv (parseSrc mainSrc)
+            msgs = [ diagMessage d | d <- reportDiagnostics report, diagSeverity d == SevError ]
+        reportSuccess report `shouldBe` False
+        msgs `shouldSatisfy` any (\m -> "RESP-FACT-1" `T.isInfixOf` m && "'Ctl'" `T.isInfixOf` m && "imported module" `T.isInfixOf` m)
+      it "RF-E2 a request without a console def-main is refused" $ do
+        let src = prog [ hdr, ranStep "(= p Ran)", stepWith bootHttp ranCall ]
+        respErrs src `shouldSatisfy` any (T.isInfixOf "no console def-main")
+      it "RF-E3 a payload-bearing tag type is refused, naming Ctl and the requesting def (§8 item 5)" $ do
+        src <- fixture "payload-ctl"
+        respErrs src `shouldSatisfy` any (\m -> "'Ctl'" `T.isInfixOf` m && "'ran-step'" `T.isInfixOf` m && "payload" `T.isInfixOf` m)
+      it "RF-E4 a requesting module with no (export …) list is refused, and the error teaches (export)" $ do
+        src <- fixture "export-missing"
+        respErrs src `shouldSatisfy` any (\m -> "'ran-step'" `T.isInfixOf` m && "(export)" `T.isInfixOf` m)
+      it "RF-E5 exporting a def from which the requesting def is reachable is refused, naming both" $ do
+        src <- fixture "export-reaching"
+        respErrs src `shouldSatisfy` any (\m -> "'step'" `T.isInfixOf` m && "'ran-step'" `T.isInfixOf` m && "reachable" `T.isInfixOf` m)
+      it "RF-E6 exporting a constructor of the tag type is refused" $ do
+        src <- fixture "export-ctor"
+        respErrs src `shouldSatisfy` any (\m -> "'Ran'" `T.isInfixOf` m && "'Ctl'" `T.isInfixOf` m)
+      it "RF-E7 exporting a helper that reaches neither the tag nor a requesting def passes" $ do
+        src <- fixture "export-ok"
+        respErrs src `shouldBe` []
+      it "RF-E8 cell E: with (export) in amain, an importer that opens it cannot name a-step (the §16 item 5 asymmetry keeps it a warning at check)" $ do
+        aSrc <- fixture "wrap-machine/amain"
+        bSrc <- fixture "wrap-machine/bmain"
+        respErrs aSrc `shouldBe` []
+        let cache = Map.fromList [(["amain"], buildModuleEnv ["amain"] (parseSrc aSrc) Map.empty emptyEnv)]
+            report = typeCheckWithCache GrammarCoreInversion cache builtinEnv (parseSrc bSrc)
+        map diagMessage (reportDiagnostics report) `shouldSatisfy` any (T.isInfixOf "unknown function 'a-step'")
+
+    describe "the emitter: arm-binder refinement, ctor lowering, closed folds, premises" $ do
+      it "RF-M1 the witness's RCode arm binder carries v >= 100 and ran-step is body-faithful" $ do
+        src <- fixture "witness"
+        er <- emitSrc src
+        erBodyFaithfulFns er `shouldSatisfy` elem "ran-step"
+        erFQText er `shouldSatisfy` T.isInfixOf "_bv_n_0 : { v : int | (_bv_n_0 >= 100) }"
+      it "RF-M2 a Response match with no request keeps the FQTrue skolem (no >= 100 anywhere)" $ do
+        let src = T.unlines [ "(def-shell classify [x: Response] -> int (post (>= result 0)) (match x ((RCode n) n) (_ 0)))" ]
+        er <- emitSrc src
+        erFQText er `shouldNotSatisfy` T.isInfixOf ">= 100"
+      it "RF-M3 a parenthesized nullary constructor lowers to its tag: (Ran) and Ran emit byte-identical .fq (cells b20/b23, §11 item 1)" $ do
+        bare  <- emitSrc (witnessLike "(= p Ran)")
+        paren <- emitSrc (witnessLike "(= p (Ran))")
+        erFQText paren `shouldBe` erFQText bare
+        let tags = buildCtorTagMap (buildAliasMap (parseSrc (witnessLike "(= p Ran)")))
+        desugarCtorValues tags Set.empty (EApp "Ran" []) `shouldBe` ELit (LitInt 1)
+      it "RF-M4 closed-true call-pre is folded: no call-pre:ran-step constraint, wrap still listed, SAFE (§8 item 16)" $ do
+        src <- fixture "arm-literal"
+        er <- emitSrc src
+        originTags er `shouldNotSatisfy` elem "call-pre:ran-step"
+        erCallPreFns er `shouldSatisfy` elem "wrap"
+        solverSays "arm-literal" er "Safe"
+      it "RF-M5 closed-false call-pre is KEPT and refuted (§8 item 21)" $ do
+        src <- fixture "closed-false"
+        er <- emitSrc src
+        originTags er `shouldSatisfy` elem "call-pre:ran-step"
+        solverSays "closed-false" er "Unsafe"
+      it "RF-M6 a scalar-parameter premise emits one call-pre:wasi.http.response constraint in the issuing def, SAFE under its pre" $ do
+        src <- fixture "premise-param"
+        er <- emitSrc src
+        [ coFunction o | o <- Map.elems (erConstraintTable er), coClause o == "call-pre:wasi.http.response" ] `shouldBe` ["ran-issue"]
+        erCallPreFns er `shouldSatisfy` elem "ran-issue"
+        solverSays "premise-param" er "Safe"
+      it "RF-M7 the same premise with the pre deleted is refuted on call-pre:wasi.http.response" $ do
+        src <- fixture "premise-param-refuted"
+        er <- emitSrc src
+        solverSays "premise-param-refuted" er "Unsafe"
+      it "RF-M8 a literal premise folds at check: 200 passes, 42 is an error naming the literal and the fact" $ do
+        bad <- fixture "premise-literal-bad"
+        respErrs bad `shouldSatisfy` any (\m -> "literal 42" `T.isInfixOf` m && "(>= v 100)" `T.isInfixOf` m)
+        evalClosedBool (EOp ">=" [ELit (LitInt 200), ELit (LitInt 100)]) `shouldBe` Just True
+        evalClosedBool (EOp ">=" [ELit (LitInt 42), ELit (LitInt 100)]) `shouldBe` Just False
+        evalClosedBool (EOp ">=" [EVar "v", ELit (LitInt 100)]) `shouldBe` Nothing
+      it "RF-M9 the plan carries the premise cases: folded-literal on the witness, a parameter site on premise-param" $ do
+        w <- fixture "witness"
+        p <- fixture "premise-param"
+        case analyze w of
+          Right plan -> map psCase (rpPremises plan) `shouldBe` [PremiseFolded 200]
+          Left errs  -> expectationFailure (show errs)
+        case analyze p of
+          Right plan -> map psCase (rpPremises plan) `shouldSatisfy` elem (PremiseParam "ran-issue" 6 "code")
+          Left errs  -> expectationFailure (show errs)
+      it "RF-M10 the witness verifies SAFE and the refuted variant is refuted (the contract discriminates)" $ do
+        good <- fixture "witness" >>= emitSrc
+        bad  <- fixture "witness-refuted" >>= emitSrc
+        solverSays "witness" good "Safe"
+        solverSays "witness-refuted" bad "Unsafe"
+      it "RF-M11 with the fact withheld (R-3), the same body is refuted" $ do
+        src <- fixture "r3-fan"
+        er <- emitSrc src
+        erDiagnostics er `shouldSatisfy` any (T.isInfixOf "W-RESP-FACT-UNBOUND" . diagMessage)
+        solverSays "r3-fan" er "Unsafe"
+
+    describe "the trust report (§12) and the cache stamp" $ do
+      let entryNamed n report = find ((== n) . teName) (trEntries report)
+      it "RF-P1 the witness discloses one assumed fact on ran-step with premise folded-literal, in text and JSON" $ do
+        src <- fixture "witness"
+        let report = buildTrustReport Map.empty (parseSrc src) Map.empty
+        fmap teAssumedFacts (entryNamed "ran-step" report)
+          `shouldBe` Just [AssumedFact "ran-step" "Ran" "wasi.http.response" "RCode" "{v : int | (>= v 100)}" "program-determined" "folded-literal"]
+        formatTrustReport report `shouldSatisfy` T.isInfixOf "≈ assumes Ran ⇒ wasi.http.response/RCode {v : int | (>= v 100)} [program-determined; premise: folded-literal]"
+        formatTrustReportJson report `shouldSatisfy` T.isInfixOf "\"assumed_facts\""
+        formatTrustReportJson report `shouldSatisfy` T.isInfixOf "\"premise\":\"folded-literal\""
+      it "RF-P2 a parameter premise is disclosed as call-pre:<issuing def>" $ do
+        src <- fixture "premise-param"
+        let report = buildTrustReport Map.empty (parseSrc src) Map.empty
+        fmap (map afPremise . teAssumedFacts) (entryNamed "ran-step" report)
+          `shouldSatisfy` maybe False (any (T.isInfixOf "call-pre:ran-issue"))
+      it "RF-P3 a module without a request has no assumed_facts key anywhere" $ do
+        let src = T.unlines [ "(def-shell classify [x: Response] -> int (post (>= result 0)) (match x ((RCode n) n) (_ 0)))" ]
+            report = buildTrustReport Map.empty (parseSrc src) Map.empty
+        concatMap teAssumedFacts (trEntries report) `shouldBe` []
+        formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
+      it "RF-P4 checker_soundness_version is \"2\": a sidecar stamped \"1\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "2"
+        sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
+
+    describe "the measured consumer, made to qualify (§10)" $ do
+      it "RF-C1 docclaims-nullary checks clean, with only the W-RESP-FACT-NONE warning on Ran" $ do
+        src <- fixture "docclaims-nullary"
+        respErrs src `shouldBe` []
+        respWarns src `shouldSatisfy` all (T.isInfixOf "W-RESP-FACT-NONE")
+        respWarns src `shouldSatisfy` any (T.isInfixOf "'Ran' is bound to 'wasi.proc.run'")
+      it "RF-C2 Sites binds the eight tags §10 lists" $ do
+        src <- fixture "docclaims-nullary"
+        bindingsOf src `shouldBe` Map.fromList
+          [ ("Boot", "wasi.proc.args"), ("Probe", "wasi.proc.run"), ("Listing", "wasi.fs.list")
+          , ("ReadFix", "wasi.fs.read"), ("Ran", "wasi.proc.run"), ("ReadOut", "wasi.fs.read")
+          , ("Ending", "wasi.io.stdout"), ("Done", "wasi.io.stdout") ]
+        bottomsOf src `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -1,0 +1,26 @@
+;; @expect: check clean (§8 item 21); wrap2 calls (ran-step Boot x) inside its ((Boot) …) arm, which the delivery rule admits; the call-pre (= p Ran) is closed and FALSE, is KEPT, and the solver refutes it
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell wrap2 [p: Ctl x: Response] -> int
+  (pre (= p Boot))
+  (post (>= result 100))
+  (match p ((Boot) (ran-step Boot x)) (_ 100)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (wrap2 Boot x) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)

@@ -1,0 +1,24 @@
+;; @expect: check clean with W-RESP-FACT-UNBOUND naming Ran, wasi.http.response and wasi.io.stdout (§1.4 R-3); verify: listing-step REFUTED because the fact is withheld
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell listing-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell other [r: int] -> ((int, Ctl), Command)
+  (go r Ran (wasi.io.stdout "also ran")))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (if (= (first s) 0) (go (first s) Ran (wasi.http.response 200 "")) (other (first s))))
+    ((Ran)  (go (listing-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)

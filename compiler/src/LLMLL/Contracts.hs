@@ -377,7 +377,9 @@ buildFuncEnv stmts = Map.fromList
     -- same head-syntactic match, for the body-VC emitter rather than this
     -- evaluator (FACT-AG-LEN Stage 2, the constructor length axiom). Two
     -- reifications, one match shape, different consumers — keep them in step, and
-    -- keep both matching 'TypeCheck.hs:1216' / ':1250' (no alias expansion).
+    -- keep both matching the checker's LEVER-A0 determining-context arms in
+    -- 'checkStatement' for @SDef@ and @SDefShell@ (no alias expansion); grep
+    -- @bytes-zero@ in TypeCheck.hs.
     reifyBytesLen :: Maybe Type -> Expr -> Expr
     reifyBytesLen (Just (TBytes n)) (EApp "bytes-zero" []) =
       EApp "bytes-zero" [ELit (LitInt (toInteger n))]

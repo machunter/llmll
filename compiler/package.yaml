@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.16.2
+version:             0.17.0
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             GPL-3
@@ -66,6 +66,7 @@ library:
     - LLMLL.TypeAdmissibility
     - LLMLL.TypeCheck
     - LLMLL.HoleAnalysis
+    - LLMLL.RespFact
     - LLMLL.Contracts
     - LLMLL.PBT
     - LLMLL.CodegenHs

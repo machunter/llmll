@@ -1,0 +1,20 @@
+;; @expect: check clean on its own (cell E, §8 item 20): a program module with a request and (export); an importer cannot name a-step
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell a-recv [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell a-step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (first s) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (a-recv Ran x) Boot (wasi.io.stdout input)))))
+(def-shell a-done [s: (int, Ctl)] -> bool false)
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "a"))
+  :step a-step
+  :done? a-done)
