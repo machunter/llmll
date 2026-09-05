@@ -1664,8 +1664,12 @@ byteArraySort = FQArr FQInt FQInt
 --
 -- The match is HEAD-SYNTACTIC on @TBytes n@, deliberately NOT through
 -- 'bytesLenOf'. The checker's determining-context rule matches @retTy\@(TBytes _)@
--- with no alias expansion ('TypeCheck.hs:1216', ':1250') and codegen matches the
--- same way ('CodegenHs.hs:586'). Four readers of one annotation, one match shape;
+-- with no alias expansion -- the LEVER-A0 arms in 'checkStatement' for @SDef@ and
+-- @SDefShell@, both @(Just retTy\@(TBytes _), EApp "bytes-zero" [])@ -- and codegen
+-- matches the same way, in @emitExpr@'s @(Just (TBytes n), EApp "bytes-zero" [])@
+-- arm. Grep @bytes-zero@ in TypeCheck.hs and CodegenHs.hs; this comment used to
+-- cite line numbers and they drifted (resp-fact-proposal.md §16 item 6).
+-- Four readers of one annotation, one match shape;
 -- chasing aliases here would let the emitter admit a construct the checker
 -- rejects (an aliased @-> Key@ return over @(type Key bytes[32])@ is a type error
 -- today, proposal edge case 9).
@@ -2042,7 +2046,8 @@ mapClauseBlocked am params mRet mPost mPre =
 -- int-element @$val@ array. Only literals bridge; a bool VAR value returns
 -- Nothing → the enclosing op falls back (an @ite@-bridge for bool vars is
 -- deferred). The typechecker's homogeneous value typing guarantees a bool
--- literal here implies a bool-valued map (TypeCheck.hs:162-164), so this is
+-- literal here implies a bool-valued map (the @map-get@/@map-put@ signatures in
+-- TypeCheck.hs's @builtinEnv@, homogeneous in the value type), so this is
 -- context-free and sound.
 boolValLit :: Expr -> Maybe FQPred
 boolValLit (ELit (LitBool True))  = Just (FQLit 1)
@@ -2874,7 +2879,8 @@ exprToPred (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
 -- @(map-get m k)@ compared against a bool literal reflects the value select
 -- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
 -- ill-sorted @FQEq (Map_select …) FQTrue@. Either operand order. Sound and
--- context-free: the homogeneous @=@ typing (TypeCheck.hs:81) means a bool
+-- context-free: the homogeneous @=@ typing (@("=", TFn [TVar "a", TVar "a"]
+-- TBool)@ in TypeCheck.hs's @builtinEnv@) means a bool
 -- literal opposite a map-get forces the map bool-valued. The value-range fact
 -- (injectBoolValRangeFacts) supplies @0 ≤ v ≤ 1@ so a @/=@ here is exact, not a
 -- ℤ over-approximation (professor review 2026-07-13). Must precede the generic
@@ -3498,7 +3504,8 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
 --
 -- The axiom's VALIDITY is a TRUST-channel dependency, not a contract discharge:
 -- it holds because codegen reads the same annotation to emit an n-length zero
--- value ('CodegenHs.hs:582-586'), so it rides the codegen_semantics_version stamp
+-- value (@emitExpr@'s @(Just (TBytes n), EApp "bytes-zero" [])@ arm; grep
+-- @bytes-zero@ in CodegenHs.hs), so it rides the codegen_semantics_version stamp
 -- (§3.5). Same category as `bytes-set`'s length-preservation fact above. There is
 -- no laundering path into it: the checker restricts `(bytes-zero)` to the whole
 -- body of a def with a literal `-> bytes[n]` return — the LEVER-A0

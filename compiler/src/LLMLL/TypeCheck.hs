@@ -1295,8 +1295,8 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
 -- report-only wrapper above discards the map, so all pre-existing callers keep their
 -- signatures. Both consumers that need tau_ret route through here: the entry verify
 -- path (via 'typeCheckStrictWithCacheAndStatusRet') and the module import path
--- (via 'typeCheckWithCacheRet', called at Module.hs:189 one line before the
--- ModuleEnv is built).
+-- (via 'typeCheckWithCacheRet', called in Module.hs just before the ModuleEnv
+-- is built).
 typeCheckWithCacheModeRet'
   :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
   -> (DiagnosticReport, Map Name Type)
