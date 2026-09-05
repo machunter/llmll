@@ -1663,6 +1663,55 @@ The reading arrives on the response channel as `RCode`, in nanoseconds:
 
 ---
 
+### §4.27 Control-Tag Facts on a `Response` (`RESP-FACT-1`)
+
+A step that preconditions on the program's own control tag receives the compiler's declared fact for the builtin that tag is bound to, on the `Response` arm binder (`LLMLL.md` §9.7). The program below is `compiler/test/fixtures/resp-fact/witness.llmll` and verifies SAFE at v0.17.0; without the `(pre (= p Ran))` request the `RCode` binder is unconstrained and `ran-step` is refuted.
+
+```lisp
+(import wasi.http (capability response :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (first s) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Ran) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)
+```
+
+```text
+$ llmll verify witness.llmll
+   body-faithful: ran-step
+   body-fallback: go
+   Running liquid-fixpoint ...
+✅ witness.llmll — SAFE (liquid-fixpoint)
+$ llmll verify --trust-report witness.llmll
+  ran-step:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+    ≈ assumes Ran ⇒ wasi.http.response/RCode {v : int | (>= v 100)} [program-determined; premise: folded-literal]
+```
+
+Four things the checker requires, each a hard `RESP-FACT-1:` error when missing:
+
+1. **`(export)`**, or a list naming no `Ctl` constructor and no def that reaches `ran-step`. An importer that opened the module could otherwise call the step with a response the harness did not deliver.
+2. **Every returned pair is readable**: `(pair (pair <state> <Tag>) <builtin-command>)`, directly or through a helper such as `go`. `(pair s cmd)` with the incoming state, a `do` body, and an `if` in command position are refused with the rewrite named. One tag, one builtin: pairing `Ran` with two different commands withholds the fact (`W-RESP-FACT-UNBOUND`).
+3. **The tag and the response are delivered**: pass `x` as the bare `:step` parameter, and the tag as `(second s)`, a `let` alias of it, or the literal `Ran` written inside the `((Ran) …)` arm as above. `(let [(t Ran)] (ran-step t x))` and `(ran-step Ran (RCode 5))` are refused, naming the call.
+4. **`Ctl` is all-nullary and declared here**, beside `def-main`. Move a payload such as an exit code into the state, as `compiler/test/fixtures/resp-fact/docclaims-nullary.llmll` does.
+
+A literal passed to `wasi.http.response` is checked against the fact at `check` (`42` is an error); a parameter needs a `pre` on the issuing def, and the trust report then says `premise: call-pre:<that def>`.
+
 ## Part 5 — Core Language Quick Reference
 
 ```lisp

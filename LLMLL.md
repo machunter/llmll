@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.16.2)
+# LLMLL: Large Language Model Logical Language (v0.17.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.16.2.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.17.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -604,7 +604,7 @@ stack exec llmll -- verify program.llmll --trust-report
 #     ↳ calls safe-subtract (pre: asserted, post: verified (liquid-fixpoint))
 ```
 
-Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling. The JSON emit carries a `trust_report_version` field plus a six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications, intended for downstream tooling that needs a fixed-arity summary without scalarizing the diamond lattice — see [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json) for the full shape.
+Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling. The JSON emit carries a `trust_report_version` field plus a six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications, intended for downstream tooling that needs a fixed-arity summary without scalarizing the diamond lattice — see [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json) for the full shape. A function entry may also carry an additive `assumed_facts` array, one row per control-tag fact its verdict rests on (`tag`, `builtin`, `arm`, `predicate`, `category`, `premise`; §9.7), absent outside a requesting module; the text render prints each row as an `≈ assumes` line.
 
 **`termination_unverified` — the partiality marker.** Every function in a recursive call-graph cycle (a cyclic SCC over the whole-program call graph, entry plus cached modules) carries a per-entry `termination_unverified: true` flag, and the report gains a top-level `partial_fns` list of these names. Like `refuted` / `overflow_tainted`, it is an **orthogonal informational marker**, not a `DisplayLevel` element: it is **derived at report-build time** from the call graph — never persisted to the sidecar — so it is present even on a solver-less `--trust-report` render (unlike `refuted_fns`, which is verify-time only). It does not feed `evidenceMeet`, the effective level, `refutedClosure`, or strict-core admission; a recursive `def-shell` keeps whatever tier its body VC earned (typically `verified` post at partial correctness) and simply carries the flag. It marks that termination is unverified for the cycle, per the §4.2 partial-correctness caveat; REC-DESCENT (strict descent) would discharge it. `termination_unverified` arrived at `trust_report_version` `1.5.0`.
 
@@ -1033,7 +1033,7 @@ The following matrix documents the verification status of each syntax construct.
 | `EApp` (map ops: `map-has`/`map-get`/`map-put`/`map-empty`, §13.12) | ✅ | ✅ | ✅ (two-array int-0/1 presence encoding: presence select / presence-gated value select / paired stores / const arrays) | ✅ (array class §5.3.3; key-presence as a PROVE call-site obligation; `map[int,{int,bool,string}]` v1 — bool values via the int-0/1 bridge (range-pinned `{0,1}`), string values via a genuine `Str` value-array sort (a `map-get` comparable to interned `strlit_` constants); incl. let-bound put/get pipelines, read-modify-write bodies, cross-call assume-guarantee, map-returning results, conditional (`if`) map-store bodies; activation-gated) | ✅ | non-{int,string} key sorts / direct reads on `(map-empty)`, whole-map `=`, and a bool-get used outside `=`/`!=` → contract-only, whole (exact-reflection rule) |
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum (incl. Result `ok`/`err`) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum / non-admissible Result payload → fallback; user-sum recursive ctor → strict-core gate → `def-shell` |
-| `EMatch` n-arm admissible sum (mixed nullary/payload, nested, sequential) | ✅ | ✅ | ✅ | ✅ (n-ary int-tag chain; exhaustiveness type-checked) | ✅ | recursive/non-admissible payload → runtime |
+| `EMatch` n-arm admissible sum (mixed nullary/payload, nested, sequential) | ✅ | ✅ | ✅ | ✅ (n-ary int-tag chain; exhaustiveness type-checked) | ✅ | recursive/non-admissible payload → runtime; a requesting def's `Response` arm binder carries the declared builtin fact under a proved control tag (§9.7, `RESP-FACT-1`), still QF-LIA |
 | `EPair`/`first`/`second` (scalar / admissible-sum / nested / list component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / `Result` / recursive-sum / non-`Σ_auto` component → runtime |
 | `letrec` (own body VC) | ✅ | ✅ | ⚠ measure well-formedness only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
@@ -1773,6 +1773,58 @@ alike, and a program that needs to know which of several commands a response bel
 in its own state, where the coupling is visible in the program's type rather than implicit in the
 harness. An arm is admissible when it names a payload *shape* that no existing arm can carry; naming
 an arm after the capability that produced it is not admissible.
+
+**Control-tag facts (`RESP-FACT-1`).** A builtin's declared fact (§13.9) reaches a program through
+the program's own control tag, not through the arm. A def *requests* the fact when its `pre` has a
+conjunct `(= p T)`, `p` a parameter whose type is an all-nullary sum declared in this module, `T` one
+of its constructors, and the def takes a `Response`. The compiler then binds `T` to the one builtin
+every returned `(σ, Command)` pair carries beside it, checks that `p` and the `Response` reach the
+def from `:step` unchanged, and requires an `(export …)` list that names neither a constructor of the
+tag type nor a def from which a requesting def is reachable; `(export)` satisfies it. Under those
+three rules the arm binder of a match on the `Response` carries the declared fact, and the caller
+discharges `(= p T)` on the call-pre channel. A module with no request sees none of this.
+
+```lisp
+(export)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell ran-step [p: Ctl x: Response] -> int
+  (pre (= p Ran))                        ;; the request: Ran is bound to wasi.http.response
+  (post (>= result 100))
+  (match x ((RCode n) n) (_ 100)))       ;; n : {v : int | v >= 100} in this arm
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot) (go (first s) Ran (wasi.http.response 200 "")))
+    ((Ran)  (go (ran-step Ran x) Halt (wasi.io.stdout "done")))   ;; literal tag inside its own arm
+    ((Halt) (go (first s) Halt (wasi.io.stdout "")))))
+```
+
+- **The issuing rule** (design §5.2) is syntactic and runs over every def whose declared return is a
+  `(σ, Command)` pair, plus `:init`. It reads the pair `(pair (pair _ T) C)` where `T` is a
+  constructor written in the source and `C` a builtin command; an `if`, a `match` and a `let` are
+  walked, a `let`-bound command is copied, `seq-commands` yields the head of its right operand, and
+  a call to another pair-returning def of this module is read with the arguments substituted (so a
+  helper such as `go` above is read at each of its call sites). Any other form is `⊥`, which
+  withholds every binding in the module and is a `check` error naming the def. A tag paired with
+  two builtins binds to nothing: `W-RESP-FACT-UNBOUND`, and the request receives no fact.
+- **The delivery rule** (design §5.3) is a greatest fixpoint over every call site in the module. A
+  tag is delivered as a bare delivered-tag parameter, `(second s)` of a delivered state, a one-line
+  projection def applied to it, a `let` alias of either of those, or the bare constructor `T`
+  written inside the `((T) …)` arm of a match on a delivered tag; a `Response` is delivered only as
+  a bare delivered-response parameter. `:step`'s state and response are the sources. A `let`-bound
+  literal, a constructor application and a call result are refused, and the error names the def, the
+  call and the parameter.
+- **The export condition** (design §5.2) is checked against the module's own `(export …)` list.
+- **The premise** of a program-determined fact is discharged at the issuing site: a literal
+  argument folds at `check` (a literal that violates the fact is an error), and a scalar parameter of
+  the issuing def yields one `call-pre:<builtin>` constraint under that def's `pre`. The trust report
+  names the fact and its premise per function (§4.4.4).
+- **The control-tag type must be all-nullary** and declared in the entry module beside `def-main`;
+  a payload-bearing tag, an imported tag type and a module without a console `def-main` are errors.
+
+Design: [`docs/design/resp-fact-proposal.md`](docs/design/resp-fact-proposal.md) (Rev 6). `CMD-A`
+retires the delivery rule when it lands, because the producer then lives in the type of the response.
 
 **Bulk payloads travel through the filesystem, not through an arm.** An operation whose result is
 large writes it to a path and returns the path, which keeps the arm set small at the cost of leaving
@@ -2552,6 +2604,18 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
 | `wasi.proc.run` | `string list[string] string string string int string -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds, stdin read from a path: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs stdin-path)`. The three trailing `string` parameters before the `int` are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks. **The stdin path sits AFTER the `int` deliberately**: `stdin-path` and `stdout-path` differ by one character and name opposite directions, so the `int` at position 6 makes that transposition a type error rather than a silent swap. **`"/dev/null"` means no input.** **Equal stdout and stderr path strings mean MERGE**, the counterpart to a shell's `2>&1`: one handle carries both streams. The test is **string equality, not path identity**, so `"log"` and `"./log"` do not merge. **No equality rule constrains the stdin path.** The three handles open in the order **stdout, stderr, stdin**, and that order is normative because it is observable: `WriteMode` truncates, so a caller naming one real file as both an output path and the stdin path gives the child an **empty** file, exactly as a shell's `cmd < f > f` does. **The interleaving is not specified**: it is the order the child flushes, not the order it writes, so a child that buffers one stream and not the other can emit them out of write order. **The child's stdin is never the caller's**: `std_in` is bound to the named path, so a child that reads stdin cannot consume the parent's own input (`PROC-STDIN-SHARE-1`) |
 | `seq-commands` | `Command Command -> Command` | _(none, built-in)_ | Execute two commands in order: `(seq-commands first second)` runs `first`, then `second`. Both parameters are `Command`, so a reversed call type-checks and silently inverts the order |
+
+**Declared facts.** The compiler declares one property per `(constructor, Response arm)` that the
+generated runtime is known to establish, and a program receives it only through the control-tag
+rule of §9.7 (`RESP-FACT-1`). The table is program-determined only: the value is the program's own
+argument, passed through unchanged, so the residue rides `codegen_semantics_version` (§3.5).
+
+| Constructor | Arm | Fact | Category |
+|-------------|-----|------|----------|
+| `wasi.http.response` | `RCode` | `{v : int | v >= 100}` | program-determined (argument 0) |
+
+`wasi.proc.run` declares no fact: its `RCode` is the child's exit status, which the operating system
+determines.
 
 > **What a `Command` returns.** A `Command` value is not the result of an effect; it is a request to
 > perform one. `(string-length (wasi.fs.read p))` is a type error, because `wasi.fs.read` evaluates to
