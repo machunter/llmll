@@ -527,14 +527,13 @@ This means `DLVerified` with `body_faithful = true` guarantees the implementatio
 
 **Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a recursive-sum payload, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
-**JSON output:** `--json verify` includes per-function `body_faithful` and `body_fallback` metadata:
+**JSON output:** `--json verify` appends three keys to the report object: `body_faithful` and `body_fallback` as name lists, and `body_fallback_causes`, one of six fixed strings per fallen-back function (`contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`):
 
 ```json
 {
-  "functions": {
-    "withdraw": { "body_faithful": true },
-    "sort-list": { "body_fallback": "letrec" }
-  }
+  "body_faithful": ["withdraw"],
+  "body_fallback": ["square"],
+  "body_fallback_causes": { "square": "body-outside-fragment" }
 }
 ```
 
