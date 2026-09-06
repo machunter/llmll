@@ -44,6 +44,8 @@ module LLMLL.FixpointEmit
   , defaultEmitOptions
     -- * Result
   , EmitResult(..)
+  , FallbackCause(..)
+  , renderFallbackCause
     -- * Alias map (v0.8.0)
   , AliasMap
   , buildAliasMap
@@ -164,6 +166,31 @@ bodyVCTargeted opts nm = case emitBodyVCTargets opts of
 -- Result
 -- ---------------------------------------------------------------------------
 
+-- | FALLBACK-REASON-CONST-1: why a function's body-VC was not emitted. One
+-- constructor per decision that calls 'addBodyFallback'. The two 4096-path
+-- caps share 'FallbackPathCap'; a whole-contract refusal is attributed to the
+-- clause that caused it, or to 'FallbackContractSig' when a signature-level
+-- guard refused it. The set is closed on purpose: a histogram over runs
+-- needs buckets that do not drift. 'renderFallbackCause' is the wire form
+-- ('fallback_reason' in the proof artifact, 'body_fallback_causes' in
+-- 'verify --json').
+data FallbackCause
+  = FallbackContractPost   -- ^ the post clause left the fragment
+  | FallbackContractPre    -- ^ the pre clause left the fragment
+  | FallbackContractSig    -- ^ a signature-level guard refused the contract (CLASSIFY-MEASURE's three type-level guards)
+  | FallbackBody           -- ^ no body-VC and no map-return tree: the body is outside QF-LIA
+  | FallbackPathCap        -- ^ more than 4096 paths, either counter (§6.1)
+  | FallbackMixedMapTail   -- ^ a map-returning body with a tail the split encoding cannot pin (§6.1)
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
+renderFallbackCause :: FallbackCause -> Text
+renderFallbackCause FallbackContractPost = "contract-post-outside-fragment"
+renderFallbackCause FallbackContractPre  = "contract-pre-outside-fragment"
+renderFallbackCause FallbackContractSig  = "contract-signature-outside-fragment"
+renderFallbackCause FallbackBody         = "body-outside-fragment"
+renderFallbackCause FallbackPathCap      = "path-cap-exceeded"
+renderFallbackCause FallbackMixedMapTail = "mixed-map-tail"
+
 data EmitResult = EmitResult
   { erFQFile            :: FQFile           -- ^ the assembled .fq data structure
   , erFQText            :: Text             -- ^ .fq text ready to write to disk
@@ -171,6 +198,7 @@ data EmitResult = EmitResult
   , erSkipped           :: [Text]           -- ^ names of skipped non-linear functions
   , erBodyFaithfulFns   :: [Text]           -- ^ v0.8.0: functions with successful body VCs
   , erBodyFallback      :: [Text]           -- ^ v0.8.0: functions that fell back
+  , erBodyFallbackCauses :: [(Text, FallbackCause)] -- ^ FALLBACK-REASON-CONST-1: the same functions, same order, each with the decision that sent it there
   , erDiagnostics       :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
   , erEmittedPre        :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
   , erEmittedPost       :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
@@ -478,7 +506,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- v0.8.0: body-VC global alpha-renaming counter (E08: shared across functions)
   bodyCounterRef <- newIORef (0 :: Int)
   bodyFaithfulRef <- newIORef ([] :: [Text])
-  bodyFallbackRef <- newIORef ([] :: [Text])
+  bodyFallbackRef <- newIORef ([] :: [(Text, FallbackCause)])
   diagsRef <- newIORef ([] :: [Diagnostic])
   emittedPreRef <- newIORef ([] :: [Text])
   emittedPostRef <- newIORef ([] :: [Text])
@@ -509,7 +537,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
   let addOrigin cid orig = modifyIORef' tableRef (Map.insert cid orig)
   let addBodyFaithful n = modifyIORef' bodyFaithfulRef (++ [n])
-  let addBodyFallback n = modifyIORef' bodyFallbackRef (++ [n])
+  let addBodyFallback n c = modifyIORef' bodyFallbackRef (++ [(n, c)])
   let addDiag d = modifyIORef' diagsRef (++ [d])
   let addEmittedPre n = modifyIORef' emittedPreRef (++ [n])
   let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
@@ -678,7 +706,8 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erConstraintTable   = table
     , erSkipped           = skipped
     , erBodyFaithfulFns   = bfaithful
-    , erBodyFallback      = bfallback
+    , erBodyFallback      = map fst bfallback
+    , erBodyFallbackCauses = bfallback
     , erDiagnostics       = diags
     , erEmittedPre        = emPre
     , erEmittedPost       = emPost
@@ -702,7 +731,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- record skipped function
   -> (FQConstraintId -> ConstraintOrigin -> IO ())
   -> (Text -> IO ())       -- record body-faithful function
-  -> (Text -> IO ())       -- record body-fallback function
+  -> (Text -> FallbackCause -> IO ())  -- record body-fallback function, with its cause (FALLBACK-REASON-CONST-1)
   -> (Diagnostic -> IO ()) -- emit diagnostics
   -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
@@ -953,34 +982,49 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- crash or mis-sort liquid-fixpoint) are composed in
         -- 'contractSigGuardsBlock', which the classifier shares — one arbiter,
         -- no drift (§6.1).
-        let mPostPred | contractSigGuardsBlock aliases params mRet contract = Nothing
-                      -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
-                      -- operand is unconditionally out-of-fragment → contract-only
-                      -- fallback (never reflected to array equality; §7 row 4).
-                      -- LEVER-A2: same rule for map operands (wholeArrEqClause
-                      -- covers both bytes-ish and map-ish operands).
-                      | arrGate && (wholeArrEqClause aliases params mRet (contractPost contract)
-                                 || wholeArrEqClause aliases params mRet (contractPre contract)) = Nothing
-                      -- LEVER-A2: a map-op-bearing clause whose map-typed
-                      -- params/result are not all admissible map[int,int], or
-                      -- whose map-put value args are not int-in-context, would
-                      -- reflect against binders that don't exist (or at the
-                      -- wrong element sort) — free-var/ill-sort crash, not a
-                      -- fallback. Route the whole contract to fallback instead
-                      -- (§6.1: never a partial reflection).
-                      | (exprMentionsMapOpM (contractPost contract)
-                          || exprMentionsMapOpM (contractPre contract))
-                        && mapClauseBlocked aliases params mRet
-                             (contractPost contract) (contractPre contract) = Nothing
-                      | otherwise                         = contractPost contract >>= exprToPred
+        -- FALLBACK-REASON-CONST-1: the whole-contract refusals, each attributed
+        -- to the clause that caused it. These are the SAME guards, in the SAME
+        -- order, that decide 'mPostPred' below; only the label is new, so the
+        -- Nothing/Just outcome and the emitted .fq are unchanged. Before this,
+        -- a refusal reached through the PRE (a whole-array = in the pre, or a
+        -- blocked map clause in the pre) was reported as a post failure.
+        let postCause
+              -- CLASSIFY-MEASURE: signature-level guards (non-sortable pair
+              -- component, non-admissible Result payload, bare opaque-sum
+              -- param) are neither clause's fault.
+              | contractSigGuardsBlock aliases params mRet contract = Just FallbackContractSig
+              -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
+              -- operand is unconditionally out-of-fragment → contract-only
+              -- fallback (never reflected to array equality; §7 row 4).
+              -- LEVER-A2: same rule for map operands (wholeArrEqClause
+              -- covers both bytes-ish and map-ish operands).
+              | arrGate && wholeArrEqClause aliases params mRet (contractPost contract) = Just FallbackContractPost
+              | arrGate && wholeArrEqClause aliases params mRet (contractPre contract)  = Just FallbackContractPre
+              -- LEVER-A2: a map-op-bearing clause whose map-typed
+              -- params/result are not all admissible map[int,int], or
+              -- whose map-put value args are not int-in-context, would
+              -- reflect against binders that don't exist (or at the
+              -- wrong element sort) — free-var/ill-sort crash, not a
+              -- fallback. Route the whole contract to fallback instead
+              -- (§6.1: never a partial reflection). Attributed to the post
+              -- when the post mentions a map op, else to the pre.
+              | (exprMentionsMapOpM (contractPost contract)
+                  || exprMentionsMapOpM (contractPre contract))
+                && mapClauseBlocked aliases params mRet
+                     (contractPost contract) (contractPre contract)
+                  = Just (if exprMentionsMapOpM (contractPost contract)
+                            then FallbackContractPost else FallbackContractPre)
+              | otherwise = Nothing
+            mPostPred | Just _ <- postCause = Nothing
+                      | otherwise           = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
                           Just pre -> case exprToPred pre of
                                         Nothing -> Nothing    -- pre exists but untranslatable → fallback
                                         Just p  -> Just (Just p)
         case (mPostPred, mPrePred) of
-          (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
-          (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
+          (Nothing, _) -> addBodyFallback name (fromMaybe FallbackContractPost postCause)  -- a whole-contract refusal (attributed above) or an untranslatable post → fallback
+          (_, Nothing) -> addBodyFallback name FallbackContractPre  -- untranslatable pre → fallback
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
             let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
@@ -1155,7 +1199,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     isMRGet _       = False
                 if length (take 4097 leaves) > 4096
                   then do
-                    addBodyFallback name
+                    addBodyFallback name FallbackPathCap
                     addDiag $ mkWarning Nothing $
                       "body VC for '" <> name <> "' exceeded 4096 path limit — "
                       <> "falling back to contract-only verification"
@@ -1224,14 +1268,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                     addOrigin cid (ConstraintOrigin name tag ptr srcFile)
                   addBodyFaithful name
-              (Nothing, Nothing) -> addBodyFallback name  -- body outside QF-LIA fragment
+              (Nothing, Nothing) -> addBodyFallback name FallbackBody  -- body outside QF-LIA fragment
               (Nothing, Just bvc) -> do
                 -- Path count check (bounded)
                 let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
                 if pathCount > 4096
                   then do
                     -- >4096: fallback, not error
-                    addBodyFallback name
+                    addBodyFallback name FallbackPathCap
                     addDiag $ mkWarning Nothing $
                       "body VC for '" <> name <> "' exceeded 4096 path limit — "
                       <> "falling back to contract-only verification"
@@ -1258,7 +1302,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   else if maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
                           && not (arrGate && maybe False (mapArrEncodableTy aliases) mRet
                                   && all pinnableTail (flattenBodyVC bvc))
-                    then addBodyFallback name
+                    then addBodyFallback name FallbackMixedMapTail
                     else do
                     -- Warn at 257-4096
                     when (pathCount > 256) $

@@ -63,7 +63,7 @@ import LLMLL.Diagnostic
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
   , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -1317,12 +1317,13 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- body-faithful success — so a function appears in at most one list.
       when strictCore $ do
         let fallbacks = erBodyFallback emitR
+            causes    = erBodyFallbackCauses emitR  -- FALLBACK-REASON-CONST-1
             tainted   = erOverflowTaintedFns emitR
             errs :: [(T.Text, [T.Text], T.Text)]
             errs = [ ("fallback", fallbacks
                     , T.pack (show (length fallbacks))
                       <> " function(s) fell back from body-faithful verification: "
-                      <> T.intercalate ", " fallbacks)
+                      <> T.intercalate ", " [ n <> " (" <> renderFallbackCause c <> ")" | (n, c) <- causes ])
                    | not (null fallbacks)
                    ]
                 ++ [ ("overflow_tainted", tainted
@@ -1342,6 +1343,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                                          ]
                                                 | (cause, fns, msg) <- errs ]
                             ]
+                         ++ [ "fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- causes ]) | not (null causes) ]
             else mapM_ (\(_cause, _fns, msg) ->
                           TIO.putStrLn $ "ERROR: --strict-verified-core: " <> msg) errs
           exitFailure
@@ -1483,6 +1485,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   bodyMeta = TL.toStrict . encodeToLazyText $ object
                     [ "body_faithful" .= erBodyFaithfulFns emitR
                     , "body_fallback" .= erBodyFallback emitR
+                      -- FALLBACK-REASON-CONST-1: the per-function cause, the histogram source
+                    , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- erBodyFallbackCauses emitR ])
                     ]
               -- Merge by stripping closing } from report and appending body_meta fields
               let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of
@@ -2715,7 +2719,7 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
     , paCertificate   = Nothing
     }
   where
-    fallbackSet     = Set.fromList (erBodyFallback emitR)
+    fallbackCauses  = Map.fromList (erBodyFallbackCauses emitR)  -- FALLBACK-REASON-CONST-1
     bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
     -- This run's evidence drives the tier (the sidecar may be stale/absent on a
     -- first verify): a body-faithful fn whose VC was not refuted IS verified
@@ -2730,9 +2734,7 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
            { fiName           = teName te
            , fiTier           = tier
            , fiCallerObligs   = map coObRequires (teCallerObligations te)
-           , fiFallbackReason = if teName te `Set.member` fallbackSet
-                                  then Just "left the body-faithful fragment (§5.3.3 firewall)"
-                                  else Nothing
+           , fiFallbackReason = renderFallbackCause <$> Map.lookup (teName te) fallbackCauses
            , fiRefuted        = refuted
            , fiDiscrim        = Nothing
            }

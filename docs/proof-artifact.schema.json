@@ -73,7 +73,7 @@
         "name":               { "type": "string" },
         "evidence_level":     { "type": "string", "enum": ["verified", "contract-checked", "tested", "asserted", "none"] },
         "caller_obligations": { "type": "array", "items": { "type": "string" }, "description": "`requires` predicates a caller must discharge to invoke this function soundly." },
-        "fallback_reason":    { "type": ["string", "null"], "description": "Why the body left the body-faithful fragment; null iff body-faithful." },
+        "fallback_reason":    { "type": ["string", "null"], "enum": ["contract-post-outside-fragment", "contract-pre-outside-fragment", "contract-signature-outside-fragment", "body-outside-fragment", "path-cap-exceeded", "mixed-map-tail", null], "description": "Why the body left the body-faithful fragment, one value of the FALLBACK-REASON-CONST-1 closed vocabulary (artifacts written before that change carry the retired constant string); null iff body-faithful." },
         "refuted":            { "type": "boolean", "description": "Orthogonal negative evidence; necessarily false on a positive tier." },
         "discriminative_axis": {
           "type": "object",
