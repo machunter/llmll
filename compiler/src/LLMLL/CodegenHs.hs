@@ -31,6 +31,8 @@ module LLMLL.CodegenHs
   , emitExpr
   , emitLit
   , emitApp
+  , emitOp   -- BUILTIN-BODY-1: lets the test fold separate operator routing from hand-written equations exactly
+  , wrap     -- BUILTIN-BODY-1: same purpose, for the generic fallthrough form
   , toHsType
   , mapLlmllPrimType
   , runtimePreamble
