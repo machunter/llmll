@@ -4,6 +4,39 @@
 
 <a id="Latest"></a>
 
+## v0.19.1: every hand-written lowering equation reaches GHC, and the suite says so (2026-09-06)
+
+**`BUILTIN-BODY-1` residue (1) closes.** The fix that gave `sha1` a hand-written `emitApp`
+equation also put it out of reach of the unit check that found the defect, and the same exemption
+covered all twelve hand-written equations; eight of them (`first`, `second`, `bytes-length`,
+`bytes-get`, `bytes-set`, `list-nth`, `string-slice`, `string-char-at`) were called by no build
+fixture, five wrapping an argument in `fromIntegral` where a wrong wrapper is a GHC type error
+nothing before a build sees. Closed on the build route adjudicated 2026-09-05, in two halves.
+
+- **The build half.** `scripts/build-smoke/smoke.llmll` calls all twelve, one `def-shell` per
+  equation with literal indices so no clause is owed. The six preamble names those equations reach
+  join the name lists in `scripts/build_smoke.sh` and its LLMLL port in the same change, on the
+  `sha1_hash` precedent; no new stage and no new verdict line, so the differential cover is
+  untouched and agrees on 9 of 9 cells.
+- **The completeness half.** The `Spec.hs` fold now derives the hand-written set, pins its
+  membership, and asserts that every member is applied in some build-smoke fixture, naming the
+  uncalled ones. A thirteenth equation without a call site fails the suite, not a user's GHC. Seen
+  to fail once, naming `first`, before wiring.
+
+**A prefix classifier cannot see this class.** Five of the twelve keep the mangled head and differ
+from the generic fallthrough only inside their arguments, `(bytes_get (a1) (fromIntegral (a2) :: Int))`
+against `(bytes_get (a1) (a2))`, so the fold's `fellThrough` test files them as generic and a
+prefix-based derivation found seven names. The shipped derivation compares whole emissions against
+the generic form and against `emitOp`; `CodegenHs` exports `emitOp` and `wrap` for that.
+
+No user-visible surface, no schema change. `build_smoke.sh` run bare resolves a months-old
+`~/.local/bin/llmll` and fails on `wasi.fs.list`; that is the mode its own header names, and
+`LLMLL_BIN` on the built compiler is the fix.
+
+1857 examples, 0 failures. pytest 180 passed, 10 skipped (unchanged).
+
+---
+
 ## v0.19.0: every body fallback names its cause, and the .fq does not change (2026-09-06)
 
 **`FALLBACK-REASON-CONST-1` ships.** The proof artifact's `fallback_reason` was the literal
