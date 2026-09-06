@@ -4,6 +4,62 @@
 
 <a id="Latest"></a>
 
+## v0.20.0: a spec sentence names what stands under it, and `check` finds a duplicate before GHC does (2026-09-06)
+
+**`NORM-CLAIM-1` ships as `DRIFT-CT-3`, the fourth member of the DRIFT gate family.** `DRIFT-CT-2`
+checks that a claim which has a fixture still holds; nothing checked that a claim had anything
+under it, and every `[SPEC]` row in the roadmap had been found as a side effect of other work.
+Now every sentence in `LLMLL.md` §0.1 and §1 ends with a marker, `…error.[NC-011]`, and
+[`scripts/norm-claims/registry.json`](scripts/norm-claims/registry.json) holds one row per
+identifier with the pinned sentence text and one of five dispositions:
+
+- **`fixture`**: a `scripts/doc-claims/` file whose new `;; @norm:` header line names the id
+  back. Sixteen sentences; fifteen fixtures, fourteen of them new, measured one by one.
+- **`falsified-by`**: a refute-crux suite by `family`, or the gate itself. Three sentences,
+  including §0.1's soundness sentence.
+- **`row`**: an Active Items row whose status cell begins `OPEN`; a closure fails the gate until
+  the sentence is re-dispositioned, so closing a row re-runs the check. One sentence today
+  (`CAP-1-REAL`).
+- **`assumed`**: a reason string, counted against a ratchet bound the way `csSuppressionDebt`
+  counts suppressions. Eight sentences; ratio 0.29.
+- **`informative`**: a cross-reference or motivation, reported but not counted. Seven.
+
+The pilot paid for itself on its first pass: six of 33 sentences were stale or imprecise against
+the compiler, none caught by any instrument aimed at the spec. Five are reworded in this release
+(termination is discharged by `(decreases …)` and the trust report marks the partial case; a hole
+lowers to a runtime abort rather than refusing execution; a nonlinear contract reports
+`body-fallback` rather than a `?proof-required` flag; Leanstral ships experimental and opt-in; the
+effective level is the meet of `post` levels). The sixth became `DUP-DEF-1` below. Two sentences
+split, so 35 are tagged. §0.2 states the convention in four sentences.
+
+- **Reference and cover.** `scripts/norm_claims_gate.py` is the reference; it never SKIPs, and an
+  unreadable registry, an empty scope or a missing heading is a FAIL. `scripts/norm_claims_cover.py`
+  copies the tracked tree and mutates it sixteen ways, twelve that must fail and four negative
+  controls, one of them the non-ASCII byte-identity cell. Both run in `spec-roundtrip` after the
+  doc-claims step. **The LLMLL port is owed** under the campaign's three-artifact shape; the cover
+  is a self-cover until it lands and says so on its summary line.
+- **Two fixtures need `--strict-verify`.** With no sidecar present, `verify --trust-report` prints
+  an all-asserted report and exits before the solver runs, so a plain `--trust-report` fixture pins
+  the early exit rather than the claim. `--strict-verify` routes past it.
+- **Records corrected.** The refute-crux count in the 2026-09-05 triage record read "13 suites and
+  89 cases"; the gate's own list has twelve suites and 80 cases. `LLMLL.md` §0.1 and §1.5 cited
+  §4.3 for the partial-correctness caveat, which lives in §4.2.
+
+**`DUP-DEF-1`: `check` rejects a duplicate top-level name.** `LLMLL.md` §1.1 says re-binding a
+name in the same scope is a compile error, and only GHC enforced it, at `build`
+(`Multiple declarations of 'f'`). Two `(def f …)`, `def f` beside `def-shell f`, two
+`(type Shape …)` and two `def-main` all passed `check`; `withEnv` let the first definition win the
+environment silently, `emitMainHs` kept the first `def-main` and dropped the rest, and `verify`
+could write a sidecar for a module that cannot build. `checkDuplicateTopLevel` in `TypeCheck.hs`
+now emits kind `duplicate-definition` for a repeated function or type name (separate namespaces,
+as in the generated Haskell) and for a second `def-main`, unconditionally rather than
+warn-or-error. A sequential `let` that rebinds a name stays legal (§12 note 5). A `check` sweep of
+all 361 `.llmll` files in the tree found no duplicate. No schema change.
+
+1865 examples, 0 failures (eight new). pytest 180 passed, 10 skipped (unchanged).
+
+---
+
 ## v0.19.1: every hand-written lowering equation reaches GHC, and the suite says so (2026-09-06)
 
 **`BUILTIN-BODY-1` residue (1) closes.** The fix that gave `sha1` a hand-written `emitApp`

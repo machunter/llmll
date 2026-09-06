@@ -1,0 +1,9 @@
+;; @doc: LLMLL.md §1 item 4b (support module for trust-gap-caller.llmll)
+;; @expect: check-ok
+;; @claim: Support module for trust-gap-caller.llmll: a contracted `def` that checks clean. It must have NO `.verified.json` sidecar in this directory, because the caller's claim is that a callee without verified evidence defaults to `asserted` (§4.4.3) and the caller inherits the gap. Do not run `verify` on this file in place.
+(module trust-gap-callee
+  (export g)
+  (def g [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result n))
+    (+ n 1)))

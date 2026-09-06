@@ -1,0 +1,15 @@
+;; @doc: LLMLL.md §1 item 4b (the effective display level is the meet of post levels; a pre level does not lower it)
+;; @cmd: verify {file} --strict-verify --trust-report --json
+;; @expect: output:"effective_level":"verified (liquid-fixpoint)"
+;; @norm: NC-024
+;; @claim: `f` calls `g`; every `pre` in the module is `asserted` and every `post` is verified. The JSON trust report still reports `effective_level` as `verified (liquid-fixpoint)` for both, so neither a function's own `pre` level nor its callee's lowers the headline (TRUST-PRE Position B; `teEffectivePostLevel` in TrustReport.hs). The old §1.4b wording said "own level and all callees' levels"; this fixture pins the post-only meet. `--strict-verify` routes past the trust-report early exit, as in display-level-verified.llmll. Measured v0.19.1.
+(module effective-level-post-meet
+  (export f g)
+  (def g [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result n))
+    (+ n 1))
+  (def-shell f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (g n)))

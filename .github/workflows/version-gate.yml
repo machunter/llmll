@@ -250,6 +250,22 @@ jobs:
             || { grep -v '^$' "$RUNNER_TEMP/dc.log" >&2; exit 1; }
           grep -v '^$' "$RUNNER_TEMP/dc.log"
 
+      # DRIFT-CT-3 (NORM-CLAIM-1): every sentence in LLMLL.md §0.1 and §1 names
+      # what stands under it (scripts/norm-claims/README.md). The reference is
+      # plain python3 and needs no toolchain; it sits in THIS job and not the
+      # C1-C4 one because its `fixture` rows point at the doc-claims corpus the
+      # step above just exercised, and its `row` rows must re-run on the same
+      # roadmap edit that closes a row. The cover copies the tracked tree and
+      # mutates it sixteen ways (tool-ll-RESTART.md item 14: a new gate is a
+      # claim that it can fail). Each gate on its own line: a pipe would take
+      # the pipe's exit status. The LLMLL port is owed under the campaign's
+      # three-artifact shape; when it exists, pass --port to the cover.
+      - name: Run norm-claim gate and its cover (DRIFT-CT-3, NORM-CLAIM-1)
+        run: |
+          set -euo pipefail
+          python3 scripts/norm_claims_gate.py --repo .
+          python3 scripts/norm_claims_cover.py --repo .
+
       # TOOL-ENCODING-1's end-to-end half. It lives HERE and not in the pytest
       # step of the C1-C4 job for a reason worth stating: that job sets up
       # Python and jq and no Haskell toolchain, so `llmll` does not exist there

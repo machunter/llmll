@@ -1,0 +1,7 @@
+;; @doc: LLMLL.md §1 item 6 (support module for import-non-transitive.llmll)
+;; @expect: check-ok
+;; @claim: Support module for import-non-transitive.llmll: it declares `wasi.io` itself and checks clean. Its importer must not inherit that declaration.
+(module import-non-transitive-callee
+  (import wasi.io (capability write "stdout"))
+  (export hello)
+  (def-shell hello [] -> Command (wasi.io.stdout "hi")))

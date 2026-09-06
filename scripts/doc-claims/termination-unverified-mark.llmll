@@ -1,0 +1,15 @@
+;; @doc: LLMLL.md §0.1 (the trust report marks an undischarged cycle) and §4.4.4 (`termination_unverified`)
+;; @cmd: verify {file} --trust-report --json
+;; @expect: output:"termination_unverified":true
+;; @norm: NC-034
+;; @claim: Every member of a recursive cycle without a discharging `(decreases …)` clause carries `termination_unverified: true` in the trust report (REC-PARTIAL-MARK, v0.14.23). Same program as mutual-recursion-partial.llmll under a second module name, because one fixture carries one verdict. Measured v0.19.1.
+(module termination-unverified-mark
+  (export a b)
+  (def-shell a [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (if (= n 0) 0 (b (- n 1))))
+  (def-shell b [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (if (= n 0) 1 (a (- n 1)))))

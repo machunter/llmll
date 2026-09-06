@@ -1,5 +1,6 @@
 ;; @doc: getting-started.md §4.9 (`open` ordering)
 ;; @expect: check-ok
+;; @norm: NC-018
 ;; @claim: support module for the open-after-def-* fixtures. Its own guarded claim is that a well-formed module exporting a contracted `def` checks clean, so a failure here localizes to this file rather than to the ordering claim under test. Named to match its module path: `(import open-aux-lib)` resolves `open-aux-lib.llmll` relative to the importing file, not the process CWD (verified v0.14.67 from a different working directory, which is the CI condition).
 (module open-aux-lib
   (export inc)

@@ -1,0 +1,15 @@
+;; @doc: LLMLL.md §0.1 (Compositional reasoning) and §1 item 5 (Compositional Verification)
+;; @cmd: verify {file}
+;; @expect: output:call-pre obligations: f
+;; @norm: NC-005, NC-026
+;; @claim: When `f` calls contracted `g`, the verifier proves that `f` satisfies `g`'s precondition (the obligation) and assumes `g`'s postcondition (the hypothesis). The witness is the `call-pre obligations: f` line that `verify` prints before it runs liquid-fixpoint: the caller has an obligation and the callee has none. Measured v0.19.1.
+(module assume-guarantee-obligation
+  (export f g)
+  (def g [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result n))
+    (+ n 1))
+  (def-shell f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (g n)))
