@@ -29,7 +29,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -17595,6 +17595,77 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , ("ReadFix", "wasi.fs.read"), ("Ran", "wasi.proc.run"), ("ReadOut", "wasi.fs.read")
           , ("Ending", "wasi.io.stdout"), ("Done", "wasi.io.stdout") ]
         bottomsOf src `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- FALLBACK-REASON-CONST-1: every body fallback names its cause
+  -- -----------------------------------------------------------------------
+  describe "FALLBACK-REASON-CONST-1: every body fallback names its cause" $ do
+    let emitFR src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        causeOf n er = lookup n (erBodyFallbackCauses er)
+
+    it "renderFallbackCause is injective over the closed vocabulary" $ do
+      let cs = [minBound .. maxBound] :: [FallbackCause]
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` length cs
+
+    it "erBodyFallback is the name projection of erBodyFallbackCauses, in order" $ do
+      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n n))"
+      erBodyFallback er `shouldBe` map fst (erBodyFallbackCauses er)
+      erBodyFallback er `shouldBe` ["square"]
+
+    it "a nonlinear body reports body-outside-fragment (the Leanstral-demo square)" $ do
+      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n n))"
+      causeOf "square" er `shouldBe` Just FallbackBody
+
+    it "a whole-map = in the post reports contract-post-outside-fragment (A2-7's 'same')" $ do
+      er <- emitFR (unlines
+        [ "(def same [m: map[int,int] m2: map[int,int] k: int] -> map[int,int]"
+        , "  (post (= result m))"
+        , "  (map-put m2 k 0))" ])
+      causeOf "same" er `shouldBe` Just FallbackContractPost
+
+    it "a Str-param chain on map-empty in the pre reports contract-pre-outside-fragment (F-011's 'pv')" $ do
+      er <- emitFR "(def pv [k: int s: string] -> int (pre (map-has (map-put (map-empty) k s) k)) (post (>= result 0)) 0)"
+      causeOf "pv" er `shouldBe` Just FallbackContractPre
+
+    it "a body with more than 4096 paths reports path-cap-exceeded (13 nested ifs, 8192 paths; the first test to fire either cap)" $ do
+      let nest :: Int -> String
+          nest 0 = "0"
+          nest k = "(if (> x " ++ show k ++ ") " ++ nest (k - 1) ++ " " ++ nest (k - 1) ++ ")"
+      er <- emitFR ("(def-shell deep [x: int] -> int (post (>= result 0)) " ++ nest 13 ++ ")")
+      causeOf "deep" er `shouldBe` Just FallbackPathCap
+
+    -- The mixed-tail site needs a body-VC with one marker-sorted call tail and
+    -- one translatable tail that is not one. Eight well-typed shapes were probed
+    -- at the CLI (param arm, pure map-put arm, let-bound map-put, let-bound call,
+    -- (map-empty) arm, and their combinations): every non-call map tail fails
+    -- body-VC translation earlier and reports body-outside-fragment, while all-
+    -- call tails verify. The witness below is emitter-level and ill-typed (an
+    -- int tail in a map-returning function), which the emitter does not check;
+    -- it shows the site is live. Whether a typechecked program can reach it is
+    -- an open finding carried in the FALLBACK-REASON-CONST-1 hand-off.
+    it "a map-returning body-VC with a call tail beside a non-map tail reports mixed-map-tail (emitter-level witness)" $ do
+      er <- emitFR (unlines
+        [ "(def-shell mk [m: map[int,int] k: int] -> map[int,int] (post (map-has result k)) (map-put m k 0))"
+        , "(def-shell pick [m: map[int,int] k: int b: bool] -> map[int,int]"
+        , "  (post (map-has result k))"
+        , "  (if b (mk m k) 0))" ])
+      causeOf "pick" er `shouldBe` Just FallbackMixedMapTail
+
+    it "a recursive-type pair component reports contract-signature-outside-fragment (PR2-6's ftree)" $ do
+      er <- emitFR (unlines
+        [ "(type Tree (| Node Tree) (| Leaf))"
+        , "(def-shell ftree [p: (int, Tree)] -> int"
+        , "  (post (= result (first p)))"
+        , "  (first p))" ])
+      causeOf "ftree" er `shouldBe` Just FallbackContractSig
+
+    it "the proof-artifact record carries the rendered cause, and the kernel still rejects it on a positive tier" $ do
+      let asserted = mkFnRecord (FnInputs "square" TAsserted [] (Just (renderFallbackCause FallbackBody)) False Nothing)
+      fmap fnFallbackReason asserted `shouldBe` Right (Just "body-outside-fragment")
+      mkFnRecord (FnInputs "square" TVerified [] (Just (renderFallbackCause FallbackBody)) False Nothing)
+        `shouldBe` Left (PositiveWithFallback "square")
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

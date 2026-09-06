@@ -4,6 +4,66 @@
 
 <a id="Latest"></a>
 
+## v0.19.0: every body fallback names its cause, and the .fq does not change (2026-09-06)
+
+**`FALLBACK-REASON-CONST-1` ships.** The proof artifact's `fallback_reason` was the literal
+`"left the body-faithful fragment (§5.3.3 firewall)"` for every function that fell back, so a
+histogram over the field had one bar. The field was designed to carry a cause
+([`proof-artifact-proposal.md`](docs/archive/shipped-design-specs/proof-artifact-proposal.md), the
+per-function record table) and shipped a constant. The emitter now records the decision that sent
+each function to fallback, and three surfaces carry it: the artifact's `fallback_reason`, a new
+`body_fallback_causes` object in `verify --json`, and the `--strict-verified-core` report, whose
+text names the cause after each function and whose JSON adds `fallback_causes`. **No constraint
+changes**: `mPostPred`'s outcome is computed exactly as before and the `.fq` for
+`examples/leanstral-demo/square.llmll` is byte-identical (335 bytes, `cmp`).
+
+### The vocabulary, closed on purpose
+
+Six values, so a histogram over runs has buckets that do not drift:
+`contract-post-outside-fragment`, `contract-pre-outside-fragment`,
+`contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`,
+`mixed-map-tail`. The two 4096-path caps share one value. The roadmap row predicted five; reading
+the guard chain found a refusal that is neither clause's fault (CLASSIFY-MEASURE's three
+signature-level guards), which is the sixth.
+
+**Attribution was wrong before it was named.** The whole-contract guard chain decides `mPostPred`
+from both clauses, so a whole-array `=` in the *pre*, or a blocked map clause in the *pre*, reached
+the fallback site through the post's `Nothing` and would have reported as a post failure. The cause
+is now computed beside `mPostPred` with the same predicates in the same order and attributed to the
+clause that caused it; the existing `pv` shape (a string-valued `map-put` on `map-empty` in the pre)
+reports `contract-pre-outside-fragment`.
+
+### Witnesses
+
+Nine hspec examples: one per cause, the name projection, the injectivity of the rendering, and the
+artifact kernel round trip. The `path-cap-exceeded` example (13 nested `if`s, 8192 paths) is the
+**first test to fire either 4096-path counter**. The `mixed-map-tail` witness is emitter-level and
+ill-typed (an `int` tail in a map-returning function): eight well-typed shapes fail body-VC
+translation earlier and report `body-outside-fragment`, while all-call tails verify, so whether a
+typechecked program can reach that site is **open and recorded**, not fixed.
+
+Schema: [`docs/proof-artifact.schema.json`](docs/proof-artifact.schema.json) `fallback_reason` gains
+the enum, no `$id` change. Artifacts written before this release carry the retired constant, still
+parse (`FromJSON` accepts any string) and still replay (`replay-artifact` does not compare the
+field). `docs/getting-started.md`'s `--json verify` snippet showed a per-function object with a
+reason string the compiler never emitted; it now shows the real shape.
+
+### Roadmap, from two outside readings
+
+Five rows filed by user adjudication of the language-team review: `NORM-CLAIM-1`,
+`FALLBACK-CENSUS-1`, `RESP-FACT-2`, `DISCLOSE-ROW-1` and this one. `BUILTIN-BODY-1`'s next action
+selects the build route plus a completeness assertion; `TOTP-CHECK-1` records a committed sidecar for
+a program that fails `check`. Measured on the way: 503 sidecars in the working tree (5 of them
+tracked) carry 1407 `body_faithful` flags and zero `false`, because the writer emits the key only
+when true, so the census `FALLBACK-CENSUS-1` asks for cannot come from sidecars.
+
+Design: roadmap row `FALLBACK-REASON-CONST-1`, no proposal (the change is to a report field);
+plan: in conversation, 2026-09-05.
+
+1855 examples, 0 failures. pytest 180 passed, 10 skipped.
+
+---
+
 ## v0.18.0: an effect answers how old a file is, and the caller does not re-prove it (2026-09-05)
 
 **`FS-STAT-1` and `FS-EXISTS-1` ship together.** Two `wasi.fs` builtins share one
