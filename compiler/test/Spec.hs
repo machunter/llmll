@@ -17714,6 +17714,62 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         `shouldBe` Left (PositiveWithFallback "square")
 
   -- -----------------------------------------------------------------------
+  -- DUP-DEF-1: a top-level name is bound once per module. Until this pass
+  -- only GHC enforced LLMLL.md §1.1, at build ("Multiple declarations"), and
+  -- `check` printed OK on every shape below. Measured 2026-09-06 at v0.19.0.
+  -- -----------------------------------------------------------------------
+  describe "DUP-DEF-1: duplicate top-level names are rejected at check" $ do
+    let tcSrc src =
+          case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
+            Left err    -> error ("DUP-DEF-1 test source failed to parse: " ++ show err)
+            Right stmts -> typeCheck GrammarCoreInversion emptyEnv stmts
+        dupErrors rep =
+          [ d | d <- reportDiagnostics rep
+              , diagSeverity d == SevError
+              , diagKind d == Just "duplicate-definition" ]
+        dupMsgs = map diagMessage . dupErrors
+        twoDefs = "(def f [n: int] -> int n)\n(def f [n: int] -> int (+ n 1))"
+
+    it "two defs of one name: exactly one error, naming the name and the count" $ do
+      let rep = tcSrc twoDefs
+      length (dupErrors rep) `shouldBe` 1
+      dupMsgs rep `shouldSatisfy` all (\m -> "'f'" `T.isInfixOf` m && "2 times" `T.isInfixOf` m)
+
+    it "a def and a def-shell of one name collide: the namespace is the function, not the form" $ do
+      let rep = tcSrc "(def f [n: int] -> int n)\n(def-shell f [n: int] -> int (+ n 1))"
+      length (dupErrors rep) `shouldBe` 1
+
+    it "two types of one name collide" $ do
+      let rep = tcSrc "(type Shape (| Circle) (| Square))\n(type Shape (| Tri))\n(def g [n: int] -> int n)"
+      dupMsgs rep `shouldSatisfy` any (\m -> "'Shape'" `T.isInfixOf` m && "type defined 2 times" `T.isInfixOf` m)
+
+    it "two def-main forms collide, counted rather than named" $ do
+      let dm = "(def-main :mode console :init 0 :step (fn [state: int line: string _r: Response] (pair state (wasi.io.stdout line))))"
+          rep = tcSrc (unlines ["(import wasi.io (capability write \"stdout\"))", dm, dm])
+      dupMsgs rep `shouldSatisfy` any ("duplicate def-main: 2" `T.isInfixOf`)
+
+    it "negative: a function and a type may share a spelling; the namespaces are separate" $ do
+      let rep = tcSrc "(type Shape (| Circle))\n(def shape [n: int] -> int n)"
+      dupErrors rep `shouldBe` []
+
+    it "negative: a sequential let that rebinds a name is a shadow, not a duplicate (§12 note 5)" $ do
+      let rep = tcSrc "(def f [n: int] -> int (let [(x n) (x (+ x 1))] x))"
+      dupErrors rep `shouldBe` []
+      reportSuccess rep `shouldBe` True
+
+    it "JSON-AST parity: the same program through ParserJSON carries the same kind" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack twoDefs) of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
+            Left err     -> expectationFailure (show err)
+            Right stmts' -> length (dupErrors (typeCheck GrammarCoreInversion emptyEnv stmts')) `shouldBe` 1
+
+    it "negative: the pass is intra-module; a local def beside an opened module adds no duplicate-definition error" $ do
+      let rep = tcSrc "(open some.lib)\n(def g [n: int] -> int n)"
+      dupErrors rep `shouldBe` []
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec

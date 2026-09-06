@@ -1,0 +1,8 @@
+;; @doc: LLMLL.md §1.1 (Strict Immutability: re-binding the same name in the same scope is a compile error)
+;; @expect: check-error:duplicate top-level definition
+;; @norm: NC-011
+;; @claim: §1.1 says re-binding a name in the same scope is a compile error. Until DUP-DEF-1 only GHC enforced it, at `build` ("Multiple declarations of 'f'"), and `check` printed OK on this file (measured v0.19.0). DUP-DEF-1 makes `check` reject it with kind `duplicate-definition`. This is the first fixture that names a norm-claim identifier (NC-011); the NORM-CLAIM-1 gate reads the `@norm:` line and DRIFT-CT-2 ignores it.
+(module duplicate-def-rejected
+  (export f)
+  (def f [n: int] -> int n)
+  (def f [n: int] -> int (+ n 1)))

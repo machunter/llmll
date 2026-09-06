@@ -1440,6 +1440,16 @@ checkStatements stmts = do
       cyclicNames = Set.toAscList detectCycles
   forM_ cyclicNames $ \n ->
     tcError $ "type alias cycle involving '" <> n <> "'"
+  -- DUP-DEF-1: a top-level name is bound once per module (LLMLL.md §1.1).
+  -- 'withEnv' folds with foldr, so the FIRST definition wins the environment
+  -- and every later one is shadowed silently; CodegenHs emits all of them and
+  -- GHC reports "Multiple declarations"; 'emitMainHs' keeps the first def-main
+  -- and drops the rest. Until this pass, only GHC enforced the sentence, at
+  -- build, and `check` said OK. The error is unconditional, unlike the
+  -- constructor pass below, because a duplicate constructor still builds and
+  -- a duplicate binding does not: a warning would leave `verify` and its
+  -- sidecar green on a program `build` rejects.
+  checkDuplicateTopLevel stmts
   withEnv topLevel $ do
     -- Register ADT constructors as callable functions (LLMLL.md §3.3).
     let ctorBindings = collectConstructors stmts
@@ -1500,6 +1510,39 @@ checkStatements stmts = do
       case analyzeRespFacts am stmts of
         Left errs  -> forM_ errs (tcErrorK "resp-fact")
         Right plan -> forM_ (rpWarnings plan) tcWarn
+
+-- | DUP-DEF-1: reject a top-level name that one module binds more than once.
+--
+-- Functions and types are separate namespaces, as they are in the generated
+-- Haskell (a value @shape@ beside a @data Shape@ is legal), so each is checked
+-- on its own. A @def-main@ has no name and is counted instead. A sequential
+-- @let@ that rebinds a name is a nested shadow (LLMLL.md §12 note 5), not a
+-- duplicate, and never reaches this pass.
+checkDuplicateTopLevel :: [Statement] -> TC ()
+checkDuplicateTopLevel stmts = do
+  let fnNames = mapMaybe fnNameOf stmts
+      tyNames = [n | STypeDef n _ <- stmts] ++ [n | SDefInterface n _ _ <- stmts]
+      mains   = length [() | SDefMain{} <- stmts]
+      dupesOf ns   = nub (ns \\ nub ns)
+      countOf ns n = length (filter (== n) ns)
+      report what ns n =
+        tcErrorK "duplicate-definition" $
+          "duplicate top-level definition '" <> n <> "': " <> what <> " defined "
+          <> T.pack (show (countOf ns n))
+          <> " times in this module; a name is bound once per scope (LLMLL.md §1.1)"
+  forM_ (dupesOf fnNames) (report "function" fnNames)
+  forM_ (dupesOf tyNames) (report "type" tyNames)
+  when (mains > 1) $
+    tcErrorK "duplicate-definition" $
+      "duplicate def-main: " <> T.pack (show mains)
+      <> " in this module; a module has at most one entry point"
+  where
+    fnNameOf (SDef n _ _ _ _)          = Just n
+    fnNameOf (SDefShell n _ _ _ _ _)   = Just n
+    fnNameOf (SDefLogic n _ _ _ _)     = Just n
+    fnNameOf (SLetrec n _ _ _ _ _)     = Just n
+    fnNameOf (SDefInvariant n _ _ _ _) = Just n
+    fnNameOf _                         = Nothing
 
 -- | Extract (name, type) for top-level definitions (for forward references).
 collectTopLevel :: Statement -> Maybe (Name, Type)
