@@ -145,13 +145,16 @@
   ;; type-checks, verifies SAFE, and dies at GHC, which is the defect this
   ;; fixture's whole existence is about.
   ;;
-  ;; MEASURED over scripts/build-smoke/*.llmll, so the gap is a number and not
+  ;; MEASURED over scripts/build-smoke/*.llmll, so the gap was a number and not
   ;; an impression: of the twelve hand-written equations, this corpus called
-  ;; three (`pair`, `list-length`, `string-length`) and now calls four. The
-  ;; eight still uncalled are `first`, `second`, `bytes-length`, `bytes-get`,
-  ;; `bytes-set`, `list-nth`, `string-slice` and `string-char-at`. Five of those
-  ;; eight wrap an ARGUMENT in fromIntegral at the LT-INT call seam, where a
-  ;; wrong wrapper is a GHC type error and nothing before a build sees it.
+  ;; three (`pair`, `list-length`, `string-length`), then four with `sha1`,
+  ;; and since 2026-09-06 all twelve: the eight defs after this one call
+  ;; `first`, `second`, `bytes-length`, `bytes-get`, `bytes-set`, `list-nth`,
+  ;; `string-slice` and `string-char-at`. Five of those eight wrap an ARGUMENT
+  ;; in fromIntegral at the LT-INT call seam, where a wrong wrapper is a GHC
+  ;; type error and nothing before a build sees it. Spec.hs's fold now pins
+  ;; that every hand-written equation has a call site in this directory, so a
+  ;; thirteenth equation without one fails the unit suite, not a user's GHC.
   ;;
   ;; So the call site below is the assertion. It needs no shell-side grep: if
   ;; the equation emits a name nothing binds, THIS FILE does not compile and
@@ -164,6 +167,36 @@
   ;; this fixture's business.
   (def-shell smoke-sha1 [k: bytes[20]] -> bytes[20]
     (sha1 k))
+
+  ;; BUILTIN-BODY-1 residue (1). One call per hand-written equation the corpus
+  ;; did not reach. Literal indices, so no clause is owed: this fixture's job
+  ;; is the build. `first`/`second` lower to Prelude's fst/snd and `pair` to
+  ;; tuple syntax, so those three have no preamble binding to list; the other
+  ;; six name preamble bindings and join the name lists in
+  ;; scripts/build_smoke.sh and its LLMLL port in this same change.
+  (def-shell smoke-first [p: (int, int)] -> int
+    (first p))
+
+  (def-shell smoke-second [p: (int, int)] -> int
+    (second p))
+
+  (def-shell smoke-bytes-length [b: bytes[4]] -> int
+    (bytes-length b))
+
+  (def-shell smoke-bytes-get [b: bytes[4]] -> int
+    (bytes-get b 0))
+
+  (def-shell smoke-bytes-set [b: bytes[4]] -> bytes[4]
+    (bytes-set b 0 7))
+
+  (def-shell smoke-list-nth [xs: list[int]] -> Result[int, string]
+    (list-nth xs 0))
+
+  (def-shell smoke-string-slice [s: string] -> string
+    (string-slice s 0 1))
+
+  (def-shell smoke-string-char-at [s: string] -> string
+    (string-char-at s 0))
 
   ;; EFFECT-RESP: the console harness. Every arm of Response is matched, so the
   ;; generated Main.hs only compiles if the emitted `data Response` declaration,

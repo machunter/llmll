@@ -35,7 +35,7 @@ import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredT
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset)
 import qualified Data.ByteString as BSS
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -61,7 +61,7 @@ import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
-import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable)
+import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable, listDirectory)
 import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess, readProcessWithExitCode)
 import Data.List (isSuffixOf, isInfixOf, sort, find)
@@ -15190,6 +15190,52 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       Map.size builtinEnv      `shouldBe` 103
       length needsBinding      `shouldBe` 72
       length resolvedElsewhere `shouldBe` 9
+
+    -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
+    -- equation is exempt from the preamble check below BY CONSTRUCTION: its
+    -- emission does not start with the mangled builtin name, so it is not in
+    -- needsBinding, and sha1's fix moved sha1 out of that set (71 -> 70). A
+    -- typo in such an equation type-checks, verifies SAFE and dies at GHC, so
+    -- the only oracle is a build, and a build grades only what a fixture
+    -- CALLS. The two examples below close the class. The set is DERIVED, and
+    -- NOT by fellThrough: five of the twelve keep the mangled head and differ
+    -- only inside their arguments, `(bytes_get (a1) (fromIntegral (a2) :: Int))`
+    -- against the generic `(bytes_get (a1) (a2))`, which is exactly where a
+    -- wrong wrapper lives, so the prefix test files them as generic and the
+    -- first draft of this pin found seven. The whole emission is compared
+    -- against the generic fallthrough form and against emitOp (both `wrap`
+    -- and `emitOp` are exported for that). Membership is pinned, so moving a
+    -- name is a decision that names itself in the failure. Every member must
+    -- be applied in some scripts/build-smoke/*.llmll, so a thirteenth
+    -- equation without a call site fails here and not at a user's GHC. Seen
+    -- to fail once, with smoke-first's call replaced by `second`, before
+    -- wiring.
+    let generic n args = "(" <> mangle n <> " " <> T.unwords (map wrap args) <> ")"
+        handWritten =
+          [ n | (n, ty) <- Map.toList builtinEnv
+              , let args = synthArgs ty
+              , n `notElem` resolvedElsewhere
+              , emitApp n args /= generic n args
+              , emitApp n args /= emitOp n args ]
+
+    it "twelve builtins lower through a hand-written emitApp equation" $
+      sort handWritten `shouldBe` sort
+        [ "first", "second", "pair", "list-length", "string-length"
+        , "bytes-length", "bytes-get", "bytes-set", "list-nth"
+        , "string-slice", "string-char-at", "sha1" ]
+
+    it "every hand-written emitApp equation is called by a build-smoke fixture" $ do
+      let dir = "../scripts/build-smoke"
+      names <- listDirectory dir
+      srcs  <- mapM (\f -> TIO.readFile (dir <> "/" <> f)) [ f | f <- names, ".llmll" `isSuffixOf` f ]
+      let called n  = any (T.isInfixOf ("(" <> n <> " ")) srcs
+          uncalled  = [ n | n <- handWritten, not (called n) ]
+      if null uncalled
+        then uncalled `shouldBe` []
+        else expectationFailure $
+               "hand-written emitApp equation(s) with no call site in scripts/build-smoke/: "
+               <> T.unpack (T.intercalate ", " uncalled)
+               <> ". Only a build grades these; add a def-shell calling each to smoke.llmll."
 
     forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do

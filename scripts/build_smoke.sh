@@ -204,6 +204,11 @@ fi
 # runGhcCheck from carrying a green verdict on an uncompiled fixture, which is
 # the same job it does for every wasi_* name.
 
+# BUILTIN-BODY-1 residue (1), 2026-09-06: the six preamble names the hand-written
+# emitApp equations reach, added when smoke.llmll gained a call to each of the
+# eight uncalled equations. fst, snd and tuple syntax have no binding to list.
+# Same change as the port list, per the paragraph above.
+
 LIB="$OUTDIR/src/Lib.hs"
 [ -f "$LIB" ] || fail "no src/Lib.hs emitted at $LIB"
 
@@ -214,6 +219,7 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_clock_monotonic wasi_proc_run wasi_proc_args \
             wasi_env_get wasi_fs_copy \
             sha1_hash \
+            bytes_length bytes_get bytes_set list_nth string_slice string_char_at \
             seq_commands \
             json_parse json_serialize json_get json_get_string json_get_int \
             json_get_bool json_get_number json_array json_object json_set \
