@@ -1,0 +1,11 @@
+;; @doc: LLMLL.md §1 item 4a (each contract clause carries a display level) and §4.4.1
+;; @cmd: verify {file} --strict-verify --trust-report
+;; @expect: output:post: verified (liquid-fixpoint)
+;; @norm: NC-022
+;; @claim: Each clause carries a display level a caller can read without the implementation: the trust report prints `post: verified (liquid-fixpoint)` for a discharged post and `pre: asserted` for an undischarged pre, per clause. `--strict-verify` is required: without a sidecar, `verify --trust-report` prints an all-asserted report and exits before the solver runs (the trust-report early exit named in critique-2026-09-05-triage.md item B2), so the plain flag pins the wrong thing on a fresh tree. Measured v0.19.1.
+(module display-level-verified
+  (export g)
+  (def g [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result n))
+    (+ n 1)))

@@ -1,0 +1,15 @@
+;; @doc: LLMLL.md §1 item 5 (Compositional Verification: body-faithful across call chains)
+;; @cmd: verify {file}
+;; @expect: output:body-faithful: g, f
+;; @norm: NC-027
+;; @claim: Body-faithful verification reaches across a call chain: `f` calls `g`, and `verify` lists BOTH as body-faithful and reports SAFE, using `g`'s post as a hypothesis rather than inlining its body. Same program as assume-guarantee-obligation.llmll under a second module name, because one fixture carries one verdict. Measured v0.19.1.
+(module chain-body-faithful
+  (export f g)
+  (def g [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result n))
+    (+ n 1))
+  (def-shell f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (g n)))

@@ -1,0 +1,11 @@
+;; @doc: LLMLL.md §1 item 4a (Design by Contract with Stratified Verification: outside QF-LIA the function falls back)
+;; @cmd: verify {file}
+;; @expect: output:body-fallback: g
+;; @norm: NC-020
+;; @claim: A contract outside the decidable fragment (a nonlinear `(* n n)` post) is not flagged with `?proof-required`, which is a hole kind an author writes; `verify` reports the function as `body-fallback` and the trust report carries its `fallback_reason` (FALLBACK-REASON-CONST-1, v0.19.0). The old §1.4a wording claimed the `?proof-required` flag; this fixture pins what the compiler prints. Measured v0.19.1.
+(module nonlinear-body-fallback
+  (export g)
+  (def-shell g [n: int] -> int
+    (pre (>= n 0))
+    (post (= result (* n n)))
+    (* n n)))

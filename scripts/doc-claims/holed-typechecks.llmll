@@ -1,0 +1,10 @@
+;; @doc: LLMLL.md §1 item 2 (Hole-Driven Development: a program with holes can be analyzed and type-checked)
+;; @expect: check-ok
+;; @norm: NC-014
+;; @claim: A program whose body is a hole passes `check` unchanged; nothing requires the hole to be filled before analysis. The abort of a reached hole at run time is a separate sentence (NC-035) with an `assumed` disposition: `run` and `build` stay outside this gate's fast path, and the `run` probe at v0.19.1 exited 0 after `:init` without stepping into the hole. Measured v0.19.1.
+(module holed-typechecks
+  (export f)
+  (def f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    ?f-impl))

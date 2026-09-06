@@ -1,5 +1,6 @@
 ;; @doc: getting-started.md §4.8
 ;; @expect: check-error:requires (import
+;; @norm: NC-017, NC-029
 ;; @claim: calling wasi.io.stdout without a capability import is a compile-time capability error (genuine restriction; complements import-after-def.llmll which shows a present capability import is honored regardless of position)
 (module m
   (def-shell g [s: string] (wasi.io.stdout s)))

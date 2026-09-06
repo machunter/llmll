@@ -1,0 +1,283 @@
+{
+  "gate": "DRIFT-CT-3",
+  "spec": "LLMLL.md",
+  "scope": [
+    "## 0.1 Semantic Foundation",
+    "## 1. Core Philosophy"
+  ],
+  "assumed_bound": 8,
+  "bound_reason": "pilot value at v0.19.1: 35 sentences, of which 8 are assumed; lower freely, raise only with a reason here",
+  "claims": [
+    {
+      "id": "NC-001",
+      "section": "0.1",
+      "text": "LLMLL's operational semantics are defined by the generated Haskell program.",
+      "disposition": "assumed",
+      "reason": "definitional stance: the generated Haskell is the semantics by decision (§0.1); TRUST-BASE-1 owes the paragraph that names the trusted base"
+    },
+    {
+      "id": "NC-002",
+      "section": "0.1",
+      "text": "The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior.",
+      "disposition": "assumed",
+      "reason": "definitional: the compiler is the reference implementation by decision"
+    },
+    {
+      "id": "NC-003",
+      "section": "0.1",
+      "text": "There is no separate formal semantics document.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-004",
+      "section": "0.1",
+      "text": "Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics — a verified contract holds for all well-typed inputs of the generated Haskell code, modulo the `Int64` overflow gap documented in §5.3.5.",
+      "disposition": "falsified-by",
+      "target": "gate:refute-crux"
+    },
+    {
+      "id": "NC-005",
+      "section": "0.1",
+      "text": "Compositional reasoning: when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis).",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/assume-guarantee-obligation.llmll"
+      ]
+    },
+    {
+      "id": "NC-006",
+      "section": "0.1",
+      "text": "This assume-guarantee composition is sound when both functions are independently verified.",
+      "disposition": "assumed",
+      "reason": "metatheoretic: the soundness of assume-guarantee composition is a Hoare-logic result with no per-instance instrument"
+    },
+    {
+      "id": "NC-007",
+      "section": "0.1",
+      "text": "Functions in recursive call cycles are verified compositionally by the **mutual-recursion assume-guarantee rule** — each cycle member's body-VC assumes its callees' postconditions and proves its own body — which is sound at **partial** correctness (Hoare 1971; Apt, *Ten Years of Hoare's Logic*, TOPLAS 1981): a non-terminating recursion vacuously satisfies its postcondition.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/mutual-recursion-partial.llmll"
+      ]
+    },
+    {
+      "id": "NC-008",
+      "section": "0.1",
+      "text": "Termination is discharged only by a `(decreases …)` clause (§4.2, §5.3.3), which upgrades the cycle to total correctness; without one the verdict is partial.",
+      "disposition": "falsified-by",
+      "target": "suite:total-recursion"
+    },
+    {
+      "id": "NC-034",
+      "section": "0.1",
+      "text": "The trust report marks every member of an undischarged cycle `termination_unverified` (§4.4.4).",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/termination-unverified-mark.llmll"
+      ]
+    },
+    {
+      "id": "NC-009",
+      "section": "1.1",
+      "text": "**Strict Immutability:** There are no variables, only constants.",
+      "disposition": "assumed",
+      "reason": "no mutation construct exists to reject; the claim is the absence of a surface form"
+    },
+    {
+      "id": "NC-010",
+      "section": "1.1",
+      "text": "State is transformed, never mutated.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-011",
+      "section": "1.1",
+      "text": "Re-binding the same name in the same scope is a compile error.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/duplicate-def-rejected.llmll"
+      ]
+    },
+    {
+      "id": "NC-012",
+      "section": "1.1",
+      "text": "Shadowing in nested scopes (e.g., a `let` binding that reuses a parameter name) is permitted but discouraged — the verifier alpha-renames shadowed bindings internally.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/shadow-alpha-renamed.llmll"
+      ]
+    },
+    {
+      "id": "NC-013",
+      "section": "1.2",
+      "text": "**Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`).",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-014",
+      "section": "1.2",
+      "text": "A program with holes can be analyzed and type-checked.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/holed-typechecks.llmll"
+      ]
+    },
+    {
+      "id": "NC-035",
+      "section": "1.2",
+      "text": "`build` accepts it, and a hole that execution reaches aborts the program with `hole: <name>` (`emitHole`), so the program does no useful work until the holes are filled.",
+      "disposition": "assumed",
+      "reason": "codegen lowering (emitHole) with no run-level fixture: build and run stay outside the doc-claims fast path, and the run probe at v0.19.1 exited 0 after :init without stepping into the hole"
+    },
+    {
+      "id": "NC-015",
+      "section": "1.2",
+      "text": "Always prefer a typed hole over a hallucinated implementation.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-016",
+      "section": "1.3",
+      "text": "**Typed Logic:** Every expression has a type.",
+      "disposition": "assumed",
+      "reason": "metatheoretic: the type system's own well-formedness, with no single fixture"
+    },
+    {
+      "id": "NC-017",
+      "section": "1.3",
+      "text": "The type system prevents null pointer dereferences, type mismatches, and unguarded IO.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/type-mismatch-rejected.llmll",
+        "scripts/doc-claims/missing-capability.llmll"
+      ]
+    },
+    {
+      "id": "NC-018",
+      "section": "1.4a",
+      "text": "**Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/open-aux-lib.llmll"
+      ]
+    },
+    {
+      "id": "NC-019",
+      "section": "1.4a",
+      "text": "These contracts are the trust interface between agents.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-020",
+      "section": "1.4a",
+      "text": "Verification is stratified: contracts in the decidable arithmetic fragment (QF-LIA) are verified at compile time via liquid-fixpoint / Z3; a function whose contract or body leaves that fragment is reported as `body-fallback` with a recorded `fallback_reason`, its contracts are enforced as runtime assertions, and an author may route the obligation to Lean with a `?proof-required` hole (§5.3.3).",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/nonlinear-body-fallback.llmll"
+      ]
+    },
+    {
+      "id": "NC-021",
+      "section": "1.4a",
+      "text": "An interactive proof path (Lean 4 via Leanstral, `--leanstral`) ships as an experimental, opt-in demo that records `verified-lean`; the production Lean tier is designed and deferred (see §5.3.3).",
+      "disposition": "assumed",
+      "reason": "LEAN-GA sits in the Upcoming Releases table, outside the row check's population, and the --leanstral demo needs a network API, so no offline fixture exists"
+    },
+    {
+      "id": "NC-022",
+      "section": "1.4a",
+      "text": "Each contract clause carries a *display level* — `verified`, `contract-checked`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/display-level-verified.llmll"
+      ]
+    },
+    {
+      "id": "NC-023",
+      "section": "1.4b",
+      "text": "**Transitive Trust Propagation:** Trust levels propagate through call chains: no `verified` conclusion rests silently on an `asserted` assumption.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/trust-gap-caller.llmll"
+      ]
+    },
+    {
+      "id": "NC-024",
+      "section": "1.4b",
+      "text": "A function's effective display level is the lattice meet of its own `post` level and the `post` levels of all transitively reachable callees; a callee's `pre` level does not lower it (§4.4.4, TRUST-PRE).",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/effective-level-post-meet.llmll"
+      ]
+    },
+    {
+      "id": "NC-025",
+      "section": "1.5",
+      "text": "**Compositional Verification:** Verification extends beyond isolated functions.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-026",
+      "section": "1.5",
+      "text": "When a function calls a contracted callee, the verifier proves the caller satisfies the callee's precondition and assumes the callee's postcondition holds (assume-guarantee reasoning).",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/assume-guarantee-obligation.llmll"
+      ]
+    },
+    {
+      "id": "NC-027",
+      "section": "1.5",
+      "text": "This enables body-faithful verification across multi-function call chains without inlining.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/chain-body-faithful.llmll"
+      ]
+    },
+    {
+      "id": "NC-028",
+      "section": "1.5",
+      "text": "Recursive cycles are verified compositionally via the mutual-recursion assume-guarantee rule, not contract-only: at **partial** correctness by default, and at total correctness with a discharging `(decreases …)` clause (§4.2).",
+      "disposition": "falsified-by",
+      "target": "suite:total-recursion"
+    },
+    {
+      "id": "NC-029",
+      "section": "1.6",
+      "text": "**Declared Effect Namespaces:** A module reaches no part of the system it has not imported, and the compiler rejects a `wasi.*` call whose namespace the calling module did not declare.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/missing-capability.llmll"
+      ]
+    },
+    {
+      "id": "NC-030",
+      "section": "1.6",
+      "text": "Imports are non-transitive, so every module states its own reach.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/import-non-transitive.llmll"
+      ]
+    },
+    {
+      "id": "NC-031",
+      "section": "1.6",
+      "text": "The `capability` clause on an import records the intended verb and target but is **not yet enforced** (§7); the checked property is namespace declaration, not least authority.",
+      "disposition": "row",
+      "target": "CAP-1-REAL"
+    },
+    {
+      "id": "NC-032",
+      "section": "1.6",
+      "text": "Every side effect is modeled as a `Command` value returned from pure logic, never performed directly, and what performing it produced comes back as a `Response` (§9.7).",
+      "disposition": "assumed",
+      "reason": "architectural invariant of codegen (§9.7): effects are Command values; NC-017's fixture witnesses one corner and nothing pins the whole"
+    },
+    {
+      "id": "NC-033",
+      "section": "1.6",
+      "text": "See §7 for the sandbox implementation and the enforcement gap.",
+      "disposition": "informative"
+    }
+  ]
+}

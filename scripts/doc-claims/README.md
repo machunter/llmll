@@ -24,6 +24,7 @@ Each fixture is a `.llmll` file with a header:
 ;; @doc:    <doc file and section the claim lives in>
 ;; @cmd:    <optional; subcommand+args to run, default "check {file}">
 ;; @expect: check-ok | parse-error | check-error | warn:<substring> | output:<substring>
+;; @norm:   <optional; NC-NNN identifiers of LLMLL.md sentences this fixture stands under, comma-separated>
 ;; @claim:  <the human-readable claim being guarded>
 <the program>
 ```
@@ -102,6 +103,21 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `open-after-def-typecheck.llmll` | `(open …)` after a def that uses its bare names: `typecheck` exits **0** with only a warning | genuine restriction (`@cmd`, multi-module) |
 | `open-after-def-verify.llmll` | the same program: `verify` exits **1** with `error:` | genuine restriction (`@cmd`, multi-module) |
 | `open-aux-lib.llmll` | support module for the two above; its own claim is that it checks clean | positive behaviour |
+| `duplicate-def-rejected.llmll` | two `(def f …)` in one module: `check` rejects with kind `duplicate-definition` (DUP-DEF-1; was GHC-only at `build`) | genuine restriction; first `@norm:` fixture (NC-011) |
+| `assume-guarantee-obligation.llmll` | `verify` lists `call-pre obligations: f` for a caller of a contracted callee (NC-005, NC-026) | positive behaviour (`@cmd: verify`) |
+| `chain-body-faithful.llmll` | both members of a call chain are `body-faithful` and the module is SAFE (NC-027) | positive behaviour (`@cmd: verify`) |
+| `mutual-recursion-partial.llmll` | a two-member cycle without `(decreases …)` verifies body-faithful at partial correctness (NC-007, NC-028) | positive behaviour (`@cmd: verify`) |
+| `termination-unverified-mark.llmll` | the same cycle carries `"termination_unverified":true` in the JSON trust report (NC-034) | positive behaviour (`@cmd: verify … --trust-report --json`) |
+| `shadow-alpha-renamed.llmll` | a `let` that reuses a parameter name verifies SAFE only because the verifier alpha-renamed it (NC-012) | positive behaviour (`@cmd: verify`) |
+| `holed-typechecks.llmll` | a program whose body is a hole passes `check` (NC-014) | positive behaviour |
+| `type-mismatch-rejected.llmll` | `(+ n "x")` is a `check` error "type mismatch in '+'" (NC-017) | genuine restriction |
+| `nonlinear-body-fallback.llmll` | a nonlinear post is reported `body-fallback: g`, not flagged `?proof-required` (NC-020) | positive behaviour (`@cmd: verify`) |
+| `display-level-verified.llmll` | the trust report prints `post: verified (liquid-fixpoint)` per clause (NC-022); needs `--strict-verify`, because `verify --trust-report` alone exits before proving when no sidecar exists | positive behaviour (`@cmd: verify … --strict-verify --trust-report`) |
+| `trust-gap-caller.llmll` | calling a callee with no verified evidence warns "inherits this trust gap" at `check` (NC-023); depends on `trust-gap-callee.llmll` having NO sidecar | positive behaviour (multi-module) |
+| `trust-gap-callee.llmll` | support module for the above; checks clean; never run `verify` on it in place | positive behaviour |
+| `effective-level-post-meet.llmll` | `effective_level` stays `verified` when every `pre` is `asserted`: the meet is over post levels (NC-024); same `--strict-verify` reason | positive behaviour (`@cmd: verify … --strict-verify --trust-report --json`) |
+| `import-non-transitive.llmll` | importing a module that imports `wasi.io` does not import `wasi.io` (NC-030) | genuine restriction (multi-module) |
+| `import-non-transitive-callee.llmll` | support module for the above; declares `wasi.io` itself and checks clean | positive behaviour |
 
 The `open-after-def-*` pair is one claim needing two fixtures. The documented behaviour is that
 `typecheck` and `verify` **disagree** on the same program, so neither command alone can guard it:
@@ -113,6 +129,13 @@ is unguarded because it would pull GHC into the fast path for no additional disc
 *fixed-stale* fixtures lock in a corrected claim (alert on regression); *genuine
 restriction* fixtures are forward drift-catchers (alert the day the restriction is
 relaxed and the doc must be updated).
+
+**`@norm:` and the reverse gate.** A fixture that carries `@norm: NC-NNN` stands under the
+`LLMLL.md` sentence with that marker; `DRIFT-CT-3` ([`../norm-claims/README.md`](../norm-claims/README.md))
+checks that every `fixture`-dispositioned sentence names a fixture that names it back. This
+gate ignores the line. Two `verify` fixtures pass `--strict-verify` because, with no sidecar
+present, `verify --trust-report` prints an all-asserted report and exits before the solver
+runs; a plain `--trust-report` fixture pins that early exit rather than the claim.
 
 **Multi-module fixtures need no gate machinery.** `(import foo)` resolves `foo.llmll` relative to
 the *importing file*, not the process CWD (verified v0.14.67 from a different working directory,

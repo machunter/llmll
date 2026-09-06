@@ -1,0 +1,11 @@
+;; @doc: LLMLL.md §1 item 1 (Strict Immutability: shadowing in nested scopes is permitted)
+;; @cmd: verify {file}
+;; @expect: output:SAFE
+;; @norm: NC-012
+;; @claim: A `let` that reuses a parameter name is a permitted nested shadow, and the verifier alpha-renames it: the post `(>= result 1)` holds only if the inner `n` is the shadowed `(+ n 1)` and not the parameter, so SAFE is the witness that the rename happened. Measured v0.19.1.
+(module shadow-alpha-renamed
+  (export f)
+  (def f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 1))
+    (let [(n (+ n 1))] n)))

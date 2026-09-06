@@ -1,0 +1,11 @@
+;; @doc: LLMLL.md §1 item 4b (Transitive Trust Propagation: no verified conclusion rests silently on an asserted assumption)
+;; @expect: warn:inherits this trust gap
+;; @norm: NC-023
+;; @claim: A module that calls a callee with no verified evidence is told so at `check`: "Function trust-gap-callee.g has an unproven contract (level: asserted). Your module inherits this trust gap." The gap is never silent. Depends on trust-gap-callee.llmll having no sidecar. Measured v0.19.1 (the warning fires at `check`, not only at `verify`).
+(module trust-gap-caller
+  (import trust-gap-callee)
+  (export f)
+  (def-shell f [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (trust-gap-callee.g n)))

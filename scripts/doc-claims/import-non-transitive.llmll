@@ -1,0 +1,8 @@
+;; @doc: LLMLL.md §1 item 6 (Declared Effect Namespaces: imports are non-transitive)
+;; @expect: check-error:requires (import wasi.io
+;; @norm: NC-030
+;; @claim: Importing a module that itself imports `wasi.io` does not bring `wasi.io` into scope: a call to `wasi.io.stdout` here is rejected with "wasi.io.stdout requires (import wasi.io (capability ...))". Every module states its own reach. Measured v0.19.1.
+(module import-non-transitive
+  (import import-non-transitive-callee)
+  (export go)
+  (def-shell go [] -> Command (wasi.io.stdout "from the importer")))

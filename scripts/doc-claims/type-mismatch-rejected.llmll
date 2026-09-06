@@ -1,0 +1,7 @@
+;; @doc: LLMLL.md §1 item 3 (Typed Logic: the type system prevents type mismatches)
+;; @expect: check-error:type mismatch
+;; @norm: NC-017
+;; @claim: An `int` operator applied to a string is a `check` error ("type mismatch in '+': expected int, got string"). The unguarded-IO half of the same sentence is missing-capability.llmll; the null-dereference half has no construct to exercise, because the language has no null. Measured v0.19.1.
+(module type-mismatch-rejected
+  (export f)
+  (def f [n: int] -> int (+ n "x")))

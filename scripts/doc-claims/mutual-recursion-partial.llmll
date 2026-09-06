@@ -1,0 +1,15 @@
+;; @doc: LLMLL.md §0.1 (mutual-recursion assume-guarantee rule) and §1 item 5 (recursive cycles at partial correctness)
+;; @cmd: verify {file}
+;; @expect: output:body-faithful: a, b
+;; @norm: NC-007, NC-028
+;; @claim: A two-member recursive cycle with no `(decreases …)` clause is verified compositionally at partial correctness: both members are body-faithful and the module reports SAFE, each body assuming the other's postcondition. The partiality itself is pinned by termination-unverified-mark.llmll on the same program. Measured v0.19.1. A bool-returning pair with `(post true)` crashed liquid-fixpoint ("RHS without single conjunct") and is deliberately not this fixture; that shape is a separate finding.
+(module mutual-recursion-partial
+  (export a b)
+  (def-shell a [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (if (= n 0) 0 (b (- n 1))))
+  (def-shell b [n: int] -> int
+    (pre (>= n 0))
+    (post (>= result 0))
+    (if (= n 0) 1 (a (- n 1)))))
