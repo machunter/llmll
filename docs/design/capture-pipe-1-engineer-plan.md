@@ -1,7 +1,7 @@
 ---
 name: capture-pipe-1-engineer-plan
 title: "CAPTURE-PIPE-1: the console step machine captures stdout through a file, not a pipe"
-status: "Plan approved and executed 2026-09-06 on branch capture-pipe-1/temp-file-capture, awaiting the user's review and commit: 1865 → 1870 hspec examples, 180 → 181 pytest; the widened build-smoke fixture failed against the v0.20.0 binary with the CAPTURE-PIPE-1 diagnosis and passes against the patched one; doc-claims cover cell 11 passes on macOS. Filed from the roadmap row CAPTURE-PIPE-1 (measured the same day)."
+status: "Plan approved and executed 2026-09-06, committed 3d176d5, shipped v0.20.1: 1865 → 1870 hspec examples, 180 → 181 pytest; the widened build-smoke fixture failed against the v0.20.0 binary with the CAPTURE-PIPE-1 diagnosis and passes against the patched one; doc-claims cover cell 11 passes on macOS. Filed from the roadmap row CAPTURE-PIPE-1 (measured the same day)."
 date: 2026-09-06
 author: compiler-engineer
 consumers: [user, documentation-lead, llmll-patch-implementer]

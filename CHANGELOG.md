@@ -4,6 +4,46 @@
 
 <a id="Latest"></a>
 
+## v0.20.1: a console step of any size completes, and the gate that proves it is bounded (2026-09-06)
+
+**`CAPTURE-PIPE-1` closes.** The console step machine captured each step's stdout through a
+`createPipe` pipe: the write end was copied onto `stdout` for the step and the read end was read
+back after the step returned, on the same thread. A pipe holds 16 KiB on macOS and 64 KiB on
+Linux, so a step that printed more blocked in the write with nobody reading, and the program
+slept in `select` with no exit, no diagnostic and no event-log line. Found the same day by cell 11
+of `scripts/doc_claims_cover.py` on macOS, where the doc-claims port's 31-fixture failure report,
+18,316 bytes in one step, held the cover for two hours: 28 fixtures print 15,893 bytes and pass,
+29 hang. Linux CI had passed the same cell because 18 KiB is under 64 KiB.
+
+- **The sink is a temporary file.** `captureStdout` opens it with `openTempFile` under
+  `getTemporaryDirectory`, pins it to UTF-8 before the redirect as before, reads it back through a
+  fresh pinned handle, forces the string, closes both handles and removes the file. A drain on a
+  forked thread was refused: the generated project runs the non-threaded RTS, and a blocking write
+  on descriptor 1 stops every green thread. The file lives in `TMPDIR` and not the working
+  directory, so a step that lists its own directory does not see it. `System.Posix.IO` and the
+  `unix` dependency leave the generated `package.yaml` with the pipe.
+- **The regression runs the program.** `scripts/build-smoke/capture_encoding.llmll` now prints
+  131,072 bytes in its first step, twice the Linux bound, and the BMP step follows, so the
+  existing hex assertion proves the big step completed. `build_smoke.sh` bounds the run with
+  `perl -e 'alarm 120'` and names the deadlock in a diagnosis line; no verdict line changes, so
+  the port and the differential cover need no edit and agree on 9 of 9 cells. Measured both ways:
+  the widened fixture fails against the v0.20.0 binary with the `CAPTURE-PIPE-1` diagnosis and
+  passes against this one. The doc-claims cover keeps its 300 s bound per cell and reports a cell
+  that does not finish as `HANG`; cell 11 passes on macOS with the rebuilt gate.
+- **Pins.** Five hspec examples pin the emitted source (the file sink, both codec pins in order,
+  the removal after the forced read, the close after the restore); the `unix` pair flips; the
+  FS-ENCODING-1 ordering pin names `logHandle <- openFile` instead of the first `openFile`, which
+  the capture's read handle now is. `scripts/tests/test_codegen_capture_fd.py` tracks the new
+  handle binders and gains a test. Plan and execution record:
+  [`docs/design/capture-pipe-1-engineer-plan.md`](docs/design/capture-pipe-1-engineer-plan.md).
+
+No user-visible surface, no schema change. Not measured: the per-step cost of the file sink,
+estimated under 0.3 ms; the next `main` run's refute-crux step timing is the measurement.
+
+1870 examples, 0 failures (five new). pytest 181 passed, 10 skipped (one new).
+
+---
+
 ## v0.20.0: a spec sentence names what stands under it, and `check` finds a duplicate before GHC does (2026-09-06)
 
 **`NORM-CLAIM-1` ships as `DRIFT-CT-3`, the fourth member of the DRIFT gate family.** `DRIFT-CT-2`
