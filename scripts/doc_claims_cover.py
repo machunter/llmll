@@ -105,18 +105,19 @@ CELL_TIMEOUT = 300
 # can see, which is what it was for. A caller with no solver is refused up
 # front, naming the binary, rather than reported as drift in the corpus.
 #
-# CELL 11 HANGS ON macOS SINCE THE CORPUS REACHED 31 FIXTURES, and the cause is
-# the runtime's, not this cover's: CAPTURE-PIPE-1. The console step machine
-# redirects stdout into a pipe for one step and reads it back afterwards on the
-# same thread; a step that prints more than the pipe holds (16 KiB on macOS,
-# 64 KiB on Linux) blocks in the write with nobody reading. Cell 11 makes every
-# fixture fail, so the port's finish step prints the whole 31-block report,
-# 18,316 bytes, in one step (28 fixtures print 15,893 and pass; 29 hang). Two
-# local runs of this cover sat at cell 11 for two hours before that was measured. Each cell is now bounded by CELL_TIMEOUT and a
-# hang is reported as a diverged cell that names the row. It is NOT skipped on
-# darwin: a red cell that says why is the cover doing its job, and skipping it
-# would be the locale-pin mistake again. On Linux the same report is under the
-# buffer and the cell passes, which is why CI never saw it.
+# CELL 11 HUNG ON macOS FROM THE DAY THE CORPUS REACHED 31 FIXTURES, and the
+# cause was the runtime's, not this cover's: CAPTURE-PIPE-1. The console step
+# machine redirected stdout into a pipe for one step and read it back afterwards
+# on the same thread; a step that printed more than the pipe held (16 KiB on
+# macOS, 64 KiB on Linux) blocked in the write with nobody reading. Cell 11
+# makes every fixture fail, so the port's finish step prints the whole 31-block
+# report, 18,316 bytes, in one step (28 fixtures printed 15,893 and passed; 29
+# hung). Two local runs of this cover sat at cell 11 for two hours before that
+# was measured. The capture sink is a temporary file since CAPTURE-PIPE-1 and
+# the cell passes on both platforms. CELL_TIMEOUT stays: a hang is reported as
+# a diverged cell that names the row, so a regression of that class is a
+# failure and not a wait. Linux CI never saw the hang because 18 KiB is under
+# its 64 KiB, which is why a green board proved nothing about it.
 ENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin",
     "HOME": "/nonexistent",
@@ -325,9 +326,10 @@ def _c10(tree):
 # cover that demanded it would be asserting something neither implementation
 # controls. What this cell asserts is the DECISION: fail, not skip. That is the
 # property the port got wrong.
-# ON macOS THIS CELL REPORTS HANG TODAY (CAPTURE-PIPE-1, see ENV): with every
-# fixture failing, the port's report exceeds the 16 KiB pipe the step machine
-# captures stdout through. Linux passes it. Not skipped here on purpose.
+# THIS CELL IS THE ONE THAT FOUND CAPTURE-PIPE-1 (see ENV): with every fixture
+# failing, the port's report exceeded the 16 KiB pipe the step machine captured
+# stdout through, and the cell hung on macOS while Linux passed it. It is the
+# macOS witness for that row, and it is never skipped by platform.
 @cell("11", "an explicitly named subject does not exist (must FAIL, not skip)",
       compare_report=False)
 def _c11(tree):

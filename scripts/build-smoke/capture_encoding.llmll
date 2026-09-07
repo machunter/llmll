@@ -45,6 +45,26 @@
 ;;
 ;; Deliberately imports only wasi.io: a gate over the capture path should fail
 ;; for capture-path reasons only.
+;;
+;; CAPTURE-PIPE-1 (2026-09-06). THE FIRST STEP PRINTS 131,072 BYTES, and that
+;; number is the fixture's second job. captureStdout used to capture a step's
+;; stdout through a pipe it read only after the step returned, so a step that
+;; printed more than the pipe held (16 KiB on macOS, 64 KiB on Linux) blocked
+;; forever with nobody reading. Found by cell 11 of scripts/doc_claims_cover.py
+;; on macOS, where an 18,316-byte failure report hung the doc-claims port;
+;; Linux CI passed the same cell because 18 KiB is under 64 KiB. 131,072 is
+;; twice the Linux bound, so the deadlock fails on both platforms and not only
+;; on a Mac. The block is a 16-character literal doubled thirteen times rather
+;; than written out, so the source stays readable and the length is arithmetic
+;; a reader can check.
+;;
+;; THE BMP STEP COMES SECOND ON PURPOSE. The harness runs steps in order on one
+;; thread, so the BMP bytes can reach the output only after the big step has
+;; completed. The existing hex assertion therefore proves the big step
+;; finished, with no new verdict line and no new assertion: a deadlock leaves
+;; the BMP run absent, and build_smoke.sh bounds the run so that absence is a
+;; failure and not a hang. BLEN is reported for the same reason LEN is: a
+;; wrong length would say the string never reached the write.
 
 (module capture-encoding
   (import wasi.io (capability stdout :deterministic false))
@@ -52,18 +72,43 @@
   (def-shell ce-init [] -> (int, Command)
     (pair 0 (wasi.io.stdout "")))
 
+  ;; 16 characters doubled thirteen times: 16 * 2^13 = 131,072.
+  (def-shell ce-big [] -> string
+    (let [(a "0123456789abcdef")]
+      (let [(b (string-concat a a))]
+        (let [(c (string-concat b b))]
+          (let [(d (string-concat c c))]
+            (let [(e (string-concat d d))]
+              (let [(f (string-concat e e))]
+                (let [(g (string-concat f f))]
+                  (let [(h (string-concat g g))]
+                    (let [(i (string-concat h h))]
+                      (let [(j (string-concat i i))]
+                        (let [(k (string-concat j j))]
+                          (let [(l (string-concat k k))]
+                            (let [(m (string-concat l l))]
+                              (string-concat m m)))))))))))))))
+
+  (def-shell ce-big-line [] -> string
+    (let [(big (ce-big))]
+      (string-concat-many
+        ["BIG=" big "|BLEN=" (int-to-string (string-length big))])))
+
+  (def-shell ce-bmp-line [] -> string
+    (let [(bmp "→✔✘✅§")]
+      (let [(ast "😀")]
+        (string-concat-many
+          ["BMP=" bmp
+           "|AST=" ast
+           "|LEN=" (int-to-string (string-length bmp))
+           "|ALEN=" (int-to-string (string-length ast))]))))
+
+  ;; Step one (s = 0) prints the big line; step two (s = 1) prints the BMP line.
   (def-shell ce-step [s: int input: string r: Response] -> (int, Command)
     (pair (+ s 1)
-      (wasi.io.stdout
-        (let [(bmp "→✔✘✅§")]
-          (let [(ast "😀")]
-            (string-concat-many
-              ["BMP=" bmp
-               "|AST=" ast
-               "|LEN=" (int-to-string (string-length bmp))
-               "|ALEN=" (int-to-string (string-length ast))]))))))
+      (wasi.io.stdout (if (= s 0) (ce-big-line) (ce-bmp-line)))))
 
-  ;; >= 2 AND NOT >= 1, and the difference is the whole fixture. RC-4: the
+  ;; >= 3 AND NOT >= 2, and the difference is the whole fixture. RC-4: the
   ;; console loop is
   ;;
   ;;   loop s r = let (s', cmd) = step s line r
@@ -71,11 +116,14 @@
   ;;                            else loop s' (perform cmd)
   ;;
   ;; so the step that TRIPS done? has its command discarded by design. With
-  ;; `>= 1` the single emitting step is exactly that step, and this fixture
-  ;; prints nothing at all -- which reads identically to "the encoding fix
-  ;; worked and there is no output to be wrong". Measured: it emitted zero
-  ;; bytes. `>= 2` lets step one's command be performed and step two settle.
-  (def-shell ce-done? [s: int] -> bool (>= s 2))
+  ;; `>= 2` the BMP step would be exactly that step, and this fixture would
+  ;; print the big line and nothing else -- which reads identically to "the
+  ;; encoding fix worked and there is no output to be wrong". Before the big
+  ;; step existed, `>= 1` produced the same silence and it was measured at
+  ;; zero bytes. `>= 3` lets step one print the big line, step two print the
+  ;; BMP line, and step three settle. Both feeds are six lines (build_smoke.sh
+  ;; `seq 6`, buildsmoke.llmll c-feed-text), which covers three steps.
+  (def-shell ce-done? [s: int] -> bool (>= s 3))
 
   (def-main
     :mode    console
