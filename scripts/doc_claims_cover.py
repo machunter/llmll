@@ -54,6 +54,11 @@ FIXTURES = REPO / "scripts" / "doc-claims"
 # and still an order of magnitude under the refute-crux port's 4000.
 BUDGET = 400
 
+# Seconds one cell may take before it is reported as a HANG (see CAPTURE-PIPE-1
+# above). The real subject runs a cell in about 3 s locally; the budget is wide
+# so a slow solver on a CI runner cannot trip it, and it is still a bound.
+CELL_TIMEOUT = 300
+
 # THE ENVIRONMENT BOTH SIDES GET, and every entry in it is load-bearing for a
 # reason that cost a red CI run to learn.
 #
@@ -86,11 +91,54 @@ BUDGET = 400
 #
 # **macOS cannot reproduce any of it**, which is v0.14.86's finding and finding
 # 10's: GHC there resolves UTF-8 under every `LC_ALL`. This cover passed 17/17
-# locally throughout, with no locale set and no solver on PATH.
+# locally throughout, with no locale set and, until v0.20.0, no solver on PATH.
+#
+# THE SOLVER IS THE ONE THING PUT BACK, AND ONLY THE SOLVER. Since v0.20.0 three
+# fixtures (shadow-alpha-renamed, display-level-verified and
+# effective-level-post-meet; NC-012, NC-022, NC-024) have a solver verdict as
+# their witness, so a corpus run with no `fixpoint` on PATH fails those three
+# and every negative control with them: run 34061569204 reported 3 of 17 cells
+# diverged, all three controls, on a runner whose fixpoint sat in ~/.local/bin
+# below this scrub. main() resolves `fixpoint` (or `liquid-fixpoint`) and `z3`
+# from the CALLER's PATH, links them into a directory holding nothing else, and
+# prepends that directory here. The scrub still hides every `llmll` the caller
+# can see, which is what it was for. A caller with no solver is refused up
+# front, naming the binary, rather than reported as drift in the corpus.
+#
+# CELL 11 HANGS ON macOS SINCE THE CORPUS REACHED 31 FIXTURES, and the cause is
+# the runtime's, not this cover's: CAPTURE-PIPE-1. The console step machine
+# redirects stdout into a pipe for one step and reads it back afterwards on the
+# same thread; a step that prints more than the pipe holds (16 KiB on macOS,
+# 64 KiB on Linux) blocks in the write with nobody reading. Cell 11 makes every
+# fixture fail, so the port's finish step prints the whole 31-block report,
+# 18,316 bytes, in one step (28 fixtures print 15,893 and pass; 29 hang). Two
+# local runs of this cover sat at cell 11 for two hours before that was measured. Each cell is now bounded by CELL_TIMEOUT and a
+# hang is reported as a diverged cell that names the row. It is NOT skipped on
+# darwin: a red cell that says why is the cover doing its job, and skipping it
+# would be the locale-pin mistake again. On Linux the same report is under the
+# buffer and the cell passes, which is why CI never saw it.
 ENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin",
     "HOME": "/nonexistent",
 }
+
+
+def solver_dir(root: Path) -> Path:
+    """A directory holding ONLY the solver, linked from the caller's PATH."""
+    fixpoint = shutil.which("liquid-fixpoint") or shutil.which("fixpoint")
+    z3 = shutil.which("z3")
+    missing = [n for n, p in (("fixpoint", fixpoint), ("z3", z3)) if p is None]
+    if missing:
+        raise SystemExit(
+            "FAIL: doc-claims cover: no " + " or ".join(missing)
+            + " on the caller's PATH; three fixtures need a proof, so no cell "
+            + "can be decided (see ENV)"
+        )
+    d = root / "solver-bin"
+    d.mkdir()
+    for exe in (fixpoint, z3):
+        (d / Path(exe).name).symlink_to(exe)
+    return d
 
 
 def prepare(dst: Path) -> None:
@@ -159,7 +207,7 @@ def normalise(out: str) -> list[str]:
     return [l for l in out.splitlines() if l.strip()]
 
 
-def run_port(tree: Path, gate: str, subject: str) -> tuple[int, list[str], str]:
+def run_port(tree: Path, gate: str, subject: str) -> tuple[int | None, list[str], str]:
     work = tree / ".work"
     work.mkdir(exist_ok=True)
     run = tree / ".run"
@@ -177,11 +225,16 @@ def run_port(tree: Path, gate: str, subject: str) -> tuple[int, list[str], str]:
     # corpus and the other skip. A differential cover that varies the environment
     # between the two sides is comparing two worlds, not two implementations.
     # See ENV for why the locale is pinned rather than absent.
-    p = subprocess.run(
-        argv,
-        input="x\n" * BUDGET, capture_output=True, text=True, cwd=str(run),
-        env=dict(ENV),
-    )
+    try:
+        p = subprocess.run(
+            argv,
+            input="x\n" * BUDGET, capture_output=True, text=True, cwd=str(run),
+            env=dict(ENV), timeout=CELL_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        # A hung port is neither a fail nor a pass: returncode None, and main()
+        # reports it before the expect_fail comparison can read it as either.
+        return None, [], f"(no output: the port ran for {CELL_TIMEOUT}s and was killed)"
     return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 
 
@@ -272,6 +325,9 @@ def _c10(tree):
 # cover that demanded it would be asserting something neither implementation
 # controls. What this cell asserts is the DECISION: fail, not skip. That is the
 # property the port got wrong.
+# ON macOS THIS CELL REPORTS HANG TODAY (CAPTURE-PIPE-1, see ENV): with every
+# fixture failing, the port's report exceeds the 16 KiB pipe the step machine
+# captures stdout through. Linux passes it. Not skipped here on purpose.
 @cell("11", "an explicitly named subject does not exist (must FAIL, not skip)",
       compare_report=False)
 def _c11(tree):
@@ -335,6 +391,9 @@ def main() -> int:
         print("SKIP: no llmll subject (--llmll)")
         return 0
 
+    solver_root = Path(tempfile.mkdtemp(prefix="doc-claims-cover-solver-"))
+    ENV["PATH"] = f"{solver_dir(solver_root)}:{ENV['PATH']}"
+
     bad = 0
     for name, why, mutate, expect_fail, compare_report in CELLS:
         root = Path(tempfile.mkdtemp(prefix="doc-claims-cover-"))
@@ -351,6 +410,15 @@ def main() -> int:
                 subject = args.llmll
 
             prc, prows, praw = run_port(tree, args.gate, subject)
+
+            # A HANG is its own verdict. Folding it into port_failed would let
+            # cell 11 (expect_fail) pass on the strength of a killed process,
+            # which is exactly what a SIGTERM from outside made it do once.
+            if prc is None:
+                print(f"  HANG     {name:4s} the port did not finish in {CELL_TIMEOUT}s  ({why}) [CAPTURE-PIPE-1]")
+                print(praw)
+                bad += 1
+                continue
 
             port_failed = prc != 0
 
@@ -379,6 +447,8 @@ def main() -> int:
             if not args.keep:
                 shutil.rmtree(root, ignore_errors=True)
 
+    if not args.keep:
+        shutil.rmtree(solver_root, ignore_errors=True)
     print()
     if bad:
         print(f"FAIL: doc-claims cover: {bad} of {len(CELLS)} cell(s) diverged")
