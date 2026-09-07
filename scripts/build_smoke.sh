@@ -555,7 +555,18 @@ if [ -f "$CENC_FIXTURE" ]; then
   # file's own encoding as much as the program's.
   CENC_WANT="424d503de28692e29c94e29c98e29c85c2a77c4153543df09f98807c4c454e3d357c414c454e3d31"
   CENC_OUT_FILE="$OUTDIR/.capenc.out"
-  ( cd "$OUTDIR" && printf 'x\n%.0s' $(seq 6) | "$CENC_EXE" ) > "$CENC_OUT_FILE" 2>&1 || true
+  # CAPTURE-PIPE-1. THE RUN IS BOUNDED, because the fixture's first step prints
+  # 131,072 bytes and the defect that step pins is a deadlock, not a wrong
+  # byte: captureStdout used to capture through a pipe it read only after the
+  # step returned, and a step larger than the pipe (16 KiB on macOS, 64 KiB on
+  # Linux) blocked forever. Unbounded, a regression here would hold the job to
+  # its six-hour limit and report nothing. perl's alarm delivers SIGALRM to the
+  # program itself, because exec replaces perl with it; a shell background-and-
+  # kill would kill the subshell and leave the program running. perl ships on
+  # every runner image and on macOS. The port bounds the same run at 300 s
+  # through wasi.proc.run (buildsmoke.llmll, CencRun).
+  command -v perl >/dev/null 2>&1 || fail "perl is needed to bound the capture-encoding run (CAPTURE-PIPE-1)."
+  ( cd "$OUTDIR" && printf 'x\n%.0s' $(seq 6) | perl -e 'alarm 120; exec @ARGV' "$CENC_EXE" ) > "$CENC_OUT_FILE" 2>&1 || true
   CENC_HEX="$(od -An -tx1 < "$CENC_OUT_FILE" | tr -d ' \n')"
 
   case "$CENC_HEX" in
@@ -573,6 +584,11 @@ if [ -f "$CENC_FIXTURE" ]; then
       case "$(cat "$CENC_OUT_FILE")" in
         *"invalid byte sequence"*) printf '  diagnosis : readEnd pinned, writeEnd NOT -- UTF-8 read rejected a truncated byte\n' >&2 ;;
       esac
+      # The big step runs first, so an output file shorter than its line means
+      # the step never completed: the capture deadlocked and the alarm ended it.
+      if [ "$(wc -c < "$CENC_OUT_FILE" | tr -d ' ')" -lt 131072 ]; then
+        printf '  diagnosis : the 131072-byte step did not complete (CAPTURE-PIPE-1)\n' >&2
+      fi
       printf -- '--- program output ---\n' >&2
       cat "$CENC_OUT_FILE" >&2
       fail "a console program cannot put a non-ASCII character on its own stdout (CAPTURE-ENCODING-1)."

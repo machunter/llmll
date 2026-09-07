@@ -14507,19 +14507,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- infix check without actually fixing the bug)
       T.isInfixOf "hSetBuffering stdout NoBuffering" afterRestore `shouldBe` True
 
-  describe "CodegenHs emitPackageYaml: unix dependency for def-main's event-log harness" $ do
+  -- CAPTURE-PIPE-1. captureStdout captured a step's stdout through a pipe it
+  -- read only after the step returned, on the same thread, so a step that
+  -- printed more than the pipe held (16 KiB on macOS, 64 KiB on Linux)
+  -- deadlocked the program. The sink is now a temporary file. These pin the
+  -- emitted SOURCE; the run-the-program half is scripts/build-smoke/
+  -- capture_encoding.llmll, whose first step prints 131,072 bytes under a
+  -- bounded run in build_smoke.sh. Examples two, three and five mirror in
+  -- hspec the pins scripts/tests/test_codegen_capture_fd.py holds in Python.
+  describe "CodegenHs captureStdout captures through a temporary file (CAPTURE-PIPE-1)" $ do
 
-    it "package.yaml declares `unix` (top-level, shared by library+executable) when a def-main is present" $ do
+    it "the sink is openTempFile under getTemporaryDirectory, and no pipe remains" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "openTempFile tmpDir" preamble `shouldBe` True
+      T.isInfixOf "tmpDir <- getTemporaryDirectory" preamble `shouldBe` True
+      T.isInfixOf "createPipe" preamble `shouldBe` False
+      T.isInfixOf "fdToHandle" preamble `shouldBe` False
+
+    it "the write handle is pinned to utf8 BEFORE the redirect copies it onto stdout (CAPTURE-ENCODING-1)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (before, after) = T.breakOn "hDuplicateTo writeEnd stdout" preamble
+      T.isInfixOf "hSetEncoding writeEnd utf8" before `shouldBe` True
+      T.isInfixOf "hSetEncoding writeEnd utf8" after `shouldBe` False
+
+    it "the read handle is pinned to utf8 before hGetContents reads the capture (CAPTURE-ENCODING-1)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (before, _) = T.breakOn "output <- hGetContents readEnd" preamble
+      T.isInfixOf "hSetEncoding readEnd utf8" before `shouldBe` True
+
+    it "the capture file is removed after the read is forced" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (before, afterForce) = T.breakOn "length output `seq` pure ()" preamble
+      T.isInfixOf "removeFile capPath" afterForce `shouldBe` True
+      T.isInfixOf "removeFile capPath" before `shouldBe` False
+
+    it "the duplicate of the original stdout is closed after the restore (FD-CAPTURE-1)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (before, afterRestore) = T.breakOn "hDuplicateTo oldStdout stdout" preamble
+      T.isInfixOf "hClose oldStdout" afterRestore `shouldBe` True
+      T.isInfixOf "hClose oldStdout" before `shouldBe` False
+
+  describe "CodegenHs emitPackageYaml: no unix dependency since CAPTURE-PIPE-1" $ do
+
+    it "package.yaml declares no `unix` when a def-main is present, and Main.hs imports no System.Posix" $ do
       let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testpkg" stmts
-          -- Main.hs is only emitted when SDefMain is present, and it always
-          -- imports System.Posix.IO (unix). hpack's default source-dirs
-          -- auto-discovery pulls Main.hs into BOTH the library's and the
-          -- executable's other-modules, so `unix` must be a top-level dep,
-          -- not scoped to just the executable stanza.
-          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` True
+          -- Main.hs imported System.Posix.IO for the capture pipe, and `unix`
+          -- had to be a top-level dependency because hpack's source-dirs
+          -- auto-discovery pulls Main.hs into the library component too. The
+          -- pipe is gone, so the import and the dependency are gone with it;
+          -- getTemporaryDirectory and removeFile come from `directory`.
+          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+          case cgMainHs result of
+            Just mainHs -> do
+              T.isInfixOf "System.Posix" mainHs `shouldBe` False
+              T.isInfixOf "import System.Directory (getTemporaryDirectory, removeFile)" mainHs `shouldBe` True
+            Nothing -> expectationFailure "a def-main should emit Main.hs"
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
     it "package.yaml does NOT declare `unix` when there is no def-main (no Main.hs emitted)" $ do
@@ -15377,8 +15422,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- hDuplicate / hDuplicateTo pair in captureStdout RESETS stdout's encoding
     -- to the locale's on every single step, discarding whatever was pinned.
     -- Moving the locale is what makes those duplicates UTF-8; it covers the
-    -- event-log handle and the createPipe/fdToHandle pair for the same reason,
-    -- without enumerating them.
+    -- event-log handle and the capture file's two handles (CAPTURE-PIPE-1) for
+    -- the same reason, without enumerating them.
     it "console main moves the LOCALE, which is what hDuplicateTo re-reads" $ do
       let h = harnessOf consoleSrc
       T.isInfixOf "setLocaleEncoding utf8" h `shouldBe` True
@@ -15389,13 +15434,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- precede the event log's openFile, whose handle resolves its codec at
     -- creation time. Asserted as ordering for the same reason the fs bodies'
     -- force-inside-the-bracket test is.
+    -- The event-log handle is named, not "the first openFile": since
+    -- CAPTURE-PIPE-1 the preamble's captureStdout opens the capture file with
+    -- openFile too, and the preamble is emitted above main. That handle is
+    -- opened inside the step loop, after main's pins have run, so the runtime
+    -- order holds; the textual order does not, and the assertion is about the
+    -- handle whose codec the locale move exists to reach.
     it "the pins precede the first handle use and the event-log openFile" $ do
       let h       = harnessOf consoleSrc
           idxOf s = T.length (fst (T.breakOn s h))
-      T.isInfixOf "<- openFile" h `shouldBe` True
-      (idxOf "setLocaleEncoding utf8"   < idxOf "hSetBuffering stdin") `shouldBe` True
-      (idxOf "setLocaleEncoding utf8"   < idxOf "<- openFile")         `shouldBe` True
-      (idxOf "hSetEncoding stdout utf8" < idxOf "<- openFile")         `shouldBe` True
+      T.isInfixOf "logHandle <- openFile" h `shouldBe` True
+      (idxOf "setLocaleEncoding utf8"   < idxOf "hSetBuffering stdin")    `shouldBe` True
+      (idxOf "setLocaleEncoding utf8"   < idxOf "logHandle <- openFile") `shouldBe` True
+      (idxOf "hSetEncoding stdout utf8" < idxOf "logHandle <- openFile") `shouldBe` True
 
     -- cli prints its result through stdout too. Fixing console and leaving cli
     -- on the ambient locale would be the same defect with a smaller blast

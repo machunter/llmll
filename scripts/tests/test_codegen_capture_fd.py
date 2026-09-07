@@ -14,9 +14,19 @@ each handle bound in `captureStdout` is closed on the success path. That is
 decidable from the text, does not depend on the collector, and fails loudly if
 a later change reintroduces reliance on finalization.
 
-`readEnd` is the one deliberate exception and it is named rather than skipped:
-`hGetContents` puts a handle in the semi-closed state and closes it at EOF, and
-the line above it forces the whole string, so it is closed by the read itself.
+`readEnd` was the one deliberate exception: `hGetContents` puts a handle in the
+semi-closed state and closes it at EOF, and the line above it forces the whole
+string. Since CAPTURE-PIPE-1 it is closed explicitly as well, so the exception
+set is empty and stays declared, because any future addition to it needs the
+same kind of argument in writing.
+
+CAPTURE-PIPE-1 (2026-09-06). The capture sink moved from a `createPipe` pipe to
+a temporary file: a step that printed more than the pipe held (16 KiB on macOS,
+64 KiB on Linux) blocked in the write with the read not yet started, on one
+thread, and the program slept forever. The handles are now `openTempFile`'s
+(writeEnd, with the file's path) and `openFile`'s (readEnd), and the file is
+removed after the read. These tests track those binders; the descriptor
+property they pin is the same one.
 """
 
 from __future__ import annotations
@@ -27,9 +37,22 @@ import re
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CODEGEN = REPO / "compiler" / "src" / "LLMLL" / "CodegenHs.hs"
 
-# Closed by hGetContents reaching EOF, which the forcing line above it
-# guarantees. Any addition here needs the same kind of argument in writing.
-CLOSED_BY_CONSUMPTION = {"readEnd"}
+# Handles closed by something other than an hClose naming them. Empty since
+# CAPTURE-PIPE-1 (readEnd is now closed by name); any addition here needs the
+# same kind of argument in writing that readEnd's hGetContents case had.
+CLOSED_BY_CONSUMPTION: set[str] = set()
+
+# The binders that open a handle inside captureStdout. openTempFile binds a
+# (path, handle) pair, so the pattern accepts a tuple whose LAST name is the
+# handle.
+OPENER = re.compile(
+    r"\s*(?:\(\s*\w+\s*,\s*(\w+)\s*\)|(\w+))\s*<-\s*"
+    r"(hDuplicate|fdToHandle|openFile|openTempFile)\b"
+)
+
+
+def _opened(body: list[str]) -> set[str]:
+    return {m.group(1) or m.group(2) for line in body if (m := OPENER.match(line))}
 
 
 def _capture_stdout_body() -> list[str]:
@@ -49,15 +72,12 @@ def test_capture_stdout_closes_every_handle_it_opens():
     body = _capture_stdout_body()
     joined = "\n".join(body)
 
-    opened = set()
-    for line in body:
-        m = re.match(r"\s*(\w+)\s*<-\s*(hDuplicate|fdToHandle)\b", line)
-        if m:
-            opened.add(m.group(1))
+    opened = _opened(body)
 
-    assert "oldStdout" in opened, (
-        "captureStdout no longer duplicates stdout; if the capture mechanism "
-        "changed, this test needs rewriting rather than deleting"
+    assert {"oldStdout", "writeEnd", "readEnd"} <= opened, (
+        f"captureStdout binds {sorted(opened)}; it should duplicate stdout and "
+        "open a write handle and a read handle on the capture file. If the "
+        "capture mechanism changed, this test needs rewriting rather than deleting"
     )
 
     closed = set(re.findall(r"hClose\s+(\w+)", joined))
@@ -105,37 +125,52 @@ def test_the_restore_happens_before_the_close():
 # ---------------------------------------------------------------------------
 
 
-def test_both_pipe_ends_are_pinned_to_utf8():
-    """Every fdToHandle handle needs an explicit encoding; the locale cannot reach it.
+def test_both_capture_handles_are_pinned_to_utf8():
+    """Both handles on the capture file carry an explicit utf8 pin.
 
-    System.Posix.IO.fdToHandle returns a handle in BINARY mode -- hGetEncoding
-    answers Nothing -- and binary mode is the ABSENCE of a codec rather than a
-    wrong one, so setLocaleEncoding has nothing to inform. A binary handle writes
-    a Char's low byte, which is why `→` (U+2192) went out as 0x92 and `✅`
-    (U+2705) as 0x05: codepoint mod 256.
+    History, because the pin outlived its first reason. The pipe ends came from
+    System.Posix.IO.fdToHandle in BINARY mode -- hGetEncoding answered Nothing --
+    and binary mode is the ABSENCE of a codec rather than a wrong one, so
+    setLocaleEncoding had nothing to inform. A binary handle writes a Char's low
+    byte, which is why `→` (U+2192) went out as 0x92 and `✅` (U+2705) as 0x05:
+    codepoint mod 256. Both ends were required and each was ablated separately:
+    writeEnd alone gave a latin-1 re-decode (c3 a2 c2 86 c2 92), readEnd alone
+    gave "hGetContents: invalid byte sequence".
 
-    Both ends are required and each was ablated separately: writeEnd alone gives
-    a latin-1 re-decode (c3 a2 c2 86 c2 92), readEnd alone gives
-    "hGetContents: invalid byte sequence".
+    Since CAPTURE-PIPE-1 the handles come from openTempFile and openFile, TEXT
+    mode, so the locale main moves does reach them. The pins stay by name: the
+    capture must not depend on the order in which main moves the locale, and
+    scripts/build-smoke/capture_encoding.llmll asserts the bytes either way.
     """
     body = _capture_stdout_body()
     joined = "\n".join(body)
 
-    from_pipe = {m.group(1)
-                 for line in body
-                 if (m := re.match(r"\s*(\w+)\s*<-\s*fdToHandle\b", line))}
-    assert from_pipe, (
-        "captureStdout no longer builds handles with fdToHandle; if the capture "
-        "mechanism changed, this test needs rewriting rather than deleting"
+    capture = {name for name in _opened(body) if name != "oldStdout"}
+    assert capture == {"writeEnd", "readEnd"}, (
+        f"captureStdout opens {sorted(capture)} on the capture file; expected a "
+        "writeEnd and a readEnd. If the capture mechanism changed, this test "
+        "needs rewriting rather than deleting"
     )
 
     pinned = set(re.findall(r"hSetEncoding\s+(\w+)\s+utf8", joined))
-    unpinned = from_pipe - pinned
+    unpinned = capture - pinned
     assert not unpinned, (
-        f"captureStdout takes {sorted(unpinned)} from fdToHandle without pinning "
-        f"an encoding. That handle is in BINARY mode and setLocaleEncoding cannot "
-        f"reach it, so every non-ASCII character written through it is truncated "
-        f"to its low byte. This is CAPTURE-ENCODING-1."
+        f"captureStdout opens {sorted(unpinned)} without pinning an encoding. "
+        f"A capture handle that resolves its codec from the ambient state is "
+        f"CAPTURE-ENCODING-1's class, whichever sink it writes to."
+    )
+
+
+def test_the_capture_file_is_removed_after_the_read_is_forced():
+    """The file replaces the pipe; leaving it behind would replace one leak with another."""
+    body = _capture_stdout_body()
+    force = next(i for i, l in enumerate(body) if "length output `seq`" in l)
+    remove = next((i for i, l in enumerate(body) if "removeFile capPath" in l), None)
+    assert remove is not None, "captureStdout never removes its capture file (CAPTURE-PIPE-1)"
+    assert force < remove, (
+        "removeFile capPath must come AFTER the read is forced; hGetContents is "
+        "lazy and an unlinked file with a semi-closed handle still reads on "
+        "POSIX, but the order is the property a reader can check"
     )
 
 

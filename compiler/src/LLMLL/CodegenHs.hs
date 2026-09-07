@@ -1794,33 +1794,53 @@ emitEventLogPreamble =
   , "captureStdout :: IO () -> IO String"
   , "captureStdout action = do"
   , "  oldStdout <- hDuplicate stdout"
-  , "  (readFd, writeFd) <- createPipe"
-  , "  writeEnd <- fdToHandle writeFd"
-  -- CAPTURE-ENCODING-1 (v0.14.90). System.Posix.IO.fdToHandle returns a handle
-  -- in BINARY mode, and binary mode is the ABSENCE of a text codec rather than a
-  -- codec that happens to be wrong. That distinction is the whole defect:
-  -- setLocaleEncoding cannot reach a binary handle, because there is nothing for
-  -- the locale to inform. MEASURED, and this is what localizes the row that used
-  -- to say only "the remaining suspect is the capture path":
+  -- CAPTURE-PIPE-1. THE SINK IS A FILE, NOT A PIPE, and the reason is a
+  -- deadlock that was measured before it was explained. Until this change the
+  -- capture went through `createPipe`: the write end was copied onto stdout
+  -- for the step and the read end was read back AFTER the step, on the same
+  -- thread. A pipe holds 16 KiB on macOS and 64 KiB on Linux. A step that wrote
+  -- more than that blocked in the write with nobody reading, and the program
+  -- slept in `select` forever: no exit, no diagnostic, no event-log line.
+  -- Measured on the doc-claims port with a subject that failed every fixture:
+  -- 28 fixtures printed 15,893 bytes and passed, 29 hung, 31 would have
+  -- printed 18,316 bytes. Linux CI passed the same run because 18 KiB is under
+  -- 64 KiB, which is why it reached the tree unseen.
   --
-  --   setLocaleEncoding utf8 ; getLocaleEncoding   -> UTF-8
-  --   createPipe >>= fdToHandle >>= hGetEncoding   -> Nothing   (both ends)
-  --   ... after hSetEncoding h utf8                -> Just UTF-8
+  -- A forked reader over the pipe was REFUSED, not overlooked. The generated
+  -- project ships no ghc-options, so this is the non-threaded RTS, and
+  -- GHC.IO.FD.writeRawBufferPtr takes its blocking branch for a handle whose
+  -- fdIsNonBlocking is False, which stdout's is. A blocking write on
+  -- descriptor 1 stops every green thread, the reader included. A regular
+  -- file has no buffer bound, so the step completes whatever it prints.
   --
-  -- A binary handle writes a Char's LOW BYTE, so `→` (U+2192) went out as 0x92
-  -- and `✅` (U+2705) as 0x05: codepoint mod 256.
+  -- THE FILE LIVES UNDER getTemporaryDirectory AND NOT IN THE WORKING
+  -- DIRECTORY. A step that lists its own directory must not see the capture;
+  -- the ports list fixture directories and their work directories, and one
+  -- unexpected entry is a verdict (FS-RMDIR-1). It is removed after the read,
+  -- so a crash mid-step leaves at most one llmll-captureNNNN.txt in TMPDIR.
+  , "  tmpDir <- getTemporaryDirectory"
+  , "  (capPath, writeEnd) <- openTempFile tmpDir \"llmll-capture.txt\""
+  -- CAPTURE-ENCODING-1 (v0.14.90), kept across CAPTURE-PIPE-1. The pipe ends
+  -- came from System.Posix.IO.fdToHandle in BINARY mode, which is the ABSENCE
+  -- of a codec rather than a codec that happens to be wrong: setLocaleEncoding
+  -- cannot reach a binary handle, and hGetEncoding answered Nothing on both
+  -- ends with the locale already moved. A binary handle writes a Char's LOW
+  -- BYTE, so `→` (U+2192) went out as 0x92 and `✅` (U+2705) as 0x05. Ablation
+  -- measured each pin doing work: writeEnd only gave a latin-1 re-decode
+  -- (c3 a2 c2 86 c2 92); readEnd only rejected the truncated byte
+  -- (hGetContents: invalid byte sequence).
   --
-  -- Both ends are pinned and each is doing work; ablation measured separately:
-  --   writeEnd only -> the pipe carries correct UTF-8 and the unpinned read
-  --                    decodes each byte as latin-1, giving c3 a2 c2 86 c2 92
-  --   readEnd only  -> the write truncates and the UTF-8 read then rejects the
-  --                    lone continuation byte: hGetContents: invalid byte sequence
+  -- openTempFile returns a TEXT handle carrying the locale's codec, which main
+  -- has already moved to UTF-8, so the pins below are no longer the only codec
+  -- source. They stay by name: the capture must not depend on the order in
+  -- which main moves the locale, and scripts/build-smoke/capture_encoding.llmll
+  -- asserts the bytes either way.
   --
   -- PLACEMENT IS PART OF THE FIX, the way it is for FD-CAPTURE-1's hClose below,
   -- and it is MEASURED rather than assumed. This line must come BEFORE the
   -- hDuplicateTo: the redirect copies this handle onto stdout, so pinning it
-  -- afterwards leaves `action` writing through a still-binary stdout. Moving the
-  -- line down by one reproduces
+  -- afterwards leaves `action` writing through an unpinned stdout. Moving the
+  -- line down by one reproduced, on the pipe,
   --   hGetContents: invalid argument (cannot decode byte sequence starting from 146)
   -- where 146 is 0x92 -- the truncated U+2192 arriving at a correctly pinned read.
   , "  hSetEncoding writeEnd utf8"
@@ -1852,7 +1872,10 @@ emitEventLogPreamble =
   -- above, or stdout is restored from an already-closed descriptor.
   , "  hClose oldStdout"
   , "  hClose writeEnd"
-  , "  readEnd <- fdToHandle readFd"
+  -- A fresh handle for the read, rather than a seek on writeEnd: the dup2
+  -- above shared writeEnd's file offset with descriptor 1 for the length of
+  -- the step, and a handle that was never redirected has no such history.
+  , "  readEnd <- openFile capPath ReadMode"
   -- CAPTURE-ENCODING-1 (v0.14.90), the other half. Binary mode decodes each
   -- byte as a latin-1 Char, which is what turned the truncated 0x92 back into
   -- U+0092 so the real stdout re-encoded it as c2 92 -- a plausible-looking
@@ -1862,6 +1885,12 @@ emitEventLogPreamble =
   , "  hSetEncoding readEnd utf8"
   , "  output <- hGetContents readEnd"
   , "  length output `seq` pure ()   -- force lazy I/O (professor flag #1)"
+  -- hGetContents closes the handle at EOF, which the force above reached;
+  -- hClose on a semi-closed handle is a no-op, and saying it here keeps the
+  -- per-step descriptor budget visible: every handle this function opens is
+  -- closed in this function. The file goes with it.
+  , "  hClose readEnd"
+  , "  removeFile capPath"
   -- BUG-1 follow-on (v0.14.3): must be putStrLn, not putStr. Each step's
   -- captured output is echoed back to the real stdout with no delimiter
   -- between steps when `output` itself has no trailing newline (e.g.
@@ -1909,15 +1938,19 @@ emitMainHs modName stmts =
       -- -Wall (emitPackageYaml below ships no ghc-options), so an import the
       -- cli/http bodies do not use costs a name in scope and nothing else.
       , "import System.Exit (exitWith, exitSuccess, ExitCode(..))"
-      , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout, stderr, hSetEncoding, utf8)"
+      , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, openTempFile, IOMode(..), BufferMode(..), stdin, stdout, stderr, hSetEncoding, utf8)"
       -- FS-ENCODING-1, second half. See the note on emitMainBody below: the fs
       -- bodies pin their OWN handles, but every other text handle in a generated
-      -- program -- the three standard ones, the event log, and the pipe
-      -- captureStdout builds -- still resolved the AMBIENT locale.
+      -- program -- the three standard ones, the event log, and the capture file
+      -- captureStdout opens -- still resolved the AMBIENT locale.
       , "import GHC.IO.Encoding (setLocaleEncoding)"
       , "import Data.IORef (newIORef, readIORef, modifyIORef')"
       , "import GHC.IO.Handle (hDuplicate, hDuplicateTo)"
-      , "import System.Posix.IO (createPipe, fdToHandle)"
+      -- CAPTURE-PIPE-1: the capture sink is a temporary file. `directory` is
+      -- already a dependency of every generated project (emitPackageYaml), so
+      -- this import adds no package. System.Posix.IO, and with it `unix`, left
+      -- with the pipe.
+      , "import System.Directory (getTemporaryDirectory, removeFile)"
       , ""
       ] ++ emitEventLogPreamble ++ [""] ++ emitMainBody modName dm
 
@@ -2023,12 +2056,14 @@ emitMainHs modName stmts =
 --
 -- THIS NOTE USED TO CLAIM IT COVERED "the createPipe/fdToHandle pair without
 -- naming them" TOO, AND THAT WAS FALSE. CAPTURE-ENCODING-1 (v0.14.90):
--- System.Posix.IO.fdToHandle returns a handle in BINARY mode, and a binary
--- handle has no codec for the locale to inform -- hGetEncoding answers Nothing
--- there even with the locale already moved to UTF-8. The two pipe ends are the
--- one place in a generated program that setLocaleEncoding genuinely cannot
--- reach, so they are pinned by name in captureStdout above. Every other text
--- handle here is openFile's and the sentence holds for those.
+-- System.Posix.IO.fdToHandle returned a handle in BINARY mode, and a binary
+-- handle has no codec for the locale to inform -- hGetEncoding answered Nothing
+-- there even with the locale already moved to UTF-8. Those two pipe ends were
+-- the one place in a generated program that setLocaleEncoding genuinely could
+-- not reach. CAPTURE-PIPE-1 replaced the pipe with a temporary file whose two
+-- handles come from openTempFile and openFile, both TEXT mode, so the sentence
+-- now holds for every handle here; captureStdout still pins its two by name,
+-- for the reason given there.
 --
 -- The three standard handles still need explicit pins: the RTS creates them
 -- before main runs, so setLocaleEncoding cannot reach them retroactively.
@@ -2264,12 +2299,10 @@ emitPackageYaml modName hasMain hackagePkgs =
   -- operations POSIX-only, which is what base classification exists to avoid.
   , "  - time"
   ] ++
-  -- src/Main.hs (emitted whenever hasMain) imports System.Posix.IO for the
-  -- event-log capture harness; hpack's default source-dirs auto-discovery
-  -- pulls Main.hs into the `library` component's other-modules as well as
-  -- the executable's, so `unix` must be a top-level (shared) dependency,
-  -- not just an executable-scoped one.
-  (if hasMain then ["  - unix"] else []) ++
+  -- No `unix`. src/Main.hs imported System.Posix.IO for the event-log capture
+  -- harness until CAPTURE-PIPE-1 moved the capture from a pipe to a temporary
+  -- file; getTemporaryDirectory and removeFile come from `directory`, listed
+  -- above. hasMain is still in scope for the executable stanza below.
   map (\p -> "  - " <> p) (hackagePkgNames hackagePkgs) ++
   [ ""
   , "library:"

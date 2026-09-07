@@ -81,12 +81,12 @@ there it failed those three on run 34061569204, and the cover failed all three o
 controls with them. If no compiler is named or found the gate SKIPs (exit 0) rather than
 failing (SKIP-SILENT-1); it cannot assert behaviour without a compiler.
 
-On macOS the cover reports cell 11 as `HANG` after 300 s and exits 1 (`CAPTURE-PIPE-1` in the
-roadmap). That cell gives the port a subject that fails every fixture, so the port prints its
-whole report, 18,316 bytes, in one step, and the console step machine captures a step's stdout
-through a 16 KiB pipe that it reads only after the step returns. Linux pipes hold 64 KiB, so CI
-passes the cell. A red cell 11 on a Mac is the runtime defect and not a corpus drift; the other
-16 cells still decide.
+The cover bounds each cell at 300 s and reports a cell that does not finish as `HANG`, its own
+verdict, so a hang is a failure and not a wait. Cell 11 is why: it gives the port a subject that
+fails every fixture, so the port prints its whole report, 18,316 bytes, in one step, and until
+`CAPTURE-PIPE-1` the console step machine captured a step's stdout through a 16 KiB pipe it read
+only after the step returned. That hung on macOS while Linux, with 64 KiB pipes, passed. The
+capture sink is a temporary file now and the cell passes on both platforms.
 
 ## Adding a fixture
 
