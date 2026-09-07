@@ -1,7 +1,7 @@
 ---
 name: critique-2026-09-05-triage
 title: "External readings triage 2026-09-05: two reviewers, eleven items, six routed"
-status: "Settled 2026-09-06. Of the six routed items, two shipped the same day (v0.19.0 and v0.19.1) and four are open roadmap rows. The declined and already-true items are recorded here and nowhere else."
+status: "Settled 2026-09-06; B2's owed count run 2026-09-07 (section 5). Of the six routed items, two shipped the same day (v0.19.0 and v0.19.1) and four are open roadmap rows. The declined and already-true items are recorded here and nowhere else."
 date: 2026-09-05
 author: language-team
 consumers: [user, documentation-lead, compiler-engineer, professor]
@@ -38,7 +38,7 @@ Every claim below was checked against the tree before it was routed. The check t
 | (policy) | A: do not slow the cadence | ADOPTED. The release rate did not produce `SAFE-ARG`; shipping surface before executing it did. | user | no row |
 | (deferred) | A: an external check, blinded fuzzing of one verified module | DEFERRED to publication time. No row. | experiment-lead | no row |
 | **TRUST-BASE-1** | B1: freeze a Core fragment and write its formal story | DECLINED as posed. `LLMLL.md` §0.1 records the reference-implementation stance on purpose: the generated Haskell is the semantics and there is no separate formal document. Reversing that is a larger commitment than the reading acknowledges. One piece survives: §0.1 asserts soundness and never names what the assertion rests on. | doc-lead | **OPEN**, filed 2026-09-06: one paragraph naming the trusted base |
-| (measure first) | B2: make strict verification the flagship path | PARTIAL, already. `--strict-verify` runs the solver and marks refuted, because it sets `--cdp` and that routes past the trust-report early exit. It does not imply `--strict-verified-core`. Whether it should is decided by a count, not an argument: run `--strict-verified-core` over the examples tree and count the refusals. | engineer, then user | unfiled; measurement owed before a decision |
+| (measure first) | B2: make strict verification the flagship path | PARTIAL, already. `--strict-verify` runs the solver and marks refuted, because it sets `--cdp` and that routes past the trust-report early exit. It does not imply `--strict-verified-core`. Whether it should is decided by a count, not an argument: run `--strict-verified-core` over the examples tree and count the refusals. **Counted 2026-09-07 (section 5):** of 190 example files, 80 pass, 52 are intended refutations, 36 are unfilled scaffolds refused under a fallback label, and 17 hole-free programs fall back, 51 of their 61 entries because the contract post leaves the fragment. **Disposition: strict stays the audit path.** The refusal rate on real programs is contract vocabulary, tracked by `FALLBACK-CENSUS-1` and lowered by widening the fragment, not by making the flag the default. | engineer, then user | unfiled; measurement owed before a decision |
 | (already true) | B3: narrow the Lean claim | ALREADY TRUE. README labels Leanstral experimental and opt-in, and states that general Lean verification is designed but not shipped. | none | no row |
 | (already tracked) | B4: fix the trust-boundary gaps before strong claims | REPRODUCES the project's own open rows: `CAP-1-REAL`, `SHELL-FALLBACK-SILENT-1`, `SHA1-DOMAIN-1`, `EVENT-CAPTURE-1`, and `BUILTIN-BODY-1`. Corroboration of the tracking, not a finding. Its real content is B5. | none | rows exist |
 | **DISCLOSE-ROW-1** | B5: the trust report as a nutrition label | ROUTED as its concrete shape. The report already discloses assumed facts (`AssumedFact`, RESP-FACT-1). It does not disclose the open `[SPEC]` rows a program's surface touches, so a reader of a report never learns that a `capability` clause is declarative. | engineer, after NORM-CLAIM-1 | **OPEN** |
@@ -66,3 +66,35 @@ Every claim below was checked against the tree before it was routed. The check t
 6. `DISCLOSE-ROW-1`, after 3.
 
 The declined alternative to item 3 is on record in its roadmap row: one paragraph in `LLMLL.md` stating that normative sentences are ungated.
+
+## 5. The B2 count, run 2026-09-07
+
+Measured at `f2f6aa0` with `llmll 0.20.1`, built after the last compiler commit. Method: every file `scripts/check-examples.sh` enumerates (`find examples -name '*.llmll' -o -name '*.ast.json'`, 190 files), run from the repository root as `llmll verify --strict-verified-core FILE` with a 180 s alarm per file. No count had been recorded anywhere before this.
+
+**A correction made the same day.** A function whose body is an unfilled hole (`?name` in S-expression form, `"kind": "hole-named"` in the JSON AST) is refused under the label `body-outside-fragment`, the same label as a written body that leaves the fragment. The first histogram therefore counted scaffolds as fallbacks. The table separates them.
+
+| Outcome | Files | Reading |
+|---|---|---|
+| PASS | 80 | every function body-faithful |
+| REFUTED | 52 | all intended: 38 crux, twin and adversarial files; 14 named-bug files |
+| Refused: unfilled scaffold | 36 | correct refusal, wrong label; every `roots/`, `generated/` and `work/generated/` tree of the two emergent examples and both Heartbleed scaffolds |
+| Refused: hole-free program falls back | 17 | the genuine population |
+| OTHER | 5 | two intended (`sum-to-bad-measure`), one known (`TOTP-CHECK-1`), two run-from-root module resolution |
+
+The `.llmll` and `.ast.json` twins of one program count twice; the figure is the gate's population, not a program count.
+
+The 17 hole-free files: the three game examples (hangman, tictactoe, Conway: lists, strings, rendering), the nonlinear Lean demo (`square`), two effect examples, the orchestrator walkthrough's filled module, the withdraw demo's audit function, and three `erc20` functions (no record claims these were body-faithful, so no regression is measured; cause unclassified).
+
+Fallback causes over the 17 files, from the proof artifact's `fallback_reason` (61 function entries):
+
+| Cause | Entries |
+|---|---|
+| contract-post-outside-fragment | 51 |
+| body-outside-fragment | 7 |
+| contract-signature-outside-fragment | 3 |
+
+Among real programs the width limit is the contract vocabulary (posts over lists, strings, rendered data), not bodies. The first histogram's "252 body-outside-fragment" figure was 245 holes plus these 7.
+
+Regression check: `examples/secure-channel-emergent/README.md` says all seven modules pass `--strict-verified-core`; its `generated/alert/alert.ast.json` refuses today, but both of its functions are `hole-named` scaffolds, so the claim is about the filled tree and no regression is measured. No CI gate runs that example under the flag.
+
+Where each finding went: `FALLBACK-CENSUS-1`'s Next Action gained three items (exclude holes or add a `hole` cause bucket; bucket contract-post causes by construct; ratchet the strict-pass set). Lever B in the roadmap's Future Data Scope section gets this as its first data point; contract-post fallback dominates the genuine population at 51 of 61, on the game examples, and promotion is the user's call. This was the third hand count of the census `FALLBACK-CENSUS-1` says is recorded nowhere; the first two readings of it were wrong in the same direction, which is the case for the CI emission.
