@@ -64,13 +64,29 @@ implementation, and it is an LLMLL program, so it is built before it runs.
 ( cd tools/doc-claims && llmll build docclaims.llmll -o /tmp/docclaims )
 GATE="$( (cd /tmp/docclaims && stack path --local-install-root) )/bin/docclaims"
 
-# run it, naming the compiler it should exercise
-"$GATE" --llmll "$(command -v llmll)"
+# run it: the repository root, the compiler it should exercise, a scratch
+# directory, and a step budget on stdin (the port is a console step machine)
+python3 -c "import sys; sys.stdout.write('x\n' * 400)" \
+  | "$GATE" --root "$PWD" --subject "$(command -v llmll)" --work /tmp/dc-work
+
+# the mutation cover; it needs fixpoint and z3 on PATH and refuses to run without them
+python3 scripts/doc_claims_cover.py --gate "$GATE" --llmll "$(command -v llmll)"
 ```
 
-CI runs it in the `spec-roundtrip` job of `.github/workflows/version-gate.yml`, after the
-`llmll` build, with `LLMLL_BIN="stack exec llmll --"`. If no binary is found the gate
-SKIPs (exit 0) rather than failing, it cannot assert behaviour without a compiler.
+CI runs both in the `spec-roundtrip` job of `.github/workflows/version-gate.yml`, after the
+step that puts `fixpoint` on PATH and asserts the toolchain is complete. Three fixtures
+(`shadow-alpha-renamed`, `display-level-verified`, `effective-level-post-meet`) have a solver
+verdict as their witness, so the step cannot sit with the solverless documentation gates: placed
+there it failed those three on run 34061569204, and the cover failed all three of its negative
+controls with them. If no compiler is named or found the gate SKIPs (exit 0) rather than
+failing (SKIP-SILENT-1); it cannot assert behaviour without a compiler.
+
+On macOS the cover reports cell 11 as `HANG` after 300 s and exits 1 (`CAPTURE-PIPE-1` in the
+roadmap). That cell gives the port a subject that fails every fixture, so the port prints its
+whole report, 18,316 bytes, in one step, and the console step machine captures a step's stdout
+through a 16 KiB pipe that it reads only after the step returns. Linux pipes hold 64 KiB, so CI
+passes the cell. A red cell 11 on a Mac is the runtime defect and not a corpus drift; the other
+16 cells still decide.
 
 ## Adding a fixture
 

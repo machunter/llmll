@@ -208,64 +208,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # DRIFT-CT-2's shell reference ran here until the 2026-08-17 retirement.
-      # TOOL-RFC-003 is `tool_state: retired` and the LLMLL step below decides
-      # alone. Removed rather than made conditional, for the reason DRIFT-DOC-3's
-      # removed step gives.
-
-      # TOOL-RFC-003: DRIFT-CT-2 in LLMLL. It ran ADJACENT to its shell reference
-      # while the state was `oracle`, so one job log showed both verdicts. The
-      # reference is deleted, so this is now the only implementation and the
-      # adjacency it was placed for no longer exists.
-      #
-      # The differential COVER runs first: it decides whether the port AGREES
-      # with the reference under mutation, which a live green run on its own
-      # does not. It found two real defects in the port before either shipped:
-      # a `warn` observation promoted on the trigger rather than on the whole
-      # match, and a subject probe that SKIPPED where the reference FAILS.
-      #
-      # The absolute path, not `stack exec`: that idiom resolves against
-      # whatever stack project the cwd sits in, and from a tools/ directory it
-      # once installed GHC 9.10.3 on a runner before answering "Executable
-      # named llmll not found".
-      - name: Run doc-claim drift gate (LLMLL port, TOOL-RFC-003)
-        run: |
-          set -euo pipefail
-          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
-          OUT="$RUNNER_TEMP/docclaims-build"
-          ( cd tools/doc-claims && "$SUBJECT" build docclaims.llmll -o "$OUT" )
-          # Ask stack, do not search; see the archive gate step above and
-          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
-          # path is always non-empty now.
-          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
-          GATE="$GROOT/bin/docclaims"
-          [ -n "$GROOT" ] && [ -x "$GATE" ] \
-            || { echo "no docclaims binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
-          python3 scripts/doc_claims_cover.py --gate "$GATE" --llmll "$SUBJECT"
-          mkdir -p "$RUNNER_TEMP/dc-work" "$RUNNER_TEMP/dc-run"
-          ( cd "$RUNNER_TEMP/dc-run" \
-              && python3 -c "import sys; sys.stdout.write('x\n' * 400)" \
-                   | "$GATE" --root "$GITHUB_WORKSPACE" --subject "$SUBJECT" \
-                             --work "$RUNNER_TEMP/dc-work" ) > "$RUNNER_TEMP/dc.log" 2>&1 \
-            || { grep -v '^$' "$RUNNER_TEMP/dc.log" >&2; exit 1; }
-          grep -v '^$' "$RUNNER_TEMP/dc.log"
-
-      # DRIFT-CT-3 (NORM-CLAIM-1): every sentence in LLMLL.md §0.1 and §1 names
-      # what stands under it (scripts/norm-claims/README.md). The reference is
-      # plain python3 and needs no toolchain; it sits in THIS job and not the
-      # C1-C4 one because its `fixture` rows point at the doc-claims corpus the
-      # step above just exercised, and its `row` rows must re-run on the same
-      # roadmap edit that closes a row. The cover copies the tracked tree and
-      # mutates it sixteen ways (tool-ll-RESTART.md item 14: a new gate is a
-      # claim that it can fail). Each gate on its own line: a pipe would take
-      # the pipe's exit status. The LLMLL port is owed under the campaign's
-      # three-artifact shape; when it exists, pass --port to the cover.
-      - name: Run norm-claim gate and its cover (DRIFT-CT-3, NORM-CLAIM-1)
-        run: |
-          set -euo pipefail
-          python3 scripts/norm_claims_gate.py --repo .
-          python3 scripts/norm_claims_cover.py --repo .
-
       # TOOL-ENCODING-1's end-to-end half. It lives HERE and not in the pytest
       # step of the C1-C4 job for a reason worth stating: that job sets up
       # Python and jq and no Haskell toolchain, so `llmll` does not exist there
@@ -419,6 +361,77 @@ jobs:
       # and no ticket existed, so all 1675 examples were a local-only gate and a
       # green `main` said nothing about them.
       #
+      # DRIFT-CT-2's shell reference ran here until the 2026-08-17 retirement.
+      # TOOL-RFC-003 is `tool_state: retired` and the LLMLL step below decides
+      # alone. Removed rather than made conditional, for the reason DRIFT-DOC-3's
+      # removed step gives.
+
+      # TOOL-RFC-003: DRIFT-CT-2 in LLMLL. It ran ADJACENT to its shell reference
+      # while the state was `oracle`, so one job log showed both verdicts. The
+      # reference is deleted, so this is now the only implementation and the
+      # adjacency it was placed for no longer exists.
+      #
+      # The differential COVER runs first: it decides whether the port AGREES
+      # with the reference under mutation, which a live green run on its own
+      # does not. It found two real defects in the port before either shipped:
+      # a `warn` observation promoted on the trigger rather than on the whole
+      # match, and a subject probe that SKIPPED where the reference FAILS.
+      #
+      # The absolute path, not `stack exec`: that idiom resolves against
+      # whatever stack project the cwd sits in, and from a tools/ directory it
+      # once installed GHC 9.10.3 on a runner before answering "Executable
+      # named llmll not found".
+      #
+      # THIS STEP SITS AFTER THE TOOLCHAIN ASSERTION SINCE v0.20.0, and the
+      # pathlint step below says why in general: `llmll verify` needs fixpoint
+      # and z3. Three fixtures (shadow-alpha-renamed, display-level-verified,
+      # effective-level-post-meet; NC-012, NC-022, NC-024) have a solver verdict
+      # as their witness, the first in this corpus. Placed with the solverless
+      # documentation gates, immediately after the compiler build, the live run
+      # failed those three with "SOLVER NOT FOUND -- NOTHING WAS PROVEN" and the
+      # cover failed all three of its negative controls with them (run
+      # 34061569204, the first push of v0.20.0). The cover links only fixpoint
+      # and z3 from this step's PATH into its scrubbed environment, so it needs
+      # the GITHUB_PATH entry the assertion step wrote. Do not move this pair
+      # back up.
+      - name: Run doc-claim drift gate (LLMLL port, TOOL-RFC-003)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          OUT="$RUNNER_TEMP/docclaims-build"
+          ( cd tools/doc-claims && "$SUBJECT" build docclaims.llmll -o "$OUT" )
+          # Ask stack, do not search; see the archive gate step above and
+          # scripts/build_smoke.sh's exe_path. -x rather than -n, because the
+          # path is always non-empty now.
+          GROOT="$( (cd "$OUT" && stack path --local-install-root) 2>/dev/null || true )"
+          GATE="$GROOT/bin/docclaims"
+          [ -n "$GROOT" ] && [ -x "$GATE" ] \
+            || { echo "no docclaims binary under $OUT (stack root: ${GROOT:-<none>})"; exit 1; }
+          python3 scripts/doc_claims_cover.py --gate "$GATE" --llmll "$SUBJECT"
+          mkdir -p "$RUNNER_TEMP/dc-work" "$RUNNER_TEMP/dc-run"
+          ( cd "$RUNNER_TEMP/dc-run" \
+              && python3 -c "import sys; sys.stdout.write('x\n' * 400)" \
+                   | "$GATE" --root "$GITHUB_WORKSPACE" --subject "$SUBJECT" \
+                             --work "$RUNNER_TEMP/dc-work" ) > "$RUNNER_TEMP/dc.log" 2>&1 \
+            || { grep -v '^$' "$RUNNER_TEMP/dc.log" >&2; exit 1; }
+          grep -v '^$' "$RUNNER_TEMP/dc.log"
+
+      # DRIFT-CT-3 (NORM-CLAIM-1): every sentence in LLMLL.md §0.1 and §1 names
+      # what stands under it (scripts/norm-claims/README.md). The reference is
+      # plain python3 and needs no toolchain; it sits in THIS job and not the
+      # C1-C4 one because its `fixture` rows point at the doc-claims corpus the
+      # step above just exercised, and its `row` rows must re-run on the same
+      # roadmap edit that closes a row. The cover copies the tracked tree and
+      # mutates it sixteen ways (tool-ll-RESTART.md item 14: a new gate is a
+      # claim that it can fail). Each gate on its own line: a pipe would take
+      # the pipe's exit status. The LLMLL port is owed under the campaign's
+      # three-artifact shape; when it exists, pass --port to the cover.
+      - name: Run norm-claim gate and its cover (DRIFT-CT-3, NORM-CLAIM-1)
+        run: |
+          set -euo pipefail
+          python3 scripts/norm_claims_gate.py --repo .
+          python3 scripts/norm_claims_cover.py --repo .
+
       # THE POSITION IS LOAD-BEARING AND SO IS THE FLAG. 53 of the 1675 examples
       # shell out to `fixpoint` (test/Spec.hs, findExecutable "liquid-fixpoint"
       # / "fixpoint" / "z3") and call `pendingWith` when it is absent. Measured
