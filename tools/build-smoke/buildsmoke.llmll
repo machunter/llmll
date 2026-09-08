@@ -328,7 +328,7 @@
     (| PbHdr)      ;; the header must have survived; run replay-demo
     (| PbRd)       ;; a no-:done? program must exit 0; run it on empty stdin
     (| PbRd0)      ;; and 0 again on immediate EOF
-    ;; stage 8, the DRIVER-LL 4a+4b+4c cover
+    ;; stage 8, the DRIVER-LL 4a+4b+4c+4d+A cover
     (| Drv8)       ;; built sequencer.llmll; status arrives
     (| Drv8S)      ;; ran `stack path` in the sequencer's out dir
     (| Drv8R)      ;; read that install root
@@ -2274,8 +2274,12 @@
                         "built the DRIVER-LL sequencer but found no sequencer binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
                   (go b Drv8P
                       (wasi.proc.run "python3"
+                                     ;; 4d: the H, K and N cells run the REAL
+                                     ;; compiler, so the cover takes the subject
+                                     ;; under test, as stage 9's wave cover does.
                                      [(d-cover-py (get-s b "root"))
-                                      "--driver" (string-concat sir "/bin/sequencer")]
+                                      "--driver" (string-concat sir "/bin/sequencer")
+                                      "--llmll" (get-s b "subject")]
                                      (get-s b "root")
                                      (d-cov-of (get-s b "work"))
                                      (d-cov-of (get-s b "work"))
@@ -2284,12 +2288,12 @@
             (if (ok? r)
                 (go b Wav9
                     (seq-commands
-                      (wasi.io.stdout (pass-line "DRIVER-LL 4a+4b+4c cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + registry)"))
+                      (wasi.io.stdout (pass-line "DRIVER-LL 4a+4b+4c+4d+A cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + 13 compiler-oracle cells + 6 stage A cells + registry)"))
                       (wav9-build b)))
                 (go b Ending
                     (wasi.io.stdout (fail-line
                       (string-concat-many
-                        ["the DRIVER-LL 4a+4b+4c acceptance cover did not pass. Every scenario is a DECISION the Python reference makes and this port must make identically; the log names the cell and the assertion: "
+                        ["the DRIVER-LL 4a+4b+4c+4d acceptance cover did not pass. Every scenario is a DECISION the Python reference makes and this port must make identically; the log names the cell and the assertion: "
                          (d-cov-of (get-s b "work"))]))))))
           ;; stage 9.
           ((Wav9)

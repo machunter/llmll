@@ -1046,6 +1046,10 @@ if [ -f "$DRV_SRC" ]; then
   # 4d: the H, K and N cells run the REAL compiler (stages H and N verify the
   # agent's probe and mutant files, K typechecks the authored roots), so the
   # cover takes the compiler under test, exactly as stage 9's wave cover does.
+  # Stage A: the cover starts its own http.server on 127.0.0.1 and every run
+  # names it with --rfc-url; the sequencer's generated project now carries the
+  # http-client group (41 packages, cached under the same Stack key as the
+  # HTTP-GET-1 runtime cells), so this build pays for it once per cache key.
   if ! python3 "$REPO_ROOT/scripts/driver_ll_cover.py" --driver "$DRV_EXE" \
          --llmll "${LLMLL_CMD[0]}" > "$OUTDIR/.driverll-cover.log" 2>&1; then
     cat "$OUTDIR/.driverll-cover.log" >&2
@@ -1054,7 +1058,7 @@ if [ -f "$DRV_SRC" ]; then
   log above names the cell and the assertion."
   fi
   cat "$OUTDIR/.driverll-cover.log"
-  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c+4d cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + 13 compiler-oracle cells + registry)"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c+4d+A cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + 13 compiler-oracle cells + 6 stage A cells + registry)"
 fi
 
 # --- 9. DRIVER-LL sub-phase 4e acceptance cover: the serial wave. ------------

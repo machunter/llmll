@@ -4,6 +4,51 @@
 
 <a id="Latest"></a>
 
+## v0.21.2: the driver fetches its own RFC, and the STOP filed at v0.14.83 closes (2026-09-08)
+
+**`DRIVER-LL` stage A is ported into
+[`tools/llmll-driver/sequencer.llmll`](tools/llmll-driver/sequencer.llmll) over `wasi.http.get`.**
+Stage A fetches the RFC as verbatim bytes, writes the file under the URL's basename and pins its
+SHA-256 and newline count in `00-source/PROVENANCE.json`; every later stage reads those bytes. It
+was a filed STOP from v0.14.83 until v0.21.0 shipped the builtin, and it is step (3) of the
+campaign's G0 plan. Plan and running record:
+[`docs/design/driver-ll-stage-a-implementation-plan.md`](docs/design/driver-ll-stage-a-implementation-plan.md).
+
+- **The reference's skip, its order and its names.** Per source, `--rfc-url` then each repeatable
+  `--amend-url` in argv order, the stage probes the destination with `wasi.fs.sha256` and fetches
+  only when the file is absent or `--force` is set (the reference's `if not dest.exists() or
+  ctx.force`); the file name is the URL's last non-empty `/` field or `rfc.txt`; the pin carries
+  `url`, `file`, `sha256` and `lines`, the line count being `text.count("\n")`. `--rfc-url` is
+  required unconditionally, as the reference requires it, and is checked after the three earlier
+  flags so their messages do not move.
+- **A failed fetch is a decision.** A 404, a refused connection or the 60-second budget arrives as
+  `RErr`; the destination is unchanged (`wasi.http.get` renames only a whole 2xx body) and the
+  stage records `failed` with the status or transport text, where the reference tracebacks out of
+  `urlopen`. A file whose bytes are not UTF-8 also records `failed`, where the reference decodes
+  with `errors="replace"`; disclosed at the site.
+- **The cover fetches from itself.** `scripts/driver_ll_cover.py` starts one `http.server` on
+  127.0.0.1 for the whole run and names it with `--rfc-url` on every drive, so the eleven 4a
+  transition cells that select `A,B,C` now run the real stage over the file `prepare()` lays down,
+  and the `--force` cell refetches the same bytes. Six new cells, A1 to A6: fetch and pin, a 404,
+  a present destination not refetched with the manifest removed and the listener's bytes changed,
+  `--force` refetching, an amending RFC pinned second, and the missing flag. 58 cells, from 52,
+  first run, about nine seconds; no cell reaches the network.
+  `scripts/tests/test_driver_ll_a.py` (five tests, no toolchain) pins the single `wasi.http.get`
+  call with the URL first after the `mkdir`, the four pin keys against the reference's dict, the
+  `rfc.txt` fallback, and the flags on both sides.
+- **Measured, and it withdraws a disclosure.** `json-serialize` emits the same indent-1 layout as
+  the reference's `json.dumps(indent=1)` on `PROVENANCE.json`; only the trailing newline differs.
+  The sequencer's generated project now carries the `http-client` group; the local build took
+  13.5 s with the group cached, and the CI cold cost under `build_smoke.sh` stage 8 is a
+  first-`main`-run measurement.
+
+No compiler change, no CLI change, no schema change; `LLMLL.md` moves only its banner. The driver's
+flags are documented in [`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1891 examples, 0 failures (unchanged; no Haskell touched). pytest 200 passed, 20 skipped (five new).
+
+---
+
 ## v0.21.1: the driver's three compiler-oracle stages run, and their cover runs the real compiler (2026-09-08)
 
 **`DRIVER-LL` sub-phase 4d ships: stages H, K and N are ported into
