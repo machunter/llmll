@@ -222,6 +222,10 @@
   ;; (extractWasiNamespace takes the first two segments), so this clause grants
   ;; the argument vector.
   (import wasi.proc (capability exec :deterministic false))
+  ;; Stage A (wasi.http.get, v0.21.0). CAP-1-REAL: the verb and URL are
+  ;; documentation, not a bound; the check matches the namespace. The URL the
+  ;; operator passes with --rfc-url is what is fetched.
+  (import wasi.http (capability get "https://www.rfc-editor.org/"))
 
   (import stage)    (open stage)
   (import skip)     (open skip)
@@ -304,7 +308,11 @@
   ;; accessor gains a `first`. Inserting the field anywhere else would reproject
   ;; all of them, and proposal section 13 risk 6 is that a wrong projection over
   ;; a pair chain TYPECHECKS.
-  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, (string, string)))))))))
+  ;; The stage A port widens the tail a THIRD time: `(string, string)` becomes
+  ;; `(string, (string, (string, list[string])))`, the last two being
+  ;; --rfc-url and the repeatable --amend-url (rfc_to_implementation.py's
+  ;; `--rfc-url` and `--amend-url`, action="append").
+  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, (string, (string, (string, list[string])))))))))))
 
   ;; The run-common record of proposal section 4: config, the live manifest,
   ;; and the selected stage indices in registry order.
@@ -361,6 +369,15 @@
   ;;   NSkip      r is the log line for an unwritable row
   ;;   NOut       r is the read of the mutant's verify transcript
   ;;   NWrote     r is the write of kill-matrix.json
+  ;;
+  ;; The five stage A arms reuse Loop: `rows` is the URL list, `idx` the source
+  ;; being pinned, `acc` the pins so far and `note` the current file's digest.
+  ;;
+  ;;   AProbe     r is sha256 of the destination, the `dest.exists()` probe
+  ;;   AFetch     r is wasi.http.get's arm: RNone, the whole body is at dest
+  ;;   ADigest    r is sha256 of the fetched file
+  ;;   ALines     r is the read of the file, for the newline count
+  ;;   AWrote     r is the write of PROVENANCE.json
   ;;
   ;; k, (start, (pre-values, (idx, (names, (accumulated-source-text, tag))))).
   ;;
@@ -420,7 +437,12 @@
     (| NRow     Loop)
     (| NSkip    Loop)
     (| NOut     Loop)
-    (| NWrote   Loop))
+    (| NWrote   Loop)
+    (| AProbe   Loop)
+    (| AFetch   Loop)
+    (| ADigest  Loop)
+    (| ALines   Loop)
+    (| AWrote   Loop))
 
   ;; ---- accessors, written once ---------------------------------------
   ;;
@@ -454,7 +476,14 @@
   ;; the reference's `REPO / ...` (_provision_reference). Optional, because the
   ;; reference silently skips a file that is not there.
   (def-shell cfg-refdir [c: Cfg] -> string
-    (match c ((Cfg p) (second (second (second (second (second (second (second p))))))))))
+    (match c ((Cfg p) (first (second (second (second (second (second (second (second p)))))))))))
+
+  ;; The RFC stage A fetches as verbatim text, and the amending RFCs after it,
+  ;; in argv order. The reference pins `[ctx.rfc_url, *ctx.amend_urls]`.
+  (def-shell cfg-rfc-url [c: Cfg] -> string
+    (match c ((Cfg p) (first (second (second (second (second (second (second (second (second p))))))))))))
+  (def-shell cfg-amend-urls [c: Cfg] -> list[string]
+    (match c ((Cfg p) (second (second (second (second (second (second (second (second (second p))))))))))))
 
   (def-shell ag-exe [a: AgentCfg] -> string
     (match a ((AgentCfg q) (first q))))
@@ -657,7 +686,9 @@
                                  (pair (list-contains as "--force")
                                        (pair (parse-agent as)
                                              (pair (flag-value as "--llmll-cmd")
-                                                   (flag-value as "--reference-dir"))))))))))
+                                                   (pair (flag-value as "--reference-dir")
+                                                         (pair (flag-value as "--rfc-url")
+                                                               (flag-values as "--amend-url"))))))))))))
 
   ;; "" when the required flags are present. The reference makes --agent-cmd
   ;; required at argparse (:1888-1891) and exits 2 through ap.error, BEFORE
@@ -672,7 +703,14 @@
             "--prompts-dir is required (the directory holding the stage prompt templates)"
             (if (string-empty? (cfg-llmll c))
                 "--llmll-cmd is required (the compiler stages H, K and N run as their oracle)"
-                ""))))
+                ;; The reference requires --rfc-url unconditionally too (its
+                ;; `missing` list, main). Checked LAST so that the earlier
+                ;; three keep the message they had; the reference names every
+                ;; missing flag at once and the port names the first, a
+                ;; divergence 4a disclosed and this row inherits.
+                (if (string-empty? (cfg-rfc-url c))
+                    "--rfc-url is required (the RFC stage A fetches as verbatim text)"
+                    "")))))
 
   (def-shell argv-of [r: Response] -> list[string]
     (match r
@@ -1161,11 +1199,15 @@
   (def-shell begin-body [rn: Run k: int start: int] -> ((Run, Ctl), Command)
     (to-pre rn (fresh-body k start)))
 
+  ;; A ported MECHANICAL stage has no agent and no Body; stage A is the only
+  ;; one so far (E's port waits on a reconcile.py invocation).
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Ctl), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
         (if (stage-ported? (idx-at rn k))
-            (begin-body rn k (ns-of r))
+            (if (= (stage-kind (idx-at rn k)) "mechanical")
+                (a-enter rn k (ns-of r))
+                (begin-body rn k (ns-of r)))
             (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0)))))
 
   ;; ---- Pre -------------------------------------------------------------
@@ -2223,6 +2265,130 @@
         (oracle-enter rn b t)
         (outp-next rn b t)))
 
+
+  ;; ---- stage A: intake and provenance pinning ---------------------------
+  ;;
+  ;; stage_A_intake, over wasi.http.get (v0.21.0), which lifted the STOP this
+  ;; stage carried since v0.14.83. Per source, in argv order (the RFC, then
+  ;; each --amend-url): if the destination is absent or --force is set, fetch
+  ;; it; then digest it, count its lines and append the pin. After the last
+  ;; source, write PROVENANCE.json, the declared output.
+  ;;
+  ;;   AProbe   wasi.fs.sha256 of dest: RText means present (the reference's
+  ;;            `dest.exists()`), RErr means absent. Present and not forced
+  ;;            skips the fetch and keeps the hex; forced or absent fetches.
+  ;;   AFetch   wasi.http.get's arm. RNone: the COMPLETE body is at dest.
+  ;;            RErr: dest is unchanged and the text names the status or the
+  ;;            transport failure; the reference tracebacks out of urlopen
+  ;;            here (unguarded), so the port records failed/Errored on
+  ;;            section 9.1 item 1's precedent.
+  ;;   ADigest  sha256 of the fetched file.
+  ;;   ALines   the read, for `text.count("\n")`. The reference decodes with
+  ;;            errors="replace" and cannot fail; wasi.fs.read answers RErr on
+  ;;            bytes that are not UTF-8 and the port records failed, the
+  ;;            divergence the 4b header records for _sources_text.
+  ;;   AWrote   the PROVENANCE.json write; then the digest sweep.
+  ;;
+  ;; The file name is the URL's last non-empty `/` field, or rfc.txt: the
+  ;; reference's `url.rstrip("/").split("/")[-1] or "rfc.txt"`. The mkdir of
+  ;; 00-source precedes the fetch because wasi.http.get does not create
+  ;; dest's parent (LLMLL.md sec 13). The log lines are the reference's.
+  ;; PROVENANCE.json is `{"sources": [{url, file, sha256, lines}, ...]}`;
+  ;; json-serialize's whitespace differs from json.dumps(indent=1), which
+  ;; nothing consumes (stage B re-serializes it, mode PARSE).
+
+  (def-shell last-field [xs: list[string]] -> string
+    (unwrap-or (list-nth xs (- (list-length xs) 1)) ""))
+
+  (def-shell source-name [url: string] -> string
+    (let [(n (list-fold (split-on "/" url) ""
+               (fn [acc: string f: string] (if (string-empty? f) acc f))))]
+      (if (string-empty? n) "rfc.txt" n)))
+
+  (def-shell a-urls [c: Cfg] -> Json
+    (json-of-list
+      (list-map (list-fold (cfg-amend-urls c)
+                           (list-append (list-empty) (cfg-rfc-url c))
+                           (fn [acc: list[string] u: string] (list-append acc u)))
+                (fn [u: string] (json-of-string u)))))
+
+  (def-shell a-url [l: Loop] -> string
+    (unwrap-or (json-as-string (lp-row l)) ""))
+
+  (def-shell a-dest [rn: Run l: Loop] -> string
+    (string-concat-many [(wd-path (cfg-of rn) "00-source") "/" (source-name (a-url l))]))
+
+  (def-shell a-line-count [t: string] -> int
+    (- (list-length (split-on "\n" t)) 1))
+
+  (def-shell a-pin [url: string hex: string lines: int] -> Json
+    (jset (jset (jset (jset json-object "url" (json-of-string url))
+                      "file" (json-of-string (source-name url)))
+                "sha256" (json-of-string hex))
+          "lines" (json-of-int lines)))
+
+  (def-shell a-next [rn: Run l: Loop] -> ((Run, Ctl), Command)
+    (if (< (lp-idx l) (lp-count l))
+        (go rn (AProbe l) (wasi.fs.sha256 (a-dest rn l)))
+        (go rn (AWrote l)
+            (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (lp-k l)) 0)
+                           (json-serialize (jset json-object "sources" (lp-acc l)))))))
+
+  (def-shell a-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (a-next rn (mk-loop k start 0 (a-urls (cfg-of rn)) (json-of-list (list-empty)) "")))
+
+  (def-shell a-fetch-cmd [rn: Run l: Loop] -> Command
+    (seq-commands
+      (wasi.io.stdout (string-concat "  fetching " (a-url l)))
+      (seq-commands
+        (wasi.fs.mkdir (wd-path (cfg-of rn) "00-source"))
+        (wasi.http.get (a-url l) (a-dest rn l)))))
+
+  (def-shell aprobe-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (and (present? r) (not (cfg-forced (cfg-of rn))))
+        (go rn (ALines (lp-with-note l (text-of r))) (wasi.fs.read (a-dest rn l)))
+        (go rn (AFetch l) (a-fetch-cmd rn l))))
+
+  (def-shell afetch-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (match r
+      ((RNone)   (go rn (ADigest l) (wasi.fs.sha256 (a-dest rn l))))
+      ((RErr e)  (halt-errored rn (lp-k l)
+                   (string-concat-many
+                     ["stage A: fetching " (a-url l) " failed (" e "); "
+                      (source-name (a-url l)) " is unchanged"])))
+      ((RText _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))
+      ((RCode _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))
+      ((RList _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))))
+
+  (def-shell adigest-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (go rn (ALines (lp-with-note l (text-of r))) (wasi.fs.read (a-dest rn l)))
+        (halt-errored rn (lp-k l)
+          (string-concat-many ["stage A: " (source-name (a-url l))
+                               " was fetched but could not be digested"]))))
+
+  (def-shell a-pinned-line [url: string hex: string lines: int] -> string
+    (string-concat-many
+      ["  pinned " (source-name url) ": " (string-slice hex 0 16) "... ("
+       (int-to-string lines) " lines)"]))
+
+  (def-shell alines-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (let [(n (a-line-count (text-of r)))]
+          (let [(nxt (a-next rn (lp-scored l (a-pin (a-url l) (lp-note l) n))))]
+            (pair (first nxt)
+                  (seq-commands (wasi.io.stdout (a-pinned-line (a-url l) (lp-note l) n))
+                                (second nxt)))))
+        (halt-errored rn (lp-k l)
+          (string-concat-many
+            ["stage A: " (source-name (a-url l)) " is not readable text. The "
+             "reference decodes it with errors=\"replace\" and cannot reach this; "
+             "the port records the stage failed rather than pinning a line count "
+             "over bytes it could not read."]))))
+
+  (def-shell awrote-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (to-summed rn (lp-k l) (lp-start l)))
+
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
@@ -2295,7 +2461,7 @@
                                    (pair false
                                      (pair (AgentCfg (pair "" (pair (list-empty)
                                                               (pair "" 1800))))
-                                           (pair "" ""))))))))
+                                           (pair "" (pair "" (pair "" (list-empty)))))))))))
                            (pair (empty-manifest) (list-empty))))
                 (Boot 0))
           wasi.proc.args))
@@ -2329,7 +2495,12 @@
       ((NRow l)     (nrow-step   (run-of s) l r))
       ((NSkip l)    (nskip-step  (run-of s) l r))
       ((NOut l)     (nout-step   (run-of s) l r))
-      ((NWrote l)   (nwrote-step (run-of s) l r))))
+      ((NWrote l)   (nwrote-step (run-of s) l r))
+      ((AProbe l)   (aprobe-step (run-of s) l r))
+      ((AFetch l)   (afetch-step (run-of s) l r))
+      ((ADigest l)  (adigest-step (run-of s) l r))
+      ((ALines l)   (alines-step (run-of s) l r))
+      ((AWrote l)   (awrote-step (run-of s) l r))))
 
   (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
@@ -2359,7 +2530,12 @@
       ((NRow _)     false)
       ((NSkip _)    false)
       ((NOut _)     false)
-      ((NWrote _)   false)))
+      ((NWrote _)   false)
+      ((AProbe _)   false)
+      ((AFetch _)   false)
+      ((ADigest _)  false)
+      ((ALines _)   false)
+      ((AWrote _)   false)))
 
   (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
@@ -2389,7 +2565,12 @@
       ((NRow _)     1)
       ((NSkip _)    1)
       ((NOut _)     1)
-      ((NWrote _)   1)))
+      ((NWrote _)   1)
+      ((AProbe _)   1)
+      ((AFetch _)   1)
+      ((ADigest _)  1)
+      ((ALines _)   1)
+      ((AWrote _)   1)))
 
   ;; The terminal marker. It leaves through :on-done rather than through a
   ;; step, because RC-4 drops the terminating step's command and a halt report
@@ -2439,7 +2620,12 @@
       ((NRow nr)    1)
       ((NSkip ns)   1)
       ((NOut no)    1)
-      ((NWrote nw)  1)))
+      ((NWrote nw)  1)
+      ((AProbe ap)  1)
+      ((AFetch af)  1)
+      ((ADigest ad) 1)
+      ((ALines al)  1)
+      ((AWrote aw)  1)))
 
   (def-main
     :mode    console

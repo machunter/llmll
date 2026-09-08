@@ -131,9 +131,9 @@
 ;; the 4a stub write. This is scaffolding with a schedule, exactly as the 4a
 ;; injector is: 4c retired D, F and G from the false half, 4d retires H, K and
 ;; N, 4e landed M in wave.llmll rather than here (so 13 stays false by design),
-;; 4f O. A and E are mechanical; A waits on the stage A port over wasi.http.get
-;; (v0.21.0) and E on a reconcile.py invocation; neither is listed in proposal
-;; section 9's sub-phase table at all.
+;; 4f O. A and E are mechanical and outside proposal section 9's sub-phase
+;; table; A is ported over wasi.http.get (v0.21.0, the STOP lifted) as the
+;; roadmap's step (3), and E waits on a reconcile.py invocation.
 ;;
 ;; 4c LANDS D, F AND G TOGETHER rather than in its plan's stated order, and the
 ;; reason is a data dependency the plan did not weigh. F reads
@@ -145,6 +145,7 @@
 ;; discharged it; the landing order follows the pipeline.
 ;;
 (def-shell stage-ported? [i: int] -> bool
+  (if (= i 0) true
   (if (= i 1) true
   (if (= i 2) true
   (if (= i 3) true
@@ -153,7 +154,7 @@
   (if (= i 8) true
   (if (= i 9) true
   (if (= i 11) true
-  (if (= i 14) true false))))))))))
+  (if (= i 14) true false)))))))))))
 
 ;; The byte floor the stage contract declares for the stage's declared output.
 ;; NEGATIVE means the contract declares no floor.

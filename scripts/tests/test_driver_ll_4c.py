@@ -77,7 +77,7 @@ SHAPE_DEFS = ("extraction-conforms?", "core-conforms?",
 
 # index -> letter, from registry.llmll's own stage table. Duplicated here on
 # purpose: a test that reads the table it is checking cannot fail.
-PORTED = {1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 8: "H", 9: "I",
+PORTED = {0: "A", 1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 8: "H", 9: "I",
           11: "K", 14: "N"}
 
 
@@ -211,7 +211,7 @@ def test_the_shape_posts_are_named():
 # 2. Which stages claim to be ported
 # ---------------------------------------------------------------------------
 
-def test_exactly_nine_stages_claim_to_be_ported_and_they_are_the_expected_nine():
+def test_exactly_ten_stages_claim_to_be_ported_and_they_are_the_expected_ten():
     """`registry.stage-ported?` is the switch between a real body and a stub.
 
     Flipping a stage on before its body exists produces a tree that compiles
@@ -220,8 +220,9 @@ def test_exactly_nine_stages_claim_to_be_ported_and_they_are_the_expected_nine()
     stage list so that a renumbering on either side is a failure here.
 
     Sub-phase 4d took the set from six to nine: H (8), K (11) and N (14).
-    A, E, G2, J, L, M and O keep the 4a stub write; M is the wave's and lives
-    in `wave.llmll`, so its index stays false here by design.
+    The stage A port took it to ten: A (0), over `wasi.http.get`. E, G2, J,
+    L, M and O keep the 4a stub write; M is the wave's and lives in
+    `wave.llmll`, so its index stays false here by design.
     """
     block = REGISTRY.read_text().split("(def-shell stage-ported? ")[1] \
                                 .split("\n(def-shell ")[0]

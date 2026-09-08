@@ -102,15 +102,26 @@ content-shape validation of `shape.llmll`, and the verification-outcome channel 
 3 through the `:status` projection, so no shell sits between the acceptance criterion and the
 program.
 
-**Nine of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
-returns true for exactly nine indices. B (scope), C (rubric) and I (pre-registration) landed at
+**Ten of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
+returns true for exactly ten indices. B (scope), C (rubric) and I (pre-registration) landed at
 4b; D (extraction), F (core) and G (dispositions) at 4c; H (feasibility probes), K (root
-contract authoring) and N (kill matrix) at 4d. All nine read their inputs, render their prompt,
-spawn the agent through `wasi.proc.run`, and validate what the agent wrote. M (the swarm) is
-[`wave.llmll`](wave.llmll)'s and stays a stub in this program until the two unify. The other six
-write a stub to each artifact they declare, which is enough for every resume and outcome
-transition to be decided over real digests and a real completion record;
-`registry.stage-ported?` is the switch and carries the retirement schedule.
+contract authoring) and N (kill matrix) at 4d; A (intake and provenance pinning) with the stage A
+port. The nine delegated ones read their inputs, render their prompt, spawn the agent through
+`wasi.proc.run`, and validate what the agent wrote. M (the swarm) is [`wave.llmll`](wave.llmll)'s
+and stays a stub in this program until the two unify. The other five write a stub to each
+artifact they declare, which is enough for every resume and outcome transition to be decided over
+real digests and a real completion record; `registry.stage-ported?` is the switch and carries the
+retirement schedule.
+
+**Stage A is the first mechanical stage in this program, over `wasi.http.get` (v0.21.0).** It
+was a filed STOP from v0.14.83 until that builtin shipped. Per source, `--rfc-url` then each
+`--amend-url` in argv order, it fetches the bytes into `00-source/<basename>` unless the file is
+already there (the reference's `dest.exists()` skip; `--force` refetches), digests the file with
+`wasi.fs.sha256`, counts its newlines, and writes `PROVENANCE.json` with `{url, file, sha256,
+lines}` per source. A fetch that fails (a 404, a refused connection, the 60-second budget) leaves
+the destination unchanged and records `failed`; the reference tracebacks out of `urlopen` there.
+`--rfc-url` is required unconditionally, as the reference requires it. The cover fetches from a
+listener it starts on 127.0.0.1; no cell reaches the network.
 
 **The 4d stages are the ones whose oracle is the compiler.** H and N hand the driver a
 catalogue (`probes.json`, `mutants.json`) naming LLMLL files the agent wrote; the driver runs
@@ -159,15 +170,17 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **52 cells** at 4d, from 39,
-the thirteen new ones being H1 to H5, K1 to K3, N1 to N4 and F0. The 4d cells run the **real
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **58 cells** with stage A,
+from 52 at 4d and 39 before it; the thirteen 4d cells are H1 to H5, K1 to K3, N1 to N4 and F0, and
+the six stage A cells A1 to A6. The 4d cells run the **real
 compiler** (`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions
 under test, so a stub compiler would assert the port against a transcript the cover wrote
 itself. The checks that need no toolchain are in
 [`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py),
 [`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py),
-[`scripts/tests/test_driver_ll_4c.py`](../../scripts/tests/test_driver_ll_4c.py) and
-[`scripts/tests/test_driver_ll_4d.py`](../../scripts/tests/test_driver_ll_4d.py).
+[`scripts/tests/test_driver_ll_4c.py`](../../scripts/tests/test_driver_ll_4c.py),
+[`scripts/tests/test_driver_ll_4d.py`](../../scripts/tests/test_driver_ll_4d.py) and
+[`scripts/tests/test_driver_ll_a.py`](../../scripts/tests/test_driver_ll_a.py).
 
 **4c shipped with nothing in the no-toolchain tier; the tier arrived later.** The 4c file landed
 after 4c's release and the 4d tier landed with 4d. The two provisioning defects 4c found remain

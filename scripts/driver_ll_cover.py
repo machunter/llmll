@@ -50,6 +50,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -57,6 +58,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # One line per step. A full sixteen-stage run is about 140 steps once B, C and
@@ -258,7 +262,7 @@ def prepare(wd: Path, *, sources: dict[str, str] | None = None,
     src = wd / "00-source"
     src.mkdir(parents=True, exist_ok=True)
     for name, text in (sources if sources is not None
-                       else {"rfc.txt": "1. Introduction\nA sender MUST ack.\n"}).items():
+                       else {"rfc.txt": RFC_BYTES}).items():
         (src / name).write_text(text, encoding="utf-8")
     (src / "PROVENANCE.json").write_text(
         provenance if provenance is not None
@@ -279,17 +283,44 @@ def _stub(root: Path) -> Path:
 # sequencer since 4d, unconditionally, as the reference requires --agent-cmd.
 LLMLL: dict[str, str] = {"bin": ""}
 
+# Set by main(): the local listener stage A fetches from. Since the stage A
+# port every run names --rfc-url (required, as the reference requires it), so a
+# cover-wide `http.server` on 127.0.0.1 serves one directory for the whole run.
+# It holds `rfc.txt` with the bytes `prepare()` writes, so a run whose workdir
+# already carries the file skips the fetch (the reference's `dest.exists()`)
+# and a `--force` run fetches the same bytes; the A cells put their own files
+# beside it. NO CELL REACHES THE NETWORK.
+SERVER: dict[str, str] = {"base": "", "dir": ""}
+RFC_BYTES = "1. Introduction\nA sender MUST ack.\n"
+
+
+class _Quiet(SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):  # keep the cover log readable
+        pass
+
+
+def _serve(directory: Path) -> ThreadingHTTPServer:
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), partial(_Quiet, directory=str(directory)))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    SERVER["base"] = f"http://127.0.0.1:{srv.server_address[1]}"
+    SERVER["dir"] = str(directory)
+    return srv
+
 
 def drive(binary: Path, workdir: Path, only: str, *,
           force: bool = False, halt_at: str = "", halt_kind: str = "",
           mode: str = "ok", prompts: Path | str | None = None,
           agent_exe: str | None = None, timeout: int | None = None,
-          reference_dir: Path | str | None = REPO) -> Run:
+          reference_dir: Path | str | None = REPO,
+          rfc_url: str | None = None, amend_urls: tuple[str, ...] = ()) -> Run:
     stub = _stub(workdir.parent)
     cmd = [str(binary), "--workdir", str(workdir), "--only", only,
            # 4d: the compiler stages H, K and N run as their oracle, and the
            # repository root the language reference is provisioned from.
            "--llmll-cmd", LLMLL["bin"],
+           # Stage A: the RFC to fetch. The cover-wide listener's rfc.txt unless
+           # the cell names its own.
+           "--rfc-url", rfc_url if rfc_url is not None else f"{SERVER['base']}/rfc.txt",
            # Proposal section 5 item 1: --agent-exe plus repeatable
            # --agent-arg, with {prompt}/{out}/{workdir} substituted per
            # argument. NOT a shell template, because passing one to /bin/sh -c
@@ -303,6 +334,8 @@ def drive(binary: Path, workdir: Path, only: str, *,
         cmd += ["--timeout", str(timeout)]
     if reference_dir is not None:
         cmd += ["--reference-dir", str(reference_dir)]
+    for u in amend_urls:
+        cmd += ["--amend-url", u]
     if force:
         cmd.append("--force")
     if halt_at:
@@ -423,6 +456,16 @@ def local4d(cell: str, why: str):
     at all, so every 4d cell but H1 is local by construction."""
     def deco(fn):
         SCENARIOS.append((cell, "(4d, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def localA(cell: str, why: str):
+    """The stage A sibling. The rig's stub llmll and stub agent never touch
+    stage A, and `self_test()` carries no stage A block, so every cell here is
+    local by construction; each fetches from the cover's own listener."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(stage A, no reference counterpart) " + why, fn))
         return fn
     return deco
 
@@ -1183,6 +1226,122 @@ def f0(b, wd):
     want_in("--llmll-cmd is required", r)
     want(not r.stages(), "no stage row may exist when a required flag is absent")
 
+
+# ---------------------------------------------------------------------------
+# Stage A: intake and provenance pinning, over wasi.http.get
+#
+# Every cell removes what prepare() laid down for 00-source, because the stage
+# under test is the one that writes it, and fetches from the cover's listener.
+# ---------------------------------------------------------------------------
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _serve_file(name: str, text: str) -> str:
+    (Path(SERVER["dir"]) / name).write_text(text, encoding="utf-8")
+    return f"{SERVER['base']}/{name}"
+
+
+def _provenance(wd: Path) -> list:
+    p = wd / "00-source" / "PROVENANCE.json"
+    want(p.exists(), "00-source/PROVENANCE.json is not on disk")
+    return json.loads(p.read_text())["sources"]
+
+
+def _fresh(wd: Path) -> None:
+    shutil.rmtree(wd / "00-source", ignore_errors=True)
+
+
+@localA("A1", "the RFC is fetched as bytes, written under the URL's basename, "
+              "and pinned with its SHA-256 and newline count")
+def a1(b, wd):
+    _fresh(wd)
+    text = "Network Working Group\nRFC 1350\n\nTFTP Protocol (revision 2)\n"
+    url = _serve_file("rfc1350.txt", text)
+    r = drive(b, wd, "A", rfc_url=url)
+    want_rc(r, 0)
+    want_complete_row(r.stages()["A"], "mechanical")
+    want_in("fetching " + url, r)
+    want_in("pinned rfc1350.txt: " + _sha(text)[:16] + "... (4 lines)", r)
+    want((wd / "00-source" / "rfc1350.txt").read_text() == text,
+         "the fetched bytes must be the served bytes, undecoded")
+    pins = _provenance(wd)
+    want(pins == [{"url": url, "file": "rfc1350.txt", "sha256": _sha(text), "lines": 4}],
+         f"the pin must carry url, file, sha256 and lines as the reference writes them: {pins!r}")
+
+
+@localA("A2", "a 404 leaves 00-source without the file and records failed; the "
+              "reference tracebacks out of urlopen")
+def a2(b, wd):
+    _fresh(wd)
+    r = drive(b, wd, "A", rfc_url=f"{SERVER['base']}/no-such-rfc.txt")
+    want_failed(r, "A", "HTTP 404")
+    want(not (wd / "00-source" / "no-such-rfc.txt").exists(),
+         "a failed fetch must leave no file behind (wasi.http.get renames only a whole 2xx body)")
+    want(not (wd / "00-source" / "PROVENANCE.json").exists(),
+         "no pin may be written for a source that did not arrive")
+
+
+@localA("A3", "a destination already present is NOT refetched: the reference's "
+              "`if not dest.exists() or ctx.force` skip, with the manifest row removed")
+def a3(b, wd):
+    _fresh(wd)
+    first = "first bytes\n"
+    url = _serve_file("rfc-a3.txt", first)
+    want_rc(drive(b, wd, "A", rfc_url=url), 0)
+    # Re-run the stage itself, not the resume gate: delete the manifest (the
+    # documented remedy) and change what the listener serves.
+    (wd / "MANIFEST.json").unlink()
+    _serve_file("rfc-a3.txt", "second bytes, longer\n\n")
+    r = drive(b, wd, "A", rfc_url=url)
+    want_rc(r, 0)
+    want_not_in("fetching " + url, r)
+    want(_provenance(wd)[0]["sha256"] == _sha(first) and _provenance(wd)[0]["lines"] == 1,
+         "the pin must be over the file already on disk, not over the changed listener bytes")
+
+
+@localA("A4", "--force refetches a destination already present")
+def a4(b, wd):
+    _fresh(wd)
+    url = _serve_file("rfc-a4.txt", "first bytes\n")
+    want_rc(drive(b, wd, "A", rfc_url=url), 0)
+    second = "second bytes, longer\n\n"
+    _serve_file("rfc-a4.txt", second)
+    r = drive(b, wd, "A", rfc_url=url, force=True)
+    want_rc(r, 0)
+    want_in("fetching " + url, r)
+    want(_provenance(wd)[0]["sha256"] == _sha(second) and _provenance(wd)[0]["lines"] == 2,
+         "--force must replace the file and the pin with the listener's current bytes")
+
+
+@localA("A5", "an amending RFC is pinned after the RFC, in argv order, each under "
+              "its own basename")
+def a5(b, wd):
+    _fresh(wd)
+    rfc = _serve_file("rfc-a5.txt", "the RFC\n")
+    amend = _serve_file("rfc-a5-amend.txt", "the amendment\nsecond line\n")
+    r = drive(b, wd, "A", rfc_url=rfc, amend_urls=(amend,))
+    want_rc(r, 0)
+    pins = _provenance(wd)
+    want([p["file"] for p in pins] == ["rfc-a5.txt", "rfc-a5-amend.txt"],
+         f"two pins in argv order, got {[p.get('file') for p in pins]}")
+    want(pins[1]["lines"] == 2 and pins[1]["sha256"] == _sha("the amendment\nsecond line\n"),
+         "the amendment's pin must be its own digest and count")
+
+
+@localA("A6", "--rfc-url is required unconditionally, as the reference requires it, "
+              "and its absence stops before any stage")
+def a6(b, wd):
+    r = drive_bare(b, wd, "--only", "B",
+                   "--agent-exe", sys.executable,
+                   "--agent-arg", str(_stub(wd.parent)),
+                   "--prompts-dir", str(PROMPTS),
+                   "--llmll-cmd", LLMLL["bin"])
+    want_rc(r, 2)
+    want_in("--rfc-url is required", r)
+    want(not r.stages(), "no stage row may exist when a required flag is absent")
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--driver", default=os.environ.get("DRIVER_LL_BIN", ""))
@@ -1209,6 +1368,10 @@ def main() -> int:
         return 2
 
     root = Path(tempfile.mkdtemp(prefix="driver-ll-4a-"))
+    served = root / "served"
+    served.mkdir()
+    (served / "rfc.txt").write_text(RFC_BYTES, encoding="utf-8")
+    srv = _serve(served)
     npass = nfail = 0
     try:
         for cell, mirrors, fn in SCENARIOS + [("registry", "-", registry_drift)]:
@@ -1228,12 +1391,14 @@ def main() -> int:
                 npass += 1
                 print(f"  ok   {cell:8s} mirrors {mirrors}")
     finally:
+        srv.shutdown()
+        srv.server_close()
         if not a.keep:
             shutil.rmtree(root, ignore_errors=True)
         else:
             print(f"  workdirs kept under {root}")
 
-    print(f"DRIVER-LL 4a+4b+4c+4d cover: {npass} passed, {nfail} failed")
+    print(f"DRIVER-LL 4a+4b+4c+4d+A cover: {npass} passed, {nfail} failed")
     return 1 if nfail else 0
 
 
