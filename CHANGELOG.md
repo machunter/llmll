@@ -61,9 +61,13 @@ plan and measurements:
   the builtin once, so BUILD-GATE-1 compiles the conditional group; `wasi_http_get` joins both
   hand-maintained preamble-name lists.
 
-`LLMLL.md` §13.9 gains the row and the delivery note. No schema change. Not measured: the cold
-build on the CI runner (the first run on this branch is that measurement) and whether the cache
-saves on the run after it; the resolver-hang target of the budget stays a hand measurement.
+`LLMLL.md` §13.9 gains the row and the delivery note. No schema change. Measured on the first
+`main` run after the merge (`version-gate` 34180880222, 27m00s against 19m37s before): the
+41-package group cold-built inside the new runtime-cells step, about two minutes of a 240 s step
+whose other two minutes are the two budget cells; the Stack cache missed the new key, restored the
+previous cache through the restore-key prefix, and saved under the new key at the end, so the
+group is now cached. Not measured: the exact-key hit on the following run, and the resolver-hang
+target of the budget, which stays a hand measurement.
 
 1891 examples, 0 failures (twenty-one new). pytest 181 passed, 20 skipped (ten new, toolchain-gated;
 they pass in the spec-roundtrip job).

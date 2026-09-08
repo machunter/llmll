@@ -1,7 +1,7 @@
 ---
 name: http-get-1-implementation-plan
 title: "HTTP-GET-1: engineer plan and measurements for wasi.http.get"
-status: "Rev 1, APPLIED and SHIPPED v0.21.0 (commit dc2c9cf, 2026-09-07). The plan was approved by the user on 2026-09-07 and executed as written, with one change the budget measurement forced (the System.Timeout wrapper, section 9); section 9 records every measurement taken while applying it. Owed on the CI runner: the cold build time and the cache save on the second run."
+status: "Rev 1, APPLIED and SHIPPED v0.21.0 (commit dc2c9cf, 2026-09-07). The plan was approved by the user on 2026-09-07 and executed as written, with one change the budget measurement forced (the System.Timeout wrapper, section 9); section 9 records every measurement taken while applying it and on the first main run (cold build about two minutes on the runner; the Stack cache saved under the new key). Still owed: the exact-key cache hit on the run after this record's push."
 date: 2026-09-07
 author: compiler-engineer
 consumers: [user, documentation-lead, language-team]
@@ -141,10 +141,22 @@ cache is still present.
 | New compiler warnings in the five edited modules | none; every warning the rebuild printed for them blames to an earlier commit |
 | Path-citation lint over the new and edited docs | every citation resolves; the one unresolved citation the gate reports predates this branch (`critique-2026-09-05-triage.md`, a gitignored `generated/` path) |
 
-The owed measurements from the proposal's section 11: (1) the cold build on the runner is the first
-CI run on this branch; (2) taken, positive, recorded above, with one change to the realization that
-the measurement forced (the `System.Timeout` wrapper); the resolver target stays a hand measurement;
-(3) the cache guard's negative is the second CI run after the first.
+The owed measurements from the proposal's section 11, as they stand after the merge to `main`
+(`version-gate` run 34180880222, 2026-09-08, success in 27m00s against 19m37s for the previous
+`main` run):
+
+1. **Cold build on the runner: taken.** The 41-package group was first built inside the new
+   "Run HTTP-GET-1 runtime cells" step, 240 s in total, of which about 120 s are the two budget
+   cells waiting their 60 s out; so the fixture build with the cold group cost about two minutes on
+   the runner, against 40 s on Apple silicon. BUILD-GATE-1 then compiled `smoke.llmll` against the
+   already-built group in 129 s.
+2. **The budget: taken, positive**, recorded above, with the one change to the realization that it
+   forced (the `System.Timeout` wrapper). The resolver target stays a hand measurement.
+3. **The cache key: first half taken.** The run missed the exact key, restored the previous cache
+   through the restore-key prefix (`stack-Linux-7248…`), and saved under the new key
+   (`stack-Linux-452a…`) at the end, which is the designed path: the pin file moved the key, so the
+   save was not skipped. The second half, an exact hit that rebuilds nothing, is the run after
+   this record's own push.
 
 **Consequence of measurement 2 for the spec text: none.** Clause 4.6 stands as written. What the
 measurement changed is the realization note: the budget is delivered by a `System.Timeout` wrapper
