@@ -94,20 +94,43 @@ shell demonstrates the tier's discipline over a handful of operations.
 
 [`spine.llmll`](spine.llmll) ports stages E, J, L and G2 over the committed TFTP data
 (DRIVER-LL Phase 3), and [`sequencer.llmll`](sequencer.llmll) ports the stage loop above them
-(Phase 4, sub-phases 4a, 4b and 4c): the sixteen-stage registry, the resume gate over
+(Phase 4, sub-phases 4a to 4d): the sixteen-stage registry, the resume gate over
 `skip.may-skip`, the manifest row schema, two halt channels over `stage.record-outcome`, the
-delegated-output validation of `validate.verdict-of` / `validate.verdict-outcome`, and the
-content-shape validation of `shape.llmll`. It receives its flags through `wasi.proc.args` and
-exits 0, 2 or 3 through the `:status` projection, so no shell sits between the acceptance
-criterion and the program.
+delegated-output validation of `validate.verdict-of` / `validate.verdict-outcome`, the
+content-shape validation of `shape.llmll`, and the verification-outcome channel of
+[`oracle.llmll`](oracle.llmll). It receives its flags through `wasi.proc.args` and exits 0, 2 or
+3 through the `:status` projection, so no shell sits between the acceptance criterion and the
+program.
 
-**Six of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
-returns true for exactly six indices. B (scope), C (rubric) and I (pre-registration) landed at
-4b; D (extraction), F (core) and G (dispositions) at 4c. All six read their inputs, render their
-prompt, spawn the agent through `wasi.proc.run`, and validate the declared output. The other ten
+**Nine of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
+returns true for exactly nine indices. B (scope), C (rubric) and I (pre-registration) landed at
+4b; D (extraction), F (core) and G (dispositions) at 4c; H (feasibility probes), K (root
+contract authoring) and N (kill matrix) at 4d. All nine read their inputs, render their prompt,
+spawn the agent through `wasi.proc.run`, and validate what the agent wrote. M (the swarm) is
+[`wave.llmll`](wave.llmll)'s and stays a stub in this program until the two unify. The other six
 write a stub to each artifact they declare, which is enough for every resume and outcome
 transition to be decided over real digests and a real completion record;
 `registry.stage-ported?` is the switch and carries the retirement schedule.
+
+**The 4d stages are the ones whose oracle is the compiler.** H and N hand the driver a
+catalogue (`probes.json`, `mutants.json`) naming LLMLL files the agent wrote; the driver runs
+`llmll verify --strict-verified-core` over each and scores the transcript through
+`oracle.probe-established?` and `oracle.outcome-as-expected?`, then writes the declared output
+(`feasibility.json`, `kill-matrix.json`) itself. That is the inverted artifact flow: the agent's
+file is an input and the driver writes the output, so `registry.stage-agent-out` names the
+agent's file separately from `stage-out`, and the first run of the 4d cover is what showed the
+two had been conflated. K runs `llmll check` on the authored `roots.llmll` and halts on the exit
+status, the stage's only validator; its hole count is printed and decides nothing. The
+compiler is `--llmll-cmd`, required unconditionally, and the language reference (LLMLL.md and
+the JSON-AST schema) is provisioned into the agent's directory from `--reference-dir` when
+given, the reference's `_provision_reference`.
+
+**The fourth `Outcome` arm appears at 4d, at stage H.** Its bar is decided one console step
+after `feasibility.json` is written, so a failed bar records `stopped` through
+`PartialThenHalt` with the artifact on disk, driver-spec section 4:146-147 and the reference's
+only `require_written`. `stage.record-outcome` proved the mapping at 4a and cannot see the
+ordering; write-before-halt is a construction discipline at that site, and cover cell H1
+asserts the file beside the disposition.
 
 **Stage D is the first stage that delegates more than once**, which is why the registry tables
 take an invocation index and the run state grew a tag. It declares two outputs and runs two blind
@@ -136,18 +159,20 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **39 cells** at 4c, from 31,
-the eight new ones being the content-shape family C1 through C7 plus C6b. The checks that need no
-toolchain are in
-[`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py) and
-[`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py).
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **52 cells** at 4d, from 39,
+the thirteen new ones being H1 to H5, K1 to K3, N1 to N4 and F0. The 4d cells run the **real
+compiler** (`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions
+under test, so a stub compiler would assert the port against a transcript the cover wrote
+itself. The checks that need no toolchain are in
+[`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py),
+[`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py),
+[`scripts/tests/test_driver_ll_4c.py`](../../scripts/tests/test_driver_ll_4c.py) and
+[`scripts/tests/test_driver_ll_4d.py`](../../scripts/tests/test_driver_ll_4d.py).
 
-**4c added nothing to the no-toolchain tier, and that is disclosed rather than explained.** Its
-plan listed a `test_driver_ll_4c.py`; no such file exists and the Python suite is unchanged at
-132. Every check 4c added therefore needs a toolchain and a built binary, so on a machine without
-one, or while CI is unavailable, 4c has no automated coverage at all. The two provisioning
-defects above are cover cells C1 and C2, which is the same tier: the things only a run can catch
-are checked only by a run.
+**4c shipped with nothing in the no-toolchain tier; the tier arrived later.** The 4c file landed
+after 4c's release and the 4d tier landed with 4d. The two provisioning defects 4c found remain
+cover cells C1 and C2, which is the right tier: the things only a run can catch are checked only
+by a run, and 4d's inverted-artifact-flow conflation was found the same way.
 
 ## The validation facility
 

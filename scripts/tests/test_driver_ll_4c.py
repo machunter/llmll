@@ -77,7 +77,8 @@ SHAPE_DEFS = ("extraction-conforms?", "core-conforms?",
 
 # index -> letter, from registry.llmll's own stage table. Duplicated here on
 # purpose: a test that reads the table it is checking cannot fail.
-PORTED = {1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 9: "I"}
+PORTED = {1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 8: "H", 9: "I",
+          11: "K", 14: "N"}
 
 
 def _fn(name: str) -> ast.FunctionDef:
@@ -210,13 +211,17 @@ def test_the_shape_posts_are_named():
 # 2. Which stages claim to be ported
 # ---------------------------------------------------------------------------
 
-def test_exactly_six_stages_claim_to_be_ported_and_they_are_the_expected_six():
+def test_exactly_nine_stages_claim_to_be_ported_and_they_are_the_expected_nine():
     """`registry.stage-ported?` is the switch between a real body and a stub.
 
     Flipping a stage on before its body exists produces a tree that compiles
     and lies, which is strictly worse than one that does not compile, and no
     proof and no type would catch it. The letters come from the reference's own
     stage list so that a renumbering on either side is a failure here.
+
+    Sub-phase 4d took the set from six to nine: H (8), K (11) and N (14).
+    A, E, G2, J, L, M and O keep the 4a stub write; M is the wave's and lives
+    in `wave.llmll`, so its index stays false here by design.
     """
     block = REGISTRY.read_text().split("(def-shell stage-ported? ")[1] \
                                 .split("\n(def-shell ")[0]
@@ -352,6 +357,45 @@ def test_the_agent_run_receiver_is_never_aliased():
         f"{sorted(aliases)} alias the agent runner or its run method, so a "
         "delegation through them is invisible to receiver-qualified matching. "
         "Either inline the call or teach _is_agent_run the alias.")
+
+
+def test_every_agent_delegation_sits_in_a_stage_handler():
+    """The third condition the receiver-qualified census rests on.
+
+    `test_stage_D_is_the_only_multi_invocation_stage_in_the_reference` walks
+    each STAGE HANDLER's own body. Receiver qualification and the alias guard
+    above make what it sees sound; they say nothing about what it cannot see.
+    A `ctx.agent.run` inside a top-level helper that a handler calls is
+    qualified, unaliased, and invisible, because the walk never enters the
+    helper. That is the residue proposal section 9.3 item 1 left when it
+    settled the predicate, and it is one assertion.
+
+    Measured at HEAD: every `.agent.run` site sits in a `stage_*` handler and
+    none sits in a helper. This does not pin the count, which moves whenever
+    the reference gains a delegating stage; it pins the PLACEMENT, which is
+    what the census needs.
+    """
+    handlers = set()
+    for c in ast.walk(TREE):
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) \
+                and c.func.id == "Stage" and len(c.args) >= 4 \
+                and isinstance(c.args[3], ast.Name):
+            handlers.add(c.args[3].id)
+    assert handlers, "the reference's STAGES list names no handler"
+    owner: dict[str, int] = {}
+    for f in TREE.body:
+        if not isinstance(f, ast.FunctionDef):
+            continue
+        for n in ast.walk(f):
+            if isinstance(n, ast.Call) and _is_agent_run(n):
+                owner[f.name] = owner.get(f.name, 0) + 1
+    assert owner, "no agent delegation found anywhere; the predicate is broken"
+    strays = {fn: n for fn, n in owner.items() if fn not in handlers}
+    assert not strays, (
+        f"{strays} delegate to an agent from outside a stage handler. The "
+        "per-handler walk in the multi-invocation census cannot see these; "
+        "either inline the call into the handler or teach the census to "
+        "follow the helper.")
 
 
 # ---------------------------------------------------------------------------

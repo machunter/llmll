@@ -7,14 +7,15 @@
 ;; delegated output. None of the three is re-implemented here, which is Phase
 ;; 3's standing rule (spine.llmll:12-16).
 ;;
-;; THIRTEEN OF THE SIXTEEN STAGES HAVE NO BODY. Proposal section 9's 4a row
-;; held all sixteen at a stub; the 4b row lands B, C and I. A stage that is
-;; not ported writes a stub byte-string to each artifact it declares and
-;; nothing else; the eleven resume and outcome transitions of section 2.3 are
-;; decided over those stubs exactly as they would be over real artifacts,
-;; because the resume gate reads digests and a completion record and never the
-;; content. registry.stage-ported? is the switch and carries the retirement
-;; schedule.
+;; SEVEN OF THE SIXTEEN STAGES HAVE NO BODY HERE. Proposal section 9's 4a row
+;; held all sixteen at a stub; the 4b row lands B, C and I, the 4c row D, F
+;; and G, and the 4d row H, K and N. M is the wave's (wave.llmll, 4e) and
+;; stays a stub in THIS program until unification. A stage that is not ported
+;; writes a stub byte-string to each artifact it declares and nothing else;
+;; the eleven resume and outcome transitions of section 2.3 are decided over
+;; those stubs exactly as they would be over real artifacts, because the
+;; resume gate reads digests and a completion record and never the content.
+;; registry.stage-ported? is the switch and carries the retirement schedule.
 ;;
 ;; ------------------------------------------------------------------
 ;; SECTION 7 STATEMENT 3 OF 3 [DISCLOSURE validate.verdict-of], NEW AT 4b
@@ -57,6 +58,40 @@
 ;; stage.record-outcome, whose [S4-FAILED] and [S4-NOT-STOPPED] are the proved
 ;; mapping. The THIRD of them, an absent declared output, does go through
 ;; verdict-of as `Absent`, because it is a fact about the output.
+;;
+;; ------------------------------------------------------------------
+;; SECTION 7 STATEMENT [DISCLOSURE oracle.*], NEW AT 4d
+;;
+;; oracle.llmll's four decisions and shape.probe-rows-conform? are proved
+;; over booleans and counts. The booleans `probe-safe`, `probe-body-faithful`
+;; and `verified-safe` are computed HERE, from the stdout transcript of one
+;; `llmll verify FILE --strict-verified-core` per probe, per mutant and per
+;; mutant file, by verify-safe? and body-faithful-all? below. Three decisions
+;; inside that computation are invisible at the proved boundary:
+;;
+;;   1. THE EXIT STATUS IS NOT READ. The reference's `safe` is
+;;      `"SAFE" in o and returncode == 0`; the port folds the run and the
+;;      read into one command (RC-2 is discard-left) and keys on the SAFE line
+;;      alone. Measured at v0.21.0: a SAFE run exits 0, a refuted run prints
+;;      no SAFE line and exits 1, a fallen-back strict run prints no SAFE
+;;      line and exits 1. No transcript the compiler produces decides
+;;      differently under the two conjunctions.
+;;
+;;   2. THE FILE STEM IS NOT COMPARED. The reference's `body_faithful` is
+;;      `"body-faithful" in o and f.stem not in _fallbacks(o)`, which compares
+;;      a FILE stem against FUNCTION names and so scores a probe faithful
+;;      whenever its file is not named after its function. The port asks for a
+;;      `body-faithful:` line and NO `body-fallback:` line: every function in
+;;      the file emitted a body-faithful VC. Stronger; and under
+;;      --strict-verified-core a fallback prints no SAFE line, so the SAFE
+;;      conjunct already implies it and no decision moves.
+;;
+;;   3. THE LEXEMES ARE THE COMPILER'S. `SAFE`, `body-faithful:` and
+;;      `body-fallback:` are what compiler/app/Main.hs prints (the two lists at
+;;      its emit site) and every line the port keys on is on STDOUT, measured.
+;;      If the wording changes, every proof in oracle.llmll stays green and
+;;      each one means something else; scripts/tests/test_driver_ll_4d.py pins
+;;      the three literals against the compiler source for that reason.
 ;;
 ;; ------------------------------------------------------------------
 ;; THREE UNGUARDED READS IN THE REFERENCE, PORTED AS DECISIONS.
@@ -194,6 +229,7 @@
   (import manifest) (open manifest)
   (import validate) (open validate)
   (import shape)    (open shape)
+  (import oracle)   (open oracle)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -258,15 +294,17 @@
   ;; list, because an empty string has to mean "every stage" and an empty list
   ;; would mean "no stage": string-split with an empty subject yields [""],
   ;; measured.
-  ;; Sub-phase 4d WIDENS THIS AT THE TAIL, not in the middle. The innermost
-  ;; pair goes from `AgentCfg` to `(AgentCfg, string)`, carrying the compiler
-  ;; command stages H, K and N invoke. Appending is what keeps the change to
-  ;; ONE existing projection: every cfg-* accessor above cfg-agent reaches its
-  ;; field through the same chain it did before, and only cfg-agent gains a
-  ;; `first`. Inserting the field anywhere else would reproject all six, and
-  ;; proposal section 13 risk 6 is that a wrong projection over a pair chain
-  ;; TYPECHECKS.
-  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, string))))))))
+  ;; Sub-phase 4d WIDENS THIS AT THE TAIL, not in the middle, TWICE. The
+  ;; innermost pair went from `AgentCfg` to `(AgentCfg, string)` for the
+  ;; compiler command stages H, K and N invoke, and then to
+  ;; `(AgentCfg, (string, string))` for --reference-dir, the directory the
+  ;; language reference is provisioned from. Appending is what keeps each change
+  ;; to ONE existing projection: every cfg-* accessor above the tail reaches its
+  ;; field through the same chain it did before, and only the previous tail
+  ;; accessor gains a `first`. Inserting the field anywhere else would reproject
+  ;; all of them, and proposal section 13 risk 6 is that a wrong projection over
+  ;; a pair chain TYPECHECKS.
+  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, (string, string)))))))))
 
   ;; The run-common record of proposal section 4: config, the live manifest,
   ;; and the selected stage indices in registry order.
@@ -310,6 +348,20 @@
   ;;   Prov       r is the UNFILTERED listing of 00-source
   ;;   Copy       r is the copy of provisioned file `idx`
   ;;
+  ;; The ten 4d arms are the compiler-oracle loops that follow a passing
+  ;; delegated output (registry.stage-oracle); see their own section.
+  ;;
+  ;;   HGood      r is sha256 of probe idx's file
+  ;;   HMut       r is sha256 of probe idx's mutant file
+  ;;   HOutG      r is the read of the probe's verify transcript
+  ;;   HOutM      r is the read of the mutant's verify transcript
+  ;;   HWrote     r is the write of feasibility.json
+  ;;   KCheck     r is `llmll check`'s exit status over the authored roots
+  ;;   NRow       r is sha256 of mutant idx's file
+  ;;   NSkip      r is the log line for an unwritable row
+  ;;   NOut       r is the read of the mutant's verify transcript
+  ;;   NWrote     r is the write of kill-matrix.json
+  ;;
   ;; k, (start, (pre-values, (idx, (names, (accumulated-source-text, tag))))).
   ;;
   ;; TWO 4c CHANGES, and both are smaller than they look.
@@ -324,6 +376,14 @@
   ;; the Src loop has finished with them and left its result in the accumulator;
   ;; `acc` and `pre-values` are what survive into rendering.
   (type Body (| Body (int, (int, (list[string], (int, (list[string], (string, int))))))))
+
+  ;; The 4d loop payload: k, (start, (idx, (rows, (acc, note)))). `rows` is the
+  ;; agent's catalogue as a JSON array, `acc` the rows the driver has scored so
+  ;; far, `note` a per-row scratch string (H keeps the probe's transcript in it
+  ;; between the probe's read and the mutant's). One payload type for the ten
+  ;; 4d arms, on the reasoning that gave the 4b arms one Body. Named Loop and
+  ;; nothing an opened module names, for the reason Ctl is not Phase.
+  (type Loop (| Loop (int, (int, (int, (Json, (Json, string)))))))
 
   ;; Named Ctl and not Phase: token.llmll declares a DIFFERENT type named
   ;; Phase (a three-arm nullary lifecycle sum) and 4e's wave imports both.
@@ -350,7 +410,17 @@
     (| Stamped  (int, (int, Json)))
     (| Recorded (int, int))
     (| Ending   int)
-    (| Done     int))
+    (| Done     int)
+    (| HGood    Loop)
+    (| HMut     Loop)
+    (| HOutG    Loop)
+    (| HOutM    Loop)
+    (| HWrote   Loop)
+    (| KCheck   (int, (int, (int, int))))
+    (| NRow     Loop)
+    (| NSkip    Loop)
+    (| NOut     Loop)
+    (| NWrote   Loop))
 
   ;; ---- accessors, written once ---------------------------------------
   ;;
@@ -377,7 +447,14 @@
   ;; with the --llmll-cmd flag; see parse-cfg for why it is a flag and not a
   ;; default.
   (def-shell cfg-llmll [c: Cfg] -> string
-    (match c ((Cfg p) (second (second (second (second (second (second p)))))))))
+    (match c ((Cfg p) (first (second (second (second (second (second (second p))))))))))
+
+  ;; The repository root the language reference is copied from, or "". The
+  ;; two files are LLMLL.md and docs/llmll-ast.schema.json relative to it,
+  ;; the reference's `REPO / ...` (_provision_reference). Optional, because the
+  ;; reference silently skips a file that is not there.
+  (def-shell cfg-refdir [c: Cfg] -> string
+    (match c ((Cfg p) (second (second (second (second (second (second (second p))))))))))
 
   (def-shell ag-exe [a: AgentCfg] -> string
     (match a ((AgentCfg q) (first q))))
@@ -453,6 +530,45 @@
   ;; template per tag, which is what re-entering Tmpl does.
   (def-shell b-next-tag [b: Body] -> Body
     (mk-body (b-k b) (b-start b) (b-pvals b) 0 (b-names b) (b-acc b) (+ (b-tag b) 1)))
+
+  ;; The 4d loop payload. Written once, per the note on the Ctl type.
+  (def-shell lp-k [l: Loop] -> int
+    (match l ((Loop p) (first p))))
+  (def-shell lp-start [l: Loop] -> int
+    (match l ((Loop p) (first (second p)))))
+  (def-shell lp-idx [l: Loop] -> int
+    (match l ((Loop p) (first (second (second p))))))
+  (def-shell lp-rows [l: Loop] -> Json
+    (match l ((Loop p) (first (second (second (second p)))))))
+  (def-shell lp-acc [l: Loop] -> Json
+    (match l ((Loop p) (first (second (second (second (second p))))))))
+  (def-shell lp-note [l: Loop] -> string
+    (match l ((Loop p) (second (second (second (second (second p))))))))
+  (def-shell mk-loop [k: int start: int idx: int rows: Json acc: Json note: string] -> Loop
+    (Loop (pair k (pair start (pair idx (pair rows (pair acc note)))))))
+
+  (def-shell lp-row-list [l: Loop] -> list[Json]
+    (unwrap-or (json-array (lp-rows l)) (list-empty)))
+  (def-shell lp-count [l: Loop] -> int
+    (list-length (lp-row-list l)))
+  (def-shell lp-row [l: Loop] -> Json
+    (unwrap-or (list-nth (lp-row-list l) (lp-idx l)) json-object))
+  (def-shell lp-acc-list [l: Loop] -> list[Json]
+    (unwrap-or (json-array (lp-acc l)) (list-empty)))
+  (def-shell lp-with-note [l: Loop s: string] -> Loop
+    (mk-loop (lp-k l) (lp-start l) (lp-idx l) (lp-rows l) (lp-acc l) s))
+  ;; Append one scored row and move to the next input row.
+  (def-shell lp-scored [l: Loop row: Json] -> Loop
+    (mk-loop (lp-k l) (lp-start l) (+ (lp-idx l) 1) (lp-rows l)
+             (json-of-list (list-append (lp-acc-list l) row)) ""))
+
+  ;; Stage K's payload: k, (start, (encoded-count, hole-count)).
+  (def-shell kc-k [d: (int, (int, (int, int)))] -> int (first d))
+  (def-shell kc-start [d: (int, (int, (int, int)))] -> int (first (second d)))
+  (def-shell kc-enc [d: (int, (int, (int, int)))] -> int (first (second (second d))))
+  (def-shell kc-holes [d: (int, (int, (int, int)))] -> int (second (second (second d))))
+  (def-shell mk-kc [k: int start: int enc: int holes: int] -> Ctl
+    (KCheck (pair k (pair start (pair enc holes)))))
 
   (def-shell md-k [d: (int, (int, int))] -> int (first d))
   (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
@@ -540,7 +656,8 @@
                            (pair (flag-value as "--halt-kind")
                                  (pair (list-contains as "--force")
                                        (pair (parse-agent as)
-                                             (flag-value as "--llmll-cmd")))))))))
+                                             (pair (flag-value as "--llmll-cmd")
+                                                   (flag-value as "--reference-dir"))))))))))
 
   ;; "" when the required flags are present. The reference makes --agent-cmd
   ;; required at argparse (:1888-1891) and exits 2 through ap.error, BEFORE
@@ -553,7 +670,9 @@
         "--agent-exe is required (the executable each delegated stage runs)"
         (if (string-empty? (ag-prompts (cfg-agent c)))
             "--prompts-dir is required (the directory holding the stage prompt templates)"
-            "")))
+            (if (string-empty? (cfg-llmll c))
+                "--llmll-cmd is required (the compiler stages H, K and N run as their oracle)"
+                ""))))
 
   (def-shell argv-of [r: Response] -> list[string]
     (match r
@@ -635,6 +754,12 @@
   ;; once this is art-dir c i 0, unchanged.
   (def-shell agent-dir [c: Cfg i: int j: int] -> string
     (art-dir c i j))
+
+  ;; The file the agent is told to write and the one Outp then reads:
+  ;; registry.stage-agent-out, which is the declared output for every stage
+  ;; but H and N (the inverted artifact flow; see the registry's note).
+  (def-shell agent-out-path [c: Cfg i: int j: int] -> string
+    (string-concat-many [(cfg-workdir c) "/" (stage-agent-out i j)]))
 
   (def-shell prompt-file [c: Cfg i: int j: int] -> string
     (string-concat (agent-dir c i j) "/PROMPT.md"))
@@ -727,6 +852,14 @@
       ((RNone)    "")
       ((RCode _)  "")
       ((RList _)  "")))
+
+  ;; The same projection as hex-of, named for what the 4d arms read out of
+  ;; it: a transcript or a file, present when the read answered text.
+  (def-shell text-of [r: Response] -> string
+    (hex-of r))
+
+  (def-shell present? [r: Response] -> bool
+    (not (string-empty? (hex-of r))))
 
   (def-shell ns-of [r: Response] -> int
     (match r
@@ -1056,6 +1189,21 @@
   ;; An empty result means REJECTED, and no legitimate projection is empty: a
   ;; serialized JSON value is at minimum two characters, and mode RAW is only
   ;; reached for artifacts whose absence is already a separate condition.
+  ;; Mode 3 (4d): the projected member must be an array, and the rows whose
+  ;; filter key equals the filter value are re-serialized as an array. Stage
+  ;; K's `[r for r in rows if r["disposition"] == "Encoded"]`. An empty
+  ;; selection is "[]" and is NOT a rejection.
+  (def-shell filtered-rows [i: int j: int m: Json] -> string
+    (match (json-array m)
+      ((Success rows)
+        (json-serialize
+          (json-of-list
+            (list-filter rows
+              (fn [r: Json]
+                (= (unwrap-or (json-get-string r (stage-pre-filter-key i j)) "")
+                   (stage-pre-filter-val i j)))))))
+      ((Error _) "")))
+
   (def-shell pre-project [i: int j: int t: string] -> string
     (if (= (stage-pre-mode i j) 0)
         t
@@ -1064,16 +1212,23 @@
             (if (= (stage-pre-mode i j) 1)
                 (json-serialize v)
                 (match (json-get v (stage-pre-proj i j))
-                  ((Success m) (json-serialize m))
+                  ((Success m)
+                    (if (= (stage-pre-mode i j) 3)
+                        (filtered-rows i j m)
+                        (json-serialize m)))
                   ((Error _)   ""))))
           ((Error _) ""))))
 
   (def-shell pre-why [i: int j: int] -> string
     (if (= (stage-pre-mode i j) 1)
         "does not parse as JSON"
-        (string-concat-many
-          ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
-           "\" member"])))
+        (if (= (stage-pre-mode i j) 3)
+            (string-concat-many
+              ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
+               "\" array"])
+            (string-concat-many
+              ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
+               "\" member"]))))
 
   (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
@@ -1220,8 +1375,12 @@
   ;; can expand one of them. Strictly safer than the reference's order, and
   ;; disclosed rather than silent.
 
+  ;; 4d: {{llmll}} is the compiler command, substituted before the
+  ;; precondition values on the same argument as the barriers constant: a
+  ;; path carries no placeholder, so its position against the artifact values
+  ;; cannot expand one of them.
   (def-shell render [i: int j: int tpl: string src: string
-                     pvals: list[string]] -> string
+                     pvals: list[string] llmll: string] -> string
     (let [(t1 (if (stage-needs-src? i) (replace-all tpl "{{rfc_text}}" src) tpl))]
       (let [(t2 (if (stage-needs-barriers? i)
                     (replace-all t1 "{{barriers}}" (barriers-json))
@@ -1229,38 +1388,59 @@
         (let [(t3 (if (string-empty? (stage-tag-upper i j))
                       t2
                       (replace-all t2 "{{extractor}}" (stage-tag-upper i j))))]
-          (list-fold (range 0 (stage-pre-count i)) t3
-            (fn [acc: string n: int]
-              (replace-all acc (stage-pre-key i n)
-                           (unwrap-or (list-nth pvals n) ""))))))))
+          (let [(t4 (if (stage-needs-llmll? i) (replace-all t3 "{{llmll}}" llmll) t3))]
+            (list-fold (range 0 (stage-pre-count i)) t4
+              (fn [acc: string n: int]
+                (replace-all acc (stage-pre-key i n)
+                             (unwrap-or (list-nth pvals n) "")))))))))
 
   ;; The prompt write, then the agent, in one seq-commands. RC-2 is
   ;; discard-left, so the response the Delegate arm receives is the RUN's and
   ;; the write's is dropped -- which mirrors the reference, whose
   ;; prompt_path.write_text (:299) is likewise unchecked.
+  ;; _provision_reference: LLMLL.md and docs/llmll-ast.schema.json into the
+  ;; agent's directory, for the stages that ask an agent to write LLMLL
+  ;; (registry.stage-provision-ref?). Unchecked copies, as shutil.copy2 is
+  ;; there: seq-commands performs both effects whatever the left one answered,
+  ;; so a missing --reference-dir or a missing file leaves the agent without
+  ;; the manual and does not halt, which is the reference's `if src.exists()`
+  ;; tolerance reproduced rather than a halt invented.
+  (def-shell ref-copies [c: Cfg i: int j: int tail: Command] -> Command
+    (if (or (not (stage-provision-ref? i)) (string-empty? (cfg-refdir c)))
+        tail
+        (seq-commands
+          (wasi.fs.copy (string-concat (cfg-refdir c) "/LLMLL.md")
+                        (string-concat (agent-dir c i j) "/LLMLL.md"))
+          (seq-commands
+            (wasi.fs.copy (string-concat (cfg-refdir c) "/docs/llmll-ast.schema.json")
+                          (string-concat (agent-dir c i j) "/llmll-ast.schema.json"))
+            tail))))
+
   (def-shell delegate-cmd [rn: Run i: int j: int rendered: string] -> Command
     (let [(c (cfg-of rn))]
       (let [(dir (agent-dir c i j))]
         (seq-commands
           (wasi.fs.mkdir dir)
-          (seq-commands
+          (ref-copies c i j
+           (seq-commands
             (wasi.fs.write (prompt-file c i j) rendered)
             (wasi.proc.run
               (ag-exe (cfg-agent c))
               (list-map (ag-args (cfg-agent c))
                 (fn [a: string] (subst-arg a (prompt-file c i j)
-                                             (art-path c i j) dir)))
+                                             (agent-out-path c i j) dir)))
               dir
               (string-concat dir "/agent.stdout.log")
               (string-concat dir "/agent.stderr.log")
               (ag-timeout (cfg-agent c))
-              "/dev/null"))))))
+              "/dev/null")))))))
 
   (def-shell tmpl-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (match r
         ((RText tpl)
-          (let [(rendered (render i (b-tag b) tpl (b-acc b) (b-pvals b)))]
+          (let [(rendered (render i (b-tag b) tpl (b-acc b) (b-pvals b)
+                                  (cfg-llmll (cfg-of rn))))]
             (if (string-contains rendered "{{")
                 (halt-verdict rn (b-k b) Malformed
                   (string-concat-many
@@ -1293,7 +1473,7 @@
       (match r
         ((RCode c)
           (if (= c 0)
-              (go rn (Outp b) (wasi.fs.read (art-path (cfg-of rn) i (b-tag b))))
+              (go rn (Outp b) (wasi.fs.read (agent-out-path (cfg-of rn) i (b-tag b))))
               (halt-errored rn (b-k b)
                 (string-concat-many
                   ["agent[" (stage-agent-label i (b-tag b)) "] exited "
@@ -1359,6 +1539,14 @@
 
   (def-shell nonempty-str? [r: Json k: string] -> bool
     (not (string-empty? (str-at r k))))
+
+  (def-shell bool-at [r: Json k: string] -> bool
+    (unwrap-or (json-get-bool r k) false))
+
+  ;; A probe row indexes `p["file"]` and `p["mutant_file"]` unguarded in the
+  ;; reference (stage_H_feasibility); [H7-ROWS] is the guarded form.
+  (def-shell probe-row-ok? [r: Json] -> bool
+    (and (key-there? r "file") (key-there? r "mutant_file")))
 
   ;; `^N\d+$` (:422), position by position. The length guard is the `+`: a bare
   ;; "N" has no digits and the fold over an empty range would otherwise answer
@@ -1447,11 +1635,17 @@
                 (if (core-conforms? (has-arr? v "core_ids")
                                     (list-length (arr-of v "core_ids")))
                     Passed Malformed)
+            (if (= (stage-shape i) 4)
+                (let [(rows (unwrap-or (json-array v) (list-empty)))]
+                  (if (probe-rows-conform? (is-ok (json-array v))
+                                           (list-length rows)
+                                           (list-length (list-filter rows (fn [r: Json] (probe-row-ok? r)))))
+                      Passed Malformed))
                 (let [(rows (arr-of v "rows"))]
                   (if (dispositions-conform? (has-arr? v "rows")
                                              (list-length rows)
                                              (list-length (list-filter rows (fn [r: Json] (disp-row-ok? r)))))
-                      Passed Malformed))))))))
+                      Passed Malformed)))))))))
 
   ;; Stage G's ONE spec-defined condition (:493), driver-spec sec 6:229-231.
   ;; Separate from shape-verdict because its disposition is `stopped`, and it
@@ -1493,10 +1687,14 @@
     (if (= (stage-shape i) 2)
         (string-concat-many
           ["stage " (stage-key i) ": expected a non-empty core_ids list"])
+    (if (= (stage-shape i) 4)
+        (string-concat-many
+          ["stage " (stage-key i) ": expected a list of probes, each naming a "
+           "file and a mutant_file"])
         (string-concat-many
           ["stage " (stage-key i) ": dispositions: expected rows, each carrying a "
            "cid, a disposition from the closed four, a class C1 through C6, and "
-           "a reason"]))))
+           "a reason"])))))
 
   (def-shell floor-detail [i: int] -> string
     (if (= i 1)
@@ -1512,7 +1710,7 @@
   (def-shell absent-detail [c: Cfg i: int j: int] -> string
     (string-concat-many
       ["agent[" (stage-agent-label i j) "] exited 0 but wrote no "
-       (base-of (stage-out i j)) "; the stage contract was not met (see "
+       (base-of (stage-agent-out i j)) "; the stage contract was not met (see "
        (agent-dir c i j) "/agent.stdout.log)"]))
 
   (def-shell outp-detail [c: Cfg i: int j: int v: Verdict] -> string
@@ -1575,7 +1773,7 @@
                                   (wd-path (cfg-of rn) (stage-stage-dest i j)))
                     acc)))))))
 
-  (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+  (def-shell outp-next [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (let [(c (cfg-of rn))]
         (let [(last? (>= (+ (b-tag b) 1) (stage-tag-count i)))]
@@ -1597,6 +1795,433 @@
                                      (stamped-doc i (b-tag b) t))
                       (second nxt))
                     (second nxt))))))))
+
+
+  ;; ---- 4d: the compiler-oracle loops -----------------------------------
+  ;;
+  ;; Stages H and N invert the artifact flow (restart record section 6 item
+  ;; 6): the agent's catalogue is an INPUT to the stage's own computation and
+  ;; the DRIVER writes the declared output. Stage K's oracle is `llmll check`'s
+  ;; exit status. Every proved decision below is a one-line forward to
+  ;; oracle.llmll or shape.llmll, the 4e pattern, so the call is visible to a
+  ;; reader and to the callerless census rather than buried in an arm.
+  ;;
+  ;; `llmll verify` is folded into ONE arm as `run then read`, the wave's idiom
+  ;; (wave.llmll llmll-run): seq-commands is discard-left, so the arm receives
+  ;; the READ of the stdout file and never the exit status. The header's 4d
+  ;; statement records why that loses nothing. `llmll check` is NOT folded:
+  ;; its decision IS the exit status (proposal section 9.3 item 3), and a read
+  ;; would add a command to learn nothing.
+  ;;
+  ;; The two abstraction functions the header's 4d statement is about.
+  ;; Duplicated from wave.llmll with one strengthening rather than shared:
+  ;; sharing needs a fourth module, and the 4c barrier duplication already set
+  ;; the precedent that retires at program unification.
+  (def-shell verify-safe? [out: string] -> bool
+    (string-contains out "SAFE"))
+
+  (def-shell body-faithful-all? [out: string] -> bool
+    (and (string-contains out "body-faithful:")
+         (not (string-contains out "body-fallback:"))))
+
+  ;; The transition every stage takes once its declared output is accepted:
+  ;; the digest sweep over its outputs. The 4d loops reach it after their own
+  ;; work, so it is a function rather than a line inside outp-next.
+  (def-shell to-summed [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (go rn (mk-sm k 0 start json-object)
+        (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 0))))
+
+  ;; Where the stage's agent worked, and so where its files are: `wd / p["file"]`
+  ;; with wd = 07-feasibility for H and 13-kill-matrix for N.
+  (def-shell in-agent-dir [rn: Run k: int name: string] -> string
+    (string-concat-many [(agent-dir (cfg-of rn) (idx-at rn k) 0) "/" name]))
+
+  ;; `llmll verify FILE --strict-verified-core`, run then read. One transcript
+  ;; pair per (row, half), so an absent transcript is distinguishable from a
+  ;; stale one, the wave's per-attempt reasoning. The budget is the agent's:
+  ;; the reference's _verify has none at all, and PROC-TIMEOUT-1 means this one
+  ;; does not fire either, so no cell may claim it.
+  (def-shell verify-cmd [rn: Run k: int file: string tag: string] -> Command
+    (let [(c (cfg-of rn))]
+      (let [(dir (agent-dir c (idx-at rn k) 0))]
+        (let [(out (string-concat-many [dir "/verify-" tag ".stdout.log"]))]
+          (seq-commands
+            (wasi.proc.run (cfg-llmll c)
+                           ["verify" file "--strict-verified-core"]
+                           dir
+                           out
+                           (string-concat-many [dir "/verify-" tag ".stderr.log"])
+                           (ag-timeout (cfg-agent c))
+                           "/dev/null")
+            (wasi.fs.read out))))))
+
+  ;; A quoted, comma-separated list in brackets: the reference logs and
+  ;; reports Python list reprs, `['probe-2']`.
+  (def-shell quoted-list [names: list[string]] -> string
+    (string-concat-many
+      ["["
+       (list-fold names ""
+         (fn [acc: string n: string]
+           (string-concat-many [acc (if (string-empty? acc) "" ", ") "'" n "'"])))
+       "]"]))
+
+  ;; ---- H ---------------------------------------------------------------
+  ;;
+  ;;   HGood   r is sha256 of probe idx's file, the `good.exists()` half
+  ;;   HMut    r is sha256 of its mutant file, the `mutant.exists()` half
+  ;;   HOutG   r is the read of the probe's verify transcript
+  ;;   HOutM   r is the read of the mutant's verify transcript; the row is scored
+  ;;   HWrote  r is the write of feasibility.json; the stage bar is decided
+  ;;
+  ;; THE WRITE PRECEDES THE DECISION BY ONE STEP AND THAT IS THE POINT. The
+  ;; reference writes feasibility.json and only then halts on the bar
+  ;; (require_written, its only call site), so driver-spec sec 4:146-147
+  ;; applies and the disposition is `stopped`, not `failed`. stage.record-outcome
+  ;; proves PartialThenHalt -> Stopped and cannot see the ordering; a port that
+  ;; decided in the arm that ISSUES the write would record the right status
+  ;; with the artifact not yet on disk when the manifest row lands. HWrote
+  ;; receives the write's response, so the file exists before the halt is
+  ;; constructed. Cover cell H1 asserts the file beside the disposition.
+  ;;
+  ;; This is the FIRST PartialThenHalt a ported stage constructs; the 4a
+  ;; injector's is scaffolding. 4b built two Outcome arms, 4c three, and this
+  ;; site completes all four (proposal section 9.3 item 2).
+
+  (def-shell h-probe-name [row: Json] -> string
+    (str-at row "name"))
+
+  (def-shell h-probe-file [rn: Run l: Loop key: string] -> string
+    (in-agent-dir rn (lp-k l) (str-at (lp-row l) key)))
+
+  (def-shell h-missing [rn: Run l: Loop] -> ((Run, Ctl), Command)
+    (halt-errored rn (lp-k l)
+      (string-concat-many ["stage H: probe " (h-probe-name (lp-row l))
+                           " names files that do not exist"])))
+
+  ;; A port-only condition: the reference captures the transcript in-process
+  ;; and cannot fail to read it. Fails toward a re-run.
+  (def-shell h-unreadable [rn: Run l: Loop half: string] -> ((Run, Ctl), Command)
+    (halt-errored rn (lp-k l)
+      (string-concat-many ["stage H: the compiler's transcript for probe "
+                           (h-probe-name (lp-row l)) " (" half
+                           ") could not be read; see "
+                           (agent-dir (cfg-of rn) (idx-at rn (lp-k l)) 0)])))
+
+  ;; Enter at row idx: probe its file's presence, or, past the last row, write
+  ;; the declared output.
+  (def-shell h-next [rn: Run l: Loop] -> ((Run, Ctl), Command)
+    (if (< (lp-idx l) (lp-count l))
+        (go rn (HGood l) (wasi.fs.sha256 (h-probe-file rn l "file")))
+        (go rn (HWrote l)
+            (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (lp-k l)) 0)
+                           (json-serialize (lp-acc l))))))
+
+  ;; Outp has already passed the catalogue through shape.probe-rows-conform?
+  ;; (stage-shape 4), so it parses and is a non-empty array whose rows carry
+  ;; both file keys; the Error arm is unreachable and fails toward a re-run.
+  (def-shell h-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (match (json-parse t)
+      ((Success v)
+        (h-next rn (mk-loop (b-k b) (b-start b) 0 v (json-of-list (list-empty)) "")))
+      ((Error _)
+        (halt-verdict rn (b-k b) Malformed "stage H: expected a list of probes"))))
+
+  (def-shell hgood-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (go rn (HMut l) (wasi.fs.sha256 (h-probe-file rn l "mutant_file")))
+        (h-missing rn l)))
+
+  (def-shell hmut-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (go rn (HOutG l)
+            (verify-cmd rn (lp-k l) (h-probe-file rn l "file")
+                        (string-concat (int-to-string (lp-idx l)) "-probe")))
+        (h-missing rn l)))
+
+  (def-shell houtg-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (go rn (HOutM (lp-with-note l (text-of r)))
+            (verify-cmd rn (lp-k l) (h-probe-file rn l "mutant_file")
+                        (string-concat (int-to-string (lp-idx l)) "-mutant")))
+        (h-unreadable rn l "probe")))
+
+  ;; The reference's row: {name, probe: {file, safe, body_faithful}, mutant:
+  ;; {file, safe}, pass}. `returncode` and the 4000-byte `output` tail are NOT
+  ;; carried: the fold never sees the code, and the whole transcript is in the
+  ;; agent directory as verify-<idx>-<half>.stdout.log. Disclosed.
+  (def-shell h-row [row: Json ps: bool pbf: bool ms: bool ok: bool] -> Json
+    (jset (jset (jset (jset json-object
+                            "name" (json-of-string (h-probe-name row)))
+                      "probe" (jset (jset (jset json-object
+                                                "file" (json-of-string (str-at row "file")))
+                                          "safe" (json-of-bool ps))
+                                    "body_faithful" (json-of-bool pbf)))
+                "mutant" (jset (jset json-object
+                                     "file" (json-of-string (str-at row "mutant_file")))
+                               "safe" (json-of-bool ms)))
+          "pass" (json-of-bool ok)))
+
+  (def-shell h-line [row: Json ps: bool ms: bool ok: bool] -> string
+    (string-concat-many
+      ["  probe " (h-probe-name row) ": probe=" (if ps "SAFE" "not-SAFE")
+       " mutant=" (if ms "SURVIVED" "refuted") " -> " (if ok "ok" "FAIL")]))
+
+  ;; oracle.probe-established?, the per-probe bar of stage H.
+  (def-shell probe-ok? [ps: bool pbf: bool ms: bool] -> bool
+    (probe-established? ps pbf ms))
+
+  (def-shell houtm-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (let [(ps (verify-safe? (lp-note l)))]
+          (let [(pbf (body-faithful-all? (lp-note l)))]
+            (let [(ms (verify-safe? (text-of r)))]
+              (let [(ok (probe-ok? ps pbf ms))]
+                (let [(nxt (h-next rn (lp-scored l (h-row (lp-row l) ps pbf ms ok))))]
+                  (pair (first nxt)
+                        (seq-commands (wasi.io.stdout (h-line (lp-row l) ps ms ok))
+                                      (second nxt))))))))
+        (h-unreadable rn l "mutant")))
+
+  (def-shell h-passing [l: Loop] -> int
+    (list-length (list-filter (lp-acc-list l) (fn [r: Json] (bool-at r "pass")))))
+
+  (def-shell h-bad-names [l: Loop] -> string
+    (quoted-list
+      (list-map (list-filter (lp-acc-list l) (fn [r: Json] (not (bool-at r "pass"))))
+                (fn [r: Json] (h-probe-name r)))))
+
+  ;; oracle.feasibility-established?, the stage bar. Its pre holds by
+  ;; construction: the passing rows are counted among the scored rows.
+  (def-shell feasible? [n: int passing: int] -> bool
+    (feasibility-established? n passing))
+
+  (def-shell hwrote-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (feasible? (list-length (lp-acc-list l)) (h-passing l))
+        (to-summed rn (lp-k l) (lp-start l))
+        (halt-with rn (lp-k l) PartialThenHalt
+          (string-concat-many
+            ["stage H: feasibility not established for " (h-bad-names l)
+             ". A probe must verify body-faithfully AND its mutant must refute; "
+             "otherwise the contract shape is decorative and the target should "
+             "be re-scoped, not re-graded."])
+          "driver-spec sec 4:146-147")))
+
+  ;; ---- K ---------------------------------------------------------------
+  ;;
+  ;;   KCheck  r is `llmll check`'s exit status over the authored roots
+  ;;
+  ;; Stage K's validator IS the compiler (proposal section 9.3 item 3): the
+  ;; halt reads an exit code rather than an artifact, so K needs no clause in
+  ;; validate.llmll or shape.llmll and no proved decision of its own. Two
+  ;; figures ride in the payload for the log line only: the Encoded row count
+  ;; the prompt carried and the `count("?")` over the roots text. THE HOLE
+  ;; COUNT IS NOT A GATE and must not become one: it is false the moment a `?`
+  ;; appears inside a string literal, which is why the reference prints it
+  ;; with a `~` and decides nothing on it.
+
+  (def-shell hole-count [t: string] -> int
+    (- (list-length (split-on "?" t)) 1))
+
+  ;; The Encoded rows the prompt carried: precondition value 0 is mode 3's
+  ;; serialized array. 0 when it does not parse, which cannot happen past Pre.
+  (def-shell encoded-count [b: Body] -> int
+    (match (json-parse (unwrap-or (list-nth (b-pvals b) 0) ""))
+      ((Success v) (list-length (unwrap-or (json-array v) (list-empty))))
+      ((Error _)   0)))
+
+  (def-shell k-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (let [(c (cfg-of rn))]
+      (let [(i (idx-at rn (b-k b)))]
+        (let [(dir (agent-dir c i 0))]
+          (go rn (mk-kc (b-k b) (b-start b) (encoded-count b) (hole-count t))
+              (wasi.proc.run (cfg-llmll c)
+                             ["check" (art-path c i 0)]
+                             dir
+                             (string-concat dir "/check.stdout.log")
+                             (string-concat dir "/check.stderr.log")
+                             (ag-timeout (cfg-agent c))
+                             "/dev/null"))))))
+
+  (def-shell k-line [i: int d: (int, (int, (int, int)))] -> string
+    (string-concat-many
+      ["  authored " (int-to-string (kc-enc d)) " Encoded rows into "
+       (base-of (stage-out i 0)) " (typechecks; ~"
+       (int-to-string (kc-holes d)) " holes)"]))
+
+  ;; The reference embeds the first 3000 bytes of the compiler's output in the
+  ;; detail; the port names the transcript instead, as delegate-step names
+  ;; agent.stderr.log. Same disposition, shorter row. Disclosed.
+  (def-shell kcheck-step [rn: Run d: (int, (int, (int, int))) r: Response]
+      -> ((Run, Ctl), Command)
+    (let [(i (idx-at rn (kc-k d)))]
+      (let [(dir (agent-dir (cfg-of rn) i 0))]
+        (match r
+          ((RCode c)
+            (if (= c 0)
+                (let [(nxt (to-summed rn (kc-k d) (kc-start d)))]
+                  (pair (first nxt)
+                        (seq-commands (wasi.io.stdout (k-line i d)) (second nxt))))
+                (halt-errored rn (kc-k d)
+                  (string-concat-many
+                    ["stage K: authored roots do not typecheck; see " dir
+                     "/check.stdout.log"]))))
+          ((RErr e)
+            (halt-errored rn (kc-k d)
+              (string-concat-many
+                ["stage K: llmll check did not complete within its "
+                 (int-to-string (ag-timeout (cfg-agent (cfg-of rn))))
+                 "s budget, or could not be started (" e ")"])))
+          ((RText _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))
+          ((RNone)   (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))
+          ((RList _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))))))
+
+  ;; ---- N ---------------------------------------------------------------
+  ;;
+  ;;   NRow    r is sha256 of mutant idx's file, the `f.exists()` require
+  ;;   NSkip   r is the log line for an UNWRITABLE row, which has no file
+  ;;   NOut    r is the read of the mutant's verify transcript; the row is scored
+  ;;   NWrote  r is the write of kill-matrix.json
+  ;;
+  ;; The catalogue must be a JSON array. The reference iterates read_json(out)
+  ;; directly, and an object there tracebacks on `m.get` (AttributeError); the
+  ;; port has no exception to fall through and records `failed`, section 9.1
+  ;; item 1's disposition for a guarded read.
+  ;;
+  ;; oracle.matrix-complete? decides BEFORE the write: a matrix with fewer
+  ;; scored rows than input rows is never written. Its false branch is
+  ;; unreachable by construction (every row reaches NOut or NSkip and each
+  ;; appends exactly one entry) and fails toward a re-run rather than toward a
+  ;; short matrix, on the same reasoning as the response arms no command
+  ;; produces. The reference has no halt after its loop and none is invented:
+  ;; survivors are printed and kept.
+
+  (def-shell m-name [row: Json] -> string
+    (str-at row "name"))
+
+  (def-shell unwritable? [row: Json] -> bool
+    (or (bool-at row "unwritable") (string-empty? (str-at row "file"))))
+
+  ;; `"reason": m.get("reason") or m.get("note")`; "" where the reference
+  ;; would carry null.
+  (def-shell unwritable-row [row: Json] -> Json
+    (jset (jset (jset (jset (jset json-object
+                                  "name" (json-of-string (m-name row)))
+                            "good_twin" (json-of-bool (bool-at row "good_twin")))
+                      "verdict" (json-of-string "unwritable"))
+                "as_expected" (json-of-bool true))
+          "reason" (json-of-string (if (string-empty? (str-at row "reason"))
+                                       (str-at row "note")
+                                       (str-at row "reason")))))
+
+  ;; oracle.outcome-as-expected?, the per-mutant polarity.
+  (def-shell as-expected? [vs: bool twin: bool] -> bool
+    (outcome-as-expected? vs twin))
+
+  (def-shell scored-row [row: Json vs: bool] -> Json
+    (jset (jset (jset (jset (jset json-object
+                                  "name" (json-of-string (m-name row)))
+                            "good_twin" (json-of-bool (bool-at row "good_twin")))
+                      "killed" (json-of-bool (not vs)))
+                "verdict" (json-of-string (if vs "SAFE" "refuted")))
+          "as_expected" (json-of-bool (as-expected? vs (bool-at row "good_twin")))))
+
+  (def-shell n-line [row: Json vs: bool] -> string
+    (string-concat-many
+      ["  " (m-name row) ": " (if vs "SAFE" "refuted")
+       (if (bool-at row "good_twin") " (good twin)" "")
+       (if (as-expected? vs (bool-at row "good_twin")) "" "   <-- UNEXPECTED")]))
+
+  (def-shell survivor? [r: Json] -> bool
+    (and (not (bool-at r "good_twin"))
+         (and (not (= (str-at r "verdict") "refuted"))
+              (not (= (str-at r "verdict") "unwritable")))))
+
+  (def-shell survivors-line [l: Loop] -> string
+    (let [(names (list-map (list-filter (lp-acc-list l) (fn [r: Json] (survivor? r)))
+                           (fn [r: Json] (m-name r))))]
+      (if (= (list-length names) 0)
+          ""
+          (string-concat "  SURVIVORS (reported, not dropped): " (quoted-list names)))))
+
+  ;; oracle.matrix-complete?, the denominator.
+  (def-shell complete-matrix? [rows: int scored: int] -> bool
+    (matrix-complete? rows scored))
+
+  (def-shell n-advance [rn: Run l: Loop] -> ((Run, Ctl), Command)
+    (if (< (lp-idx l) (lp-count l))
+        (if (unwritable? (lp-row l))
+            (go rn (NSkip l)
+                (wasi.io.stdout
+                  (string-concat-many ["  " (m-name (lp-row l))
+                                       ": unwritable (kept in the denominator)"])))
+            (go rn (NRow l)
+                (wasi.fs.sha256 (in-agent-dir rn (lp-k l) (str-at (lp-row l) "file")))))
+        (if (complete-matrix? (lp-count l) (list-length (lp-acc-list l)))
+            (go rn (NWrote l)
+                (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (lp-k l)) 0)
+                               (json-serialize (lp-acc l))))
+            (halt-errored rn (lp-k l)
+              (string-concat-many
+                ["stage N: a mutant row reached neither a verdict nor the "
+                 "unwritable branch (unreachable by construction; recorded so a "
+                 "short matrix is never written)"])))))
+
+  (def-shell n-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (match (json-parse t)
+      ((Success v)
+        (if (is-ok (json-array v))
+            (n-advance rn (mk-loop (b-k b) (b-start b) 0 v (json-of-list (list-empty)) ""))
+            (halt-verdict rn (b-k b) Malformed
+              "stage N: mutants.json must be a JSON array of mutant entries")))
+      ((Error _)
+        (halt-verdict rn (b-k b) Malformed
+          "stage N: mutants.json must be a JSON array of mutant entries"))))
+
+  (def-shell nskip-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (n-advance rn (lp-scored l (unwritable-row (lp-row l)))))
+
+  (def-shell nrow-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (go rn (NOut l)
+            (verify-cmd rn (lp-k l)
+                        (in-agent-dir rn (lp-k l) (str-at (lp-row l) "file"))
+                        (string-concat "mutant-" (int-to-string (lp-idx l)))))
+        (halt-errored rn (lp-k l)
+          (string-concat-many ["stage N: mutant file " (str-at (lp-row l) "file")
+                               " not written"]))))
+
+  (def-shell nout-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (present? r)
+        (let [(vs (verify-safe? (text-of r)))]
+          (let [(nxt (n-advance rn (lp-scored l (scored-row (lp-row l) vs))))]
+            (pair (first nxt)
+                  (seq-commands (wasi.io.stdout (n-line (lp-row l) vs)) (second nxt)))))
+        (halt-errored rn (lp-k l)
+          (string-concat-many ["stage N: the compiler's transcript for mutant "
+                               (m-name (lp-row l)) " could not be read; see "
+                               (agent-dir (cfg-of rn) (idx-at rn (lp-k l)) 0)]))))
+
+  (def-shell nwrote-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (let [(nxt (to-summed rn (lp-k l) (lp-start l)))]
+      (if (string-empty? (survivors-line l))
+          nxt
+          (pair (first nxt)
+                (seq-commands (wasi.io.stdout (survivors-line l)) (second nxt))))))
+
+  ;; ---- the dispatch, per registry.stage-oracle ----------------------------
+
+  (def-shell oracle-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (let [(o (stage-oracle (idx-at rn (b-k b))))]
+      (if (= o 1) (h-enter rn b t)
+      (if (= o 2) (k-enter rn b t)
+          (n-enter rn b t)))))
+
+  ;; What follows a passing output. A stage with a compiler oracle enters its
+  ;; loop; every other stage takes the 4b/4c path in outp-next.
+  (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (if (> (stage-oracle (idx-at rn (b-k b))) 0)
+        (oracle-enter rn b t)
+        (outp-next rn b t)))
 
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Ctl), Command)
@@ -1670,7 +2295,7 @@
                                    (pair false
                                      (pair (AgentCfg (pair "" (pair (list-empty)
                                                               (pair "" 1800))))
-                                           "")))))))
+                                           (pair "" ""))))))))
                            (pair (empty-manifest) (list-empty))))
                 (Boot 0))
           wasi.proc.args))
@@ -1694,7 +2319,17 @@
       ((Stamped d)  (stamped-step (run-of s) d r))
       ((Recorded d) (recorded-step (run-of s) d))
       ((Ending c)   (go (run-of s) (Done c) (wasi.io.stdout "")))
-      ((Done c)     (go (run-of s) (Done c) (wasi.io.stdout "")))))
+      ((Done c)     (go (run-of s) (Done c) (wasi.io.stdout "")))
+      ((HGood l)    (hgood-step  (run-of s) l r))
+      ((HMut l)     (hmut-step   (run-of s) l r))
+      ((HOutG l)    (houtg-step  (run-of s) l r))
+      ((HOutM l)    (houtm-step  (run-of s) l r))
+      ((HWrote l)   (hwrote-step (run-of s) l r))
+      ((KCheck d)   (kcheck-step (run-of s) d r))
+      ((NRow l)     (nrow-step   (run-of s) l r))
+      ((NSkip l)    (nskip-step  (run-of s) l r))
+      ((NOut l)     (nout-step   (run-of s) l r))
+      ((NWrote l)   (nwrote-step (run-of s) l r))))
 
   (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
@@ -1714,7 +2349,17 @@
       ((Stamped _)  false)
       ((Recorded _) false)
       ((Ending _)   false)
-      ((Done _)     true)))
+      ((Done _)     true)
+      ((HGood _)    false)
+      ((HMut _)     false)
+      ((HOutG _)    false)
+      ((HOutM _)    false)
+      ((HWrote _)   false)
+      ((KCheck _)   false)
+      ((NRow _)     false)
+      ((NSkip _)    false)
+      ((NOut _)     false)
+      ((NWrote _)   false)))
 
   (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
@@ -1734,7 +2379,17 @@
       ((Stamped _)  1)
       ((Recorded _) 1)
       ((Ending _)   1)
-      ((Done c)     c)))
+      ((Done c)     c)
+      ((HGood _)    1)
+      ((HMut _)     1)
+      ((HOutG _)    1)
+      ((HOutM _)    1)
+      ((HWrote _)   1)
+      ((KCheck _)   1)
+      ((NRow _)     1)
+      ((NSkip _)    1)
+      ((NOut _)     1)
+      ((NWrote _)   1)))
 
   ;; The terminal marker. It leaves through :on-done rather than through a
   ;; step, because RC-4 drops the terminating step's command and a halt report
@@ -1774,7 +2429,17 @@
       ((Stamped t)  1)
       ((Recorded v) 1)
       ((Ending e)   1)
-      ((Done c)     (if (< c 0) 1 (if (> c 255) 255 c)))))
+      ((Done c)     (if (< c 0) 1 (if (> c 255) 255 c)))
+      ((HGood hg)   1)
+      ((HMut hm)    1)
+      ((HOutG ho)   1)
+      ((HOutM hp)   1)
+      ((HWrote hw)  1)
+      ((KCheck kd)  1)
+      ((NRow nr)    1)
+      ((NSkip ns)   1)
+      ((NOut no)    1)
+      ((NWrote nw)  1)))
 
   (def-main
     :mode    console
