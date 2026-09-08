@@ -137,7 +137,7 @@ STAGES: list[tuple[str, str]] = [
     # what diverged instead of reporting an unrecognised line.
     ("6b W-REPLAY-INIT",      "W-REPLAY-INIT fires"),
     ("7  PROC-BOUNDARY-1",    "argv on RList"),
-    ("8  DRIVER-LL 4a-4c",    "DRIVER-LL 4a+4b+4c cover"),
+    ("8  DRIVER-LL 4a-4d+A",  "DRIVER-LL 4a+4b+4c+4d+A cover"),
     ("9  DRIVER-LL 4e",       "DRIVER-LL 4e wave cover"),
     ("10 DRIFT-CI-1",         "DRIFT-CI-1 decided by an LLMLL program"),
 ]

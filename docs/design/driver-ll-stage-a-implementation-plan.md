@@ -83,6 +83,20 @@ five tests, no toolchain. The 4c tier's `PORTED` is ten.
 | `llmll check sequencer.llmll` | OK, 290 statements, 20 warnings, the same classes as before |
 | `stack test` | 1891 examples, 0 failures; no Haskell touched |
 
+## What the first CI run found
+
+The v0.21.1 `main` run failed C5's `BUILD-GATE-1` differential cover at
+cell 1, the control: the LLMLL port of `build_smoke.sh`
+([`tools/build-smoke/buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll))
+mirrors every stage line verbatim, and 4d had moved only the shell's stage 8
+(the `--llmll` argument and the banner). Under the port the driver cover exited
+2 for the missing flag, and the port rejected an unmutated tree. Every TOOL-LL
+gate is three artifacts, reference, port and cover, and the differential cover
+runs in CI alone, so no local gate said so. Fixed here in `929ed6a`: the port
+passes `--llmll` with its subject and prints the reference's stage 8 lines
+verbatim, and the cover's stage key follows the banner. The cover was run
+locally with `--no-slow` before this branch merged.
+
 ## Routing
 
 - **documentation-lead**: the G0 row's step (3) closes; the RESTART record's
