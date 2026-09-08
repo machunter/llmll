@@ -138,7 +138,18 @@ jobs:
           path: |
             ~/.stack
             compiler/.stack-work
-          key: stack-${{ runner.os }}-${{ hashFiles('compiler/stack.yaml', 'compiler/stack.yaml.lock', 'compiler/package.yaml') }}
+          # HTTP-GET-1: compiler/generated-deps.txt lists every dependency the
+          # codegen can emit into a GENERATED project's package.yaml, including
+          # the http-client group that only a fetching program pays for. Those
+          # packages are built by fixtures in this job (smoke.llmll, the
+          # HTTP-GET-1 pytest fixture), not by the compiler, so without the pin
+          # they rode a key that could not express whether they were there, and
+          # on an exact key hit actions/cache skips the save: the 41-package
+          # build would repeat on every run while the cache reported healthy.
+          # That is the trap the fixpoint cache below already names. Spec.hs
+          # HG-16 pins the file's content against emitPackageYaml, so the key
+          # moves exactly when the generated closure does.
+          key: stack-${{ runner.os }}-${{ hashFiles('compiler/stack.yaml', 'compiler/stack.yaml.lock', 'compiler/package.yaml', 'compiler/generated-deps.txt') }}
           restore-keys: |
             stack-${{ runner.os }}-
 
@@ -239,6 +250,20 @@ jobs:
           set -euo pipefail
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_source_encoding.py -v
+
+      # HTTP-GET-1's runtime cells. They BUILD the fixture in
+      # scripts/tests/fixtures/http_get.llmll through the freshly built compiler
+      # and RUN it against local servers (http.server, a truncating socket, a
+      # self-signed TLS listener, a listener that never answers), so they need
+      # the toolchain and live here, gated on LLMLL_BIN like the step above.
+      # No cell reaches the network: the live pin against rfc-editor.org is the
+      # stage A port's acceptance, not a unit-tier gate. One cell waits the
+      # 60-second budget out by design (proposal section 11, measurement 2).
+      - name: Run HTTP-GET-1 runtime cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_http_get_1.py -v
 
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own

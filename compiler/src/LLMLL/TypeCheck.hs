@@ -160,6 +160,16 @@ builtinEnv = Map.fromList $
   , ("wasi.io.stderr",     TFn [TString] (TCustom "Command"))
   , ("wasi.http.response", TFn [TInt, TString] (TCustom "Command"))
   , ("wasi.http.post",     TFn [TString, TString] (TCustom "Command"))
+  -- HTTP-GET-1. (wasi.http.get url dest): fetch url and write the body to dest
+  -- as BYTES, never decoded; RNone on a 2xx with the COMPLETE body renamed onto
+  -- dest, RErr otherwise with dest unchanged. Realized in the generated program
+  -- with http-client + http-client-tls, and the body, its imports and the four
+  -- package.yaml entries are emitted ONLY for a program that calls it
+  -- (CodegenHs.usesHttpGet), so every other program keeps the 33-package
+  -- closure. A LITERAL url that does not begin with http:// or https:// is a
+  -- type error at the EApp site below (the ENV-READ-1 literal-rule shape).
+  -- Design: docs/design/http-get-1-proposal.md.
+  , ("wasi.http.get",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
@@ -2235,6 +2245,19 @@ inferExpr (EApp func args) = do
       | "=" `T.isInfixOf` s ->
           modify $ \st -> st
             { tcErrors = tcErrors st ++ [mkEnvNameMalformed s "contains-equals"] }
+    _ -> pure ()
+  -- HTTP-GET-1, the literal-URL rule (docs/design/http-get-1-proposal.md
+  -- section 5). Same placement and same reach as the ENV-READ-1 rule above: a
+  -- LITERAL first argument only. Both parameters are string, so a reversed
+  -- literal call (wasi.http.get "out/rfc.txt" "https://...") is caught here
+  -- rather than at run time, and so is a literal carrying a leading method word
+  -- ("POST https://..."), which http-client's parseRequest would otherwise
+  -- honour as the request method. A computed URL falls to the runtime prefix
+  -- check, which answers RErr before any request; Spec.hs HG-6 pins that limit.
+  when (func == "wasi.http.get") $ case args of
+    (ELit (LitString u) : _)
+      | not ("http://" `T.isPrefixOf` u || "https://" `T.isPrefixOf` u) ->
+          modify $ \st -> st { tcErrors = tcErrors st ++ [mkHttpUrlMalformed u] }
     _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func

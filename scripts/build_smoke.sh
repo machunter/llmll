@@ -218,6 +218,7 @@ for name in wasi_io_stdout wasi_io_stderr wasi_http_response \
             wasi_fs_list wasi_fs_mkdir wasi_fs_sha256 \
             wasi_clock_monotonic wasi_proc_run wasi_proc_args \
             wasi_env_get wasi_fs_copy \
+            wasi_http_get \
             sha1_hash \
             bytes_length bytes_get bytes_set list_nth string_slice string_char_at \
             seq_commands \

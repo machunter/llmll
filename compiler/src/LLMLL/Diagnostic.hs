@@ -41,6 +41,8 @@ module LLMLL.Diagnostic
   , mkEnvDeterministicRefused
   , mkFsDeterministicRefused
   , mkEnvNameMalformed
+  -- * HTTP-GET-1: the literal-URL rule
+  , mkHttpUrlMalformed
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
@@ -422,6 +424,27 @@ mkEnvNameMalformed lit rule =
       suggestion = "Pass a name that can name a variable, e.g. \"HOME\"."
   in (mkError Nothing msg)
        { diagKind       = Just "env-name-malformed"
+       , diagSuggestion = Just suggestion
+       }
+
+-- | HTTP-GET-1. A LITERAL url passed to wasi.http.get that does not begin with
+-- http:// or https://. Sits beside the ENV-READ-1 rule in inferExpr and has the
+-- same reach: a literal only. Two inputs this catches at check time would each
+-- misbehave at run time: a reversed call (dest in the url slot, both being
+-- strings) and a literal with a leading method word ("POST https://..."),
+-- which http-client's parseRequest honours as the request method.
+mkHttpUrlMalformed
+  :: Text         -- ^ the offending literal
+  -> Diagnostic
+mkHttpUrlMalformed lit =
+  let msg = "a literal URL for wasi.http.get must begin with http:// or https:// (got "
+            <> tshow lit <> "). The runtime refuses every other scheme before any "
+            <> "request, so this call would always answer RErr; and a leading method "
+            <> "word would change the request method."
+      suggestion = "Pass a URL beginning with http:// or https://, and check the "
+                   <> "argument order: (wasi.http.get url dest), the URL first."
+  in (mkError Nothing msg)
+       { diagKind       = Just "http-url-malformed"
        , diagSuggestion = Just suggestion
        }
 
