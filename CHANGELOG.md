@@ -4,6 +4,72 @@
 
 <a id="Latest"></a>
 
+## v0.21.0: a program fetches a URL to a file as bytes, and only a program that fetches pays for it (2026-09-07)
+
+**`HTTP-GET-1` ships `wasi.http.get`, and the DRIVER-LL campaign's stage A STOP is lifted.** The
+RFC-SWARM driver's stage A fetches an RFC as bytes, writes the file and pins its SHA-256, and every
+later stage reads those bytes; LLMLL had no operation that fetches, so the LLMLL driver's stage A
+had been a filed STOP since v0.14.83. `(wasi.http.get url dest)` is a `Command` that delivers
+`RNone` on a 2xx with the **complete** body renamed onto `dest`, and `RErr` (naming the status, or
+the transport failure) otherwise with `dest` unchanged. The body streams into a temporary in
+`dest`'s directory and is renamed only when the body reader reached end of stream without an
+exception **and** the status is 2xx, so a truncated 200 never becomes a file that `wasi.fs.sha256`
+would pin as provenance. Redirects are followed, bounded at 10; the whole transfer has a 60-second
+budget; the server certificate is validated against the host store, with no insecure mode. Design
+and the A-versus-B debate: [`docs/design/http-get-1-proposal.md`](docs/design/http-get-1-proposal.md);
+plan and measurements:
+[`docs/design/http-get-1-implementation-plan.md`](docs/design/http-get-1-implementation-plan.md).
+
+- **Runtime-native, paid only by callers.** The generated program performs the transfer with
+  `http-client` and `http-client-tls`, pinned by the LTS resolver, rather than by shelling out to an
+  ambient `curl`. The body, its imports and four `package.yaml` entries (`http-client`,
+  `http-client-tls`, `http-types`, `filepath`) are emitted only when the program calls
+  `wasi.http.get`; every other program's generated project is byte-identical to v0.20.1 (measured
+  on `examples/replay-demo`). Measured on `lts-22.43`: a calling program's closure moves from 33 to
+  75 packages, 41 new, a 40-second cold build on Apple silicon. `compiler/generated-deps.txt` pins
+  every dependency name the codegen can emit and joins the CI Stack cache key, so the group is
+  cached rather than rebuilt on every run behind a reported hit.
+- **A literal URL that cannot be fetched is a type error.** A literal first argument not beginning
+  `http://` or `https://` is refused at `check` (`http-url-malformed`). That catches the reversed
+  call, both parameters being `string`, and a literal carrying a leading method word
+  (`"POST https://..."`), which `http-client`'s `parseRequest` would otherwise honour as the request
+  method; the runtime sets GET explicitly and refuses every other scheme before any request, so a
+  computed URL is covered too.
+- **Bounded effect label, one more harness assumption.** `wasi.http.get` carries `net.http` and
+  `fs.write`, not the `wasi.*` fallthrough to ⊤: the program supplies two strings and neither
+  selects code to run, unlike `wasi.proc.run`. The trust report's `harness_assumptions` gains a
+  fourth entry, emitted for any module that calls it, naming the library, the certificate store
+  (loaded on macOS by running `security find-certificate`), proxy resolution from the environment,
+  and the three runtime properties (2xx classification, redirects, the budget) as assumed, not
+  proved.
+- **The budget was measured, and the measurement changed the realization.** `http-client`'s own
+  `responseTimeout` did not fire in the built program, neither for a listener that never answers
+  nor for one that stalls after one body byte; a `System.Timeout` wrapper around the whole
+  transfer does, at about 60 s, for both. The budget is real and the wrapper delivers it. A socket
+  read is interruptible under the generated program's RTS where `PROC-TIMEOUT-1`'s blocking
+  `waitForProcess` is not.
+- **Pins and cells.** Twenty hspec examples (`HG-1`..`HG-20`): the row, the literal rule with its
+  two witnesses and its limit, both labels and the negative pin, the conditional body, imports and
+  dependencies in both directions, a call in an imported module, the pin against
+  `generated-deps.txt`, the harness entry, and the split of the preamble into
+  `runtimePreamble ++ httpGetPreamble`, which the WASI-RT completeness fold now reads. `CP-4`,
+  which pinned the absence of `wasi.http.get`, is retargeted to its declared shape. Ten runtime
+  cells in `scripts/tests/test_http_get_1.py` build a console fixture and run it against local
+  listeners only: a refused connection, a 404, a 70 KB body byte for byte and by digest, an empty
+  body, a truncated 200 that must not be renamed, a redirect chain, an existing `dest` left
+  untouched, a self-signed certificate refused, and the two hung-server shapes. `smoke.llmll` calls
+  the builtin once, so BUILD-GATE-1 compiles the conditional group; `wasi_http_get` joins both
+  hand-maintained preamble-name lists.
+
+`LLMLL.md` §13.9 gains the row and the delivery note. No schema change. Not measured: the cold
+build on the CI runner (the first run on this branch is that measurement) and whether the cache
+saves on the run after it; the resolver-hang target of the budget stays a hand measurement.
+
+1891 examples, 0 failures (twenty-one new). pytest 181 passed, 20 skipped (ten new, toolchain-gated;
+they pass in the spec-roundtrip job).
+
+---
+
 ## v0.20.1: a console step of any size completes, and the gate that proves it is bounded (2026-09-06)
 
 **`CAPTURE-PIPE-1` closes.** The console step machine captured each step's stdout through a

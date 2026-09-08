@@ -1826,3 +1826,47 @@ Building a document is functional; `json-set` returns a new value rather than mu
 `=` on two `Json` values is a type error, because structural equality would make member order observable. Compare `(json-serialize a)` with `(json-serialize b)`.
 
 **The shape that keeps verification:** extract scalars in a `def-shell`, then decide in a `def`. The extraction cannot be body-faithful, but the decision can. [`tools/llmll-driver/spine.llmll`](../tools/llmll-driver/spine.llmll) is a worked example: the JSON projections are shell, and `stage-e-passes` is a strict-core `def` whose contracts pin the values it must reproduce.
+
+### §4.23 Fetching a URL to a File (`wasi.http.get`)
+
+`wasi.http.get` (v0.21.0) fetches a URL and writes the response body to a file as bytes. It never
+decodes, so the file's digest is the server's digest, which is what a provenance pin needs:
+
+```lisp
+(module intake
+  (import wasi.io   (capability stdout))
+  (import wasi.fs   (capability read-write "00-source"))
+  (import wasi.http (capability get "https://www.rfc-editor.org/"))
+
+  ;; Turn one: issue the fetch. Turn two: read its arm. RNone means the COMPLETE body
+  ;; is at dest; RErr means dest is unchanged, and the text names why.
+  (def-shell step [s: int input: string r: Response] -> (int, Command)
+    (match r
+      ((RNone)  (pair (+ s 1) (wasi.fs.sha256 "00-source/rfc4648.txt")))
+      ((RErr e) (pair (+ s 1) (wasi.io.stdout (string-concat "fetch failed: " e))))
+      ((RText digest) (pair (+ s 1) (wasi.io.stdout digest)))
+      ((RList _) (pair (+ s 1) (wasi.io.stdout "unexpected")))
+      ((RCode _) (pair (+ s 1) (wasi.io.stdout "unexpected"))))))
+```
+
+Three things to know before writing one:
+
+- **The URL comes first, and a literal that cannot be fetched is a type error.** Both parameters are
+  `string`, so `(wasi.http.get "00-source/rfc.txt" url)` would type-check; the checker refuses a
+  literal first argument that does not begin with `http://` or `https://` (`http-url-malformed`), so
+  the reversed call fails at `check`. A computed URL with another scheme answers `RErr` at run time
+  before any request is made.
+- **`dest` is atomic, and its parent must exist.** The body streams into a temporary beside `dest`
+  and is renamed only when it arrived whole under a 2xx. Every other outcome (a 404, a refused
+  connection, a certificate the host's store rejects, a body cut short, the 60-second budget) leaves
+  `dest` exactly as it was, so a resume that finds `dest` present may trust it. Create the directory
+  first with `wasi.fs.mkdir`; the builtin does not.
+- **Only a program that calls it pays for it.** The generated project of a fetching program depends
+  on `http-client` and `http-client-tls` (41 more packages, a 40-second cold build on a laptop, then
+  cached). A program that does not call `wasi.http.get` is generated exactly as before, byte for
+  byte. The trust report of a fetching module carries a `harness_assumptions` entry naming what the
+  transfer rests on: the pinned library, the host's certificate store, and the budget, assumed and
+  not proved.
+
+The capability check matches the namespace, not the verb, so any `wasi.http` import grants the call
+today (`CAP-1-REAL`); write `(capability get URL)` anyway, because the header is what a reader audits.

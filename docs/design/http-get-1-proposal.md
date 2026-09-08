@@ -1,7 +1,7 @@
 ---
 name: http-get-1-proposal
 title: "HTTP-GET-1: wasi.http.get, a byte-faithful fetch to a file"
-status: "Rev 1, SETTLED 2026-09-07 on the one open question, the runtime realization: http-client and http-client-tls compiled into the generated program, emitted only for a program that calls wasi.http.get (option A, section 2). The contract (section 4) was settled earlier by three records and is carried forward unchanged. Ready for compiler-engineer. Section 11 names three measurements the implementation plan owes; none changes the design."
+status: "Rev 1, SETTLED 2026-09-07 and SHIPPED v0.21.0 the same day (commit dc2c9cf). The one open question, the runtime realization, settled on http-client and http-client-tls compiled into the generated program, emitted only for a program that calls wasi.http.get (option A, section 2). The contract (section 4) was settled earlier by three records and shipped unchanged. Of section 11's three owed measurements, the budget (measurement 2) was taken: responseTimeout alone did not fire, a System.Timeout wrapper around the whole transfer does, so clause 4.6 stands and section 2.4's reservation is settled in A's favour; the two CI measurements are the first two runs on main."
 date: 2026-09-07
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]

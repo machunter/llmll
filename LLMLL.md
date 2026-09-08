@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.20.1)
+# LLMLL: Large Language Model Logical Language (v0.21.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.20.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.21.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1148,7 +1148,7 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 (import wasi.random (capability get-bytes      :deterministic true))
 ```
 
-> **Known compiler bug (parser, fix in progress).** `get-bytes` currently fails to parse: the capability-kind parser tries the `get` alternative before `get-bytes`, and `get` matches without a word-boundary check, consuming the prefix. This is the correct, intended grammar — not a documentation error — but it will not parse until the parser fix lands.
+> **The verbs the parser names.** Nine verbs are recognised: `read-write`, `read`, `write`, `connect`, `serve`, `post`, `get-bytes`, `get` (the verb `wasi.http.get` documents, v0.21.0) and `monotonic-read`; the parser tries `get-bytes` before `get`, longest match first, so both parse. Any other identifier, `exec`, `stdout` and `delete` among them, parses as a custom verb. An earlier note here recorded `get-bytes` as unparseable because `get` was tried first; that defect is fixed, and `(capability get-bytes :deterministic true)` checks clean. As the warning above says, no verb is enforced.
 
 > **`:deterministic true` is refused on a `wasi.env` import.** It is a type error, not a default.
 > §10a captures a deterministic capability's return value into the Event Log, and the environment
@@ -2599,6 +2599,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.io.stderr` | `string -> Command` | `(import wasi.io (capability stderr ...))` | Write text to standard error |
 | `wasi.http.response` | `int string -> Command` | `(import wasi.http (capability serve PORT))` | Return HTTP response (status, body) |
 | `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | Constructs a POST of `body` to `url`: `(wasi.http.post url body)`, the **URL first**. Both parameters are `string`, so a reversed call type-checks. **No network runtime in the Haskell backend**: the body is discarded and the command publishes `RErr`. See the note below this table |
+| `wasi.http.get` | `string string -> Command` | `(import wasi.http (capability get URL))` | Fetch `url` and write the response body to `dest` as **bytes**, never decoded: `(wasi.http.get url dest)`, the **URL first**. Delivers `RNone` on a 2xx with the **complete** body renamed onto `dest`, and `RErr` otherwise, naming the status (`wasi.http.get: HTTP 404`) or the transport failure, with `dest` **unchanged**: the body streams into a temporary in `dest`'s directory and is renamed only when it arrived whole under a 2xx, so a truncated transfer never becomes a file for `wasi.fs.sha256` to pin. Redirects are followed, bounded at 10; the whole transfer has a **60-second budget**; the server certificate is validated against the host's store, with no insecure mode. `dest`'s parent directory is not created. A **literal** `url` not beginning `http://` or `https://` is a type error (`http-url-malformed`), which catches a reversed call and a leading method word; a computed one answers `RErr` before any request. **Realized in the generated program with `http-client` and `http-client-tls`, and paid only by a program that calls it**: the body, its imports and four `package.yaml` entries are emitted for that program alone, so every other generated project is unchanged. Effect labels `net.http` and `fs.write`; the trust report's `harness_assumptions` carries an entry for any module that calls it |
 | `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
 | `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path: `(wasi.fs.write path contents)`, the **path first**. A reversed call type-checks and treats the contents as the filename |
 | `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive**; see the note below). Idempotent on a missing path. A path naming a **directory** delivers `RErr` naming `wasi.fs.rmdir`; before v0.16.0 it delivered `RNone` and removed nothing, which was success reported for a removal that did not happen |
@@ -2695,6 +2696,9 @@ determines.
 > `wasi.fs.mkdir` delivers `RNone`, `wasi.fs.sha256` a lowercase hex digest as `RText`,
 > `wasi.clock.monotonic` nanoseconds as `RCode`, and `wasi.proc.run` the child's exit status as
 > `RCode` — with a budget overrun, a missing executable, or any IO failure arriving as `RErr`.
+> `wasi.http.get` delivers `RNone` for a 2xx whose complete body now sits at `dest`, and `RErr` for
+> everything else, the payload never touching the response channel: like `wasi.fs.copy`, it moves
+> bytes through the filesystem, which is why it needs no arm of its own.
 > `wasi.proc.args` delivers the argument vector as `RList`, and an invocation with **no** arguments
 > as `RList` with zero entries rather than as `RNone`: `RNone` is what the response slot holds when
 > nothing published, so collapsing the two would make "invoked with no arguments" indistinguishable

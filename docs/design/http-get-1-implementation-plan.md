@@ -1,7 +1,7 @@
 ---
 name: http-get-1-implementation-plan
 title: "HTTP-GET-1: engineer plan and measurements for wasi.http.get"
-status: "Rev 1, APPLIED 2026-09-07 to the branch http-get-1/runtime-native-fetch, review-ready and uncommitted. The plan was approved by the user on 2026-09-07 and executed as written; section 9 records what was measured while applying it, including the two owed measurements that could be taken offline."
+status: "Rev 1, APPLIED and SHIPPED v0.21.0 (commit dc2c9cf, 2026-09-07). The plan was approved by the user on 2026-09-07 and executed as written, with one change the budget measurement forced (the System.Timeout wrapper, section 9); section 9 records every measurement taken while applying it. Owed on the CI runner: the cold build time and the cache save on the second run."
 date: 2026-09-07
 author: compiler-engineer
 consumers: [user, documentation-lead, language-team]
