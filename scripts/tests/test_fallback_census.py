@@ -363,14 +363,35 @@ real_compiler = pytest.mark.skipif(
 )
 
 
-@real_compiler
-def test_real_compiler_labels_the_two_new_causes():
+def verify_report(*args: str) -> dict:
+    """Run the real compiler over a fixture and return its JSON report.
+
+    The failure message is the point. All three cells below call `llmll verify`,
+    which shells out to liquid-fixpoint; with no solver on PATH it exits 3 and
+    prints no report, and the cells then died on a missing dict key that named
+    neither the solver nor the step order. That is how these three failed on
+    their first CI run at v0.22.0.
+    """
     llmll = shlex.split(os.environ["LLMLL_BIN"])
     proc = subprocess.run(
-        llmll + ["--json", "verify", "census-causes.llmll"],
+        llmll + ["--json", "verify", *args],
         cwd=str(FIXTURES), capture_output=True, text=True,
     )
-    payload = json.loads([ln for ln in proc.stdout.splitlines() if ln.startswith("{")][-1])
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("{")]
+    where = f"exit {proc.returncode}; stdout: {proc.stdout.strip()[:300]!r}"
+    assert lines, f"the compiler printed no JSON report ({where})"
+    payload = json.loads(lines[-1])
+    assert "body_faithful" in payload, (
+        "the report carries no body-faithful keys, so the emitter never ran. "
+        f"Exit 3 means liquid-fixpoint is not on PATH and this step must run "
+        f"after the toolchain step ({where})"
+    )
+    return payload
+
+
+@real_compiler
+def test_real_compiler_labels_the_two_new_causes():
+    payload = verify_report("census-causes.llmll")
     causes = payload["body_fallback_causes"]
     assert causes["no_contract"] == "no-post"
     assert causes["pre_only"] == "no-post"
@@ -382,12 +403,7 @@ def test_real_compiler_labels_the_two_new_causes():
 
 @real_compiler
 def test_real_compiler_names_the_refusing_constructs():
-    llmll = shlex.split(os.environ["LLMLL_BIN"])
-    proc = subprocess.run(
-        llmll + ["--json", "verify", "census-constructs.llmll"],
-        cwd=str(FIXTURES), capture_output=True, text=True,
-    )
-    payload = json.loads([ln for ln in proc.stdout.splitlines() if ln.startswith("{")][-1])
+    payload = verify_report("census-constructs.llmll")
     constructs = payload["body_fallback_constructs"]
     assert constructs["nonlinear_post"] == ["nonlinear:*"]
     assert constructs["string_post"] == ["app:string-concat"]
@@ -396,11 +412,6 @@ def test_real_compiler_names_the_refusing_constructs():
 
 @real_compiler
 def test_real_compiler_keeps_a_body_faithful_file_faithful():
-    llmll = shlex.split(os.environ["LLMLL_BIN"])
-    proc = subprocess.run(
-        llmll + ["--json", "verify", "--strict-verified-core", "census-pass.llmll"],
-        cwd=str(FIXTURES), capture_output=True, text=True,
-    )
-    payload = json.loads([ln for ln in proc.stdout.splitlines() if ln.startswith("{")][-1])
+    payload = verify_report("--strict-verified-core", "census-pass.llmll")
     assert "strict_errors" not in payload
     assert sorted(payload["body_faithful"]) == ["clamp", "nonneg"]

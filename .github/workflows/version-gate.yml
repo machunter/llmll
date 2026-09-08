@@ -265,16 +265,6 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_http_get_1.py -v
 
-      # FALLBACK-CENSUS-1's cover. Its no-toolchain cells run in the C1-C4 job
-      # with the rest of the pytest suite; these three need a compiler, because
-      # they pin the two labels the compiler gained for this row against the
-      # real emitter rather than against a stub.
-      - name: Run FALLBACK-CENSUS-1 compiler cells (pytest, needs the toolchain)
-        run: |
-          set -euo pipefail
-          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
-          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_fallback_census.py -v
-
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on
@@ -362,6 +352,25 @@ jobs:
       # absent solver all exit non-zero too. It requires the solver's own
       # refutation line. A crux that stops refuting fails here, and so does one
       # that never ran.
+      # FALLBACK-CENSUS-1's cover. Its eighteen no-toolchain cells run in the
+      # C1-C4 job with the rest of the pytest suite; these three need a
+      # compiler, because they pin the two labels the compiler gained for this
+      # row against the real emitter rather than against a stub.
+      #
+      # AFTER the toolchain step and not before it. All three call `llmll
+      # verify`, which shells out to liquid-fixpoint: with no solver on PATH it
+      # exits 3 saying "SOLVER NOT FOUND -- NOTHING WAS PROVEN" and prints no
+      # report, so the three cells fail on a missing JSON key. This step was
+      # placed beside the HTTP-GET-1 cells at v0.22.0 and failed exactly that
+      # way on the first main run; those cells build and RUN a program and need
+      # no solver, which is why they sit above. Reproduced locally by hiding
+      # fixpoint from PATH: the same three fail and the same eighteen pass.
+      - name: Run FALLBACK-CENSUS-1 compiler cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_fallback_census.py -v
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail
