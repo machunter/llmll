@@ -1,7 +1,7 @@
 ---
 name: http-get-1-implementation-plan
 title: "HTTP-GET-1: engineer plan and measurements for wasi.http.get"
-status: "Rev 1, APPLIED and SHIPPED v0.21.0 (commit dc2c9cf, 2026-09-07). The plan was approved by the user on 2026-09-07 and executed as written, with one change the budget measurement forced (the System.Timeout wrapper, section 9); section 9 records every measurement taken while applying it and on the first main run (cold build about two minutes on the runner; the Stack cache saved under the new key). Still owed: the exact-key cache hit on the run after this record's push."
+status: "Rev 1, APPLIED and SHIPPED v0.21.0 (commit dc2c9cf, 2026-09-07). The plan was approved by the user on 2026-09-07 and executed as written, with one change the budget measurement forced (the System.Timeout wrapper, section 9); section 9 records every measurement taken while applying it and on the first main run (cold build about two minutes on the runner; the Stack cache saved under the new key). The run after that push (34230606146) hit the new key exactly and saved nothing, so every owed measurement is taken."
 date: 2026-09-07
 author: compiler-engineer
 consumers: [user, documentation-lead, language-team]
@@ -155,8 +155,11 @@ The owed measurements from the proposal's section 11, as they stand after the me
 3. **The cache key: first half taken.** The run missed the exact key, restored the previous cache
    through the restore-key prefix (`stack-Linux-7248…`), and saved under the new key
    (`stack-Linux-452a…`) at the end, which is the designed path: the pin file moved the key, so the
-   save was not skipped. The second half, an exact hit that rebuilds nothing, is the run after
-   this record's own push.
+   save was not skipped. The second half was taken on the run after this record's push
+   (`version-gate` 34230606146, 23m07s): an exact hit on `stack-Linux-452a…`, the post step
+   reporting a hit on the primary key and saving nothing; the runtime-cells step fell from 240 s
+   to 133 s, the two budget cells being nearly all of it, and the hspec step from 254 s to 116 s.
+   The cache measurement is closed.
 
 **Consequence of measurement 2 for the spec text: none.** Clause 4.6 stands as written. What the
 measurement changed is the realization note: the budget is delivered by a `System.Timeout` wrapper

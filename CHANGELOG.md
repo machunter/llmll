@@ -66,8 +66,9 @@ plan and measurements:
 41-package group cold-built inside the new runtime-cells step, about two minutes of a 240 s step
 whose other two minutes are the two budget cells; the Stack cache missed the new key, restored the
 previous cache through the restore-key prefix, and saved under the new key at the end, so the
-group is now cached. Not measured: the exact-key hit on the following run, and the resolver-hang
-target of the budget, which stays a hand measurement.
+group is now cached. The following run (34230606146, 23m07s) hit the new key exactly and saved
+nothing; the runtime-cells step fell from 240 s to 133 s, the two budget cells being nearly all of
+it. Not measured: the resolver-hang target of the budget, which stays a hand measurement.
 
 1891 examples, 0 failures (twenty-one new). pytest 181 passed, 20 skipped (ten new, toolchain-gated;
 they pass in the spec-roundtrip job).
