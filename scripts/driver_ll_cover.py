@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DRIVER-LL sub-phase 4a, 4b and 4c acceptance cover.
+"""DRIVER-LL sub-phase 4a, 4b, 4c and 4d acceptance cover.
 
 Drives the BUILT `sequencer` binary through the eleven-cell transition cover of
 `docs/design/driver-ll-phase4-proposal.md` section 2.3, the three
@@ -35,9 +35,16 @@ under-budgeted run exits 70 with `:status` NOT consulted, so a starved run can
 no longer read as a green one; this file reports 70 as a budget error rather
 than as a decision.
 
+THE 4d CELLS RUN THE REAL COMPILER, on the 4e precedent (scripts/wave_cover.py):
+stages H, K and N shell out to `llmll verify` and `llmll check`, and those
+verdicts are the decisions under test, so a stub compiler here would be
+asserting the port against a transcript the cover wrote itself. `--llmll`
+names the compiler; the stub AGENT stays, and its 4d modes write real LLMLL
+probe, mutant and root files that the real compiler then judges.
+
 Usage:
-    python3 scripts/driver_ll_cover.py --driver /path/to/sequencer
-    DRIVER_LL_BIN=/path/to/sequencer python3 scripts/driver_ll_cover.py
+    python3 scripts/driver_ll_cover.py --driver /path/to/sequencer --llmll /path/to/llmll
+    DRIVER_LL_BIN=/path/to/sequencer LLMLL_BIN=/path/to/llmll python3 scripts/driver_ll_cover.py
 """
 
 from __future__ import annotations
@@ -127,6 +134,67 @@ if name == "inventory-dispositioned.json":
     out.write_text(json.dumps({"rows": [row]}))
     sys.exit(0)
 
+# Sub-phase 4d: H, K and N hand the driver LLMLL FILES that the REAL compiler
+# then judges, so what the stub writes here is the smallest program whose
+# verdict is known. `add-one` against `(= result (+ n 1))`: the correct body
+# verifies SAFE and body-faithfully, `(+ n 2)` is refuted, `(+ 1 n)` is a
+# correct variant (the good twin), and `(+ n (string-length "x"))` satisfies
+# the contract at run time but falls back from body-faithful verification
+# (4e cover cell W3 measured it), which under --strict-verified-core prints no
+# SAFE line at all.
+def _mod(name, body):
+    return ("(module %s\n  (def add-one [n: int] -> int\n"
+            "    (post (= result (+ n 1))\n"
+            "      :source \"[P1] one more than its input\")\n"
+            "    %s))\n" % (name, body))
+
+GOOD, WRONG, TWIN, FALLBACK = "(+ n 1)", "(+ n 2)", "(+ 1 n)", '(+ n (string-length "x"))'
+
+if name == "probes.json":
+    d = out.parent
+    if mode == "empty-probes":
+        out.write_text("[]")
+        sys.exit(0)
+    if mode != "probe-missing-file":
+        d.joinpath("p.llmll").write_text(_mod("p", FALLBACK if mode == "probe-fallback" else GOOD))
+        d.joinpath("m.llmll").write_text(_mod("m", GOOD if mode == "probe-survives" else WRONG))
+    out.write_text(json.dumps([{"name": "succ", "file": "p.llmll",
+                                "mutant_file": "m.llmll",
+                                "bug": "adds two where the spec says one"}]))
+    sys.exit(0)
+
+if name == "roots.llmll":
+    # Every body is a hole (the K prompt's rule); the contract carries the
+    # row tag of the one Encoded row the stub inventory holds.
+    body = '(+ n "a")' if mode == "bad-roots" else "?impl"
+    out.write_text("(module roots\n  (def step [n: int] -> int\n"
+                   "    (post (= result (+ n 1))\n"
+                   "      :source \"[A0] SPEC line 2 - a sender MUST ack\")\n"
+                   "    %s))\n" % body)
+    sys.exit(0)
+
+if name == "mutants.json":
+    if mode == "mutants-object":
+        out.write_text("{}")
+        sys.exit(0)
+    d = out.parent
+    rows = [{"name": "wrong-succ", "file": "m-wrong.llmll", "targets": ["A0"],
+             "bug": "adds two"},
+            {"name": "good-twin", "file": "m-twin.llmll", "good_twin": True,
+             "targets": [], "bug": "a correct variant written differently; must stay SAFE"},
+            {"name": "unwritable-one", "unwritable": True, "targets": ["A1"],
+             "bug": "a pre-registered perturbation nothing in the frozen surface instantiates",
+             "reason": "no row carries the field it would perturb"}]
+    if mode != "mutant-missing-file":
+        d.joinpath("m-wrong.llmll").write_text(_mod("m-wrong", WRONG))
+    d.joinpath("m-twin.llmll").write_text(_mod("m-twin", TWIN))
+    if mode == "mutant-survives":
+        rows.append({"name": "survivor", "file": "m-surv.llmll", "targets": ["A0"],
+                     "bug": "a behaviour the contract does not forbid"})
+        d.joinpath("m-surv.llmll").write_text(_mod("m-surv", GOOD))
+    out.write_text(json.dumps(rows))
+    sys.exit(0)
+
 # "Silence is not success" (driver-spec sec 7:279) at a STAGE-level delegated
 # output: exit 0 having written nothing. AgentRunner.run is what catches it in
 # the reference (rfc_to_implementation.py:331-334).
@@ -207,12 +275,21 @@ def _stub(root: Path) -> Path:
     return p
 
 
+# Set by main(): the compiler every run names with --llmll-cmd. Required by the
+# sequencer since 4d, unconditionally, as the reference requires --agent-cmd.
+LLMLL: dict[str, str] = {"bin": ""}
+
+
 def drive(binary: Path, workdir: Path, only: str, *,
           force: bool = False, halt_at: str = "", halt_kind: str = "",
           mode: str = "ok", prompts: Path | str | None = None,
-          agent_exe: str | None = None, timeout: int | None = None) -> Run:
+          agent_exe: str | None = None, timeout: int | None = None,
+          reference_dir: Path | str | None = REPO) -> Run:
     stub = _stub(workdir.parent)
     cmd = [str(binary), "--workdir", str(workdir), "--only", only,
+           # 4d: the compiler stages H, K and N run as their oracle, and the
+           # repository root the language reference is provisioned from.
+           "--llmll-cmd", LLMLL["bin"],
            # Proposal section 5 item 1: --agent-exe plus repeatable
            # --agent-arg, with {prompt}/{out}/{workdir} substituted per
            # argument. NOT a shell template, because passing one to /bin/sh -c
@@ -224,6 +301,8 @@ def drive(binary: Path, workdir: Path, only: str, *,
            "--prompts-dir", str(prompts if prompts is not None else PROMPTS)]
     if timeout is not None:
         cmd += ["--timeout", str(timeout)]
+    if reference_dir is not None:
+        cmd += ["--reference-dir", str(reference_dir)]
     if force:
         cmd.append("--force")
     if halt_at:
@@ -338,6 +417,15 @@ def local4c(cell: str, why: str):
         return fn
     return deco
 
+
+def local4d(cell: str, why: str):
+    """The 4d sibling. The rig has ONE stage H test and no stage K or N mode
+    at all, so every 4d cell but H1 is local by construction."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(4d, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
 @scenario("T1", "test_pipeline_runs_through_both_gates")
 def t1(b, wd):
     r = drive(b, wd, "A,B,C")
@@ -375,7 +463,22 @@ def t3(b, wd):
     want_not_in("stage C [", r)
 
 
-@scenario("T4", "test_stage_H_records_partial_then_halt_after_writing_its_output")
+def local4a(cell: str, why: str):
+    """A 4a transition cell whose rig mirror MOVED to the real stage body.
+
+    T4 reproduces `test_stage_H_records_partial_then_halt_after_writing_its_output`
+    through the 4a injector (`--halt-kind PartialThenHalt`). Since 4d the
+    real site decides it, cell H1, and one rig test is mirrored by one cell,
+    so the injector's cell keeps its transition-cover slot without the claim.
+    """
+    def deco(fn):
+        SCENARIOS.append((cell, "(4a injector; the rig mirror moved to H1 at 4d) " + why, fn))
+        return fn
+    return deco
+
+
+@local4a("T4", "PartialThenHalt through the injector: stopped, with the "
+               "declared output on disk")
 def t4(b, wd):
     r = drive(b, wd, "A,B,C", halt_at="B", halt_kind="PartialThenHalt")
     want_rc(r, 2)
@@ -902,9 +1005,188 @@ def c7(b, wd):
     want_failed(r, "G", "class C1 through C6")
 
 
+
+# ---------------------------------------------------------------------------
+# Sub-phase 4d: the compiler-oracle stages H, K and N
+#
+# Every cell below runs the REAL compiler. The stub agent writes real LLMLL
+# files; `llmll verify --strict-verified-core` and `llmll check` decide.
+# ---------------------------------------------------------------------------
+
+def want_stopped_partial(r: Run, key: str, clause: str) -> None:
+    """A `stopped` row whose constructor is PartialThenHalt, the arm 4d builds
+    for the first time outside the 4a injector."""
+    want_rc(r, 2)
+    row = r.stages().get(key)
+    want(row is not None, f"stage {key} recorded no row at all:\n{r.out}")
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == clause,
+         f"a stopped row names the clause that authorised it: expected "
+         f"{clause!r}, got {row.get('clause')!r}")
+
+
+def _feasibility(wd: Path) -> list:
+    p = wd / "07-feasibility" / "feasibility.json"
+    want(p.exists(), "07-feasibility/feasibility.json is not on disk")
+    return json.loads(p.read_text())
+
+
+@scenario("H1", "test_stage_H_records_partial_then_halt_after_writing_its_output")
+def h1(b, wd):
+    """The one site in the reference where the two classification axes
+    disagree (proposal section 3.6): the mutant survives, the bar is not met,
+    and the halt lands AFTER feasibility.json was written, so driver-spec sec
+    4:146-147 gives `stopped` and the constructor is PartialThenHalt. The
+    artifact's presence beside the disposition is the premise, asserted."""
+    r = drive(b, wd, "B,H", mode="probe-survives")
+    want_stopped_partial(r, "H", "driver-spec sec 4:146-147")
+    want_in("feasibility not established for ['succ']", r)
+    want_in("mutant=SURVIVED", r)
+    rows = _feasibility(wd)
+    want(len(rows) == 1 and rows[0]["pass"] is False
+         and rows[0]["probe"]["safe"] is True and rows[0]["mutant"]["safe"] is True,
+         f"the row must record a SAFE probe and a SAFE mutant, got {rows!r}")
+
+
+@local4d("H2", "a probe that verifies body-faithfully whose mutant is refuted "
+               "establishes feasibility; the language reference is provisioned")
+def h2(b, wd):
+    r = drive(b, wd, "B,H")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["H"], "agent")
+    want_in("mutant=refuted -> ok", r)
+    rows = _feasibility(wd)
+    want(rows[0]["pass"] is True and rows[0]["probe"]["body_faithful"] is True,
+         f"expected a passing, body-faithful row, got {rows!r}")
+    for name in ("LLMLL.md", "llmll-ast.schema.json"):
+        want((wd / "07-feasibility" / name).exists(),
+             f"_provision_reference: {name} was not copied into the agent's directory")
+    want("{{llmll}}" not in (wd / "07-feasibility" / "PROMPT.md").read_text()
+         and LLMLL["bin"] in (wd / "07-feasibility" / "PROMPT.md").read_text(),
+         "the prompt's {{llmll}} placeholder must carry --llmll-cmd")
+
+
+@local4d("H3", "a probe that is contract-checked but falls back from "
+               "body-faithful verification does not establish feasibility")
+def h3(b, wd):
+    r = drive(b, wd, "B,H", mode="probe-fallback")
+    want_stopped_partial(r, "H", "driver-spec sec 4:146-147")
+    want_in("probe=not-SAFE", r)
+    rows = _feasibility(wd)
+    want(rows[0]["pass"] is False and rows[0]["probe"]["safe"] is False,
+         f"under --strict-verified-core a fallen-back probe prints no SAFE line, got {rows!r}")
+
+
+@local4d("H4", "an empty probe catalogue is rejected at the shape channel "
+               "([H7-NONEMPTY]), before any compiler run")
+def h4(b, wd):
+    r = drive(b, wd, "B,H", mode="empty-probes")
+    want_failed(r, "H", "expected a list of probes")
+    want(not (wd / "07-feasibility" / "feasibility.json").exists(),
+         "no feasibility.json may exist when the catalogue was rejected")
+
+
+@local4d("H5", "a probe naming files the agent did not write records failed")
+def h5(b, wd):
+    r = drive(b, wd, "B,H", mode="probe-missing-file")
+    want_failed(r, "H", "names files that do not exist")
+
+
+@local4d("K1", "authored roots that typecheck complete stage K; the log line "
+               "carries the Encoded row count and the hole count")
+def k1(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["K"], "agent")
+    want_in("authored 1 Encoded rows into roots.llmll (typechecks; ~1 holes)", r)
+    prompt = (wd / "10-roots" / "PROMPT.md").read_text()
+    want('"A0"' in prompt and "Encoded" in prompt,
+         "the prompt's {{encoded}} must carry the Encoded rows of the inventory")
+    want("{{" not in prompt, "an unfilled placeholder survived rendering")
+    want((wd / "10-roots" / "LLMLL.md").exists(), "the language reference was not provisioned")
+
+
+@local4d("K2", "authored roots that do not typecheck record failed on the "
+               "compiler's exit status, the stage's only validator")
+def k2(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K", mode="bad-roots")
+    want_failed(r, "K", "do not typecheck")
+    want((wd / "10-roots" / "check.stdout.log").exists(),
+         "the compiler's transcript must be kept beside the roots")
+
+
+@local4d("K3", "an absent dispositioned inventory is a guarded read recording "
+               "failed, where the reference tracebacks")
+def k3(b, wd):
+    r = drive(b, wd, "B,K")
+    want_failed(r, "K", "06-disposition/inventory-dispositioned.json is absent")
+
+
+def _matrix(wd: Path) -> dict:
+    p = wd / "13-kill-matrix" / "kill-matrix.json"
+    want(p.exists(), "13-kill-matrix/kill-matrix.json is not on disk")
+    return {m["name"]: m for m in json.loads(p.read_text())}
+
+
+@local4d("N1", "a refuted mutant, a SAFE good twin and an unwritable entry all "
+               "reach the matrix; the denominator is three")
+def n1(b, wd):
+    r = drive(b, wd, "B,I,M,N")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["N"], "agent")
+    m = _matrix(wd)
+    want(set(m) == {"wrong-succ", "good-twin", "unwritable-one"},
+         f"the matrix must carry every input row, got {sorted(m)}")
+    want(m["wrong-succ"]["verdict"] == "refuted" and m["wrong-succ"]["killed"] is True
+         and m["wrong-succ"]["as_expected"] is True, f"{m['wrong-succ']!r}")
+    want(m["good-twin"]["verdict"] == "SAFE" and m["good-twin"]["good_twin"] is True
+         and m["good-twin"]["as_expected"] is True, f"{m['good-twin']!r}")
+    want(m["unwritable-one"]["verdict"] == "unwritable"
+         and m["unwritable-one"]["as_expected"] is True, f"{m['unwritable-one']!r}")
+    want_in("unwritable (kept in the denominator)", r)
+    want_not_in("SURVIVORS", r)
+
+
+@local4d("N2", "a survivor is reported and kept, never dropped, and the stage "
+               "still completes")
+def n2(b, wd):
+    r = drive(b, wd, "B,I,M,N", mode="mutant-survives")
+    want_rc(r, 0)
+    m = _matrix(wd)
+    want(m["survivor"]["verdict"] == "SAFE" and m["survivor"]["as_expected"] is False,
+         f"{m.get('survivor')!r}")
+    want_in("survivor: SAFE   <-- UNEXPECTED", r)
+    want_in("SURVIVORS (reported, not dropped): ['survivor']", r)
+
+
+@local4d("N3", "a mutant whose file was not written records failed")
+def n3(b, wd):
+    r = drive(b, wd, "B,I,M,N", mode="mutant-missing-file")
+    want_failed(r, "N", "m-wrong.llmll not written")
+
+
+@local4d("N4", "a catalogue that is not an array is a guarded read recording "
+               "failed, where the reference tracebacks on m.get")
+def n4(b, wd):
+    r = drive(b, wd, "B,I,M,N", mode="mutants-object")
+    want_failed(r, "N", "must be a JSON array")
+
+
+@local4d("F0", "--llmll-cmd is required unconditionally, as the reference "
+               "requires --agent-cmd, and its absence stops before any stage")
+def f0(b, wd):
+    r = drive_bare(b, wd, "--only", "B",
+                   "--agent-exe", sys.executable,
+                   "--agent-arg", str(_stub(wd.parent)),
+                   "--prompts-dir", str(PROMPTS))
+    want_rc(r, 2)
+    want_in("--llmll-cmd is required", r)
+    want(not r.stages(), "no stage row may exist when a required flag is absent")
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--driver", default=os.environ.get("DRIVER_LL_BIN", ""))
+    ap.add_argument("--llmll", default=os.environ.get("LLMLL_BIN", ""))
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
     if not a.driver:
@@ -915,6 +1197,15 @@ def main() -> int:
     binary = Path(a.driver).resolve()
     if not binary.exists():
         print(f"ERROR: {binary} does not exist", file=sys.stderr)
+        return 2
+    if not a.llmll:
+        print("ERROR: pass --llmll or set LLMLL_BIN to the compiler the 4d cells "
+              "run (stages H, K and N shell out to `llmll verify` and `llmll check`)",
+              file=sys.stderr)
+        return 2
+    LLMLL["bin"] = str(Path(a.llmll).resolve())
+    if not Path(LLMLL["bin"]).exists():
+        print(f"ERROR: {LLMLL['bin']} does not exist", file=sys.stderr)
         return 2
 
     root = Path(tempfile.mkdtemp(prefix="driver-ll-4a-"))
@@ -942,7 +1233,7 @@ def main() -> int:
         else:
             print(f"  workdirs kept under {root}")
 
-    print(f"DRIVER-LL 4a+4b+4c cover: {npass} passed, {nfail} failed")
+    print(f"DRIVER-LL 4a+4b+4c+4d cover: {npass} passed, {nfail} failed")
     return 1 if nfail else 0
 
 

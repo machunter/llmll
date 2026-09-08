@@ -72,10 +72,19 @@ def test_every_cover_scenario_mirrors_a_test_that_exists():
     # defect whose sibling is already valid (proposal section 3.6.1) and the
     # closed-barrier condition, which is the one spec-defined halt in stage G and
     # therefore the only `stopped` the sub-phase constructs.
+    #
+    # ONE 4d mirror, and it MOVED rather than added: stage H's PartialThenHalt
+    # after its declared output was written, the one site where the two
+    # classification axes disagree. T4 reproduced that rig test through the
+    # 4a injector; since 4d the real stage body decides it (cell H1), one rig
+    # test is mirrored by one cell, and T4 is `@local4a`. The rig has no stage
+    # K or N mode at all, so the other twelve 4d cells are `@local4d` by
+    # construction rather than by choice. Ten transition cells remain
+    # mirrored, so the total is unchanged at seventeen.
     assert len(mirrored) == 17, (
-        "eleven transition cells, three corrupt-manifest shapes, the one 4b "
-        "cell the reference also decides, and the two 4c cells it decides; "
-        f"found {len(mirrored)}")
+        "ten transition cells (T4's mirror moved to H1), three corrupt-manifest "
+        "shapes, the one 4b cell the reference also decides, the two 4c cells "
+        f"it decides, and the one 4d cell it decides; found {len(mirrored)}")
     assert len(set(mirrored)) == 17, "two scenarios claim the same mirror"
     missing = [n for n in mirrored if n not in rig_tests]
     assert not missing, (
@@ -141,9 +150,10 @@ def test_the_llmll_registry_agrees_with_the_python_registry():
         assert got == want, f"stage {st.key}: stage-out-count says {got}, not {want}"
 
 
-@pytest.mark.skipif(not os.environ.get("DRIVER_LL_BIN"),
-                    reason="set DRIVER_LL_BIN to a built sequencer binary; "
-                           "the build gate runs this cover in CI")
+@pytest.mark.skipif(not (os.environ.get("DRIVER_LL_BIN") and os.environ.get("LLMLL_BIN")),
+                    reason="set DRIVER_LL_BIN to a built sequencer binary and "
+                           "LLMLL_BIN to the compiler the 4d cells run; the "
+                           "build gate runs this cover in CI")
 def test_the_4a_cover_passes_against_a_built_sequencer():
     p = subprocess.run([sys.executable, str(COVER)], capture_output=True, text=True)
     assert p.returncode == 0, p.stdout + p.stderr

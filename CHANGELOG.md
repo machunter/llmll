@@ -4,6 +4,58 @@
 
 <a id="Latest"></a>
 
+## v0.21.1: the driver's three compiler-oracle stages run, and their cover runs the real compiler (2026-09-08)
+
+**`DRIVER-LL` sub-phase 4d ships: stages H, K and N are ported into
+[`tools/llmll-driver/sequencer.llmll`](tools/llmll-driver/sequencer.llmll).** The three are the
+stages whose acceptance oracle is the compiler. H and N hand the driver a catalogue an agent
+wrote (`probes.json`, `mutants.json`) naming LLMLL files; the driver runs
+`llmll verify --strict-verified-core` over each file, scores the transcript through the proved
+decisions that shipped callerless at v0.14.88 (`oracle.probe-established?`,
+`feasibility-established?`, `outcome-as-expected?`, `matrix-complete?` and
+`shape.probe-rows-conform?`), and writes the declared output (`feasibility.json`,
+`kill-matrix.json`) itself. K runs `llmll check` on the authored `roots.llmll` and halts on its
+exit status, the stage's only validator. Plan and running record:
+[`docs/design/driver-ll-phase4d-implementation-plan.md`](docs/design/driver-ll-phase4d-implementation-plan.md).
+
+- **All four `Outcome` arms now come from stage bodies.** Stage H's bar is decided one console
+  step after `feasibility.json` is written, so a failed bar records `stopped` through
+  `PartialThenHalt` with the artifact on disk (driver-spec section 4:146-147, the reference's only
+  `require_written`). 4b built two arms and 4c three; this site completes the four, and cover cell
+  H1 asserts the file beside the disposition.
+- **The agent's file and the declared output are two tables.** For H and N the agent's catalogue
+  is an input and the driver writes the output, the inverted artifact flow the restart record's
+  section 6 item 6 names; `registry.stage-agent-out` names the agent's file and `stage-out` the
+  declared one. The first cover run conflated them and five cells failed on the shape check
+  rejecting the driver's own placeholder, which no static check could have seen.
+- **`--llmll-cmd` is required, and the cover runs the real compiler.** The flag 4c parsed and read
+  nowhere now names the compiler the stages run, required unconditionally as the reference
+  requires `--agent-cmd`; `--reference-dir` provisions `LLMLL.md` and the JSON-AST schema into the
+  agent's directory (`_provision_reference`), and the prompt's `{{llmll}}` placeholder carries the
+  same command. `scripts/driver_ll_cover.py` takes `--llmll`, on the 4e precedent that a stub
+  compiler would assert the port against a transcript the cover wrote itself: 52 cells, from 39,
+  the thirteen new ones H1 to H5, K1 to K3, N1 to N4 and F0, about seven seconds of wall-clock.
+- **The abstraction is disclosed and its lexemes are pinned.** The port keys on the SAFE line
+  rather than the exit status (measured: a refuted or fallen-back strict run prints no SAFE line
+  and exits 1) and on "a `body-faithful:` line and no `body-fallback:` line" rather than the
+  reference's file-stem check; the sequencer header carries the section 7 statement.
+  `scripts/tests/test_driver_ll_4d.py` (thirteen tests, no toolchain) pins the three literals
+  against `compiler/app/Main.hs`, the `require_written` ordering, the ten new `Ctl` arms in all
+  four dispatch matches, and the catalogue table against the reference's `out_name` arguments.
+- **The 4d census prerequisite was already done.** The roadmap named it as next; `3a4046b`
+  (2026-08-06, v0.14.88) had already split the multi-invocation census by receiver with an alias
+  guard. One residue test lands: every agent delegation sits in a stage handler, where the
+  per-handler walk can see it. The callerless census loses its five `4d-parked` rows and keeps
+  three.
+
+No compiler change, no CLI change, no schema change; `LLMLL.md` moves only its banner. The driver's
+own flags are documented in [`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1891 examples, 0 failures (unchanged; no Haskell touched). pytest 195 passed, 20 skipped
+(fourteen new, none toolchain-gated).
+
+---
+
 ## v0.21.0: a program fetches a URL to a file as bytes, and only a program that fetches pays for it (2026-09-07)
 
 **`HTTP-GET-1` ships `wasi.http.get`, and the DRIVER-LL campaign's stage A STOP is lifted.** The

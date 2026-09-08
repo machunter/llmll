@@ -1029,7 +1029,7 @@ DRV_SRC="$REPO_ROOT/tools/llmll-driver/sequencer.llmll"
 DRV_OUTDIR="$OUTDIR/driverll"
 
 if [ -f "$DRV_SRC" ]; then
-  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4a+4b cover"
+  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4a+4b+4c+4d cover"
   DRV_LOG="$OUTDIR/.driverll-build.log"
   if ! ( cd "$REPO_ROOT/tools/llmll-driver" \
            && "${LLMLL_CMD[@]}" build sequencer.llmll -o "$DRV_OUTDIR" ) \
@@ -1043,14 +1043,18 @@ if [ -f "$DRV_SRC" ]; then
   sequencer binary under $DRV_OUTDIR/.stack-work/install. Without running it
   this stage observes nothing, which is the failure mode it exists to prevent."
 
-  if ! python3 "$REPO_ROOT/scripts/driver_ll_cover.py" --driver "$DRV_EXE" > "$OUTDIR/.driverll-cover.log" 2>&1; then
+  # 4d: the H, K and N cells run the REAL compiler (stages H and N verify the
+  # agent's probe and mutant files, K typechecks the authored roots), so the
+  # cover takes the compiler under test, exactly as stage 9's wave cover does.
+  if ! python3 "$REPO_ROOT/scripts/driver_ll_cover.py" --driver "$DRV_EXE" \
+         --llmll "${LLMLL_CMD[0]}" > "$OUTDIR/.driverll-cover.log" 2>&1; then
     cat "$OUTDIR/.driverll-cover.log" >&2
-    fail "the DRIVER-LL 4a+4b+4c acceptance cover did not pass. Every scenario is a
+    fail "the DRIVER-LL 4a+4b+4c+4d acceptance cover did not pass. Every scenario is a
   DECISION the Python reference makes and this port must make identically; the
   log above names the cell and the assertion."
   fi
   cat "$OUTDIR/.driverll-cover.log"
-  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + registry)"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4a+4b+4c+4d cover (11 transition cells + 3 manifest shapes + 16 delegated-output cells + 8 content-shape cells + 13 compiler-oracle cells + registry)"
 fi
 
 # --- 9. DRIVER-LL sub-phase 4e acceptance cover: the serial wave. ------------
