@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4d-implementation-plan
 title: "DRIVER-LL sub-phase 4d: implementation plan and running record"
-status: "APPLIED TO REVIEW-READY on 2026-09-08 on branch driver-ll-4d/stages-h-k-n, NOT COMMITTED. Stages H, K and N are ported and the acceptance cover runs them against the real compiler: 52 passed, 0 failed (39 before). The census prerequisite the roadmap named was found already done at 3a4046b (2026-08-06); one residue test closes it. Update this field at commit and again at release."
+status: "IMPLEMENTED at 4eedf8b (2026-09-08), released as v0.21.1. Stages H, K and N are ported and the acceptance cover runs them against the real compiler: 52 passed, 0 failed (39 before). The census prerequisite the roadmap named was found already done at 3a4046b (2026-08-06); one residue test closes it."
 date: 2026-09-08
 author: compiler-engineer
 consumers: [compiler-engineer, language-team, experiment-lead, documentation-lead, user]
