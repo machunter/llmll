@@ -31,6 +31,11 @@ examples/**/*.verified.json
 # exceptions in experiments/ (run artifacts under runs/ are the tracked record).
 experiments/**/*.verified.json
 
+# Test-fixture .verified.json sidecars — FALLBACK-CENSUS-1's LLMLL_BIN cells
+# verify the fixtures in place, and `llmll verify` writes a sidecar beside each
+# file it reads. None of them is evidence; the tests recompute every verdict.
+scripts/tests/fixtures/**/*.verified.json
+
 # Relocated example fixtures (moved out of examples/ during the 2026-07 audit):
 # their regenerated sidecars are cruft, same as in examples/.
 compiler/test/fixtures/**/*.verified.json

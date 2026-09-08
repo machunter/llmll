@@ -1,0 +1,11 @@
+;; FALLBACK-CENSUS-1 fixture: the positive control. Both functions are
+;; body-faithful, so this file passes --strict-verified-core and belongs to the
+;; ratchet's strict-pass set.
+
+(def nonneg [n: int] -> int
+  (post (>= result 0))
+  (if (> n 0) n 0))
+
+(def clamp [n: int] -> int
+  (post (and (>= result 0) (<= result 10)))
+  (if (> n 10) 10 (if (> n 0) n 0)))
