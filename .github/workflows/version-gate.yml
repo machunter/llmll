@@ -707,47 +707,33 @@ jobs:
             || { grep -v '^$' "$RUNNER_TEMP/rc.log" >&2; exit 1; }
           grep -v '^$' "$RUNNER_TEMP/rc.log"
 
-      # FALLBACK-CENSUS-1: the body-faithful ratio and the fallback-cause
-      # histogram over every tracked LLMLL file the gates build, per run,
-      # recorded where a later run can diff it. Before this step the ratio had
-      # been hand-counted three times and lived in no committed file.
+      # FALLBACK-CENSUS-1's census step is NOT RUN HERE, and the reason is a
+      # measurement rather than a policy. It ran twice on `main` at v0.22.0 and
+      # was killed by the runner both times (exit 143, SIGTERM, after 1 min 52 s
+      # with no output).
       #
-      # HERE and not in the version-gate job, for the same reason the gates
-      # above are here: it runs `llmll verify --strict-verified-core` 250 times
-      # and that needs liquid-fixpoint and z3, which only this job has. It runs
-      # after the verdict gates so a compiler regression is reported by the gate
-      # that localizes it, not by the census.
+      # THE CAUSE IS ONE FILE'S MEMORY, not the census's design. Measured
+      # locally with /usr/bin/time -l: a single
+      # `llmll verify --strict-verified-core` of
+      # examples/heartbleed/secure-channel/sc-channel.llmll peaks at 5.49 GB of
+      # resident memory and takes 63 s alone. tools/build-smoke/buildsmoke.llmll,
+      # which is a LARGER file, peaks at 28 MB in 0.15 s, so size does not
+      # predict it. The census gives its workers the biggest files first, so at
+      # --jobs 4 two multi-gigabyte verifies start together within seconds.
+      # Filed as VERIFY-MEMORY-1.
       #
-      # IT IS NOT CHEAP AND THE COST IS MEASURED, NOT ESTIMATED: 6 min 4 s at
-      # --jobs 4 over 250 files on an 8-core laptop, 11 min of CPU. Three files
-      # are most of it (288 s, 253 s and 173 s under load; the first takes 130 s
-      # with the machine to itself), and the other 247 together take about four
-      # minutes. Workers take the biggest files first for that reason, which
-      # brought a first measurement of 8 min 17 s down to this one. This
-      # workflow runs on pushes to main AND on pull requests, so the cost is
-      # paid per PR. If that proves too much, move THIS STEP to a schedule; the
-      # instrument does not change.
+      # The instrument itself is unaffected and still ships: `make
+      # fallback-census` runs it, scripts/fallback-census/BASELINE.json records
+      # the 98 files that pass --strict-verified-core, and its eighteen
+      # no-toolchain cells plus three compiler cells run in CI above. What is
+      # not running is the per-CI-run measurement the G1 row asked for, so that
+      # part of FALLBACK-CENSUS-1 is owed again and says so in its row.
       #
-      # The ratchet is the enforcing half: the strict-pass set may grow and may
-      # not shrink without a waiver naming the cause.
-      - name: Run FALLBACK-CENSUS-1 body-faithful census and ratchet
-        run: |
-          set -euo pipefail
-          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
-          python3 scripts/fallback_census.py \
-            --llmll "$SUBJECT" --repo . --jobs 4 \
-            --out "$RUNNER_TEMP/fallback-census.json"
-
-      # The record is the deliverable, not the log line: a later run diffs it.
-      # `if: always()` because a ratchet failure is exactly when a reader wants
-      # the numbers.
-      - name: Upload the census record
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fallback-census
-          path: ${{ runner.temp }}/fallback-census.json
-          if-no-files-found: warn
+      # Re-enabling it needs a decision this comment does not pre-empt: cap the
+      # per-file memory and report a file that exceeds it as its own outcome,
+      # the way the census already reports `timeout` and `unstable`; or run at
+      # --jobs 1 and pay the wall clock; or move the step to a schedule. All
+      # three are cheap to build and they differ in what the gate promises.
 
       # BUILD-GATE-1. Belongs in this job and not in version-gate: that job is
       # deliberately Stack-free (see the header), and this gate's oracle is GHC.
