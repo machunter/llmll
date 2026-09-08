@@ -1,0 +1,17 @@
+;; FALLBACK-CENSUS-1 fixture: the two label-only causes the census needs.
+;; A function with no post has no proof goal, and an unfilled hole has nothing
+;; written to prove. Both used to be reported as a post that left the fragment.
+
+(def no_contract [n: int] -> int n)
+
+(def pre_only [n: int] -> int
+  (pre (>= n 0))
+  n)
+
+(def-shell scaffold [n: int] -> int
+  (post (>= result 0))
+  ?todo)
+
+(def-shell nested_hole [n: int] -> int
+  (post (>= result 0))
+  (if (> n 0) ?todo 0))

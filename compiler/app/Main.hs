@@ -1344,6 +1344,17 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                                 | (cause, fns, msg) <- errs ]
                             ]
                          ++ [ "fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- causes ]) | not (null causes) ]
+                         -- FALLBACK-CENSUS-1: the census reads ONE shape on both
+                         -- exit paths. A refused file exits here before the
+                         -- solver runs, so without these keys the instrument
+                         -- would see the body-faithful set only for files that
+                         -- pass, which is the population it is measuring.
+                         ++ [ "body_faithful" .= erBodyFaithfulFns emitR
+                            , "body_fallback" .= erBodyFallback emitR
+                            , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- causes ])
+                            , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
+                            , "fn_kinds" .= toJSON (fnKindMap stmts)
+                            ]
             else mapM_ (\(_cause, _fns, msg) ->
                           TIO.putStrLn $ "ERROR: --strict-verified-core: " <> msg) errs
           exitFailure
@@ -1487,6 +1498,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                     , "body_fallback" .= erBodyFallback emitR
                       -- FALLBACK-REASON-CONST-1: the per-function cause, the histogram source
                     , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- erBodyFallbackCauses emitR ])
+                      -- FALLBACK-CENSUS-1: which constructs refused a contract clause,
+                      -- and which functions the ratio's denominator may count.
+                    , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
+                    , "fn_kinds" .= toJSON (fnKindMap stmts)
                     ]
               -- Merge by stripping closing } from report and appending body_meta fields
               let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of
@@ -2674,6 +2689,25 @@ doVersion json =
 -- ===========================================================================
 
 -- | "sha256:" hash of the source file bytes (recomputable at replay).
+-- | FALLBACK-CENSUS-1: the definition form of every contract-bearing
+-- top-level function.
+--
+-- The census needs it for two readings the cause alone cannot give. First, the
+-- ratio's denominator is functions WITH a post, and a reader checking the
+-- figure has to see how many functions the file declares at all. Second, the
+-- driver is built of `def-shell` (about 360 against about fifty `def`), and
+-- `SHELL-FALLBACK-SILENT-1` asks how large the silent-downgrade population is;
+-- that row cannot be sized without splitting the fallbacks by form.
+fnKindMap :: [Statement] -> Map.Map T.Text T.Text
+fnKindMap stmts = Map.fromList $ concatMap one stmts
+  where
+    one (SDef n _ _ _ _)         = [(n, "def")]
+    one (SDefShell n _ _ _ _ _)  = [(n, "def-shell")]
+    one (SDefLogic n _ _ _ _)    = [(n, "def-logic")]
+    one (SDefInvariant n _ _ _ _) = [(n, "def-invariant")]
+    one (SLetrec n _ _ _ _ _)    = [(n, "letrec")]
+    one _                        = []
+
 sourceHashOf :: FilePath -> IO T.Text
 sourceHashOf fpath = do
   bytes <- PABS.readFile fpath

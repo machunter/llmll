@@ -79,7 +79,9 @@ import LLMLL.FixpointEmit
   -- LEVER-A3 / CLASSIFY-MEASURE: the emitter's own guards, so classification
   -- cannot drift (§6.1)
   , contractArrGuardsBlock, contractSigGuardsBlock
-  , contractMentionsArrOp, exprMentionsArrOp )
+  , contractMentionsArrOp, exprMentionsArrOp
+  -- FALLBACK-CENSUS-1: one hole walker, shared with the emitter's FallbackHole
+  , hasHole )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), injectOpenedAliases)
 import LLMLL.HoleAnalysis
@@ -697,18 +699,10 @@ obligationStatus mFqResult fnName kind table suppressedSet refutedSet
   | otherwise = "open"
 
 -- | Check if an expression contains any holes.
-hasHole :: Expr -> Bool
-hasHole (EHole _)        = True
-hasHole (EApp _ args)    = any hasHole args
-hasHole (EOp _ args)     = any hasHole args
-hasHole (EIf c t e)      = hasHole c || hasHole t || hasHole e
-hasHole (ELet bs body)   = any (\(_, _, e) -> hasHole e) bs || hasHole body
-hasHole (EMatch s arms)  = hasHole s || any (hasHole . snd) arms
-hasHole (EPair a b)      = hasHole a || hasHole b
-hasHole (EAwait e)       = hasHole e
-hasHole (ELambda _ body) = hasHole body
-hasHole (EDo steps)      = any (\(DoStep _ e _) -> hasHole e) steps
-hasHole _                = False
+-- FALLBACK-CENSUS-1: 'hasHole' moved to 'LLMLL.FixpointEmit' (imported whole
+-- above) so the emitter's 'FallbackHole' decision and this module's
+-- 'hole_bearing' body label read ONE walker. Two copies would drift and the
+-- census reads both surfaces.
 
 -- | isQfLia is now imported from ObligationMining (F5: predicate drift fix).
 

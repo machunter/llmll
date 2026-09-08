@@ -1,0 +1,11 @@
+;; FALLBACK-CENSUS-1 fixture: which construct refused the clause.
+;; "contract-post-outside-fragment" is the biggest bucket and says nothing
+;; about which vocabulary is missing; these two say.
+
+(def-shell nonlinear_post [n: int] -> int
+  (post (= result (* n 2)))
+  (+ n n))
+
+(def-shell string_post [a: string b: string] -> int
+  (post (> (string-length (string-concat a b)) 0))
+  1)

@@ -46,6 +46,8 @@ module LLMLL.FixpointEmit
   , EmitResult(..)
   , FallbackCause(..)
   , renderFallbackCause
+  , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker
+  , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
     -- * Alias map (v0.8.0)
   , AliasMap
   , buildAliasMap
@@ -111,7 +113,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
-import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
+import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes)
 import Data.List (nub, partition)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
@@ -181,6 +183,16 @@ data FallbackCause
   | FallbackBody           -- ^ no body-VC and no map-return tree: the body is outside QF-LIA
   | FallbackPathCap        -- ^ more than 4096 paths, either counter (§6.1)
   | FallbackMixedMapTail   -- ^ a map-returning body with a tail the split encoding cannot pin (§6.1)
+  -- FALLBACK-CENSUS-1 (triage item i): an unfilled hole is not a body that left
+  -- the fragment. Both used to report 'FallbackBody', so the first census read
+  -- 245 scaffolds as fallbacks. The hole is decided first at all three sites a
+  -- hole body can reach.
+  | FallbackHole           -- ^ the body is (or contains) an unfilled hole: nothing is written to prove
+  -- FALLBACK-CENSUS-1: a function with no post has no proof goal, so the body
+  -- VC is not emitted. This used to report 'FallbackContractPost', a post that
+  -- does not exist leaving a fragment it never entered. The census excludes
+  -- these from the ratio's denominator, so the label must distinguish them.
+  | FallbackNoPost         -- ^ no post clause (after DEF-RET return-refinement folding): no goal to prove
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -190,6 +202,8 @@ renderFallbackCause FallbackContractSig  = "contract-signature-outside-fragment"
 renderFallbackCause FallbackBody         = "body-outside-fragment"
 renderFallbackCause FallbackPathCap      = "path-cap-exceeded"
 renderFallbackCause FallbackMixedMapTail = "mixed-map-tail"
+renderFallbackCause FallbackHole         = "unfilled-hole"
+renderFallbackCause FallbackNoPost       = "no-post"
 
 data EmitResult = EmitResult
   { erFQFile            :: FQFile           -- ^ the assembled .fq data structure
@@ -199,6 +213,7 @@ data EmitResult = EmitResult
   , erBodyFaithfulFns   :: [Text]           -- ^ v0.8.0: functions with successful body VCs
   , erBodyFallback      :: [Text]           -- ^ v0.8.0: functions that fell back
   , erBodyFallbackCauses :: [(Text, FallbackCause)] -- ^ FALLBACK-REASON-CONST-1: the same functions, same order, each with the decision that sent it there
+  , erFallbackConstructs :: [(Text, [Text])]      -- ^ FALLBACK-CENSUS-1: for a contract-side fallback, the constructs that refused it (empty for every other cause)
   , erDiagnostics       :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
   , erEmittedPre        :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
   , erEmittedPost       :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
@@ -507,6 +522,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   bodyCounterRef <- newIORef (0 :: Int)
   bodyFaithfulRef <- newIORef ([] :: [Text])
   bodyFallbackRef <- newIORef ([] :: [(Text, FallbackCause)])
+  fallbackConstructsRef <- newIORef ([] :: [(Text, [Text])])  -- FALLBACK-CENSUS-1
   diagsRef <- newIORef ([] :: [Diagnostic])
   emittedPreRef <- newIORef ([] :: [Text])
   emittedPostRef <- newIORef ([] :: [Text])
@@ -537,7 +553,11 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
   let addOrigin cid orig = modifyIORef' tableRef (Map.insert cid orig)
   let addBodyFaithful n = modifyIORef' bodyFaithfulRef (++ [n])
-  let addBodyFallback n c = modifyIORef' bodyFallbackRef (++ [(n, c)])
+  -- FALLBACK-CENSUS-1: the third argument is the refusal's constructs, empty
+  -- for every cause that is not decided over a contract clause.
+  let addBodyFallback n c cons = do
+        modifyIORef' bodyFallbackRef (++ [(n, c)])
+        unless (null cons) $ modifyIORef' fallbackConstructsRef (++ [(n, cons)])
   let addDiag d = modifyIORef' diagsRef (++ [d])
   let addEmittedPre n = modifyIORef' emittedPreRef (++ [n])
   let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
@@ -656,6 +676,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   skipped   <- readIORef skippedRef
   bfaithful <- readIORef bodyFaithfulRef
   bfallback <- readIORef bodyFallbackRef
+  fbConstructs <- readIORef fallbackConstructsRef
   diags     <- readIORef diagsRef
   emPre     <- readIORef emittedPreRef
   emPost    <- readIORef emittedPostRef
@@ -708,6 +729,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erBodyFaithfulFns   = bfaithful
     , erBodyFallback      = map fst bfallback
     , erBodyFallbackCauses = bfallback
+    , erFallbackConstructs = fbConstructs
     , erDiagnostics       = diags
     , erEmittedPre        = emPre
     , erEmittedPost       = emPost
@@ -731,7 +753,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- record skipped function
   -> (FQConstraintId -> ConstraintOrigin -> IO ())
   -> (Text -> IO ())       -- record body-faithful function
-  -> (Text -> FallbackCause -> IO ())  -- record body-fallback function, with its cause (FALLBACK-REASON-CONST-1)
+  -> (Text -> FallbackCause -> [Text] -> IO ())  -- record body-fallback function, with its cause (FALLBACK-REASON-CONST-1) and the refusing constructs (FALLBACK-CENSUS-1)
   -> (Diagnostic -> IO ()) -- emit diagnostics
   -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
@@ -988,18 +1010,22 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- Nothing/Just outcome and the emitted .fq are unchanged. Before this,
         -- a refusal reached through the PRE (a whole-array = in the pre, or a
         -- blocked map clause in the pre) was reported as a post failure.
+        -- FALLBACK-CENSUS-1: each guard leg also names the construct class that
+        -- refused the clause. A guard refusal is NOT visible to
+        -- 'refusedConstructs' (the clause itself translates; the guard refuses
+        -- it for a typing reason), so the label comes from the leg, not the walk.
         let postCause
               -- CLASSIFY-MEASURE: signature-level guards (non-sortable pair
               -- component, non-admissible Result payload, bare opaque-sum
               -- param) are neither clause's fault.
-              | contractSigGuardsBlock aliases params mRet contract = Just FallbackContractSig
+              | contractSigGuardsBlock aliases params mRet contract = Just (FallbackContractSig, ["guard:signature"])
               -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
               -- operand is unconditionally out-of-fragment → contract-only
               -- fallback (never reflected to array equality; §7 row 4).
               -- LEVER-A2: same rule for map operands (wholeArrEqClause
               -- covers both bytes-ish and map-ish operands).
-              | arrGate && wholeArrEqClause aliases params mRet (contractPost contract) = Just FallbackContractPost
-              | arrGate && wholeArrEqClause aliases params mRet (contractPre contract)  = Just FallbackContractPre
+              | arrGate && wholeArrEqClause aliases params mRet (contractPost contract) = Just (FallbackContractPost, ["guard:whole-structure-eq"])
+              | arrGate && wholeArrEqClause aliases params mRet (contractPre contract)  = Just (FallbackContractPre, ["guard:whole-structure-eq"])
               -- LEVER-A2: a map-op-bearing clause whose map-typed
               -- params/result are not all admissible map[int,int], or
               -- whose map-put value args are not int-in-context, would
@@ -1012,8 +1038,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   || exprMentionsMapOpM (contractPre contract))
                 && mapClauseBlocked aliases params mRet
                      (contractPost contract) (contractPre contract)
-                  = Just (if exprMentionsMapOpM (contractPost contract)
-                            then FallbackContractPost else FallbackContractPre)
+                  = Just ( if exprMentionsMapOpM (contractPost contract)
+                             then FallbackContractPost else FallbackContractPre
+                         , ["guard:map-clause"] )
               | otherwise = Nothing
             mPostPred | Just _ <- postCause = Nothing
                       | otherwise           = contractPost contract >>= exprToPred
@@ -1022,9 +1049,25 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                           Just pre -> case exprToPred pre of
                                         Nothing -> Nothing    -- pre exists but untranslatable → fallback
                                         Just p  -> Just (Just p)
+        -- FALLBACK-CENSUS-1: an unfilled hole and an absent post are decided
+        -- BEFORE the clause causes. Both used to arrive here as a contract-post
+        -- refusal, which is what made the first two hand censuses wrong in the
+        -- same direction. Neither decision changes the Nothing/Just outcome
+        -- above, so the emitted .fq is unchanged.
+        let holeBody = hasHole body
+            noPost   = isNothing (contractPost contract)
         case (mPostPred, mPrePred) of
-          (Nothing, _) -> addBodyFallback name (fromMaybe FallbackContractPost postCause)  -- a whole-contract refusal (attributed above) or an untranslatable post → fallback
-          (_, Nothing) -> addBodyFallback name FallbackContractPre  -- untranslatable pre → fallback
+          (Nothing, _)
+            | holeBody  -> addBodyFallback name FallbackHole []
+            | noPost    -> addBodyFallback name FallbackNoPost []
+            | otherwise -> case postCause of
+                Just (c, cons) -> addBodyFallback name c cons  -- a whole-contract refusal, attributed above
+                Nothing        -> addBodyFallback name FallbackContractPost  -- an untranslatable post → fallback
+                                    (maybe [] refusedConstructs (contractPost contract))
+          (_, Nothing)
+            | holeBody  -> addBodyFallback name FallbackHole []
+            | otherwise -> addBodyFallback name FallbackContractPre  -- untranslatable pre → fallback
+                             (maybe [] refusedConstructs (contractPre contract))
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
             let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
@@ -1199,7 +1242,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     isMRGet _       = False
                 if length (take 4097 leaves) > 4096
                   then do
-                    addBodyFallback name FallbackPathCap
+                    addBodyFallback name FallbackPathCap []
                     addDiag $ mkWarning Nothing $
                       "body VC for '" <> name <> "' exceeded 4096 path limit — "
                       <> "falling back to contract-only verification"
@@ -1268,14 +1311,18 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                     addOrigin cid (ConstraintOrigin name tag ptr srcFile)
                   addBodyFaithful name
-              (Nothing, Nothing) -> addBodyFallback name FallbackBody  -- body outside QF-LIA fragment
+              -- FALLBACK-CENSUS-1: a hole body reaches here when its post
+              -- translates. It is a scaffold, not a body outside the fragment.
+              (Nothing, Nothing)
+                | hasHole body -> addBodyFallback name FallbackHole []
+                | otherwise    -> addBodyFallback name FallbackBody []  -- body outside QF-LIA fragment
               (Nothing, Just bvc) -> do
                 -- Path count check (bounded)
                 let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
                 if pathCount > 4096
                   then do
                     -- >4096: fallback, not error
-                    addBodyFallback name FallbackPathCap
+                    addBodyFallback name FallbackPathCap []
                     addDiag $ mkWarning Nothing $
                       "body VC for '" <> name <> "' exceeded 4096 path limit — "
                       <> "falling back to contract-only verification"
@@ -1302,7 +1349,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   else if maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
                           && not (arrGate && maybe False (mapArrEncodableTy aliases) mRet
                                   && all pinnableTail (flattenBodyVC bvc))
-                    then addBodyFallback name FallbackMixedMapTail
+                    then addBodyFallback name FallbackMixedMapTail []
                     else do
                     -- Warn at 257-4096
                     when (pathCount > 256) $
@@ -3019,6 +3066,100 @@ exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
 exprToPred (EApp ctor args)
   | not (T.null ctor), isUpper (T.head ctor) = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
+
+-- ---------------------------------------------------------------------------
+-- FALLBACK-CENSUS-1: what refused a clause, and whether a body is a scaffold
+-- ---------------------------------------------------------------------------
+
+-- | Does this expression contain an unfilled hole?
+--
+-- FALLBACK-CENSUS-1: moved here from 'LLMLL.ObligationAssembly' (where it
+-- labels a body @hole_bearing@ in the obligation report) so the emitter and the
+-- report share ONE walker. Two copies would drift, and the census reads both
+-- surfaces. Every hole kind counts: a scaffold, a delegate and a pending
+-- delegate are all bodies with nothing written to prove.
+hasHole :: Expr -> Bool
+hasHole (EHole _)        = True
+hasHole (EApp _ args)    = any hasHole args
+hasHole (EOp _ args)     = any hasHole args
+hasHole (EIf c t e)      = hasHole c || hasHole t || hasHole e
+hasHole (ELet bs body)   = any (\(_, _, e) -> hasHole e) bs || hasHole body
+hasHole (EMatch s arms)  = hasHole s || any (hasHole . snd) arms
+hasHole (EPair a b)      = hasHole a || hasHole b
+hasHole (EAwait e)       = hasHole e
+hasHole (ELambda _ body) = hasHole body
+hasHole (EDo steps)      = any (hasHole . dsExpr) steps
+hasHole _                = False
+
+-- | FALLBACK-CENSUS-1 (triage item ii): the constructs that refused a contract
+-- clause.
+--
+-- Over the 17 hole-free example programs that fall back, 51 of 61 entries were
+-- the post leaving the fragment, so "contract-post-outside-fragment" is the
+-- biggest bucket and says nothing about WHICH vocabulary is missing. This walk
+-- reports the MINIMAL refusing sub-terms: a node whose own translation fails
+-- while every child translates is the refusal, and the walk does not descend
+-- past it. A clause that translates reports nothing.
+--
+-- The labels are a closed vocabulary over the clause vocabulary, so a histogram
+-- over runs has buckets that do not drift, on the same reasoning as
+-- 'FallbackCause'. A guard refusal is invisible here (the clause translates and
+-- a typing guard refuses it), so those labels are attached at the guard leg
+-- instead.
+refusedConstructs :: Expr -> [Text]
+refusedConstructs e
+  | isJust (exprToPred e) = []
+  | otherwise = case concatMap refusedConstructs (subExprs e) of
+      [] -> [constructLabel e]
+      rs -> nubOrd rs
+  where
+    nubOrd = Set.toAscList . Set.fromList
+
+-- | The immediate sub-expressions of an expression.
+subExprs :: Expr -> [Expr]
+subExprs (EApp _ args)    = args
+subExprs (EOp _ args)     = args
+subExprs (EIf c t e)      = [c, t, e]
+subExprs (ELet bs body)   = [ e | (_, _, e) <- bs ] ++ [body]
+subExprs (EMatch s arms)  = s : map snd arms
+subExprs (EPair a b)      = [a, b]
+subExprs (EAwait e)       = [e]
+subExprs (ELambda _ body) = [body]
+subExprs (EDo steps)      = map dsExpr steps
+subExprs (ELit _)         = []
+subExprs (EVar _)         = []
+subExprs (EHole _)        = []
+
+-- | The census label for one refusing node. Nonlinear operators are named
+-- individually because they are the class 'LLMLL.md' §5.3.3 excludes by name;
+-- every other application is named by its callee, which is what a reader needs
+-- to decide whether the vocabulary is worth widening.
+constructLabel :: Expr -> Text
+constructLabel (EApp op args)  = appLabel op args
+constructLabel (EOp op args)   = appLabel op args
+constructLabel (EIf _ _ _)     = "if"
+constructLabel (ELet _ _)      = "let"
+constructLabel (EMatch _ _)    = "match"
+constructLabel (EPair _ _)     = "pair"
+constructLabel (EAwait _)      = "await"
+constructLabel (ELambda _ _)   = "lambda"
+constructLabel (EDo _)         = "do"
+constructLabel (EHole _)       = "hole"
+constructLabel (EVar _)        = "var"
+constructLabel (ELit (LitFloat _))  = "lit:float"
+constructLabel (ELit (LitUnit))     = "lit:unit"
+constructLabel (ELit _)             = "lit"
+
+-- | Label an application node. 'map-has' and 'map-get' on '(map-empty)' are
+-- refused by 'exprToPred' with their children translating, so they surface
+-- here under their own names rather than as a bare callee.
+appLabel :: Name -> [Expr] -> Text
+appLabel op args
+  | op `elem` nonlinearOps            = "nonlinear:" <> op
+  | op `elem` ["map-has", "map-get"]
+  , (m:_) <- args, isMapEmptyE m      = "map-empty-operand:" <> op
+  | otherwise                         = "app:" <> op
+  where nonlinearOps = ["*", "/", "mod", "rem", "^", "**"] :: [Name]
 
 -- | Extract qualifiers from an expression (auto-synthesis from pre/post).
 -- Each atomic comparison at the top level becomes a qualifier template.

@@ -29,7 +29,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -17779,6 +17779,120 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       fmap fnFallbackReason asserted `shouldBe` Right (Just "body-outside-fragment")
       mkFnRecord (FnInputs "square" TVerified [] (Just (renderFallbackCause FallbackBody)) False Nothing)
         `shouldBe` Left (PositiveWithFallback "square")
+
+  -- -----------------------------------------------------------------------
+  -- FALLBACK-CENSUS-1: the two buckets the census needs, and what refused a
+  -- clause. The first census read 245 unfilled scaffolds as bodies that left
+  -- the fragment, and a contract-less def as a post that left a fragment it
+  -- never entered. Both are label decisions, so both are pinned here.
+  -- -----------------------------------------------------------------------
+  describe "FALLBACK-CENSUS-1: holes, absent posts and refusing constructs" $ do
+    let emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        causeOf n er = lookup n (erBodyFallbackCauses er)
+        consOf  n er = lookup n (erFallbackConstructs er)
+
+    it "a bare hole body reports unfilled-hole, not body-outside-fragment" $ do
+      er <- emitFC "(def-shell h [n: int] -> int (post (>= result 0)) ?todo)"
+      causeOf "h" er `shouldBe` Just FallbackHole
+
+    it "a hole under an if reports unfilled-hole" $ do
+      er <- emitFC "(def-shell h2 [n: int] -> int (post (>= result 0)) (if (> n 0) ?todo 0))"
+      causeOf "h2" er `shouldBe` Just FallbackHole
+
+    it "a hole body with a nonlinear post reports unfilled-hole: the hole is decided first" $ do
+      er <- emitFC "(def-shell h3 [n: int] -> int (post (= result (* n n))) ?todo)"
+      causeOf "h3" er `shouldBe` Just FallbackHole
+
+    it "a contract-less def reports no-post, not contract-post-outside-fragment" $ do
+      er <- emitFC "(def f [n: int] -> int n)"
+      causeOf "f" er `shouldBe` Just FallbackNoPost
+
+    it "a pre-only def reports no-post: a pre is not a proof goal" $ do
+      er <- emitFC "(def p [n: int] -> int (pre (>= n 0)) n)"
+      causeOf "p" er `shouldBe` Just FallbackNoPost
+
+    it "a refinement-aliased return with no written post is NOT no-post (DEF-RET folds it in)" $ do
+      er <- emitFC (unlines
+        [ "(type NonNeg (where [v: int] (>= v 0)))"
+        , "(def r [n: int] -> NonNeg (if (> n 0) n 0))" ])
+      causeOf "r" er `shouldBe` Nothing
+      erBodyFaithfulFns er `shouldBe` ["r"]
+
+    it "the closed vocabulary is eight values and renderFallbackCause stays injective" $ do
+      let cs = [minBound .. maxBound] :: [FallbackCause]
+      length cs `shouldBe` 8
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 8
+
+    it "a nonlinear post names the operator, not the whole clause" $ do
+      er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"
+      causeOf "nl" er `shouldBe` Just FallbackContractPost
+      consOf  "nl" er `shouldBe` Just ["nonlinear:*"]
+
+    it "a string-valued call in the post names the callee" $ do
+      er <- emitFC (unlines
+        [ "(def-shell sc [a: string b: string] -> int"
+        , "  (post (> (string-length (string-concat a b)) 0))"
+        , "  1)" ])
+      consOf "sc" er `shouldBe` Just ["app:string-concat"]
+
+    it "an if in the post is named as the construct" $ do
+      er <- emitFC (unlines
+        [ "(def-shell ifp [n: int] -> int"
+        , "  (post (= result (if (> n 0) n 0)))"
+        , "  n)" ])
+      consOf "ifp" er `shouldBe` Just ["if"]
+
+    it "a guard refusal is labelled by the guard, because the clause itself translates" $ do
+      er <- emitFC (unlines
+        [ "(def same [m: map[int,int] m2: map[int,int] k: int] -> map[int,int]"
+        , "  (post (= result m))"
+        , "  (map-put m2 k 0))" ])
+      causeOf "same" er `shouldBe` Just FallbackContractPost
+      consOf  "same" er `shouldBe` Just ["guard:whole-structure-eq"]
+
+    it "a recursive pair component is labelled guard:signature" $ do
+      er <- emitFC (unlines
+        [ "(type Tree (| Node Tree) (| Leaf))"
+        , "(def-shell ftree [p: (int, Tree)] -> int"
+        , "  (post (= result (first p)))"
+        , "  (first p))" ])
+      causeOf "ftree" er `shouldBe` Just FallbackContractSig
+      consOf  "ftree" er `shouldBe` Just ["guard:signature"]
+
+    it "an untranslatable pre reports the pre's constructs" $ do
+      er <- emitFC (unlines
+        [ "(def-shell pn [n: int] -> int"
+        , "  (pre (>= (* n n) 0))"
+        , "  (post (>= result 0))"
+        , "  0)" ])
+      causeOf "pn" er `shouldBe` Just FallbackContractPre
+      consOf  "pn" er `shouldBe` Just ["nonlinear:*"]
+
+    it "every constructs entry names a function that fell back, and body causes carry none" $ do
+      er <- emitFC (unlines
+        [ "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"
+        , "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))"
+        , "(def-shell h [n: int] -> int (post (>= result 0)) ?todo)" ])
+      map fst (erFallbackConstructs er) `shouldSatisfy`
+        all (`elem` erBodyFallback er)
+      causeOf "sq" er `shouldBe` Just FallbackBody
+      consOf  "sq" er `shouldBe` Nothing
+      consOf  "h"  er `shouldBe` Nothing
+
+    it "refusedConstructs reports nothing for a clause that translates" $ do
+      refusedConstructs (EApp ">=" [EVar "result", ELit (LitInt 0)]) `shouldBe` []
+
+    it "refusedConstructs reports the minimal refusing sub-term, not the whole clause" $ do
+      refusedConstructs (EApp "=" [ EVar "result"
+                                  , EApp "*" [EVar "n", ELit (LitInt 2)] ])
+        `shouldBe` ["nonlinear:*"]
+
+    it "hasHole sees a hole at any depth and is false on a hole-free body" $ do
+      hasHole (EHole (HNamed "x")) `shouldBe` True
+      hasHole (EIf (EVar "b") (EHole (HNamed "x")) (ELit (LitInt 0))) `shouldBe` True
+      hasHole (EIf (EVar "b") (ELit (LitInt 1)) (ELit (LitInt 0))) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- DUP-DEF-1: a top-level name is bound once per module. Until this pass

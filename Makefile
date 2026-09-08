@@ -67,6 +67,20 @@ refute-crux-gate:
 	  | "$$GATE" --root "$$ROOT" --subject "$$SUBJECT" --work "$$WORK"
 
 # ─────────────────────────────────────────────────────────────────────
+# FALLBACK-CENSUS-1: the body-faithful ratio over the tracked tree, and the
+# ratchet on the --strict-verified-core pass set. The same command CI runs.
+# Builds first for the reason the refute-crux target does: `stack exec` does
+# not rebuild, so a compiler change measured against the old binary reports
+# the old tree.
+# ─────────────────────────────────────────────────────────────────────
+
+fallback-census:
+	@cd compiler && stack build
+	@SUBJECT="$$(cd compiler && stack path --local-install-root)/bin/llmll"; \
+	python3 scripts/fallback_census.py --llmll "$$SUBJECT" --repo . \
+	  --out "$$(mktemp -d)/fallback-census.json"
+
+# ─────────────────────────────────────────────────────────────────────
 # Run all benchmarks
 # ─────────────────────────────────────────────────────────────────────
 
