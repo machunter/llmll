@@ -1,7 +1,7 @@
 ---
 name: driver-ll-stage-a-implementation-plan
 title: "DRIVER-LL stage A port: implementation plan and running record"
-status: "APPLIED TO REVIEW-READY on 2026-09-08 on branch driver-ll-a/stage-a-intake, NOT COMMITTED. Stage A is ported into the sequencer over wasi.http.get and the acceptance cover runs it against a listener the cover starts: 58 passed, 0 failed (52 before). Update this field at commit and again at release."
+status: "IMPLEMENTED at 3e1c1af (2026-09-08), released as v0.21.2. Stage A is ported into the sequencer over wasi.http.get and the acceptance cover runs it against a listener the cover starts: 58 passed, 0 failed (52 before). The STOP filed at v0.14.83 closes."
 date: 2026-09-08
 author: compiler-engineer
 consumers: [compiler-engineer, language-team, experiment-lead, documentation-lead, user]
@@ -19,7 +19,7 @@ the first mechanical stage the sequencer runs.
 
 **Registry.** `stage-ported?` claims ten: index 0 joins the nine of 4d. No
 other row moves; stage A reads no template, delegates to no agent and
-declares the one output it always declared, `00-source/PROVENANCE.json`.
+declares the one output it always declared, `PROVENANCE.json` under `00-source`.
 
 **Sequencer** (271 to 290 statements, still SAFE with no flags). The module
 imports `wasi.http` with `(capability get "https://www.rfc-editor.org/")`,
