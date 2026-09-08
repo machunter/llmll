@@ -316,8 +316,53 @@ trustReportEmitVersion = "1.6.0"
 -- 'joint_pbt_witnesses', 'overflow_tainted_fns' and 'over_annotation': readers
 -- ignore unknown keys and the JSON shape grows monotonically.
 harnessAssumptions :: [Statement] -> [Text]
-harnessAssumptions stmts
-  | any isConsoleMain stmts =
+harnessAssumptions stmts = consoleEntries ++ httpGetEntries
+  where
+    -- HTTP-GET-1 (docs/design/http-get-1-proposal.md section 7). Conditioned
+    -- on a CALL, not on the harness mode: a library module that fetches carries
+    -- the residue too. The walker below is local, on the hasHole precedent in
+    -- this module; CodegenHs.callsName has the same shape, and this module does
+    -- not import CodegenHs. Both are total over Expr, so a new constructor is a
+    -- -Wincomplete-patterns failure in both places rather than silent drift.
+    httpGetEntries
+      | any (any (appliesName "wasi.http.get") . bodiesOf) stmts =
+          [ "wasi.http.get (HTTP-GET-1): the generated program performs the \
+            \transfer with http-client and http-client-tls, pinned by the LTS \
+            \resolver. The server certificate is validated against the host's \
+            \system store; on macOS that store is loaded by running `security \
+            \find-certificate`. Proxy resolution follows the library's \
+            \environment default. Status classification (2xx), redirect \
+            \following (10) and the 60-second budget are runtime properties \
+            \with no type-level enforcement. Assumed, not proved." ]
+      | otherwise = []
+    bodiesOf s = case s of
+      SDefLogic{}     -> [defLogicBody s]
+      SDef{}          -> [defBody s]
+      SDefShell{}     -> defShellBody s : defShellDecreases s
+      SDefInvariant{} -> [defInvariantBody s]
+      SLetrec{}       -> [letrecDecreases s, letrecBody s]
+      SExpr e         -> [e]
+      SDefMain{}      -> catMaybes [ defMainInit s, Just (defMainStep s)
+                                   , defMainDone s, defMainOnDone s
+                                   , defMainStatus s ]
+      _               -> []
+    appliesName n = go
+      where
+        go e = case e of
+          EApp f args     -> f == n || any go args
+          EOp _ args      -> any go args
+          ELit _          -> False
+          EVar v          -> v == n
+          ELet binds b    -> any (\(_, _, x) -> go x) binds || go b
+          EIf c t f       -> go c || go t || go f
+          EMatch scr arms -> go scr || any (go . snd) arms
+          EPair a b       -> go a || go b
+          EHole _         -> False
+          EAwait x        -> go x
+          ELambda _ b     -> go b
+          EDo steps       -> any (\(DoStep _ x _) -> go x) steps
+    consoleEntries
+      | any isConsoleMain stmts =
       [ "console harness (EFFECT-RESP RC-1..RC-4): the harness supplies one \
         \Response per performed command, and its arm is not typed against the \
         \command the step returned. A program that receives an unexpected arm \
@@ -339,8 +384,7 @@ harnessAssumptions stmts
         \step produced, and the command that same step returned is NOT \
         \performed. A final effect must be issued from a non-terminating step."
       ]
-  | otherwise = []
-  where
+      | otherwise = []
     isConsoleMain SDefMain{defMainMode = ModeConsole} = True
     isConsoleMain _ = False
 

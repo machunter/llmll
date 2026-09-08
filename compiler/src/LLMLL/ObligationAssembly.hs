@@ -448,6 +448,19 @@ primEffect :: Name -> Maybe EffectSummary
 primEffect n
   | n == "wasi.io.stdout"   || n == "wasi.io.stderr"   = one EStdout
   | n == "wasi.http.response" || n == "wasi.http.post" = one ENetHttp
+  -- HTTP-GET-1. Contacts the network AND writes one file (the fetched body,
+  -- renamed onto dest), so it carries both labels on the sha256/copy precedent
+  -- below: Set.union rather than a choice. BOUNDED, unlike wasi.proc.run at the
+  -- bottom of this function, and the discriminator is who selects the code
+  -- that runs. The program supplies two strings and neither selects a program
+  -- or an option: the URL goes to http-client's parser and dest never leaves
+  -- the runtime. The operation is therefore one HTTP(S) transfer and one file
+  -- write, and Caps {ENetHttp, EFsWrite} over-approximates it under
+  -- may-semantics. Soundness argument: docs/design/http-get-1-proposal.md
+  -- section 6.
+  --
+  -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below.
+  | n == "wasi.http.get"     = Just (Caps (Set.fromList [ENetHttp, EFsWrite]))
   -- wasi.fs.list shares EFsRead rather than taking a seventh label. Effect
   -- lattices are join-semilattices and coarsening is sound by construction, so
   -- merging enumeration into the read label over-approximates correctly. The

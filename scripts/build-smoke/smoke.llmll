@@ -71,6 +71,16 @@
   (def-shell smoke-post [url: string body: string]
     (wasi.http.post url body))
 
+  ;; HTTP-GET-1. Two string arguments and RNone, like smoke-copy. Calling it
+  ;; here is what makes THIS fixture pay the http-client dependency group: the
+  ;; body, its imports and the four package.yaml entries are all conditional on
+  ;; a program calling wasi.http.get, so a builtinEnv entry landing without any
+  ;; one of the three fails this build rather than a user's. The runtime
+  ;; behaviour (arms, atomicity, the 60 s budget) is settled by
+  ;; scripts/tests/test_http_get_1.py, which is executed rather than compiled.
+  (def-shell smoke-get [url: string dest: string]
+    (wasi.http.get url dest))
+
   (def-shell smoke-list [path: string]
     (wasi.fs.list path))
 

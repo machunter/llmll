@@ -1,0 +1,29 @@
+# Every package name the codegen can emit into a GENERATED project's
+# package.yaml (CodegenHs.emitPackageYaml), one per line, comments excluded.
+#
+# Two consumers. (1) Spec.hs HG-16 asserts that the set of names emitted across
+# both variants (a program that calls wasi.http.get and one that does not)
+# equals this list exactly, so an entry added or removed in emitPackageYaml
+# without a matching edit here fails the suite. (2) The CI Stack cache key in
+# .github/workflows/version-gate.yml hashes this file, so the cache under
+# ~/.stack is re-keyed exactly when the generated closure changes. Without that,
+# the http-client group (HTTP-GET-1) built by this job's fixtures rode a key
+# that could not express whether it was there, and an exact key hit skips the
+# save, so the 41-package build repeated on every run.
+#
+# Unconditional (every generated project):
+base
+containers
+QuickCheck
+async
+regex-tdfa
+directory
+process
+cryptohash-sha256
+bytestring
+time
+# HTTP-GET-1, only for a program that calls wasi.http.get:
+http-client
+http-client-tls
+http-types
+filepath

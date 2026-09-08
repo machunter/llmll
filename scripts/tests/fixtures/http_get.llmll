@@ -1,0 +1,67 @@
+;; HTTP-GET-1 execution fixture. Built AND RUN by scripts/tests/test_http_get_1.py
+;; (the spec-roundtrip CI job sets LLMLL_BIN; the no-toolchain job skips it).
+;;
+;; The program takes url and dest as its two arguments (RC-3: :init's command is
+;; wasi.proc.args, so argv arrives as the first turn's Response), issues ONE
+;; wasi.http.get on turn one, prints the fetch's Response arm on turn two, and
+;; stops on turn three. The third turn is terminal, so its command is discarded
+;; (RC-4) and stdout carries exactly one line: `RNone`, or `RErr <text>`.
+;;
+;; Every assertion about the fetch is made from OUTSIDE by the test: the arm
+;; printed here, the bytes at dest (present, absent, unchanged), their digest,
+;; and the exit status. The fixture decides nothing itself; that is what keeps a
+;; wrong runtime from passing its own test.
+;;
+;; Deliberately NOT folded into scripts/build-smoke/smoke.llmll: that fixture is
+;; a compile gate over the preamble (it calls wasi.http.get once so that the
+;; conditional body, imports and dependencies are all exercised by a build) and
+;; asserts nothing about a running process.
+
+(module http-get
+  (import wasi.io   (capability stdout :deterministic false))
+  ;; wasi.proc.args shares the namespace with wasi.proc.run, so one clause
+  ;; grants both; `exec` is documentation, not a bound (CAP-1-REAL).
+  (import wasi.proc (capability exec :deterministic false))
+  ;; The target is documentation too: the tests point the program at local
+  ;; listeners on 127.0.0.1 and never at a real host.
+  (import wasi.http (capability get "http://127.0.0.1/"))
+
+  (def-shell hg-init [] -> (int, Command)
+    (pair 0 wasi.proc.args))
+
+  ;; list-nth answers a Result, so both arguments are unwrapped by match. A
+  ;; missing argument prints ARGV, which the test reads as its own defect.
+  (def-shell hg-fetch [as: list[string]] -> Command
+    (match (list-nth as 0)
+      ((Success u)
+        (match (list-nth as 1)
+          ((Success d) (wasi.http.get u d))
+          ((Error e)   (wasi.io.stdout (string-concat "ARGV " e)))))
+      ((Error e) (wasi.io.stdout (string-concat "ARGV " e)))))
+
+  ;; Turn one: argv on the RList arm; issue the fetch. Turn two: the fetch's
+  ;; response; print its arm. Turn three: terminal, the command is discarded.
+  (def-shell hg-step [s: int input: string r: Response] -> (int, Command)
+    (match r
+      ((RList as) (pair (+ s 1) (hg-fetch as)))
+      ((RNone)    (pair (+ s 1) (wasi.io.stdout "RNone")))
+      ((RErr e)   (pair (+ s 1) (wasi.io.stdout (string-concat "RErr " e))))
+      ((RText t)  (pair (+ s 1) (wasi.io.stdout (string-concat "RText " t))))
+      ((RCode n)  (pair (+ s 1) (wasi.io.stdout (string-concat "RCode " (int-to-string n)))))))
+
+  (def hg-done? [s: int] -> bool
+    (>= s 3))
+
+  ;; Exit 0 whatever the fetch answered: the ARM is the observation, and a
+  ;; non-zero exit would conflate "the fetch answered RErr" with "the harness
+  ;; broke". The test reads both channels separately.
+  (def hg-status [s: int] -> int
+    (post (and (>= result 0) (<= result 255)))
+    0)
+
+  (def-main
+    :mode    console
+    :init    (hg-init)
+    :step    hg-step
+    :done?   hg-done?
+    :status  hg-status))

@@ -35,7 +35,7 @@ import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredT
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset)
 import qualified Data.ByteString as BSS
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -64,7 +64,7 @@ import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable, listDirectory)
 import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess, readProcessWithExitCode)
-import Data.List (isSuffixOf, isInfixOf, sort, find)
+import Data.List (isSuffixOf, isInfixOf, sort, find, nub)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -14726,12 +14726,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       Map.lookup "wasi.fs.mkdir"  builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
       Map.lookup "wasi.fs.sha256" builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
 
-    -- wasi.http.get is deliberately absent. Two grounds, either sufficient:
-    -- its Rev 5 arm mapping (RText body) cannot reproduce a byte-faithful
-    -- fetch-then-hash, and http-client + http-client-tls moves the generated
-    -- project's dependency closure from 33 to 79 packages.
-    it "CP-4: wasi.http.get is NOT declared (dropped from Phase 2)" $
-      Map.lookup "wasi.http.get" builtinEnv `shouldBe` Nothing
+    -- wasi.http.get was deliberately absent from CAP-PROC (v0.14.81) until
+    -- HTTP-GET-1 (2026-09-07). The two drop grounds this pin used to cite were
+    -- both settled elsewhere: the Rev 6 effect-response correction gave it RNone
+    -- (the body goes to a FILE, so fetch-then-hash is byte-faithful), and the
+    -- dependency closure (33 -> 75, measured) is paid only by a program that
+    -- calls it (CodegenHs.usesHttpGet). RETARGETED rather than deleted: the pin
+    -- now asserts the declared shape, and HG-1..HG-20 carry the rest.
+    it "CP-4: wasi.http.get IS declared, string string -> Command (HTTP-GET-1; dropped from Phase 2 until then)" $
+      Map.lookup "wasi.http.get" builtinEnv
+        `shouldBe` Just (TFn [TString, TString] (TCustom "Command"))
 
   describe "CAP-PROC: Phase 2 effect labels" $ do
 
@@ -15145,7 +15149,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "CodegenHs: builtin lowering completeness (BUILTIN-BODY-1, WASI-RT)" $ do
 
-    let preambleText = T.unlines runtimePreamble
+    -- HTTP-GET-1. runtimePreamble is no longer the WHOLE preamble: wasi.http.get's
+    -- body lives in httpGetPreamble, the one block spliced conditionally (it
+    -- needs http-client, which only a fetching program pays for). This fold
+    -- reads both lists, so the name stays covered; a body that moved out of
+    -- BOTH would still fail below.
+    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble)
         wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
         -- Mangling mirrors CodegenHs's toHsIdent (CodegenHs.hs:2230-2236),
         -- which the module does not export. Keep these three cases in sync
@@ -15218,8 +15227,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- 15 -> 16 with FS-RMDIR-1's wasi.fs.rmdir.
     -- 16 -> 18 with FS-STAT-1's wasi.fs.stat and FS-EXISTS-1's wasi.fs.exists,
     -- which ship together because they share one getModificationTime probe.
-    it "builtinEnv declares exactly the eighteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 18
+    -- 18 -> 19 with HTTP-GET-1's wasi.http.get. Its body is the first to live
+    -- OUTSIDE runtimePreamble (in httpGetPreamble, spliced only for a program
+    -- that calls it), which is why preambleText above and the per-name fold
+    -- below read both lists.
+    it "builtinEnv declares exactly the nineteen wasi.* names this block covers" $
+      length wasiNames `shouldBe` 19
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -15232,8 +15245,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "the lowering classes hold the sizes this block was measured against" $ do
       -- 101 -> 103 with FS-STAT-1 / FS-EXISTS-1. Both are hand-written preamble
       -- bodies, so both land in needsBinding: 70 -> 72.
-      Map.size builtinEnv      `shouldBe` 103
-      length needsBinding      `shouldBe` 72
+      -- 103 -> 104 with HTTP-GET-1's wasi.http.get: a hand-written preamble
+      -- body (in httpGetPreamble), so it lands in needsBinding: 72 -> 73.
+      Map.size builtinEnv      `shouldBe` 104
+      length needsBinding      `shouldBe` 73
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -15284,7 +15299,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
-        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart runtimePreamble)
+        -- Both lists: see the preambleText note at the top of this block (HTTP-GET-1).
+        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble))
         if defined
           then defined `shouldBe` True
           else expectationFailure $
@@ -17819,6 +17835,163 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "negative: the pass is intra-module; a local def beside an opened module adds no duplicate-definition error" $ do
       let rep = tcSrc "(open some.lib)\n(def g [n: int] -> int n)"
       dupErrors rep `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- HTTP-GET-1: wasi.http.get, a byte-faithful fetch to a file
+  -- (docs/design/http-get-1-proposal.md; docs/design/http-get-1-implementation-plan.md)
+  -- -----------------------------------------------------------------------
+  describe "HTTP-GET-1: wasi.http.get surface, label, conditional emission, disclosure" $ do
+
+    let httpImport = SImport (Import "wasi.http" Nothing
+                       (Just (Capability CapHttpGet "https://www.rfc-editor.org/" False)))
+        noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        shellWith body = SDefShell
+          { defShellName = "fetch", defShellParams = [("u", TString), ("d", TString)]
+          , defShellReturn = Nothing, defShellContract = noContract
+          , defShellBody = body, defShellDecreases = [] }
+        kindsOf stmts =
+          mapMaybe diagKind (reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts))
+        getLit u    = shellWith (EApp "wasi.http.get" [ELit (LitString u), EVar "d"])
+        getComputed = shellWith (EApp "wasi.http.get" [EVar "u", EVar "d"])
+        -- The call sits inside a branch, not at the body's root: the predicate
+        -- must find it there, which is what callsName's totality buys.
+        nested = shellWith (EIf (EOp "=" [EVar "u", ELit (LitString "x")])
+                               (EApp "wasi.http.get" [EVar "u", EVar "d"])
+                               (EVar "d"))
+        plain  = SDef "f" [("x", TInt)] Nothing noContract (EVar "x")
+        -- Dependency names as package.yaml emits them, version bounds dropped,
+        -- executable-stanza lines (six spaces) excluded by the two-space prefix.
+        emittedDeps y = [ T.takeWhile (/= ' ') (T.drop 4 l)
+                        | l <- T.lines y, "  - " `T.isPrefixOf` l ]
+
+    it "HG-1: builtinEnv types it as string string -> Command, the URL first" $
+      Map.lookup "wasi.http.get" builtinEnv
+        `shouldBe` Just (TFn [TString, TString] (TCustom "Command"))
+
+    -- The literal-URL rule (proposal section 5), with its two witnesses and
+    -- its stated limit, in the ER-8..ER-11 shape.
+    it "HG-2: a literal file:// URL is REFUSED (the scheme witness)" $
+      kindsOf [httpImport, getLit "file:///etc/passwd"] `shouldContain` ["http-url-malformed"]
+
+    it "HG-3: a literal with a leading method word is REFUSED (the parseRequest witness)" $
+      kindsOf [httpImport, getLit "POST https://h/x"] `shouldContain` ["http-url-malformed"]
+
+    it "HG-4: a literal https:// URL is CLEAN" $
+      kindsOf [httpImport, getLit "https://www.rfc-editor.org/rfc/rfc4648.txt"]
+        `shouldNotContain` ["http-url-malformed"]
+
+    it "HG-5: a literal http:// URL is CLEAN" $
+      kindsOf [httpImport, getLit "http://127.0.0.1:9/x.txt"]
+        `shouldNotContain` ["http-url-malformed"]
+
+    it "HG-6: a COMPUTED URL is NOT refused (the limit; the runtime prefix check owns it)" $
+      kindsOf [httpImport, getComputed] `shouldNotContain` ["http-url-malformed"]
+
+    -- The label (proposal section 6): both labels, and NOT the fallthrough.
+    it "HG-7: primEffect carries BOTH labels, net.http and fs.write" $
+      primEffect "wasi.http.get" `shouldBe` Just (Caps (Set.fromList [ENetHttp, EFsWrite]))
+
+    it "HG-8: it is NOT the wasi. fallthrough (the negative pin the catalog asks for)" $
+      primEffect "wasi.http.get" `shouldNotBe` Just Unbounded
+
+    it "HG-9: no codegen warning, unlike wasi.http.post's stub" $
+      cgWarnings (generateHaskell "m" [httpImport, getComputed]) `shouldBe` []
+
+    -- Conditional emission (proposal section 10.1 item 3): one predicate, three
+    -- consumers that must agree, both directions pinned.
+    it "HG-10: usesHttpGet finds a call nested inside a branch, and none in a plain def" $ do
+      usesHttpGet [httpImport, nested] `shouldBe` True
+      usesHttpGet [plain] `shouldBe` False
+
+    it "HG-11: a calling program's Lib.hs carries the body, the imports and the pinned request settings" $ do
+      let src = cgHsSource (generateHaskell "m" [httpImport, getComputed])
+      mapM_ (\needle -> (T.isInfixOf needle src, needle) `shouldBe` (True, needle))
+        [ "wasi_http_get :: String -> String -> IO ()"
+        , "import Network.HTTP.Client ("
+        , "import Network.HTTP.Client.TLS (tlsManagerSettings)"
+        , "e :: HttpException"                 -- the catch llmll_publish_io does not provide
+        , "responseTimeoutMicro 60000000"      -- clause 4.6
+        , "redirectCount = 10"                 -- clause 4.2
+        , "method = methodGet"                 -- clause 4.8
+        , "renameFile tmp dest >> return RNone"
+        , "isPrefixOf \"http://\" url"         -- clause 4.1
+        , "openBinaryTempFile (takeDirectory dest)"
+        , "incomplete transfer (HTTP "         -- clause 4.4's conjunction, the RErr it produces
+        , "timeout 60000000 (body"             -- clause 4.6's second layer, the whole transfer
+        ]
+
+    it "HG-12: a non-calling program's Lib.hs carries NEITHER the body NOR the imports" $ do
+      let src = cgHsSource (generateHaskell "m" [plain])
+      T.isInfixOf "wasi_http_get" src `shouldBe` False
+      T.isInfixOf "Network.HTTP.Client" src `shouldBe` False
+
+    it "HG-13: a calling program's package.yaml carries the four HTTP-GET-1 dependencies" $ do
+      let y = cgPackageYaml (generateHaskell "m" [httpImport, getComputed])
+      mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (True, d)) httpGetDeps
+
+    it "HG-14: a non-calling program's package.yaml carries NONE of them (the 33-package closure)" $ do
+      let y = cgPackageYaml (generateHaskell "m" [plain])
+      mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (False, d)) httpGetDeps
+
+    it "HG-15: a call in an IMPORTED module is seen by generateHaskellMulti" $ do
+      let imported = ModuleEnv
+            { meExports        = Map.fromList [("fetch", TFn [TString, TString] (TCustom "Command"))]
+            , meStatements     = [httpImport, getComputed, SExport ["fetch"]]
+            , meInterfaces     = Map.empty
+            , meAliasMap       = Map.empty
+            , mePath           = ["net", "fetch"]
+            , meContractStatus = Map.empty
+            , meContracts      = Map.empty
+            , meRetTypes       = Map.empty
+            }
+          y = cgPackageYaml (generateHaskellMulti "m" [imported] [plain])
+      mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (True, d)) httpGetDeps
+
+    -- The CI cache key hashes compiler/generated-deps.txt (version-gate.yml,
+    -- step "Cache Stack global + project work"). This pin is what makes that
+    -- key move exactly when the generated closure does: the set of names the
+    -- codegen emits across both variants equals the file, and nothing else.
+    it "HG-16: the names emitPackageYaml emits, both variants, equal compiler/generated-deps.txt" $ do
+      raw <- readFile "generated-deps.txt"   -- stack test runs from compiler/
+      let pinned  = [ T.strip l | l <- T.lines (T.pack raw)
+                                , not (T.null (T.strip l)), not ("#" `T.isPrefixOf` T.strip l) ]
+          yBase   = cgPackageYaml (generateHaskell "m" [plain])
+          yHttp   = cgPackageYaml (generateHaskell "m" [httpImport, getComputed])
+          emitted = nub (emittedDeps yBase ++ emittedDeps yHttp)
+      sort emitted `shouldBe` sort pinned
+      length pinned `shouldBe` 14
+
+    -- Disclosure (proposal section 7): conditioned on a CALL, not on the
+    -- harness mode, and additive beside the console entries.
+    it "HG-17: harnessAssumptions carries the HTTP-GET-1 entry for a caller, naming the macOS trust-store shell-out" $ do
+      let as = harnessAssumptions [httpImport, getComputed]
+      length as `shouldBe` 1
+      any (T.isInfixOf "HTTP-GET-1") as `shouldBe` True
+      any (T.isInfixOf "security") as `shouldBe` True
+      any (T.isInfixOf "60-second") as `shouldBe` True
+
+    it "HG-18: and NONE for a non-caller" $
+      harnessAssumptions [plain] `shouldBe` []
+
+    it "HG-19: a console program that fetches carries the three console entries AND the fourth" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(import wasi.http (capability get \"https://www.rfc-editor.org/\"))"
+            , "(def-shell drive [s: string i: string r: Response] -> (string, Command)"
+            , "  (pair s (wasi.http.get i s)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let as = harnessAssumptions stmts
+          length as `shouldBe` 4
+          any (T.isInfixOf "RC-4") as `shouldBe` True
+          any (T.isInfixOf "HTTP-GET-1") as `shouldBe` True
+
+    it "HG-20: the body lives in httpGetPreamble and NOT in runtimePreamble" $ do
+      any (T.isPrefixOf "wasi_http_get ") (map T.stripStart httpGetPreamble) `shouldBe` True
+      any (T.isPrefixOf "wasi_http_get ") (map T.stripStart runtimePreamble) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
