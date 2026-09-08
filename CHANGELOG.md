@@ -4,6 +4,103 @@
 
 <a id="Latest"></a>
 
+## v0.22.0: a scaffold and a missing post stop being called fragment escapes, and the ratio is measured every run (2026-09-08)
+
+**`FALLBACK-CENSUS-1` ships.** The tree-wide body-faithful ratio decides whether `RESP-FACT-1`
+scales faster than the `wasi.*` alphabet grows, and it appeared in no committed file. It had been
+counted by hand three times, and the first two readings were wrong in the same direction, because
+two different things carried one label. The closed `FallbackCause` vocabulary widens from six
+values to eight, and a new gate measures the tree on every CI run. Plan and running record:
+[`docs/design/fallback-census-1-implementation-plan.md`](docs/design/fallback-census-1-implementation-plan.md).
+
+### The two new causes, and why a label mattered
+
+- **`unfilled-hole`.** A body that is or contains an unfilled hole reported
+  `body-outside-fragment`, the same value as a written body that leaves the fragment. The first
+  tree-wide count therefore read 245 scaffolds as fallbacks. The hole is decided first, at all
+  three sites a hole body can reach.
+- **`no-post`.** A function with no post clause reported `contract-post-outside-fragment`: a post
+  that does not exist leaving a fragment it never entered. The test runs after the DEF-RET
+  return-refinement folding, so a refinement-aliased return with no written post is unaffected.
+- **Neither is cosmetic.** The census divides body-faithful functions by functions with a post,
+  and neither shape belongs in that denominator.
+- **No `.fq` changes.** `mPostPred`'s Nothing/Just outcome is computed exactly as before; only the
+  label beside it is new. The `.fq` for `examples/leanstral-demo/square.llmll` is 335 bytes, the
+  figure v0.19.0 records for the same file.
+
+### What refused a clause, and what kind of function it was
+
+- **`body_fallback_constructs`** names the minimal sub-terms `exprToPred` refuses in a refused
+  contract clause, or the guard that refused the whole clause (`guard:signature`,
+  `guard:whole-structure-eq`, `guard:map-clause`). "The post left the fragment" was the biggest
+  bucket and said nothing about which vocabulary is missing.
+- **`fn_kinds`** names each function's definition form. `SHELL-FALLBACK-SILENT-1` cannot be sized
+  without it.
+- **One reader shape on both exit paths.** `verify --json --strict-verified-core` also gains
+  `body_faithful`, `body_fallback` and `body_fallback_causes`, which it did not carry: a refused
+  file exits before the solver runs, so without them an instrument saw the body-faithful set only
+  for files that pass.
+
+### The census and its ratchet
+
+- **`scripts/fallback_census.py`** runs one `llmll --json verify --strict-verified-core` per
+  tracked file, from the file's own directory, and folds the compiler's JSON into a ratio, a cause
+  histogram, a refusing-construct histogram and a per-definition-form split. The population is
+  every tracked `*.llmll` and `*.ast.json` under `examples/`, `tools/` and `scripts/build-smoke/`,
+  at any depth, enumerated from `git ls-files` so the 107 MB of gitignored build output under
+  `tools/llmll-driver/generated` is neither measured nor copied.
+- **The result does not depend on how it ran, and three mechanisms were needed to get there.** A
+  first parallel version disagreed with itself on 34 files. Each worker verifies inside its own
+  copy of the tracked tree; each run deletes the sidecar it creates; every negative verdict is
+  re-run alone before it is believed. The record is byte-identical at `--jobs 3` and `--jobs 8`,
+  and carries no timestamp, so a later run diffs cleanly.
+- **The ratchet.** `scripts/fallback-census/BASELINE.json` records the 98 files that pass
+  `--strict-verified-core`. The set may grow; it may not shrink unless the baseline names a waiver
+  with a reason.
+- **It never skips.** A missing solver, a missing baseline, an unreadable baseline and a tree
+  without git are each a non-zero exit with a message.
+- **Cost, measured and not estimated:** 6 min 4 s at `--jobs 4` over 250 files, 11 min of CPU.
+  Three files are most of it; `examples/heartbleed/secure-channel/sc-channel.llmll` alone takes
+  130 s with the machine idle. Workers take the biggest files first for that reason. The workflow
+  runs on pushes to `main` and on pull requests, so the cost is paid per PR.
+
+### The first recorded run, and what it corrects
+
+250 files. **695 of 706 functions with a post reach body-faithful, a ratio of 0.984**, with 490
+functions carrying no proof goal. Files: 98 pass, 83 fall back, 32 are scaffolds, 31 have no goal,
+4 fail `check`, 2 are refuted as intended.
+
+**The B2 reading in [`docs/design/critique-2026-09-05-triage.md`](docs/design/critique-2026-09-05-triage.md)
+§5 inverts.** That count reported 51 of 61 fallback entries as posts leaving the fragment, and
+concluded the limit on real programs is the contract vocabulary. Measured over the same population
+with the new labels: 54 `no-post`, 2 `contract-post-outside-fragment`, and the 7
+`body-outside-fragment` match §5 exactly. The 51 were almost entirely functions with **no post at
+all**. Checked directly rather than inferred: `examples/life_sexp/world.llmll` declares 15
+functions and contains zero `(post …)` clauses. Widening `Σ_auto` for list and string posts would
+not change those files, because they have no post to widen for. Filed as `FRAGMENT-BASIS-1`.
+
+**One verify verdict is not stable.** `examples/secure-channel-emergent/work/spine.ast.json`
+reported `refuted` under census load and passed on five isolated runs and eight concurrent ones.
+It is not the instrument: workers verify in separate tree copies and no run can see another. The
+census reports such a file as `unstable`, names it, and does not fail the build on it. Filed as
+`VERDICT-UNSTABLE-1`.
+
+### Surfaces
+
+`docs/proof-artifact.schema.json` `fallback_reason` gains the two values; additive, no `$id`
+change, the v0.19.0 precedent. Artifacts written earlier parse and replay unchanged. A
+`--strict-verified-core` message that read `f (contract-post-outside-fragment)` now reads
+`f (no-post)`. No new builtin, no new CLI flag, no JSON-AST schema change.
+
+`SHELL-FALLBACK-SILENT-1` stays open and its decision packet is §10 of the record. The witness is
+constructed there rather than traced, and it corrects the row: a `string` payload bound by name
+stays body-faithful, so the trigger is a payload the fragment cannot admit at all, not any
+non-integer carrier sort.
+
+1908 examples, 0 failures (1891 before). pytest 218 passed, 23 skipped (200 and 20 before).
+
+---
+
 ## v0.21.2: the driver fetches its own RFC, and the STOP filed at v0.14.83 closes (2026-09-08)
 
 **`DRIVER-LL` stage A is ported into

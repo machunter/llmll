@@ -1,7 +1,7 @@
 ---
 name: fallback-census-1-implementation-plan
 title: "FALLBACK-CENSUS-1: implementation plan and running record"
-status: "APPLIED TO REVIEW-READY 2026-09-08 on branch fallback-census-1/census-and-ratchet, NOT COMMITTED. Gates: hspec 1908 of 1908 (was 1891), pytest 241 collected / 218 passed / 23 skipped (was 220 / 200 / 20), census 250 files at ratio 0.984. Four divergences from the plan and two findings are recorded in §12. SHELL-FALLBACK-SILENT-1 stays DECIDE and receives its decision packet in §10."
+status: "IMPLEMENTED and SHIPPED at `0c331e5` (compiler and schema) and `cdb5968` (instrument, ratchet, CI gate), released as **v0.22.0** on 2026-09-08. Gates: hspec 1908 of 1908 (was 1891), pytest 241 collected / 218 passed / 23 skipped (was 220 / 200 / 20), census 250 files at ratio 0.984. Four divergences from the plan and two findings are recorded in §12. SHELL-FALLBACK-SILENT-1 stays DECIDE and receives its decision packet in §10."
 date: 2026-09-08
 author: compiler-engineer
 consumers: [compiler-engineer, language-team, documentation-lead, user]

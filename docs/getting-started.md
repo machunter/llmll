@@ -527,15 +527,31 @@ This means `DLVerified` with `body_faithful = true` guarantees the implementatio
 
 **Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a recursive-sum payload, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
-**JSON output:** `--json verify` appends three keys to the report object: `body_faithful` and `body_fallback` as name lists, and `body_fallback_causes`, one of six fixed strings per fallen-back function (`contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`):
+**JSON output:** `--json verify` appends five keys to the report object. `body_faithful` and `body_fallback` are name lists. `body_fallback_causes` gives one of eight fixed strings per fallen-back function: `contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`, `unfilled-hole` (the body is a scaffold: nothing is written to prove), and `no-post` (there is no proof goal). `body_fallback_constructs` names what refused a contract clause — the minimal sub-terms the fragment cannot express, or the guard that refused the whole clause — and is absent for a function whose cause is not a contract clause. `fn_kinds` gives each function's definition form.
 
 ```json
 {
   "body_faithful": ["withdraw"],
-  "body_fallback": ["square"],
-  "body_fallback_causes": { "square": "body-outside-fragment" }
+  "body_fallback": ["square", "render", "helper"],
+  "body_fallback_causes": {
+    "square": "body-outside-fragment",
+    "render": "contract-post-outside-fragment",
+    "helper": "no-post"
+  },
+  "body_fallback_constructs": { "render": ["app:string-concat"] },
+  "fn_kinds": { "withdraw": "def", "square": "def-shell", "render": "def-shell", "helper": "def" }
 }
 ```
+
+`--json verify --strict-verified-core` carries the same five keys, so one reader shape serves a
+file that passes and a file the flag refuses.
+
+**The tree-wide ratio:** `scripts/fallback_census.py` runs the flag over every tracked LLMLL file
+under `examples/`, `tools/` and `scripts/build-smoke/` and reports the body-faithful ratio, the
+cause histogram and the refusing constructs. The denominator is functions with a post: a function
+with no post has no proof goal, and an unfilled hole has nothing written to prove, so neither
+counts against the fragment's width. `make fallback-census` runs it; CI runs it every build and
+holds the set of files that pass `--strict-verified-core` against a committed baseline.
 
 **Contract stripping:** `--contracts=unproven` strips postcondition assertions only for functions that are both `DLVerified` and body-faithful. Preconditions are never stripped — body VCs prove postconditions, not preconditions.
 
