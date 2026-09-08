@@ -550,8 +550,11 @@ file that passes and a file the flag refuses.
 under `examples/`, `tools/` and `scripts/build-smoke/` and reports the body-faithful ratio, the
 cause histogram and the refusing constructs. The denominator is functions with a post: a function
 with no post has no proof goal, and an unfilled hole has nothing written to prove, so neither
-counts against the fragment's width. `make fallback-census` runs it; CI runs it every build and
-holds the set of files that pass `--strict-verified-core` against a committed baseline.
+counts against the fragment's width. `make fallback-census` runs it, and it holds the set of files that pass
+`--strict-verified-core` against the baseline in `scripts/fallback-census/BASELINE.json`. It is a
+local command today: the CI step that ran it every build was removed at v0.22.0 because one example
+needs 5.5 GB of memory to verify and the runner killed the step. See the roadmap rows
+`VERIFY-MEMORY-1` and `FALLBACK-CENSUS-1 residue (1)`.
 
 **Contract stripping:** `--contracts=unproven` strips postcondition assertions only for functions that are both `DLVerified` and body-faithful. Preconditions are never stripped — body VCs prove postconditions, not preconditions.
 
