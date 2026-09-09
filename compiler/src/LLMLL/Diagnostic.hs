@@ -50,6 +50,9 @@ module LLMLL.Diagnostic
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
   , mkContractReadOOBWarning
+    -- SHELL-FALLBACK-SILENT-1
+  , mkBodyFallbackWarning
+  , mkMatchWildcardPayloadWarning
   -- * TOOL-ENCODING-1: source decoding pinned to UTF-8
   , decodeSourceUtf8
   , firstInvalidUtf8Offset
@@ -245,6 +248,56 @@ mkTrustGapWarning funcName level pointer =
        { diagKind = Just "trust-gap"
        , diagPointer = Just pointer
        }
+
+-- | SHELL-FALLBACK-SILENT-1 (W-BODY-FALLBACK): the body left the decidable
+-- fragment, so the post is assumed rather than proved.
+--
+-- Raised by the emitter, which reaches this point only for a function that HAS a
+-- post ('FallbackNoPost' is decided first). Contract-only verification of such a
+-- function stays sound (LLMLL.md §4.1, §4.4); what was missing was any statement
+-- that the body-faithful claim had been lost, and which construct lost it.
+--
+-- The closed labels ride 'body_fallback_constructs' for the census. The
+-- constructor names ride this message only: a constructor name is program text
+-- and would give the census histogram an unbounded bucket set.
+mkBodyFallbackWarning :: Text    -- ^ function name
+                      -> Text    -- ^ rendered fallback cause
+                      -> [Text]  -- ^ closed refusal labels
+                      -> [Text]  -- ^ constructors whose payload is written '_'
+                      -> Diagnostic
+mkBodyFallbackWarning fnName cause labels wildCtors =
+  let labelText = if null labels then "unclassified" else T.intercalate ", " labels
+      repair = if null wildCtors then ""
+               else " Bind the payload of " <> T.intercalate ", " (map quoted wildCtors)
+                    <> " by name to verify the body."
+      msg = "W-BODY-FALLBACK: '" <> fnName <> "' fell back from body-faithful "
+            <> "verification (" <> cause <> "), so its post is assumed and not "
+            <> "proved. Refused by: " <> labelText <> "." <> repair
+  in (mkWarning Nothing msg)
+       { diagCode = Just "W-BODY-FALLBACK"
+       , diagKind = Just "body-fallback-cause"
+       }
+
+-- | SHELL-FALLBACK-SILENT-1 (W-MATCH-WILDCARD-PAYLOAD): a match arm writes a
+-- constructor payload as '_' where binding it by name would verify the body.
+--
+-- Raised at check time, and only for a function that carries a post and holds no
+-- hole. In a @def@ the same body is the hard error 'mkCoreGrammarViolation'; in a
+-- @def-shell@ nothing was said at all, which is the asymmetry this closes.
+mkMatchWildcardPayloadWarning :: Text -> [Text] -> Diagnostic
+mkMatchWildcardPayloadWarning fnName ctors =
+  let ctorText = T.intercalate ", " (map quoted ctors)
+      msg = "W-MATCH-WILDCARD-PAYLOAD: '" <> fnName <> "' writes the payload of "
+            <> ctorText <> " as '_', so the verifier cannot eliminate the match "
+            <> "and the post is assumed rather than proved. Bind the payload by "
+            <> "name to verify the body."
+  in (mkWarning Nothing msg)
+       { diagCode = Just "W-MATCH-WILDCARD-PAYLOAD"
+       , diagKind = Just "match-wildcard-payload"
+       }
+
+quoted :: Text -> Text
+quoted t = "'" <> t <> "'"
 
 -- | REFINE-REUSE (W-REUSE): a `refine`-spawned sub-contract is contract-identical
 -- (up to α-rename) to an existing in-scope def. NON-BLOCKING advisory — the

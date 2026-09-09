@@ -1,0 +1,8 @@
+;; @expect: verify SAFE. The post is FALSE of this body (both arms return < 5),
+;; and the verifier never sees the body: '(HoldsI _)' discards the payload, so
+;; the match cannot be opaque-sum-eliminated and the post is assumed.
+;; The paired file bound.llmll differs by ONE character and is refuted.
+(type BoxI (| HoldsI int) (| NoneI))
+(def-shell classify [b: BoxI] -> int
+  (post (> result 5))
+  (match b ((HoldsI _) 1) ((NoneI) 0)))

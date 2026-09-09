@@ -46,8 +46,11 @@ module LLMLL.FixpointEmit
   , EmitResult(..)
   , FallbackCause(..)
   , renderFallbackCause
-  , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker
+  , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
+  , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
+  , classifyResultArms            -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
+  , classifyNArmAdtArms           -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
     -- * Alias map (v0.8.0)
   , AliasMap
   , buildAliasMap
@@ -129,7 +132,7 @@ import LLMLL.Syntax
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
-import LLMLL.Diagnostic (Diagnostic, mkWarning)
+import LLMLL.Diagnostic (Diagnostic, mkWarning, mkBodyFallbackWarning)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
@@ -1315,7 +1318,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
               -- translates. It is a scaffold, not a body outside the fragment.
               (Nothing, Nothing)
                 | hasHole body -> addBodyFallback name FallbackHole []
-                | otherwise    -> addBodyFallback name FallbackBody []  -- body outside QF-LIA fragment
+                -- SHELL-FALLBACK-SILENT-1: the body is outside the QF-LIA
+                -- fragment. Record WHAT refused it, and say so. Reaching here
+                -- means a post exists: 'FallbackNoPost' is decided earlier, so
+                -- this warning cannot fire on a function with no proof goal.
+                | otherwise -> do
+                    let labels = bodyRefusalLabels aliases params body
+                        -- only from arm sets binding actually repairs, so the
+                        -- message's repair sentence is true when it is printed
+                        wildCtors = concatMap wildcardPayloadCtors
+                                      (filter repairableWildcardArms (matchArmSets body))
+                    addBodyFallback name FallbackBody labels
+                    addDiag (mkBodyFallbackWarning name (renderFallbackCause FallbackBody)
+                                                   labels wildCtors)
               (Nothing, Just bvc) -> do
                 -- Path count check (bounded)
                 let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
@@ -3071,25 +3086,11 @@ exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 -- FALLBACK-CENSUS-1: what refused a clause, and whether a body is a scaffold
 -- ---------------------------------------------------------------------------
 
--- | Does this expression contain an unfilled hole?
---
--- FALLBACK-CENSUS-1: moved here from 'LLMLL.ObligationAssembly' (where it
--- labels a body @hole_bearing@ in the obligation report) so the emitter and the
--- report share ONE walker. Two copies would drift, and the census reads both
--- surfaces. Every hole kind counts: a scaffold, a delegate and a pending
--- delegate are all bodies with nothing written to prove.
-hasHole :: Expr -> Bool
-hasHole (EHole _)        = True
-hasHole (EApp _ args)    = any hasHole args
-hasHole (EOp _ args)     = any hasHole args
-hasHole (EIf c t e)      = hasHole c || hasHole t || hasHole e
-hasHole (ELet bs body)   = any (\(_, _, e) -> hasHole e) bs || hasHole body
-hasHole (EMatch s arms)  = hasHole s || any (hasHole . snd) arms
-hasHole (EPair a b)      = hasHole a || hasHole b
-hasHole (EAwait e)       = hasHole e
-hasHole (ELambda _ body) = hasHole body
-hasHole (EDo steps)      = any (hasHole . dsExpr) steps
-hasHole _                = False
+-- SHELL-FALLBACK-SILENT-1: 'hasHole' moved to LLMLL.Syntax and is re-exported
+-- above. Its own note already said the emitter and the report must share ONE
+-- walker; the checker's W-MATCH-WILDCARD-PAYLOAD is the third consumer, and it
+-- suppresses on a scaffold for the same reason this module reports
+-- 'FallbackHole' rather than 'FallbackBody' for one.
 
 -- | FALLBACK-CENSUS-1 (triage item ii): the constructs that refused a contract
 -- clause.
@@ -3149,6 +3150,57 @@ constructLabel (EVar _)        = "var"
 constructLabel (ELit (LitFloat _))  = "lit:float"
 constructLabel (ELit (LitUnit))     = "lit:unit"
 constructLabel (ELit _)             = "lit"
+
+-- | SHELL-FALLBACK-SILENT-1: what refused a BODY, as a closed label set.
+--
+-- 'refusedConstructs' can walk the contract side because 'exprToPred' is pure,
+-- seedless, and a clause binds only @result@ and the parameters. The body side
+-- is not like that: 'bodyToPredFromR' threads a seed counter, a SortEnv, a
+-- RefEnv and a ScrutTags map, and @let@ and @match@ introduce binders. Re-running
+-- the translator on a sub-expression would report a spurious refusal on every arm
+-- body that mentions its own payload binder, because that binder is not in a
+-- standalone SortEnv. So this walk does NOT re-enter the translator.
+--
+-- It answers three bounded questions instead, from the alias map and the
+-- parameter list the emitter already holds, and falls through to
+-- 'constructLabel' for everything else.
+--
+-- This APPROXIMATES the translator's refusal and can name a construct that is
+-- not the one 'bodyToPredM' refused. Two properties bound that: it runs only
+-- after a real refusal, so it never invents one; and its labels are closed, so
+-- the census histogram in scripts/fallback_census.py keeps stable buckets. The
+-- exact alternative is a reason at each of 'bodyToPredM''s Nothing returns,
+-- which is about forty clauses and is not worth it for the measured population.
+bodyRefusalLabels :: AliasMap -> [(Name, Type)] -> Expr -> [Text]
+bodyRefusalLabels aliases params body =
+  case concatMap matchLabels (matchSites body) of
+    []   -> [constructLabel body]
+    lbls -> Set.toAscList (Set.fromList lbls)
+  where
+    -- Does THIS match's scrutinee carry a payload the fragment cannot admit?
+    -- Scoped to the scrutinee, not to the whole parameter list, so a function
+    -- with one admissible match and one inadmissible match labels each correctly.
+    -- Seeding is param-scoped ('adtKeys'), so a match on a let-bound sum is not
+    -- seeded either; that case reports 'match-arm-shape' rather than claiming a
+    -- payload sort is at fault.
+    inadmissibleScrutinee (EVar v) =
+      or [ not (admissiblePayload aliases pt)
+         | (p, t) <- params, p == v
+         , TSumType ctors <- [resolveAliasTy aliases t]
+         , (_, Just pt) <- ctors ]
+    inadmissibleScrutinee _ = False
+    -- The wildcard label is gated on REPAIRABILITY, the same predicate the
+    -- checker's W-MATCH-WILDCARD-PAYLOAD uses. A match that holds a wildcard
+    -- payload AND something else the fragment refuses (a multi-payload arm, say)
+    -- is not repaired by binding, so it is arm-shape and must not be labelled as
+    -- though one edit fixed it.
+    matchLabels (scr, arms)
+      | repairableWildcardArms arms      = ["match-wildcard-payload"]
+      | isJust (classifyResultArms arms) = []
+      | Just (ctorArms, _) <- classifyNArmAdtArms arms
+      , not (null ctorArms) =
+          [ "match-payload-sort" | inadmissibleScrutinee scr ]
+      | otherwise = ["match-arm-shape"]
 
 -- | Label an application node. 'map-has' and 'map-get' on '(map-empty)' are
 -- refused by 'exprToPred' with their children translating, so they surface
@@ -4852,42 +4904,10 @@ prependLB lb (CallVC cal args mPre mPost rVar rSort cont) =
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
 
--- | v0.9.0 COMP-3: Classify match arms as Result (Success/Error) pattern.
--- Returns Just (successVar, successBody, errorVar, errorBody) if the arms
--- are exactly two with Success and Error constructors (in either order).
--- Returns Nothing for non-Result patterns.
-classifyResultArms :: [(Pattern, Expr)] -> Maybe (Name, Expr, Name, Expr)
-classifyResultArms arms = case arms of
-  [(PConstructor "Success" [PVar s], bodyS), (PConstructor "Error" [PVar e], bodyE)] ->
-    Just (s, bodyS, e, bodyE)
-  [(PConstructor "Error" [PVar e], bodyE), (PConstructor "Success" [PVar s], bodyS)] ->
-    Just (s, bodyS, e, bodyE)
-  _ -> Nothing
-
--- | MATCH-WIDEN-2: classify an n-arm (≥2) match on a user sum type. Returns the
--- list of single-payload-or-nullary constructor arms (in source order, distinct
--- constructors) plus an OPTIONAL wildcard/PVar tail body (the terminal else). A
--- wildcard, if present, must be the LAST arm (first-match order). Any arm that is
--- not a nullary/single-payload constructor or a final wildcard → 'Nothing' (the
--- whole match falls back). n-ary generalization of 'classifyTwoArmAdtArms';
--- exhaustiveness is guaranteed upstream by 'TypeCheck.checkExhaustive', so the
--- verifier need not re-check coverage.
-classifyNArmAdtArms :: [(Pattern, Expr)] -> Maybe ([(Name, Maybe Name, Expr)], Maybe Expr)
-classifyNArmAdtArms arms0 = go arms0 []
-  where
-    go [] acc
-      | null acc  = Nothing
-      | otherwise = Just (reverse acc, Nothing)
-    -- a final wildcard / PVar arm becomes the terminal else; must be last
-    go [(PWildcard, b)] acc
-      | not (null acc) = Just (reverse acc, Just b)
-    go [(PVar _, b)] acc
-      | not (null acc) = Just (reverse acc, Just b)
-    go ((PConstructor c [PVar v], b) : rest) acc
-      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Just v, b) : acc)
-    go ((PConstructor c [], b) : rest) acc
-      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Nothing, b) : acc)
-    go _ _ = Nothing
+-- SHELL-FALLBACK-SILENT-1: 'classifyResultArms' and 'classifyNArmAdtArms' moved
+-- to LLMLL.Syntax, so the checker's W-MATCH-WILDCARD-PAYLOAD decides arm
+-- admissibility with the same function this module refuses bodies with. They are
+-- re-exported above; every call site here is unchanged.
 
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
 -- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.

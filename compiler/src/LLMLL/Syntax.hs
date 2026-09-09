@@ -86,6 +86,15 @@ module LLMLL.Syntax
   , normalizeDefStmt
   , defFormTag
   , isCoreBodySyntactic
+
+    -- * Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
+  , classifyResultArms
+  , classifyNArmAdtArms
+  , repairableWildcardArms
+  , wildcardPayloadCtors
+  , hasHole
+  , matchSites
+  , matchArmSets
   ) where
 
 import Data.Map.Strict (Map)
@@ -836,6 +845,132 @@ isCoreBodySyntactic expr = case expr of
     isMixedNullaryPayloadArms ps =
       not (null ps)
         && all (\p -> isPayloadCtorArm p || isNullaryEnumArm p) ps
+
+-- ---------------------------------------------------------------------------
+-- Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
+-- ---------------------------------------------------------------------------
+--
+-- 'classifyResultArms' and 'classifyNArmAdtArms' lived in FixpointEmit and
+-- decided, at VC-emission time, whether a match could be opaque-sum-eliminated.
+-- They live here because the CHECKER now needs the same answer: W-MATCH-WILDCARD-PAYLOAD
+-- tells an author that binding a payload repairs the function, and that sentence is
+-- true only while the checker and the emitter agree on what "admissible" means.
+-- Two copies would drift and no gate would catch it. FixpointEmit re-exports both.
+
+-- | v0.9.0 COMP-3: classify a two-arm Result match.
+-- Returns (successVar, successBody, errorVar, errorBody) when both arms bind
+-- their payload by name. A wildcard payload does NOT classify: the opaque-sum
+-- elimination binds a payload skolem and has no name to bind it to.
+classifyResultArms :: [(Pattern, Expr)] -> Maybe (Name, Expr, Name, Expr)
+classifyResultArms arms = case arms of
+  [(PConstructor "Success" [PVar s], bodyS), (PConstructor "Error" [PVar e], bodyE)] ->
+    Just (s, bodyS, e, bodyE)
+  [(PConstructor "Error" [PVar e], bodyE), (PConstructor "Success" [PVar s], bodyS)] ->
+    Just (s, bodyS, e, bodyE)
+  _ -> Nothing
+
+-- | MATCH-WIDEN-2: classify an n-arm (>= 2) match on a user sum type. Returns the
+-- list of single-payload-or-nullary constructor arms (in source order, distinct
+-- constructors) plus an OPTIONAL wildcard/PVar tail body (the terminal else). A
+-- wildcard, if present, must be the LAST arm (first-match order). Any arm that is
+-- not a nullary/single-payload constructor or a final wildcard → 'Nothing' (the
+-- whole match falls back); exhaustiveness is guaranteed upstream by
+-- 'TypeCheck.checkExhaustive', so the verifier need not re-check coverage.
+classifyNArmAdtArms :: [(Pattern, Expr)] -> Maybe ([(Name, Maybe Name, Expr)], Maybe Expr)
+classifyNArmAdtArms arms0 = go arms0 []
+  where
+    go [] acc
+      | null acc  = Nothing
+      | otherwise = Just (reverse acc, Nothing)
+    -- a final wildcard / PVar arm becomes the terminal else; must be last
+    go [(PWildcard, b)] acc
+      | not (null acc) = Just (reverse acc, Just b)
+    go [(PVar _, b)] acc
+      | not (null acc) = Just (reverse acc, Just b)
+    go ((PConstructor c [PVar v], b) : rest) acc
+      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Just v, b) : acc)
+    go ((PConstructor c [], b) : rest) acc
+      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Nothing, b) : acc)
+    go _ _ = Nothing
+
+-- | SHELL-FALLBACK-SILENT-1: does this arm set write a constructor payload as
+-- @_@ where binding it by a name would let the verifier eliminate the match?
+--
+-- The condition is NOT "the arm set is outside 'isCoreBodySyntactic' and the
+-- repair brings it inside". 'isCoreBodySyntactic' admits a @Result@ arm whatever
+-- its sub-patterns are (its @isResultArm@ ignores them), so
+-- @((Success _) …) ((Error _) …)@ is core syntax in a @def@ as well as a
+-- @def-shell@, falls back at emission anyway, and the narrower reading misses it
+-- entirely. The condition that holds for both shapes is: a @(Ctor _)@ arm is
+-- present, and the REPAIRED arm set classifies.
+--
+-- Decided against the two classifiers above rather than against
+-- 'isCoreBodySyntactic', because those two are what actually refuses the body.
+repairableWildcardArms :: [(Pattern, Expr)] -> Bool
+repairableWildcardArms arms =
+  any (isWildcardPayload . fst) arms && armsClassify (map repairArm arms)
+  where
+    isWildcardPayload (PConstructor _ [PWildcard]) = True
+    isWildcardPayload _                            = False
+    -- the repair the warning tells the author to make: bind the payload
+    repairArm (PConstructor c [PWildcard], b) = (PConstructor c [PVar "x"], b)
+    repairArm arm                             = arm
+    armsClassify as =
+      case classifyResultArms as of
+        Just _  -> True
+        Nothing -> case classifyNArmAdtArms as of
+                     Just (ctorArms, _) -> not (null ctorArms)
+                     Nothing            -> False
+
+-- | The constructor names whose payload this arm set writes as @_@. Reported in
+-- the warning text so the author knows which arm to repair; the census's closed
+-- label vocabulary never carries these, because a constructor name is program
+-- text and would give the histogram an unbounded bucket set.
+wildcardPayloadCtors :: [(Pattern, Expr)] -> [Name]
+wildcardPayloadCtors arms =
+  [ c | (PConstructor c [PWildcard], _) <- arms ]
+
+-- | FALLBACK-CENSUS-1: does this body contain a hole of any kind?
+--
+-- Moved here from FixpointEmit with the classifiers, for the same reason and
+-- with its original note: the census and the report share ONE walker, and the
+-- checker is now a third consumer. Every hole kind counts: a scaffold, a
+-- delegate and a pending delegate are all bodies with nothing written to prove.
+hasHole :: Expr -> Bool
+hasHole (EHole _)        = True
+hasHole (EApp _ args)    = any hasHole args
+hasHole (EOp _ args)     = any hasHole args
+hasHole (EIf c t e)      = hasHole c || hasHole t || hasHole e
+hasHole (ELet bs body)   = any (\(_, _, e) -> hasHole e) bs || hasHole body
+hasHole (EMatch s arms)  = hasHole s || any (hasHole . snd) arms
+hasHole (EPair a b)      = hasHole a || hasHole b
+hasHole (EAwait e)       = hasHole e
+hasHole (ELambda _ body) = hasHole body
+hasHole (EDo steps)      = any (hasHole . dsExpr) steps
+hasHole _                = False
+
+-- | Every 'EMatch' in an expression, outermost first, as (scrutinee, arms).
+--
+-- The scrutinee is carried because a refusal label must be attributed to the
+-- match that earned it. Reporting "the payload sort refused this body" from a
+-- whole-function property would mislabel a function that holds one match on an
+-- admissible scrutinee and one on an inadmissible one.
+matchSites :: Expr -> [(Expr, [(Pattern, Expr)])]
+matchSites e = case e of
+  EMatch scr arms -> (scr, arms) : concatMap matchSites (scr : map snd arms)
+  EApp _ args     -> concatMap matchSites args
+  EOp _ args      -> concatMap matchSites args
+  EIf c t f       -> concatMap matchSites [c, t, f]
+  ELet bs body    -> concatMap (\(_, _, x) -> matchSites x) bs ++ matchSites body
+  EPair a b       -> matchSites a ++ matchSites b
+  EAwait x        -> matchSites x
+  ELambda _ body  -> matchSites body
+  EDo steps       -> concatMap (matchSites . dsExpr) steps
+  _               -> []
+
+-- | Every 'EMatch' arm set in an expression, outermost first.
+matchArmSets :: Expr -> [[(Pattern, Expr)]]
+matchArmSets = map snd . matchSites
 
 -- | Selects the runtime harness template generated by the compiler.
 data EntryMode
