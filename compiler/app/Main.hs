@@ -624,8 +624,8 @@ doTest json gm fp emitOnly = do
           unless (Map.null pbtCS) $ do
             existing <- loadVerified fp
             -- pbtCS on the sidecar side so DLTested upgrades any DLAsserted;
-            -- existing DLVerified / DLContractChecked are preserved by
-            -- evidenceCovers (Syntax.hs:363) — DLTested does not cover them.
+            -- an existing DLVerified is preserved by evidenceCovers — DLTested
+            -- does not cover it.
             saveVerified fp (Map.unionWith mergeCS pbtCS existing)
           if json
             then TIO.putStrLn (pbtResultJson fp result pbtDiags)
@@ -1627,7 +1627,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                   Just er -> case erDisplayLevel er of
                                     DLVerified _        -> True
                                     DLVerifiedLean _    -> True
-                                    DLContractChecked _ -> True
+                                    -- TRUST-CC-1: 'DLContractChecked' used to
+                                    -- answer True here, so a hand-written
+                                    -- ':trust ... contract-checked' fed the CDP
+                                    -- disambiguation as solver-backed evidence.
+                                    -- The tier is retired; the surface is gone.
                                     _                   -> False
                                   Nothing -> False)
                               provenCS
@@ -2775,7 +2779,6 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
     tierOf Nothing                      = TNoContract
     tierOf (Just (DLVerified _))        = TVerified
     tierOf (Just (DLVerifiedLean _))    = TVerified  -- peer of verified (proven strength)
-    tierOf (Just (DLContractChecked _)) = TContractChecked
     tierOf (Just (DLTested _))          = TTested
     -- OBLIG-PBT-5b: joint-tested is a positive tested tier for the (coarser)
     -- proof-artifact; the tested-joint distinction is retained in the trust report.

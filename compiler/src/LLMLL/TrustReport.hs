@@ -233,7 +233,11 @@ data OverAnnotationInfo = OverAnnotationInfo
 
 data TrustSummary = TrustSummary
   { tsVerified :: Int  -- ^ Functions with body-faithful verified evidence
-  , tsContractChecked :: Int  -- ^ Functions with contract-checked (non-body) evidence
+  -- TRUST-CC-1: 'tsContractChecked' was removed. Nothing produced the tier, so
+  -- the count was always 0. The JSON key survives as a literal 0 because
+  -- docs/llmll-trust-report.schema.json lists 'contract_checked' in the
+  -- REQUIRED array of $defs/TrustSummary; dropping the key would make every
+  -- report the compiler writes fail its own published schema.
   , tsTested   :: Int  -- ^ Functions with tested (but not solver-backed) clauses
   , tsTestedJoint :: Int  -- ^ OBLIG-PBT-5b: functions whose post is jointly PBT-tested
   , tsAsserted :: Int  -- ^ Functions with asserted clauses
@@ -245,16 +249,16 @@ data TrustSummary = TrustSummary
 --
 -- Six independent counts of per-function effective tier classifications. Never
 -- reduced to a scalar — the harness composes its own Cred(R) predicate over
--- these six fields. Component-wise dominance is the only legitimate ordering;
--- the diamond-incomparability of contract-checked vs tested (LLMLL.md:344) is
--- preserved by refusing to total-order the components.
+-- these fields. Component-wise dominance is the only legitimate ordering, and
+-- the components are refused a total order. TRUST-CC-1 retired the
+-- contract-checked component; the wire key survives as a literal 0 (see
+-- 'TrustSummary').
 --
 -- The 'tpProved' slot is reserved for a future Lean-discharged tier and is
 -- zero by construction in the current emit — no DLProved constructor exists.
 data TierProfile = TierProfile
   { tpVerified        :: Int
   , tpProved          :: Int
-  , tpContractChecked :: Int
   , tpTested          :: Int
   , tpTestedJoint     :: Int  -- ^ OBLIG-PBT-5b: jointly PBT-tested tier
   , tpAsserted        :: Int
@@ -629,9 +633,9 @@ liveCheckHashes cache entryStmts =
 
 -- | OBLIG-PBT-3: walk every sidecar ContractStatus and downgrade any
 -- 'EvidenceRecord' whose 'erPbtWitnesses' is non-empty but disjoint from the
--- live-hash set. Strict: 'DLTested' → 'DLAsserted'; 'DLVerified' /
--- 'DLContractChecked' records are not produced by PBT writeback and so
--- their witness lists are empty, so they are unaffected. Returns the
+-- live-hash set. Strict: 'DLTested' → 'DLAsserted'; 'DLVerified' records are
+-- not produced by PBT writeback and so their witness lists are empty, so they
+-- are unaffected. Returns the
 -- downgraded map and a per-clause diagnostic list (qualified-name + cached
 -- description).
 downgradeStaleSidecar :: Set Text -> Map Name ContractStatus -> (Map Name ContractStatus, [Text])
@@ -1376,18 +1380,15 @@ computeSummary entries =
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted at classify time.
   let classify e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
       verified = length [e | e <- entries, isVer (classify e)]
-      contractChecked = length [e | e <- entries, isCC (classify e)]
       tested   = length [e | e <- entries, isTst (classify e)]
       testedJoint = length [e | e <- entries, isTJ (classify e)]  -- OBLIG-PBT-5b
       asserted = length [e | e <- entries, isAss (classify e)]
       none     = length [e | e <- entries, classify e == Nothing]
       drifts   = sum (map (length . teDrifts) entries)
-  in TrustSummary verified contractChecked tested testedJoint asserted none drifts
+  in TrustSummary verified tested testedJoint asserted none drifts
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
-    isCC (Just DLContractChecked{}) = True
-    isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
     isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
@@ -1402,9 +1403,9 @@ computeSummary entries =
 -- callees' posts), falling back to the local 'csPost' level when enrichment did
 -- not populate the field.
 --
--- Diamond meet (LLMLL.md:344) is honored: an entry whose effective level is
--- DLAsserted because pre and post sit in incomparable diamond branches
--- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+-- An entry whose effective level is DLAsserted increments 'tpAsserted' and
+-- nothing else. TRUST-CC-1 collapsed the lattice to a chain, so no pair is
+-- incomparable any more.
 --
 -- 'tpProved' is zero by construction in the current emit: there is no
 -- DLProved constructor in 'DisplayLevel'. The field is reserved for a future
@@ -1445,13 +1446,12 @@ aggregateTiersPost entries =
   in classifyToProfile classify entries
 
 -- | Shared classification kernel for the three aggregate functions.
--- Honors the diamond meet at 'LLMLL.md:344': an entry whose classification
--- is 'DLAsserted' because pre and post sit in incomparable diamond branches
--- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+-- An entry whose classification is 'DLAsserted' increments 'tpAsserted' and
+-- nothing else. TRUST-CC-1 collapsed the lattice to a chain, so there is no
+-- longer an incomparable pair to meet at bottom.
 classifyToProfile :: (TrustEntry -> Maybe DisplayLevel) -> [TrustEntry] -> TierProfile
 classifyToProfile classify entries =
   let verified        = length [e | e <- entries, isVer (classify e)]
-      contractChecked = length [e | e <- entries, isCC  (classify e)]
       tested          = length [e | e <- entries, isTst (classify e)]
       testedJoint     = length [e | e <- entries, isTJ  (classify e)]  -- OBLIG-PBT-5b
       asserted        = length [e | e <- entries, isAss (classify e)]
@@ -1459,7 +1459,6 @@ classifyToProfile classify entries =
   in TierProfile
        { tpVerified        = verified
        , tpProved          = 0
-       , tpContractChecked = contractChecked
        , tpTested          = tested
        , tpTestedJoint     = testedJoint
        , tpAsserted        = asserted
@@ -1468,8 +1467,6 @@ classifyToProfile classify entries =
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
-    isCC (Just DLContractChecked{}) = True
-    isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
     isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
@@ -1550,7 +1547,6 @@ formatSummary :: TrustSummary -> [Text]
 formatSummary s =
   [ "Summary:"
   , "  verified:         " <> tshow (tsVerified s)
-  , "  contract-checked: " <> tshow (tsContractChecked s)
   , "  tested:           " <> tshow (tsTested s)
   , "  asserted:         " <> tshow (tsAsserted s)
   , "  no contract:      " <> tshow (tsNone s)
@@ -1723,7 +1719,8 @@ formatTrustReportJson report =
       ]
     summaryJson s = object
       [ "verified"         .= tsVerified s
-      , "contract_checked" .= tsContractChecked s
+      -- TRUST-CC-1: retired tier, required by the published schema. Always 0.
+      , "contract_checked" .= (0 :: Int)
       , "tested"           .= tsTested s
       , "tested_joint"     .= tsTestedJoint s   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tsAsserted s
@@ -1734,7 +1731,8 @@ formatTrustReportJson report =
     tierProfileJson tp = object
       [ "verified"         .= tpVerified tp
       , "proved"           .= tpProved tp
-      , "contract_checked" .= tpContractChecked tp
+      -- TRUST-CC-1: retired tier, required by the published schema. Always 0.
+      , "contract_checked" .= (0 :: Int)
       , "tested"           .= tpTested tp
       , "tested_joint"     .= tpTestedJoint tp   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tpAsserted tp

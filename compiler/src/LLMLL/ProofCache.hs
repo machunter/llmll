@@ -18,7 +18,6 @@ module LLMLL.ProofCache
   , insertProof
     -- * Trust Guards (v0.6.3)
   , isTaintedProof
-  , proofToLevel
     -- * Trust surface bridge (Leanstral demo)
   , upgradeLeanstralPosts
     -- * Hashing
@@ -136,14 +135,11 @@ isTaintedProof pe =
   peProver pe == "mock"
   || any (`T.isInfixOf` peProof pe) ["sorry", "axiom", "mock", "admit"]
 
--- | Convert a proof cache entry to a DisplayLevel.
--- Tainted proofs are capped at DLAsserted (cannot be "proven").
--- Returns DLContractChecked; DLVerified is only assigned when body-faithfulness
--- is known (in Main.hs verify pipeline).
-proofToLevel :: ProofEntry -> DisplayLevel
-proofToLevel pe
-  | isTaintedProof pe = DLAsserted
-  | otherwise         = DLContractChecked (peProver pe)
+-- TRUST-CC-1: 'proofToLevel' was deleted here. It returned
+-- 'DLContractChecked' and was the ONLY function in the compiler that computed
+-- that level from evidence. It had zero callers: its own haddock said Main
+-- upgraded its result, and 'bridgeProofCache' superseded that by assigning
+-- 'DLVerifiedLean' directly. A pre-Leanstral fossil, removed with the tier.
 
 -- | Bridge the proof-cache (the Lean-certificate record) into the trust
 -- surfaces: upgrade every function's POST clause to 'DLVerifiedLean' when its

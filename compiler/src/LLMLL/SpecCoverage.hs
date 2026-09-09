@@ -70,7 +70,9 @@ data CoverageSummary = CoverageSummary
   , csUnspecified      :: Int
   , csTotal            :: Int
   , csVerified         :: Int  -- ^ Functions with body-faithful verified evidence
-  , csContractChecked' :: Int  -- ^ Functions with contract-checked evidence
+  -- TRUST-CC-1: 'csContractChecked'' was removed. Nothing produced the tier, so
+  -- the count was always 0. The JSON key survives as a literal 0 for wire
+  -- stability, matching 'TrustReport.summaryJson'.
   , csTested           :: Int  -- ^ Functions with tested (but not solver-backed) clauses
   , csAsserted         :: Int  -- ^ Functions with asserted clauses
   , csEffective        :: Double  -- ^ effective_coverage in [0, 1]
@@ -252,19 +254,15 @@ computeSummary entries =
       -- prior @isVer pre && isVer post@ conjunct counted every verified function
       -- as asserted (COVERAGE-TIER, F-1982-1).
       verified = length [e | e <- contracted, isVer (feHeadlineLevel e)]
-      contractChecked = length [e | e <- contracted, isCC (feHeadlineLevel e)
-                                                    , not (isVer (feHeadlineLevel e))]
       tested   = length [e | e <- contracted, isTst (feHeadlineLevel e)
-                                             , not (isVer (feHeadlineLevel e))
-                                             , not (isCC (feHeadlineLevel e))]
-      asserted = length contracted - verified - contractChecked - tested
+                                             , not (isVer (feHeadlineLevel e))]
+      asserted = length contracted - verified - tested
   in CoverageSummary
        { csContracted = length contracted
        , csSuppressed = length suppressed
        , csUnspecified = length unspecified
        , csTotal      = total
        , csVerified   = verified
-       , csContractChecked' = contractChecked
        , csTested     = tested
        , csAsserted   = asserted
        , csEffective  = effective
@@ -274,8 +272,6 @@ computeSummary entries =
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
-    isCC (Just DLContractChecked{}) = True
-    isCC _                          = False
     -- OBLIG-PBT-5b: joint-tested is tested evidence (weaker, but not asserted);
     -- for the coarse coverage ratio it counts with 'tested', not 'asserted'.
     isTst (Just DLTested{})      = True
@@ -328,7 +324,6 @@ formatCoverageText report =
                      <> tshow (csContracted s) <> " / " <> tshow (csTotal s)
                      <> "   (" <> pct (csContracted s) (csTotal s) <> ")"
                     , "    Verified:                   " <> tshow (csVerified s)
-                    , "    Contract-checked:            " <> tshow (csContractChecked' s)
                     , "    Tested:                     " <> tshow (csTested s)
                     , "    Asserted:                   " <> tshow (csAsserted s)
                    ]
@@ -390,7 +385,8 @@ formatCoverageJson report =
       , "unspecified"        .= csUnspecified s
       , "total"              .= csTotal s
       , "verified"           .= csVerified s
-      , "contract_checked"   .= csContractChecked' s
+      -- TRUST-CC-1: retired tier, kept for wire stability. Always 0.
+      , "contract_checked"   .= (0 :: Int)
       , "tested"             .= csTested s
       , "asserted"           .= csAsserted s
       , "effective_coverage" .= csEffective s

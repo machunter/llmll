@@ -173,7 +173,7 @@
       "additionalProperties": false,
       "properties": {
         "verified":         { "type": "integer", "minimum": 0 },
-        "contract_checked": { "type": "integer", "minimum": 0 },
+        "contract_checked": { "type": "integer", "const": 0, "description": "TRUST-CC-1: RETIRED tier, always 0 (and always was — nothing ever assigned it). The key is KEPT in `required` so every report the compiler emits still validates here and no pinned consumer breaks. The state the tier named is reported per entry as `body_fallback`." },
         "tested":           { "type": "integer", "minimum": 0 },
         "tested_joint":     { "type": "integer", "minimum": 0, "description": "v1.6.0 (OBLIG-PBT-5b) — functions whose post is jointly PBT-tested (a multi-subject `:subjects` property credits N subjects from one body). A distinct `tested-joint` tier: below `tested`, above `asserted`. Previously such functions were demoted into `asserted`." },
         "asserted":         { "type": "integer", "minimum": 0 },
@@ -200,13 +200,13 @@
         },
         "contract_checked": {
           "type": "integer",
-          "minimum": 0,
-          "description": "Functions whose effective level is `contract-checked` (SMT proof of pre⇒post consistency, body not encoded). Incomparable with `tested` per the diamond lattice (LLMLL.md §4.4.1:344)."
+          "const": 0,
+          "description": "TRUST-CC-1: RETIRED tier, always 0. Kept in `required` for wire stability; see the same field on TrustSummary."
         },
         "tested": {
           "type": "integer",
           "minimum": 0,
-          "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). Incomparable with `contract_checked` per the diamond lattice."
+          "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). TRUST-CC-1 collapsed the lattice to a chain, so there is no incomparable sibling."
         },
         "tested_joint": {
           "type": "integer",

@@ -140,7 +140,8 @@ data CDPWarning
     -- feasibility gate by 'LLMLL.Feasibility' (∃input. pre ∧ ∀result. ¬post,
     -- discharged by z3 under the qsat tactic). Score is suppressed.
   | WarnSpecTooTightForOmega
-    -- ^ The post-condition carries DLVerified or DLContractChecked evidence
+    -- ^ The post-condition carries solver-backed evidence (DLVerified /
+    --   DLVerifiedLean). TRUST-CC-1 retired DLContractChecked from this set.
     -- (the spec is provably correct), but no trivial-body candidate from the
     -- §4.3.1 enumeration satisfies it — the spec is tight with respect to the
     -- candidate set Ω, not vacuous. Score is suppressed; consumers should
@@ -465,7 +466,7 @@ buildWarnings
   -> [WeaknessCandidate]   -- ^ satisfying candidates
   -> Int                   -- ^ distinct candidate behaviors over Ω
   -> SpecEntropy           -- ^ spec-entropy annotation
-  -> Bool                  -- ^ True when post carries DLVerified / DLContractChecked evidence
+  -> Bool                  -- ^ True when post carries DLVerified / DLVerifiedLean evidence
   -> [CDPWarning]
 buildWarnings candidates satisfying distinctAll annotation functionVerifies =
   let identityOk   = any (isIdentity . wcTrivialBody) satisfying

@@ -481,7 +481,11 @@ parseTrustDecl o = do
   target <- o .: "target" :: Parser Name
   lvl    <- o .: "level"  :: Parser Text
   vl <- case lvl of
-    "contract-checked" -> pure $ DLContractChecked ""
+    -- TRUST-CC-1: retired. Named explicitly so the error says what happened.
+    "contract-checked" ->
+      fail "trust level 'contract-checked' was retired (TRUST-CC-1); \
+           \a body that leaves the fragment reports 'asserted' plus a \
+           \body_fallback marker on the trust report"
     "verified"  -> pure $ DLVerified ""
     "tested"   -> pure $ DLTested 0
     "asserted" -> pure DLAsserted

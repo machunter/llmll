@@ -869,7 +869,6 @@ trustLabel trustMap name = case Map.lookup name trustMap of
   Just te -> case teEffectivePostLevel te of
     Just (DLVerified _)       -> "verified"
     Just (DLVerifiedLean _)   -> "verified-lean"
-    Just (DLContractChecked _) -> "contract-checked"
     Just DLAsserted           -> "asserted"
     _                         -> "asserted"
   Nothing -> "builtin"
