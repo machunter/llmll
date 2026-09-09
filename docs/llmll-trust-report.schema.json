@@ -71,6 +71,20 @@
       "items": { "type": "string" }
     },
 
+    "open_spec_rows": {
+      "description": "DISCLOSE-ROW-1 — open `[SPEC]` roadmap rows whose surface this program writes. Derived from live source, so present on every report path including a solver-less render. One entry per ROW, not per occurrence of the surface. Disclosure only: changes no tier, feeds no meet, gates no admission. Additive; no `trust_report_version` bump.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["row", "surface", "disclosure"],
+        "properties": {
+          "row":        { "type": "string", "description": "The roadmap row tag, e.g. `CAP-1-REAL`." },
+          "surface":    { "type": "string", "description": "The surface the program writes." },
+          "disclosure": { "type": "string", "description": "What is specified and not enforced." }
+        }
+      }
+    },
+
     "overflow_tainted_fns": {
       "description": "v0.10.8 (INT-1) — functions whose body-faithful verified evidence carries unbounded-Int arithmetic; `--strict-verified-core` refuses these. Additive; no `trust_report_version` bump.",
       "type": "array",

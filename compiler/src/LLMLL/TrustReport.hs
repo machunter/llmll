@@ -20,6 +20,9 @@ module LLMLL.TrustReport
   , assumedFactJson             -- RESP-FACT-1: its JSON shape
   , markAssumedFacts            -- RESP-FACT-1: per-entry setter
   , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
+  , OpenSpecRow(..)             -- DISCLOSE-ROW-1: open [SPEC] row a program's surface touches
+  , openSpecRows                -- DISCLOSE-ROW-1: derive them from live statements
+  , openSpecRowJson             -- DISCLOSE-ROW-1: its JSON shape
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
@@ -244,6 +247,29 @@ data TrustReport = TrustReport
   -- '--strict-verify' and '--proof-artifact' show it. The absence of the marker
   -- therefore never reads as a claim of proof.
   , trBodyFallback     :: Map Name (Text, [Text])
+  -- DISCLOSE-ROW-1: the open '[SPEC]' roadmap rows whose surface THIS program
+  -- uses. The trust report already discloses assumed facts per function
+  -- ('teAssumedFacts', RESP-FACT-1), so the assumed tier is visible; what was
+  -- absent is a line saying that a surface the program WRITES is specified and
+  -- not yet enforced. A reader learned that from the roadmap table or not at
+  -- all.
+  --
+  -- DERIVED from the live statements, like 'trPartialFns', so it is present on
+  -- every report path including a solver-less render. Disclosure only: it
+  -- changes no tier, feeds no meet, and gates no admission.
+  , trOpenSpecRows     :: [OpenSpecRow]
+  } deriving (Show, Eq)
+
+-- | DISCLOSE-ROW-1: one open '[SPEC]' roadmap row a program's surface touches.
+--
+-- The mapping source is the 'row'-disposition claims in
+-- @scripts/norm-claims/registry.json@, which is where the project already
+-- records "this normative sentence is answered by an open roadmap row rather
+-- than by a fixture". 'NC-031' is the one such claim today.
+data OpenSpecRow = OpenSpecRow
+  { osrTag        :: Text  -- ^ the roadmap row tag, e.g. @CAP-1-REAL@
+  , osrSurface    :: Text  -- ^ the surface the program writes
+  , osrDisclosure :: Text  -- ^ what is specified and not enforced
   } deriving (Show, Eq)
 
 -- | F-001 (adv-spec-weaken-0): module-level over-annotation ratio + the
@@ -548,6 +574,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
        , trBodyFallback    = Map.empty  -- TRUST-CC-1: populated by markBodyFallback post-emit
+       , trOpenSpecRows    = openSpecRows entryStmts  -- DISCLOSE-ROW-1: derived, every path
        }
   where
     -- REC-PARTIAL-MARK: mirror of 'ObligationAssembly.recursiveNames:286-290'
@@ -640,6 +667,39 @@ markDescentDischarged discharged report =
 -- heuristic. See docs/design/trust-cc-1-proposal.md §7 cases 2 and 3.
 markBodyFallback :: Map Name (Text, [Text]) -> TrustReport -> TrustReport
 markBodyFallback marks report = report { trBodyFallback = marks }
+
+-- | DISCLOSE-ROW-1: which open '[SPEC]' rows this program's surface touches.
+--
+-- One clause per 'row'-disposition claim in @scripts/norm-claims/registry.json@.
+-- Add a clause here when a claim moves to that disposition, and delete it when
+-- the row closes. Keeping the list short is the point: a disclosure the reader
+-- cannot act on is noise, so a row appears only when the program WRITES the
+-- surface, never merely because the row is open.
+openSpecRows :: [Statement] -> [OpenSpecRow]
+openSpecRows stmts = concat
+  -- ONE row per open [SPEC] row, not one per occurrence of the surface. A
+  -- program with six capability-bearing imports has one CAP-1-REAL gap, and
+  -- repeating the line six times buries the other rows.
+  [ [ OpenSpecRow
+        { osrTag        = "CAP-1-REAL"
+        , osrSurface    = "capability clause on an import"
+        , osrDisclosure =
+            "the clause records the intended verb and target and is NOT enforced; \
+            \the checked property is namespace declaration, not least authority"
+        }
+    | any hasCapability stmts ]
+  ]
+  where
+    hasCapability (SImport imp) = isJust (importCapability imp)
+    hasCapability _             = False
+
+-- | DISCLOSE-ROW-1: the JSON shape of one open-row disclosure.
+openSpecRowJson :: OpenSpecRow -> Value
+openSpecRowJson r = object
+  [ "row"        .= osrTag r
+  , "surface"    .= osrSurface r
+  , "disclosure" .= osrDisclosure r
+  ]
 
 -- | TERM-REPORT-PLAIN: the functions whose persisted post evidence is
 -- descent-discharged ('erTerminationVerified'). The render-only trust-report
@@ -1543,7 +1603,15 @@ formatTrustReport report =
                        []  -> []
                        fns -> "" : "Termination-unverified (recursive, partial correctness):" :
                               map ("  ↻ " <>) (sortOn id fns)
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ [separator] ++ summaryLines)
+      -- DISCLOSE-ROW-1: name the open '[SPEC]' rows this program's surface
+      -- touches. Section style matches 'partialLines'; the reader learns the
+      -- gap here instead of from the roadmap table.
+      openRowLines = case trOpenSpecRows report of
+                       []  -> []
+                       rows -> "" : "Specified but not enforced (open roadmap rows this program touches):" :
+                               map (\r -> "  ⚑ " <> osrTag r <> " — " <> osrSurface r
+                                        <> ": " <> osrDisclosure r) rows
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ openRowLines ++ [separator] ++ summaryLines)
 
 -- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
 -- hash remains in the JSON emit.
@@ -1662,6 +1730,11 @@ formatTrustReportJson report =
     -- correctness (termination unverified). Derived from the call-graph SCC, so
     -- unlike 'refuted_fns' it is populated even on a solver-less render.
     , "partial_fns" .= Set.toList (trPartialFns report)
+    -- DISCLOSE-ROW-1: open '[SPEC]' roadmap rows this program's surface touches.
+    -- Derived from the live statements, so it is present on every report path.
+    -- Additive key, no 'trust_report_version' change (the 'partial_fns'
+    -- precedent above).
+    , "open_spec_rows" .= map openSpecRowJson (trOpenSpecRows report)
     -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
     -- density + threshold + fired flag. No 'trust_report_version' bump, same
     -- additive-field precedent as 'joint_pbt_witnesses'/'overflow_tainted_fns'
