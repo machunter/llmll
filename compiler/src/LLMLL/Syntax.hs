@@ -421,8 +421,8 @@ raiseLowDP _                 = False
 -- Evidence Model (v0.8.1b — Diamond Lattice)
 -- ---------------------------------------------------------------------------
 
--- | Evidence tier for a contract clause. Partial order, not total.
--- DLContractChecked and DLTested are incomparable — there is no Ord instance.
+-- | Evidence tier for a contract clause. A chain, not a diamond, and there is
+-- no Ord instance.
 --
 -- Lattice structure. 'DLVerified' and 'DLVerifiedLean' are PEERS at the top —
 -- both mean "the post is proven". 'verified-lean' additionally carries a
@@ -431,19 +431,26 @@ raiseLowDP _                 = False
 -- mutually covering ('evidenceCovers') and both 'isVerifiedLevel'.
 --
 --       DLVerified  ≡  DLVerifiedLean   (peers, top)
---              \        /
---        DLContractChecked  DLTested    (incomparable)
---              \        /
+--                    |
+--             DLTested / DLTestedJoint
+--                    |
 --             DLAsserted                (bottom)
+--
+-- TRUST-CC-1: 'DLContractChecked' was retired. It sat between 'DLAsserted' and
+-- the top, incomparable to 'DLTested', and NOTHING assigned it: the only
+-- evidence-computing producer ('ProofCache.proofToLevel') had no callers, so no
+-- meet ever took it as an operand. It also had eliminations and no introduction
+-- rule, which is what separated it from a policy-lattice reservation. The state
+-- the name denoted is real and is reported as the orthogonal 'body_fallback'
+-- marker on the trust report, on the 'termination_unverified' model. See
+-- docs/design/trust-cc-1-proposal.md.
 data DisplayLevel
   = DLAsserted                             -- ^ Runtime assertion only; no evidence
   | DLTestedJoint { dljSamples :: Int }   -- ^ OBLIG-PBT-5b: PBT-tested only JOINTLY with other
                                           --   subjects (a single multi-subject property body
                                           --   credits N subjects at once). Weaker than solo
-                                          --   'DLTested', stronger than 'DLAsserted'; incomparable
-                                          --   to 'DLContractChecked' (like 'DLTested').
+                                          --   'DLTested', stronger than 'DLAsserted'.
   | DLTested   { dlSamples :: Int }       -- ^ QuickCheck passed N samples
-  | DLContractChecked { dlProver :: Text } -- ^ SMT proved contract consistency (not body)
   | DLVerified { dlVerProver :: Text }    -- ^ SMT proved body satisfies contract
   | DLVerifiedLean { dlLeanProver :: Text } -- ^ Lean-proved + kernel-checked; peer of DLVerified
   deriving (Show, Eq, Generic)
@@ -521,7 +528,8 @@ data ContractStatus = ContractStatus
 
 -- | Greatest lower bound (meet) of two display levels.
 -- Exhaustive pattern matching — no numeric tier dispatch.
--- Incomparable elements (DLContractChecked ⊓ DLTested) meet at DLAsserted.
+-- TRUST-CC-1: the lattice is a chain, so every pair is comparable. The clause
+-- ORDER carries commutativity and associativity; do not reorder the survivors.
 evidenceMeet :: DisplayLevel -> DisplayLevel -> DisplayLevel
 -- Bottom absorbs
 evidenceMeet DLAsserted _            = DLAsserted
@@ -529,16 +537,13 @@ evidenceMeet _ DLAsserted            = DLAsserted
 -- Same constructor, different metadata: conservative choice
 evidenceMeet (DLVerified p1) (DLVerified _)               = DLVerified p1
 evidenceMeet (DLVerifiedLean p1) (DLVerifiedLean _)       = DLVerifiedLean p1
-evidenceMeet (DLContractChecked p1) (DLContractChecked _)  = DLContractChecked p1
 evidenceMeet (DLTested n1) (DLTested n2)                   = DLTested (min n1 n2)
 -- OBLIG-PBT-5b: joint-tested is the glb of (solo) tested and itself; below tested,
--- above asserted, incomparable to contract-checked (meets it at asserted). The TJ⊓V
--- and TJ⊓VL cases fall through to the top-identity equations below (result TJ).
+-- above asserted. The TJ⊓V and TJ⊓VL cases fall through to the top-identity
+-- equations below (result TJ).
 evidenceMeet (DLTestedJoint n1) (DLTestedJoint n2)         = DLTestedJoint (min n1 n2)
 evidenceMeet (DLTested _) (DLTestedJoint n)                = DLTestedJoint n
 evidenceMeet (DLTestedJoint n) (DLTested _)                = DLTestedJoint n
-evidenceMeet DLContractChecked{} DLTestedJoint{}          = DLAsserted
-evidenceMeet DLTestedJoint{} DLContractChecked{}          = DLAsserted
 -- Verified and verified-lean are PEER tops (both 'proven' strength): the glb
 -- with any lower level is that lower level, and a mixed proven⊓proven stays at
 -- 'proven' strength (the result is still 'isVerifiedLevel'). Ordering the two
@@ -548,9 +553,6 @@ evidenceMeet (DLVerified _) b        = b
 evidenceMeet a (DLVerified _)        = a
 evidenceMeet (DLVerifiedLean _) b    = b
 evidenceMeet a (DLVerifiedLean _)    = a
--- Incomparable: contract-checked ⊓ tested = asserted
-evidenceMeet DLContractChecked{} DLTested{} = DLAsserted
-evidenceMeet DLTested{} DLContractChecked{} = DLAsserted
 
 -- | Does evidence level @a@ cover requirement @b@?
 -- a covers b iff a is at least as high in the lattice as b.
@@ -565,19 +567,13 @@ evidenceCovers _ (DLVerified _)              = False  -- only a top covers a top
 evidenceCovers _ (DLVerifiedLean _)          = False  -- only a top covers a top
 evidenceCovers _ DLAsserted                  = True   -- everything covers bottom
 evidenceCovers DLAsserted _                  = False  -- bottom covers only bottom
-evidenceCovers (DLContractChecked _) (DLContractChecked _) = True
 evidenceCovers (DLTested _) (DLTested _)     = True
--- Incomparable: contract-checked vs tested
-evidenceCovers DLContractChecked{} DLTested{} = False
-evidenceCovers DLTested{} DLContractChecked{} = False
 -- OBLIG-PBT-5b: joint-tested. Solo-tested covers joint-tested (T ≥ TJ) but not the
--- reverse; joint-tested is incomparable to contract-checked. (TJ vs Asserted / Verified
--- / VerifiedLean are already decided by the absorbing/top equations above.)
+-- reverse. (TJ vs Asserted / Verified / VerifiedLean are already decided by the
+-- absorbing/top equations above.)
 evidenceCovers (DLTestedJoint _) (DLTestedJoint _)     = True
 evidenceCovers (DLTested _) (DLTestedJoint _)          = True
 evidenceCovers (DLTestedJoint _) (DLTested _)          = False
-evidenceCovers (DLTestedJoint _) (DLContractChecked _) = False
-evidenceCovers (DLContractChecked _) (DLTestedJoint _) = False
 
 -- | Is this verified-level (proven-strength) evidence? True for both the SMT
 -- body-faithful tier ('DLVerified') and its Lean-kernel-checked peer
@@ -588,19 +584,20 @@ isVerifiedLevel DLVerified{}     = True
 isVerifiedLevel DLVerifiedLean{} = True
 isVerifiedLevel _                = False
 
--- | True when evidence includes a solver-/prover-backed proof (contract or body).
--- Does NOT imply a total ordering — DLTested is incomparable, not "below".
+-- | True when evidence includes a solver-/prover-backed proof of the BODY.
+-- TRUST-CC-1: this used to return True for 'DLContractChecked' as well, which
+-- granted trust (it silences 'TypeCheck.emitTrustGap') on a function whose
+-- implementation was never encoded as a VC. The retired tier had no producer,
+-- so no in-tree verdict moves.
 isSolverBacked :: DisplayLevel -> Bool
 isSolverBacked DLVerified{}        = True
 isSolverBacked DLVerifiedLean{}    = True
-isSolverBacked DLContractChecked{} = True
 isSolverBacked _                   = False
 
 -- | Extract prover name, if any.
 dlProverName :: DisplayLevel -> Maybe Text
 dlProverName (DLVerified p)        = Just p
 dlProverName (DLVerifiedLean p)    = Just p
-dlProverName (DLContractChecked p) = Just p
 dlProverName _                     = Nothing
 
 -- | Human display label for a display level.
@@ -608,7 +605,6 @@ dlLabel :: DisplayLevel -> Text
 dlLabel DLAsserted            = "asserted"
 dlLabel (DLTestedJoint n)     = "tested-joint (" <> tshow n <> " samples)"
 dlLabel (DLTested n)          = "tested (" <> tshow n <> " samples)"
-dlLabel (DLContractChecked p) = "contract-checked (" <> p <> ")"
 dlLabel (DLVerified p)        = "verified (" <> p <> ")"
 dlLabel (DLVerifiedLean _)    = "verified-lean"
 

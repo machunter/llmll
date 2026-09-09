@@ -19,6 +19,10 @@ module LLMLL.TrustReport
   , AssumedFact(..)             -- RESP-FACT-1: per-function assumed-fact disclosure row (§12)
   , assumedFactJson             -- RESP-FACT-1: its JSON shape
   , markAssumedFacts            -- RESP-FACT-1: per-entry setter
+  , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
+  , OpenSpecRow(..)             -- DISCLOSE-ROW-1: open [SPEC] row a program's surface touches
+  , openSpecRows                -- DISCLOSE-ROW-1: derive them from live statements
+  , openSpecRowJson             -- DISCLOSE-ROW-1: its JSON shape
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
@@ -221,6 +225,51 @@ data TrustReport = TrustReport
   -- could observe it. Never persisted to '.verified.json' (verify-time-only,
   -- like 'trRefutedFns').
   , trOverAnnotation   :: OverAnnotationInfo
+  -- TRUST-CC-1: per-function body-fallback marker. The cause is one value of
+  -- the 'FALLBACK-REASON-CONST-1' closed vocabulary ('renderFallbackCause');
+  -- the labels are the 'SHELL-FALLBACK-SILENT-1' closed body-refusal set
+  -- ('bodyRefusalLabels'). This reports the state the retired 'contract-checked'
+  -- tier was named after: 'verify' ran, the emitter refused THIS body, and the
+  -- post is assumed rather than proved. Without it the tier channel merges that
+  -- with "assumed, never examined".
+  --
+  -- It is NOT a 'DisplayLevel'. Like 'termination_unverified' it is derived at
+  -- report-build time, never persisted to '.verified.json', invisible to
+  -- 'evidenceMeet' / 'evidenceCovers' / 'isSolverBacked' / the effective level /
+  -- 'refutedClosure' / '--strict-verified-core' admission, and informational
+  -- only. It is also LOCAL, not transitive: a caller of a fallback function does
+  -- NOT carry it. 'NC-024' already floors that caller through the meet over its
+  -- transitive callees, and body-faithfulness is a property of ONE body, unlike
+  -- termination, which is a property of a whole cycle ('NC-034').
+  --
+  -- Empty unless the emitter ran in the same invocation. A plain
+  -- 'verify --trust-report' exits before the emitter, so it shows no marker;
+  -- '--strict-verify' and '--proof-artifact' show it. The absence of the marker
+  -- therefore never reads as a claim of proof.
+  , trBodyFallback     :: Map Name (Text, [Text])
+  -- DISCLOSE-ROW-1: the open '[SPEC]' roadmap rows whose surface THIS program
+  -- uses. The trust report already discloses assumed facts per function
+  -- ('teAssumedFacts', RESP-FACT-1), so the assumed tier is visible; what was
+  -- absent is a line saying that a surface the program WRITES is specified and
+  -- not yet enforced. A reader learned that from the roadmap table or not at
+  -- all.
+  --
+  -- DERIVED from the live statements, like 'trPartialFns', so it is present on
+  -- every report path including a solver-less render. Disclosure only: it
+  -- changes no tier, feeds no meet, and gates no admission.
+  , trOpenSpecRows     :: [OpenSpecRow]
+  } deriving (Show, Eq)
+
+-- | DISCLOSE-ROW-1: one open '[SPEC]' roadmap row a program's surface touches.
+--
+-- The mapping source is the 'row'-disposition claims in
+-- @scripts/norm-claims/registry.json@, which is where the project already
+-- records "this normative sentence is answered by an open roadmap row rather
+-- than by a fixture". 'NC-031' is the one such claim today.
+data OpenSpecRow = OpenSpecRow
+  { osrTag        :: Text  -- ^ the roadmap row tag, e.g. @CAP-1-REAL@
+  , osrSurface    :: Text  -- ^ the surface the program writes
+  , osrDisclosure :: Text  -- ^ what is specified and not enforced
   } deriving (Show, Eq)
 
 -- | F-001 (adv-spec-weaken-0): module-level over-annotation ratio + the
@@ -233,7 +282,11 @@ data OverAnnotationInfo = OverAnnotationInfo
 
 data TrustSummary = TrustSummary
   { tsVerified :: Int  -- ^ Functions with body-faithful verified evidence
-  , tsContractChecked :: Int  -- ^ Functions with contract-checked (non-body) evidence
+  -- TRUST-CC-1: 'tsContractChecked' was removed. Nothing produced the tier, so
+  -- the count was always 0. The JSON key survives as a literal 0 because
+  -- docs/llmll-trust-report.schema.json lists 'contract_checked' in the
+  -- REQUIRED array of $defs/TrustSummary; dropping the key would make every
+  -- report the compiler writes fail its own published schema.
   , tsTested   :: Int  -- ^ Functions with tested (but not solver-backed) clauses
   , tsTestedJoint :: Int  -- ^ OBLIG-PBT-5b: functions whose post is jointly PBT-tested
   , tsAsserted :: Int  -- ^ Functions with asserted clauses
@@ -245,16 +298,16 @@ data TrustSummary = TrustSummary
 --
 -- Six independent counts of per-function effective tier classifications. Never
 -- reduced to a scalar — the harness composes its own Cred(R) predicate over
--- these six fields. Component-wise dominance is the only legitimate ordering;
--- the diamond-incomparability of contract-checked vs tested (LLMLL.md:344) is
--- preserved by refusing to total-order the components.
+-- these fields. Component-wise dominance is the only legitimate ordering, and
+-- the components are refused a total order. TRUST-CC-1 retired the
+-- contract-checked component; the wire key survives as a literal 0 (see
+-- 'TrustSummary').
 --
 -- The 'tpProved' slot is reserved for a future Lean-discharged tier and is
 -- zero by construction in the current emit — no DLProved constructor exists.
 data TierProfile = TierProfile
   { tpVerified        :: Int
   , tpProved          :: Int
-  , tpContractChecked :: Int
   , tpTested          :: Int
   , tpTestedJoint     :: Int  -- ^ OBLIG-PBT-5b: jointly PBT-tested tier
   , tpAsserted        :: Int
@@ -520,6 +573,8 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trDecompMeet      = decompMeetMap  -- Cascade L3(d) (Rev 8): decomposition-trust meet
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
+       , trBodyFallback    = Map.empty  -- TRUST-CC-1: populated by markBodyFallback post-emit
+       , trOpenSpecRows    = openSpecRows entryStmts  -- DISCLOSE-ROW-1: derived, every path
        }
   where
     -- REC-PARTIAL-MARK: mirror of 'ObligationAssembly.recursiveNames:286-290'
@@ -598,6 +653,54 @@ markDescentDischarged :: Set Name -> TrustReport -> TrustReport
 markDescentDischarged discharged report =
   report { trPartialFns = trPartialFns report `Set.difference` discharged }
 
+-- | TRUST-CC-1: stamp the per-function 'body_fallback' marker from THIS run's
+-- emit result. Post-emit, like 'markRefuted' is post-solver.
+--
+-- The caller passes the already-filtered map. Two causes are suppressed at the
+-- call site rather than here, because both mean no proof goal was lost and the
+-- marker would misdescribe the function:
+--
+--   * @no-post@      — there is no postcondition, so nothing was to be proved.
+--   * @unfilled-hole@ — the body is a scaffold, so nothing is written to prove.
+--
+-- Both are 'FallbackCause' constructors, so the filter is exact and needs no
+-- heuristic. See docs/design/trust-cc-1-proposal.md §7 cases 2 and 3.
+markBodyFallback :: Map Name (Text, [Text]) -> TrustReport -> TrustReport
+markBodyFallback marks report = report { trBodyFallback = marks }
+
+-- | DISCLOSE-ROW-1: which open '[SPEC]' rows this program's surface touches.
+--
+-- One clause per 'row'-disposition claim in @scripts/norm-claims/registry.json@.
+-- Add a clause here when a claim moves to that disposition, and delete it when
+-- the row closes. Keeping the list short is the point: a disclosure the reader
+-- cannot act on is noise, so a row appears only when the program WRITES the
+-- surface, never merely because the row is open.
+openSpecRows :: [Statement] -> [OpenSpecRow]
+openSpecRows stmts = concat
+  -- ONE row per open [SPEC] row, not one per occurrence of the surface. A
+  -- program with six capability-bearing imports has one CAP-1-REAL gap, and
+  -- repeating the line six times buries the other rows.
+  [ [ OpenSpecRow
+        { osrTag        = "CAP-1-REAL"
+        , osrSurface    = "capability clause on an import"
+        , osrDisclosure =
+            "the clause records the intended verb and target and is NOT enforced; \
+            \the checked property is namespace declaration, not least authority"
+        }
+    | any hasCapability stmts ]
+  ]
+  where
+    hasCapability (SImport imp) = isJust (importCapability imp)
+    hasCapability _             = False
+
+-- | DISCLOSE-ROW-1: the JSON shape of one open-row disclosure.
+openSpecRowJson :: OpenSpecRow -> Value
+openSpecRowJson r = object
+  [ "row"        .= osrTag r
+  , "surface"    .= osrSurface r
+  , "disclosure" .= osrDisclosure r
+  ]
+
 -- | TERM-REPORT-PLAIN: the functions whose persisted post evidence is
 -- descent-discharged ('erTerminationVerified'). The render-only trust-report
 -- path feeds this to 'markDescentDischarged' so a sidecar-recorded total
@@ -629,9 +732,9 @@ liveCheckHashes cache entryStmts =
 
 -- | OBLIG-PBT-3: walk every sidecar ContractStatus and downgrade any
 -- 'EvidenceRecord' whose 'erPbtWitnesses' is non-empty but disjoint from the
--- live-hash set. Strict: 'DLTested' → 'DLAsserted'; 'DLVerified' /
--- 'DLContractChecked' records are not produced by PBT writeback and so
--- their witness lists are empty, so they are unaffected. Returns the
+-- live-hash set. Strict: 'DLTested' → 'DLAsserted'; 'DLVerified' records are
+-- not produced by PBT writeback and so their witness lists are empty, so they
+-- are unaffected. Returns the
 -- downgraded map and a per-clause diagnostic list (qualified-name + cached
 -- description).
 downgradeStaleSidecar :: Set Text -> Map Name ContractStatus -> (Map Name ContractStatus, [Text])
@@ -1376,18 +1479,15 @@ computeSummary entries =
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted at classify time.
   let classify e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
       verified = length [e | e <- entries, isVer (classify e)]
-      contractChecked = length [e | e <- entries, isCC (classify e)]
       tested   = length [e | e <- entries, isTst (classify e)]
       testedJoint = length [e | e <- entries, isTJ (classify e)]  -- OBLIG-PBT-5b
       asserted = length [e | e <- entries, isAss (classify e)]
       none     = length [e | e <- entries, classify e == Nothing]
       drifts   = sum (map (length . teDrifts) entries)
-  in TrustSummary verified contractChecked tested testedJoint asserted none drifts
+  in TrustSummary verified tested testedJoint asserted none drifts
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
-    isCC (Just DLContractChecked{}) = True
-    isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
     isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
@@ -1402,9 +1502,9 @@ computeSummary entries =
 -- callees' posts), falling back to the local 'csPost' level when enrichment did
 -- not populate the field.
 --
--- Diamond meet (LLMLL.md:344) is honored: an entry whose effective level is
--- DLAsserted because pre and post sit in incomparable diamond branches
--- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+-- An entry whose effective level is DLAsserted increments 'tpAsserted' and
+-- nothing else. TRUST-CC-1 collapsed the lattice to a chain, so no pair is
+-- incomparable any more.
 --
 -- 'tpProved' is zero by construction in the current emit: there is no
 -- DLProved constructor in 'DisplayLevel'. The field is reserved for a future
@@ -1445,13 +1545,12 @@ aggregateTiersPost entries =
   in classifyToProfile classify entries
 
 -- | Shared classification kernel for the three aggregate functions.
--- Honors the diamond meet at 'LLMLL.md:344': an entry whose classification
--- is 'DLAsserted' because pre and post sit in incomparable diamond branches
--- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+-- An entry whose classification is 'DLAsserted' increments 'tpAsserted' and
+-- nothing else. TRUST-CC-1 collapsed the lattice to a chain, so there is no
+-- longer an incomparable pair to meet at bottom.
 classifyToProfile :: (TrustEntry -> Maybe DisplayLevel) -> [TrustEntry] -> TierProfile
 classifyToProfile classify entries =
   let verified        = length [e | e <- entries, isVer (classify e)]
-      contractChecked = length [e | e <- entries, isCC  (classify e)]
       tested          = length [e | e <- entries, isTst (classify e)]
       testedJoint     = length [e | e <- entries, isTJ  (classify e)]  -- OBLIG-PBT-5b
       asserted        = length [e | e <- entries, isAss (classify e)]
@@ -1459,7 +1558,6 @@ classifyToProfile classify entries =
   in TierProfile
        { tpVerified        = verified
        , tpProved          = 0
-       , tpContractChecked = contractChecked
        , tpTested          = tested
        , tpTestedJoint     = testedJoint
        , tpAsserted        = asserted
@@ -1468,8 +1566,6 @@ classifyToProfile classify entries =
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
-    isCC (Just DLContractChecked{}) = True
-    isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
     isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
@@ -1485,7 +1581,8 @@ formatTrustReport :: TrustReport -> Text
 formatTrustReport report =
   let header = "Trust Report"
       separator = T.replicate 60 "─"
-      entryLines = concatMap formatEntry (sortOn teName (trEntries report))
+      entryLines = concatMap (formatEntry (trBodyFallback report))
+                             (sortOn teName (trEntries report))
       suppressionLines = formatSuppressions (trSuppressions report)
       summaryLines = formatSummary (trSummary report)
       staleLines = case trStaleDowngrades report of
@@ -1506,7 +1603,15 @@ formatTrustReport report =
                        []  -> []
                        fns -> "" : "Termination-unverified (recursive, partial correctness):" :
                               map ("  ↻ " <>) (sortOn id fns)
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ [separator] ++ summaryLines)
+      -- DISCLOSE-ROW-1: name the open '[SPEC]' rows this program's surface
+      -- touches. Section style matches 'partialLines'; the reader learns the
+      -- gap here instead of from the roadmap table.
+      openRowLines = case trOpenSpecRows report of
+                       []  -> []
+                       rows -> "" : "Specified but not enforced (open roadmap rows this program touches):" :
+                               map (\r -> "  ⚑ " <> osrTag r <> " — " <> osrSurface r
+                                        <> ": " <> osrDisclosure r) rows
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ openRowLines ++ [separator] ++ summaryLines)
 
 -- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
 -- hash remains in the JSON emit.
@@ -1515,12 +1620,23 @@ shortHash h
   | "sha256:" `T.isPrefixOf` h = "sha256:" <> T.take 12 (T.drop 7 h) <> "…"
   | otherwise                  = T.take 16 h <> "…"
 
-formatEntry :: TrustEntry -> [Text]
-formatEntry e =
+formatEntry :: Map Name (Text, [Text]) -> TrustEntry -> [Text]
+formatEntry bodyFallback e =
   let preLbl  = maybe "—" (dlLabel . erDisplayLevel) (tePre e)
       postLbl = maybe "—" (dlLabel . erDisplayLevel) (tePost e)
       line1   = "  " <> teName e <> ":"
-      line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl
+      -- TRUST-CC-1: the marker sits ON the post, beside the tier it qualifies,
+      -- so a reader separates "assumed, the body left the fragment" from
+      -- "assumed, never examined" without leaving the line. The cause is
+      -- rendered as well as the labels: the cause is the closed
+      -- FALLBACK-REASON-CONST-1 vocabulary and is the stabler of the two.
+      fallbackNote = case Map.lookup (teName e) bodyFallback of
+        Nothing            -> ""
+        Just (cause, lbls) ->
+          "   [body_fallback: " <> cause
+            <> (if null lbls then "" else "; " <> T.intercalate ", " lbls)
+            <> "]"
+      line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl <> fallbackNote
       sourceLines = catMaybes
         [ (tePre e >>= erSource) >>= \s -> Just ("    source (pre):  " <> s)
         , (tePost e >>= erSource) >>= \s -> Just ("    source (post): " <> s)
@@ -1550,7 +1666,6 @@ formatSummary :: TrustSummary -> [Text]
 formatSummary s =
   [ "Summary:"
   , "  verified:         " <> tshow (tsVerified s)
-  , "  contract-checked: " <> tshow (tsContractChecked s)
   , "  tested:           " <> tshow (tsTested s)
   , "  asserted:         " <> tshow (tsAsserted s)
   , "  no contract:      " <> tshow (tsNone s)
@@ -1615,6 +1730,11 @@ formatTrustReportJson report =
     -- correctness (termination unverified). Derived from the call-graph SCC, so
     -- unlike 'refuted_fns' it is populated even on a solver-less render.
     , "partial_fns" .= Set.toList (trPartialFns report)
+    -- DISCLOSE-ROW-1: open '[SPEC]' roadmap rows this program's surface touches.
+    -- Derived from the live statements, so it is present on every report path.
+    -- Additive key, no 'trust_report_version' change (the 'partial_fns'
+    -- precedent above).
+    , "open_spec_rows" .= map openSpecRowJson (trOpenSpecRows report)
     -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
     -- density + threshold + fired flag. No 'trust_report_version' bump, same
     -- additive-field precedent as 'joint_pbt_witnesses'/'overflow_tainted_fns'
@@ -1683,6 +1803,15 @@ formatTrustReportJson report =
       -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
       -- both. Informational; does not touch 'effective_level'.
       [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
+      -- TRUST-CC-1: per-entry body-fallback marker, only-when-present so an
+      -- entry without one stays byte-identical. Orthogonal to the tier: it
+      -- never touches 'effective_level'. Absent on a report path that did not
+      -- run the emitter, where its absence is not a claim of proof.
+      [ "body_fallback" .= object
+          [ "cause"     .= cause
+          , "constructs" .= lbls
+          ]
+      | Just (cause, lbls) <- [Map.lookup (teName e) (trBodyFallback report)] ] ++
       [ "measure_not_decreasing" .= True | Set.member (teName e) (trMeasureNotDecreasingFns report) ] ++
       -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
       -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on
@@ -1723,7 +1852,8 @@ formatTrustReportJson report =
       ]
     summaryJson s = object
       [ "verified"         .= tsVerified s
-      , "contract_checked" .= tsContractChecked s
+      -- TRUST-CC-1: retired tier, required by the published schema. Always 0.
+      , "contract_checked" .= (0 :: Int)
       , "tested"           .= tsTested s
       , "tested_joint"     .= tsTestedJoint s   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tsAsserted s
@@ -1734,7 +1864,8 @@ formatTrustReportJson report =
     tierProfileJson tp = object
       [ "verified"         .= tpVerified tp
       , "proved"           .= tpProved tp
-      , "contract_checked" .= tpContractChecked tp
+      -- TRUST-CC-1: retired tier, required by the published schema. Always 0.
+      , "contract_checked" .= (0 :: Int)
       , "tested"           .= tpTested tp
       , "tested_joint"     .= tpTestedJoint tp   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tpAsserted tp

@@ -71,7 +71,7 @@
       "additionalProperties": false,
       "properties": {
         "name":               { "type": "string" },
-        "evidence_level":     { "type": "string", "enum": ["verified", "contract-checked", "tested", "asserted", "none"] },
+        "evidence_level":     { "type": "string", "enum": ["verified", "contract-checked", "tested", "asserted", "none"], "description": "TRUST-CC-1: `contract-checked` is RETIRED and is never written. It stays in this enum so an artifact written before the retirement still validates and still replays; the reader maps it to `asserted` (a non-positive tier), so the §4.1 kernel does not constrain it. Removing the value would make previously-valid artifacts fail validation." },
         "caller_obligations": { "type": "array", "items": { "type": "string" }, "description": "`requires` predicates a caller must discharge to invoke this function soundly." },
         "fallback_reason":    { "type": ["string", "null"], "enum": ["contract-post-outside-fragment", "contract-pre-outside-fragment", "contract-signature-outside-fragment", "body-outside-fragment", "path-cap-exceeded", "mixed-map-tail", "unfilled-hole", "no-post", null], "description": "Why the body-faithful VC was not emitted, one value of the FALLBACK-REASON-CONST-1 closed vocabulary, widened by FALLBACK-CENSUS-1 with `unfilled-hole` (the body is a scaffold, nothing is written to prove) and `no-post` (there is no proof goal); artifacts written before FALLBACK-REASON-CONST-1 carry the retired constant string. Null iff body-faithful." },
         "refuted":            { "type": "boolean", "description": "Orthogonal negative evidence; necessarily false on a positive tier." },

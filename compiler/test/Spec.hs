@@ -52,7 +52,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -3502,42 +3502,51 @@ main = hspec $ do
   -- v0.3: Stratified Verification tests
   -- =========================================================================
 
-  describe "DisplayLevel evidence lattice (v0.8.1b: partial order)" $ do
-    it "evidenceCovers: DLVerified covers DLContractChecked" $
-      evidenceCovers (DLVerified "lf") (DLContractChecked "z3") `shouldBe` True
-
+  describe "DisplayLevel evidence lattice (TRUST-CC-1: a chain)" $ do
     it "evidenceCovers: DLVerified covers DLTested" $
       evidenceCovers (DLVerified "lf") (DLTested 50) `shouldBe` True
 
     it "evidenceCovers: DLVerified covers DLAsserted" $
       evidenceCovers (DLVerified "lf") DLAsserted `shouldBe` True
 
-    it "evidenceCovers: DLContractChecked covers DLAsserted" $
-      evidenceCovers (DLContractChecked "z3") DLAsserted `shouldBe` True
-
     it "evidenceCovers: DLTested covers DLAsserted" $
       evidenceCovers (DLTested 100) DLAsserted `shouldBe` True
 
-    it "evidenceCovers: DLContractChecked does NOT cover DLTested (incomparable)" $
-      evidenceCovers (DLContractChecked "z3") (DLTested 100) `shouldBe` False
-
-    it "evidenceCovers: DLTested does NOT cover DLContractChecked (incomparable)" $
-      evidenceCovers (DLTested 100) (DLContractChecked "z3") `shouldBe` False
+    -- TRUST-CC-1: the chain has no incomparable pair. 'verified' has ALWAYS
+    -- covered 'tested' ('evidenceCovers (DLVerified _) _ = True'), so those two
+    -- were never the incomparable pair; the retired element was.
+    it "evidenceCovers: every pair is comparable (no incomparable pair remains)" $ do
+      let levels = [ DLAsserted, DLTestedJoint 100, DLTested 100
+                   , DLVerified "lf", DLVerifiedLean "leanstral" ]
+      forM_ [(a,b) | a <- levels, b <- levels] $ \(a,b) ->
+        (evidenceCovers a b || evidenceCovers b a) `shouldBe` True
 
     it "evidenceMeet: DLVerified ⊓ DLAsserted = DLAsserted" $
       evidenceMeet (DLVerified "lf") DLAsserted `shouldBe` DLAsserted
 
-    it "evidenceMeet: DLContractChecked ⊓ DLTested = DLAsserted (incomparable → bottom)" $
-      evidenceMeet (DLContractChecked "z3") (DLTested 100) `shouldBe` DLAsserted
+    -- TRUST-CC-1: a meet drops to bottom only THROUGH bottom now. Before the
+    -- retirement 'contract-checked ⊓ tested' also landed there.
+    it "evidenceMeet: no meet of two non-bottom levels is DLAsserted" $ do
+      let levels = [ DLTestedJoint 100, DLTested 100
+                   , DLVerified "lf", DLVerifiedLean "leanstral" ]
+      forM_ [(a,b) | a <- levels, b <- levels] $ \(a,b) ->
+        evidenceMeet a b `shouldNotBe` DLAsserted
 
     it "isSolverBacked: DLVerified is solver-backed" $
       isSolverBacked (DLVerified "liquid-fixpoint") `shouldBe` True
 
-    it "isSolverBacked: DLContractChecked is solver-backed" $
-      isSolverBacked (DLContractChecked "z3") `shouldBe` True
+    it "isSolverBacked: DLVerifiedLean is solver-backed" $
+      isSolverBacked (DLVerifiedLean "leanstral") `shouldBe` True
 
     it "isSolverBacked: DLAsserted is NOT solver-backed" $
       isSolverBacked DLAsserted `shouldBe` False
+
+    -- TRUST-CC-1: 'isSolverBacked' is what grants trust — 'TypeCheck.emitTrustGap'
+    -- skips the cross-module warning for a solver-backed callee. Only the two
+    -- body-proving tops may answer True; nothing below them may.
+    it "isSolverBacked: ONLY the body-proving tops are solver-backed" $ do
+      isSolverBacked (DLTested 100)      `shouldBe` False
+      isSolverBacked (DLTestedJoint 100) `shouldBe` False
 
     -- OBLIG-PBT-5b: DLTestedJoint placement (below Tested, above Asserted, ∥ CC)
     it "evidenceCovers: DLTested covers DLTestedJoint (solo ≥ joint)" $
@@ -3546,13 +3555,10 @@ main = hspec $ do
       evidenceCovers (DLTestedJoint 100) (DLTested 100) `shouldBe` False
     it "evidenceCovers: DLTestedJoint covers DLAsserted" $
       evidenceCovers (DLTestedJoint 100) DLAsserted `shouldBe` True
-    it "evidenceCovers: DLTestedJoint incomparable to DLContractChecked" $ do
-      evidenceCovers (DLTestedJoint 100) (DLContractChecked "z3") `shouldBe` False
-      evidenceCovers (DLContractChecked "z3") (DLTestedJoint 100) `shouldBe` False
     it "evidenceMeet: DLTested ⊓ DLTestedJoint = DLTestedJoint (n)" $
       evidenceMeet (DLTested 100) (DLTestedJoint 50) `shouldBe` DLTestedJoint 50
-    it "evidenceMeet: DLTestedJoint ⊓ DLContractChecked = DLAsserted" $
-      evidenceMeet (DLTestedJoint 100) (DLContractChecked "z3") `shouldBe` DLAsserted
+    it "evidenceMeet: DLTestedJoint ⊓ DLVerifiedLean = DLTestedJoint (peer-top identity)" $
+      evidenceMeet (DLTestedJoint 100) (DLVerifiedLean "leanstral") `shouldBe` DLTestedJoint 100
     it "evidenceMeet: DLTestedJoint ⊓ DLVerified = DLTestedJoint (top identity)" $
       evidenceMeet (DLTestedJoint 100) (DLVerified "lf") `shouldBe` DLTestedJoint 100
     it "isSolverBacked: DLTestedJoint is NOT solver-backed" $
@@ -3564,9 +3570,13 @@ main = hspec $ do
 
   describe "DisplayLevel lattice laws (EVID-0 PO-1a: commutativity)" $ do
     -- 16 pairs: meet(a,b) = meet(b,a) for all a,b in {A, T, CC, V}
+    -- TRUST-CC-1: 'ContractChecked' left the lattice. 'VerifiedLean' takes its
+    -- slot here, which is a strictly better probe: it is a PEER TOP, and the
+    -- top-identity clause order in 'evidenceMeet' is exactly what carries
+    -- commutativity and associativity.
     let levels = [ ("Asserted", DLAsserted)
                  , ("Tested", DLTested 100)
-                 , ("ContractChecked", DLContractChecked "z3")
+                 , ("VerifiedLean", DLVerifiedLean "leanstral")
                  , ("Verified", DLVerified "lf")
                  , ("TestedJoint", DLTestedJoint 100)   -- OBLIG-PBT-5b
                  ]
@@ -3579,7 +3589,7 @@ main = hspec $ do
     -- 64 triples: meet(meet(a,b),c) = meet(a,meet(b,c))
     let levels = [ ("A", DLAsserted)
                  , ("T", DLTested 100)
-                 , ("CC", DLContractChecked "z3")
+                 , ("VL", DLVerifiedLean "leanstral")   -- TRUST-CC-1: replaced CC
                  , ("V", DLVerified "lf")
                  , ("TJ", DLTestedJoint 100)   -- OBLIG-PBT-5b
                  ]
@@ -3594,8 +3604,10 @@ main = hspec $ do
       evidenceMeet DLAsserted DLAsserted `shouldBe` DLAsserted
     it "meet(Tested, Tested) = Tested" $
       evidenceMeet (DLTested 100) (DLTested 100) `shouldBe` DLTested 100
-    it "meet(ContractChecked, ContractChecked) = ContractChecked" $
-      evidenceMeet (DLContractChecked "z3") (DLContractChecked "z3") `shouldBe` DLContractChecked "z3"
+    it "meet(TestedJoint, TestedJoint) = TestedJoint" $
+      evidenceMeet (DLTestedJoint 100) (DLTestedJoint 100) `shouldBe` DLTestedJoint 100
+    it "meet(VerifiedLean, VerifiedLean) = VerifiedLean" $
+      evidenceMeet (DLVerifiedLean "ls") (DLVerifiedLean "ls") `shouldBe` DLVerifiedLean "ls"
     it "meet(Verified, Verified) = Verified" $
       evidenceMeet (DLVerified "lf") (DLVerified "lf") `shouldBe` DLVerified "lf"
 
@@ -3605,8 +3617,10 @@ main = hspec $ do
       evidenceMeet DLAsserted DLAsserted `shouldBe` DLAsserted
     it "meet(Tested, Asserted) = Asserted" $
       evidenceMeet (DLTested 100) DLAsserted `shouldBe` DLAsserted
-    it "meet(ContractChecked, Asserted) = Asserted" $
-      evidenceMeet (DLContractChecked "z3") DLAsserted `shouldBe` DLAsserted
+    it "meet(TestedJoint, Asserted) = Asserted" $
+      evidenceMeet (DLTestedJoint 100) DLAsserted `shouldBe` DLAsserted
+    it "meet(VerifiedLean, Asserted) = Asserted" $
+      evidenceMeet (DLVerifiedLean "ls") DLAsserted `shouldBe` DLAsserted
     it "meet(Verified, Asserted) = Asserted" $
       evidenceMeet (DLVerified "lf") DLAsserted `shouldBe` DLAsserted
 
@@ -3616,8 +3630,10 @@ main = hspec $ do
       evidenceMeet DLAsserted (DLVerified "lf") `shouldBe` DLAsserted
     it "meet(Tested, Verified) = Tested" $
       evidenceMeet (DLTested 100) (DLVerified "lf") `shouldBe` DLTested 100
-    it "meet(ContractChecked, Verified) = ContractChecked" $
-      evidenceMeet (DLContractChecked "z3") (DLVerified "lf") `shouldBe` DLContractChecked "z3"
+    it "meet(TestedJoint, Verified) = TestedJoint" $
+      evidenceMeet (DLTestedJoint 100) (DLVerified "lf") `shouldBe` DLTestedJoint 100
+    it "meet(VerifiedLean, Verified) stays proven strength" $
+      isVerifiedLevel (evidenceMeet (DLVerifiedLean "ls") (DLVerified "lf")) `shouldBe` True
     it "meet(Verified, Verified) = Verified" $
       evidenceMeet (DLVerified "lf") (DLVerified "lf") `shouldBe` DLVerified "lf"
 
@@ -3626,34 +3642,39 @@ main = hspec $ do
       evidenceMeet (DLTested 100) (DLTested 200) `shouldBe` DLTested 100
     it "meet(Tested 200, Tested 100) = Tested 100 (commutative min)" $
       evidenceMeet (DLTested 200) (DLTested 100) `shouldBe` DLTested 100
-    it "meet(ContractChecked z3, ContractChecked lf) = ContractChecked z3 (first-arg)" $
-      evidenceMeet (DLContractChecked "z3") (DLContractChecked "lf") `shouldBe` DLContractChecked "z3"
+    it "meet(TestedJoint 100, TestedJoint 50) = TestedJoint 50 (min samples)" $
+      evidenceMeet (DLTestedJoint 100) (DLTestedJoint 50) `shouldBe` DLTestedJoint 50
+    it "meet(VerifiedLean ls, VerifiedLean other) = VerifiedLean ls (first-arg)" $
+      evidenceMeet (DLVerifiedLean "ls") (DLVerifiedLean "other") `shouldBe` DLVerifiedLean "ls"
     it "meet(Verified z3, Verified lf) = Verified z3 (first-arg)" $
       evidenceMeet (DLVerified "z3") (DLVerified "lf") `shouldBe` DLVerified "z3"
 
   describe "evidenceCovers consistency (16 pairs)" $ do
     -- For all a,b: covers(a,b) iff a is ≥ b in the lattice
+    -- TRUST-CC-1: 'ContractChecked' left; 'TestedJoint' takes its slot. The
+    -- table now encodes a CHAIN — every False below is a strict "b is higher",
+    -- never an incomparability.
     let levels = [ ("Asserted", DLAsserted)
                  , ("Tested", DLTested 100)
-                 , ("ContractChecked", DLContractChecked "z3")
+                 , ("TestedJoint", DLTestedJoint 100)
                  , ("Verified", DLVerified "lf")
                  ]
         -- Expected coverage: (a covers b) for each pair
         expected = [ (("Asserted","Asserted"), True)
                    , (("Asserted","Tested"), False)
-                   , (("Asserted","ContractChecked"), False)
+                   , (("Asserted","TestedJoint"), False)
                    , (("Asserted","Verified"), False)
                    , (("Tested","Asserted"), True)
                    , (("Tested","Tested"), True)
-                   , (("Tested","ContractChecked"), False)  -- incomparable
+                   , (("Tested","TestedJoint"), True)   -- solo ≥ joint
                    , (("Tested","Verified"), False)
-                   , (("ContractChecked","Asserted"), True)
-                   , (("ContractChecked","Tested"), False)  -- incomparable
-                   , (("ContractChecked","ContractChecked"), True)
-                   , (("ContractChecked","Verified"), False)
+                   , (("TestedJoint","Asserted"), True)
+                   , (("TestedJoint","Tested"), False)  -- joint < solo
+                   , (("TestedJoint","TestedJoint"), True)
+                   , (("TestedJoint","Verified"), False)
                    , (("Verified","Asserted"), True)
                    , (("Verified","Tested"), True)
-                   , (("Verified","ContractChecked"), True)
+                   , (("Verified","TestedJoint"), True)
                    , (("Verified","Verified"), True)
                    ]
     forM_ expected $ \((na, nb), expect) -> do
@@ -3686,13 +3707,13 @@ main = hspec $ do
     it "meets like DLVerified (top: glb with a lower level = that level)" $ do
       evidenceMeet vl DLAsserted            `shouldBe` DLAsserted
       evidenceMeet vl (DLTested 50)         `shouldBe` DLTested 50
-      evidenceMeet vl (DLContractChecked "z3") `shouldBe` DLContractChecked "z3"
+      evidenceMeet vl (DLTestedJoint 50)    `shouldBe` DLTestedJoint 50
       evidenceMeet vl vl                    `shouldBe` vl
       -- mixed proven ⊓ proven stays proven strength (still isVerifiedLevel)
       isVerifiedLevel (evidenceMeet vl (DLVerified "lf")) `shouldBe` True
 
     it "covers like DLVerified, and is MUTUALLY covering with DLVerified" $ do
-      evidenceCovers vl (DLContractChecked "z3") `shouldBe` True
+      evidenceCovers vl (DLTestedJoint 50)       `shouldBe` True
       evidenceCovers vl (DLTested 50)            `shouldBe` True
       evidenceCovers vl DLAsserted               `shouldBe` True
       -- peers: each covers the other (assumable exactly where verified is)
@@ -3701,13 +3722,126 @@ main = hspec $ do
       -- only a top covers a top
       evidenceCovers (DLTested 50) vl            `shouldBe` False
 
-    it "meet stays commutative & associative over {A,T,CC,V,VL}" $ do
-      let levels = [ DLAsserted, DLTested 100, DLContractChecked "z3"
+    it "meet stays commutative & associative over {A,T,TJ,V,VL}" $ do
+      let levels = [ DLAsserted, DLTested 100, DLTestedJoint 100
                    , DLVerified "lf", DLVerifiedLean "leanstral" ]
       forM_ [(a,b) | a <- levels, b <- levels] $ \(a,b) ->
         evidenceMeet a b `shouldBe` evidenceMeet b a
       forM_ [(a,b,c) | a <- levels, b <- levels, c <- levels] $ \(a,b,c) ->
         evidenceMeet (evidenceMeet a b) c `shouldBe` evidenceMeet a (evidenceMeet b c)
+
+  -- =========================================================================
+  -- TRUST-CC-1: the retired 'contract-checked' tier, the 'body_fallback'
+  -- marker that replaces the state it named, and DISCLOSE-ROW-1's disclosure.
+  -- docs/design/trust-cc-1-proposal.md
+  -- =========================================================================
+
+  describe "TRUST-CC-1: sidecar read rule (proposal §7 case 5)" $ do
+    let retired = object [ "level" .= ("contract-checked" :: T.Text)
+                         , "prover" .= ("forged" :: T.Text) ]
+
+    it "reads a retired display level as DLAsserted rather than failing" $
+      dlFromJSON retired `shouldBe` Just DLAsserted
+
+    -- The failure this guards is NOT "the level is wrong". It is that
+    -- 'erFromJSON' binds 'dlFromJSON' in the Maybe monad, so a Nothing would
+    -- discard the WHOLE EvidenceRecord, taking a legitimate body_faithful claim
+    -- and ':source' provenance with it.
+    it "keeps the surrounding EvidenceRecord, with its other fields intact" $ do
+      let rec' = object [ "display_level" .= retired
+                        , "source"        .= ("hand-written" :: T.Text) ]
+      case erFromJSON rec' of
+        Nothing -> expectationFailure "record was dropped; §7 case 5 forbids that"
+        Just er -> do
+          erDisplayLevel er `shouldBe` DLAsserted
+          erSource       er `shouldBe` Just "hand-written"
+
+    -- The writable set is {Asserted, Tested, Verified, VerifiedLean}.
+    -- 'DLTestedJoint' is deliberately absent: 'dlToJSON' has no clause for it
+    -- (pre-existing on main, unrelated to this change), because joint
+    -- reclassification is report-only and never reaches 'saveVerified'.
+    it "nothing WRITES the retired level any more (the codec is read-only)" $ do
+      let written = map dlToJSON [ DLAsserted, DLTested 5, DLVerified "lf"
+                                 , DLVerifiedLean "ls" ]
+      show written `shouldNotContain` "contract-checked"
+
+    it "an unknown level is still rejected (the rule did not open the codec)" $
+      dlFromJSON (object ["level" .= ("wishful" :: T.Text)]) `shouldBe` Nothing
+
+  describe "TRUST-CC-1: proof-artifact read path (asymmetric codec)" $ do
+    -- The artifact is a persisted, REPLAYABLE format and 'FromJSON FnRecord'
+    -- fails the parse on an unknown evidence_level. Dropping the clause would
+    -- make every pre-retirement artifact unreplayable, so the value is still
+    -- read, as the non-positive 'TAsserted'.
+    it "reads the retired tier as TAsserted so old artifacts still replay" $
+      tierFromText "contract-checked" `shouldBe` Just TAsserted
+
+    it "the retired tier is no longer POSITIVE, so the kernel does not constrain it" $
+      -- 'asserted' beside a fallback reason is the legitimate combination.
+      isRight (mkFnRecord (FnInputs "f" TAsserted [] (Just "body-outside-fragment") False Nothing))
+        `shouldBe` True
+
+    it "an unknown tier is still rejected" $
+      tierFromText "wishful" `shouldBe` Nothing
+
+    -- The mapping matters only because 'FromJSON FnRecord' calls 'fail' on an
+    -- unknown evidence_level. Exercise that path, not just the helper.
+    it "a pre-retirement artifact record still PARSES (fail-closed would break replay)" $ do
+      let raw = "{\"name\":\"f\",\"evidence_level\":\"contract-checked\",\
+                 \\"caller_obligations\":[],\"refuted\":false}"
+      case decode (BLC.pack raw) :: Maybe FnRecord of
+        Nothing -> expectationFailure "pre-retirement artifact no longer parses"
+        Just r  -> fnTier r `shouldBe` TAsserted
+
+    -- Proposal §8 claim 3: the kernel rule must keep firing over the tiers that
+    -- REMAIN positive after the retirement.
+    it "mkFnRecord still rejects a positive tier carrying a fallback reason" $ do
+      isLeft (mkFnRecord (FnInputs "f" TVerified [] (Just "body-outside-fragment") False Nothing))
+        `shouldBe` True
+      isLeft (mkFnRecord (FnInputs "g" TTested [] (Just "body-outside-fragment") False Nothing))
+        `shouldBe` True
+
+    it "mkFnRecord still rejects a positive tier flagged refuted" $
+      isLeft (mkFnRecord (FnInputs "f" TVerified [] Nothing True Nothing)) `shouldBe` True
+
+  describe "TRUST-CC-1: the body_fallback marker (proposal §5.3)" $ do
+    let mkRep = buildTrustReport DM.empty [] Map.empty
+        marks = Map.fromList [("classify", ("body-outside-fragment", ["match-wildcard-payload"]))]
+
+    it "is empty on a report the emitter did not touch" $
+      trBodyFallback mkRep `shouldBe` Map.empty
+
+    it "markBodyFallback records the cause and the constructs" $
+      trBodyFallback (markBodyFallback marks mkRep)
+        `shouldBe` Map.fromList [("classify", ("body-outside-fragment", ["match-wildcard-payload"]))]
+
+    -- §8 claim 2: the marker grants no trust. It is not a DisplayLevel, so it
+    -- cannot reach the meet, the cover relation, or the solver-backed test.
+    it "grants no trust: it touches no tier and no entry" $ do
+      let before = mkRep
+          after  = markBodyFallback marks mkRep
+      trEntries    after `shouldBe` trEntries before
+      trSummary    after `shouldBe` trSummary before
+      trTierProfile after `shouldBe` trTierProfile before
+
+  describe "DISCLOSE-ROW-1: open [SPEC] row disclosure" $ do
+    let capImport = SImport (Import "wasi.io" Nothing
+                              (Just (Capability CapWrite "stdout" False)))
+        plainImport = SImport (Import "wasi.io" Nothing Nothing)
+
+    it "names CAP-1-REAL when the program writes a capability clause" $
+      map osrTag (openSpecRows [capImport]) `shouldBe` ["CAP-1-REAL"]
+
+    it "says nothing when the program writes no capability clause" $
+      openSpecRows [plainImport] `shouldBe` []
+
+    -- One line per ROW, not per occurrence: six capability imports are one gap.
+    it "reports one line per row, not one per occurrence" $
+      length (openSpecRows [capImport, capImport, capImport]) `shouldBe` 1
+
+    it "is derived from live source, so it is present on a solver-less report" $
+      map osrTag (trOpenSpecRows (buildTrustReport DM.empty [capImport] Map.empty))
+        `shouldBe` ["CAP-1-REAL"]
 
   describe "upgradeLeanstralPosts (proof-cache → trust surface, FIX B)" $ do
     -- A nonlinear `square` whose post escaped QF-LIA and landed at 'asserted'.
@@ -3767,8 +3901,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -3870,10 +4004,17 @@ main = hspec $ do
           level `shouldBe` DLAsserted
         other -> expectationFailure $ "unexpected: " ++ show other
 
-    it "parses (trust z3.verify :level contract-checked)" $ do
+    -- TRUST-CC-1: the level is retired, so the surface must be REJECTED. The
+    -- parser names it explicitly rather than falling through to "unexpected
+    -- token", because an agent that read the pre-retirement spec will write it.
+    it "REJECTS (trust z3.verify :level contract-checked) and names TRUST-CC-1" $ do
       case parseStatements GrammarCoreInversion "<test>" "(trust z3.verify :level contract-checked)" of
-        Right [STrust target (DLContractChecked _)] -> do
-          target `shouldBe` "z3.verify"
+        Left err -> show err `shouldContain` "TRUST-CC-1"
+        Right ok -> expectationFailure $ "retired level parsed: " ++ show ok
+
+    it "still parses the surviving trust levels" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(trust z3.verify :level verified)" of
+        Right [STrust target (DLVerified _)] -> target `shouldBe` "z3.verify"
         other -> expectationFailure $ "unexpected: " ++ show other
 
   describe "parseWeaknessOk (S-expression)" $ do
@@ -3944,8 +4085,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -3960,8 +4101,10 @@ main = hspec $ do
       defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing [] []
 
     it "ContractsUnproven preserves proven (BUG-6: no body-faithful provers)" $ do
-      -- v0.6.3 (BUG-6): ContractsUnproven no longer strips DLContractChecked contracts
-      -- because no body-faithful provers exist. Contracts are preserved.
+      -- v0.6.3 (BUG-6): ContractsUnproven strips only a record that is verified
+      -- AND body-faithful. These records are 'DLVerified' with body_faithful =
+      -- False, so nothing is stripped. TRUST-CC-1 substituted the tier here; the
+      -- deciding field was always 'erBodyFaithful', not the level.
       let result = applyContractsMode ContractsUnproven provenMap stmts
       defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing Nothing [] []
       defLogicContract (result !! 1) `shouldBe` Contract pre1 Nothing Nothing Nothing Nothing [] []
@@ -4018,7 +4161,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv callerStmts
@@ -4080,7 +4223,7 @@ main = hspec $ do
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
@@ -4094,7 +4237,7 @@ main = hspec $ do
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -4138,7 +4281,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
             }
@@ -4207,7 +4350,7 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
           assertedMod = mkModEnv "hash" ["crypto"]
                           (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
@@ -4227,7 +4370,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing [] [])
@@ -4240,7 +4383,7 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
           assertedMod = mkModEnv "hash" ["crypto"]
                           (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
@@ -4249,7 +4392,9 @@ main = hspec $ do
                   ]
           report = buildTrustReport cache stmts Map.empty
       -- math.safe-add is proven, crypto.hash is asserted, no-contract has no contract
-      tsContractChecked (trSummary report) `shouldBe` 1
+      -- TRUST-CC-1: the proven module's tier is 'verified' now, so the count it
+      -- lands in moved from 'tsContractChecked' (the field is gone) to 'tsVerified'.
+      tsVerified (trSummary report) `shouldBe` 1
       tsAsserted (trSummary report) `shouldBe` 1
       tsNone     (trSummary report) `shouldBe` 1
 
@@ -4543,7 +4688,7 @@ main = hspec $ do
 
     -- TP-1: Empty obligation set yields zero vector
     it "empty report → zero profile" $ do
-      aggregateTiers [] `shouldBe` TierProfile 0 0 0 0 0 0 0
+      aggregateTiers [] `shouldBe` TierProfile 0 0 0 0 0 0
 
     -- TP-2: Uniform verified entries concentrate in tpVerified
     it "uniform verified report → verified-only profile" $ do
@@ -4551,43 +4696,48 @@ main = hspec $ do
                     , mkEntry "f2" (Just (DLVerified "liquid-fixpoint")) (Just (DLVerified "liquid-fixpoint"))
                     , mkEntry "f3" (Just (DLVerified "liquid-fixpoint")) (Just (DLVerified "liquid-fixpoint"))
                     ]
-      aggregateTiers entries `shouldBe` TierProfile 3 0 0 0 0 0 0
+      aggregateTiers entries `shouldBe` TierProfile 3 0 0 0 0 0
 
-    -- TP-3: Diamond-asymmetry — contract-checked ⊥ tested, with mixed-meet edge case
-    -- Locks in LLMLL.md:344 incomparability against future regression.
-    it "diamond asymmetry: contract-checked/tested tiers; pre⊓post no longer floors the tier (TRUST-PRE)" $ do
-      let ccEntries = [ mkEntry ("cc" <> T.pack (show i))
-                                (Just (DLContractChecked "z3"))
-                                (Just (DLContractChecked "z3"))
+    -- TP-3: TRUST-PRE (Part 1) — the TIER is classified on the POST side, so a
+    -- pre never floors it.
+    --
+    -- TRUST-CC-1 rewrote this test. It used to pair contract-checked against
+    -- tested, because meet(CC, T) = DLAsserted made the mixed entry
+    -- discriminating. The chain has no incomparable pair, so the discriminating
+    -- pair here is now tested-joint against tested: meet(TJ, T) = TJ, which
+    -- differs from the post's own T. A regression that classified on the meet
+    -- would report tested_joint, so the assertion still has teeth.
+    it "TRUST-PRE: pre⊓post does not floor the tier; classification is post-side" $ do
+      let tjEntries = [ mkEntry ("tj" <> T.pack (show i))
+                                (Just (DLTestedJoint 100))
+                                (Just (DLTestedJoint 100))
                       | i <- [1..3 :: Int] ]
           tsEntries = [ mkEntry ("ts" <> T.pack (show i))
                                 (Just (DLTested 100))
                                 (Just (DLTested 100))
                       | i <- [1..3 :: Int] ]
-          -- One entry with a contract-checked PRE and a tested POST. The diamond
-          -- meet(DLContractChecked, DLTested) = DLAsserted still governs the
-          -- per-entry DISPLAY and the call-graph propagation (teEffectiveLevel /
-          -- enrichEntry are untouched), but TRUST-PRE (Part 1) classifies the
-          -- TIER on the post side — so the pre no longer floors this to asserted.
           mixedEntry = [ mkEntry "mixed"
-                                 (Just (DLContractChecked "z3"))
+                                 (Just (DLTestedJoint 100))
                                  (Just (DLTested 100)) ]
-      aggregateTiers ccEntries  `shouldBe` TierProfile 0 0 3 0 0 0 0
-      aggregateTiers tsEntries  `shouldBe` TierProfile 0 0 0 3 0 0 0
-      -- TRUST-PRE: classifies on the post (DLTested), not the pre⊓post meet.
-      -- (Was: TierProfile 0 0 0 0 1 0 — the pre-bearing floor to asserted.)
-      aggregateTiers mixedEntry `shouldBe` TierProfile 0 0 0 1 0 0 0
+      -- Guard the premise: the pair must actually differ under the meet, or the
+      -- mixed assertion below proves nothing.
+      evidenceMeet (DLTestedJoint 100) (DLTested 100) `shouldNotBe` DLTested 100
+      aggregateTiers tjEntries  `shouldBe` TierProfile 0 0 0 3 0 0
+      aggregateTiers tsEntries  `shouldBe` TierProfile 0 0 3 0 0 0
+      -- Post-side: 'tested', not the meet's 'tested_joint'.
+      aggregateTiers mixedEntry `shouldBe` TierProfile 0 0 1 0 0 0
 
     -- TP-4: Mixed-tier report → component-correct counts
     -- proved is zero by construction (no DLProved constructor exists)
     it "mixed-tier report → component-correct profile" $ do
       let entries = [ mkEntry "fv" (Just (DLVerified "lean")) (Just (DLVerified "lean"))
-                    , mkEntry "fc" (Just (DLContractChecked "z3")) (Just (DLContractChecked "z3"))
+                    , mkEntry "fj" (Just (DLTestedJoint 100)) (Just (DLTestedJoint 100))
                     , mkEntry "ft" (Just (DLTested 100)) (Just (DLTested 100))
                     , mkEntry "fa" (Just DLAsserted) (Just DLAsserted)
                     , mkEntry "fn" Nothing Nothing
                     ]
-      aggregateTiers entries `shouldBe` TierProfile 1 0 1 1 0 1 1
+      -- TRUST-CC-1: 'fc' was a contract-checked entry; 'fj' replaces it.
+      aggregateTiers entries `shouldBe` TierProfile 1 0 1 1 1 1
 
     -- TP-5: JSON emit carries trust_report_version and a structurally-valid tier_profile
     it "formatTrustReportJson includes trust_report_version and tier_profile" $ do
@@ -4605,15 +4755,19 @@ main = hspec $ do
           KM.lookup "trust_report_version" o `shouldBe` Just (String "1.6.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
-              -- All six required fields present
+              -- All required fields present
               KM.lookup "verified"         tp `shouldSatisfy` (/= Nothing)
               KM.lookup "proved"           tp `shouldSatisfy` (/= Nothing)
-              KM.lookup "contract_checked" tp `shouldSatisfy` (/= Nothing)
               KM.lookup "tested"           tp `shouldSatisfy` (/= Nothing)
               KM.lookup "asserted"         tp `shouldSatisfy` (/= Nothing)
               KM.lookup "no_contract"      tp `shouldSatisfy` (/= Nothing)
               -- proved is structural-zero (no DLProved constructor today)
               KM.lookup "proved"           tp `shouldBe` Just (Number 0)
+              -- TRUST-CC-1: 'contract_checked' is REQUIRED by
+              -- docs/llmll-trust-report.schema.json ($defs/TierProfile), so the
+              -- key must survive the retirement. It is now a structural zero.
+              -- Dropping it would make every emitted report fail that schema.
+              KM.lookup "contract_checked" tp `shouldBe` Just (Number 0)
             _ -> expectationFailure "tier_profile missing or not an object"
           -- Pre-existing summary block is unchanged
           KM.lookup "summary" o `shouldSatisfy` (/= Nothing)
@@ -6579,7 +6733,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
@@ -6588,7 +6742,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty  -- empty: no origin for constraint 42
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -6602,7 +6756,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -6617,7 +6771,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -6632,7 +6786,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -6646,7 +6800,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"

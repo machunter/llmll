@@ -26,9 +26,12 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
+import System.IO (stderr)
 
 import LLMLL.Syntax (ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), PbtWitness(..), AssumptionKind(..), Name)
 
@@ -47,36 +50,48 @@ verifiedPath fp = fp ++ ".verified.json"
 dlToJSON :: DisplayLevel -> Value
 dlToJSON DLAsserted          = object ["level" .= ("asserted" :: Text)]
 dlToJSON (DLTested n)        = object ["level" .= ("tested" :: Text), "samples" .= n]
-dlToJSON (DLContractChecked p) = object ["level" .= ("contract-checked" :: Text), "prover" .= p]
 dlToJSON (DLVerified p)      = object ["level" .= ("verified" :: Text), "prover" .= p]
 dlToJSON (DLVerifiedLean p)  = object ["level" .= ("verified-lean" :: Text), "prover" .= p]
 
-dlFromJSON :: Value -> Maybe DisplayLevel
-dlFromJSON (Object o) =
+-- | TRUST-CC-1 §7 case 5. A sidecar written before the retirement can carry
+-- @"contract-checked"@. The reader must neither fail closed nor silently drop
+-- the record, because 'erFromJSON' binds this result and a 'Nothing' discards
+-- the whole 'EvidenceRecord' (and with it a legitimate @body_faithful@ claim on
+-- the other clause side). The rule: read it as 'DLAsserted' and report one
+-- warning naming the retired level.
+--
+-- Measured before the retirement: 0 of 519 tracked @.verified.json@ files carry
+-- the value, so this rule protects out-of-tree artifacts only.
+dlFromJSONWarn :: Value -> Maybe (DisplayLevel, [Text])
+dlFromJSONWarn (Object o) =
   case KM.lookup "level" o of
-    Just (String "asserted") -> Just DLAsserted
+    Just (String "asserted") -> Just (DLAsserted, [])
     Just (String "tested")   ->
       let n = case KM.lookup "samples" o of
                 Just (Number s) -> round s
                 _               -> 0
-      in Just (DLTested n)
+      in Just (DLTested n, [])
     Just (String "contract-checked") ->
-      let p = case KM.lookup "prover" o of
-                Just (String t) -> t
-                _               -> ""
-      in Just (DLContractChecked p)
+      Just ( DLAsserted
+           , ["sidecar carries the retired display level 'contract-checked' \
+              \(TRUST-CC-1); read as 'asserted'"] )
     Just (String "verified") ->
       let p = case KM.lookup "prover" o of
                 Just (String t) -> t
                 _               -> ""
-      in Just (DLVerified p)
+      in Just (DLVerified p, [])
     Just (String "verified-lean") ->
       let p = case KM.lookup "prover" o of
                 Just (String t) -> t
                 _               -> ""
-      in Just (DLVerifiedLean p)
+      in Just (DLVerifiedLean p, [])
     _ -> Nothing
-dlFromJSON _ = Nothing
+dlFromJSONWarn _ = Nothing
+
+-- | Warning-dropping wrapper. Kept so round-trip tests and non-reader callers
+-- do not have to thread the warning list.
+dlFromJSON :: Value -> Maybe DisplayLevel
+dlFromJSON = fmap fst . dlFromJSONWarn
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — EvidenceRecord
@@ -110,10 +125,11 @@ erToJSON er = object $
   -- byte-identical. Report metadata only; never consulted by admission.
   (if null (erSources er) then [] else ["sources" .= erSources er])
 
-erFromJSON :: Value -> Maybe EvidenceRecord
-erFromJSON (Object o) = do
-  dlVal <- KM.lookup "display_level" o
-  dl    <- dlFromJSON dlVal
+-- | TRUST-CC-1: warning-carrying reader. 'erFromJSON' is the wrapper.
+erFromJSONWarn :: Value -> Maybe (EvidenceRecord, [Text])
+erFromJSONWarn (Object o) = do
+  dlVal      <- KM.lookup "display_level" o
+  (dl, dlWs) <- dlFromJSONWarn dlVal
   let bf = case KM.lookup "body_faithful" o of
              Just (Bool b) -> b
              _             -> False
@@ -160,7 +176,11 @@ erFromJSON (Object o) = do
                Just (Array arr) -> [ case v of { String s -> Just s; _ -> Nothing }
                                    | v <- foldr (:) [] arr ]
                _                -> []
-  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh tv srcs
+  Just (EvidenceRecord dl bf src ws ot pf pt rc vh tv srcs, dlWs)
+erFromJSONWarn _ = Nothing
+
+erFromJSON :: Value -> Maybe EvidenceRecord
+erFromJSON = fmap fst . erFromJSONWarn
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)
@@ -208,15 +228,20 @@ csToJSON cs = object $
   maybe [] (\er -> ["post" .= erToJSON er]) (csPost cs) ++
   if null (csAssumptions cs) then [] else ["assumptions" .= map akToJSON (csAssumptions cs)]
 
-csFromJSON :: Value -> Maybe ContractStatus
-csFromJSON (Object o) =
-  let pre  = KM.lookup "pre" o >>= erFromJSON
-      post = KM.lookup "post" o >>= erFromJSON
+-- | TRUST-CC-1: warning-carrying reader. 'csFromJSON' is the wrapper.
+csFromJSONWarn :: Value -> Maybe (ContractStatus, [Text])
+csFromJSONWarn (Object o) =
+  let preW  = KM.lookup "pre" o >>= erFromJSONWarn
+      postW = KM.lookup "post" o >>= erFromJSONWarn
       assumptions = case KM.lookup "assumptions" o of
         Just (Array arr) -> concatMap (\v -> maybe [] (:[]) (akFromJSON v)) (foldr (:) [] arr)
         _                -> []
-  in Just $ ContractStatus pre post assumptions
-csFromJSON _ = Nothing
+  in Just ( ContractStatus (fst <$> preW) (fst <$> postW) assumptions
+          , maybe [] snd preW ++ maybe [] snd postW )
+csFromJSONWarn _ = Nothing
+
+csFromJSON :: Value -> Maybe ContractStatus
+csFromJSON = fmap fst . csFromJSONWarn
 
 -- ---------------------------------------------------------------------------
 -- File I/O
@@ -244,20 +269,26 @@ loadVerified fp = do
         Nothing -> pure Map.empty
         Just (Object top)
           | sidecarNeedsRevalidation top -> pure Map.empty
-          | otherwise ->
-              pure $ Map.fromList
-                [ (AK.toText key, cs)
-                | (key, val) <- KM.toList top
-                -- TRUST-PRE: skip the reserved top-level obligation key; it is a
-                -- persisted contract property for the '.verified.json' reader,
-                -- not a per-function ContractStatus. LLMLL itself re-derives the
-                -- axis from the live source on every trust-report build.
-                , AK.toText key /= reservedCallerObligationsKey
-                -- SAFE-ARG: the checker-soundness stamp is a sidecar property,
-                -- not a per-function ContractStatus.
-                , AK.toText key /= reservedCheckerSoundnessKey
-                , Just cs <- [csFromJSON val]
-                ]
+          | otherwise -> do
+              let entries =
+                    [ (AK.toText key, csw)
+                    | (key, val) <- KM.toList top
+                    -- TRUST-PRE: skip the reserved top-level obligation key; it is a
+                    -- persisted contract property for the '.verified.json' reader,
+                    -- not a per-function ContractStatus. LLMLL itself re-derives the
+                    -- axis from the live source on every trust-report build.
+                    , AK.toText key /= reservedCallerObligationsKey
+                    -- SAFE-ARG: the checker-soundness stamp is a sidecar property,
+                    -- not a per-function ContractStatus.
+                    , AK.toText key /= reservedCheckerSoundnessKey
+                    , Just csw <- [csFromJSONWarn val]
+                    ]
+              -- TRUST-CC-1 §7 case 5: report a retired display level ONCE per
+              -- file, not once per record, and keep every record. Warnings go
+              -- to stderr so a '--json' caller's stdout stays parseable.
+              mapM_ (\w -> TIO.hPutStrLn stderr ("Warning: " <> T.pack path <> ": " <> w))
+                    (nub (concatMap (snd . snd) entries))
+              pure (Map.fromList [ (n, cs) | (n, (cs, _)) <- entries ])
         _ -> pure Map.empty
 
 -- | Whether a loaded sidecar must be discarded and re-verified.

@@ -451,7 +451,13 @@ pWeaknessOkDecl = do
 -- | Parse a trust level keyword.
 pTrustLevel :: Parser DisplayLevel
 pTrustLevel = choice
-  [ DLContractChecked "" <$ try (symbol "contract-checked")
+  -- TRUST-CC-1: 'contract-checked' was retired as a trust level. It is matched
+  -- here only to give a named error instead of a bare "unexpected token": an
+  -- agent that read the pre-retirement spec will still write it.
+  [ try (symbol "contract-checked")
+      *> fail "trust level 'contract-checked' was retired (TRUST-CC-1); \
+              \a body that leaves the fragment reports 'asserted' plus a \
+              \body_fallback marker on the trust report"
   , DLVerified ""        <$ symbol "verified"
   , DLTested 0           <$ symbol "tested"
   , DLAsserted           <$ symbol "asserted"

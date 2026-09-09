@@ -71,6 +71,20 @@
       "items": { "type": "string" }
     },
 
+    "open_spec_rows": {
+      "description": "DISCLOSE-ROW-1 — open `[SPEC]` roadmap rows whose surface this program writes. Derived from live source, so present on every report path including a solver-less render. One entry per ROW, not per occurrence of the surface. Disclosure only: changes no tier, feeds no meet, gates no admission. Additive; no `trust_report_version` bump.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["row", "surface", "disclosure"],
+        "properties": {
+          "row":        { "type": "string", "description": "The roadmap row tag, e.g. `CAP-1-REAL`." },
+          "surface":    { "type": "string", "description": "The surface the program writes." },
+          "disclosure": { "type": "string", "description": "What is specified and not enforced." }
+        }
+      }
+    },
+
     "overflow_tainted_fns": {
       "description": "v0.10.8 (INT-1) — functions whose body-faithful verified evidence carries unbounded-Int arithmetic; `--strict-verified-core` refuses these. Additive; no `trust_report_version` bump.",
       "type": "array",
@@ -111,6 +125,15 @@
         "dependencies": { "type": "array", "items": { "$ref": "#/$defs/TrustDependency" } },
         "drifts":       { "type": "array", "items": { "type": "string" } },
         "effective_level": { "$ref": "#/$defs/LevelLabel" },
+        "body_fallback": {
+          "type": "object",
+          "required": ["cause", "constructs"],
+          "description": "TRUST-CC-1 — present only when THIS run's emitter refused the function's body. Orthogonal to the tier: it never changes `effective_level`, feeds no meet, and gates no admission, exactly like `termination_unverified`. ABSENT on a report path that did not run the emitter (a plain `verify --trust-report` exits before it), and that absence is NOT a claim of proof. Suppressed when the cause is `no-post` or `unfilled-hole`, because no proof goal was lost.",
+          "properties": {
+            "cause":      { "type": "string", "description": "One value of the FALLBACK-REASON-CONST-1 closed vocabulary." },
+            "constructs": { "type": "array", "items": { "type": "string" }, "description": "SHELL-FALLBACK-SILENT-1 closed body-refusal labels; may be empty." }
+          }
+        },
         "joint_pbt_witness": {
           "type": "boolean",
           "const": true,
@@ -173,7 +196,7 @@
       "additionalProperties": false,
       "properties": {
         "verified":         { "type": "integer", "minimum": 0 },
-        "contract_checked": { "type": "integer", "minimum": 0 },
+        "contract_checked": { "type": "integer", "const": 0, "description": "TRUST-CC-1: RETIRED tier, always 0 (and always was — nothing ever assigned it). The key is KEPT in `required` so every report the compiler emits still validates here and no pinned consumer breaks. The state the tier named is reported per entry as `body_fallback`." },
         "tested":           { "type": "integer", "minimum": 0 },
         "tested_joint":     { "type": "integer", "minimum": 0, "description": "v1.6.0 (OBLIG-PBT-5b) — functions whose post is jointly PBT-tested (a multi-subject `:subjects` property credits N subjects from one body). A distinct `tested-joint` tier: below `tested`, above `asserted`. Previously such functions were demoted into `asserted`." },
         "asserted":         { "type": "integer", "minimum": 0 },
@@ -200,13 +223,13 @@
         },
         "contract_checked": {
           "type": "integer",
-          "minimum": 0,
-          "description": "Functions whose effective level is `contract-checked` (SMT proof of pre⇒post consistency, body not encoded). Incomparable with `tested` per the diamond lattice (LLMLL.md §4.4.1:344)."
+          "const": 0,
+          "description": "TRUST-CC-1: RETIRED tier, always 0. Kept in `required` for wire stability; see the same field on TrustSummary."
         },
         "tested": {
           "type": "integer",
           "minimum": 0,
-          "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). Incomparable with `contract_checked` per the diamond lattice."
+          "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). TRUST-CC-1 collapsed the lattice to a chain, so there is no incomparable sibling."
         },
         "tested_joint": {
           "type": "integer",

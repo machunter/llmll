@@ -293,7 +293,6 @@ Trust Report
 ────────────────────────────────────────────────────────────
 Summary:
   verified:         3
-  contract-checked: 0
   tested:           1
   asserted:         2
   no contract:      5

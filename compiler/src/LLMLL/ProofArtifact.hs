@@ -12,7 +12,7 @@
 -- hermetically (the F*-@.hints@ / Dafny-caching R-property) and audited in one place.
 --
 -- The soundness spine is the §4.1 LCF invariant: a per-function record carrying a
--- POSITIVE tier (verified / contract-checked / tested) is UNCONSTRUCTIBLE unless its
+-- POSITIVE tier (verified / tested) is UNCONSTRUCTIBLE unless its
 -- qualifiers cohere — it is not also refuted, did not fall back, and (when a CDP
 -- discriminative axis is recorded) carries its basis. 'FnRecord' is therefore abstract:
 -- its data constructor is unexported and the ONLY mint is 'mkFnRecord', the kernel that
@@ -33,6 +33,7 @@ module LLMLL.ProofArtifact
   , fnName, fnTier, fnCallerObligations, fnFallbackReason, fnRefuted, fnDiscrimBasis
   , Tier(..)
   , isPositiveTier
+  , tierFromText        -- TRUST-CC-1: the read-path migration surface
     -- * The §4.1 LCF kernel
   , FnInputs(..)
   , LaunderError(..)
@@ -55,29 +56,44 @@ import qualified Data.Text          as T
 -- Tiers
 -- ---------------------------------------------------------------------------
 
--- | The diamond-lattice evidence tier, flattened for the artifact projection.
+-- | The evidence tier, flattened for the artifact projection. TRUST-CC-1
+-- collapsed the source lattice from a diamond to a chain.
 data Tier
   = TVerified         -- ^ body-faithful, solver-proven (positive)
-  | TContractChecked  -- ^ contract consistency proven, not body (positive)
   | TTested           -- ^ PBT evidence only (positive)
   | TAsserted         -- ^ runtime assertion only (non-positive)
   | TNoContract       -- ^ no contract (non-positive)
   deriving (Show, Eq)
 
 -- | A POSITIVE tier is one whose record the §4.1 invariant constrains.
+-- TRUST-CC-1: 'TContractChecked' was retired from this set with the display
+-- level it projected. The retirement NARROWS the kernel's input set by one and
+-- loses nothing: a record that used to arrive as contract-checked now arrives
+-- as 'TAsserted', which is non-positive, and @asserted@ beside a fallback
+-- reason is the legitimate combination the kernel is meant to admit.
 isPositiveTier :: Tier -> Bool
-isPositiveTier t = t `elem` [TVerified, TContractChecked, TTested]
+isPositiveTier t = t `elem` [TVerified, TTested]
 
 tierText :: Tier -> Text
 tierText TVerified        = "verified"
-tierText TContractChecked = "contract-checked"
 tierText TTested          = "tested"
 tierText TAsserted        = "asserted"
 tierText TNoContract      = "none"
 
+-- | TRUST-CC-1: an ASYMMETRIC codec, readable but not writable.
+--
+-- @proof-artifact.json@ is a persisted, replayable format and 'FromJSON
+-- FnRecord' calls 'fail' on an unknown @evidence_level@, so simply dropping the
+-- clause would make every pre-retirement artifact unreplayable. The value is
+-- therefore still READ, as 'TAsserted', on the same rule
+-- 'VerifiedCache.dlFromJSONWarn' applies to the sidecar. Nothing writes it: the
+-- 'tierText' clause went with the constructor.
+--
+-- @docs/proof-artifact.schema.json@ keeps the enum value for the same reason.
+-- The schema and this function must move together.
 tierFromText :: Text -> Maybe Tier
 tierFromText "verified"         = Just TVerified
-tierFromText "contract-checked" = Just TContractChecked
+tierFromText "contract-checked" = Just TAsserted   -- retired (TRUST-CC-1); read-only
 tierFromText "tested"           = Just TTested
 tierFromText "asserted"         = Just TAsserted
 tierFromText "none"             = Just TNoContract
@@ -131,7 +147,7 @@ data FnRecord = FnRecord
   } deriving (Show, Eq)
 
 -- | THE KERNEL. Mint a per-function record only if the §4.1 invariant holds. A
--- positive tier (verified / contract-checked / tested) is rejected when it is also
+-- positive tier (verified / tested) is rejected when it is also
 -- refuted, when it carries a fallback reason (it did not, in fact, stay body-faithful),
 -- or when a discriminative axis is recorded without its basis. Non-positive tiers are
 -- unconstrained (a fallback or refuted record is legitimate and carries its evidence).
