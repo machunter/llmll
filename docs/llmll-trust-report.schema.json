@@ -111,6 +111,15 @@
         "dependencies": { "type": "array", "items": { "$ref": "#/$defs/TrustDependency" } },
         "drifts":       { "type": "array", "items": { "type": "string" } },
         "effective_level": { "$ref": "#/$defs/LevelLabel" },
+        "body_fallback": {
+          "type": "object",
+          "required": ["cause", "constructs"],
+          "description": "TRUST-CC-1 — present only when THIS run's emitter refused the function's body. Orthogonal to the tier: it never changes `effective_level`, feeds no meet, and gates no admission, exactly like `termination_unverified`. ABSENT on a report path that did not run the emitter (a plain `verify --trust-report` exits before it), and that absence is NOT a claim of proof. Suppressed when the cause is `no-post` or `unfilled-hole`, because no proof goal was lost.",
+          "properties": {
+            "cause":      { "type": "string", "description": "One value of the FALLBACK-REASON-CONST-1 closed vocabulary." },
+            "constructs": { "type": "array", "items": { "type": "string" }, "description": "SHELL-FALLBACK-SILENT-1 closed body-refusal labels; may be empty." }
+          }
+        },
         "joint_pbt_witness": {
           "type": "boolean",
           "const": true,

@@ -19,6 +19,7 @@ module LLMLL.TrustReport
   , AssumedFact(..)             -- RESP-FACT-1: per-function assumed-fact disclosure row (§12)
   , assumedFactJson             -- RESP-FACT-1: its JSON shape
   , markAssumedFacts            -- RESP-FACT-1: per-entry setter
+  , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
@@ -221,6 +222,28 @@ data TrustReport = TrustReport
   -- could observe it. Never persisted to '.verified.json' (verify-time-only,
   -- like 'trRefutedFns').
   , trOverAnnotation   :: OverAnnotationInfo
+  -- TRUST-CC-1: per-function body-fallback marker. The cause is one value of
+  -- the 'FALLBACK-REASON-CONST-1' closed vocabulary ('renderFallbackCause');
+  -- the labels are the 'SHELL-FALLBACK-SILENT-1' closed body-refusal set
+  -- ('bodyRefusalLabels'). This reports the state the retired 'contract-checked'
+  -- tier was named after: 'verify' ran, the emitter refused THIS body, and the
+  -- post is assumed rather than proved. Without it the tier channel merges that
+  -- with "assumed, never examined".
+  --
+  -- It is NOT a 'DisplayLevel'. Like 'termination_unverified' it is derived at
+  -- report-build time, never persisted to '.verified.json', invisible to
+  -- 'evidenceMeet' / 'evidenceCovers' / 'isSolverBacked' / the effective level /
+  -- 'refutedClosure' / '--strict-verified-core' admission, and informational
+  -- only. It is also LOCAL, not transitive: a caller of a fallback function does
+  -- NOT carry it. 'NC-024' already floors that caller through the meet over its
+  -- transitive callees, and body-faithfulness is a property of ONE body, unlike
+  -- termination, which is a property of a whole cycle ('NC-034').
+  --
+  -- Empty unless the emitter ran in the same invocation. A plain
+  -- 'verify --trust-report' exits before the emitter, so it shows no marker;
+  -- '--strict-verify' and '--proof-artifact' show it. The absence of the marker
+  -- therefore never reads as a claim of proof.
+  , trBodyFallback     :: Map Name (Text, [Text])
   } deriving (Show, Eq)
 
 -- | F-001 (adv-spec-weaken-0): module-level over-annotation ratio + the
@@ -524,6 +547,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trDecompMeet      = decompMeetMap  -- Cascade L3(d) (Rev 8): decomposition-trust meet
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
+       , trBodyFallback    = Map.empty  -- TRUST-CC-1: populated by markBodyFallback post-emit
        }
   where
     -- REC-PARTIAL-MARK: mirror of 'ObligationAssembly.recursiveNames:286-290'
@@ -601,6 +625,21 @@ markMeasureNotDecreasing mnd report =
 markDescentDischarged :: Set Name -> TrustReport -> TrustReport
 markDescentDischarged discharged report =
   report { trPartialFns = trPartialFns report `Set.difference` discharged }
+
+-- | TRUST-CC-1: stamp the per-function 'body_fallback' marker from THIS run's
+-- emit result. Post-emit, like 'markRefuted' is post-solver.
+--
+-- The caller passes the already-filtered map. Two causes are suppressed at the
+-- call site rather than here, because both mean no proof goal was lost and the
+-- marker would misdescribe the function:
+--
+--   * @no-post@      — there is no postcondition, so nothing was to be proved.
+--   * @unfilled-hole@ — the body is a scaffold, so nothing is written to prove.
+--
+-- Both are 'FallbackCause' constructors, so the filter is exact and needs no
+-- heuristic. See docs/design/trust-cc-1-proposal.md §7 cases 2 and 3.
+markBodyFallback :: Map Name (Text, [Text]) -> TrustReport -> TrustReport
+markBodyFallback marks report = report { trBodyFallback = marks }
 
 -- | TERM-REPORT-PLAIN: the functions whose persisted post evidence is
 -- descent-discharged ('erTerminationVerified'). The render-only trust-report
@@ -1482,7 +1521,8 @@ formatTrustReport :: TrustReport -> Text
 formatTrustReport report =
   let header = "Trust Report"
       separator = T.replicate 60 "─"
-      entryLines = concatMap formatEntry (sortOn teName (trEntries report))
+      entryLines = concatMap (formatEntry (trBodyFallback report))
+                             (sortOn teName (trEntries report))
       suppressionLines = formatSuppressions (trSuppressions report)
       summaryLines = formatSummary (trSummary report)
       staleLines = case trStaleDowngrades report of
@@ -1512,12 +1552,23 @@ shortHash h
   | "sha256:" `T.isPrefixOf` h = "sha256:" <> T.take 12 (T.drop 7 h) <> "…"
   | otherwise                  = T.take 16 h <> "…"
 
-formatEntry :: TrustEntry -> [Text]
-formatEntry e =
+formatEntry :: Map Name (Text, [Text]) -> TrustEntry -> [Text]
+formatEntry bodyFallback e =
   let preLbl  = maybe "—" (dlLabel . erDisplayLevel) (tePre e)
       postLbl = maybe "—" (dlLabel . erDisplayLevel) (tePost e)
       line1   = "  " <> teName e <> ":"
-      line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl
+      -- TRUST-CC-1: the marker sits ON the post, beside the tier it qualifies,
+      -- so a reader separates "assumed, the body left the fragment" from
+      -- "assumed, never examined" without leaving the line. The cause is
+      -- rendered as well as the labels: the cause is the closed
+      -- FALLBACK-REASON-CONST-1 vocabulary and is the stabler of the two.
+      fallbackNote = case Map.lookup (teName e) bodyFallback of
+        Nothing            -> ""
+        Just (cause, lbls) ->
+          "   [body_fallback: " <> cause
+            <> (if null lbls then "" else "; " <> T.intercalate ", " lbls)
+            <> "]"
+      line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl <> fallbackNote
       sourceLines = catMaybes
         [ (tePre e >>= erSource) >>= \s -> Just ("    source (pre):  " <> s)
         , (tePost e >>= erSource) >>= \s -> Just ("    source (post): " <> s)
@@ -1679,6 +1730,15 @@ formatTrustReportJson report =
       -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
       -- both. Informational; does not touch 'effective_level'.
       [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
+      -- TRUST-CC-1: per-entry body-fallback marker, only-when-present so an
+      -- entry without one stays byte-identical. Orthogonal to the tier: it
+      -- never touches 'effective_level'. Absent on a report path that did not
+      -- run the emitter, where its absence is not a claim of proof.
+      [ "body_fallback" .= object
+          [ "cause"     .= cause
+          , "constructs" .= lbls
+          ]
+      | Just (cause, lbls) <- [Map.lookup (teName e) (trBodyFallback report)] ] ++
       [ "measure_not_decreasing" .= True | Set.member (teName e) (trMeasureNotDecreasingFns report) ] ++
       -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
       -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on

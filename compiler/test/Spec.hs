@@ -52,7 +52,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -3804,6 +3804,26 @@ main = hspec $ do
     it "mkFnRecord still rejects a positive tier flagged refuted" $
       isLeft (mkFnRecord (FnInputs "f" TVerified [] Nothing True Nothing)) `shouldBe` True
 
+  describe "TRUST-CC-1: the body_fallback marker (proposal §5.3)" $ do
+    let mkRep = buildTrustReport DM.empty [] Map.empty
+        marks = Map.fromList [("classify", ("body-outside-fragment", ["match-wildcard-payload"]))]
+
+    it "is empty on a report the emitter did not touch" $
+      trBodyFallback mkRep `shouldBe` Map.empty
+
+    it "markBodyFallback records the cause and the constructs" $
+      trBodyFallback (markBodyFallback marks mkRep)
+        `shouldBe` Map.fromList [("classify", ("body-outside-fragment", ["match-wildcard-payload"]))]
+
+    -- §8 claim 2: the marker grants no trust. It is not a DisplayLevel, so it
+    -- cannot reach the meet, the cover relation, or the solver-backed test.
+    it "grants no trust: it touches no tier and no entry" $ do
+      let before = mkRep
+          after  = markBodyFallback marks mkRep
+      trEntries    after `shouldBe` trEntries before
+      trSummary    after `shouldBe` trSummary before
+      trTierProfile after `shouldBe` trTierProfile before
+
   describe "upgradeLeanstralPosts (proof-cache → trust surface, FIX B)" $ do
     -- A nonlinear `square` whose post escaped QF-LIA and landed at 'asserted'.
     let squarePost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
@@ -6694,7 +6714,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
@@ -6703,7 +6723,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty  -- empty: no origin for constraint 42
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -6717,7 +6737,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -6732,7 +6752,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -6747,7 +6767,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -6761,7 +6781,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"

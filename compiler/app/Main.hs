@@ -80,7 +80,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (markBodyFallback, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1445,6 +1445,17 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               descentDischargedSet =
                 descentDischargedFns stmts (erMeasuredFns emitR) bodyFaithfulSet
                   (case fqResult of { FQSafe -> True; _ -> False })
+              -- TRUST-CC-1: the per-function 'body_fallback' marker, from THIS
+              -- run's emit result. Suppress 'no-post' and 'unfilled-hole': both
+              -- mean no proof goal was lost, so the marker would misdescribe the
+              -- function (proposal §7 cases 2 and 3). The constructs come from
+              -- SHELL-FALLBACK-SILENT-1's closed label set; a cause with no
+              -- recorded construct renders the cause alone.
+              bodyFallbackMarks = Map.fromList
+                [ (n, (renderFallbackCause c, fromMaybe [] (lookup n (erFallbackConstructs emitR))))
+                | (n, c) <- erBodyFallbackCauses emitR
+                , c /= FallbackNoPost
+                , c /= FallbackHole ]
 
           -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
           -- embedded trust report is refuted-marked. Under
@@ -1452,7 +1463,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             oblSidecar <- loadVerified fp
-            let trustRpt = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))
+            let trustRpt = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1481,7 +1492,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               paSidecar <- loadVerified fp
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))
+              let paTrust = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar))))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 Left e   -> unless json $ TIO.putStrLn ("   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e)
                 Right pa -> do
@@ -1709,10 +1720,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
-            let report = markDescentDischarged descentDischargedSet
-                           (markMeasureNotDecreasing measureNotDecreasingSet
-                             (markRefuted refutedSet
-                               (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))
+            let report = markBodyFallback bodyFallbackMarks
+                           (markDescentDischarged descentDischargedSet
+                             (markMeasureNotDecreasing measureNotDecreasingSet
+                               (markRefuted refutedSet
+                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults))))
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -1739,7 +1751,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (cdpFlag && not strictCore) already threads
             -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))
+            let stReport = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults))))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json
