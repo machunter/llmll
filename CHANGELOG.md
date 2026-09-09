@@ -276,8 +276,11 @@ values to eight, and a new gate measures the tree on every CI run. Plan and runn
   without git are each a non-zero exit with a message.
 - **Cost, measured and not estimated:** 6 min 4 s at `--jobs 4` over 250 files, 11 min of CPU.
   Three files are most of it; `examples/heartbleed/secure-channel/sc-channel.llmll` alone takes
-  130 s with the machine idle. Workers take the biggest files first for that reason. The workflow
-  runs on pushes to `main` and on pull requests, so the cost is paid per PR.
+  130 s with the machine idle. Workers take the biggest files first for that reason. **Corrected
+  2026-09-09:** this entry said the workflow runs on pushes to `main` and on pull requests, so the
+  cost is paid per PR. It does not. The runner killed the CI step twice on release day and the step
+  was removed the same day, so `make fallback-census` is a local command and no gate records the
+  ratio per run. See `VERIFY-MEMORY-1` and `FALLBACK-CENSUS-1 residue (1)` in the roadmap.
 
 ### The first recorded run, and what it corrects
 
