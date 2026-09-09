@@ -4,6 +4,139 @@
 
 <a id="Latest"></a>
 
+## v0.23.0: a trust tier that nothing produced leaves the lattice (2026-09-09)
+
+**`TRUST-CC-1` ships, and `DISCLOSE-ROW-1` closes with it.** `contract-checked` was one of two
+middle elements of the evidence lattice and **no component of the compiler ever assigned it**.
+v0.22.1 measured that and left the design question open; this settles it. The level retires, the
+diamond collapses to a chain, and the state the name was reaching for becomes an orthogonal
+marker. Design: [`docs/design/trust-cc-1-proposal.md`](docs/design/trust-cc-1-proposal.md).
+Review: two professor rounds, both adopted, folded into the proposal's appendix.
+
+### Why retire rather than give it a producer
+
+Two independent grounds, and the second is the one that decides it.
+
+- **The definition is not implementable under either reading.** "The solver proved contract
+  consistency (pre ⇒ post is valid — holds for all models of the contract pair)" can mean
+  `result` is free, in which case the check is **false** for any contract that constrains the
+  result; or it can mean models in which the pair holds, in which case it is **vacuous** and
+  marks every contract equally. No producer matches the level's own definition.
+- **The project's own LCF kernel already forbade the acquisition path the spec stated.**
+  `mkFnRecord` in `ProofArtifact.hs` rejects a positive tier carrying a `fallback_reason`, and
+  `isPositiveTier` counted `contract-checked` as positive. `LLMLL.md` §4.4 gave the acquisition
+  path as "`verify` reports SAFE for a fallback function". The spec and the kernel contradicted
+  each other and the kernel is the side that runs.
+
+The level had **elimination rules and no introduction rule**: `isSolverBacked` extracted trust
+from it, `evidenceMeet` and `evidenceCovers` computed with it, `emitTrustGap` suppressed a warning
+on it, and nothing introduced it.
+
+### One real narrowing, which the proposal did not name
+
+`isSolverBacked` answered `True` for the tier, and `Main.hs` matched the constructor **directly**
+into the CDP `verifMap` rather than going through `isSolverBacked`. So a hand-written
+`(trust f :level contract-checked)` in program source counted as solver-backed evidence and could
+change a CDP judgement, with no sidecar involved. The surface is now rejected at parse time with
+an error naming `TRUST-CC-1`. Measured: **0 tracked programs** wrote it.
+
+### What still reads the name, and why that is deliberate
+
+Two persisted formats keep the string on the **read** side only. A fail-closed reader would break
+files that already exist.
+
+- **`.verified.json`** reads it as `asserted` and prints one warning. It must not fail: `erFromJSON`
+  binds the level in the `Maybe` monad, so a `Nothing` would discard the whole `EvidenceRecord`,
+  taking a legitimate `body_faithful` claim and `:source` provenance with it. Measured: **0 of 519**
+  tracked sidecars carry the value.
+- **`proof-artifact.json`** maps it to the non-positive `asserted` tier, so a pre-retirement
+  artifact still parses and still replays. `FromJSON FnRecord` fails the parse on an unknown
+  `evidence_level`, so dropping the enum value would have made every such artifact unreplayable.
+  `docs/proof-artifact.schema.json` keeps the value with a read-only note.
+
+Nothing writes the string: the `tierText` clause went with the constructor.
+
+### `body_fallback` — the state the tier was named after
+
+A function whose body the emitter refused now carries a per-entry `body_fallback` object with the
+fallback `cause` (the closed `FALLBACK-REASON-CONST-1` vocabulary) and the `constructs` that
+refused it (the closed `SHELL-FALLBACK-SILENT-1` label set). In text it sits on the post line:
+
+```
+  classify:
+    pre:  —  |  post: asserted   [body_fallback: body-outside-fragment; match-wildcard-payload]
+```
+
+Without it, `asserted` merges two different states: *`verify` ran and the emitter refused this
+body* and *nothing ever examined this function*.
+
+It is **not** a `DisplayLevel`. Like `termination_unverified` it is derived at report-build time,
+never persisted, and invisible to `evidenceMeet`, `evidenceCovers`, `isSolverBacked`, the effective
+level, `refutedClosure` and `--strict-verified-core` admission. Two properties are worth stating
+because both are easy to assume wrongly:
+
+- **Local, not transitive.** A caller does not carry it. `NC-024` already floors that caller
+  through the meet over its transitive callees, and body-faithfulness is a property of one body —
+  unlike termination, which is a property of a whole cycle and is marked on every member (`NC-034`).
+- **Present only where the emitter ran in the same invocation.** `--strict-verify` and
+  `--proof-artifact` show it; a plain `verify --trust-report` exits before the emitter and shows
+  none. Its absence is never a claim of proof. Suppressed for `no-post` and `unfilled-hole`, which
+  lost no proof goal.
+
+### `open_spec_rows` — what is specified and not enforced (`DISCLOSE-ROW-1`)
+
+The row had two halves and needed two mechanisms, which is why the marker did not close it alone.
+The report now carries a top-level `open_spec_rows` array, and a text section:
+
+```
+Specified but not enforced (open roadmap rows this program touches):
+  ⚑ CAP-1-REAL — capability clause on an import: the clause records the intended verb and target
+    and is NOT enforced; the checked property is namespace declaration, not least authority
+```
+
+It is derived from the live source inside `buildTrustReport`, so unlike `body_fallback` it is
+present on **every** report path including a solver-less render — the path a reader actually runs.
+The mapping source is the `row`-disposition claims in `scripts/norm-claims/registry.json`
+(`NC-031` → `CAP-1-REAL` is the one today). One line per **row**, not per occurrence of the
+surface. Disclosure only: it changes no tier, feeds no meet, gates no admission.
+
+### The wire format did not break
+
+`contract_checked` **remains** in the trust-report JSON as a structural zero. It is listed in the
+`required` array of both `$defs/TrustSummary` and `$defs/TierProfile`, so removing the key would
+have made every report the compiler emits fail the schema this repository publishes. The
+human-readable summary line is gone, which is the surface an agent reads as a false affordance.
+Both new keys are additive, so `trust_report_version` stays `1.6.0` and no `llmll-ast.schema.json`
+change was needed — a trust tier is not an AST node shape.
+
+### Verified rather than argued
+
+- **The `.fq` is byte-identical.** 8 programs, compared against the pre-change binary copied aside
+  before the rebuild. The emitter never reads a `DisplayLevel`, and this is the acceptance test for
+  that claim (proposal §8 claim 1).
+- **The suppression filter does work.** On a scaffold the emitter *does* record `unfilled-hole` and
+  the marker is still absent, so the rule is not passing vacuously.
+- **The sidecar rule keeps the record.** A forged sidecar renders `asserted` plus one warning while
+  its `:source` line survives; the same sidecar with `verified` renders `verified (forged)`, which
+  proves the sidecar is genuinely read on that path.
+- **`mkFnRecord`'s rule still fires** over the tiers that remain positive.
+
+### Two pre-existing defects found by this work, filed and not fixed
+
+- **`SCHEMA-DRIFT-1`** — the trust report emits a top-level `harness_assumptions` key that
+  `docs/llmll-trust-report.schema.json` does not list, and that schema sets
+  `additionalProperties: false`. It is the only such key, so **the published schema rejects every
+  report the compiler emits**. Pre-existing on `main`. No gate validates an emit against the
+  schema, which is why it was invisible.
+- **`DLTOJSON-PARTIAL-1`** — `VerifiedCache.dlToJSON` has no `DLTestedJoint` clause. Unreachable
+  today (joint reclassification is report-only and never reaches `saveVerified`), but it is a
+  `PatternMatchFail` rather than a diagnostic if joint evidence is ever persisted. A new test hit
+  it; the test was scoped to the writable levels rather than made to pass over the partiality.
+
+**Tests:** 1942 hspec examples, 0 failures (1923 before). pytest 218 passed, 23 skipped (unchanged).
+
+---
+
 ## v0.22.1: a function that loses body-faithful verification says so (2026-09-08)
 
 **`SHELL-FALLBACK-SILENT-1` ships.** A function could lose body-faithful verification, admit a

@@ -186,7 +186,7 @@
     {
       "id": "NC-022",
       "section": "1.4a",
-      "text": "Each contract clause carries a *display level* — `verified`, `contract-checked`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.",
+      "text": "Each contract clause carries a *display level* — `verified`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.",
       "disposition": "fixture",
       "target": [
         "scripts/doc-claims/display-level-verified.llmll"
