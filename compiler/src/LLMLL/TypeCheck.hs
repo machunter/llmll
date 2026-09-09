@@ -62,7 +62,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, fromMaybe, isJust)
+import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing)
 import Data.List (nub, (\\))
 import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void)
@@ -1727,6 +1727,7 @@ checkStatement (SDef name params mRet contract body) = do
 -- Same type-checking rules as SDefLogic; no structural or callee-admissibility restrictions.
 checkStatement (SDefShell name params mRet contract body decreases) = do
   lintContractReads name params contract          -- CONTRACT-READ-LINT
+  warnWildcardPayload name contract body          -- SHELL-FALLBACK-SILENT-1
   withFunctionContext name False $ do
     withTaggedEnv SrcParam params $ do
       bodyType <- case (mRet, body) of
@@ -3229,6 +3230,44 @@ exprContainsVar v (EAwait e)        = exprContainsVar v e
 exprContainsVar v (EDo steps)       = any (\(DoStep _ e _) -> exprContainsVar v e) steps
 exprContainsVar _ (ELit _)          = False
 exprContainsVar _ (EHole _)         = False
+
+-- SHELL-FALLBACK-SILENT-1 (W-MATCH-WILDCARD-PAYLOAD): a def-shell match arm
+-- writes a constructor payload as '_' where binding it by name would let the
+-- verifier eliminate the match.
+--
+-- Three gates, and each one is a measurement rather than a taste.
+--
+--   * A POST must exist. Without one there is no proof goal to lose: the emitter
+--     reports 'FallbackNoPost' and never reaches the body path. Gated, this
+--     warning fires on ZERO functions in the tracked tree today; ungated it fires
+--     on 83, over 265 arms in 10 files, none of which has a post.
+--   * The body must hold NO hole. A scaffold has nothing written to prove, and
+--     the emitter reports 'FallbackHole' for it, so warning here would disagree
+--     with the verifier about the same function.
+--   * The arm set must be REPAIRABLE ('Syntax.repairableWildcardArms'), decided
+--     with the two classifiers the emitter itself refuses bodies with, so the
+--     sentence "bind the payload by name" is true when we print it.
+--
+-- A def never gets here: 'checkStatement' for SDef refuses a wildcard payload as
+-- the hard error 'mkCoreGrammarViolation'. A def-shell said nothing at all, which
+-- is the asymmetry this closes. Severity is a warning, never an error: an error
+-- would refuse programs LLMLL.md §4.1 admits.
+--
+-- KNOWN FALSE NEGATIVE, and it is deliberate. A def-shell whose proof goal comes
+-- from a refinement-aliased RETURN rather than a written post (DEF-RET folds it
+-- in at emission, via 'augmentContractPost') has 'contractPost' = Nothing here,
+-- so this warning stays quiet on it. The disclosure is not lost: the emitter's
+-- W-BODY-FALLBACK still fires on that function, because the folded post makes it
+-- reach the body path. Closing it here would need the alias map at check time,
+-- which buys one warning site for a coupling this gate does not otherwise need.
+warnWildcardPayload :: Name -> Contract -> Expr -> TC ()
+warnWildcardPayload name contract body =
+  unless (isNothing (contractPost contract) || hasHole body) $ do
+    let repairable = filter repairableWildcardArms (matchArmSets body)
+        ctors      = nub (concatMap wildcardPayloadCtors repairable)
+    unless (null ctors) $
+      modify $ \s -> s
+        { tcErrors = tcErrors s ++ [mkMatchWildcardPayloadWarning name ctors] }
 
 -- CONTRACT-READ-LINT: warn on a statically out-of-bounds bytes read in a
 -- contract clause (pre/post) — the decidable slice: a literal index against a

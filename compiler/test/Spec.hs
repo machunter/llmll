@@ -6,7 +6,7 @@ import Control.Monad (forM_, when)
 import Control.Exception (finally)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe, fromMaybe)
+import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe, fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Encoding as TE
@@ -17870,7 +17870,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "pn" er `shouldBe` Just FallbackContractPre
       consOf  "pn" er `shouldBe` Just ["nonlinear:*"]
 
-    it "every constructs entry names a function that fell back, and body causes carry none" $ do
+    -- SHELL-FALLBACK-SILENT-1 changed the second half of this example. Until
+    -- that pass a body cause carried NO constructs (the recording site passed a
+    -- literal []), so the census could name the function and the bucket but
+    -- never the arm. A body cause now carries labels; a HOLE cause still carries
+    -- none, because a scaffold has nothing written to refuse.
+    it "every constructs entry names a function that fell back; a body cause carries labels, a hole none" $ do
       er <- emitFC (unlines
         [ "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"
         , "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))"
@@ -17878,7 +17883,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       map fst (erFallbackConstructs er) `shouldSatisfy`
         all (`elem` erBodyFallback er)
       causeOf "sq" er `shouldBe` Just FallbackBody
-      consOf  "sq" er `shouldBe` Nothing
+      consOf  "sq" er `shouldBe` Just ["nonlinear:*"]
       consOf  "h"  er `shouldBe` Nothing
 
     it "refusedConstructs reports nothing for a clause that translates" $ do
@@ -17893,6 +17898,186 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       hasHole (EHole (HNamed "x")) `shouldBe` True
       hasHole (EIf (EVar "b") (EHole (HNamed "x")) (ELit (LitInt 0))) `shouldBe` True
       hasHole (EIf (EVar "b") (ELit (LitInt 1)) (ELit (LitInt 0))) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- SHELL-FALLBACK-SILENT-1: a lost body-faithful claim says so.
+  --
+  -- Before this pass a function could lose body-faithful verification, admit a
+  -- FALSE post, and report SAFE with nothing said at check and only its name
+  -- said at verify. Two warnings close it. W-BODY-FALLBACK is raised by the
+  -- emitter and names what refused the body; W-MATCH-WILDCARD-PAYLOAD is raised
+  -- at check and names the repair.
+  --
+  -- The row's own wording was wrong in three ways and each correction is pinned
+  -- below: trigger 1 fires in a def as well as a def-shell; the admissible
+  -- payload set is exactly {int, bool, string}, so a NON-recursive sum falls back
+  -- too; and the wildcard trigger reaches a Result match, which is core syntax in
+  -- both forms and falls back anyway.
+  -- Design: docs/design/shell-fallback-silent-1-proposal.md.
+  -- -----------------------------------------------------------------------
+  describe "SHELL-FALLBACK-SILENT-1: the lost body-faithful claim is reported" $ do
+    let emitSF src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        checkSF src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> typeCheck GrammarCoreInversion emptyEnv stmts
+        causeOf n er = lookup n (erBodyFallbackCauses er)
+        consOf  n er = lookup n (erFallbackConstructs er)
+        emitWarns er = [ diagMessage d | d <- erDiagnostics er
+                       , diagCode d == Just "W-BODY-FALLBACK" ]
+        checkWarns r = [ diagMessage d | d <- reportDiagnostics r
+                       , diagCode d == Just "W-MATCH-WILDCARD-PAYLOAD" ]
+        boxI = "(type BoxI (| HoldsI int) (| NoneI))"
+
+    -- Rule 1, at the emitter.
+
+    it "SFS-1 a wildcard payload is labelled match-wildcard-payload and warned" $ do
+      er <- emitSF (unlines
+        [ boxI
+        , "(def-shell w [b: BoxI] -> int (post (> result 5))"
+        , "  (match b ((HoldsI _) 1) ((NoneI) 0)))" ])
+      causeOf "w" er `shouldBe` Just FallbackBody
+      consOf  "w" er `shouldBe` Just ["match-wildcard-payload"]
+      emitWarns er `shouldSatisfy` any (T.isInfixOf "'HoldsI'")
+
+    it "SFS-2 an inadmissible payload in a DEF is labelled and warned: the row is not def-shell only" $ do
+      er <- emitSF (unlines
+        [ "(type Tree (| Node Tree) (| Leaf))"
+        , "(type Box2 (| Holds Tree) (| Nothing2))"
+        , "(def d [b: Box2] -> int (post (> result 5))"
+        , "  (match b ((Holds t) 1) ((Nothing2) 0)))" ])
+      causeOf "d" er `shouldBe` Just FallbackBody
+      consOf  "d" er `shouldBe` Just ["match-payload-sort"]
+      emitWarns er `shouldSatisfy` any (T.isInfixOf "'d'")
+
+    it "SFS-3 a NON-recursive sum payload is inadmissible too: the line is {int,bool,string}" $ do
+      er <- emitSF (unlines
+        [ "(type Inner (| A) (| B))"
+        , "(type Outer (| Wrap Inner) (| None4))"
+        , "(def-shell s [b: Outer] -> int (post (> result 5))"
+        , "  (match b ((Wrap i) 1) ((None4) 0)))" ])
+      consOf "s" er `shouldBe` Just ["match-payload-sort"]
+
+    it "SFS-4 a bool payload is admissible, so the body verifies and nothing warns" $ do
+      er <- emitSF (unlines
+        [ "(type BoxB (| HoldsB bool) (| NoneB))"
+        , "(def-shell bp [b: BoxB] -> int (post (>= result 0))"
+        , "  (match b ((HoldsB p) 1) ((NoneB) 0)))" ])
+      erBodyFaithfulFns er `shouldBe` ["bp"]
+      emitWarns er `shouldBe` []
+
+    it "SFS-5 a Result match with wildcard payloads is labelled and warned" $ do
+      er <- emitSF (unlines
+        [ "(def-shell r [x: Result[int,string]] -> int (post (> result 5))"
+        , "  (match x ((Success _) 1) ((Error _) 0)))" ])
+      consOf "r" er `shouldBe` Just ["match-wildcard-payload"]
+
+    it "SFS-6 negative control: a body-faithful function raises no W-BODY-FALLBACK" $ do
+      er <- emitSF (unlines
+        [ boxI
+        , "(def-shell n [b: BoxI] -> int (post (>= result 0))"
+        , "  (match b ((HoldsI k) 1) ((NoneI) 0)))" ])
+      erBodyFaithfulFns er `shouldBe` ["n"]
+      emitWarns er `shouldBe` []
+
+    it "SFS-7 negative control: a scaffold reports unfilled-hole and raises no warning" $ do
+      er <- emitSF (unlines
+        [ boxI
+        , "(def-shell h [b: BoxI] -> int (post (> result 5))"
+        , "  (match b ((HoldsI _) ?todo) ((NoneI) 0)))" ])
+      causeOf "h" er `shouldBe` Just FallbackHole
+      emitWarns er `shouldBe` []
+
+    it "SFS-8 every body-cause label comes from the closed set" $ do
+      er <- emitSF (unlines
+        [ boxI
+        , "(def-shell w [b: BoxI] -> int (post (> result 5))"
+        , "  (match b ((HoldsI _) 1) ((NoneI) 0)))"
+        , "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))" ])
+      let closed = [ "match-wildcard-payload", "match-payload-sort", "match-arm-shape" ]
+          bodyLabels = concat [ ls | (n, ls) <- erFallbackConstructs er
+                              , causeOf n er == Just FallbackBody ]
+      bodyLabels `shouldSatisfy` all (\l -> l `elem` closed || T.isPrefixOf "nonlinear:" l
+                                             || T.isPrefixOf "app:" l || l `elem` ["if","let","match","pair","lambda","do","var","lit"])
+
+    -- Rule 2, at check.
+
+    it "SFS-9 check warns W-MATCH-WILDCARD-PAYLOAD and still succeeds" $ do
+      let r = checkSF (unlines
+                [ boxI
+                , "(def-shell w [b: BoxI] -> int (post (> result 5))"
+                , "  (match b ((HoldsI _) 1) ((NoneI) 0)))" ])
+      reportSuccess r `shouldBe` True
+      checkWarns r `shouldSatisfy` any (T.isInfixOf "'HoldsI'")
+      map diagSeverity (reportDiagnostics r) `shouldSatisfy` all (== SevWarning)
+
+    it "SFS-10 negative control: no post, no warning (the 83-function population)" $ do
+      let r = checkSF (unlines
+                [ boxI
+                , "(def-shell w [b: BoxI] -> int"
+                , "  (match b ((HoldsI _) 1) ((NoneI) 0)))" ])
+      checkWarns r `shouldBe` []
+
+    it "SFS-11 negative control: a bound payload does not warn" $ do
+      let r = checkSF (unlines
+                [ boxI
+                , "(def-shell w [b: BoxI] -> int (post (> result 5))"
+                , "  (match b ((HoldsI k) 1) ((NoneI) 0)))" ])
+      checkWarns r `shouldBe` []
+
+    it "SFS-12 negative control: a hole in the body suppresses the check warning" $ do
+      let r = checkSF (unlines
+                [ boxI
+                , "(def-shell h [b: BoxI] -> int (post (> result 5))"
+                , "  (match b ((HoldsI _) ?todo) ((NoneI) 0)))" ])
+      checkWarns r `shouldBe` []
+
+    it "SFS-13 check warns on the Result shape the narrow reading misses" $ do
+      let r = checkSF (unlines
+                [ "(def-shell r [x: Result[int,string]] -> int (post (> result 5))"
+                , "  (match x ((Success _) 1) ((Error _) 0)))" ])
+      checkWarns r `shouldSatisfy` any (T.isInfixOf "'Success'")
+
+    -- The drift guard. Rule 2 tells an author that binding the payload repairs
+    -- the function. That sentence is true only while 'repairableWildcardArms'
+    -- and the two classifiers the emitter refuses bodies with agree, which is
+    -- why all three now live in LLMLL.Syntax.
+    it "SFS-14 repairableWildcardArms agrees with the classifiers the emitter uses" $ do
+      let b        = ELit (LitInt 0)
+          wildArm c = (PConstructor c [PWildcard], b)
+          boundArm c v = (PConstructor c [PVar v], b)
+          nullArm  c = (PConstructor c [], b)
+      -- repairable: the repaired set classifies
+      repairableWildcardArms [wildArm "HoldsI", nullArm "NoneI"] `shouldBe` True
+      repairableWildcardArms [wildArm "Success", wildArm "Error"] `shouldBe` True
+      -- not repairable: nothing to repair
+      repairableWildcardArms [boundArm "HoldsI" "k", nullArm "NoneI"] `shouldBe` False
+      -- not repairable: a multi-payload arm stays outside after the repair
+      repairableWildcardArms [(PConstructor "P" [PVar "a", PVar "c"], b), nullArm "Q"]
+        `shouldBe` False
+      -- the repaired sets are exactly what the emitter accepts
+      classifyResultArms [boundArm "Success" "x", boundArm "Error" "e"]
+        `shouldSatisfy` isJust
+      classifyResultArms [wildArm "Success", wildArm "Error"]
+        `shouldSatisfy` isNothing
+      classifyNArmAdtArms [boundArm "HoldsI" "x", nullArm "NoneI"]
+        `shouldSatisfy` isJust
+      classifyNArmAdtArms [wildArm "HoldsI", nullArm "NoneI"]
+        `shouldSatisfy` isNothing
+
+    -- Acceptance item 1 of the design: the paired witness. One character apart,
+    -- opposite verdicts. A test that only asserted the warning text would pass
+    -- against a warning that fired everywhere.
+    it "SFS-15 the paired fixture: the wildcard form is SAFE, the bound form is refuted" $ do
+      wildSrc  <- TIO.readFile "test/fixtures/shell-fallback-silent/wild.llmll"
+      boundSrc <- TIO.readFile "test/fixtures/shell-fallback-silent/bound.llmll"
+      erW <- emitSF (T.unpack wildSrc)
+      erB <- emitSF (T.unpack boundSrc)
+      causeOf "classify" erW `shouldBe` Just FallbackBody
+      erBodyFaithfulFns erB `shouldBe` ["classify"]
+      emitWarns erW `shouldSatisfy` (not . null)
+      emitWarns erB `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- DUP-DEF-1: a top-level name is bound once per module. Until this pass

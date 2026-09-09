@@ -525,23 +525,30 @@ P ∧ (result = ⟦B⟧) ⟹ Q
 
 This means `DLVerified` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
 
-**Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a recursive-sum payload, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
+**Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a payload the fragment cannot admit (anything other than `int`, `bool` or `string` — a recursive sum and a non-recursive user sum alike), a match arm that discards its payload with `_` instead of binding it, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
-**JSON output:** `--json verify` appends five keys to the report object. `body_faithful` and `body_fallback` are name lists. `body_fallback_causes` gives one of eight fixed strings per fallen-back function: `contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`, `unfilled-hole` (the body is a scaffold: nothing is written to prove), and `no-post` (there is no proof goal). `body_fallback_constructs` names what refused a contract clause — the minimal sub-terms the fragment cannot express, or the guard that refused the whole clause — and is absent for a function whose cause is not a contract clause. `fn_kinds` gives each function's definition form.
+**JSON output:** `--json verify` appends five keys to the report object. `body_faithful` and `body_fallback` are name lists. `body_fallback_causes` gives one of eight fixed strings per fallen-back function: `contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`, `unfilled-hole` (the body is a scaffold: nothing is written to prove), and `no-post` (there is no proof goal). `body_fallback_constructs` names what refused the function. For a contract clause it gives the minimal sub-terms the fragment cannot express, or the guard that refused the whole clause. For a body it gives one of three closed labels: `match-wildcard-payload` (an arm writes its payload as `_`, and binding it by name repairs the match), `match-payload-sort` (the scrutinee carries a payload the fragment cannot admit — anything other than `int`, `bool` or `string`), or `match-arm-shape` (an arm set outside the admitted shapes for another reason). A scaffold carries no constructs: nothing is written to refuse. `fn_kinds` gives each function's definition form.
 
 ```json
 {
   "body_faithful": ["withdraw"],
-  "body_fallback": ["square", "render", "helper"],
+  "body_fallback": ["square", "render", "classify", "helper"],
   "body_fallback_causes": {
     "square": "body-outside-fragment",
     "render": "contract-post-outside-fragment",
+    "classify": "body-outside-fragment",
     "helper": "no-post"
   },
-  "body_fallback_constructs": { "render": ["app:string-concat"] },
-  "fn_kinds": { "withdraw": "def", "square": "def-shell", "render": "def-shell", "helper": "def" }
+  "body_fallback_constructs": {
+    "render": ["app:string-concat"],
+    "square": ["nonlinear:*"],
+    "classify": ["match-wildcard-payload"]
+  },
+  "fn_kinds": { "withdraw": "def", "square": "def-shell", "render": "def-shell", "classify": "def-shell", "helper": "def" }
 }
 ```
+
+**The warning that says a claim was lost.** A function reaching this path admits its postcondition instead of proving it, and the top-line verdict is still `SAFE`. `verify` therefore raises `W-BODY-FALLBACK` for it, naming the function, the cause, and the construct that refused the body; when a match arm is at fault it names the constructor and the repair. The warning rides `--json verify` alongside the keys above. It cannot fire on a function with no proof goal, because `no-post` is decided before the body is translated.
 
 `--json verify --strict-verified-core` carries the same five keys, so one reader shape serves a
 file that passes and a file the flag refuses.
@@ -914,6 +921,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` in the module (position does not matter) before relying on any `wasi.io.*` call |
 | `(open ...)` placed after a `def` that uses its bare names | `typecheck` passes with only a warning; `verify` and `build` fail with `error: call to unknown function` | Put `open` before any `def`/`def-shell` relying on its bare names (unlike `import`/`export`, `open` is order-sensitive) |
+| Discarding a match payload with `_` in a contracted `def-shell`, as in `((Holds _) 1)` | The verifier cannot eliminate the match, so the body is never encoded and the postcondition is **assumed**. A false post reports SAFE. `check` warns `W-MATCH-WILDCARD-PAYLOAD` and `verify` warns `W-BODY-FALLBACK` | Bind the payload by name — `((Holds n) 1)` — even when the arm body ignores it. The same shape in a `def` is the hard error `core-grammar-violation` |
 
 > [!NOTE]
 > **`(module ...)` imports — position and capability.** `import` statements are collected regardless of

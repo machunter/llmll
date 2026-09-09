@@ -1,0 +1,7 @@
+;; @expect: verify UNSAFE. Identical to wild.llmll except that the payload is
+;; BOUND ('n' instead of '_'). The match now eliminates, the body VC is emitted,
+;; and the same false post is refuted on both branches.
+(type BoxI (| HoldsI int) (| NoneI))
+(def-shell classify [b: BoxI] -> int
+  (post (> result 5))
+  (match b ((HoldsI n) 1) ((NoneI) 0)))

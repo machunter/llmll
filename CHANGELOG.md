@@ -4,6 +4,88 @@
 
 <a id="Latest"></a>
 
+## v0.22.1: a function that loses body-faithful verification says so (2026-09-08)
+
+**`SHELL-FALLBACK-SILENT-1` ships.** A function could lose body-faithful verification, admit a
+**false** postcondition, and report SAFE. `check` said nothing. `verify` said the function's name
+and no more. Two warnings close that, and neither changes a verdict, an exit code or a `.fq` byte.
+Design: [`docs/design/shell-fallback-silent-1-proposal.md`](docs/design/shell-fallback-silent-1-proposal.md).
+
+### The witness, which is one character wide
+
+```lisp
+(type BoxI (| HoldsI int) (| NoneI))
+(def-shell classify [b: BoxI] -> int
+  (post (> result 5))
+  (match b ((HoldsI _) 1) ((NoneI) 0)))
+```
+
+The post is false of this body: both arms return less than 5. `verify` reports **SAFE**. Bind the
+payload — write `n` for `_` — and the same false post is **refuted on both branches**. The two
+files ship as `compiler/test/fixtures/shell-fallback-silent/wild.llmll` and `bound.llmll`, and a
+test asserts the verdicts differ, so a warning that fired everywhere would fail it.
+
+### The two warnings
+
+- **`W-BODY-FALLBACK`**, from the emitter, on `verify`. It names the function, the cause, and the
+  construct that refused the body; when a match arm is at fault it names the constructor and the
+  repair. It rides `verify --json` through the `EMIT-DIAG-JSON` fold. It cannot fire on a function
+  with no proof goal: `no-post` is decided before the body path is reached.
+- **`W-MATCH-WILDCARD-PAYLOAD`**, from the type checker, on `check`. It fires when a `def-shell`
+  carries a post, holds no hole, and writes a match payload as `_` where binding it by name would
+  verify the body. `check` keeps exit 0, and `check --strict` does not raise it to an error.
+- **The asymmetry it closes.** In a `def` the same body is the hard error
+  `core-grammar-violation`, which names the function and suggests `def-shell`. In a `def-shell`
+  nothing was said at all. The author who chose the permissive form learned nothing.
+
+### `body_fallback_constructs` now covers the body side
+
+The field was populated only for a contract-side refusal; the recording site passed a literal
+empty list for a body cause, so the census could name the function and the bucket but never the
+arm. Three labels join the closed vocabulary: **`match-wildcard-payload`** (a payload written
+`_`, where binding it repairs the match), **`match-payload-sort`** (a payload the fragment cannot
+admit), and **`match-arm-shape`** (an arm set outside the admitted shapes for another reason).
+The labels stay closed, so the census histogram keeps stable buckets; a constructor name rides the
+warning text only, never a bucket.
+
+### Three corrections to the row, each measured rather than argued
+
+- **The first trigger is not `def-shell` specific.** A plain `def` with an inadmissible payload
+  passes `check`, falls back at emission, and reports a false post as SAFE. The row's scope was
+  too narrow, and this is why the emitter carries the warning.
+- **The admissible payload set is exactly `int`, `bool` and `string`.** A **non-recursive** user
+  sum payload falls back too, so recursion is not the line. The v0.22.0 record had corrected
+  "non-integer" to "recursive"; that was also wrong.
+- **The wildcard trigger reaches a `Result` match.** `((Success _) …) ((Error _) …)` is core
+  syntax in both `def` forms, falls back anyway, and binding the payloads repairs it. A test
+  written against the narrower reading would have missed the case entirely.
+
+### Where the two admissibility answers now live
+
+`classifyResultArms`, `classifyNArmAdtArms` and `hasHole` move from `FixpointEmit` to `Syntax`.
+The check-time warning tells an author that binding the payload repairs the function, and that
+sentence is true only while the checker and the emitter agree on what admissible means. One
+definition serves both, rather than two that could drift with no gate to catch it. `FixpointEmit`
+re-exports all three and its call sites are unchanged.
+
+### Measured
+
+- **Population, before and after the gate.** 83 functions in the tracked tree carry a repairable
+  wildcard arm, over 265 arms in 10 files, and **none of them carries a post**. Gated on a post,
+  `W-MATCH-WILDCARD-PAYLOAD` fires on **0 of 330** tracked sources today, and fires on the first
+  function that gains one. Tree-wide, 9 `body-outside-fragment` entries carry a post.
+- **No `.fq` change.** `examples/leanstral-demo/square.llmll` is 335 bytes, the figure v0.19.0
+  and v0.22.0 both record.
+- **The census does not move:** 250 files, ratio 0.984 (695 of 706), strict-pass 98, ratchet
+  passes. 0 of 31 doc-claim fixtures change behaviour. No JSON-AST schema change.
+- **Known false negative, recorded beside the gate.** A `def-shell` whose proof goal comes from a
+  refinement-aliased return has no written post, so the check warning stays quiet on it.
+  `W-BODY-FALLBACK` still fires on that function at `verify`, so the disclosure is not lost.
+
+1923 examples, 0 failures (1908 before). pytest 218 passed, 23 skipped (unchanged).
+
+---
+
 ## v0.22.0: a scaffold and a missing post stop being called fragment escapes, and the ratio is measured every run (2026-09-08)
 
 **`FALLBACK-CENSUS-1` ships.** The tree-wide body-faithful ratio decides whether `RESP-FACT-1`
@@ -826,7 +908,7 @@ This completes what v0.14.97 began at twelve sites in [`build_smoke.sh`](scripts
 
 ### Ported: `DRIFT-DOC-4`, the prose path-citation lint (TOOL-RFC-005)
 
-[`scripts/doc_path_lint.py`](scripts/doc_path_lint.py), 180 lines, becomes [`pathlint.llmll`](tools/doc-path-lint/pathlint.llmll) (564 lines) over a proved core, [`adjudicate.llmll`](tools/doc-path-lint/adjudicate.llmll) (98 lines). Both implementations now run as adjacent steps in the `spec-roundtrip` job, which is what `tool_state: oracle` means here: they decide over the same tree in the same run and a reader compares them in one log. DRIFT-DOC-4 left the fast banner job **wholesale** in the same commit as the port, rather than being duplicated across two jobs.
+`scripts/doc_path_lint.py`, 180 lines, becomes [`pathlint.llmll`](tools/doc-path-lint/pathlint.llmll) (564 lines) over a proved core, [`adjudicate.llmll`](tools/doc-path-lint/adjudicate.llmll) (98 lines). Both implementations now run as adjacent steps in the `spec-roundtrip` job, which is what `tool_state: oracle` means here: they decide over the same tree in the same run and a reader compares them in one log. DRIFT-DOC-4 left the fast banner job **wholesale** in the same commit as the port, rather than being duplicated across two jobs.
 
 **This is the first port that verifies in CI**, and that surfaced a workflow defect the job had never been able to show. `llmll verify` proves nothing on its own; it calls `fixpoint`, which calls z3. The `spec-roundtrip` job had neither, because no gate in it had ever needed one. The verify step now sits **below** the toolchain assertion rather than above it.
 
@@ -973,7 +1055,7 @@ live run could not reach.
 
 ### Added: `TOOL-RFC-004`, the archive-disposition gate decides in LLMLL
 
-[`doc_archive_gate.sh`](scripts/doc_archive_gate.sh) is DRIFT-DOC-3. It checks
+`doc_archive_gate.sh` is DRIFT-DOC-3. It checks
 that every archived document under `docs/archive/` declares an
 `archive-disposition` whose value its directory agrees with. 218 bash lines
 become 575 of LLMLL across two modules,
@@ -1509,7 +1591,7 @@ and the CI wiring that makes it decide.
 ### Added: TOOL-RFC-003, the doc-claim drift gate in LLMLL
 
 [`tools/doc-claims/docclaims.llmll`](tools/doc-claims/docclaims.llmll)
-reproduces [`scripts/doc_claims_gate.sh`](scripts/doc_claims_gate.sh): each of
+reproduces `scripts/doc_claims_gate.sh`: each of
 the 15 fixtures in `scripts/doc-claims/` runs through a named compiler, and the
 observed verdict is asserted against that fixture's `;; @expect:` header. The
 gate exists to catch documentation that has drifted from compiler behaviour,
@@ -3341,7 +3423,7 @@ removed.
   thresholded, mechanical:* a span one line short of its own sentence, and a declared strength
   absent from the quote. Both of those fire on correct rows, so failing closed on either would
   demand that a correct row be mangled to pass, which is the reasoning
-  [`scripts/doc_path_lint.py`](scripts/doc_path_lint.py) records for staying advisory.
+  `scripts/doc_path_lint.py` records for staying advisory.
   *Delegated:* whether a stated reason describes the clause it cites, which is a reading. The
   agent returns a catalogue and the driver evaluates it, per section 7.
 
@@ -3642,7 +3724,7 @@ removed.
 
 ### Added, DRIFT-DOC-4 as an ADVISORY lint
 
-- **[`scripts/doc_path_lint.py`](scripts/doc_path_lint.py) reports unresolved prose path
+- **`scripts/doc_path_lint.py` reports unresolved prose path
   citations and always exits 0.** Wired into the fast `version-gate` job. `STRICT=1` opts in to
   a nonzero exit for local use; CI deliberately does not set it.
 
@@ -3686,7 +3768,7 @@ removed.
 
 ### Added, DRIFT-DOC-3, the third drift gate
 
-- **[`scripts/doc_archive_gate.sh`](scripts/doc_archive_gate.sh) asserts that an archived design
+- **`scripts/doc_archive_gate.sh` asserts that an archived design
   doc sits in the directory its declared disposition names.** Docs may carry
   `archive-disposition: shipped | superseded | dropped | deferred` in YAML frontmatter; the first
   two are shipped-side (`docs/archive/shipped-design-specs/`), the last two dormant-side

@@ -200,3 +200,35 @@ entirely, so an ill-typed operand passed silently), it was fixed by checking the
 own comment records the reasoning. Applying that answer to the arm the fix did not reach is a
 consistency argument that needs no literature. An answer would tell us whether the discipline
 generalizes to LLMLL's other suppression sites, not whether to make this one recover.
+
+## Q-007  (2026-09-08)  Status: OPEN
+
+When a verifier weakens its own claim without being asked, is there an established discipline for
+reporting what it *would* have proved under a minimal edit to the program, rather than only
+reporting that it gave up?
+
+Context. LLMLL verifies a function body against its post when the body translates into the
+decidable fragment, and otherwise assumes the post and proves nothing about the body. Two programs
+that differ by one character land on opposite sides of that line. Binding a constructor payload by
+name reaches body-faithful verification and refutes a false post; writing the same payload as `_`
+reaches the assumed path, and the same false post is reported SAFE. Neither the author nor an agent
+is told that one character bought the refutation. The compiler names the function and the cause
+bucket, which is a report about the verifier's state, not about the program's alternatives.
+
+The disclosure a reader needs here is counterfactual: not "the body left the fragment" but "a
+neighbouring program shape would have proved this, and yours does not". Computing it for the
+wildcard case is trivial, because the repair is a local syntactic substitution and the repaired arm
+set is decidably inside the fragment. Computing it in general is a search over edits, and it is not
+obvious where between those two ends the idea stops being useful.
+
+The question is whether this has a name and a settled cost statement. Adjacent notions exist and
+are not it. Error-message repair suggestions answer a program that failed to compile, whereas this
+program compiles and verifies. Counterexample-guided refinement searches for an abstraction that
+proves the goal, not for an edit to the source the user wrote. Proof-failure explanation in the
+SMT-backed verifiers reports which conjunct went unproved, not which program the tool could have
+verified instead.
+
+Why it does not block. `SHELL-FALLBACK-SILENT-1` ships two ordinary warnings either way, one keyed
+on the syntactic repair and one on the emitter's own refusal, and both are disclosure rather than
+inference. An answer would tell us whether the repairable-shape test is an instance of something
+general, and therefore whether it should grow past the one case that motivated it.
