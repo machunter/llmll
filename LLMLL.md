@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.22.0)
+# LLMLL: Large Language Model Logical Language (v0.22.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.22.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.22.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -533,11 +533,13 @@ contract-checked  tested
 | Level | Meaning | When assigned |
 |-------|---------|---------------|
 | `verified` | Body-faithful SMT proof: the solver proved the function body satisfies the contract for all well-typed inputs. | `llmll verify` reports SAFE and the function's body VC was emitted |
-| `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, path-limit exceeded, or self-recursive `def-shell`) |
+| `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | **No shipped code path assigns this level** (measured v0.22.1; see the note below). It is read and rendered when a `.verified.json` sidecar or a JSON-AST document carries it, and it participates in `evidenceMeet` as specified below, so the lattice element is live. |
 | `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` reports `pass` and the property body resolves to a singleton head-position contracted callee under the PBT-Lift rule in §4.4.5 (a unique `def` or `def-shell` reachable as an `EApp` operator inside `propBody` whose contract has a `post` clause). Multi-subject properties produce a diagnostic and no lift. Also assignable via `:trust tested` source annotation. |
 | `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
 
 `contract-checked` and `tested` are **incomparable** — neither implies the other. Their meet (greatest lower bound) is `asserted`. This prevents a `tested`-only function from being silently treated as equivalent to a solver-checked function, or vice versa.
+
+> **Note on `contract-checked`, corrected 2026-09-08 (v0.22.1).** This row previously gave its acquisition path as "`llmll verify` reports SAFE for a fallback function (non-QF-LIA body, path-limit exceeded, or self-recursive `def-shell`)". All three parts were wrong, and the correction was measured rather than argued. A fallback function emits **zero constraints**, so its SAFE verdict is vacuous and the consistency check this level names never runs; `verify` writes `asserted` into its sidecar. `proofToLevel` in `ProofCache.hs` is the only function that builds this level from evidence and it has **no callers**. A `(trust f :level contract-checked)` declaration sets what a *caller* will accept (§4.5) and does not raise `f`'s own level. The third example also contradicted §4.2: a self-recursive `def-shell` verifies **body-faithful** by assume-guarantee and carries `termination_unverified`; it is not a fallback. **Whether `verify` should assign this level, or whether the level should be retired from the lattice, is a design question routed to the language team and not settled here.**
 
 > [!NOTE]
 > **Epistemic status distinction.** `contract-checked` provides **logical evidence** over the contract pair: the solver proved that the pre/post relationship is internally consistent, independent of the function body. It cannot be falsified by a counterexample (though the body may still violate it). `tested` provides **statistical evidence** over a random sample of size N (default 100): the property was not falsified, but may fail on the N+1th input. These are categorically different kinds of evidence and should not be treated as interchangeable trust signals.

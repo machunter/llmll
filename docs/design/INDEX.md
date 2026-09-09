@@ -57,7 +57,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [archive-organization-review.md](../archive/professor-reviews/archive-organization-review.md) | Professor: the gate is consistency-class, not correctness-class; both routed questions answered | **Folded and archived** (M2); redirect stub at the old path deleted 2026-08-18, grace elapsed |
 | [effect-response-channel-proposal.md](effect-response-channel-proposal.md) | A response channel, plus DISCARD-1, the `do`-step discard marker | **Rev 5, SETTLED AND SHIPPED v0.14.80**: arm set closed under a four-part admissibility rule |
 | [event-log-scope-proposal.md](event-log-scope-proposal.md) | The event log is an I/O-trace divergence oracle; `§10a` specifies a different mechanism | **Rev 1, PARTIALLY DISCHARGED**: §10a narrowing still open (EVENT-LOG-2); injection preserved as REPLAY-INJECT |
-| [theory-questions.md](theory-questions.md) | Deferred theory questions (`Q-NNN`): what the repository cannot answer, and does not need to | **PERMANENT REGISTER**, append-only, opened 2026-08-06; nothing here blocks anything, and it survives phase closure |
+| [shell-fallback-silent-1-proposal.md](shell-fallback-silent-1-proposal.md) | A lost body-faithful claim says so: two warnings, and three corrections to the row | **Rev 0, SETTLED and SHIPPED v0.22.1** (`43fd391`); the row's wording was wrong three ways and each correction was measured; the check-time warning fires on 0 of 330 tracked sources by design |
+| [theory-questions.md](theory-questions.md) | Deferred theory questions (`Q-NNN`): what the repository cannot answer, and does not need to | **PERMANENT REGISTER**, append-only, opened 2026-08-06; nothing here blocks anything, and it survives phase closure; `Q-007` added 2026-09-08 |
 
 ---
 
