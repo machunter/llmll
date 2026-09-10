@@ -1,7 +1,7 @@
 ---
 name: ret-resolve-implementation-plan
 title: "RET-RESOLVE implementation plan: resolve a wildcard tau_ret transitively in a verification-facing pass"
-status: "Rev 1, review-ready. Implements docs/design/ret-resolve-proposal.md (Rev 2). Part 1 re-scopes the four-channel table against HEAD at v0.23.0 and routes the correction to a Rev 3 of the proposal. Not implemented; no compiler source is changed by this document."
+status: "Rev 2, review-ready. Implements docs/design/ret-resolve-proposal.md, whose Rev 3 has now LANDED and carries the corrected five-channel table this document drafted. Steps 1 and 2 are DONE and are recorded in ret-resolve-step1-census.md (Rev 2) and ret-resolve-step2-baseline.md (Rev 1); step 3 is the first code and is unstarted. Rev 2 folds THREE corrections that those two measurements made against this document. Risk 2 goes from four gate-blind-spot candidates to FIVE; the fifth is on the S-expression surface and this document already named it in 'Corpus census'. Risk 9 goes from 20 to 25 minutes to about FOUR, measured at 318 files in 256 seconds, so the argument against repeating the sweep per adjudication round no longer holds. The Acceptance clause gains the channel-1 caveat: half one compares 298 constraint files and not 318, because 20 files emit none today, and a file that begins emitting one after the pass is the repair rather than a gate failure. Two operational notes were added with it: diff -r compares 596 files because liquid-fixpoint writes a .liquid subdirectory of .smt2 queries, all checked path-free and timestamp-free. The corpus-measurement section STANDS; the step 1 census reproduced its eliminative counts exactly, including the JSON-AST figure of 139 unannotated heads. Not implemented; no compiler source is changed by this document."
 date: 2026-09-09
 author: compiler-engineer
 consumers: [user, language-team, professor, documentation-lead]
@@ -520,10 +520,24 @@ toolchain.
 11. Run `llmll verify --trust-report --json` on the 13 directories that carry an
     `EXPECTED_VERDICTS.json` and diff the tiers.
 
-**Acceptance.** Half one empty, half two empty except for entries that appear in the enumerated
-demotion set of "Verification impact". A verdict move on a function that carries `verified` evidence
-requires the `checkerSoundnessVersion` change described above, and it also requires re-reading
-invariant I1 with the language-team before the change ships.
+**Acceptance.** Half one empty **except for enumerated channel-1 arrivals**, half two empty except
+for entries that appear in the enumerated demotion set of "Verification impact". A verdict move on a
+function that carries `verified` evidence requires the `checkerSoundnessVersion` change described
+above, and it also requires re-reading invariant I1 with the language-team before the change ships.
+
+**The channel-1 caveat is not a loosening and it was missing until 2026-09-10.** Half one compares
+**298** constraint files, not 318: [`ret-resolve-step2-baseline.md`](ret-resolve-step2-baseline.md)
+§7 measures 20 files that emit no `.fq` at all today, almost all deliberate negative fixtures that
+fail before emission. A file in that set can begin emitting one after the pass, through channel 1
+(crash to verdict), and that is the repair the row exists to make rather than a gate failure. Read
+literally, "half one empty" would fail the change for doing its job. Each such arrival is adjudicated
+like any other diff, with its channel and direction named.
+
+**Two operational notes from the same measurement.** `diff -r` over the output directory compares
+**596** files, not 298: liquid-fixpoint writes a `.liquid/` subdirectory holding one `.smt2` query per
+constraint file. All 298 were checked for absolute paths and date stamps and carry neither, so they
+are byte-stable and including them sharpens the gate at no cost. A naive count of that directory
+returns 299, because `.liquid` is itself an entry.
 
 ## Rollback
 
@@ -547,11 +561,16 @@ invariant I1 with the language-team before the change ships.
    models `collectTopLevel`, the `EIf` join and `preferConcreteOnSelfCall`, but it approximates
    builtin return types and does not expand aliases. **Effect: complicates the plan.** The prediction must be
    confirmed by the sweep in step 2 before any code is written, which is why step 2 precedes step 3.
-2. **Four contract-free change candidates are invisible to the `.fq` gate.** Verification.
-   `examples/life_sexp/world.llmll :: evolve`, `examples/life_json/world.ast.json :: evolve`,
+2. **FIVE contract-free change candidates are invisible to the `.fq` gate.** Verification.
+   `examples/hangman_sexp/hangman.llmll :: game-won?`, `examples/life_sexp/world.llmll :: evolve`,
+   `examples/life_json/world.ast.json :: evolve`,
    `examples/hangman_json_verifier/hangman.ast.json :: game-won?` and
    `examples/hangman_json/hangman.ast.json :: game-won?`. Measured: `world.llmll` emits a 32-line
    `.fq` with no constraint. **Effect: complicates the plan.** Half two of the procedure closes it.
+   **Corrected 2026-09-10 from four to five** by
+   [`ret-resolve-step1-census.md`](ret-resolve-step1-census.md) §8. The fifth entry is on the
+   S-expression surface, and this document already named it in "Corpus census" as one of "the three
+   non-contracted wildcards"; the risk list did not carry it across.
 3. **The JSON-AST surface carries 139 unannotated heads and was never censused.** Scope. The Rev 2
    census read S-expression syntax only. Six of those heads are bare wildcards and one resolves to
    `bool`, which does not lower to `FQInt`. **Effect: complicates the plan.** Step 1 closes it.
@@ -574,9 +593,14 @@ invariant I1 with the language-team before the change ships.
 8. **The recorded test baseline is not a measured one.** Scope. 1942 hspec and 218 pytest come from
    the roadmap's v0.23.0 row, not from a run on the merge base. **Effect: complicates the plan.** Measure both
    before the patch.
-9. **The gate costs about 20 to 25 minutes of sweep time plus two builds.** Performance. One census
-   run reached 10 minutes 41 seconds on 2026-09-08. **Effect: matters only at scale**, that is, if the
-   sweep has to be repeated for each adjudication round.
+9. **The gate costs about four minutes of sweep time plus two builds.** Performance. This estimate
+   read "20 to 25 minutes" until 2026-09-10, when step 2 ran it:
+   [`ret-resolve-step2-baseline.md`](ret-resolve-step2-baseline.md) §5 measures **318 files in 256
+   seconds with zero timeouts**, so the figure was high by about five times. Four files exceed ten
+   seconds and two dominate, both under `examples/heartbleed/secure-channel/`. **Effect: does not
+   matter.** The original entry argued that repeating the sweep per adjudication round was a cost
+   worth avoiding. At four minutes it is not, and there is no longer any reason to run half one
+   without half two.
 
 ## Open questions for the professor
 
