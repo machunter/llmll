@@ -63,6 +63,13 @@ acquiring its call site in `shape-verdict`. The `cfg-llmll` guard INVERTED:
 the accessor is read, so the assertion is now that it is read and defined
 once, and the register's `4d-parked` class disappeared with its last row.
 
+4f LANDED THIRD AND MOVED NOTHING, which is the first landing that did not.
+`report.llmll` arrives with its caller already written: `omission-free?` is
+reached through `omission-ok?` from `o-decide`, and the sequencer imports the
+module, so the new module joins neither the orphan set nor the
+unreferenced-in-a-live-module set. A sub-phase that adds a module and moves no
+row here is what the register is supposed to look like from now on.
+
 NOTHING HERE NEEDS A TOOLCHAIN. It reads source text, so it runs on a machine
 with no `llmll` binary, which is the tier `test_driver_ll_4c.py` describes.
 """

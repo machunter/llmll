@@ -1,0 +1,121 @@
+;; DRIVER-LL Phase 4, sub-phase 4f: the reporting channel.
+;;
+;; 4b's validate.llmll decides PRESENCE and a declared byte FLOOR. 4c's
+;; shape.llmll decides the CONTENT SHAPE of a delegated artifact. 4d's
+;; oracle.llmll decides what a run of the COMPILER over that artifact means.
+;; This module decides a fourth thing none of them reaches: whether the report
+;; stage O delegates NAMES WHAT AN EARLIER STAGE FOUND.
+;;
+;; ------------------------------------------------------------------
+;; 1. WHY THIS IS A FOURTH CHANNEL AND NOT A WIDENING OF THE OTHER THREE.
+;;
+;;    Same argument oracle.llmll's header makes, one subject further out.
+;;    validate and shape decide over an artifact, oracle decides over an
+;;    outcome the compiler produced, and this decides over the RELATION
+;;    between two artifacts: stage N's kill matrix and stage O's report.
+;;    Folding it into shape.llmll would put a cross-artifact property behind a
+;;    name that means content shape.
+;;
+;; 2. STAGE O HAS NO VALIDATOR IN THE REFERENCE, AND THAT IS THE POINT.
+;;
+;;    `stage_O_writeup` (rfc_to_implementation.py) holds ZERO require() sites.
+;;    It is the only delegated stage in the driver with none, measured.
+;;    driver-spec.txt section 7:283-286 makes validating a delegated output
+;;    mandatory, non-downgradable and non-skippable, and for this one stage
+;;    there is nothing to downgrade because nothing exists. So 4f WRITES a
+;;    validator where the reference has none. That is new behaviour on a port
+;;    and it needs the justification proposal section 6.2 gives: section 13 is
+;;    stage O's specification, and one of its eight MUSTs is decidable from
+;;    artifacts the driver already holds.
+;;
+;; 3. ONE CLAUSE OF EIGHT IS MECHANIZABLE, AND THE SPLIT IS THE SPEC'S OWN.
+;;
+;;    driver-spec.txt section 15.1:512-515 characterises its proved tier as
+;;    "properties of sequencing and state over enumerated statuses and bounded
+;;    counters" and enumerates what it covers. Reporting is absent from that
+;;    enumeration. The split below is therefore drawn by the specification and
+;;    not by an argument about what a validator could decide:
+;;
+;;      MECHANIZABLE, one clause. Section 13's "A report MUST include the full
+;;      result of the perturbation exercise, including perturbations that were
+;;      not detected." Stage N's kill-matrix.json holds the reference set,
+;;      keyed by `name`, with unwritable rows retained and survivors kept
+;;      rather than dropped. The check is a set difference over that key.
+;;
+;;      DISCLOSURE-ONLY, seven clauses. The lead-with-coverage pair, "state
+;;      what is not claimed", "disclose every assumed step", "MUST be resolved
+;;      rather than omitted", the MUST NOT about validating contracts, and the
+;;      MUST NOT about verification preventing an error. The phase close lists
+;;      them as unchecked and must not report them as met.
+;;
+;; 4. THIS IS AN OMISSION CHECK AND IT IS NAMED FOR WHAT IT DECIDES.
+;;
+;;    It is NOT a section 13:446 conformance check. A report that LISTS a
+;;    survivor and then dismisses it passes the set difference while violating
+;;    "MUST be resolved rather than omitted". Section 13 states that asymmetry
+;;    about perturbation evidence generally, and the same discipline applies to
+;;    the oracle that checks the report. Passing this does not discharge
+;;    section 13:446 and the phase close must not say that it does.
+;;
+;; 5. WHAT THE SHELL COMPUTES, AND WHY IT IS NOT PROVED HERE.
+;;
+;;    Three of the four counts arrive from string structure the shell derived:
+;;    `name` read out of a parsed row, and `string-contains` of that name in
+;;    the report text. That is outside Sigma_auto (LLMLL.md section 5.3.5), so
+;;    it is a shell obligation with a proposal section 7 statement owed, the
+;;    fifth of the phase. TWO PROPERTIES OF THAT DERIVATION ARE DISCLOSED
+;;    RATHER THAN PROVED. The test is a SUBSTRING test, so a row named `x` is
+;;    counted as named by a report that says `xyz`, and the error direction is
+;;    toward passing. And the identifiers are authored by an agent per run, so
+;;    interning them as a nullary enum to move the check into QF-LIA is not
+;;    available: the vocabulary is not closed. Proposal Rev 5 forbids that
+;;    route by name.
+
+(module report
+
+  ;; ------------------------------------------------------------------
+  ;; Stage O, the perturbation-omission check.
+  ;;
+  ;; Four counts over the rows of kill-matrix.json:
+  ;;
+  ;;   row-count          rows in the matrix
+  ;;   named-count        rows whose `name` occurs in the report text
+  ;;   survivor-count     rows that are not good twins and whose verdict is
+  ;;                      neither `refuted` nor `unwritable`, which is stage N's
+  ;;                      own survivor predicate
+  ;;   survivors-unnamed  survivors whose `name` does not occur
+  ;;
+  ;; survivors-unnamed <= row-count - named-count is a PRECONDITION rather than
+  ;; a discovered fact, for the same reason rows-conforming <= row-count is one
+  ;; in shape.probe-rows-conform?: the unnamed survivors are counted among the
+  ;; unnamed rows, by the same walk over the same list.
+  ;;
+  ;; The survivor half is ENTAILED by the full-result half and is written down
+  ;; anyway, exactly as [N13-NO-DROP] is written beside [N13-DENOMINATOR]: the
+  ;; clause the specification actually argues is the one about undetected
+  ;; perturbations, and a reader must be able to find it as a post rather than
+  ;; infer it from arithmetic.
+  (def omission-free? [row-count: int
+                       named-count: int
+                       survivor-count: int
+                       survivors-unnamed: int] -> bool
+
+    (pre (and (>= row-count 0)
+              (and (>= named-count 0)
+                   (and (<= named-count row-count)
+                        (and (>= survivor-count 0)
+                             (and (<= survivor-count row-count)
+                                  (and (>= survivors-unnamed 0)
+                                       (<= survivors-unnamed (- row-count named-count))))))))
+      :source "[O13-DOM] every count is over the rows of kill-matrix.json, so all are non-negative; a named row is one of the rows, and an unnamed survivor is one of the unnamed rows")
+
+    (post (= result (= named-count row-count))
+      :source "[O13-FULL] driver-spec.txt sec 13 - a report MUST include the full result of the perturbation exercise, so every row of the kill matrix is named in it")
+
+    (post (=> (> survivors-unnamed 0) (not result))
+      :source "[O13-UNDETECTED] driver-spec.txt sec 13 - the clause names perturbations that were NOT DETECTED explicitly, and a survivor the report does not mention is the omission it forbids. DERIVED: entailed by [O13-FULL], since a survivor is one of the rows; kept for traceability to the sentence that argues about undetected perturbations, per proposal sec 14 CLAUSE-INDEP-1, and crux-report-omits-survivor.llmll is the witness that the entailment runs one way only")
+
+    (post (=> (< named-count row-count) (not result))
+      :source "[O13-NO-OMIT] a validator that passes on a partial mention lets the omission through, which is the failure this check exists to catch. DERIVED: entailed by [O13-FULL] for the same reason, and refuted by the same crux")
+
+    (= named-count row-count)))

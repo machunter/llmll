@@ -13,8 +13,9 @@ Thirteen things about 4d are settleable statically:
 
   * the ONE `require_written` in the reference is stage H's, and it fires
     AFTER the write of feasibility.json (proposal section 9.3 item 2);
-  * the port constructs `PartialThenHalt` at exactly one stage site, carrying
-    the clause driver-spec sec 4:146-147, the 4a injector's sites aside;
+  * the port constructs `PartialThenHalt` at the stage sites this tier and
+    4f own, carrying driver-spec sec 4:146-147 and sec 13, the 4a injector's
+    sites aside;
   * that site decides one step AFTER the write it depends on, which is the
     write-before-halt construction discipline no proof can see;
   * stage K's hole count reaches a log line and nothing else (section 9.3
@@ -147,20 +148,26 @@ def test_the_reference_has_one_require_written_and_it_follows_the_write():
         "apply and the site reverts to `failed`")
 
 
-def test_the_port_constructs_partial_then_halt_at_one_stage_site():
+def test_the_port_constructs_partial_then_halt_at_the_two_stage_sites():
     """The 4a injector builds PartialThenHalt on `--halt-kind` (its own
     sites: injected-outcome, halt-clause, stamped-step, halts-post?). Every
-    OTHER site is a stage body's, and there is exactly one: stage H's bar,
-    carrying the clause that authorises it."""
+    OTHER site is a stage body's.
+
+    4d landed the FIRST, stage H's probe-polarity bar. 4f landed the second,
+    stage O's perturbation-omission check, so this assertion moved and the
+    reason is recorded here rather than in a commit message: this test is what
+    makes a third site arrive as a decision rather than as a diff."""
     injector = {"injected-outcome", "halt-clause", "stamped-step", "halts-post?"}
     users = {d for d, body in SEQ_DEFS.items()
              if re.search(r"[\s(]PartialThenHalt[\s)]", body)}
     stage_sites = users - injector
-    assert stage_sites == {"hwrote-step"}, (
+    assert stage_sites == {"hwrote-step", "o-decide"}, (
         f"PartialThenHalt is constructed by {sorted(stage_sites)} outside the "
-        "injector; 4d's only stage site is hwrote-step")
+        "injector; the stage sites are hwrote-step (4d) and o-decide (4f)")
     assert '"driver-spec sec 4:146-147"' in SEQ_DEFS["hwrote-step"], (
         "the stopped row must name the clause that authorised it")
+    assert '"driver-spec sec 13"' in SEQ_DEFS["o-decide"], (
+        "and so must 4f's")
 
 
 def test_the_h_bar_is_decided_one_step_after_the_write():

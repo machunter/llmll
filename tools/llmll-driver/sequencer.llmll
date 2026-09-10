@@ -94,6 +94,31 @@
 ;;      the three literals against the compiler source for that reason.
 ;;
 ;; ------------------------------------------------------------------
+;; SECTION 7 STATEMENT [DISCLOSURE report.omission-free?], NEW AT 4f
+;;
+;; report.omission-free? is proved over four counts. All four are computed
+;; HERE, by o-named-count and o-survivors-unnamed below, over the rows of
+;; stage N's kill-matrix.json and the text of stage O's REPORT.md. Three
+;; decisions inside that computation are invisible at the proved boundary:
+;;
+;;   1. THE MEMBERSHIP TEST IS A SUBSTRING TEST. `named?` is
+;;      string-contains of the row's `name` in the report text, so a row named
+;;      `x` counts as named by a report that says `xyz`, and the error
+;;      direction is TOWARD PASSING. LLMLL has regex-match, and POSIX ERE
+;;      carries no word boundary, so no in-language tightening exists today.
+;;      Disclosed rather than repaired.
+;;
+;;   2. THE IDENTIFIERS ARE NOT A CLOSED VOCABULARY. The names are authored
+;;      by an agent per run, so interning them as a nullary enum to move the
+;;      check into QF-LIA is not available. Proposal Rev 5 forbids that route
+;;      by name, and this statement is the one it says is owed at 4f.
+;;
+;;   3. `survivor?` IS THE REFERENCE'S PREDICATE AND IT IS SHARED. The same
+;;      def decides stage N's SURVIVORS log line and stage O's survivor count,
+;;      so the two cannot disagree about what survived. That is a property of
+;;      this module and not of the proof.
+;;
+;; ------------------------------------------------------------------
 ;; THREE UNGUARDED READS IN THE REFERENCE, PORTED AS DECISIONS.
 ;;
 ;; Proposal section 9.1 item 1 settles two: read_json on PROVENANCE.json in
@@ -180,6 +205,15 @@
 ;; scheduled: 4b retires Errored (a delegated output absent or malformed), 4c
 ;; through 4e retire ConditionUnmet at the gates, and 4f retires
 ;; PartialThenHalt at stage O's perturbation-omission check per section 6.2.
+;;
+;; CORRECTED AT 4f. The last clause was already wrong when 4f read it: stage
+;; H's probe-polarity bar constructs a real PartialThenHalt at 4d (hwrote-step
+;; below, and the comment above it says so), so the schedule had been
+;; discharged one sub-phase early. 4f adds the SECOND real site rather than the
+;; first. EVERY stopped constructor now has a real producer and the injector is
+;; redundant for its stated purpose. It is kept, not deleted: cover cell T4 and
+;; the --halt-kind flag both read it, and what deleting it breaks is measured
+;; before it is deleted rather than after.
 ;; The injected halt's `clause` is "4a-injector" and is NOT a driver-spec
 ;; clause; a real clause identifier arrives with the stage that owns it.
 ;;
@@ -234,6 +268,7 @@
   (import validate) (open validate)
   (import shape)    (open shape)
   (import oracle)   (open oracle)
+  (import report)   (open report)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -442,7 +477,9 @@
     (| AFetch   Loop)
     (| ADigest  Loop)
     (| ALines   Loop)
-    (| AWrote   Loop))
+    (| AWrote   Loop)
+    (| OWrote   Loop)
+    (| OSkip    Loop))
 
   ;; ---- accessors, written once ---------------------------------------
   ;;
@@ -788,10 +825,15 @@
   ;; 01-scope/scope.md and delegates in 01-scope (:575-578), C 02-rubric
   ;; (:590-592), I 08-prereg (:1060-1065).
   ;; Takes the invocation index for stage D, whose two extractors delegate in
-  ;; 03-extraction/a and 03-extraction/b (:646). For every stage that delegates
-  ;; once this is art-dir c i 0, unchanged.
+  ;; 03-extraction/a and 03-extraction/b (:646).
+  ;;
+  ;; 4f: it is registry.stage-agent-dir and no longer art-dir, because stage O
+  ;; is the one stage where the two differ. Its declared output is the
+  ;; workdir-root REPORT.md and its agent works in 14-report; art-dir would put
+  ;; the agent in the workdir root. Every other stage's row is stage-out-dir
+  ;; and nothing moves.
   (def-shell agent-dir [c: Cfg i: int j: int] -> string
-    (art-dir c i j))
+    (wd-path c (stage-agent-dir i j)))
 
   ;; The file the agent is told to write and the one Outp then reads:
   ;; registry.stage-agent-out, which is the declared output for every stage
@@ -1272,20 +1314,45 @@
               ["does not parse as JSON, or carries no \"" (stage-pre-proj i j)
                "\" member"]))))
 
+  ;; Mode 4 OPTIONAL, new at 4f and stage O's five inputs are the only users.
+  ;;
+  ;; The reference reads each of them through `maybe()` inside stage_O_writeup,
+  ;; which substitutes the literal below for a file that is not there. Every
+  ;; other precondition read in the reference is UNGUARDED and tracebacks on an
+  ;; absent file, which is why every other mode halts here. Stage O's are
+  ;; guarded there, so halting would be the port inventing a halt where the
+  ;; subject has none, which section 12 forbids.
+  ;;
+  ;; The projection is skipped as well as the halt. An OPTIONAL input reaches
+  ;; the prompt verbatim, including an EMPTY file: the reference passes
+  ;; `p.read_text()` through untouched, and the empty-means-malformed rule the
+  ;; other modes share would turn a zero-byte gate.json into a halt.
+  (def-shell optional-pre? [i: int j: int] -> bool
+    (= (stage-pre-mode i j) 4))
+
+  (def-shell not-run [] -> string "(stage not run)")
+
+  (def-shell pre-absent [rn: Run b: Body i: int j: int why: string]
+      -> ((Run, Ctl), Command)
+    (if (optional-pre? i j)
+        (to-pre rn (b-add-pval b (not-run)))
+        (halt-verdict rn (b-k b) Absent (pre-detail i j why))))
+
   (def-shell pre-step [rn: Run b: Body r: Response] -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
       (let [(j (b-pcount b))]
         (match r
           ((RText t)
-            (let [(v (pre-project i j t))]
-              (if (string-empty? v)
-                  (halt-verdict rn (b-k b) Malformed (pre-detail i j (pre-why i j)))
-                  (to-pre rn (b-add-pval b v)))))
-          ((RErr _)  (halt-verdict rn (b-k b) Absent
-                       (pre-detail i j "is absent or is not readable text")))
-          ((RNone)   (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))
-          ((RCode _) (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))
-          ((RList _) (halt-verdict rn (b-k b) Absent (pre-detail i j "was not readable")))))))
+            (if (optional-pre? i j)
+                (to-pre rn (b-add-pval b t))
+                (let [(v (pre-project i j t))]
+                  (if (string-empty? v)
+                      (halt-verdict rn (b-k b) Malformed (pre-detail i j (pre-why i j)))
+                      (to-pre rn (b-add-pval b v))))))
+          ((RErr _)  (pre-absent rn b i j "is absent or is not readable text"))
+          ((RNone)   (pre-absent rn b i j "was not readable"))
+          ((RCode _) (pre-absent rn b i j "was not readable"))
+          ((RList _) (pre-absent rn b i j "was not readable"))))))
 
   ;; ---- Srcs and Src ----------------------------------------------------
 
@@ -2250,6 +2317,154 @@
           (pair (first nxt)
                 (seq-commands (wasi.io.stdout (survivors-line l)) (second nxt))))))
 
+  ;; ---- 4f: O -------------------------------------------------------------
+  ;;
+  ;;   OWrote  r is the copy of the agent's report onto the DECLARED output,
+  ;;           after which the omission check decides
+  ;;   OSkip   the same copy, with no kill matrix to check against
+  ;;
+  ;; THE COPY IS THE DECLARED WRITE. `stage_O_writeup` ends in
+  ;; `shutil.copy2(workdir/"14-report"/"REPORT.md", workdir/"REPORT.md")`, and
+  ;; the registry's declared output for stage O is that root copy. So the
+  ;; validator runs AFTER the stage has written its declared artifact, which
+  ;; puts its halt on section 3.6's axis and makes it `stopped`
+  ;; (PartialThenHalt) rather than `failed`. This is the second real
+  ;; PartialThenHalt site, after stage H's probe-polarity bar at 4d.
+  ;;
+  ;; It does NOT qualify under section 3.5's rule: driver-spec sec 13 mandates
+  ;; RESOLUTION, not halting, and section 13 is not a section 6 gate, so the
+  ;; second conjunct of that rule fails. The disposition comes from the artifact
+  ;; state alone.
+  ;;
+  ;; wasi.fs.copy is byte-faithful and shutil.copy2 also copies mtime and mode.
+  ;; No section 13 obligation mentions either, so the divergence is disclosed
+  ;; and decides nothing.
+  ;;
+  ;; THREE DISPOSITIONS AND THE MIDDLE ONE IS THE ONE TO GET RIGHT:
+  ;;
+  ;;   the matrix parses      the check runs, and passing is the only way to
+  ;;                          reach `complete`
+  ;;   the matrix is absent   the Pre loop already substituted "(stage not
+  ;;                          run)", so there is no reference set and the check
+  ;;                          decides NOTHING. The stage records `complete` and
+  ;;                          SAYS SO ON STDOUT. A run with no kill matrix must
+  ;;                          not read as a checked run, which is the vacuity
+  ;;                          the phase has now lost a clause to three times.
+  ;;   the matrix is present
+  ;;   and does not parse     a guarded read over an input, decided BEFORE the
+  ;;                          copy, so `failed`/Errored per proposal section
+  ;;                          9.1 item 1. The reference never parses this file
+  ;;                          and cannot reach the condition.
+
+  ;; The kill matrix arrives as precondition value 2 (registry.stage-pre-path
+  ;; 15 2), which the Pre loop has already read. No second read of the file.
+  (def-shell o-matrix-text [b: Body] -> string
+    (unwrap-or (list-nth (b-pvals b) 2) ""))
+
+  (def-shell named? [rep: string row: Json] -> bool
+    (string-contains rep (m-name row)))
+
+  (def-shell o-named-count [rep: string rows: list[Json]] -> int
+    (list-length (list-filter rows (fn [r: Json] (named? rep r)))))
+
+  ;; survivor? is stage N's predicate, shared rather than re-derived, so the
+  ;; SURVIVORS line and this count cannot disagree about what survived.
+  (def-shell o-survivor-count [rows: list[Json]] -> int
+    (list-length (list-filter rows (fn [r: Json] (survivor? r)))))
+
+  (def-shell o-survivors-unnamed [rep: string rows: list[Json]] -> int
+    (list-length (list-filter rows
+                              (fn [r: Json] (and (survivor? r)
+                                                 (not (named? rep r)))))))
+
+  (def-shell o-missing-names [l: Loop] -> list[string]
+    (list-map (list-filter (lp-row-list l)
+                           (fn [r: Json] (not (named? (lp-note l) r))))
+              (fn [r: Json] (m-name r))))
+
+  ;; report.omission-free?. Its pre holds by construction: every count is over
+  ;; the same row list, the named rows are among the rows, and an unnamed
+  ;; survivor is one of the unnamed rows.
+  (def-shell omission-ok? [rows: int named: int surv: int unnamed: int] -> bool
+    (omission-free? rows named surv unnamed))
+
+  (def-shell o-copy-cmd [rn: Run b: Body] -> Command
+    (let [(i (idx-at rn (b-k b)))]
+      (wasi.fs.copy (agent-out-path (cfg-of rn) i (b-tag b))
+                    (art-path (cfg-of rn) i 0))))
+
+  (def-shell o-malformed-detail [] -> string
+    (string-concat-many
+      ["stage O: 13-kill-matrix/kill-matrix.json is present and is not a JSON "
+       "array, so the perturbation-omission check of driver-spec sec 13 has no "
+       "reference set to difference against. The reference never parses this "
+       "file and cannot reach this condition; the port reads it and records "
+       "the stage failed rather than reporting a check it did not run."]))
+
+  (def-shell o-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (if (= (o-matrix-text b) (not-run))
+        (go rn (OSkip (mk-loop (b-k b) (b-start b) 0 json-object json-object t))
+            (o-copy-cmd rn b))
+        (match (json-parse (o-matrix-text b))
+          ((Success v)
+            (if (is-ok (json-array v))
+                (go rn (OWrote (mk-loop (b-k b) (b-start b) 0 v json-object t))
+                    (o-copy-cmd rn b))
+                (halt-errored rn (b-k b) (o-malformed-detail))))
+          ((Error _) (halt-errored rn (b-k b) (o-malformed-detail))))))
+
+  ;; Only the RErr arm is a failure. Every wasi command delivers its failure
+  ;; there, and a successful copy carries nothing this step reads.
+  (def-shell copy-failed? [r: Response] -> bool
+    (match r
+      ((RErr _)  true)
+      ((RText _) false)
+      ((RNone)   false)
+      ((RCode _) false)
+      ((RList _) false)))
+
+  (def-shell o-copy-detail [rn: Run l: Loop] -> string
+    (string-concat-many
+      ["stage O: the report could not be copied to "
+       (art-path (cfg-of rn) (idx-at rn (lp-k l)) 0)
+       ", so the stage wrote no declared output."]))
+
+  (def-shell o-omitted-detail [l: Loop] -> string
+    (string-concat-many
+      ["stage O: the report does not name "
+       (int-to-string (list-length (o-missing-names l))) " of the "
+       (int-to-string (lp-count l)) " kill-matrix rows: "
+       (quoted-list (o-missing-names l))
+       ". driver-spec sec 13 requires the FULL result of the perturbation "
+       "exercise, including perturbations that were not detected. Naming a "
+       "row is not resolving it; that clause is disclosure-only and this check "
+       "does not decide it."]))
+
+  (def-shell o-skip-line [] -> string
+    (string-concat-many
+      ["  no kill matrix: the perturbation-omission check did not run"]))
+
+  (def-shell o-decide [rn: Run l: Loop] -> ((Run, Ctl), Command)
+    (if (omission-ok? (lp-count l)
+                      (o-named-count (lp-note l) (lp-row-list l))
+                      (o-survivor-count (lp-row-list l))
+                      (o-survivors-unnamed (lp-note l) (lp-row-list l)))
+        (to-summed rn (lp-k l) (lp-start l))
+        (halt-with rn (lp-k l) PartialThenHalt (o-omitted-detail l)
+                   "driver-spec sec 13")))
+
+  (def-shell owrote-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (copy-failed? r)
+        (halt-errored rn (lp-k l) (o-copy-detail rn l))
+        (o-decide rn l)))
+
+  (def-shell oskip-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
+    (if (copy-failed? r)
+        (halt-errored rn (lp-k l) (o-copy-detail rn l))
+        (let [(nxt (to-summed rn (lp-k l) (lp-start l)))]
+          (pair (first nxt)
+                (seq-commands (wasi.io.stdout (o-skip-line)) (second nxt))))))
+
   ;; ---- the dispatch, per registry.stage-oracle ----------------------------
 
   (def-shell oracle-enter [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
@@ -2261,9 +2476,11 @@
   ;; What follows a passing output. A stage with a compiler oracle enters its
   ;; loop; every other stage takes the 4b/4c path in outp-next.
   (def-shell outp-pass [rn: Run b: Body t: string] -> ((Run, Ctl), Command)
+    (if (stage-omission-check? (idx-at rn (b-k b)))
+        (o-enter rn b t)
     (if (> (stage-oracle (idx-at rn (b-k b))) 0)
         (oracle-enter rn b t)
-        (outp-next rn b t)))
+        (outp-next rn b t))))
 
 
   ;; ---- stage A: intake and provenance pinning ---------------------------
@@ -2500,7 +2717,9 @@
       ((AFetch l)   (afetch-step (run-of s) l r))
       ((ADigest l)  (adigest-step (run-of s) l r))
       ((ALines l)   (alines-step (run-of s) l r))
-      ((AWrote l)   (awrote-step (run-of s) l r))))
+      ((AWrote l)   (awrote-step (run-of s) l r))
+      ((OWrote l)   (owrote-step (run-of s) l r))
+      ((OSkip l)    (oskip-step  (run-of s) l r))))
 
   (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
@@ -2535,7 +2754,9 @@
       ((AFetch _)   false)
       ((ADigest _)  false)
       ((ALines _)   false)
-      ((AWrote _)   false)))
+      ((AWrote _)   false)
+      ((OWrote _)   false)
+      ((OSkip _)    false)))
 
   (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
@@ -2570,7 +2791,9 @@
       ((AFetch _)   1)
       ((ADigest _)  1)
       ((ALines _)   1)
-      ((AWrote _)   1)))
+      ((AWrote _)   1)
+      ((OWrote _)   1)
+      ((OSkip _)    1)))
 
   ;; The terminal marker. It leaves through :on-done rather than through a
   ;; step, because RC-4 drops the terminating step's command and a halt report
@@ -2625,7 +2848,9 @@
       ((AFetch af)  1)
       ((ADigest ad) 1)
       ((ALines al)  1)
-      ((AWrote aw)  1)))
+      ((AWrote aw)  1)
+      ((OWrote ow)  1)
+      ((OSkip os)   1)))
 
   (def-main
     :mode    console

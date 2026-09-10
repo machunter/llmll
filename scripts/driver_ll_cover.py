@@ -79,7 +79,7 @@ PROMPTS = REPO / "experiments" / "rfc-swarm" / "prompts"
 # draws and the reason `short-rubric` writes 300: it CLEARS stage B's floor and
 # FAILS stage C's, so a driver reading one stage's floor for another is caught.
 AGENT_STUB = r'''
-import json, os, pathlib, sys
+import json, os, pathlib, re, sys
 out    = pathlib.Path(sys.argv[1])
 prompt = pathlib.Path(sys.argv[2])
 mode   = os.environ.get("STUB_MODE", "ok")
@@ -192,11 +192,27 @@ if name == "mutants.json":
     if mode != "mutant-missing-file":
         d.joinpath("m-wrong.llmll").write_text(_mod("m-wrong", WRONG))
     d.joinpath("m-twin.llmll").write_text(_mod("m-twin", TWIN))
-    if mode == "mutant-survives":
+    if mode in ("mutant-survives", "report-omits-survivor"):
         rows.append({"name": "survivor", "file": "m-surv.llmll", "targets": ["A0"],
                      "bug": "a behaviour the contract does not forbid"})
         d.joinpath("m-surv.llmll").write_text(_mod("m-surv", GOOD))
     out.write_text(json.dumps(rows))
+    sys.exit(0)
+
+# Sub-phase 4f: stage O writes the report, and the driver then checks that it
+# names every row of the kill matrix (driver-spec sec 13). The stub does what a
+# real agent does with the {{kill_matrix}} blob it was handed: it writes the row
+# names into the report. Pulling them out of the PROMPT rather than off disk
+# keeps the stub blind to the workdir, exactly as the agent is.
+if name == "REPORT.md":
+    names = re.findall(r'"name":\s*"([^"]+)"', prompt.read_text(encoding="utf-8"))
+    if mode == "report-omits-survivor":
+        names = [n for n in names if n != "survivor"]
+    if mode == "report-omits-killed":
+        names = names[:1]
+    out.write_text("# Report\n\nPerturbation results, every row:\n"
+                   + "".join("- %s: see the kill matrix\n" % n for n in names)
+                   + "-" * 900 + "\n")
     sys.exit(0)
 
 # "Silence is not success" (driver-spec sec 7:279) at a STAGE-level delegated
@@ -456,6 +472,16 @@ def local4d(cell: str, why: str):
     at all, so every 4d cell but H1 is local by construction."""
     def deco(fn):
         SCENARIOS.append((cell, "(4d, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def local4f(cell: str, why: str):
+    """The 4f sibling. Stage O has no validator in the reference at all, so
+    the rig has nothing to mirror and every cell here is local by
+    construction."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(4f, no reference counterpart) " + why, fn))
         return fn
     return deco
 
@@ -1341,6 +1367,79 @@ def a6(b, wd):
     want_rc(r, 2)
     want_in("--rfc-url is required", r)
     want(not r.stages(), "no stage row may exist when a required flag is absent")
+
+# ---------------------------------------------------------------------------
+# Sub-phase 4f: stage O and the perturbation-omission check.
+#
+# THE ACCEPTANCE CLAUSE RESTS ON O2 AND ON NOTHING ELSE. O1 shows the check
+# passes, O3 shows it is skipped when there is no matrix, and O4 shows a
+# malformed matrix is a guarded read; none of the three can fire the halt. A
+# cover whose only stage O cells were O1, O3 and O4 would satisfy every
+# assertion with a validator that always returns true, which is the vacuity
+# proposal Rev 15 records the phase losing three times by three mechanisms.
+# ---------------------------------------------------------------------------
+
+def _kill_matrix(wd: Path) -> list:
+    p = wd / "13-kill-matrix" / "kill-matrix.json"
+    want(p.exists(), "13-kill-matrix/kill-matrix.json is not on disk")
+    return json.loads(p.read_text())
+
+
+@local4f("O1", "a report naming every kill-matrix row completes, and the "
+               "declared output is the workdir-root copy")
+def o1(b, wd):
+    r = drive(b, wd, "B,I,M,N,O")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["O"], "agent")
+    names = [m["name"] for m in _kill_matrix(wd)]
+    want(names == ["wrong-succ", "good-twin", "unwritable-one"],
+         f"the matrix the check ran over: {names}")
+    root = wd / "REPORT.md"
+    want(root.exists(), "the DECLARED output is REPORT.md at the workdir root")
+    want((wd / "14-report" / "REPORT.md").exists(),
+         "the agent's own file stays in 14-report; the root file is a copy")
+    want(root.read_text() == (wd / "14-report" / "REPORT.md").read_text(),
+         "wasi.fs.copy is byte-faithful, so the two files agree")
+    for n in names:
+        want(n in root.read_text(), f"the report names {n}")
+
+
+@local4f("O2", "a report that omits a SURVIVOR halts stopped after the "
+               "declared write, PartialThenHalt, driver-spec sec 13")
+def o2(b, wd):
+    r = drive(b, wd, "B,I,M,N,O", mode="report-omits-survivor")
+    want_stopped_partial(r, "O", "driver-spec sec 13")
+    want_in("the report does not name 1 of the 4 kill-matrix rows", r)
+    want_in("survivor", r)
+    want((wd / "REPORT.md").exists(),
+         "PartialThenHalt means the declared output WAS written and the stage "
+         "then halted; a stopped row over an absent artifact would be the "
+         "wrong constructor")
+
+
+@local4f("O3", "no kill matrix means no reference set: the stage completes "
+               "and SAYS the check did not run")
+def o3(b, wd):
+    r = drive(b, wd, "O")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["O"], "agent")
+    want_in("the perturbation-omission check did not run", r)
+    want(not (wd / "13-kill-matrix" / "kill-matrix.json").exists(),
+         "the cell is only meaningful while the matrix is genuinely absent")
+
+
+@local4f("O4", "a kill matrix that is present and is not a JSON array is a "
+               "guarded read, decided BEFORE the copy: failed")
+def o4(b, wd):
+    (wd / "13-kill-matrix").mkdir(parents=True, exist_ok=True)
+    (wd / "13-kill-matrix" / "kill-matrix.json").write_text("{}")
+    r = drive(b, wd, "O")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["O"], "failed", "Errored", clause=False)
+    want_in("is present and is not a JSON array", r)
+    want(not (wd / "REPORT.md").exists(),
+         "the halt is decided before the copy, so no declared output exists")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
