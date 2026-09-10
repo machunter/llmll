@@ -1023,13 +1023,16 @@ fi
 # floors against the reference's own literals by AST, and stage I's absent
 # validator) and run under pytest.
 #
-# The sequencer imports five sibling modules, so it is built from its own
-# directory; `llmll build` resolves imports relative to the source file.
+# The sequencer imports EIGHT sibling modules (stage, skip, registry, manifest,
+# validate, shape, oracle, report), so it is built from its own directory;
+# `llmll build` resolves imports relative to the source file. The count said
+# five until 4f re-counted it: 4c, 4d and 4f each added one and none of them
+# updated this line.
 DRV_SRC="$REPO_ROOT/tools/llmll-driver/sequencer.llmll"
 DRV_OUTDIR="$OUTDIR/driverll"
 
 if [ -f "$DRV_SRC" ]; then
-  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4a+4b+4c+4d cover"
+  echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4a+4b+4c+4d+A+4f cover"
   DRV_LOG="$OUTDIR/.driverll-build.log"
   if ! ( cd "$REPO_ROOT/tools/llmll-driver" \
            && "${LLMLL_CMD[@]}" build sequencer.llmll -o "$DRV_OUTDIR" ) \

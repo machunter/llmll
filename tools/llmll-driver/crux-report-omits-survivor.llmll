@@ -1,0 +1,54 @@
+(module crux-report-omits-survivor)
+;; THE REPORT WAS CHECKED FOR SURVIVORS AND NOT FOR ROWS. This body passes as
+;; soon as every SURVIVOR is named, and says nothing about the rest of the kill
+;; matrix. So a report that names the three mutants that survived and drops the
+;; forty that were killed passes, and driver-spec.txt section 13's clause is
+;; "MUST include the FULL result of the perturbation exercise", not "must
+;; include the survivors".
+;;
+;; WHY THIS IS THE FAILURE THAT MATTERS, and why it is the body a reader would
+;; have written. Section 13 mentions undetected perturbations by name and
+;; mentions nothing else by name, so a validator written from the sentence's
+;; emphasis rather than from its subject checks exactly this. The result reads
+;; as the stronger check while being the weaker one: it is the kill RATE
+;; reported without its denominator, one artifact further downstream than
+;; crux-oracle-matrix-drops-unwritable, where the same arithmetic eats the
+;; denominator inside stage N instead of inside the report.
+;;
+;; A killed mutant is eliminative evidence and the report is where a reader
+;; meets it. A report over a matrix whose killed rows were never mentioned
+;; cannot be checked against the pre-registration by the reader either, so the
+;; omission removes the one cross-check stage I's committed taxonomy exists to
+;; enable.
+;;
+;; DISCRIMINATION, measured at v0.23.0 over this body, one post at a time:
+;;
+;;   [O13-FULL]         -> REFUTED
+;;   [O13-UNDETECTED]   -> SAFE, it survives
+;;   [O13-NO-OMIT]      -> REFUTED
+;;
+;; THE SURVIVING POST IS THE POINT OF THIS CRUX. [O13-UNDETECTED] is entailed
+;; by [O13-FULL] and this body is the witness that the entailment runs one way
+;; only: a validator holding the survivor clause ALONE is exactly this body and
+;; passes. Recorded rather than repaired, per proposal section 14's
+;; CLAUSE-INDEP-1: the clause keeps its traceability to the driver-spec
+;; sentence that argues about undetected perturbations, and its :source text in
+;; report.llmll says it is derived.
+(def omission-free? [row-count: int
+                     named-count: int
+                     survivor-count: int
+                     survivors-unnamed: int] -> bool
+
+  (pre (and (>= row-count 0)
+            (and (>= named-count 0)
+                 (and (<= named-count row-count)
+                      (and (>= survivor-count 0)
+                           (and (<= survivor-count row-count)
+                                (and (>= survivors-unnamed 0)
+                                     (<= survivors-unnamed (- row-count named-count)))))))))
+
+  (post (= result (= named-count row-count)))
+  (post (=> (> survivors-unnamed 0) (not result)))
+  (post (=> (< named-count row-count) (not result)))
+
+  (= survivors-unnamed 0))

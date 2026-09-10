@@ -135,6 +135,11 @@
 ;; table; A is ported over wasi.http.get (v0.21.0, the STOP lifted) as the
 ;; roadmap's step (3), and E waits on a reconcile.py invocation.
 ;;
+;; 4f lands O and takes the count to eleven. Stage O is the LAST stage this
+;; program stubs that is its own to land: E, G2, J and L are real in
+;; spine.llmll and M in wave.llmll, and all five stay stubbed here until
+;; program unification retires this table.
+;;
 ;; 4c LANDS D, F AND G TOGETHER rather than in its plan's stated order, and the
 ;; reason is a data dependency the plan did not weigh. F reads
 ;; 04-reconcile/data/extraction-a.json, which stage D stages there (:663-665),
@@ -154,7 +159,8 @@
   (if (= i 8) true
   (if (= i 9) true
   (if (= i 11) true
-  (if (= i 14) true false)))))))))))
+  (if (= i 14) true
+  (if (= i 15) true false))))))))))))
 
 ;; The byte floor the stage contract declares for the stage's declared output.
 ;; NEGATIVE means the contract declares no floor.
@@ -220,7 +226,8 @@
   (if (= i 9)  "stage-I-prereg.md"
   (if (= i 11) "stage-K-contracts.md"
   (if (= i 14) "stage-N-mutants.md"
-      ""))))))))))
+  (if (= i 15) "stage-O-writeup.md"
+      "")))))))))))
 
 ;; ------------------------------------------------------------------
 ;; Sub-phase 4c: the invocation dimension.
@@ -285,7 +292,8 @@
   (if (= i 8)  "feasibility"
   (if (= i 9)  "prereg"
   (if (= i 11) "contracts"
-  (if (= i 14) "mutants" ""))))))))))
+  (if (= i 14) "mutants"
+  (if (= i 15) "writeup" "")))))))))))
 
 ;; The workdir-relative artifacts the stage reads BEFORE delegating. All are
 ;; unguarded reads in the reference and all are guarded decisions here; see
@@ -342,7 +350,8 @@
   (if (= i 8)  1
   (if (= i 9)  1
   (if (= i 11) 2
-  (if (= i 14) 2 0)))))))))
+  (if (= i 14) 2
+  (if (= i 15) 5 0))))))))))
 
 (def-shell stage-pre-path [i: int j: int] -> string
   (if (= i 1)  "00-source/PROVENANCE.json"
@@ -357,7 +366,12 @@
                            "01-scope/scope.md")
   (if (= i 14) (if (= j 0) "12-wave/roots.ast.json"
                            "08-prereg/PRE-REGISTRATION.md")
-      "")))))))))
+  (if (= i 15) (if (= j 0) "09-gate/gate.json"
+               (if (= j 1) "11-freeze/rfc-cov-1.txt"
+               (if (= j 2) "13-kill-matrix/kill-matrix.json"
+               (if (= j 3) "12-wave/wave.json"
+                           "04-reconcile/SUMMARY.json"))))
+      ""))))))))))
 
 ;; What the driver does with the artifact's bytes before substitution.
 ;;
@@ -375,6 +389,16 @@
 ;;               json.dumps(encoded, indent=1). An EMPTY selection is "[]",
 ;;               two characters, and is NOT a rejection: the reference authors
 ;;               zero rows and halts nowhere.
+;;   4  OPTIONAL the text verbatim when the artifact reads, and the constant
+;;               "(stage not run)" when it does not. NEW AT 4f and stage O is
+;;               the only user. Its five inputs all reach the prompt through
+;;               `maybe()` in stage_O_writeup, which substitutes exactly that
+;;               string for an absent file. Every other mode HALTS on an absent
+;;               artifact, which is right for every other stage: theirs are
+;;               unguarded reads in the reference and an absent one tracebacks.
+;;               Stage O's are guarded there, so halting would be the port
+;;               inventing a halt, which section 12 forbids. `--only O` is the
+;;               run that reaches it.
 ;;
 ;; MODE 2 IS WHERE THE PORT'S PROMPT BYTES DIVERGE, disclosed, and it is below
 ;; the oracle. The reference emits json.dumps(..., indent=1) and, for core_ids,
@@ -392,7 +416,8 @@
   (if (= i 8)  0
   (if (= i 9)  0
   (if (= i 11) (if (= j 0) 3 0)
-  (if (= i 14) 0 0)))))))))
+  (if (= i 14) 0
+  (if (= i 15) 4 0))))))))))
 
 ;; The member mode 2 projects, or mode 3 filters, or "".
 (def-shell stage-pre-proj [i: int j: int] -> string
@@ -421,7 +446,11 @@
   (if (= i 9)  "{{scope}}"
   (if (= i 11) (if (= j 0) "{{encoded}}" "{{scope}}")
   (if (= i 14) (if (= j 0) "{{tree}}" "{{prereg}}")
-      "")))))))))
+  (if (= i 15) (if (= j 0) "{{gate}}"
+               (if (= j 1) "{{coverage}}"
+               (if (= j 2) "{{kill_matrix}}"
+               (if (= j 3) "{{wave}}" "{{reconcile}}"))))
+      ""))))))))))
 
 ;; Whether the stage's prompt carries {{rfc_text}}, and so whether the stage
 ;; reads the pinned sources through _sources_text (:613-630). B, C, D, F, G
@@ -482,7 +511,27 @@
 (def-shell stage-agent-out [i: int j: int] -> string
   (if (= i 8)  "07-feasibility/probes.json"
   (if (= i 14) "13-kill-matrix/mutants.json"
-      (stage-out i j))))
+  (if (= i 15) "14-report/REPORT.md"
+      (stage-out i j)))))
+
+;; Where the agent WORKS, which is the directory of stage-agent-out and not of
+;; stage-out. They differ at exactly one stage. H's and N's agent files sit in
+;; the stage's own directory, so their agent directory is stage-out-dir like
+;; everyone else's; stage O's declared output is the workdir-root REPORT.md
+;; (the shutil.copy2 at the tail of stage_O_writeup), while the agent writes in
+;; 14-report. Taking the agent directory from stage-out-dir would run stage O's
+;; agent in the workdir ROOT, beside MANIFEST.json.
+(def-shell stage-agent-dir [i: int j: int] -> string
+  (if (= i 15) "14-report" (stage-out-dir i j)))
+
+;; Whether the stage's declared output is checked for perturbation OMISSION
+;; after it is written: stage O only, driver-spec.txt sec 13, decided by
+;; report.omission-free?. Separate from stage-oracle because that table is
+;; "which COMPILER-oracle loop follows" and no compiler runs here; separate
+;; from stage-shape because this is a relation between two artifacts and not
+;; the shape of one.
+(def-shell stage-omission-check? [i: int] -> bool
+  (= i 15))
 
 ;; Which compiler-oracle loop follows a passing delegated output. 0 is none,
 ;; and every stage 4b and 4c ported is 0.
