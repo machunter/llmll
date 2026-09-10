@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE, and its NEXT POINTER WAS STALE until 2026-08-18. Sub-phase 4e is complete: wave.llmll landed with its seven-cell cover at commit fa859b7, first contained by tag v0.14.88. This file then said the next thing is the CI-gate port. THAT PORT IS NOW COMPLETE AND CLOSED: TOOL-LL ported all six gates and its porting phase closed at v0.16.1, recorded in docs/design/tool-ll-RESTART.md. The campaign was adjudicated LIVE on 2026-09-07 and the roadmap row now names the next sub-phase: the 4d census prerequisite (phase4 proposal section 9.3 item 1), then 4d (stages H, K, N), in parallel with the HTTP-GET-1 design; the sequence to Phase 5 is in the roadmap's G0 row. What stays open is what section 10 and the roadmap row already name: 4d parked (though oracle.llmll and --llmll-cmd landed at v0.14.88), 4f and program unification deferred, and stage A a filed STOP on HTTP-GET-1. Delete this file when Phase 4 closes."
+status: "LIVE, and its NEXT POINTER WAS STALE until 2026-08-18. Sub-phase 4e is complete: wave.llmll landed with its seven-cell cover at commit fa859b7, first contained by tag v0.14.88. This file then said the next thing is the CI-gate port. THAT PORT IS NOW COMPLETE AND CLOSED: TOOL-LL ported all six gates and its porting phase closed at v0.16.1, recorded in docs/design/tool-ll-RESTART.md. The campaign was adjudicated LIVE on 2026-09-07; the sequence to Phase 5 is in the roadmap's G0 row. THIS FIELD WAS CORRECTED AGAIN ON 2026-09-10, and the correction is the same defect a second time: the field called 4d parked and stage A a filed STOP after both had shipped, and the 2026-09-10 refresh (b7ccee4) corrected sections 2, 6, 8 and 10 and LEFT THIS FIELD, so a restarting session read the incorrect half first. MEASURED FROM GIT: 4d SHIPPED at v0.21.1 (4eedf8b, stages H, K and N over oracle.llmll); stage A PORTED at v0.21.2 (3e1c1af), once HTTP-GET-1 shipped at v0.21.0 (dc2c9cf) and lifted its STOP. WHAT IS OPEN: sub-phase 4f (stage O with its section 13 validator, the phase close and the gap inventory) and program unification. Neither has started: no commit names either as work, and the last commit that touches tools/llmll-driver/ is 3e1c1af. Delete this file when Phase 4 closes."
 date: 2026-08-18
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -269,9 +269,11 @@ session that wrote the state machine. Do not re-derive.
 ## 6. Findings that must not be rediscovered
 
 1. **The type checker conflates same-named sum types across modules.** New
-   compiler finding, **not fixed**, unrouted. Measured at v0.14.87: with two
-   modules opened, each declaring a different type named `Phase`, a
-   payload-carrying value of one satisfies an annotation resolved to the other.
+   compiler finding, **not fixed**, and **ROUTED on 2026-09-10 as
+   `TYPE-SHADOW-1`** (`8f27271`, roadmap group G3) after three weeks unrouted.
+   Measured at v0.14.87: with two modules opened, each declaring a different
+   type named `Phase`, a payload-carrying value of one satisfies an annotation
+   resolved to the other.
    Only an `open-shadow-warning` fires. The control proves the annotation is
    real: an `int` in the same position **is** rejected, naming the other type's
    arms. This **inverts** Rev 14's reasoning, which assumed the collision would
@@ -493,12 +495,21 @@ measured and when.**
   and `HConflictResolution` appear in no test in the repository**, measured over
   `compiler/test/` and `scripts/tests/`, while both are live constructors across
   seven modules under `compiler/src/LLMLL/`. Two of four, not four of four.
-- **Finding 1 in section 6 is unrouted. STILL TRUE, and it is the only entry
-  here that has not moved at all.** No row in the roadmap covers the
-  same-named-sum-type collision across modules. It is a compiler finding with a
-  measured witness and a measured control, and it has no owner. **This needs
-  routing rather than another re-measurement**, and routing it is a call for the
-  user, not for this record.
+  **The remaining half now has an owner**: filed 2026-09-10 as
+  `HOLE-KIND-PIN-1` (`eaa613c`) into roadmap group G8, as a regression pin and
+  not as a live defect. The predicate is correct and its catch-all fails safe,
+  so what is missing is the test that pins the exception set.
+- ~~**Finding 1 in section 6 is unrouted**~~ **ROUTED 2026-09-10 as
+  `TYPE-SHADOW-1`** (`8f27271`), into roadmap group G3. This bullet read "STILL
+  TRUE, and it is the only entry here that has not moved at all" until that
+  filing. **The re-verification at v0.23.0 found more than section 6 states**,
+  over a four-file reproduction. The control is REJECTED: an `int` in the same
+  position gives `type mismatch in 'take-p2': expected P2, got int`. The witness
+  is ACCEPTED, with `open-shadow-warning` as the only warning. **The build then
+  FAILS at code generation**, `Multiple declarations of 'Phase'` in `Lib.hs`, so
+  no program carrying the conflation can be built and the defect is not
+  latent. It is a gap in `DUP-DEF-1`'s fix (v0.20.0), which made `check` and GHC
+  agree for same-module duplicates and left the cross-module case.
 
 ## 11. Method discipline this phase keeps relearning
 
