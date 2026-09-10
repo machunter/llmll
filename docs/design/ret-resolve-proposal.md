@@ -1,7 +1,7 @@
 ---
 name: ret-resolve-proposal
 title: "RET-RESOLVE: resolve a wildcard `τ_ret` transitively in a verification-facing pass"
-status: "Rev 2, SETTLED (four professor review rounds folded). SAFE-ARG shipped v0.14.73, so this is now queued SECOND, behind WILD-ASSUME-2 (the map arm). Roadmap row: RET-RESOLVE"
+status: "Rev 3, SETTLED. The design does NOT reopen: the Kleene rule, SC1/SC2′/SC3′, the corpus prediction and I1/I2 stand exactly as settled at Rev 2 (four professor review rounds folded). Rev 3 is a routed correction of the CHANNEL ACCOUNT and the PREREQUISITE CHAIN, measured against HEAD at v0.23.0 by docs/design/ret-resolve-implementation-plan.md. Four channels become FIVE: channel 4a (resultLenFact) was DELETED at v0.14.78, two live channels Rev 2 never named are added (4b, post-assumption unblocking at a call site; 4c, ground LHS range facts), and wholeArrEqClause is separated out as channel 5 with its direction corrected. The Rev 2 trust-base disclosure claim is RE-DERIVED and NARROWS to channel 4c alone: 4a is gone, 4b is a repair whose soundness FACT-AG-LEN Stage 3 supplies, and 4c is owed a section 5.3.5 sentence scoped to the life of the open row ARR-RANGE-NAME. Channel 3 is recorded as ASYMMETRIC for the first time: a resolved return adds a definition-site obligation and exports no caller guarantee. Rev 2 called a byte-identical corpus .fq a COMPLETE gate; it is not, because a contract-free function emits no constraint, and four corpus candidates sit in that blind spot. Two affected-surface errors corrected: the stamp is checkerSoundnessVersion in VerifiedCache.hs, not codegen_semantics_version in ProofArtifact.hs, and Main.emitSynthetic is a third consumer of tau_ret. Bare line-number citations replaced by construct names. ALL PREREQUISITES DISCHARGED; RET-RESOLVE is UNBLOCKED. Roadmap row: RET-RESOLVE"
 date: 2026-07-29
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -145,44 +145,142 @@ probes), so a reachable anchorless cycle requires `def-shell` throughout.
 typecheck at `:189-190`). Acyclicity means components resolve bottom-up with no cross-module
 fixpoint. `xmod-B` is the witness that the seed extension is required, not optional.
 
-## What the pass changes: four channels
+## What the pass changes: five channels
 
-Every consumer reads the post-`effRet` value on the definition-site path (`:529-566`). Sorts were
-the only channel Rev 0 counted; the count moved three times.
+Every consumer reads the post-`effRet` value on the definition-site path. Sorts were the only channel
+Rev 0 counted; the count moved four times, and Rev 2's count of four was wrong in both directions.
+One channel it named is deleted, and two it never named are live.
 
-| # | Channel | Site | Direction | Witness |
+**Cite the construct, not the line.** Rev 2's table cited bare line numbers. Several had already moved
+by v0.23.0, and a citation that dies silently is worse than none. Every site below names the function
+or the equation.
+
+| # | Channel | Site (construct) | Direction | Status at v0.23.0 |
 |---|---|---|---|---|
-| 1 | Sort lowering of `result` and call binders | `:850`, `:1204`, `:3165-3168` | crash → verdict | the nine shapes |
-| 2 | Admissibility gating | `contractSigGuardsBlock :1668-1673`, `:842` | verdict → `asserted` | `X_rectree` |
-| 3 | Effective-post augmentation | `augmentContractPost :688` | obligation added; `verified` → `refuted` possible | `Y_alias` |
-| 4 | Assumption injection | `resultLenFact :1212`, `wholeArrEqClause :1714` | crash or `refuted` → **`verified`** | `Z_bytes` |
-
-Channel 4 is qualitatively different: it adds a fact to the antecedent, so a post that cannot be
-discharged today is discharged after. **After RET-RESOLVE, some `verified` verdicts rest on the
-resolution pass**, where none do today. That is an expansion of the trust base, not a repair, and it
-must be disclosed in `§5.3.5` and in the finding's trust-boundary note. Channel 4's soundness has a
-precondition: see "Ordering" below.
+| 1 | Sort lowering of `result` and of call binders | `sortA1` in `emitFnConstraints`; `calleeRetSort` in the `CallVC` arm of `bodyToPredM` | crash to verdict | Live and unchanged |
+| 2 | Admissibility gating | `contractSigGuardsBlock`, over `sigPairUnsafe` and `resultReturnUnsafe` | verdict to `asserted` | Live and unchanged |
+| 3 | Effective-post augmentation | `augmentContractPost`, at the definition site only | obligation added; `verified` to `refuted` possible | Live and **widened**: FACT-AG-LEN Stage 3 added `bytesLenRetPost`. Asymmetric; see below |
+| 4a | Assumption injection from the declared length | `resultLenFact` | was crash or `refuted` to `verified` | **Deleted at v0.14.78.** The channel does not exist. `bytesLenReft`, its binder-side twin, went the same way |
+| 4b | Post-assumption unblocking at a call site | the `bytesOpOnResult` and `calleeRetSort` guard in the `CallVC` arm | post dropped, to post assumed | Live. **Sound** under FACT-AG-LEN Stage 3; see the derivation below |
+| 4c | Ground facts on the constraint LHS | `injectRangeFacts` with `bytesRootedArr`; `injectBoolValRangeFacts` over `boolValArrs` | `refuted` to `verified` | Live. Reaching population measured **empty** in the corpus. Open row `ARR-RANGE-NAME` owns the name-based decision |
+| 5 | Whole-structure equality fallback | `wholeArrEqClause` | body-faithful to contract-only | Live. Conservative. Rev 2 listed it inside channel 4 and mis-stated its direction |
 
 Channel 2 means the pass is not verdict-preserving in general. `X_rectree` (three lines: a recursive
 `(type Tree (| Leaf) (| Node Tree))`, a `def-shell` returning `(ok (Node (Leaf)))`, and a contracted
 caller) is today reported **body-faithful** with `result : int` standing for a `Result[Tree, …]` and
-reaches a verdict; after the pass `resultReturnUnsafe` (`:2515-2518`) fires and it becomes
-`erBodyFallback` / `asserted`. That demotion is a **repair**: the prior verdict was computed on a
-binder whose sort misrepresents the value, which is the window documented in
+reaches a verdict; after the pass `resultReturnUnsafe` fires and it becomes `erBodyFallback` /
+`asserted`. That demotion is a **repair**: the prior verdict was computed on a binder whose sort
+misrepresents the value, which is the window documented in
 [`finding-fq-result-sort-default.md`](finding-fq-result-sort-default.md) §"Trust-boundary note".
+
+### Channel 3 is asymmetric, and Rev 2 does not record it
+
+A resolved return adds an obligation at the **definition site** and exports **no** guarantee to
+callers. The order is readable in two places and it is deliberate in one of them.
+
+`buildContractEnvWith` builds each entry as `aug params mRet c`, where `mRet` is the **raw**
+statement's return type. For an unannotated function that value is `Nothing`, so
+`augmentContractPost` performs no return-refinement fold. `emitFixpointWithCache` then maps
+`effRet` over the **third slot only**, leaving the augmented contract `c` untouched. The equation is
+`(\n (ps, c, mr) -> (ps, c, effRet retTypes n mr))`, and `seedImportedContracts` has the same shape.
+`buildContractEnvWith`'s own R1 comment states the intent in terms: the synthesis is "scoped to
+no-post so `aug` (`augmentContractPost`) is a no-op and still sees the declared `mRet`", and "the only
+value that changes is the third slot `calleeRetSort` reads".
+
+The definition-site path is the opposite. `effRet retTypes name mRet` is passed into the emitter, so
+`augmentContractPost` there reads the **resolved** type and folds `bytesLenRetPost`.
+
+**The direction is conservative.** The function owes more and promises the same. A function can
+therefore begin failing its own post while every caller sees no change, which is a diagnosis hazard
+and not a soundness one. Record it in the trust-boundary note so a reader is not left to derive it
+from an emission order.
+
+### The trust-base claim, re-derived
+
+Rev 2 stated, under the old channel 4: "After RET-RESOLVE, some `verified` verdicts rest on the
+resolution pass, where none do today. That is an expansion of the trust base, not a repair, and it
+must be disclosed in `§5.3.5`." That sentence was carried entirely by `resultLenFact`. The site is
+deleted. The claim does not survive unchanged, and it does not dissolve either. **It narrows to
+channel 4c alone.** The derivation, channel by channel.
+
+**4a dissolves.** The channel is gone. Nothing to disclose.
+
+**4b dissolves as a trust claim, and it is a repair.** The `CallVC` arm drops the callee's post when
+`bytesOpOnResult (contractPost contract)` holds and `calleeRetSort` is not the array sort. Dropping a
+post is a sound weakening: a caller that assumes less proves more. Resolving `tau_ret` to `bytes[n]`
+makes `calleeRetSort` the array sort, so the guard stops firing and the caller assumes a clause it
+previously discarded. Assuming **more** is sound only if something proves the difference, and here
+something does, twice over. First, the assumed clause is the callee's own **written** post, which the
+callee has always owed. Second, and this is what channel 3's asymmetry buys, the caller assumes the
+**raw-augmented** post while the callee discharges the **resolved-augmented** post, which under
+FACT-AG-LEN Stage 3 additionally carries `bytesLenRetPost`. The assumption is therefore a strict
+subset of the guarantee. A `verified` reached through 4b rests on the callee's discharged VC, exactly
+as every other assume-guarantee verdict does. The resolution pass decides **which** guarantee is in
+scope; it does not supply the guarantee.
+
+This is worth stating plainly because it changes what Rev 2 was actually complaining about. The trust
+expansion Rev 2 named was real, and it was `resultLenFact` injecting a length nobody proved. FACT-AG-LEN
+Stage 3 closed it by moving the length from an antecedent to a goal. **The disclosure Rev 2 demanded
+was discharged by a different row shipping, not by this proposal.**
+
+**4c survives, and the disclosure is owed for it.** `injectRangeFacts` conjoins `0 <= t` and
+`t <= 255` into `conLhs` for a `Map_select` whose array argument satisfies `bytesRootedArr`;
+`injectBoolValRangeFacts` conjoins `0 <= v <= 1` for each `$val` array in `boolValArrs`, and
+`boolValArrs` is built from `params ++ [("result", rt) | Just rt <- [mRet]]`. Both become reachable
+for `result` exactly when the resolved `tau_ret` is a `bytes[n]` or an admissible bool-valued map.
+
+These are facts about the **type**, not about the program: a `bytes[n]` element is in `0..255`, and a
+bool-valued map value is in `0..1`. If the resolution is right, the facts are true. The exposure is
+that `bytesRootedArr` is **default-true** on any `FQVar` whose name lacks a `$has` or `$val` suffix.
+The decision is a variable-name suffix, and the open row `ARR-RANGE-NAME` owns it. RET-RESOLVE does
+not create that unsoundness. It **feeds** it a new source of arrays, by making `result` one.
+
+**The measured-empty population changes the schedule and not the disclosure.** The implementation
+plan's census finds no corpus wildcard resolving to either type, which is why `ARR-RANGE-NAME` is not
+a blocking prerequisite and needs a guard test rather than a queue position. A disclosure in
+`§5.3.5`, however, has to be true of every program a user writes, not of the 318 files in this tree.
+A census keyed to the corpus is incorrect the first time a program outside it resolves an unannotated
+return to `bytes[n]`. **Do not weaken the disclosure on the strength of an empty bucket.**
+
+**The words the disclosure needs.** Not Rev 2's. A `verified` verdict may rest on a ground range fact
+that the emitter injects for an array whose bytes-rootedness was decided from a variable-name suffix
+rather than from evidence, and RET-RESOLVE can newly make `result` such an array. Route the sentence
+to `LLMLL.md §5.3.5` and to the parent finding's trust-boundary note, and cross-reference
+`ARR-RANGE-NAME`.
+
+**If `ARR-RANGE-NAME` closes, this disclosure dissolves too.** Once `bytesRootedArr` decides on
+evidence instead of on a default-true name test, 4c reduces to 4b's position: a fact about a type the
+type channel has established. The disclosure is therefore scoped to the life of that row, and it
+should say so, so that a later reader does not carry a warning past the defect it describes.
 
 ## Gates
 
-**A byte-identical corpus `.fq` is a complete gate across all four channels**, because sorts, lhs
-facts, and rhs obligations are all rendered in the file. The corpus prediction is therefore "empty
-diff", certifying four invariants rather than one. Per-channel fixtures are needed only where the
+**A byte-identical corpus `.fq` is a strong gate and it is NOT a complete one.** Rev 2 called it
+complete. That was wrong, and the implementation plan measured the counterexample class. Sorts, lhs
+facts and rhs obligations are all rendered in the file, so the gate certifies several invariants
+rather than one, and the corpus prediction stays "empty diff". **What it cannot see is a function with
+no contract.** Such a function emits no constraint, so a resolution change inside it moves nothing in
+the `.fq` and the gate reports agreement it did not check. Four corpus candidates sit in exactly that
+position: `life_sexp/world.llmll :: evolve`, `life_json/world.ast.json :: evolve`,
+`hangman_json_verifier/hangman.ast.json :: game-won?` and `hangman_json/hangman.ast.json :: game-won?`.
+Measured: `world.llmll` emits a 32-line `.fq` carrying no constraint at all. **A second half is
+therefore owed**, comparing the resolved map itself rather than its downstream rendering, and the
+implementation plan's byte-identity procedure carries it. Per-channel fixtures are needed where the
 corpus is silent:
 
 1. Channel 1: the nine crash shapes with annotated controls.
 2. Channel 2: `X_rectree`, asserting the tier flip and its diagnostic, not merely the absence of a crash.
 3. Channel 3: `Y_alias`, asserting the emitted rhs conjunct set.
-4. Channel 4: `Z_bytes`, asserting the binder sort, the injected `bytesLen` fact, and that the
-   resulting `verified` records the fact it rests on.
+4. Channel 4b: a call-site witness asserting that the callee post moves from dropped to assumed, and
+   that the caller's assumed clause is the callee's written post rather than the resolved-augmented
+   one. `Z_bytes` is retargeted to this site; its Rev 2 form asserted the injected `bytesLen` fact,
+   which no longer exists.
+5. Channel 4c: a guard test rather than a verdict test, because the reaching population is empty.
+   Assert that `injectRangeFacts` fires for a `result` whose resolved type is `bytes[n]`, and that the
+   verdict records `ARR-RANGE-NAME` as what the range fact rests on.
+6. Channel 5: a `wholeArrEqClause` witness asserting the move from body-faithful to contract-only, and
+   asserting `postCause` reports `FallbackContractPost` or `FallbackContractPre`. Rev 2 had no witness
+   for this channel because it did not know the channel existed.
 
 Plus the three re-widening guards T1–T3 from the parent finding, the three SC witnesses (hole body
 retained, concrete `τ⁰` not revised, anchorless cycle unchanged), tier invariance, and CDP
@@ -272,24 +370,34 @@ No new obligation class, nothing nonlinear, nothing escapes to Lean. Two rows mo
 
 ## Affected surface
 
-1. `compiler/src/LLMLL/TypeCheck.hs:817-827`: the sandboxed pass between `runState` and the returned
-   pair; `tcRetTypes st` becomes the resolved map.
-2. `compiler/src/LLMLL/Module.hs:189-190, 246-276`: seed extension with imported `meRetTypes`.
-3. `compiler/src/LLMLL/TypeCheck.hs:367-378`: `preferConcreteOnSelfCall` stays as shipped for the
-   type channel; SC3′ is a separate SCC-conditioned variant used only by the pass. Widening the
-   existing function in place reintroduces Stage 2's acceptance hazard.
-4. `compiler/src/LLMLL/FixpointEmit.hs`: **no code change.** Both consumers already read the map
-   through `effRet` (`:417-419`, applied `:337` and `:529-566`). Behavior changes anyway, across four
-   channels.
-5. `compiler/src/LLMLL/ProofArtifact.hs`: `codegen_semantics_version` bump, advisory only until a
-   reader exists (see the finding, which gives the stamp its first real consumer).
-6. Docs, documentation-lead: `LLMLL.md §3.4.6:399` sentence naming all four channels;
-   `§3.4.6:401` gains the Siek–Taha citation; `§5.3.5` and the parent finding's trust-boundary note
-   gain the I2 disclosure; `docs/compiler-team-roadmap.md:53` residual text corrected with `E_str`
-   named as a v0.14.72 conversion.
+1. `compiler/src/LLMLL/TypeCheck.hs`, `typeCheckWithCacheModeRet'`: the sandboxed pass between
+   `runState` and the returned pair; `tcRetTypes st` becomes the resolved map. This is the single
+   seam, and its report-only wrapper `typeCheckWithCacheMode'` discards the map, which is why a change
+   here cannot reach the type channel's accept or reject set.
+2. `compiler/src/LLMLL/Module.hs`, `loadModule`: seed extension with the cached modules' `meRetTypes`.
+3. `compiler/src/LLMLL/TypeCheck.hs`, `preferConcreteOnSelfCall`: stays as shipped for the type
+   channel; SC3′ is a separate SCC-conditioned variant used only by the pass. Widening the existing
+   function in place reintroduces Stage 2's acceptance hazard.
+4. `compiler/src/LLMLL/FixpointEmit.hs`: **no code change.** Every consumer already reads the map
+   through `effRet`, which `emitFixpointWithCache` and `seedImportedContracts` map over the ContractEnv
+   third slot and which the definition-site emitters take directly. Behavior changes anyway, across
+   **five** channels, not the four Rev 2 counted.
+5. `compiler/src/LLMLL/VerifiedCache.hs`, `checkerSoundnessVersion` (currently `"2"`): increase it
+   **only if** the corpus sweep shows a verdict move on a function carrying `verified` evidence.
+   **Rev 2 named the wrong stamp.** It asked for `codegen_semantics_version` in
+   `ProofArtifact.hs`. That stamp tracks int against machine-int codegen semantics and is `INT-3`'s
+   re-arm discriminator; spending it on a checker change would leave `INT-3` without one.
+   `VerifiedCache.hs` says so in terms. A checker change takes the checker stamp.
+6. Docs, documentation-lead: the `LLMLL.md §3.4.6` sentence naming the channels needs the corrected
+   count; `§3.4.6` gains the Siek–Taha citation; `§5.3.5` and the parent finding's trust-boundary note
+   gain the **channel-4c** disclosure in the words given above, plus the channel-3 asymmetry; the
+   roadmap residual text is corrected with `E_str` named as a v0.14.72 conversion.
 7. Schema: JSON-AST unchanged, no version bump, `.verified.json` shape unchanged.
 8. Freeze policy: not applicable, lifted at v0.11 (`docs/compiler-team-roadmap.md:234`).
-9. Research-track: this proposal **anticipates** declaration-group inference (`LLMLL.md:1603`, the
+9. `compiler/app/Main.hs`, `emitSynthetic`: a **third** consumer of `tau_ret` that Rev 2 missed. It
+   builds the CDP or weakness candidate program and calls `typeCheckWithCacheRet` for its map, so
+   `--cdp` and `--weakness-check` read the resolved map and their verdicts are in the gate's scope.
+10. Research-track: this proposal **anticipates** declaration-group inference (`LLMLL.md:1603`, the
    `do`-step carve-out, which the parent finding routes to that track) and deliberately does not
    deliver it, because SC2′ forbids the resolved map from reaching `expectPairType`.
 
@@ -310,15 +418,27 @@ Two, both with zero corpus exposure and neither affecting an in-tree verdict.
 
 ## Ordering
 
-Three patches, three releases, in this order. Do not bundle: all three move the same `.fq` lines, and
-each one's expected diff is empty for a different reason, so an unexpected non-empty diff in a bundle
-is not attributable.
+**Every ordering constraint this section stated is discharged. RET-RESOLVE is unblocked.** The chain
+as filed, with the status each entry has at v0.23.0:
 
-1. **SAFE-ARG** — [`finding-arg-position-false-safe.md`](finding-arg-position-false-safe.md), a
-   correctness advisory closing a live false SAFE. Independent of this proposal.
-2. **WILD-ASSUME** — the general rule with the `map` arm and the criterion in the spec. It is also
-   the precondition that makes this proposal's channel 4 sound.
-3. **RET-RESOLVE** — this proposal, unchanged.
+| Prerequisite | Status | Evidence |
+|---|---|---|
+| `SAFE-ARG` | SHIPPED v0.14.73 | roadmap Closed table row |
+| `WILD-ASSUME`, bytes arm | SHIPPED v0.14.73 | roadmap; `wildAssumeRejects` in `TypeAdmissibility` |
+| `WILD-ASSUME-2`, map arm | SHIPPED v0.14.74 | roadmap; `admits = boolValuedMapTy` |
+| `FACT-AG-LEN` Stages 1 to 3 | SHIPPED v0.14.76 to v0.14.78 | roadmap; `bytesLenParamPre`, the `bodyToPredM` axiom equation, `bytesLenRetPost` |
+| `ARR-RANGE-NAME` | OPEN, **not blocking** | reaching population measured empty; it needs a guard test, not a queue position |
+
+**The entry that carried the blocking argument is the one that dissolved it.** Rev 2 made
+`WILD-ASSUME` the precondition "that makes this proposal's channel 4 sound". Channel 4a is deleted, so
+that specific dependency no longer exists. `WILD-ASSUME` and `WILD-ASSUME-2` still carry
+invariant I2's unconditional form over the array and map classes, which is a different claim and is
+stated under "Invariants". The channel that replaced 4a is 4b, and 4b is sound for the reason
+FACT-AG-LEN exists: the callee proves the length it exports.
+
+`ARR-RANGE-NAME` is the one open row this proposal touches, and it is a **disclosure** dependency
+rather than a scheduling one. See "The trust-base claim, re-derived". The row does not gate the
+patch; the patch owes the row a sentence in `§5.3.5`.
 
 ## Review log
 
