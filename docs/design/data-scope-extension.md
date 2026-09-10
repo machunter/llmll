@@ -349,6 +349,36 @@ own length without arrays. Stays in QF-LIA + EUF (+ arrays from Lever A). Modest
 real role is to make `list` a first-class *bounded-indexable* type once Lever A exists — the bridge
 between "count a list" and "index a list safely."
 
+**Unevidenced by the committed corpus, measured 2026-09-09.** `FRAGMENT-BASIS-1` censused every
+contract clause in the tracked tree (1094 `post` clauses and 885 `pre` clauses) and found **two**
+list symbols in contract position, both `list-length`, which is already inside `Σ_auto` and already
+reaches body-faithful. **Zero** of the eleven fragment escapes in the tree are what this lever
+widens. The four list operations that do refuse are all in **bodies**: `list-nth` in `cell-at`,
+`list-head`/`list-tail` recursion in `count-alive`, `list-prepend` in `make-board`, `list-map` in
+`set-cell`. Lever B as written does not admit any of them to a body verification condition
+either. So the corpus supplies no supporting entry.
+
+**The corpus does not refute the lever, and it cannot.** `list-nth : list[a] int -> Result[a, string]`
+returns an `Error` value on an out-of-range read, so no author has ever needed the index proof. An
+absence of list-indexing contracts is exactly what that signature predicts, and it does not
+distinguish "the author could not express it" from "the author did not need to." The two readings are
+confounded in every file, and the confound is demonstrably real: when a fixed-size buffer was
+available, the same program verified over the shipped array class with no compiler change.
+
+Three things would settle it, in increasing cost. **(1) Finish the elimination**, one file and no
+compiler change: re-express `examples/conways_life_json_verifier/life.ast.json` over the array class
+and record what stops it. **(2) Build the discriminating cell**, one contracted program over data
+that really is length-polymorphic, recording each `post` the author *cannot* state. A post that
+cannot be written is a positive witness; an absence count is not. **(3) Spike the surface**, a
+`list[t]{len=n}` binder and a total indexed read, which is a decision rather than a measurement and
+should not start until (2) produces a refused post. Steps 1 and 2 are eliminative; step 3 is
+corroborative and worth less, because a spike that succeeds shows only that the feature can be built,
+not that any program needed it.
+
+The **design-reference** case is separate and stands untouched by the above: Liquid Haskell, F\*,
+Dafny and Idris all ship length-indexed sequence types. Whether LLMLL needs one is an argument from
+that ecosystem, not from this corpus, and `FRAGMENT-BASIS-1` did not make it.
+
 ### Lever C — inductive datatypes + induction  · *undecidable · the frontier*
 
 Admit **recursive datatypes** to the verified tier and give the solver a way to reason about them:

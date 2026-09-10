@@ -92,3 +92,35 @@ tree produce identical bytes and a diff shows only what changed.
 
 Its cover is `../tests/test_fallback_census.py`: 18 cells over a stub compiler
 and 3 against a real one.
+
+## The reading rule
+
+Three rules, adopted 2026-09-09 after `FRAGMENT-BASIS-1` found the largest
+bucket read three times without being opened. See
+`../../docs/design/fragment-basis-1-proposal.md` §5.1.
+
+**1. Report `no-post` per root.** The census already computes the split; record
+it. A figure that mixes `tools/` and `scripts/build-smoke/` with `examples/`
+cannot size an example-corpus question. Of the 246 `no-post` entries in the
+first run, 192 are outside `examples/`.
+
+**2. Exclude the surface-format arm from any figure that sizes a fragment row.**
+`examples/hangman_sexp/`, `examples/hangman_json/`, `examples/tictactoe_sexp/`,
+`examples/life_sexp/` and `examples/life_json/` exist to show two surface
+formats on one program. They carry no contracts by decision, so their `no-post`
+count measures that decision and not a limit of the fragment. The contracted
+arm is the three `_json_verifier` directories.
+
+**3. Do not read this histogram as a corpus measurement until the population
+hole is closed.** `fn_kinds` declares 156 functions over the 17 example files
+and only 69 appear in either `body_faithful` or `body_fallback_causes`; the
+other 87 appear in neither. A function with no post and no reflecting signature
+is reported nowhere, so the `no-post` count is a **floor**. The `ratio` is not
+affected, because every posted function checked is accounted for, but any claim about
+what the corpus does or does not express is.
+
+**A `no-post` entry is not a fragment escape.** A function with no post has no
+proof goal, so nothing refused and nothing left a fragment it never entered.
+Reading `no-post` as evidence that the contract vocabulary is too narrow is the
+specific error `FRAGMENT-BASIS-1` corrected, and it inverted the conclusion:
+widening `Σ_auto` for list and string posts would not change those files.
