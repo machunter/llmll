@@ -44,9 +44,12 @@ red build, and does not hide it either.
 
 **Locally, not in CI.** The CI step was removed on the day it shipped, after the
 runner killed it twice. One example,
-`examples/heartbleed/secure-channel/sc-channel.llmll`, peaks at 5.49 GB of
-resident memory in a single verify, and this script gives its workers the
-biggest files first, so two multi-gigabyte verifies started together. The
+`examples/heartbleed/secure-channel/sc-channel.llmll`, peaks between 4.68 GB and
+6.83 GB of resident memory in a single verify, re-measured over five isolated
+samples on 2026-09-09; the peak is not stable. Its agent-filled twin peaks at
+5.34 GB. This script gives its workers the biggest files first, so those two
+multi-gigabyte verifies started together. The cost is liquid-fixpoint's and not
+the compiler's: `fixpoint` alone on the emitted `.fq` reaches the whole peak. The
 roadmap rows `VERIFY-MEMORY-1` and `FALLBACK-CENSUS-1 residue (1)` carry the
 measurement and the three candidate fixes. Until one is chosen, run
 `make fallback-census` before a release.
