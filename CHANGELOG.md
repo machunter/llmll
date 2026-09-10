@@ -4,6 +4,70 @@
 
 <a id="Latest"></a>
 
+## v0.23.1: the driver checks a report the reference never checked, and seven of eight MUSTs say so (2026-09-10)
+
+**`DRIVER-LL` sub-phase 4f ships: stage O is ported into
+[`tools/llmll-driver/sequencer.llmll`](tools/llmll-driver/sequencer.llmll), and
+[`tools/llmll-driver/report.llmll`](tools/llmll-driver/report.llmll) decides the one clause of
+driver-spec section 13 that is mechanizable.** Stage O is the last stage this program stubbed that
+was its own to land. It is also the only sub-phase that **adds** behaviour rather than reproducing
+it: `stage_O_writeup` holds zero `require()` sites, measured by AST, and is the only delegated
+stage in the reference with none. Section 7:283-286 makes validating a delegated output mandatory,
+non-downgradable and non-skippable, so for this stage there was nothing to downgrade because
+nothing existed. Plan and running record:
+[`docs/design/driver-ll-phase4f-implementation-plan.md`](docs/design/driver-ll-phase4f-implementation-plan.md).
+
+- **One clause of eight, and the split is the spec's own.** Section 15.1:512-515 characterises the
+  proved tier as sequencing and state over enumerated statuses and bounded counters, and reporting
+  is absent from that enumeration. So `report.omission-free?` decides "a report MUST include the
+  full result of the perturbation exercise, including perturbations that were not detected" as a
+  set difference over stage N's `kill-matrix.json`, keyed by `name`. The other seven MUSTs are
+  disclosure-only and the phase close lists them **UNCHECKED**. Passing the set difference does not
+  discharge "MUST be resolved rather than omitted": a report that lists a survivor and dismisses it
+  passes this check and violates that sentence. `SPEC-TIER-1` is why no tier is manufactured for
+  the other seven.
+- **The crux has a post that survives, and the surviving post is the point.**
+  [`tools/llmll-driver/crux-report-omits-survivor.llmll`](tools/llmll-driver/crux-report-omits-survivor.llmll)
+  passes as soon as every SURVIVOR is named and says nothing about the rest of the matrix.
+  Measured per post at v0.23.0, one post at a time: `[O13-FULL]` refutes, `[O13-NO-OMIT]` refutes,
+  and `[O13-UNDETECTED]` **survives**. That is `CLAUSE-INDEP-1` witnessed rather than repaired: the
+  entailment from `[O13-FULL]` runs one way only, and the crux is the witness.
+- **The halt is `stopped`, not `failed`, and the copy is why.** `stage_O_writeup` ends in a
+  `shutil.copy2` of `14-report/REPORT.md` onto the workdir-root `REPORT.md`, the declared output,
+  so the validator runs **after** the declared write: `PartialThenHalt`, exit 2. This is the second
+  real site of that constructor. The sequencer's retirement schedule had said 4f would retire it
+  from the 4a fault injector, and 4d had already retired it at stage H's probe-polarity bar; the
+  comment is corrected rather than left to mislead.
+- **Mode 4, `OPTIONAL`, and stage O is its only user.** Its five prompt inputs all reach the prompt
+  through `maybe()`, which substitutes "(stage not run)" for an absent file. Every other
+  precondition read in the reference is unguarded and raises, which is why every other mode halts.
+  Stage O's are guarded there, so halting would invent a halt the subject does not have.
+- **The cover grew by four cells and they ran on CI, not here.** `scripts/driver_ll_cover.py` goes
+  58 to 62: O1 a complete report completes, **O2 a report that omits a SURVIVOR halts `stopped`
+  after the declared write**, O3 no kill matrix means no reference set and the stage says the check
+  did not run, O4 a present non-array matrix is a guarded read decided before the copy. All four
+  report `ok` on CI. They had never executed anywhere before that run: this host cannot link a
+  stack-built binary, so `BUILD-GATE-1` stage 8 was their first execution.
+- **A membership test that errs toward passing, disclosed rather than tightened.** The check is
+  `string-contains`, so a matrix row named `x` counts as named by a report that says `xyz`. The
+  error direction is toward passing. `regex-match` is POSIX ERE and carries no word boundary, so no
+  in-language tightening exists today; the section 7 statement in the sequencer discloses it.
+- **Two sub-phases shipped without an entry, and this records them.** Sub-phase **4a** (`2b82464`,
+  first tagged v0.14.86; v0.14.85 shipped `PROC-BOUNDARY-1`, the unblocker, not 4a) landed the
+  sequencer, the manifest, the resume gate and both halt channels, with no shim. Sub-phase **4c**
+  (`b9904a6`, first tagged v0.14.88) landed stages D, F and G plus a proved content-shape channel,
+  took the cover from 31 to 39 cells, and found `REGEX-LOWER-1`. Neither has a section of its own
+  and neither is given one here: shipped sections are append-only, so the record lands in the
+  current entry instead.
+
+No compiler change, no CLI change, no schema change; `LLMLL.md` moves only its banner. The driver's
+own flags are documented in [`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1942 examples, 0 failures (unchanged; no Haskell touched). pytest 229 passed, 23 skipped (eleven
+new, none toolchain-gated).
+
+---
+
 ## v0.23.0: a trust tier that nothing produced leaves the lattice (2026-09-09)
 
 **`TRUST-CC-1` ships, and `DISCLOSE-ROW-1` closes with it.** `contract-checked` was one of two
