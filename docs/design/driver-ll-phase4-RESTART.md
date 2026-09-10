@@ -86,12 +86,21 @@ lines of Python and shell with **zero** lines of LLMLL, and all 13 LLMLL
 programs with entry points execute only to test LLMLL. No LLMLL program does
 work anyone needs done.
 
-**The plan, agreed and unchanged.** 4d stays parked. Finish 4e against a
+**The plan, as agreed on 2026-08-18.** 4d stays parked. Finish 4e against a
 hand-authored fixture tree. Then port the CI gates, which is the actual
 dogfooding. 4f, program unification and stage A stay deferred. This
 deliberately does not make the swarm run, and that was accepted consciously.
 
-**4e is now done, so the next thing is the CI-gate port.** Section 7 records
+> **Overtaken by shipped work, measured 2026-09-10.** Three of the four items
+> above are done. The CI-gate port is TOOL-LL, complete and closed at v0.16.1.
+> 4d shipped at v0.21.1 (`4eedf8b`). Stage A shipped at v0.21.2 (`3e1c1af`),
+> once `HTTP-GET-1` closed at v0.21.0 (`dc2c9cf`) and lifted its STOP. **Only 4f
+> and program unification remain deferred**, and neither has started. The plan
+> text above is kept because it records what was agreed and why. It is not a
+> statement of current state.
+
+**4e is now done, so the next thing is the CI-gate port.** (That port closed at
+v0.16.1, and 4d and stage A have shipped since. The next thing is now 4f.) Section 7 records
 what it turned into. The caveat below has only strengthened: the harness leg
 discharged the contention justification from outside LLMLL, and 4e's cover then
 produced contention from inside a program without a stub, so what 4e uniquely
@@ -317,7 +326,7 @@ session that wrote the state machine. Do not re-derive.
    lexeme `stale`, so key on `stale` and never on the fuller phrase. The
    reference's predicate retries on either and the port must not inherit it.
 
-6. **Stages H and N invert the artifact flow** (4d, parked): the agent's
+6. **Stages H and N invert the artifact flow** (4d, SHIPPED v0.21.1): the agent's
    artifact is an **input** to the stage's own computation and the **driver**
    writes the declared output. Needs a stage-agent-out table and Phase arms,
    not just registry rows.
@@ -407,17 +416,24 @@ All measured on the working tree with the state machine in place, at
 `7fcd9d3` plus the uncommitted changes. **Re-measure, do not assume**; figures
 in this repository's docs have been stale by hundreds.
 
+> **The figures below are the 4e-era measurement and are NOT current at v0.23.0.
+> Two of the reference paths no longer exist**, and that was found by resolving
+> them on 2026-09-10 rather than by reading them. `TOOL-LL` ported all six CI
+> gates and closed at v0.16.1, which retired the Python and shell references in
+> favour of LLMLL ports under `tools/`. The rows are corrected to the live paths
+> and their recorded figures are left as measured at the time.
+
 | Gate | Figure |
 |---|---|
 | `stack test` | 1656 examples, 0 failures (no Haskell changed) |
 | `pytest scripts/tests/` | 170 passed, 1 skipped, 0 failed (was 150; +20 from the 4e tier) |
-| [`scripts/refute-crux-gate.sh`](../../scripts/refute-crux-gate.sh) | 80 passed, 0 failed (was 79; `wave.llmll`'s frozen verdict is the 80th) |
-| [`scripts/doc_path_lint.py`](../../scripts/doc_path_lint.py) | 886 citations, all resolve |
+| [`tools/refute-crux/refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (was `scripts/refute-crux-gate.sh`, retired by `TOOL-LL`) | 80 passed, 0 failed (was 79; `wave.llmll`'s frozen verdict is the 80th) |
+| [`tools/doc-path-lint/pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) (was `scripts/doc_path_lint.py`, retired at v0.14.99) | 886 citations, all resolve |
 | [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, 0 failed, needs a **rebuilt** sequencer via `--driver` |
 | [`scripts/wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, 0 failed, needs `--wave` **and** `--llmll` |
 | [`scripts/version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.87 |
 | [`scripts/build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 9 |
-| frontmatter parse | 60 of 60, and **no gate protects it** |
+| frontmatter parse | 60 of 60. **No general gate protects it**; see section 10, where this is now recorded as partially discharged by [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) |
 
 ## 9. Gotchas that cost real time
 
@@ -450,18 +466,39 @@ in this repository's docs have been stale by hundreds.
 
 ## 10. Debt, deferred and unrelated to 4e
 
-- **Four shipped releases have no git tag** and therefore no ghcr image. Newest
-  tag on origin is `v0.14.83` while the five banner sites read `v0.14.87`.
-  Targets: v0.14.84 to `a182638`, v0.14.85 to `1428fe3`, v0.14.86 to `6e92dd0`,
-  v0.14.87 to `1bc2965`.
-  [`scripts/version_gate.sh`](../../scripts/version_gate.sh) compares banners to
-  each other and to no tag, which is why nothing caught it. Deferred while
-  Actions drains.
+**Re-measured 2026-09-10 at v0.23.0, bullet by bullet. A debt list that carries
+a discharged item is worse than no list, so each entry below states what was
+measured and when.**
+
+- ~~**Four shipped releases have no git tag**~~ **DISCHARGED.** The bullet named
+  v0.14.84 to v0.14.87 as untagged, with the newest tag on origin at `v0.14.83`.
+  **All four are tagged.** The repository carries 145 tags and they run to
+  `v0.23.0`. The underlying observation about the gate still holds and is not
+  discharged with it: [`scripts/version_gate.sh`](../../scripts/version_gate.sh)
+  compares the five banner sites to each other and to **no git tag**, which is
+  why nothing caught the gap at the time.
 - **No parse gate over design-doc frontmatter**, recorded in `895f75a`.
+  **PARTIALLY DISCHARGED.** A frontmatter parser now exists and runs in CI:
+  [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll)
+  is built and executed by `.github/workflows/version-gate.yml`. It is **not** a
+  general frontmatter parse gate: it reads the archive-disposition field and its
+  population is `docs/archive/`. So a malformed or missing frontmatter block in
+  `docs/design/` is still ungated. The bullet as written is now too strong; what
+  remains open is the general case.
 - `HDelegate`, `HDelegateAsync`, `HDelegatePending` and `HConflictResolution`
   reach the HOLE-STATUS-SIBLING catch-all unpinned by any test, recorded in
-  `7a48283`.
-- Finding 1 in section 6 is unrouted.
+  `7a48283`. **PARTIALLY DISCHARGED, and the remaining half is exact.**
+  `HDelegate` and `HDelegateAsync` now appear in
+  [`compiler/test/Spec.hs`](../../compiler/test/Spec.hs). **`HDelegatePending`
+  and `HConflictResolution` appear in no test in the repository**, measured over
+  `compiler/test/` and `scripts/tests/`, while both are live constructors across
+  seven modules under `compiler/src/LLMLL/`. Two of four, not four of four.
+- **Finding 1 in section 6 is unrouted. STILL TRUE, and it is the only entry
+  here that has not moved at all.** No row in the roadmap covers the
+  same-named-sum-type collision across modules. It is a compiler finding with a
+  measured witness and a measured control, and it has no owner. **This needs
+  routing rather than another re-measurement**, and routing it is a call for the
+  user, not for this record.
 
 ## 11. Method discipline this phase keeps relearning
 
