@@ -318,9 +318,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--write-baseline", action="store_true", help="rewrite the ratchet file from this run")
     ap.add_argument("--no-ratchet", action="store_true", help="report the census, do not enforce the ratchet")
     # 600 s and not 300: measured 2026-09-08, examples/heartbleed/secure-channel/
-    # sc-channel.llmll takes 130 s ALONE, and under four concurrent workers it
-    # exceeded 300 s. Each such timeout costs the budget twice, once waiting and
-    # once in the confirmation run, which is what took one census to 10 min 41 s.
+    # sc-channel.llmll exceeded 300 s under four concurrent workers. Each such
+    # timeout costs the budget twice, once waiting and once in the confirmation
+    # run, which is what took one census to 10 min 41 s.
+    #
+    # The isolated figure this comment used to cite, 130 s ALONE, DOES NOT
+    # REPRODUCE. Five isolated samples on 2026-09-09 at v0.23.0 cluster near
+    # 60 s, and neither --json, nor the repository sidecar, nor either cache
+    # explains the gap; see item 2 of
+    # docs/design/fallback-census-1-implementation-plan.md. 600 s STAYS: it is
+    # generous against either figure, and the number that justifies it is the
+    # 300 s overrun under four workers, not the isolated one.
     ap.add_argument("--timeout", type=int, default=600, help="per-file seconds (default: 600)")
     ap.add_argument("--jobs", type=int, default=min(8, (os.cpu_count() or 2)),
                     help="directories verified concurrently (default: min(8, cpu count))")

@@ -712,14 +712,33 @@ jobs:
       # was killed by the runner both times (exit 143, SIGTERM, after 1 min 52 s
       # with no output).
       #
-      # THE CAUSE IS ONE FILE'S MEMORY, not the census's design. Measured
-      # locally with /usr/bin/time -l: a single
+      # THE CAUSE IS SOLVER MEMORY, not the census's design, and it belongs to
+      # liquid-fixpoint rather than to llmll. Re-measured 2026-09-09 at v0.23.0
+      # with /usr/bin/time -l, five isolated samples:
       # `llmll verify --strict-verified-core` of
-      # examples/heartbleed/secure-channel/sc-channel.llmll peaks at 5.49 GB of
-      # resident memory and takes 63 s alone. tools/build-smoke/buildsmoke.llmll,
-      # which is a LARGER file, peaks at 28 MB in 0.15 s, so size does not
-      # predict it. The census gives its workers the biggest files first, so at
-      # --jobs 4 two multi-gigabyte verifies start together within seconds.
+      # examples/heartbleed/secure-channel/sc-channel.llmll at 4.68 GB / 62.5 s
+      # and at 6.48 GB / 50.3 s; the census's own
+      # `llmll --json verify --strict-verified-core` at 5.81 GB / 55.2 s; and
+      # `fixpoint` ALONE on the emitted .fq at 6.83 GB / 50.1 s, reporting
+      # Safe (304 constraints checked). That last sample localizes the whole
+      # cost to the solver: handed the constraint file directly, fixpoint
+      # reaches the peak by itself, so parse, typecheck and emit are noise
+      # against it. THE PEAK IS NOT STABLE: 4.68 to 6.83 GB over identical
+      # input.
+      #
+      # THE .fq IS SMALL: 3757 lines, 196 KB, 304 constraints, zero wf
+      # declarations and zero kvars. Its only sort is int, at 3362 occurrences
+      # against zero each of Map, Set, Str, Array and Bool. The source agrees,
+      # with zero string literals in 1162 lines and zero map-/bytes-/array-
+      # operations. tools/build-smoke/buildsmoke.llmll, which is a LARGER file,
+      # peaks at 28 MB in 0.15 s, so size does not predict it.
+      #
+      # AT LEAST TWO FILES IN THE POPULATION EXCEED 5 GB. The agent-filled twin
+      # examples/heartbleed/secure-channel/agent-fill/sc-channel-agentfilled.llmll
+      # peaks at 5.34 GB in 59.6 s, isolated. The census gives its workers the
+      # biggest files first, so at --jobs 4 those two start together within
+      # seconds. examples/secure-channel-emergent/work/spine.ast.json is the
+      # third large file by wall clock and its peak is UNMEASURED.
       # Filed as VERIFY-MEMORY-1.
       #
       # The instrument itself is unaffected and still ships: `make
@@ -734,6 +753,14 @@ jobs:
       # the way the census already reports `timeout` and `unstable`; or run at
       # --jobs 1 and pay the wall clock; or move the step to a schedule. All
       # three are cheap to build and they differ in what the gate promises.
+      #
+      # THE 2026-09-09 RE-MEASUREMENT WEAKENS THE FIRST CANDIDATE. A cap has to
+      # clear the 6.83 GB tail, or the census reports one file two ways on two
+      # runs. A cap with that much headroom leaves under 10 GB on a 16 GB
+      # ubuntu-latest runner, and the second 5 GB file then contends for it.
+      # That argues for --jobs 1 over the cap, or for both together: --jobs 1
+      # for the gate, and a cap as the backstop that names what it could not
+      # measure.
 
       # BUILD-GATE-1. Belongs in this job and not in version-gate: that job is
       # deliberately Stack-free (see the header), and this gate's oracle is GHC.

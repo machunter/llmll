@@ -393,11 +393,31 @@ file as `unstable`, names it, and does not fail the build on it.
 2. **Cost is 6 minutes, not one, and three files are most of it.** The plan
    extrapolated 0.04-0.30 s per file from `examples/`. Measured:
    `examples/heartbleed/secure-channel/sc-channel.llmll` takes **130 s with the
-   machine to itself** and 253 s under four workers, its agent-filled twin 288 s,
-   and `examples/secure-channel-emergent/work/spine.ast.json` 173 s. The other
+   machine to itself** and 253 s under four workers; its agent-filled twin takes
+   288 s under four workers, and
+   `examples/secure-channel-emergent/work/spine.ast.json` 173 s under four
+   workers. Only the 130 s figure claims isolation. The other
    247 files together take about four minutes. Two rounds of work brought the
    number down: per-worker parallelism from 6 min 25 s sequential, then taking
-   the biggest files first from 8 min 17 s to 6 min 4 s. The workflow runs on
+   the biggest files first from 8 min 17 s to 6 min 4 s.
+
+   > **Correction, 2026-09-09 (v0.23.0).** The 130 s isolated figure does not
+   > reproduce. Five isolated samples cluster near 60 s: `sc-channel.llmll` at
+   > 62.5 s, 50.3 s and 55.2 s, its agent-filled twin at 59.6 s, and `fixpoint`
+   > alone on the emitted `.fq` at 50.1 s. Three explanations were tested and
+   > excluded: the `--json` flag the census adds, the repository sidecar, and
+   > either cache. `ProofCache` and `VerifiedCache` are both sidecars next to
+   > the file ([`../../compiler/src/LLMLL/ProofCache.hs`](../../compiler/src/LLMLL/ProofCache.hs)
+   > line 76, [`../../compiler/src/LLMLL/VerifiedCache.hs`](../../compiler/src/LLMLL/VerifiedCache.hs)
+   > line 42), and no `.proof-cache.json` exists for this file. The figure is
+   > left in place, because the original conditions cannot be reproduced. It
+   > needs a fresh measurement, and `scripts/fallback_census.py`'s `--timeout`
+   > default cites it. **The under-four-workers figures were not re-measured.**
+   > The twin's 288 s loaded against 59.6 s isolated is a 4.8x concurrency
+   > penalty, which is consistent with the memory contention `VERIFY-MEMORY-1`
+   > records.
+
+   The workflow runs on
    pushes to main and on pull requests, so the cost is paid per PR. **This is
    the one decision in the change set worth the user's attention**; moving the
    step to a schedule needs no change to the instrument.
