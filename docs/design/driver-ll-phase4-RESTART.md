@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE, and its NEXT POINTER WAS STALE until 2026-08-18. Sub-phase 4e is complete: wave.llmll landed with its seven-cell cover at commit fa859b7, first contained by tag v0.14.88. This file then said the next thing is the CI-gate port. THAT PORT IS NOW COMPLETE AND CLOSED: TOOL-LL ported all six gates and its porting phase closed at v0.16.1, recorded in docs/design/tool-ll-RESTART.md. The campaign was adjudicated LIVE on 2026-09-07; the sequence to Phase 5 is in the roadmap's G0 row. THIS FIELD WAS CORRECTED AGAIN ON 2026-09-10, and the correction is the same defect a second time: the field called 4d parked and stage A a filed STOP after both had shipped, and the 2026-09-10 refresh (b7ccee4) corrected sections 2, 6, 8 and 10 and LEFT THIS FIELD, so a restarting session read the incorrect half first. MEASURED FROM GIT: 4d SHIPPED at v0.21.1 (4eedf8b, stages H, K and N over oracle.llmll); stage A PORTED at v0.21.2 (3e1c1af), once HTTP-GET-1 shipped at v0.21.0 (dc2c9cf) and lifted its STOP. WHAT IS OPEN: sub-phase 4f (stage O with its section 13 validator, the phase close and the gap inventory) and program unification. Neither has started: no commit names either as work, and the last commit that touches tools/llmll-driver/ is 3e1c1af. Delete this file when Phase 4 closes."
+status: "LIVE, and its NEXT POINTER HAS NOW BEEN CORRECTED THREE TIMES. The defect is the same every time: a refresh corrects the body and leaves this field, and a restarting session reads this field first. 2026-08-18 corrected a pointer that still named the CI-gate port after that port had closed at v0.16.1 (recorded in docs/design/tool-ll-RESTART.md). 2026-09-10 corrected a field that called 4d parked and stage A a filed STOP after both had shipped; the refresh that day (b7ccee4) corrected sections 2, 6, 8 and 10 and LEFT THIS FIELD. 2026-09-10, later the same day, corrected it a third time after sub-phase 4f shipped, which this field still called not started. The campaign was adjudicated LIVE on 2026-09-07; the sequence to Phase 5 is in the roadmap G0 row. MEASURED FROM GIT at each correction: 4d SHIPPED v0.21.1 (4eedf8b, stages H, K and N over oracle.llmll); stage A PORTED v0.21.2 (3e1c1af), once HTTP-GET-1 shipped v0.21.0 (dc2c9cf) and lifted its STOP; 4f SHIPPED v0.23.1 (e49e968, merged ecaf418), landing stage O, report.llmll and the driver-spec section 13 validator, with cover cells O1 to O4 passing on CI run 34524333081 and the cover going 58 to 62 cells. WHAT IS OPEN: program unification, and NOTHING SCOPES IT. It is named as next by this file, by the stage A plan, by the 4f plan twice and by the G0 row, and it is defined by none of them; the nearest thing to a definition is section 2 of this file, where the driver is thousands of lines of Python and shell and no LLMLL program does work anyone needs done. It needs a plan before it needs an engineer. The Phase 5 conformance claim follows it, bounded by SPEC-TIER-1, FS-ISOLATION-1 and PROC-TIMEOUT-1. The last commit that touches tools/llmll-driver/ is e49e968. Delete this file when Phase 4 closes."
 date: 2026-08-18
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -94,13 +94,14 @@ deliberately does not make the swarm run, and that was accepted consciously.
 > **Overtaken by shipped work, measured 2026-09-10.** Three of the four items
 > above are done. The CI-gate port is TOOL-LL, complete and closed at v0.16.1.
 > 4d shipped at v0.21.1 (`4eedf8b`). Stage A shipped at v0.21.2 (`3e1c1af`),
-> once `HTTP-GET-1` closed at v0.21.0 (`dc2c9cf`) and lifted its STOP. **Only 4f
-> and program unification remain deferred**, and neither has started. The plan
+> once `HTTP-GET-1` closed at v0.21.0 (`dc2c9cf`) and lifted its STOP. 4f then shipped
+> at v0.23.1 (`e49e968`, merged `ecaf418`), so **only program unification remains
+> deferred**, and it has not started. The plan
 > text above is kept because it records what was agreed and why. It is not a
 > statement of current state.
 
 **4e is now done, so the next thing is the CI-gate port.** (That port closed at
-v0.16.1, and 4d and stage A have shipped since. The next thing is now 4f.) Section 7 records
+v0.16.1, and 4d, stage A and 4f have shipped since. The next thing is now program unification.) Section 7 records
 what it turned into. The caveat below has only strengthened: the harness leg
 discharged the contention justification from outside LLMLL, and 4e's cover then
 produced contention from inside a program without a stub, so what 4e uniquely
