@@ -244,17 +244,48 @@ def test_T5_reports_not_checked_and_names_the_reason(tmp_path, capsys):
     assert "no committed run carries one" in out.lower() or "NO committed run" in out, out
 
 
+_WAVE_FILLS = {
+    "fills": [{"hole": f"h{i}", "status": "filled", "attempts": 1} for i in range(18)]
+             + [{"hole": "h18", "status": "finding", "attempts": 3}]}
+
+
 def test_a_divergent_wave_partition_is_reported_and_does_not_fail(tmp_path, capsys):
-    """The reported half is recorded with n and never gates."""
+    """The reported half is recorded with n and never gates.
+
+    THE PATH IS STAGED. Stage M declares `12-wave/wave.json` and that is where a
+    run writes it; `_run_dir` already lays every declared output down at its
+    staged path.
+    """
     run = _run_dir(tmp_path)
-    (run / "wave.json").write_text(json.dumps(
-        {"fills": [{"hole": f"h{i}", "status": "filled", "attempts": 1} for i in range(18)]
-                  + [{"hole": "h18", "status": "finding", "attempts": 3}]}), encoding="utf-8")
+    (run / "12-wave" / "wave.json").write_text(json.dumps(_WAVE_FILLS), encoding="utf-8")
     rc = _call(run)
     out = _verdict(capsys)
     assert "CLAUSE-2 PASS" in out, out
     assert "R5 wave partition" in out and "'filled': 18" in out, out
     assert rc == 0
+
+
+def test_a_wave_json_at_the_run_root_is_not_read(tmp_path, capsys):
+    """NEGATIVE CONTROL for the staged path, and the cell above is not one.
+
+    The tool read `<run>/wave.json` until 2026-09-11 and its fixture wrote there,
+    so tool and test agreed on a path no run produces. With only the cell above,
+    moving the read back to the root would still pass by moving the fixture with
+    it. This cell fails in that direction: the root file carries a partition the
+    staged file does not, so R5 names which path was read.
+
+    The decoy status is a string that appears in NEITHER the staged fixture nor
+    the oracle. `runs/rfc826/wave.json` carries one real `checkout-failed`, so a
+    decoy using that status would be masked by the oracle half of the R5 line.
+    """
+    run = _run_dir(tmp_path)
+    (run / "12-wave" / "wave.json").write_text(json.dumps(_WAVE_FILLS), encoding="utf-8")
+    (run / "wave.json").write_text(json.dumps(
+        {"fills": [{"hole": "decoy", "status": "read-the-run-root"}]}), encoding="utf-8")
+    _call(run)
+    out = _verdict(capsys)
+    assert "'filled': 18" in out, f"the staged wave.json was not the one read\n{out}"
+    assert "read-the-run-root" not in out, f"the run-root wave.json was read\n{out}"
 
 
 def test_the_gate_removed_control(tmp_path, capsys, monkeypatch):

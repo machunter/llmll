@@ -344,7 +344,16 @@ def reported(rep: Report, stages, manifest: dict, run: pathlib.Path,
 
     rep.note("R4 stage L", _cov_line(run, oracle))
 
-    run_wave = read_json(run / "wave.json", fatal=False)
+    # THE RUN SIDE IS STAGED AND THE ORACLE SIDE IS FLAT, which is why these two
+    # paths differ and why R2 and R3 above are written the same way. Stage M
+    # declares `12-wave/wave.json` (registry.llmll, stage-out i=13 j=0) and every
+    # real run writes it there; `experiments/rfc-swarm/runs/rfc826/` is a curated
+    # flat directory of the committed Python run. Reading the run side at the
+    # workdir ROOT found nothing in any run ever performed, so R5 and R6 reported
+    # `absent` whatever stage M did. The 2026-09-11 run is the measurement: its
+    # `12-wave/wave.json` exists (as the 4a stub) and `<run>/wave.json` does not,
+    # and the pre-registration attributed the divergence to the stub alone.
+    run_wave = read_json(run / "12-wave" / "wave.json", fatal=False)
     or_wave = read_json(oracle / "wave.json", fatal=False)
     rep.note("R5 wave partition", _wave_line(run_wave, or_wave))
     rep.note("R6 retry budget", _attempts_line(run_wave, or_wave))

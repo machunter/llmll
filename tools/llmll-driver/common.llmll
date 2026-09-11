@@ -59,6 +59,25 @@
 (def-shell int-flag [as: list[string] f: string d: int] -> int
   (unwrap-or (string-to-int (flag-value as f)) d))
 
+;; AN EIGHTH MEMBER, added at program unification job (a2) and found by the
+;; compiler rather than by a census. `manifest.llmll` and `wave.llmll` each held
+;; a byte-identical copy, and neither module imported the other, so nothing
+;; collided until the sequencer opened both. `llmll check` then printed
+;; `open-shadow-warning: 'jset' from wave shadows an existing binding`, which
+;; section 4.4 measured as a warning that exits 0 and is not escalated by
+;; --strict. Section 2 clause 5 of the unification proposal greps for that line
+;; for exactly this reason.
+;;
+;; Checked against the section 4.9 rule before the move: body equality is
+;; necessary and NOT sufficient. Neither copy sits on a pin. `jset` is not in
+;; SEAM, which is the four wave functions that read another process's stdout,
+;; and no cover names it.
+;;
+;; json-set returns a Result and the failure is a non-object receiver, which
+;; every caller has already excluded or does not care about.
+(def-shell jset [o: Json k: string v: Json] -> Json
+  (unwrap-or (json-set o k v) o))
+
 (def-shell dflt [s: string d: string] -> string
   (if (string-empty? s) d s))
 

@@ -271,6 +271,13 @@
   (import report)   (open report)
   (import common)   (open common)
   (import spine)    (open spine)
+  ;; Stage M. Program unification job (a2) made `wave.llmll` a library and this
+  ;; module the only program. MEASURED before the import was added: the two
+  ;; modules share zero def names, zero type names and zero constructor names,
+  ;; so the open introduces no shadow. Section 4.4 of the unification proposal
+  ;; measured what a collision costs here: it warns, exits 0, is NOT escalated
+  ;; by --strict, and the imported binding wins.
+  (import wave)     (open wave)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -349,7 +356,12 @@
   ;; `(string, (string, (string, list[string])))`, the last two being
   ;; --rfc-url and the repeatable --amend-url (rfc_to_implementation.py's
   ;; `--rfc-url` and `--amend-url`, action="append").
-  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, (string, (string, (string, list[string])))))))))))
+  ;; Program unification job (a2) widens the tail a FOURTH time, for the two
+  ;; retry budgets stage M's fan-out loop spends: `list[string]` becomes
+  ;; `(list[string], (int, int))`. The wave took both as flags and the folded
+  ;; stage needs them from the same place every other stage parameter comes
+  ;; from. Appended, not inserted, for the reason the block above gives.
+  (type Cfg (| Cfg (string, (string, (string, (string, (bool, (AgentCfg, (string, (string, (string, (list[string], (int, int)))))))))))))
 
   ;; The run-common record of proposal section 4: config, the live manifest,
   ;; and the selected stage indices in registry order.
@@ -481,7 +493,31 @@
     (| ALines   Loop)
     (| AWrote   Loop)
     (| OWrote   Loop)
-    (| OSkip    Loop))
+    (| OSkip    Loop)
+    ;; Stage M, the one stage whose delegation count is settled at run time.
+    ;;
+    ;; ONE ARM CARRYING A WHOLE MACHINE, and that is the shape unification §4.3
+    ;; settled for the merge, applied here at the arm rather than at the
+    ;; program. Flattening `WCtl`'s twelve arms into this sum was rejected there
+    ;; and is rejected here for the same measured reason: the two sums collide
+    ;; on `Boot`, `Ending` and `Done` by construction.
+    ;;
+    ;; The `int` is the stage-loop index `k`, which the wave does not know and
+    ;; which the post-stage path (`Summed`, `Stamped`, `Recorded`) is keyed on.
+    ;; `k = -1` IS THE STANDALONE `wave` SUB-COMMAND: the same machine, run for
+    ;; its own exit code rather than for a stage outcome, which is how the 4e
+    ;; cover keeps grading it after the wave lost its `def-main`.
+    ;;
+    ;; DISCLOSURE, and it belongs here rather than in `wave.llmll`. The
+    ;; `token-during` labelling is a refinement mapping and it is a function
+    ;; only while at most one hole is live (Phase 4 proposal §6). The console
+    ;; loop steps one arm at a time and this is one arm of it, so the serial
+    ;; precondition the wave relied on as a program is preserved by the fold.
+    ;;
+    ;;   FanBoot  r is wasi.fs.sha256 of the AST tree, the emit's own guard
+    ;;   Fan      r is whatever the wave's current arm asked for
+    (| FanBoot  (int, int))
+    (| Fan      (int, (int, (Wv, WCtl)))))
 
   ;; ---- accessors, written once ---------------------------------------
   ;;
@@ -522,7 +558,17 @@
   (def-shell cfg-rfc-url [c: Cfg] -> string
     (match c ((Cfg p) (first (second (second (second (second (second (second (second (second p))))))))))))
   (def-shell cfg-amend-urls [c: Cfg] -> list[string]
-    (match c ((Cfg p) (second (second (second (second (second (second (second (second (second p))))))))))))
+    (match c ((Cfg p) (first (second (second (second (second (second (second (second (second (second p)))))))))))))
+
+  ;; Stage M's two retry budgets, spent by the fan-out loop in wave.llmll.
+  ;; SEPARATED because the reference's one knob is not the port's: the wave
+  ;; spends the ERROR budget on a wrong body and the PROTOCOL budget on a
+  ;; harness fault, which is what keeps a timeout from being reported as a
+  ;; finding [S9-NOT-FINDING]. Defaults match the wave's own flag defaults.
+  (def-shell cfg-err0 [c: Cfg] -> int
+    (match c ((Cfg p) (first (second (second (second (second (second (second (second (second (second (second p))))))))))))))
+  (def-shell cfg-proto0 [c: Cfg] -> int
+    (match c ((Cfg p) (second (second (second (second (second (second (second (second (second (second (second p))))))))))))))
 
   (def-shell ag-exe [a: AgentCfg] -> string
     (match a ((AgentCfg q) (first q))))
@@ -695,7 +741,9 @@
                                              (pair (flag-value as "--llmll-cmd")
                                                    (pair (flag-value as "--reference-dir")
                                                          (pair (flag-value as "--rfc-url")
-                                                               (flag-values as "--amend-url"))))))))))))
+                                                               (pair (flag-values as "--amend-url")
+                                                                     (pair (int-flag as "--error-budget" 3)
+                                                                           (int-flag as "--protocol-budget" 3))))))))))))))
 
   ;; "" when the required flags are present. The reference makes --agent-cmd
   ;; required at argparse (:1888-1891) and exits 2 through ap.error, BEFORE
@@ -717,7 +765,17 @@
                 ;; divergence 4a disclosed and this row inherits.
                 (if (string-empty? (cfg-rfc-url c))
                     "--rfc-url is required (the RFC stage A fetches as verbatim text)"
-                    "")))))
+                    ;; BOTH BUDGETS MUST BE POSITIVE, checked here because the
+                    ;; folded stage M enters the wave past its own flag parse
+                    ;; and would otherwise skip wave-missing-flags' identical
+                    ;; guard. `next-error-budget` carries `pre (>= err 0)` and
+                    ;; every call site spends before it re-tests, so a zero
+                    ;; budget would reach that precondition negative.
+                    (if (< (cfg-err0 c) 1)
+                        "--error-budget must be at least 1"
+                        (if (< (cfg-proto0 c) 1)
+                            "--protocol-budget must be at least 1"
+                            "")))))))
 
   (def-shell key-selected? [c: Cfg i: int] -> bool
     (if (string-empty? (cfg-only c))
@@ -1012,19 +1070,31 @@
       ((RCode _)  (start-run (with-man rn (empty-manifest))))
       ((RList _)  (start-run (with-man rn (empty-manifest))))))
 
+  ;; THE `wave` SUB-COMMAND IS DISPATCHED BEFORE `parse-cfg`, and the order is
+  ;; not a style choice. Cover cells W5 and W6 assert the WAVE's usage text at
+  ;; exit 2, and this function's own missing-flag stop also exits 2 with
+  ;; different text. A dispatch placed after the parse would give the right code
+  ;; and the wrong message, which `want_rc` alone would not catch.
+  ;;
+  ;; `wasi.proc.args` EXCLUDES argv[0], so element 0 is the first real argument.
+  ;; The sequencer takes no positional arguments, so element 0 is always a flag
+  ;; name in a valid invocation and cannot collide with this token.
   (def-shell boot-step [rn: Run n: int r: Response] -> ((Run, Ctl), Command)
     (if (= n 0)
-        (let [(c (parse-cfg (argv-of r)))]
-          (if (string-empty? (missing-flags c))
-              (go (with-cfg rn c) (Boot 1)
-                  (seq-commands (wasi.fs.mkdir (cfg-workdir c))
-                                (wasi.fs.read (manifest-path c))))
-              ;; Before any stage exists, so no Status attaches and
-              ;; record-outcome is not called: the same reasoning the
-              ;; corrupt-manifest path carries, and the same literal 2.
-              (go (with-cfg rn c) (Ending 2)
-                  (wasi.io.stdout
-                    (string-concat "[driver-ll] STOP: " (missing-flags c))))))
+        (if (= (unwrap-or (list-nth (argv-of r) 0) "") "wave")
+            (let [(s (wave-boot-args (argv-of r)))]
+              (go rn (mk-fan (- 0 1) 0 (first s)) (second s)))
+            (let [(c (parse-cfg (argv-of r)))]
+              (if (string-empty? (missing-flags c))
+                  (go (with-cfg rn c) (Boot 1)
+                      (seq-commands (wasi.fs.mkdir (cfg-workdir c))
+                                    (wasi.fs.read (manifest-path c))))
+                  ;; Before any stage exists, so no Status attaches and
+                  ;; record-outcome is not called: the same reasoning the
+                  ;; corrupt-manifest path carries, and the same literal 2.
+                  (go (with-cfg rn c) (Ending 2)
+                      (wasi.io.stdout
+                        (string-concat "[driver-ll] STOP: " (missing-flags c)))))))
         (boot-read rn r)))
 
   ;; The resume decision. Nothing here re-implements it: the four booleans go
@@ -1195,14 +1265,175 @@
 
   ;; A ported MECHANICAL stage has no agent and no Body; stage A is the only
   ;; one so far (E's port waits on a reconcile.py invocation).
+  ;; ------------------------------------------------------------------
+  ;; Stage M: the fan-out arm.
+  ;;
+  ;; THE REGISTRY DECIDES, NOT AN INDEX TEST. `stage-fanout` is non-zero for
+  ;; exactly the stages whose delegation count is settled at run time, and the
+  ;; branch below reads it rather than testing i = 13. registry.llmll's header
+  ;; states the reason: a table written as syntax is a constant a reader
+  ;; enumerates from the source.
+  ;;
+  ;; THE INVARIANT THIS CODE MUST KEEP, and the type does not keep it for us: a
+  ;; `Fan` state whose `k` is NON-NEGATIVE never carries a terminal or ending
+  ;; `WCtl`. `fan-step` intercepts on `wave-exit-code` before it re-wraps, so
+  ;; the stage hands the run back to the stage loop instead of reaching a
+  ;; program exit. If that interception is ever lost, `drv-done?` answers true
+  ;; in the middle of a campaign and the run exits after stage M with the
+  ;; wave's code. `test_driver_ll_a2.py` is the guard.
+  ;;
+  ;; `k = -1` IS THE STANDALONE `wave` SUB-COMMAND and takes the opposite
+  ;; branch: the ending passes through and the run does exit on the wave's code,
+  ;; which is what the seven 4e cells assert.
+
+  (def-shell fb-k [d: (int, int)] -> int (first d))
+  (def-shell fb-start [d: (int, int)] -> int (second d))
+  (def-shell mk-fb [k: int start: int] -> Ctl (FanBoot (pair k start)))
+
+  (def-shell fn-k [f: (int, (int, (Wv, WCtl)))] -> int (first f))
+  (def-shell fn-start [f: (int, (int, (Wv, WCtl)))] -> int (first (second f)))
+  (def-shell fn-ws [f: (int, (int, (Wv, WCtl)))] -> (Wv, WCtl) (second (second f)))
+  (def-shell mk-fan [k: int start: int ws: (Wv, WCtl)] -> Ctl
+    (Fan (pair k (pair start ws))))
+
+  ;; The record the folded stage runs under. Built from `Cfg` and the registry,
+  ;; where the standalone run builds it from argv.
+  ;;
+  ;; THE TREE IS DECLARED OUTPUT 1 AND NOT 0. `stage-out 13` gives
+  ;; 12-wave/wave.json at j=0 and 12-wave/roots.ast.json at j=1, and the AST is
+  ;; what `llmll holes` reads and `llmll patch` rewrites in place.
+  ;;
+  ;; The agent arguments are passed RAW, as the wave passed them. Every other
+  ;; delegated stage substitutes placeholders into a rendered prompt; stage M
+  ;; renders no prompt, because the checkout brief is the agent's sole channel
+  ;; and cover cell W1 asserts exactly the two paths it gets.
+  (def-shell fan-cfg [c: Cfg i: int] -> WaveCfg
+    (mk-wave-cfg (art-path c i 1)
+                 (art-dir c i 0)
+                 (cfg-llmll c)
+                 (ag-exe (cfg-agent c))
+                 (ag-args (cfg-agent c))
+                 (ag-timeout (cfg-agent c))
+                 (cfg-err0 c)
+                 (cfg-proto0 c)))
+
+  ;; Copy the authored roots beside the stage's own artifacts, then emit the
+  ;; AST. `stage_M_wave`'s first three statements, in its order.
+  (def-shell emit-tree-cmd [c: Cfg i: int] -> Command
+    (let [(src (string-concat-many [(art-dir c i 1) "/roots.llmll"]))]
+      (seq-commands
+        (wasi.fs.mkdir (art-dir c i 1))
+        (seq-commands
+          (wasi.fs.copy (art-path c 11 0) src)
+          (wasi.proc.run (cfg-llmll c)
+                         ["build" src "--emit" "-o" (art-dir c i 1)]
+                         "."
+                         (string-concat-many [(art-dir c i 1) "/build.out"])
+                         (string-concat-many [(art-dir c i 1) "/build.err"])
+                         (ag-timeout (cfg-agent c))
+                         "/dev/null")))))
+
+  ;; THE EMIT IS GUARDED AND THE GUARD IS NOT OPTIONAL. `stage_M_wave` emits
+  ;; only when the tree is absent or `--force` is set, and re-emitting would
+  ;; reset every hole a partial run had already filled. A stage M that halted
+  ;; part way leaves no manifest row, so `may-skip` runs it again, and the hole
+  ;; list is re-derived from the tree: a filled hole is no longer a hole. That
+  ;; is what makes resume at hole granularity free, and re-emitting would
+  ;; destroy it.
+  (def-shell fanboot-step [rn: Run d: (int, int) r: Response] -> ((Run, Ctl), Command)
+    (let [(c (cfg-of rn))]
+      (let [(i (idx-at rn (fb-k d)))]
+        (let [(s (wave-seed (fan-cfg c i)))]
+          (go rn (mk-fan (fb-k d) (fb-start d) (first s))
+              (if (and (not (string-empty? (hex-of r))) (not (cfg-forced c)))
+                  (second s)
+                  (seq-commands (emit-tree-cmd c i) (second s))))))))
+
+  ;; THE WAVE'S EXIT CODE IS NOT THE STAGE'S OUTCOME, and four of its six values
+  ;; record the stage COMPLETE. `stage_M_wave` holds two `require` calls and
+  ;; neither fires on a finding, on a protocol fault, or on an unsealed tree: it
+  ;; logs all three and returns. A port that read any non-zero code as a failure
+  ;; would halt where the reference continues, and stage N would never run.
+  ;;
+  ;;   0  every hole accepted and the tree sealed      Finished
+  ;;   1  at least one finding                         Finished
+  ;;   3  at least one protocol failure                Finished
+  ;;   5  every hole accepted, tree NOT sealed         Finished
+  ;;   2  no holes in the tree                         Errored   (a `require`)
+  ;;   4  a token held while an agent worked           ConditionUnmet
+  ;;
+  ;; CODE 4 IS `stopped` AND NOT `failed`. token.llmll cites [S10-NOTHELD] to
+  ;; driver-spec section 10:371, which DEFINES the condition, so section
+  ;; 4:125-127 makes it stopped. Recording it failed would report a gate that
+  ;; fired as an accident, which section 4:135-137 names as the dangerous
+  ;; direction.
+  ;;
+  ;; CODE 2 CARRIES TWO CAUSES HERE AND THE REFERENCE SEPARATES THEM. The
+  ;; reference fails with "could not emit the AST" when the build produced no
+  ;; tree and with "no holes to fill" when it produced an empty one. The fold
+  ;; reaches both through the same arm, because the emit's own response is
+  ;; consumed by the holes read that follows it. The disposition is `failed`
+  ;; either way and the detail names both causes rather than guessing.
+  (def-shell fan-join [rn: Run k: int start: int code: int] -> ((Run, Ctl), Command)
+    (if (= code 4)
+        (halt-with rn k ConditionUnmet
+          (string-concat-many
+            ["stage M: a token was held while an agent was working. The wave "
+             "stopped rather than submit against it."])
+          "driver-spec sec 10:371")
+        (if (= code 2)
+            (halt-errored rn k
+              (string-concat-many
+                ["stage M: no holes to fill. Either `llmll build --emit` wrote "
+                 "no tree, or the tree it wrote carries no holes; see "
+                 "12-wave/build.err and 12-wave/holes.err."]))
+            (to-summed rn k start))))
+
+  ;; The wave's own command still has to be PERFORMED. The ending step is where
+  ;; 12-wave/wave.json is written and the seal line is printed, so the join
+  ;; sequences that command ahead of its own. `close-hole` in wave.llmll pairs
+  ;; a state with a sequenced command the same way and for the same reason.
+  (def-shell fan-exit [rn: Run k: int start: int code: int c: Command]
+      -> ((Run, Ctl), Command)
+    (let [(e (fan-join rn k start code))]
+      (pair (first e) (seq-commands c (second e)))))
+
+  ;; A `Fan` STATE IS NEVER TERMINAL, for either value of `k`, and that is what
+  ;; keeps `drv-status` buildable. `:status` is a strict-core `def`, so its arms
+  ;; may not call a function that is not body-faithful; `wave-status` and every
+  ;; accessor here is a `def-shell`. MEASURED: `llmll check` rejected an earlier
+  ;; version of this arm with "callee 'wave-status' is not body-faithful and not
+  ;; in the trusted prelude". So the standalone run leaves through `Ending`, the
+  ;; same arm every other terminating path uses, and `drv-status` reads the code
+  ;; off `Done` with the inline clamp it already had.
+  ;;
+  ;; `Ending` AND NOT `Done`: `drv-done?` reports `Ending` as not terminal, so
+  ;; the command handed over here is performed. That command is the wave's own,
+  ;; and on the ending step it carries the 12-wave/wave.json write and the seal
+  ;; line. Going straight to `Done` would drop both (RC-4).
+  (def-shell fan-step [rn: Run f: (int, (int, (Wv, WCtl))) input: string r: Response]
+      -> ((Run, Ctl), Command)
+    (let [(s2 (wave-step (fn-ws f) input r))]
+      (let [(code (wave-exit-code (first s2)))]
+        (if (< code 0)
+            (go rn (mk-fan (fn-k f) (fn-start f) (first s2)) (second s2))
+            (if (< (fn-k f) 0)
+                (go rn (Ending code) (second s2))
+                (fan-exit rn (fn-k f) (fn-start f) code (second s2)))))))
+
+  ;; ------------------------------------------------------------------
+
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Ctl), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
-        (if (stage-ported? (idx-at rn k))
-            (if (= (stage-kind (idx-at rn k)) "mechanical")
-                (a-enter rn k (ns-of r))
-                (begin-body rn k (ns-of r)))
-            (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0)))))
+        (if (> (stage-fanout (idx-at rn k)) 0)
+            (go rn (mk-fb k (ns-of r))
+                (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 1)))
+            (if (stage-ported? (idx-at rn k))
+                (if (= (stage-kind (idx-at rn k)) "mechanical")
+                    (a-enter rn k (ns-of r))
+                    (begin-body rn k (ns-of r)))
+                (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0))))))
 
   ;; ---- Pre -------------------------------------------------------------
   ;;
@@ -2624,7 +2855,8 @@
                                    (pair false
                                      (pair (AgentCfg (pair "" (pair (list-empty)
                                                               (pair "" 1800))))
-                                           (pair "" (pair "" (pair "" (list-empty)))))))))))
+                                           (pair "" (pair "" (pair ""
+                                             (pair (list-empty) (pair 3 3))))))))))))
                            (pair (empty-manifest) (list-empty))))
                 (Boot 0))
           wasi.proc.args))
@@ -2665,7 +2897,9 @@
       ((ALines l)   (alines-step (run-of s) l r))
       ((AWrote l)   (awrote-step (run-of s) l r))
       ((OWrote l)   (owrote-step (run-of s) l r))
-      ((OSkip l)    (oskip-step  (run-of s) l r))))
+      ((OSkip l)    (oskip-step  (run-of s) l r))
+      ((FanBoot d)  (fanboot-step (run-of s) d r))
+      ((Fan f)      (fan-step    (run-of s) f input r))))
 
   (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
@@ -2702,7 +2936,12 @@
       ((ALines _)   false)
       ((AWrote _)   false)
       ((OWrote _)   false)
-      ((OSkip _)    false)))
+      ((OSkip _)    false)
+      ((FanBoot _)  false)
+      ;; NEVER true. `fan-step` intercepts every ending before it re-wraps and
+      ;; leaves through `Ending`, so no `Fan` state terminates a run, and that
+      ;; holds for the standalone `wave` sub-command too.
+      ((Fan f)      false)))
 
   (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
@@ -2739,7 +2978,9 @@
       ((ALines _)   1)
       ((AWrote _)   1)
       ((OWrote _)   1)
-      ((OSkip _)    1)))
+      ((OSkip _)    1)
+      ((FanBoot _)  1)
+      ((Fan f)      1)))
 
   ;; The terminal marker. It leaves through :on-done rather than through a
   ;; step, because RC-4 drops the terminating step's command and a halt report
@@ -2796,7 +3037,12 @@
       ((ALines al)  1)
       ((AWrote aw)  1)
       ((OWrote ow)  1)
-      ((OSkip os)   1)))
+      ((OSkip os)   1)
+      ((FanBoot fb) 1)
+      ;; A LITERAL, because a `Fan` state is never terminal: `fan-step` leaves
+      ;; through `Ending` for both values of `k`. This arm must also stay a
+      ;; literal, because :status is strict-core and may not call a `def-shell`.
+      ((Fan f)      1)))
 
   (def-main
     :mode    console

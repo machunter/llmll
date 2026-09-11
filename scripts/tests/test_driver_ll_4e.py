@@ -60,6 +60,7 @@ import re
 REPO = pathlib.Path(__file__).resolve().parents[2]
 DRIVER_LL = REPO / "tools" / "llmll-driver"
 WAVE = DRIVER_LL / "wave.llmll"
+SEQUENCER = DRIVER_LL / "sequencer.llmll"
 FIXTURE = DRIVER_LL / "fixtures" / "wave-roots.llmll"
 COVER = REPO / "scripts" / "wave_cover.py"
 SMOKE = REPO / "scripts" / "build_smoke.sh"
@@ -206,6 +207,24 @@ def test_the_seal_needs_more_than_the_word_safe():
         f"seal-holds? lost a conjunct: {body.strip()}"
 
 
+def test_the_declared_record_is_written_from_a_non_terminal_arm():
+    """`12-wave/wave.json` is stage M's first declared output, and RC-4 drops the
+    command a TERMINAL arm returns.
+
+    `sealing-step` moves to `WEnding`, which `wave-done?` reports as not
+    terminal, so the command it returns is performed. Moving the write into the
+    `WEnding` or `WDone` arm would construct the record and never put it on
+    disk, which is a failure no exit status reports. Cover cells W8 and W9 run
+    the file; this asserts the arm it is written from, which they cannot see.
+    """
+    src = _uncommented(WAVE)
+    assert "wave-record" in _body_of(src, "sealing-step"), \
+        "the declared record is not written from sealing-step"
+    for arm in ("wave-step", "wave-done-code"):
+        assert "wave-record" not in _body_of(src, arm), \
+            f"the record is written from {arm}, whose terminal command is dropped"
+
+
 # ---------------------------------------------------------------------------
 # 2. The proved cores are still called
 # ---------------------------------------------------------------------------
@@ -284,7 +303,11 @@ def test_the_three_matches_over_ctl_agree():
     src = _uncommented(WAVE)
     arms = set(_ctl_arms())
     assert len(arms) >= 10, f"WCtl lost arms: {sorted(arms)}"
-    for fn in ("wave-step", "wave-done?", "wave-done-code"):
+    # FOUR, not three. `wave-exit-code` was added at program unification job
+    # (a2) so the sequencer's stage M arm can see an ending without naming a
+    # WCtl constructor itself. A fourth match that this loop did not cover
+    # would be exactly the drift the docstring above describes.
+    for fn in ("wave-step", "wave-done?", "wave-done-code", "wave-exit-code"):
         named = set(re.findall(r"\(\((\w+)[ )]", _body_of(src, fn)))
         assert named == arms, (
             f"{fn} does not match WCtl: missing {sorted(arms - named)}, "
@@ -302,11 +325,24 @@ def test_exactly_one_arm_is_terminal():
 def test_the_main_options_are_in_the_fixed_order():
     """`Parser.hs` parses the five in sequence, so `:status` before `:on-done`
     is a parse error rather than a reorder. Asserted because the run that
-    would catch it is the toolchain tier."""
-    src = _uncommented(WAVE)
+    would catch it is the toolchain tier.
+
+    REPOINTED AT THE SEQUENCER at program unification job (a2). This pin used to
+    read `wave.llmll`, which had the driver's second `def-main`; the wave is a
+    library now and the sequencer holds the only one. The pin moved rather than
+    being deleted, because it is the only place in scripts/tests/ that asserts
+    this ordering and the parse error it guards against did not go away.
+    """
+    # SCOPED TO THE def-main FORM, and that is not tidiness. The sequencer
+    # carries `:source` strings that quote these very option names in prose, so
+    # a file-wide search reads them as options and reports an order that no
+    # parser sees. `_uncommented` strips comments and keeps strings, by design.
+    src = _uncommented(SEQUENCER)
+    m = re.search(r"\(def-main\b(.*)", src, re.S)
+    assert m, "the sequencer has no def-main"
     # `\b` cannot follow `done\?`: `?` is not a word character, so a boundary
     # there matches nothing and the option silently drops out of the sequence.
-    order = re.findall(r":(mode|init|step|done\?|on-done|status)(?![\w?-])", src)
+    order = re.findall(r":(mode|init|step|done\?|on-done|status)(?![\w?-])", m.group(1))
     assert order == ["mode", "init", "step", "done?", "on-done", "status"], \
         f"def-main's options are out of order: {order}"
 
@@ -421,16 +457,27 @@ def test_no_row_still_waits_on_4e():
         f"a fill or token def is still registered as callerless: {sorted(CALLERLESS)}"
 
 
-def test_the_wave_is_a_program_and_imports_both_proved_modules():
-    """The orphan remedy is an import from a program, not a call site. Both
-    halves are needed: a `def-main` with no import leaves `fill` and `token`
-    orphaned, and an import with no `def-main` leaves `wave` orphaned too,
-    which is the state 4e passed through."""
+def test_the_wave_is_a_library_the_one_program_imports():
+    """The orphan remedy is an import chain from a program, not a call site.
+
+    4e made the wave a PROGRAM and that is what rescued `fill` and `token` from
+    the orphan set. Program unification job (a2) deleted its `def-main`, so the
+    chain is one link longer: `sequencer` is the only program, it imports
+    `wave`, and `wave` imports the two proved modules. All three links are
+    asserted, because breaking any one of them re-orphans `fill` and `token`
+    and `test_driver_ll_callers.py` would then fail for a reason no reader
+    would trace back to here.
+    """
     src = _uncommented(WAVE)
-    assert re.search(r"\(def-main" + _IDENT_TAIL, src), "wave has no def-main"
+    assert not re.search(r"\(def-main" + _IDENT_TAIL, src), \
+        "wave has a def-main again; the driver must be ONE program"
     imports = set(re.findall(r"\(import\s+([a-z][\w-]*)\)", src))
     assert {"fill", "token"} <= imports, \
         f"wave no longer imports the modules it rescued: {sorted(imports)}"
+    seq = _uncommented(SEQUENCER)
+    assert re.search(r"\(def-main" + _IDENT_TAIL, seq), "the sequencer has no def-main"
+    assert re.search(r"\(import\s+wave\)", seq), \
+        "the sequencer does not import wave, so stage M is unreachable"
 
 
 def test_the_frozen_verdict_covers_the_wave():

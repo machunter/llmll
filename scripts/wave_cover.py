@@ -116,6 +116,20 @@ FALLBACK_DEF = '''
 '''
 
 
+# THE WAVE IS NO LONGER A PROGRAM. Program unification job (a2) folded stage M
+# into the sequencer's stage loop and deleted `wave.llmll`'s `def-main`, so the
+# driver is ONE binary. The same state machine still runs, reached through a
+# sub-command: `sequencer wave --tree ... --workdir ...` enters it with the
+# stage index -1, meaning "not inside a stage loop", and the run exits on the
+# wave's own code exactly as it did as a separate program.
+#
+# Every cell below is unchanged in what it asserts. That is the point: these
+# seven cells are sub-phase 4e's acceptance cover, and the fold had to keep them
+# grading rather than retire them. Two more (W8, W9) were added when the wave
+# started writing its declared output.
+SUBCOMMAND = ["wave"]
+
+
 class Failure(Exception):
     pass
 
@@ -195,7 +209,7 @@ class Run:
 
 
 def run(binary: Path, c: Cell, mode: str, **over) -> Run:
-    p = subprocess.run([str(binary), *c.argv(**over)], cwd=c.dir,
+    p = subprocess.run([str(binary), *SUBCOMMAND, *c.argv(**over)], cwd=c.dir,
                        input="x\n" * BUDGET, capture_output=True, text=True,
                        env=c.env(mode))
     want(p.returncode != 70,
@@ -287,7 +301,7 @@ def w4(binary, c: Cell):
     double = {"kind": "op", "op": "+",
               "args": [{"kind": "var", "name": "m"}, {"kind": "var", "name": "m"}]}
 
-    p = subprocess.Popen([str(binary), *c.argv()], cwd=c.dir,
+    p = subprocess.Popen([str(binary), *SUBCOMMAND, *c.argv()], cwd=c.dir,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, bufsize=1,
                          env=c.env("good"))
@@ -395,6 +409,54 @@ def w7(binary, c: Cell):
     want_rc(r, 5)
 
 
+@cell("W8", "the declared output wave.json records one row per hole")
+def w8(binary, c: Cell):
+    # `12-wave/wave.json` is stage M's FIRST declared output (registry.llmll,
+    # stage-out i=13 j=0) and this module did not write it until 2026-09-11, so
+    # one of the stage's two declared artifacts did not exist. The clause 2
+    # comparator reads `fills` for R5 and `attempts` for R6; an absent file makes
+    # both report on nothing whatever the wave actually did.
+    r = run(binary, c, "good")
+    want_rc(r, 0)
+    w = json.loads((c.dir / "wd" / "wave.json").read_text())
+    fills = w.get("fills")
+    want(isinstance(fills, list) and len(fills) == 2,
+         f"expected one row per hole, got {fills}")
+    want(all({"hole", "pointer", "status", "attempts"} <= set(f) for f in fills),
+         f"a row is missing a field the comparator reads: {fills}")
+    want([f["status"] for f in fills] == ["filled", "filled"],
+         f"a clean run recorded a status other than filled: {fills}")
+    # ONE-BASED, and R6 sums this field across holes. `at-n` counts from 0, so a
+    # row carrying 0 here is an off-by-n in the comparator and not a cosmetic
+    # difference from the reference.
+    want([f["attempts"] for f in fills] == [1, 1],
+         f"attempts is not one-based: {fills}")
+    want(w.get("whole_tree", {}).get("sealed") is True,
+         f"the seal verdict did not reach the record: {w.get('whole_tree')}")
+
+
+@cell("W9", "a finding reaches wave.json as a row, with its budget and its cause")
+def w9(binary, c: Cell):
+    # W8 alone would pass with a status field hardcoded to "filled". This cell
+    # is what makes the status discriminating, and it is also where the ONE
+    # divergence from the reference's vocabulary is observed: `is-finding`
+    # [S9-FINDING] classifies an exhausted ERROR budget, so the port writes
+    # `finding` where the reference would, and `protocol-failure` where the
+    # reference writes `checkout-failed`.
+    r = run(binary, c, "wrong")
+    want_rc(r, 1)
+    fills = json.loads((c.dir / "wd" / "wave.json").read_text())["fills"]
+    want([f["status"] for f in fills] == ["finding", "finding"],
+         f"a rejected hole was not recorded as a finding: {fills}")
+    want(all(f["attempts"] == 2 for f in fills),
+         f"the row does not carry the attempts the budget actually allowed: {fills}")
+    want(all(f.get("last_error") for f in fills),
+         f"a finding row carries no cause: {fills}")
+    want(json.loads((c.dir / "wd" / "wave.json").read_text())
+         ["whole_tree"]["sealed"] is False,
+         "a tree with holes left in it must not record as sealed")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--wave", default=os.environ.get("WAVE_BIN", ""))
@@ -402,8 +464,10 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
     if not a.wave:
-        print("ERROR: pass --wave or set WAVE_BIN to the built `wave` binary "
-              "(llmll build tools/llmll-driver/wave.llmll)", file=sys.stderr)
+        print("ERROR: pass --wave or set WAVE_BIN to the built DRIVER binary "
+              "(llmll build tools/llmll-driver/sequencer.llmll). The wave is a "
+              "library since program unification job (a2); this cover drives it "
+              "through the `wave` sub-command.", file=sys.stderr)
         return 2
     binary = Path(a.wave).resolve()
     llmll = Path(shutil.which(a.llmll) or a.llmll).resolve()

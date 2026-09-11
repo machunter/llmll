@@ -59,12 +59,10 @@
 ;;    same insertion here.
 
 (module manifest
-  (import stage) (open stage)
-
-  ;; json-set returns a Result and the failure is a non-object receiver, which
-  ;; every caller below has already excluded or does not care about.
-  (def-shell jset [o: Json k: string v: Json] -> Json
-    (unwrap-or (json-set o k v) o))
+  (import stage)  (open stage)
+  ;; `jset` lives here no longer: program unification job (a2) collapsed it into
+  ;; common.llmll, where the rest of the duplicate set already sat.
+  (import common) (open common)
 
   ;; See the header. The probe key is never read back: the value returned by
   ;; json-set is discarded and only its constructor is consulted.
