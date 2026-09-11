@@ -63,7 +63,8 @@
          (string-contains out "stale")))
 
   ;; DUPLICATED WITH sequencer.llmll ON PURPOSE, and program unification does
-  ;; NOT retire it. The body is identical in both, so a body-equality census
+  ;; NOT retire it, but it IS renamed. The body is identical in both, so a
+  ;; body-equality census
   ;; puts it in the collapse set; the census is wrong here, because the two
   ;; copies are pinned by two different covers for two different reasons. This
   ;; copy is a member of SEAM in test_driver_ll_4e.py: the wave's functions that
@@ -73,7 +74,7 @@
   ;; trades a verification-disclosure claim for eight saved lines. Moving it was
   ;; TRIED at the unification job (a) pass and both covers failed, which is the
   ;; covers working.
-  (def-shell verify-safe? [out: string] -> bool
+  (def-shell wave-verify-safe? [out: string] -> bool
     (string-contains out "SAFE"))
 
   ;; DISCLOSURE, and it is sharper than "unproved". Rev 15 measured that this
@@ -123,7 +124,7 @@
   ;; fill.fill-accepted. The per-fill bar of driver-spec section 9.
   (def-shell accept-fill? [applied: bool out: string target: string] -> bool
     (fill-accepted applied
-                   (verify-safe? out)
+                   (wave-verify-safe? out)
                    (body-faithful? out target)
                    (termination-observed? out)))
 

@@ -121,7 +121,7 @@ def _body_of(src: str, name: str) -> str:
 # catches `accept-fill?` and `spend-budget`, which take the transcript and hand
 # it straight to a proved decision without deciding anything about it.
 SEAM = {
-    "patch-succeeded?", "contention?", "verify-safe?", "body-faithful?",
+    "patch-succeeded?", "contention?", "wave-verify-safe?", "body-faithful?",
     "termination-observed?", "seal-holds?",
 }
 
