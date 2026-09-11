@@ -140,6 +140,19 @@
 ;; spine.llmll and M in wave.llmll, and all five stay stubbed here until
 ;; program unification retires this table.
 ;;
+;; STAGE M'S ROW IS NOW DEAD AND THE TABLE KEEPS IT ANYWAY. Program unification
+;; job (a2) folded stage M into the sequencer's stage loop, and `started-step`
+;; reads `stage-fanout` BEFORE it reads this table, so row 13 is never
+;; consulted. It reads false and stage M is ported, which is exactly the kind of
+;; sentence this table exists to stop being true; it is recorded here rather
+;; than repaired because flipping the row would be cosmetic and deleting the
+;; table is blocked on E, J, L and G2, which still live unreached in
+;; spine.llmll. Section 2 clause 3 of the unification proposal deletes this
+;; table, not corrects it, and that clause closes when those four land.
+;;
+;; SO THE COUNT OF STAGES THIS PROGRAM STILL STUBS IS FOUR, not five: E, G2, J
+;; and L. Do not read "five stubbed stages" off this table any more.
+;;
 ;; 4c LANDS D, F AND G TOGETHER rather than in its plan's stated order, and the
 ;; reason is a data dependency the plan did not weigh. F reads
 ;; 04-reconcile/data/extraction-a.json, which stage D stages there (:663-665),
@@ -283,6 +296,22 @@
 ;; The label AgentRunner.run prints and the log line quotes (:309, :335).
 ;; Takes the invocation index because stage D's is per-tag,
 ;; `f"extract-{tag}"` (:655).
+;;
+;; STAGE M IS EMPTY HERE AND STILL DELEGATES, so "" means two things in this
+;; column and a reader must not collapse them. The reference's stage M label is
+;; `f"fill-{fn}#{attempt}"`, a function of the hole's name and the attempt
+;; number, and no [i: int j: int] -> string entry can hold a value settled at run
+;; time. stage-fanout is what separates the two readings: "" with a zero fanout
+;; means the stage delegates to no agent, and "" with a non-zero fanout means the
+;; label is composed by the fan-out machine, which knows the hole. This is the
+;; same technique stage-floor's -1 needed and stage-shape supplied.
+;;
+;; stage-prompt is empty for M for a DIFFERENT reason and the two must not be
+;; read as one. The template stage-M-fill.md exists, and the port does not render
+;; it: wave.llmll hands the agent the checkout brief and an output path, which is
+;; the sole-channel discipline, and cover cell W1 asserts exactly those two
+;; arguments. A filled stage-prompt row would state a delegation shape the code
+;; does not use.
 (def-shell stage-agent-label [i: int j: int] -> string
   (if (= i 1)  "scope"
   (if (= i 2)  "rubric"
@@ -490,6 +519,15 @@
 ;; REPO when they exist and silently skips them otherwise, and the port's
 ;; unchecked copies have the same tolerance. This is the tool manual and not
 ;; the answer: neither file says anything about the target RFC.
+;;
+;; STAGE M IS FALSE AND THE REFERENCE CALLS IT THERE. That is a PORT GAP and not
+;; a decision, measured at the (a2) fold: _provision_reference runs inside
+;; stage_M_wave's per-hole closure, wave.llmll does not provision, and NO
+;; document records the omission. Not wave.llmll's header, not wave_cover.py,
+;; not the Phase 4 proposal. The row stays false because a true row would claim
+;; a behaviour the code does not have, which is the defect this comment block
+;; exists to stop. Cover cell W1 does not forbid the fix: it asserts the agent
+;; receives two ARGUMENTS, and provisioning puts files in a directory.
 (def-shell stage-provision-ref? [i: int] -> bool
   (if (= i 8) true (if (= i 11) true (= i 14))))
 
@@ -545,6 +583,33 @@
 ;;         matrix is written only when oracle.matrix-complete? holds
 (def-shell stage-oracle [i: int] -> int
   (if (= i 8) 1 (if (= i 11) 2 (if (= i 14) 3 0))))
+
+;; Which run-time work-item source the stage delegates over. 0 is none: the
+;; stage delegates each of its stage-tag-count tags exactly ONCE, and the static
+;; tables above give every invocation its label and its directory.
+;;
+;;   1  M  one delegation per HOLE in the AST at declared output 1, retried
+;;         under two budgets. The count is DATA and is never a function of i.
+;;
+;; WHAT THIS TABLE IS NOT. It is not an artifact count. stage-out-count counts
+;; DECLARED outputs and stage M declares two, statically; the per-attempt
+;; directories the wave creates are undeclared scratch, exactly as the
+;; reference's 12-wave/agent-NN-fn directories are. The program-unification
+;; proposal's section 4.10 item 2 read stage M's multiplicity off the wrong
+;; column and concluded the registry needed a run-time artifact count. It does
+;; not, and no stage has ever had one: stage H's probe rows and stage N's mutant
+;; rows are the same dimension and they live in the sequencer's Loop payload,
+;; seeded from a JSON array read at run time.
+;;
+;; SEPARATE FROM stage-tag-count, for the reason that table's own header gives.
+;; D's two tags are two DIFFERENT extractors, with two prompt substitutions, two
+;; provisioned input sets and two declared outputs. M's holes are ONE tag run
+;; many times. Widening stage-tag-count would make those the same idea.
+;;
+;; SEPARATE FROM stage-oracle, which is the compiler loop that FOLLOWS a passing
+;; delegated output. This is the loop that CONTAINS the delegation.
+(def-shell stage-fanout [i: int] -> int
+  (if (= i 13) 1 0))
 
 ;; The directory of stage-out i j, workdir-relative. "." for a top-level
 ;; artifact: wasi.fs.mkdir creates parents (measured) and is RNone on a

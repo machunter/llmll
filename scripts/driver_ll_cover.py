@@ -367,6 +367,29 @@ def drive(binary: Path, workdir: Path, only: str, *,
     return Run(proc, workdir)
 
 
+# STAGE M IS NO LONGER A STUB WRITE, so the cells below seed its declared output
+# instead of selecting it.
+#
+# Until program unification job (a2), stage M was unported: `started-step` wrote
+# a placeholder to each of its declared artifacts and recorded the stage
+# complete. The cells that need stage N therefore selected "B,I,M,N" and got
+# 12-wave/roots.ast.json for free. Stage M now RUNS: it emits the AST with the
+# real compiler and drives the fill wave, neither of which the stub `llmll` in
+# this file can serve. Selecting it here would test the stub.
+#
+# Stage N reads this artifact RAW (stage-pre-mode 0), so the bytes are not the
+# subject of any cell below; what matters is that the file is there. These are
+# the exact bytes the retired 4a injector wrote, so every cell reads what it
+# read before. Stage M's own behaviour is graded by scripts/wave_cover.py
+# against the real compiler, which is where it belongs.
+def seed_wave_tree(wd: Path) -> None:
+    d = wd / "12-wave"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "roots.ast.json").write_text(
+        '{\n "driver-ll": "4a stub",\n "stage": "M",\n'
+        ' "artifact": "12-wave/roots.ast.json"\n}\n', encoding="utf-8")
+
+
 def drive_bare(binary: Path, workdir: Path, *args: str) -> Run:
     """No --agent-exe and no --prompts-dir. The reference makes --agent-cmd a
     required argparse argument (:1888-1891) and exits 2 through ap.error before
@@ -1200,7 +1223,8 @@ def _matrix(wd: Path) -> dict:
 @local4d("N1", "a refuted mutant, a SAFE good twin and an unwritable entry all "
                "reach the matrix; the denominator is three")
 def n1(b, wd):
-    r = drive(b, wd, "B,I,M,N")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N")
     want_rc(r, 0)
     want_complete_row(r.stages()["N"], "agent")
     m = _matrix(wd)
@@ -1219,7 +1243,8 @@ def n1(b, wd):
 @local4d("N2", "a survivor is reported and kept, never dropped, and the stage "
                "still completes")
 def n2(b, wd):
-    r = drive(b, wd, "B,I,M,N", mode="mutant-survives")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N", mode="mutant-survives")
     want_rc(r, 0)
     m = _matrix(wd)
     want(m["survivor"]["verdict"] == "SAFE" and m["survivor"]["as_expected"] is False,
@@ -1230,14 +1255,16 @@ def n2(b, wd):
 
 @local4d("N3", "a mutant whose file was not written records failed")
 def n3(b, wd):
-    r = drive(b, wd, "B,I,M,N", mode="mutant-missing-file")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N", mode="mutant-missing-file")
     want_failed(r, "N", "m-wrong.llmll not written")
 
 
 @local4d("N4", "a catalogue that is not an array is a guarded read recording "
                "failed, where the reference tracebacks on m.get")
 def n4(b, wd):
-    r = drive(b, wd, "B,I,M,N", mode="mutants-object")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N", mode="mutants-object")
     want_failed(r, "N", "must be a JSON array")
 
 
@@ -1385,10 +1412,44 @@ def _kill_matrix(wd: Path) -> list:
     return json.loads(p.read_text())
 
 
+# ---------------------------------------------------------------------------
+# Stage M inside the stage loop (program unification job (a2))
+# ---------------------------------------------------------------------------
+
+@local4d("M1", "a folded stage M that cannot produce a tree with holes records "
+               "FAILED, names both causes, and stops the run")
+def m1(b, wd):
+    """THE ONLY CELL THAT DRIVES STAGE M THROUGH THE STAGE LOOP.
+
+    Everything stage M DOES is graded by `scripts/wave_cover.py` against the
+    real compiler, through the `wave` sub-command. What that cover cannot see is
+    the seam: `started-step` routing on `stage-fanout`, `fanboot-step` probing
+    for the tree, and `fan-join` turning the wave's exit code into a stage
+    Outcome. This cell exercises that seam on the one code the stub compiler can
+    produce, and it is a real decision rather than a smoke test: the reference's
+    `require(holes, ...)` is a StageFailure, so `failed` is the disposition owed
+    and `stopped` would be wrong.
+
+    The detail names BOTH causes on purpose. The reference separates "could not
+    emit the AST" from "no holes to fill" because it checks the tree between the
+    two; the fold reaches them through one arm, because the emit's own response
+    is consumed by the holes read that follows it. Naming one cause would guess.
+    """
+    r = drive(b, wd, "B,I,M")
+    want_failed(r, "M", "no holes to fill")
+    want_in("12-wave/build.err", r)
+    want_in("12-wave/holes.err", r)
+    # The stage ran rather than being stubbed: the 4a injector would have
+    # written a placeholder to each declared artifact and recorded `complete`.
+    want(not (wd / "12-wave" / "wave.json").exists(),
+         "stage M wrote its declared record without running the wave")
+
+
 @local4f("O1", "a report naming every kill-matrix row completes, and the "
                "declared output is the workdir-root copy")
 def o1(b, wd):
-    r = drive(b, wd, "B,I,M,N,O")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N,O")
     want_rc(r, 0)
     want_complete_row(r.stages()["O"], "agent")
     names = [m["name"] for m in _kill_matrix(wd)]
@@ -1407,7 +1468,8 @@ def o1(b, wd):
 @local4f("O2", "a report that omits a SURVIVOR halts stopped after the "
                "declared write, PartialThenHalt, driver-spec sec 13")
 def o2(b, wd):
-    r = drive(b, wd, "B,I,M,N,O", mode="report-omits-survivor")
+    seed_wave_tree(wd)
+    r = drive(b, wd, "B,I,N,O", mode="report-omits-survivor")
     want_stopped_partial(r, "O", "driver-spec sec 13")
     want_in("the report does not name 1 of the 4 kill-matrix rows", r)
     want_in("survivor", r)

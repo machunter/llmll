@@ -1066,8 +1066,14 @@ fi
 
 # --- 9. DRIVER-LL sub-phase 4e acceptance cover: the serial wave. ------------
 #
-# The seven cells of scripts/wave_cover.py, driven against the BUILT `wave`
+# The nine cells of scripts/wave_cover.py, driven against the BUILT DRIVER
 # binary and the REAL compiler.
+#
+# THE WAVE IS A LIBRARY SINCE PROGRAM UNIFICATION JOB (a2). It has no def-main,
+# so there is no wave binary to build; the same state machine is reached through
+# the `wave` sub-command of the one driver program. This stage therefore builds
+# sequencer.llmll, and the cover prepends the sub-command token. The cells are
+# unchanged in what they assert, which is the point of keeping them.
 #
 # THIS STAGE USES NO STUB COMPILER, unlike stage 8. The decisions under test
 # are what `checkout`, `patch` and `verify` answer, so a stub would be testing
@@ -1081,7 +1087,7 @@ fi
 # disk and a child process the binary actually spawned. The checks that need no
 # binary live in scripts/tests/test_driver_ll_4e.py.
 #
-# The wave imports two sibling modules, so it is built from its own directory.
+# The driver imports its sibling modules, so it is built from its own directory.
 WAVE_SRC="$REPO_ROOT/tools/llmll-driver/wave.llmll"
 WAVE_OUTDIR="$OUTDIR/waverun"
 
@@ -1089,15 +1095,15 @@ if [ -f "$WAVE_SRC" ]; then
   echo "BUILD-GATE-1: building and RUNNING the DRIVER-LL 4e wave cover"
   WAVE_LOG="$OUTDIR/.wave-build.log"
   if ! ( cd "$REPO_ROOT/tools/llmll-driver" \
-           && "${LLMLL_CMD[@]}" build wave.llmll -o "$WAVE_OUTDIR" ) \
+           && "${LLMLL_CMD[@]}" build sequencer.llmll -o "$WAVE_OUTDIR" ) \
          > "$WAVE_LOG" 2>&1; then
     cat "$WAVE_LOG" >&2
-    fail "the DRIVER-LL wave does not build."
+    fail "the DRIVER-LL driver does not build."
   fi
 
-  WAVE_EXE="$(exe_path "$WAVE_OUTDIR" 'wave')"
-  [ -n "$WAVE_EXE" ] || fail "built the DRIVER-LL wave but found no wave binary
-  under $WAVE_OUTDIR/.stack-work/install. Without running it this stage
+  WAVE_EXE="$(exe_path "$WAVE_OUTDIR" 'sequencer')"
+  [ -n "$WAVE_EXE" ] || fail "built the DRIVER-LL driver but found no sequencer
+  binary under $WAVE_OUTDIR/.stack-work/install. Without running it this stage
   observes nothing, which is the failure mode it exists to prevent."
 
   if ! python3 "$REPO_ROOT/scripts/wave_cover.py" \
@@ -1109,7 +1115,7 @@ if [ -f "$WAVE_SRC" ]; then
   names the cell and the assertion."
   fi
   cat "$OUTDIR/.wave-cover.log"
-  echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (7 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree)"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (9 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record)"
 fi
 
 # --- 10. DRIFT-CI-1, decided by an LLMLL program. ----------------------------

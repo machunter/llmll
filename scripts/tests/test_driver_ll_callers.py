@@ -241,27 +241,31 @@ UNCRUXED = {
 # 1. The two properties, measured separately
 # ---------------------------------------------------------------------------
 
-def test_the_programs_are_derived_and_are_the_expected_two():
+def test_the_driver_is_exactly_one_program():
     """If a `def-main` appears or leaves, the reachability base changes under
     every assertion below and they must be re-measured rather than trusted.
 
-    `wave` was the third and it arrived exactly this way: the assertion below
+    `wave` was the third and it arrived exactly this way: the assertion here
     was written for two, a `def-main` landed, and every other assertion in
     this file moved with it.
 
-    IT IS BACK TO TWO, and the move was a DELETION this time. Program
-    unification job (a1) made `spine.llmll` a library: its stage E, J, L and
-    G2 logic stays there, unreached, until (a2) wires it into the sequencer's
-    stage loop. `wave` KEEPS its `def-main` and is deliberately not merged
-    here, because `scripts/build_smoke.sh` stage 9 builds and runs the wave
-    binary and `scripts/wave_cover.py` drives it through seven cells. Deleting
-    that entry point would retire the acceptance cover of a shipped sub-phase,
-    so the wave merges at (a2) with stage M, not at (a1).
+    IT IS NOW ONE, which is the completion test program unification was for
+    (`docs/design/driver-ll-program-unification-proposal.md` section 2 clause
+    1). Job (a1) made `spine.llmll` a library; job (a2) folded stage M into the
+    sequencer's stage loop and made `wave.llmll` one too.
+
+    THE WAVE'S COVER DID NOT GO WITH ITS ENTRY POINT, and that was the
+    constraint the fold had to meet rather than a happy accident. All seven
+    cells of `scripts/wave_cover.py` still run, against the unified binary's
+    `wave` sub-command, and `scripts/build_smoke.sh` stage 9 now builds the
+    sequencer to get it.
 
     The orphan assertion below did NOT move, and that is the check that
-    matters: `_reachable()` walks transitively from the programs, so the
-    sequencer importing `spine` keeps `stage`, `skip` and `gate` reachable."""
-    assert _programs() == {"sequencer", "wave"}
+    matters: `_reachable()` walks transitively from the one program, so the
+    sequencer importing `spine` and `wave` keeps `stage`, `skip`, `gate`,
+    `fill` and `token` reachable. It was re-measured at the fold, not assumed.
+    """
+    assert _programs() == {"sequencer"}
 
 
 def test_the_orphaned_modules_are_exactly_the_two():
@@ -271,7 +275,12 @@ def test_the_orphaned_modules_are_exactly_the_two():
     and imported them, which is the remedy an orphan takes: an import from a
     program, not a call site. `wave` itself was briefly a sixth member, in the
     window between its decision layer being written and its state machine
-    landing. `oracle` left when sub-phase 4d made the sequencer import it."""
+    landing. `oracle` left when sub-phase 4d made the sequencer import it.
+
+    THE SET SURVIVED THE (a2) FOLD UNCHANGED, and it had to be re-measured to
+    say so. `wave` lost its `def-main`, so `fill` and `token` no longer reach a
+    program directly; they reach one through the sequencer's import of `wave`.
+    The chain is one link longer and the answer is the same."""
     live = _reachable()
     assert {m for m in MODULES if m not in live} == {"liveness", "shell"}
 

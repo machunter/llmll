@@ -224,12 +224,19 @@
   ;; cannot resubmit the previous attempt's token against a re-read tree.
   (type Att (| Att (int, (int, (int, (int, (string, string)))))))
 
-  ;; cfg, (holes, (accepted, (findings, protocol-failures))). The holes travel
-  ;; as raw list[Json] straight from `llmll holes --json`, on sequencer.llmll's
-  ;; precedent for the manifest: a custom carrier would have to be re-derived
-  ;; from the same fields at every use and would add a decoding step that can
-  ;; disagree with the compiler.
-  (type Wv (| Wv (WaveCfg, (list[Json], (int, (int, int))))))
+  ;; cfg, (holes, (accepted, (findings, (protocol-failures, fills)))). The holes
+  ;; travel as raw list[Json] straight from `llmll holes --json`, on
+  ;; sequencer.llmll's precedent for the manifest: a custom carrier would have to
+  ;; be re-derived from the same fields at every use and would add a decoding
+  ;; step that can disagree with the compiler.
+  ;;
+  ;; `fills` IS A SIXTH SLOT AND THE THREE COUNTERS DO NOT SUBSUME IT. The
+  ;; counters answer "how many"; `12-wave/wave.json` declares a row PER HOLE
+  ;; carrying which hole, which pointer, and how many attempts it took. Stage M
+  ;; declares that file (registry.llmll, stage-out i=13 j=0) and this module did
+  ;; not write it until now, so one of stage M's two declared outputs did not
+  ;; exist. The clause 2 comparator reads `fills` for R5 and `attempts` for R6.
+  (type Wv (| Wv (WaveCfg, (list[Json], (int, (int, (int, Json)))))))
 
   ;; Each arm names the RESPONSE it is about to receive, since the console loop
   ;; delivers the response to the command issued on entry to the arm. Named
@@ -322,10 +329,15 @@
   (def-shell w-find [w: Wv] -> int
     (match w ((Wv p) (first (second (second (second p)))))))
   (def-shell w-bad [w: Wv] -> int
-    (match w ((Wv p) (second (second (second (second p)))))))
+    (match w ((Wv p) (first (second (second (second (second p))))))))
+  (def-shell w-fills [w: Wv] -> Json
+    (match w ((Wv p) (second (second (second (second (second p))))))))
 
-  (def-shell mk-wv [c: WaveCfg hs: list[Json] ok: int fnd: int bad: int] -> Wv
-    (Wv (pair c (pair hs (pair ok (pair fnd bad))))))
+  (def-shell mk-wv [c: WaveCfg hs: list[Json] ok: int fnd: int bad: int fl: Json] -> Wv
+    (Wv (pair c (pair hs (pair ok (pair fnd (pair bad fl)))))))
+
+  (def-shell w-fills-list [w: Wv] -> list[Json]
+    (unwrap-or (json-array (w-fills w)) (list-empty)))
 
   (def-shell w-of [s: (Wv, WCtl)] -> Wv (first s))
   (def-shell ctl-of [s: (Wv, WCtl)] -> WCtl (second s))
@@ -344,15 +356,31 @@
 
   (def-shell clamp0 [n: int] -> int (if (< n 0) 0 n))
 
+  ;; ONE CONSTRUCTOR, and it exists because there are now two callers. The
+  ;; standalone `wave` sub-command parses argv; `sequencer.llmll`'s stage M arm
+  ;; builds the same record out of its own `Cfg` and the registry. A second
+  ;; hand-written `WaveCfg (pair ...)` chain would be a wrong-projection defect
+  ;; waiting to happen, which is what the accessors above already exist to stop.
+  (def-shell mk-wave-cfg [tree: string workdir: string llmll: string
+                          agent: string agent-args: list[string]
+                          timeout: int err0: int proto0: int] -> WaveCfg
+    (WaveCfg (pair tree
+               (pair workdir
+                     (pair llmll
+                           (pair agent
+                                 (pair agent-args
+                                       (pair timeout
+                                             (pair err0 proto0)))))))))
+
   (def-shell parse-wave-cfg [as: list[string]] -> WaveCfg
-    (WaveCfg (pair (flag-value as "--tree")
-               (pair (dflt (flag-value as "--workdir") ".wave")
-                     (pair (flag-value as "--llmll-cmd")
-                           (pair (flag-value as "--agent-cmd")
-                                 (pair (flag-values as "--agent-arg")
-                                       (pair (int-flag as "--timeout" 900)
-                                             (pair (int-flag as "--error-budget" 3)
-                                                   (int-flag as "--protocol-budget" 3))))))))))
+    (mk-wave-cfg (flag-value as "--tree")
+                 (dflt (flag-value as "--workdir") ".wave")
+                 (flag-value as "--llmll-cmd")
+                 (flag-value as "--agent-cmd")
+                 (flag-values as "--agent-arg")
+                 (int-flag as "--timeout" 900)
+                 (int-flag as "--error-budget" 3)
+                 (int-flag as "--protocol-budget" 3)))
 
   ;; "" when the run is startable.
   ;;
@@ -432,9 +460,6 @@
 
   ;; ---- the patch request ---------------------------------------------------
 
-  (def-shell jset [o: Json k: string v: Json] -> Json
-    (unwrap-or (json-set o k v) o))
-
   (def-shell body-node [s: string] -> Json
     (match (json-parse s)
       ((Success v) v)
@@ -497,6 +522,61 @@
        " findings " (int-to-string (w-find w))
        " protocol-failures " (int-to-string (w-bad w))]))
 
+  ;; ---- the per-hole record -------------------------------------------------
+  ;;
+  ;; One row per hole, appended at the hole's terminal arm. The shape is the
+  ;; reference's (stage_M_wave's `results` list) and TWO FIELDS DIVERGE, both
+  ;; recorded rather than smoothed over.
+  ;;
+  ;; 1. STATUS. The reference writes `filled`, `finding` and `checkout-failed`.
+  ;;    This module writes `filled`, `finding` and `protocol-failure`, because
+  ;;    `is-finding` [S9-FINDING] draws the line at an exhausted ERROR budget and
+  ;;    a checkout fault is only one of the ways the protocol budget goes. Using
+  ;;    the reference's third string would report a timeout as a checkout
+  ;;    failure. The comparator reads the status as a histogram KEY and does not
+  ;;    match on the reference's strings, so the divergence is legible there.
+  ;;
+  ;; 2. ATTEMPTS IS ONE-BASED. `at-n` counts from 0 and the reference's
+  ;;    `for attempt in range(1, ...)` counts from 1. R6 sums this field across
+  ;;    holes, so an off-by-one here is an off-by-n in the comparator.
+  ;;
+  ;; `last_error` is omitted on an accepted fill, as the reference omits it.
+  (def-shell fill-row [h: Json status: string attempts: int why: string] -> Json
+    (let [(base (jset (jset (jset (jset json-object
+                                        "hole" (json-of-string (target-of h)))
+                                  "pointer" (json-of-string (ptr-of h)))
+                            "status" (json-of-string status))
+                      "attempts" (json-of-int attempts)))]
+      (if (string-empty? why)
+          base
+          (jset base "last_error" (json-of-string why)))))
+
+  (def-shell add-fill [w: Wv row: Json] -> Json
+    (json-of-list (list-append (w-fills-list w) row)))
+
+  ;; The declared output, written at the seal and nowhere else.
+  ;;
+  ;; `whole_tree` CARRIES TWO FIELDS AND THE REFERENCE WRITES FIVE, and the three
+  ;; missing ones are missing because this module cannot measure them. `_verify`
+  ;; returns `safe` (SAFE present AND returncode 0), `body_faithful` (the
+  ;; fallback set parsed out of the transcript), `returncode` and `output`. The
+  ;; seal arm reads the stdout FILE and never sees the exit status, so neither
+  ;; `safe` nor `returncode` is available as the reference defines it. What this
+  ;; module does measure is `seal-holds?`, which is SAFE present AND no
+  ;; `fell back` line, and that is the conjunction of the reference's first two
+  ;; minus the return code. It is written under its own name, `sealed`, because
+  ;; naming it `safe` would claim a predicate this module does not evaluate.
+  (def-shell wave-record [w: Wv held: bool] -> string
+    (json-serialize
+      (jset (jset json-object "fills" (w-fills w))
+            "whole_tree"
+            (jset (jset json-object
+                        "file" (json-of-string (wcfg-tree (w-cfg w))))
+                  "sealed" (json-of-bool held)))))
+
+  (def-shell record-path [c: WaveCfg] -> string
+    (string-concat (wcfg-workdir c) "/wave.json"))
+
   ;; ---- the loop ------------------------------------------------------------
 
   (def-shell final-code [w: Wv] -> int
@@ -537,13 +617,20 @@
   ;; that as a separate fault would count one defect twice. Code 5 is reserved
   ;; for the case the per-fill bar cannot see, every hole accepted and the tree
   ;; still not proved from its own bodies.
+  ;; THE DECLARED OUTPUT IS WRITTEN HERE AND THE ORDER MATTERS. `WEnding` is not
+  ;; terminal, so the command this arm returns IS performed; the command the
+  ;; WEnding arm returns on the way to `WDone` is the one RC-4 drops. Writing
+  ;; from the terminal arm would construct the file and never put it on disk,
+  ;; which is the failure sequencer.llmll's own halt path records.
   (def-shell sealing-step [w: Wv code: int r: Response] -> ((Wv, WCtl), Command)
     (let [(held (seal-holds? (wave-text-of r)))]
       (wave-go w (WEnding (if (= code 0) (if held 0 5) code))
-          (wasi.io.stdout
-            (string-concat-many
-              ["[wave] whole-tree --strict-verified-core: "
-               (if held "SEALED" "NOT SEALED")])))))
+          (seq-commands
+            (wasi.fs.write (record-path (w-cfg w)) (wave-record w held))
+            (wasi.io.stdout
+              (string-concat-many
+                ["[wave] whole-tree --strict-verified-core: "
+                 (if held "SEALED" "NOT SEALED")]))))))
 
   ;; Step one: the brief. The token this returns is released immediately, and
   ;; the brief FILE is the agent's only input, which is the checkout-brief-is-
@@ -727,43 +814,71 @@
   ;; harness fault. The clamp is because `is-finding` carries `pre (>= err 0)`.
   (def-shell close-hole [w: Wv a: Att why: string] -> ((Wv, WCtl), Command)
     (let [(fnd (finding? (clamp0 (at-err a)) (<= (at-proto a) 0)))]
-      (let [(w2 (if fnd
-                    (mk-wv (w-cfg w) (w-holes w) (w-ok w) (+ (w-find w) 1) (w-bad w))
-                    (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (+ (w-bad w) 1))))]
-        (let [(e (wave-enter w2 (+ (at-k a) 1)))]
-          (pair (first e)
-                (seq-commands (wasi.io.stdout (close-line (at-k a) fnd why))
-                              (second e)))))))
+      ;; `at-n` AND NOT `at-n + 1`, which is the opposite of the accepted path
+      ;; above, and the two are counting different things. `at-next` bumps `n`
+      ;; when an attempt has FINISHED and a retry is about to be considered, so
+      ;; the attempt this arm sees is the one that never ran: at a budget of 2
+      ;; the hole is closed at n=2 after exactly two attempts. `closing-step`
+      ;; instead names the attempt that SUCCEEDED, which is an index, so it adds
+      ;; one. Measured by cover cell W9, which rejected `at-n + 1` here.
+      ;;
+      ;; This also matches the reference, whose exhausted row carries
+      ;; `ctx.semantic_retries` rather than a loop counter.
+      (let [(fl (add-fill w (fill-row (hole-at w (at-k a))
+                                      (if fnd "finding" "protocol-failure")
+                                      (at-n a) why)))]
+        (let [(w2 (if fnd
+                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (+ (w-find w) 1) (w-bad w) fl)
+                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (+ (w-bad w) 1) fl)))]
+          (let [(e (wave-enter w2 (+ (at-k a) 1)))]
+            (pair (first e)
+                  (seq-commands (wasi.io.stdout (close-line (at-k a) fnd why))
+                                (second e))))))))
 
   (def-shell undoing-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
     (retry-or-give-up w a "every attempt at this hole was rejected"))
 
   (def-shell closing-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
-    (wave-enter (mk-wv (w-cfg w) (w-holes w) (+ (w-ok w) 1) (w-find w) (w-bad w))
+    (wave-enter (mk-wv (w-cfg w) (w-holes w) (+ (w-ok w) 1) (w-find w) (w-bad w)
+                       (add-fill w (fill-row (hole-at w (at-k a)) "filled"
+                                             (+ (at-n a) 1) "")))
            (+ (at-k a) 1)))
 
   ;; ---- boot ----------------------------------------------------------------
 
-  (def-shell empty-cfg [] -> WaveCfg
-    (WaveCfg (pair "" (pair "" (pair "" (pair "" (pair (list-empty) (pair 0 (pair 0 0)))))))))
+  ;; THE SEQUENCER'S ENTRY, past the argv parse. Program unification job (a2)
+  ;; folds stage M into the stage loop, and the sequencer arrives here with a
+  ;; `WaveCfg` it built from its own `Cfg` and the registry rather than from a
+  ;; command line. Splitting the parse off is what lets one machine serve both
+  ;; the stage arm and the standalone `wave` sub-command the 4e cover drives.
+  (def-shell wave-seed [c: WaveCfg] -> ((Wv, WCtl), Command)
+    (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty))) (WBoot 1)
+        (seq-commands
+          (wasi.fs.mkdir (wcfg-workdir c))
+          (seq-commands
+            (wasi.proc.run (wcfg-compiler c) ["holes" (wcfg-tree c) "--json"] "."
+                           (string-concat (wcfg-workdir c) "/holes.json")
+                           (string-concat (wcfg-workdir c) "/holes.err")
+                           (wcfg-timeout c) "/dev/null")
+            (wasi.fs.read (string-concat (wcfg-workdir c) "/holes.json"))))))
+
+  ;; THE ARGV PATH, which the `wave` sub-command takes and the stage arm does
+  ;; not. A LEADING "wave" TOKEN IS HARMLESS HERE and is deliberately not
+  ;; stripped: `flag-value` and `flag-values` scan for an element EQUAL to the
+  ;; flag name and take the one after it, so an element that is not a flag name
+  ;; is skipped. Dropping it would need a list operation this tree does not have.
+  (def-shell wave-boot-args [as: list[string]] -> ((Wv, WCtl), Command)
+    (let [(c (parse-wave-cfg as))]
+      (if (string-empty? (wave-missing-flags c))
+          (wave-seed c)
+          ;; Before any hole exists, so no tally attaches. The literal 2 is
+          ;; sequencer.llmll's usage-stop code.
+          (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty))) (WEnding 2)
+              (wasi.io.stdout (string-concat "[wave] STOP: " (wave-missing-flags c)))))))
 
   (def-shell wave-boot-step [w: Wv n: int r: Response] -> ((Wv, WCtl), Command)
     (if (= n 0)
-        (let [(c (parse-wave-cfg (argv-of r)))]
-          (if (string-empty? (wave-missing-flags c))
-              (wave-go (mk-wv c (list-empty) 0 0 0) (WBoot 1)
-                  (seq-commands
-                    (wasi.fs.mkdir (wcfg-workdir c))
-                    (seq-commands
-                      (wasi.proc.run (wcfg-compiler c) ["holes" (wcfg-tree c) "--json"] "."
-                                     (string-concat (wcfg-workdir c) "/holes.json")
-                                     (string-concat (wcfg-workdir c) "/holes.err")
-                                     (wcfg-timeout c) "/dev/null")
-                      (wasi.fs.read (string-concat (wcfg-workdir c) "/holes.json")))))
-              ;; Before any hole exists, so no tally attaches. The literal 2 is
-              ;; sequencer.llmll's usage-stop code.
-              (wave-go (mk-wv c (list-empty) 0 0 0) (WEnding 2)
-                  (wasi.io.stdout (string-concat "[wave] STOP: " (wave-missing-flags c))))))
+        (wave-boot-args (argv-of r))
         (let [(hs (holes-in (wave-text-of r)))]
           (if (= (list-length hs) 0)
               ;; A tree with nothing to fill. Not the .llmll mistake, which
@@ -776,13 +891,16 @@
                       ["[wave] STOP: no holes in " (wcfg-tree (w-cfg w))
                        " (nothing to fill, or `llmll holes` did not run; its "
                        "stderr is in the workdir as holes.err)"])))
-              (wave-enter (mk-wv (w-cfg w) hs 0 0 0) 0)))))
+              (wave-enter (mk-wv (w-cfg w) hs 0 0 0 (json-of-list (list-empty))) 0)))))
 
   ;; ---- the console harness -------------------------------------------------
-
-  (def-shell wave-init [] -> ((Wv, WCtl), Command)
-    (pair (pair (mk-wv (empty-cfg) (list-empty) 0 0 0) (WBoot 0))
-          wasi.proc.args))
+  ;;
+  ;; NO def-main. Program unification job (a2) folded stage M into
+  ;; `sequencer.llmll`'s stage loop, so this module is a LIBRARY and the driver
+  ;; is one program. The machine below is unchanged; what moved is who drives
+  ;; it. The sequencer's `Fan` arm carries a `(Wv, WCtl)` and hands each step to
+  ;; `wave-step`, and the `wave` sub-command runs the same machine with the
+  ;; stage index -1, which is how the seven 4e cells keep grading it.
 
   (def-shell wave-step [s: (Wv, WCtl) input: string r: Response] -> ((Wv, WCtl), Command)
     (match (ctl-of s)
@@ -829,26 +947,49 @@
       ((WEnding _)  1)
       ((WDone c)    c)))
 
-  ;; The terminal report leaves through :on-done rather than through a step,
-  ;; because RC-4 drops the terminating step's command; sequencer.llmll:1738-1743
-  ;; records the same constraint.
-  (def-shell wave-final [s: (Wv, WCtl)] -> Command
-    (wasi.io.stdout
-      (string-concat "[wave] end status=" (int-to-string (wave-done-code s)))))
+  ;; THE CODE AT AN ENDING OR TERMINAL ARM, and a negative at every other. This
+  ;; is what the sequencer's stage M arm reads, and `wave-done-code` cannot
+  ;; serve: that one answers only at `WDone`, which is one step too late. The
+  ;; `WEnding` step is what the fold must intercept, because a folded stage M
+  ;; hands the run back to the stage loop instead of reaching a program exit.
+  ;;
+  ;; NEGATIVE AND NOT 0 for the "still running" answer, because 0 is the success
+  ;; code and the two must not be the same value.
+  ;;
+  ;; Kept beside the two matches above so a new `WCtl` arm has to be answered in
+  ;; three places at once; `test_driver_ll_4e.py` asserts all three agree.
+  (def-shell wave-exit-code [s: (Wv, WCtl)] -> int
+    (match (ctl-of s)
+      ((WBoot _)   (- 0 1))
+      ((Brief _)   (- 0 1))
+      ((Rel _)     (- 0 1))
+      ((Working _) (- 0 1))
+      ((Fresh _)   (- 0 1))
+      ((Applied _) (- 0 1))
+      ((Checked _) (- 0 1))
+      ((Closing _) (- 0 1))
+      ((Undoing _) (- 0 1))
+      ((Sealing _) (- 0 1))
+      ((WEnding c)  c)
+      ((WDone c)    c)))
 
+  ;; `wave-final` IS GONE, and the one line it printed is gone with it. It was
+  ;; this module's `:on-done`, and there is no `def-main` here to carry one. The
+  ;; unified program's `drv-final` prints `[driver-ll] end status=N` for every
+  ;; run including a `wave` sub-command run, which is true of what now runs. No
+  ;; cover cell reads that line; the seven 4e cells read the exit code and the
+  ;; per-hole transcript.
+  ;;
   ;; def-shell and NOT a proved def, unlike sequencer.llmll's drv-status. That
   ;; one carries [EXIT-RANGE] because PROC-BOUNDARY-1 section 4.4 declares a
   ;; range for the driver's exit code; no clause declares one for the wave, and
   ;; writing a post here would be inventing a contract rather than porting one.
   ;; The clamp still fails in the safe direction: 256 exits 255, not 0.
+  ;;
+  ;; THE CLAMP IS WHAT KEEPS `drv-status`'s DECLARED RANGE TRUE. The sequencer's
+  ;; `:status` carries `post (and (>= result 0) (<= result 255))` and its stage M
+  ;; arm returns this function's answer, so an arm that read `wave-done-code`
+  ;; directly would let a code of 256 exit 0 and report success on a failed run.
   (def-shell wave-status [s: (Wv, WCtl)] -> int
     (let [(c (wave-done-code s))]
-      (if (< c 0) 1 (if (> c 255) 255 c))))
-
-  (def-main
-    :mode    console
-    :init    (wave-init)
-    :step    wave-step
-    :done?   wave-done?
-    :on-done wave-final
-    :status  wave-status))
+      (if (< c 0) 1 (if (> c 255) 255 c)))))
