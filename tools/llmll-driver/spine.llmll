@@ -57,6 +57,7 @@
   (import stage) (open stage)
   (import skip)  (open skip)
   (import gate)  (open gate)
+  (import manifest) (open manifest)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre
@@ -279,13 +280,6 @@
   ;; ------------------------------------------------------------------
   ;; The shell: JSON, files, subprocesses. Nothing below is proved.
   ;; ------------------------------------------------------------------
-
-  (def-shell status-word [s: Status] -> string
-    (match s
-      ((Complete) "complete")
-      ((Stopped)  "stopped")
-      ((Failed)   "failed")
-      ((Pending)  "pending")))
 
   ;; A nested projection: line_coverage -> <rfc> -> jaccard. Returns the
   ;; lexeme, or a sentinel that cannot equal any pinned value, so a missing
@@ -770,8 +764,13 @@
 
   (def-shell spine-done? [s: int] -> bool (>= s 18))
 
-  (def-main
-    :mode  console
-    :init  (spine-init)
-    :step  spine-step
-    :done? spine-done?))
+
+  ;; NO def-main. Program unification job (a1) made this module a LIBRARY:
+  ;; the driver is one program and this is no longer a second one. Its stage
+  ;; E, J, L and G2 logic stays here, unreached, until (a2) wires it into the
+  ;; sequencer's stage loop and retires registry.stage-ported?.
+  ;;
+  ;; spine-init, spine-step and spine-done? are the entry points (a2) takes.
+  ;; They are declared and not called, which is the honest state: this module
+  ;; is a library awaiting a caller, not dead code awaiting deletion.
+)

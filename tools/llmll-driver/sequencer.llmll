@@ -270,6 +270,7 @@
   (import oracle)   (open oracle)
   (import report)   (open report)
   (import common)   (open common)
+  (import spine)    (open spine)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
