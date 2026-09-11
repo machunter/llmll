@@ -241,14 +241,27 @@ UNCRUXED = {
 # 1. The two properties, measured separately
 # ---------------------------------------------------------------------------
 
-def test_the_programs_are_derived_and_are_the_expected_three():
-    """If a fourth `def-main` appears, the reachability base changes under
+def test_the_programs_are_derived_and_are_the_expected_two():
+    """If a `def-main` appears or leaves, the reachability base changes under
     every assertion below and they must be re-measured rather than trusted.
 
-    `wave` is the third and it arrived exactly this way: the assertion below
+    `wave` was the third and it arrived exactly this way: the assertion below
     was written for two, a `def-main` landed, and every other assertion in
-    this file moved with it."""
-    assert _programs() == {"sequencer", "spine", "wave"}
+    this file moved with it.
+
+    IT IS BACK TO TWO, and the move was a DELETION this time. Program
+    unification job (a1) made `spine.llmll` a library: its stage E, J, L and
+    G2 logic stays there, unreached, until (a2) wires it into the sequencer's
+    stage loop. `wave` KEEPS its `def-main` and is deliberately not merged
+    here, because `scripts/build_smoke.sh` stage 9 builds and runs the wave
+    binary and `scripts/wave_cover.py` drives it through seven cells. Deleting
+    that entry point would retire the acceptance cover of a shipped sub-phase,
+    so the wave merges at (a2) with stage M, not at (a1).
+
+    The orphan assertion below did NOT move, and that is the check that
+    matters: `_reachable()` walks transitively from the programs, so the
+    sequencer importing `spine` keeps `stage`, `skip` and `gate` reachable."""
+    assert _programs() == {"sequencer", "wave"}
 
 
 def test_the_orphaned_modules_are_exactly_the_two():

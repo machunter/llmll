@@ -1,0 +1,82 @@
+(module common)
+
+;; The COLLAPSE set of driver-ll-program-unification-proposal.md section 4.6.
+;;
+;; SEVEN functions that `sequencer.llmll` and `wave.llmll` each held a copy of.
+;; Measured identical by body on 2026-09-11. They live here so that program
+;; unification's completion test (section 2 clause 2, "no function body appears
+;; in two modules") can pass, and so that `(open common)` in both callers
+;; introduces no shadow.
+;;
+;; SEVEN AND NOT EIGHT. `verify-safe?` was measured into the collapse set by
+;; body equality, the move was tried, and TWO COVERS FAILED: 4d pins the
+;; sequencer's copy as an abstraction function over the compiler's transcript,
+;; and 4e lists the wave's copy in SEAM, the set of wave functions that read
+;; another process's stdout and prove nothing about it. Identical bodies, two
+;; different seams, two different pins. It stays duplicated, and section 2
+;; clause 2 carries it as a NAMED EXCEPTION rather than losing the clause.
+;;
+;; The general lesson, because it will recur: body equality is NECESSARY and NOT
+;; SUFFICIENT for collapsing a duplicate. A function can be identical in two
+;; modules and still be independently pinned in each, because the pin is about
+;; the seam the copy sits on and not about the behaviour.
+;;
+;; WHY NOT `shell.llmll`, which is the natural-looking home: `shell` is in the
+;; orphan set, and the orphan set must stay exactly {liveness, shell} per
+;; section 2 clause 4. Moving live code into it would de-orphan it and fail the
+;; acceptance test this work is graded by. A new module is the only shape that
+;; satisfies both clauses.
+;;
+;; `dflt` IS in the collapse set on a measurement rather than on its text. The
+;; two copies differed only in a parameter name, `s` in the sequencer and `v` in
+;; the wave, which the type checker does not see. The sequencer's name is kept.
+;;
+;; `body-faithful-all?` is NOT here and is NOT duplicated, though the older
+;; comment beside it in `sequencer.llmll` reads as saying so. The sequencer's
+;; takes one argument and excludes `body-fallback:`; the wave's `body-faithful?`
+;; takes two and checks that a target name appears. Different functions with
+;; similar names.
+
+;; ---- argv ----------------------------------------------------------------
+
+;; The element following `f`, or "". A repeated flag keeps the FIRST value,
+;; which is the opposite of argparse and is stated because nothing enforces it.
+(def-shell flag-value [as: list[string] f: string] -> string
+  (first (list-fold as (pair "" false)
+           (fn [acc: (string, bool) a: string]
+             (if (second acc)
+                 (pair a false)
+                 (if (= a f) (pair (first acc) true) acc))))))
+
+;; Every element following an occurrence of `f`, in order. A repeatable flag.
+(def-shell flag-values [as: list[string] f: string] -> list[string]
+  (first (list-fold as (pair (list-empty) false)
+           (fn [acc: (list[string], bool) a: string]
+             (if (second acc)
+                 (pair (list-append (first acc) a) false)
+                 (if (= a f) (pair (first acc) true) acc))))))
+
+(def-shell int-flag [as: list[string] f: string d: int] -> int
+  (unwrap-or (string-to-int (flag-value as f)) d))
+
+(def-shell dflt [s: string d: string] -> string
+  (if (string-empty? s) d s))
+
+;; ---- response and string -------------------------------------------------
+
+(def-shell argv-of [r: Response] -> list[string]
+  (match r
+    ((RList as) as)
+    ((RNone)    (list-empty))
+    ((RText _)  (list-empty))
+    ((RCode _)  (list-empty))
+    ((RErr _)   (list-empty))))
+
+(def-shell last-field [xs: list[string]] -> string
+  (unwrap-or (list-nth xs (- (list-length xs) 1)) ""))
+
+;; string-split takes the SEPARATOR FIRST, measured at v0.14.84. Getting it
+;; backwards yields [sep], which type-checks and passes every check-time gate.
+;; This wrapper exists so the argument order is stated once.
+(def-shell split-on [sep: string s: string] -> list[string]
+  (string-split sep s))
