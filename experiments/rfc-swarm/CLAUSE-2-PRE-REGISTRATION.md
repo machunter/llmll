@@ -1,7 +1,7 @@
 ---
 name: clause-2-pre-registration
 title: "DRIVER-LL acceptance clause 2: run plan and pre-registration"
-status: "Rev 4, 2026-09-11. NOT RUN, AND THE GATE ON RUNNING IS DOWN. Rev 4 amends section 10 ONLY: the G0 roadmap row named neither this document nor clause2_compare.py until dd5b4fb, and it names both now, so Rev 2's 'the roadmap names neither' sentence is retired as CLOSED rather than left standing. The documentation-lead pass that made that sentence false named it as owed BEFORE committing, which is the first time this campaign caught RECORD-FRESH-1 in front of a commit instead of behind one. Rev 3, 2026-09-11: Rev 3 amends 6.2 ONLY, on a compiler-engineer finding that 6.2 was not implementable as Rev 2 wrote it: RUN-PROVENANCE.json now declares `model` as its own required field, six fields in all, because a checker without it must search argv for a model name and that needs a catalog, which is the [V7-NO-HARDCODE] failure. The pin check is stated as a decidable rule over argv ELEMENTS, never over the joined string. Rev 3 also records what Rev 2 omitted and an operator would have found during the expensive run: argv is the ONLY channel to the agent, because wasi.proc.run has no env parameter (PROC-ENV-1), so an environment-variable pin does not satisfy the obligation. Rev 2, 2026-09-10: Rev 1 said no comparator existed; clause2_compare.py merged at 0b0a024 the same day and never touched this file, which is the RECORD-FRESH-1 defect; the second record in this campaign MEASURED to show it, beside driver-ll-phase4-RESTART.md. Section 6 is now 6.1, the comparator as built, and 6.2, a NEW obligation: the live run pins its model in the agent invocation and records the invocation in an operator-written RUN-PROVENANCE.json. Section 6.2 does NOT repair section 4.2, which is a statement about the oracle and stands. Section 9 marks the comparator cost SPENT, because a cost section that lists paid work makes a reader budget it twice, and names the one piece of engineering 6.2 leaves open. The driver does not change for 6.2, BY DECISION: the program under test at its own acceptance run must be the program 4f shipped at e49e968. Two comparator cells are NOT CHECKED and neither holds the run: T5 (no committed run carries a per-stage MANIFEST.json) and T2b (no artifact defines the check). Rev 1's five requirements are kept VERBATIM and the built tool differs from them in both directions; the 6.1 table records both. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
+status: "Rev 5, 2026-09-11. RUNNING, AND THE RUN IS BOUNDED. Rev 5 adds section 6.3 BEFORE the run, not after: registry.stage-ported? still answers false for E, G2, J, L and M, so five stages write STUBS, and EVERY reported class that has an oracle reads one of them. Divergence in R2 to R6 is a KNOWN CONFOUND reported as STUBBED STAGE, never as disagreement. The thresholded half is unaffected because stubs record complete and the only byte floors, B at 200 and C at 400, are both ported. THIS RUN CLAIMS live evidence for the 11 PORTED stages and the thresholded set, against a real agent for the first time. It does NOT claim a full clause 2 result: section 8 Success needs every deterministic class to agree and five read stubs. A PASS here is a pass over 11 of 16 stages and the record says so. A full clause 2 run waits on job (a2) of driver-ll-program-unification-proposal.md. Rev 4, 2026-09-11: Rev 4 amends section 10 ONLY: the G0 roadmap row named neither this document nor clause2_compare.py until dd5b4fb, and it names both now, so Rev 2's 'the roadmap names neither' sentence is retired as CLOSED rather than left standing. The documentation-lead pass that made that sentence false named it as owed BEFORE committing, which is the first time this campaign caught RECORD-FRESH-1 in front of a commit instead of behind one. Rev 3, 2026-09-11: Rev 3 amends 6.2 ONLY, on a compiler-engineer finding that 6.2 was not implementable as Rev 2 wrote it: RUN-PROVENANCE.json now declares `model` as its own required field, six fields in all, because a checker without it must search argv for a model name and that needs a catalog, which is the [V7-NO-HARDCODE] failure. The pin check is stated as a decidable rule over argv ELEMENTS, never over the joined string. Rev 3 also records what Rev 2 omitted and an operator would have found during the expensive run: argv is the ONLY channel to the agent, because wasi.proc.run has no env parameter (PROC-ENV-1), so an environment-variable pin does not satisfy the obligation. Rev 2, 2026-09-10: Rev 1 said no comparator existed; clause2_compare.py merged at 0b0a024 the same day and never touched this file, which is the RECORD-FRESH-1 defect; the second record in this campaign MEASURED to show it, beside driver-ll-phase4-RESTART.md. Section 6 is now 6.1, the comparator as built, and 6.2, a NEW obligation: the live run pins its model in the agent invocation and records the invocation in an operator-written RUN-PROVENANCE.json. Section 6.2 does NOT repair section 4.2, which is a statement about the oracle and stands. Section 9 marks the comparator cost SPENT, because a cost section that lists paid work makes a reader budget it twice, and names the one piece of engineering 6.2 leaves open. The driver does not change for 6.2, BY DECISION: the program under test at its own acceptance run must be the program 4f shipped at e49e968. Two comparator cells are NOT CHECKED and neither holds the run: T5 (no committed run carries a per-stage MANIFEST.json) and T2b (no artifact defines the check). Rev 1's five requirements are kept VERBATIM and the built tool differs from them in both directions; the 6.1 table records both. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
 date: 2026-09-10
 author: experiment-lead
 consumers: [user, language-team, compiler-engineer]
@@ -237,6 +237,49 @@ against those logs after the run.
 **One limit, stated rather than implied.** Pinning the invocation pins what the run asked
 for. It does not pin what served the request. The claim this record supports is "this model
 was requested", not "this model produced these decisions".
+
+### 6.3 FIVE STAGES STILL WRITE STUBS, and this bounds what the run can claim
+
+Pre-registered before the run, because reading these divergences after seeing them
+is the failure pre-registration exists to prevent.
+
+`registry.stage-ported?` answers false for **E, G2, J, L and M**. An unported stage
+writes a stub byte-string to each artifact it declares and nothing else
+(`tools/llmll-driver/sequencer.llmll`, the `started-step` branch and `write-cmd`).
+Retiring that table is job (a2) of
+[`../../docs/design/driver-ll-program-unification-proposal.md`](../../docs/design/driver-ll-program-unification-proposal.md),
+which is not done.
+
+**Every reported class that has an oracle reads a stubbed stage.**
+
+| Class | Artifact | Stage |
+|---|---|---|
+| R2 gate J | `09-gate/gate.json` | J, stubbed |
+| R3 stage E | `reconciliation-summary.json` | E, stubbed |
+| R4 stage L | inventory | L, stubbed |
+| R5 wave partition | `wave.json` | M, stubbed |
+| R6 retry budget | `wave.json` | M, stubbed |
+
+R1 is `NO ORACLE` by design and R7 is the operator sidecar, so the oracle-bearing
+reported set is five for five.
+
+**Divergence in R2 to R6 is therefore a KNOWN CONFOUND and not a port-fidelity
+signal.** It is reported as `STUBBED STAGE` and never as disagreement. Registering
+this in advance is what keeps a stub divergence from being read either way after the
+fact.
+
+**The thresholded half is unaffected, and that is why the run is still worth its
+cost.** Stubs record `complete`, and the only byte floors are B at 200 and C at 400,
+both ported. T1 through T4 decide over the real 11-stage execution.
+
+**What this run claims.** Live evidence for the **11 ported stages** and the whole
+thresholded set, against a real agent rather than the stub agent clauses 1a and 1b
+use. That is new: no live agent has driven this port before.
+
+**What it does NOT claim, and no wording will make it.** A full clause 2 result. §8's
+`Success` requires every deterministic decision class to agree, and five of them read
+stubs. **A PASS from this run is a pass over 11 of 16 stages and the record says so.**
+A full clause 2 run waits on (a2).
 
 ## 7. Divergence semantics, pre-registered
 
