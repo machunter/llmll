@@ -1,0 +1,58 @@
+;; ===========================================================================
+;; PROBE 3 — the reply half of reception (RFC 826 lines 219-225)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; MODEL SHAPE
+;;   The emitted packet is a CONSTRUCTED value, which stays body-faithful, rather
+;;   than a matched-on parameter, which does not. `ReplyUnicast` carries
+;;   ((ar$sha, ar$spa), (ar$tha, ar$tpa)) paired with the frame destination
+;;   hardware address. `ReplyBroadcast` exists as a distinct arm so that the
+;;   broadcast-instead-of-unicast failure of line 224 is expressible at all -
+;;   without it, S5 (frame destination mode) would be unstateable and the mutant
+;;   below could not be written.
+;;
+;;   `NoEmission` is a real value, not the absence of one: RFC 826's discard rule
+;;   at lines 200-201 has to be the outcome of a total function.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(type Emission
+  (| NoEmission)
+  (| ReplyUnicast (((int, int), (int, int)), int))
+  (| ReplyBroadcast ((int, int), (int, int))))
+
+(def recv-reply [hw-ok: bool proto-ok: bool am-target: bool op: Opcode
+                 own-hw: int own-pa: int req-sha: int req-spa: int] -> Emission
+
+  ;; [A45][A54][A57] Nothing is emitted unless both front guards hold, this
+  ;; station is the target protocol address, and the opcode is REQUEST. Three
+  ;; distinct negative conditionals, one clause.
+  (post (=> (not (and (and hw-ok proto-ok) (and am-target (= op OpRequest))))
+            (= result NoEmission))
+    :source "[A45] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet; the opcode test of line 219 is the last of the three")
+
+  ;; [A58][A59][A60] The answer: local hardware and protocol addresses into the
+  ;; SENDER fields, the request's sender addresses into the TARGET fields, opcode
+  ;; REPLY (carried by the constructor, which has no REQUEST inhabitant), sent to
+  ;; the new target hardware address rather than broadcast.
+  (post (=> (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+            (= result (ReplyUnicast (pair (pair (pair own-hw own-pa)
+                                                (pair req-sha req-spa))
+                                          req-sha))))
+    :source "[A58] RFC 826 lines 221-222 - swap hardware and protocol fields, putting the local hardware and protocol addresses in the sender fields")
+
+  ;; [A60] Restated on its own so a destination-mode regression is localized: the
+  ;; reply is directed at the new ar$tha, never broadcast back onto the cable.
+  (post (=> (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+            (not (= result (ReplyBroadcast (pair (pair own-hw own-pa)
+                                                 (pair req-sha req-spa))))))
+    :source "[A60] RFC 826 lines 224-225 - send the packet to the (new) target hardware address on the same hardware on which the request was received")
+
+  (if (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+      (ReplyUnicast (pair (pair (pair own-hw own-pa)
+                                (pair req-sha req-spa))
+                          req-sha))
+      NoEmission))

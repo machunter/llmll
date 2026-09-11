@@ -1,0 +1,5 @@
+   .fq written to /tmp/spoof-binding-mutant.fq
+   body-faithful: merge-binding
+   Running liquid-fixpoint ...
+error: body verification of 'merge-binding' failed — implementation does not satisfy postcondition (constraint #0)
+ERROR: --strict-verified-core: refuted: merge-binding

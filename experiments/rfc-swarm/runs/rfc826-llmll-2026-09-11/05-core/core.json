@@ -1,0 +1,26 @@
+{
+  "core_ids": [
+    "A2",
+    "A8",
+    "A9",
+    "A27",
+    "A28",
+    "A32",
+    "A37",
+    "A38",
+    "A39",
+    "A40",
+    "A43",
+    "A45",
+    "A51",
+    "A52",
+    "A54",
+    "A56",
+    "A57",
+    "A58",
+    "A59",
+    "A60",
+    "A61"
+  ],
+  "rationale": "A2: if ar$op is emitted in the machine's native low-byte-first order, no peer ever recognizes a request or a reply, so no exchange the protocol describes can occur. A8: a station that does not put 1 in ar$op for a request is speaking a private protocol that no ARP peer will answer. A9: reply = 2 is the other half of the only piece of state this protocol carries, and a wrong value makes every answer undecodable. A27: resolution on demand out of a translation table is the design the RFC deliberately chose over periodic broadcast, so a module that keeps and consults no table has implemented something else. A28: handing the cached 48-bit address back on a hit is the entire payoff of keeping the table, and without it the table never serves a packet. A32: a module that never generates an address resolution packet on a miss can never learn a mapping, and learning mappings is what the protocol exists to do. A37: a generated packet that is not marked ares_op$REQUEST will be treated as a reply and never answered, so the request half of the protocol disappears. A38: without the sender's own hardware address in ar$sha there is nothing for the receiver to enter in its table and no address to send the reply to. A39: without the sender's own protocol address in ar$spa the mapping being distributed does not exist in the packet. A40: without ar$tpa naming the machine sought, no station can tell the request is for it, so nothing ever replies. A43: a request sent anywhere but the broadcast address cannot reach a station whose hardware address is by definition not yet known. A45: this is the protocol's termination and error rule, that any guard evaluating false ends processing and discards the packet with no reply and no table change. A51: testing whether <protocol type, sender protocol address> is already present is the step that decides between merging and adding, and both later rules hang off it. A52: letting the new hardware address supersede the old one is the RFC's stated recovery path for a host that has moved, and without it bad mappings persist forever. A54: the target test is what confines both new table entries and replies to the station actually being asked. A56: adding the triplet only when this station is the target is what keeps every listener from caching every mapping it overhears, which is the table discipline that distinguishes this protocol from promiscuous learning. A57: examining the opcode only after the table work is complete is the sequencing the RFC shouts about, and reversing it turns the algorithm into a different one. A58: swapping the fields so the local hardware and protocol addresses occupy the sender fields is how the answer carries the mapping that was asked for. A59: a reply not marked ares_op$REPLY will be read as a request and provoke an answer to the answer. A60: sending the reply to the new target hardware address on the arrival interface is what makes the exchange a directed answer rather than another broadcast, and getting it wrong means the requester is never told. A61: merging the sender triplet before the opcode is looked at is the characteristic rule of RFC 826, the rule that makes a request teach its target about the sender, and an implementation that merges afterward has not implemented this protocol."
+}

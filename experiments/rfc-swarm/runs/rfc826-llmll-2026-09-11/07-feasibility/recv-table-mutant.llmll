@@ -1,0 +1,49 @@
+;; ===========================================================================
+;; PROBE 1 MUTANT — promiscuous learning
+;; ===========================================================================
+;; Identical to recv-table.llmll EXCEPT the add of line 216 is no longer under
+;; the ?Am I the target protocol address? test of line 214: every sender triplet
+;; on the cable is entered, whether or not this station was addressed.
+;;
+;; Historically attested: this is the divergence that turns one forged broadcast
+;; REQUEST into a poisoned entry on EVERY station on the cable rather than on the
+;; one station that was asked. It is the behaviour RFC 826 confines to the
+;; *monitor* of lines 326-355, which "always enters" the triplet (lines 337-339)
+;; precisely because it is not a conforming receiver.
+;;
+;; Refuted by the [A54] clause: absent pair and not the target must add nothing.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(def recv-table [hw-ok: bool proto-ok: bool tbl: map[int,int] spa: int sha: int
+                 am-target: bool op: Opcode] -> map[int,int]
+
+  (post (=> (not (and hw-ok proto-ok))
+            (and (= (map-has result spa) (map-has tbl spa))
+                 (=> (map-has tbl spa) (= (map-get result spa) (map-get tbl spa)))))
+    :source "[A45] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet")
+
+  (post (=> (and (and hw-ok proto-ok) (map-has tbl spa))
+            (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 211-213 - if the pair is already in my translation table, update the sender hardware address field of the entry with the new information in the packet")
+
+  (post (=> (and (and hw-ok proto-ok) (and (not (map-has tbl spa)) am-target))
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A56] RFC 826 lines 216-218 - if Merge_flag is false, add the triplet <protocol type, sender protocol address, sender hardware address> to the translation table")
+
+  (post (=> (and (not (map-has tbl spa)) (not am-target))
+            (not (map-has result spa)))
+    :source "[A54] RFC 826 line 214 - ?Am I the target protocol address? - the add of line 216 sits under the Yes arm of that test")
+
+  (post (and (=> (and (and hw-ok proto-ok) (and (map-has tbl spa) (= op OpRequest)))
+                 (= (map-get result spa) sha))
+             (=> (and (and hw-ok proto-ok) (and (map-has tbl spa) (= op OpReply)))
+                 (= (map-get result spa) sha)))
+    :source "[A61] RFC 826 lines 227-229 - the triplet is merged into the table before the opcode is looked at")
+
+  (if (and hw-ok proto-ok)
+      (map-put tbl spa sha)   ;; BUG: the ?Am I the target? test of line 214 is gone;
+                              ;; every overheard sender triplet is entered.
+      tbl))

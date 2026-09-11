@@ -1,0 +1,6 @@
+   .fq written to /tmp/resolve-out.fq
+   body-faithful: resolve-out
+   call-pre obligations: resolve-out
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/resolve-out.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/resolve-out.llmll.verified.json

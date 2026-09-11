@@ -1,0 +1,26 @@
+Stage H complete. Six probe/mutant pairs in `07-feasibility/`, all twelve verdicts meeting the bar from a clean state.
+
+## The probes
+
+| Probe | Shape | Mutant | Verdict pair |
+|---|---|---|---|
+| `recv-table` | main transition, table half (lines 203-218) | promiscuous learning: drops the line-214 target test | SAFE / refuted |
+| `merge-before-opcode` | opcode independence of the table outcome | **reads ar$op first, learns only from REPLY** | SAFE / refuted |
+| `recv-reply` | reply construction (lines 219-225) | ar$op flipped, line-221 swap never done | SAFE / refuted |
+| `resolve-out` | generation, hit and miss (lines 169-190) | ar$spa / ar$tpa transposed | SAFE / refuted |
+| `table-frame` | **product invariant**: frame condition on the table | also caches `<ar$tpa, ar$tha>` | SAFE / refuted |
+| `spoof-binding` | P-SPOOF, the scope's negative result | claims the installed address is the frame source | SAFE / refuted |
+
+Every probe is `body_faithful: true` at `display_level: verified`; no mutant wrote a sidecar, which is the correct behavior for a refuted function.
+
+The mandatory famous-bug mutant is probe 2. RFC 826 carries exactly one double exclamation mark, at line 219 — "(NOW look at the opcode!!)" — and spends lines 227-229 restating the ordering in prose. The mutant commits the error it shouts at, and the opcode-independence contract refutes it.
+
+## Three things Stage D inherits
+
+**The map key class is `{int, string}`, so there is no composite table key.** Scope §4's S2 names a four-place relation `tbl(Host, ProtoType, ProtoAddr, HwAddr)`; the fragment gives a two-place `map[int,int]` plus a `proto-ok` guard. That is a real narrowing, and Stage D either accepts it or splits the table per protocol type.
+
+**There is no `forall` in a contract, so the frame condition rides a witness key.** `table-frame.llmll` carries `other` as a parameter constrained only to differ from the key the packet names. Because it is a parameter of a body-faithful function it is universally quantified at the VC's outer level, so the clause is the frame condition rather than a sample of it. The cost is a proof-device parameter in the transition signature; the alternative (a relation over a before-table and an after-table) is untested.
+
+**One contract was too strong and was refuted before I fixed it.** `resolve-out`'s "ar$spa is not ar$tpa" clause is false when a station resolves its own protocol address — the transposed packet and the correct one are then the same value. RFC 826 never rules that case out, so I guarded the clause with `(not (= own-pa tpa))` rather than constraining callers with a `pre` the RFC does not license. The mutant is still refuted, twice over. The general pattern is worth carrying: a "field X is not field Y" clause is false wherever the two fields can coincide, and in this protocol they often can.
+
+Not probed, and named in `FINDINGS.md` so it is not mistaken for covered: the lines 367-410 example trace that scope §7 commits to as a mandatory falsifier, cross-function assume-guarantee composition (every probe is a single `def`), and the M-OPTCHECK obligation to prove each property under both settings of the optional length checks.

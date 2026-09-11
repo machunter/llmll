@@ -1,0 +1,46 @@
+;; ===========================================================================
+;; PROBE 2 — merge-before-opcode (RFC 826 lines 219, 227-229)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; This isolates the one rule RFC 826 shouts about: "?Is the opcode
+;; ares_op$REQUEST?  (NOW look at the opcode!!)" at line 219, restated as prose
+;; at lines 227-229. The table work of lines 209-218 is complete before the
+;; opcode is read.
+;;
+;; The contract shape that carries it is OPCODE INDEPENDENCE of the table
+;; outcome: the same packet, differing only in ar$op, must leave the table in
+;; the same condition. That is stateable without a trace and without a clock,
+;; because `op` is a parameter and the post quantifies over its two values by
+;; enumerating them.
+;;
+;; `op` appears in the signature and in the contract. It must not appear in the
+;; body. That is the whole probe.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(def recv-merge [tbl: map[int,int] spa: int sha: int am-target: bool op: Opcode] -> map[int,int]
+
+  ;; [A61] The table outcome under REQUEST and the table outcome under REPLY
+  ;; agree, on both the merge path and the add path.
+  (post (and (=> (and (map-has tbl spa) (= op OpRequest)) (= (map-get result spa) sha))
+             (=> (and (map-has tbl spa) (= op OpReply))   (= (map-get result spa) sha)))
+    :source "[A61] RFC 826 lines 227-229 - notice that the triplet is merged into the table before the opcode is looked at")
+
+  (post (and (=> (and (and (not (map-has tbl spa)) am-target) (= op OpRequest))
+                 (and (map-has result spa) (= (map-get result spa) sha)))
+             (=> (and (and (not (map-has tbl spa)) am-target) (= op OpReply))
+                 (and (map-has result spa) (= (map-get result spa) sha))))
+    :source "[A57] RFC 826 line 219 - ?Is the opcode ares_op$REQUEST?  (NOW look at the opcode!!) - the opcode test is reached only after the table work of lines 209-218 is done")
+
+  ;; [A52] Supersession, stated once with no mention of the opcode at all.
+  (post (=> (map-has tbl spa) (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 231-234 - if an entry already exists for the pair, then the new hardware address supersedes the old one")
+
+  (if (map-has tbl spa)
+      (map-put tbl spa sha)
+      (if am-target
+          (map-put tbl spa sha)
+          tbl)))

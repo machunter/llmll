@@ -1,0 +1,5 @@
+   .fq written to /tmp/merge-before-opcode-mutant.fq
+   body-faithful: recv-merge
+   Running liquid-fixpoint ...
+error: body verification of 'recv-merge' failed (else-branch does not satisfy postcondition) (constraint #3)
+ERROR: --strict-verified-core: refuted: recv-merge

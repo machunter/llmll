@@ -1,0 +1,413 @@
+;; ===========================================================================
+;; RFC 826 - Ethernet Address Resolution Protocol: ROOT CONTRACTS
+;; ===========================================================================
+;; Source: 00-source/rfc826.txt, sha256
+;;   01bc62fe6a37e90f1246ac43e8e145f1322b4ed1474836145c3da93d2bd3c8a6
+;; Every :source line cites the pinned file by line number.
+;;
+;; Every body here is ?impl. This file states WHAT MUST BE TRUE, never how.
+;;
+;; ---------------------------------------------------------------------------
+;; THE F2 ANTECEDENT (scope section 0, pre-commitment 5)
+;; ---------------------------------------------------------------------------
+;; RFC 826 line 199 says the receiving module "goes through an algorithm similar
+;; to the following", line 307 calls it "the suggested processing algorithm", and
+;; line 50 says "This is not the specification of a Internet Standard." The RFC
+;; defines no conformance. Every contract below is therefore a statement about a
+;; host that implements the algorithm of lines 203-225, never about "any ARP
+;; host". A host that does something merely "similar" is inside the document's
+;; letter and outside this model.
+;;
+;; ---------------------------------------------------------------------------
+;; THE MODEL SHAPE, AND WHY EACH PIECE IS THIS SHAPE
+;; ---------------------------------------------------------------------------
+;; A-PARSE. The core is handed a DECODED packet. Byte offsets, field widths and
+;; the high-byte-first encoding are outside the boundary (scope section 2), so
+;; nothing here indexes a byte stream.
+;;
+;; HwAddr, ProtoAddr, Len -> `int`, used with `=` and `!=` ONLY. These are
+;; equality-carrying carriers, not numbers. RFC 826 defines no sequence number,
+;; no timestamp, no version counter and no rollover, and a search of the pinned
+;; text for ordering vocabulary returns nothing across all 470 lines. Scope
+;; pre-commitment 6 refuses an order on every data sort, so NO clause in this
+;; file compares two values with `<`, `>`, `<=` or `>=`. The check that works is
+;; on operator position: `rg '\((<|>|<=|>=)\s' roots.llmll` must be empty. A
+;; plain search for the bare characters does not work, because it matches the
+;; `=>` implication sugar and the `<protocol type, sender protocol address>`
+;; triplet notation the :source strings quote.
+;;
+;; HwType, ProtoType, Opcode, EtherType, DestMode -> nullary enums. Scope section
+;; 2 models each enumerated wire field as a decoded enum rather than a string,
+;; because a bare `string` compared to a literal leaves the verified fragment.
+;;
+;; The translation table -> `map[int,int]`, keyed on the sender/target PROTOCOL
+;; ADDRESS. Scope section 4's S2 names a four-place relation
+;; tbl(Host, ProtoType, ProtoAddr, HwAddr); the verified fragment admits map keys
+;; from {int, string} only, so the pair key is not available. The protocol-type
+;; component is carried instead as a per-slice discipline: `tbl` IS the slice for
+;; ar$pro, and `arp-lookup` additionally carries `tbl-alt-proto`, the slice held
+;; under a DIFFERENT protocol type, so that "the guard names both components of
+;; the key" is a clause and not a comment.
+;;
+;; The three reception tests of lines 203, 206 and 214 -> `bool` parameters, not
+;; equality tests against a single stored value. Scope S1 (M-MULTIADDR) models
+;; host identity as a RELATION: RFC 826 nowhere says a host has exactly one
+;; protocol address per protocol type, nor exactly one hardware type. Membership
+;; in an unconstrained relation is exactly what an unconstrained `bool` is.
+;;
+;; Emitted frames -> CONSTRUCTED values and bare tuples, never matched-on ADT
+;; parameters: a `match` ON a payload-bearing ADT parameter leaves body-faithful
+;; verification, while CONSTRUCTING one does not. Field-level obligations are
+;; stated by `first`/`second` projection into a tuple result, which is why the
+;; two "fields" functions return tuples rather than sums.
+;;
+;; "Nothing is emitted" -> `NoEmission`, a real nullary value. The discard rule
+;; of lines 200-201 has to be the outcome of a total function.
+;;
+;; ---------------------------------------------------------------------------
+;; WHY SIX FUNCTIONS AND NOT ONE PER CLAUSE
+;; ---------------------------------------------------------------------------
+;; Each function carries between two and eight cited clauses. The split follows
+;; the RFC's own two-sentence structure on each side: generation separates "find
+;; the pair, hand it back or generate a packet" (lines 169-176) from "the module
+;; then sets ar$hrd to ..., ar$pro to ..., and broadcasts" (lines 176-190);
+;; reception separates the table work of lines 209-218 from the reply of lines
+;; 219-225, which is the separation line 219 shouts about. Merge_flag is scope
+;; S3, state of a different kind from the table, and gets its own function.
+;;
+;; ---------------------------------------------------------------------------
+;; WHAT IS DELIBERATELY ABSENT
+;; ---------------------------------------------------------------------------
+;; No clock, no timeout, no aging, no liveness (scope section 3(b), M-CLOCK not
+;; taken; the RFC excludes the whole area itself at line 416). No monitor (R4).
+;; No parser and no memory-safety claim (section 2). No multi-interface or
+;; bridged topology (R1, M-ONELINK).
+;;
+;; `frame-src` on `arp-recv-table` is scope S4, the link-layer source address of
+;; the frame that carried the packet. It is in the signature and it must NOT be
+;; read by any body. That is pre-commitment 4 made mechanical: S4 is an
+;; observable, never a precondition on a transition, and a receiver that branched
+;; on it would be a bug in the model rather than a feature. Its absence from the
+;; guards is the negative result P-SPOOF: RFC 826's algorithm never compares
+;; ar$sha against the address that actually transmitted the frame, so the table
+;; binds what the packet ASSERTED, not what sent it.
+;;
+;; `op` on `arp-recv-table` is carried and must NOT be read by that body either.
+;; That is the A61 content: "NOW look at the opcode!!" is at line 219, after the
+;; table work of lines 209-218 is already done.
+;; ===========================================================================
+
+
+;; --- Decoded wire enumerations (RFC 826 lines 112-126, 141-148) -------------
+
+(type EtherType
+  (| EtherArp)                 ;; ether_type$ADDRESS_RESOLUTION, line 121
+  (| EtherOther))              ;; any other ether_type$<protocol>, lines 117-119
+
+(type HwType
+  (| HwEthernet)               ;; ares_hrd$Ethernet, line 126
+  (| HwOther))                 ;; lines 236-242 keep ar$hrd open for other media
+
+(type ProtoType
+  (| ProtoInternet)            ;; DOD Internet, line 61
+  (| ProtoOther))              ;; CHAOS, PUP, DECnet, lines 87-88
+
+(type Opcode
+  (| OpRequest)                ;; ares_op$REQUEST, line 123
+  (| OpReply))                 ;; ares_op$REPLY, line 124
+
+(type DestMode
+  (| DestBroadcast)            ;; line 189, "broadcast to all stations"
+  (| DestUnicast))             ;; line 400, "directly (not broadcast)"
+
+
+;; --- Outcomes ---------------------------------------------------------------
+
+;; The two arms of lines 170-176. `SendRequest` carries the Ethernet TYPE field
+;; of the frame it generates, because that is precisely what line 176 fixes.
+(type Lookup
+  (| Found int)
+  (| SendRequest EtherType))
+
+;; The three outcomes of a reception. `BroadcastReply` exists so that the
+;; broadcast-instead-of-unicast failure of lines 224-225 is expressible at all;
+;; without a second reply arm, S5 would be unstateable.
+(type Emission
+  (| NoEmission)
+  (| Unicast int)
+  (| BroadcastReply))
+
+
+;; ===========================================================================
+;; 1. PACKET GENERATION - the lookup (RFC 826 lines 169-176)
+;; ===========================================================================
+;; `tbl` is the translation-table slice held under the protocol type being
+;; resolved; `tbl-alt-proto` is the slice held under a different protocol type.
+;; Carrying both is how the two-component key of line 168 survives the map-key
+;; narrowing. `tbl-alt-proto` must not be consulted by the body.
+
+(def arp-lookup [tbl: map[int,int] tbl-alt-proto: map[int,int] tpa: int] -> Lookup
+
+  ;; The lookup is on the PAIR <protocol type, target protocol address>. An entry
+  ;; recorded under a different protocol type does not satisfy it: with the pair
+  ;; absent from this protocol's slice the step still generates a request, even
+  ;; when the other slice happens to hold the same protocol address.
+  (post (=> (and (not (map-has tbl tpa)) (map-has tbl-alt-proto tpa))
+            (= result (SendRequest EtherArp)))
+    :source "[A27] RFC 826 lines 169-170 - the Address Resolution module tries to find this pair in a table; the pair is <protocol type, target protocol address> per line 168, so a match on the protocol address alone is not a hit")
+
+  ;; The hit branch hands back the address the table holds. Map functionality
+  ;; makes that address unique, so the step is deterministic in its result.
+  (post (=> (map-has tbl tpa) (= result (Found (map-get tbl tpa))))
+    :source "[A28] RFC 826 lines 170-172 - if it finds the pair, it gives the corresponding 48.bit Ethernet address back to the caller (hardware driver)")
+
+  ;; The miss branch is not silent, and the frame it generates is tagged. A
+  ;; module that returns quietly, or that emits an untagged frame, fails here.
+  (post (=> (not (map-has tbl tpa)) (= result (SendRequest EtherArp)))
+    :source "[A32] RFC 826 lines 175-176 - and generates an Ethernet packet with a type field of ether_type$ADDRESS_RESOLUTION")
+
+  ?impl)
+
+
+;; ===========================================================================
+;; 2. PACKET GENERATION - the request's fields (RFC 826 lines 176-190)
+;; ===========================================================================
+;; Result layout, eight fields, projected by first/second:
+;;
+;;   (((ar$hrd, ar$pro), (ar$pln, ar$op)), ((ar$sha, ar$spa), (ar$tpa, dest)))
+;;
+;; ar$tha is deliberately NOT carried. Lines 184-185: the generator "does not set
+;; ar$tha to anything in particular, because it is this value that it is trying
+;; to determine", so there is no obligation to state. Line 186's permission to
+;; fill it with the broadcast address is an option, not a requirement.
+;;
+;; ar$hln is not carried either: line 179 fixes it to 6 for the 10Mbit Ethernet,
+;; which is a byte count and therefore arithmetic over a wire width that scope
+;; section 2 puts outside the boundary. ar$pln IS carried, because lines 205-208
+;; use it as an equality check and nothing more.
+;;
+;; A39 and A40 are the pair most easily transposed, and stating them by
+;; projection rather than by an equality on the whole packet is what makes them
+;; separately falsifiable. It also removes the guard the whole-value form needs:
+;; when a station resolves its own protocol address, own-pa and tpa coincide and
+;; a transposed packet IS the correct packet, which no contract can or should
+;; separate.
+
+(def arp-request-fields [own-hrd: HwType pro: ProtoType own-pln: int
+                         own-ha: int own-pa: int tpa: int]
+     -> (((HwType, ProtoType), (int, Opcode)), ((int, int), (int, DestMode)))
+
+  (post (= (first (first (first result))) own-hrd)
+    :source "[A33] RFC 826 lines 176-178 - the Address Resolution module then sets the ar$hrd field to ares_hrd$Ethernet; lines 236-242 generalize this to the hardware type of the interface the request leaves on")
+
+  (post (= (second (first (first result))) pro)
+    :source "[A34] RFC 826 lines 178-179 - ar$pro to the protocol type that is being resolved, which is the protocol type that keyed the lookup that missed")
+
+  (post (= (first (second (first result))) own-pln)
+    :source "[A36] RFC 826 line 180 - ar$pln to the length of an address in that protocol; the sender emits the length it locally expects, which is the element line 208's optional check compares against")
+
+  (post (= (second (second (first result))) OpRequest)
+    :source "[A37] RFC 826 line 181 - ar$op to ares_op$REQUEST")
+
+  (post (= (first (first (second result))) own-ha)
+    :source "[A38] RFC 826 lines 181-182 - ar$sha with the 48.bit ethernet address of itself")
+
+  (post (= (second (first (second result))) own-pa)
+    :source "[A39] RFC 826 line 182 - ar$spa with the protocol address of itself")
+
+  (post (= (first (second (second result))) tpa)
+    :source "[A40] RFC 826 lines 182-184 - and ar$tpa with the protocol address of the machine that is trying to be accessed")
+
+  (post (= (second (second (second result))) DestBroadcast)
+    :source "[A43] RFC 826 lines 188-190 - it then causes this packet to be broadcast to all stations on the Ethernet cable originally determined by the routing mechanism")
+
+  ?impl)
+
+
+;; ===========================================================================
+;; 3. PACKET RECEPTION - Merge_flag (RFC 826 lines 209-213)
+;; ===========================================================================
+;; Merge_flag is scope S3: state local to ONE reception. The signature is the
+;; guarantee. There is no history parameter, so a flag left set by an earlier
+;; packet cannot reach this function, and the two clauses below pin the flag to
+;; this packet and this table.
+
+(def arp-merge-flag [tbl: map[int,int] spa: int] -> bool
+
+  ;; Initialized false, and nothing but this reception's own merge branch raises
+  ;; it. With no entry for the sender protocol address there is no merge branch,
+  ;; so the flag is false and the add of line 216 is reached.
+  (post (=> (not (map-has tbl spa)) (not result))
+    :source "[A50] RFC 826 line 209 - Merge_flag := false; the assignment is inside the reception, so the flag a receiver reads at line 216 is this packet's and not one left over from an earlier one")
+
+  ;; The merge branch raises it.
+  (post (=> (map-has tbl spa) result)
+    :source "[A53] RFC 826 line 213 - and set Merge_flag to true")
+
+  ?impl)
+
+
+;; ===========================================================================
+;; 4. PACKET RECEPTION - the translation table (RFC 826 lines 203-218, 227-234)
+;; ===========================================================================
+;; `has-hw-type` is the test of line 203, `speaks-proto` the test of line 206,
+;; `am-target` the test of line 214. Each is an unconstrained bool because each
+;; is membership in a relation (scope S1, M-MULTIADDR), not equality against a
+;; single stored value.
+;;
+;; `other` is a WITNESS KEY. LLMLL contracts are quantifier-free, so there is no
+;; `forall k` to write; a parameter of a body-faithful function is universally
+;; quantified at the VC's outer level, so a clause about `other` guarded by
+;; `(not (= other spa))` is the frame condition and not a sample of it.
+;;
+;; `op` and `frame-src` are carried and MUST NOT be read by the body. See the
+;; header.
+
+(def arp-recv-table [tbl: map[int,int] spa: int sha: int
+                     has-hw-type: bool speaks-proto: bool am-target: bool
+                     other: int op: Opcode frame-src: int] -> map[int,int]
+
+  ;; Line 203 is a negative conditional: without the hardware type, processing
+  ;; ends and the packet is discarded, so the entry for the sender protocol
+  ;; address is exactly as it was. A receiver that merges the sender triplet on a
+  ;; hardware-type mismatch fails here.
+  (post (=> (not has-hw-type)
+            (and (= (map-has result spa) (map-has tbl spa))
+                 (=> (map-has tbl spa) (= (map-get result spa) (map-get tbl spa)))))
+    :source "[A46] RFC 826 line 203 - ?Do I have the hardware type in ar$hrd? - a No ends processing per lines 200-201")
+
+  ;; Line 206, the same shape on the protocol. Separately falsifiable: a receiver
+  ;; that checks ar$hrd and ignores ar$pro fails this clause and not the previous
+  ;; one.
+  (post (=> (not speaks-proto)
+            (and (= (map-has result spa) (map-has tbl spa))
+                 (=> (map-has tbl spa) (= (map-get result spa) (map-get tbl spa)))))
+    :source "[A48] RFC 826 line 206 - ?Do I speak the protocol in ar$pro? - a No ends processing per lines 200-201")
+
+  ;; The reception names exactly ONE table key, the <protocol type, sender
+  ;; protocol address> pair. Every other entry keeps its presence and its value.
+  ;; This is the clause every safety property about a key the packet does not
+  ;; name rests on: a host's binding for C survives a packet from B.
+  ;;
+  ;; It is also what forbids caching the TARGET pair. Lines 184-185 say a request
+  ;; does not set ar$tha to anything in particular, so <ar$tpa, ar$tha> on an
+  ;; incoming request is not a binding at all, and a receiver that enters it is
+  ;; touching a key this clause does not license.
+  (post (=> (not (= other spa))
+            (and (= (map-has result other) (map-has tbl other))
+                 (=> (map-has tbl other)
+                     (= (map-get result other) (map-get tbl other)))))
+    :source "[A51] RFC 826 lines 210-211 - if the pair <protocol type, sender protocol address> is already in my translation table; the reception names that key and no other")
+
+  ;; Supersession. Deliberately NOT conditioned on am-target: the merge of lines
+  ;; 210-213 sits BEFORE the target test of line 214 and is not gated on it. Map
+  ;; functionality is what makes "no other hardware address remains under that
+  ;; key" follow from the update.
+  ;;
+  ;; This is an order on TRACE POSITIONS, not on hardware address values: nothing
+  ;; in the RFC says a numerically larger address wins. Whichever update runs
+  ;; later persists, and "later" already lives in the transition relation.
+  (post (=> (and (and has-hw-type speaks-proto) (map-has tbl spa))
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A52] RFC 826 lines 211-213 - update the sender hardware address field of the entry with the new information in the packet; restated at lines 231-234, the new hardware address supersedes the old one")
+
+  ;; The ADD is gated on being the target, and this is the clause that separates
+  ;; the core receiver of lines 214-218 from the monitor of lines 337-339, which
+  ;; "always enters" the triplet. An implementation that learns from every packet
+  ;; it overhears fails here.
+  (post (=> (and (not (map-has tbl spa)) (not am-target))
+            (not (map-has result spa)))
+    :source "[A54] RFC 826 line 214 - ?Am I the target protocol address? - the add of lines 216-218 sits under the Yes arm of that test")
+
+  ;; The add itself. Merge_flag false is equivalent to the key being absent, by
+  ;; the two clauses of arp-merge-flag above, so the antecedent is stated on the
+  ;; table rather than on the flag.
+  (post (=> (and (and has-hw-type speaks-proto)
+                 (and (not (map-has tbl spa)) am-target))
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A56] RFC 826 lines 216-218 - if Merge_flag is false, add the triplet <protocol type, sender protocol address, sender hardware address> to the translation table")
+
+  ;; Merge-before-opcode, stated as a NON-DEPENDENCE rather than as an order:
+  ;; two packets differing only in ar$op leave the table in the same condition.
+  ;; That keeps it a single-transition property, needing no trace and no clock.
+  ;; It is also the surface P-SPOOF reports on, because it is the clause under
+  ;; which an unsolicited REPLY updates the table exactly as a REQUEST does.
+  (post (and (=> (and (and has-hw-type speaks-proto)
+                      (and (map-has tbl spa) (= op OpRequest)))
+                 (= (map-get result spa) sha))
+             (=> (and (and has-hw-type speaks-proto)
+                      (and (map-has tbl spa) (= op OpReply)))
+                 (= (map-get result spa) sha)))
+    :source "[A61] RFC 826 lines 227-229 - notice that the <protocol type, sender protocol address, sender hardware address> triplet is merged into the table before the opcode is looked at")
+
+  ?impl)
+
+
+;; ===========================================================================
+;; 5. PACKET RECEPTION - whether and where to reply (RFC 826 lines 219-225)
+;; ===========================================================================
+;; `req-sha` is the received request's ar$sha, which line 224 calls "the (new)
+;; target hardware address" after the swap.
+
+(def arp-recv-emit [has-hw-type: bool speaks-proto: bool am-target: bool
+                    op: Opcode req-sha: int] -> Emission
+
+  ;; The discard rule, one conjunct per guard. Four negative conditionals, each
+  ;; independently sufficient to end processing: lines 203, 206, 214 and 219. The
+  ;; fourth is what stops a receiver answering a REPLY.
+  (post (and (=> (not has-hw-type) (= result NoEmission))
+             (and (=> (not speaks-proto) (= result NoEmission))
+                  (and (=> (not am-target) (= result NoEmission))
+                       (=> (= op OpReply) (= result NoEmission)))))
+    :source "[A45] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet")
+
+  ;; The enabling direction. A REQUEST that clears all three preceding tests IS
+  ;; answered; a receiver that stays silent fails here. Together with the clause
+  ;; above this is the biconditional on the reply branch.
+  (post (=> (and (and has-hw-type speaks-proto) (and am-target (= op OpRequest)))
+            (not (= result NoEmission)))
+    :source "[A57] RFC 826 line 219 - ?Is the opcode ares_op$REQUEST? (NOW look at the opcode!!) - the Yes arm of line 220 sends a reply")
+
+  ;; Unicast, to the request's ar$sha, never broadcast back onto the cable. The
+  ;; asymmetry is why S5 is carried at all: it is what makes an unsolicited
+  ;; unicast reply a different attack shape from a forged broadcast request.
+  (post (=> (and (and has-hw-type speaks-proto) (and am-target (= op OpRequest)))
+            (= result (Unicast req-sha)))
+    :source "[A60] RFC 826 lines 224-225 - send the packet to the (new) target hardware address on the same hardware on which the request was received")
+
+  ?impl)
+
+
+;; ===========================================================================
+;; 6. PACKET RECEPTION - the reply's fields (RFC 826 lines 221-223)
+;; ===========================================================================
+;; Result layout, five fields:
+;;
+;;   ((ar$sha', ar$spa'), ((ar$tha', ar$tpa'), ar$op'))
+;;
+;; The swap of lines 221-222 is stated as FIELD EQUALITIES between the emitted
+;; record and the received one. There is no byte movement here and none is
+;; implied: scope section 2 puts the packet-buffer reuse of lines 268-270 outside
+;; the boundary as implementation storage.
+;;
+;; ar$spa' is the request's ar$tpa rather than an arbitrary own address. Line 222
+;; says "putting the local ... protocol addresses in the sender fields", and the
+;; line 214 test has already established that the request's ar$tpa is one of
+;; them. Under M-MULTIADDR a host may hold several addresses in one protocol, so
+;; naming ar$tpa says WHICH one answers, which "a local address" would not.
+
+(def arp-reply-fields [own-ha: int req-sha: int req-spa: int req-tpa: int]
+     -> ((int, int), ((int, int), Opcode))
+
+  ;; Four equalities, one clause: local hardware and protocol addresses into the
+  ;; SENDER fields, the request's sender addresses into the TARGET fields.
+  (post (and (= (first (first result)) own-ha)
+             (and (= (second (first result)) req-tpa)
+                  (and (= (first (first (second result))) req-sha)
+                       (= (second (first (second result))) req-spa))))
+    :source "[A58] RFC 826 lines 221-222 - swap hardware and protocol fields, putting the local hardware and protocol addresses in the sender fields")
+
+  (post (= (second (second result)) OpReply)
+    :source "[A59] RFC 826 line 223 - set the ar$op field to ares_op$REPLY")
+
+  ?impl)

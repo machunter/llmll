@@ -1,0 +1,5 @@
+   .fq written to /tmp/merge-before-opcode.fq
+   body-faithful: recv-merge
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/merge-before-opcode.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/merge-before-opcode.llmll.verified.json

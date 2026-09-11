@@ -1,0 +1,15 @@
+{
+  "agent_exe": "./agent-wrapper.sh",
+  "agent_args": [
+    "--model",
+    "claude-opus-5",
+    "{prompt}",
+    "{out}"
+  ],
+  "model": "claude-opus-5",
+  "llmll_version": "llmll 0.23.1",
+  "driver_commit": "5f61836",
+  "date": "2026-09-11",
+  "_note": "Written BEFORE the run, per CLAUSE-2-PRE-REGISTRATION.md section 6.2. The wrapper inlines the prompt file because the port passes argv only and the reference used $(cat {prompt}). The model stays an argv ELEMENT so P2 can check the pin. agent_exe was rewritten to a repo-relative path when the run was committed; agent_exe_asrun keeps the absolute path the run actually used. agent_args, model, llmll_version, driver_commit and date are UNTOUCHED, so P2's pin check reads exactly what the run passed.",
+  "agent_exe_asrun": "/private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/agent-wrapper.sh"
+}

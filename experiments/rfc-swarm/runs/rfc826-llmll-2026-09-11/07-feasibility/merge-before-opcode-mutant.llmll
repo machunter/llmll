@@ -1,0 +1,45 @@
+;; ===========================================================================
+;; PROBE 2 MUTANT — the opcode is looked at FIRST
+;; ===========================================================================
+;; Identical to merge-before-opcode.llmll EXCEPT the body reads `op` before it
+;; touches the table, and learns only from a REPLY.
+;;
+;; This is RFC 826's own designated trap. Line 219 carries the only double
+;; exclamation mark in the document - "(NOW look at the opcode!!)" - and lines
+;; 227-229 spend a paragraph restating the ordering. An RFC does not shout at an
+;; error nobody makes. The error is the natural one: read ar$op, treat a REQUEST
+;; as a question to be answered and a REPLY as the only thing worth caching. A
+;; host that does this never learns from the requests it receives, so the
+;; bidirectionality assumption of lines 229-231 fails and every exchange costs a
+;; resolution in both directions.
+;;
+;; Refuted by the [A61] clause: the REQUEST arm and the REPLY arm disagree.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(def recv-merge [tbl: map[int,int] spa: int sha: int am-target: bool op: Opcode] -> map[int,int]
+
+  (post (and (=> (and (map-has tbl spa) (= op OpRequest)) (= (map-get result spa) sha))
+             (=> (and (map-has tbl spa) (= op OpReply))   (= (map-get result spa) sha)))
+    :source "[A61] RFC 826 lines 227-229 - notice that the triplet is merged into the table before the opcode is looked at")
+
+  (post (and (=> (and (and (not (map-has tbl spa)) am-target) (= op OpRequest))
+                 (and (map-has result spa) (= (map-get result spa) sha)))
+             (=> (and (and (not (map-has tbl spa)) am-target) (= op OpReply))
+                 (and (map-has result spa) (= (map-get result spa) sha))))
+    :source "[A57] RFC 826 line 219 - ?Is the opcode ares_op$REQUEST?  (NOW look at the opcode!!) - the opcode test is reached only after the table work of lines 209-218 is done")
+
+  (post (=> (map-has tbl spa) (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 231-234 - if an entry already exists for the pair, then the new hardware address supersedes the old one")
+
+  ;; BUG: the opcode gates the table work. Only a REPLY teaches this host
+  ;; anything; a REQUEST is answered without being learned from.
+  (if (= op OpReply)
+      (if (map-has tbl spa)
+          (map-put tbl spa sha)
+          (if am-target
+              (map-put tbl spa sha)
+              tbl))
+      tbl))

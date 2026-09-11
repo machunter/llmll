@@ -1,0 +1,205 @@
+[
+ {
+  "name": "merge-after-opcode",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "promiscuous-add",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "old-address-wins",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "spoof-binding",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "merge-key-substituted",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "merge-flag-not-set",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "merge-flag-leaks",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "discard-suppressed",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "tha-harvest",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "reply-fields-not-swapped",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "reply-op-request",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "reply-broadcast",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "reply-to-reply",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "request-unicast",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "spa-tpa-transposed",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "lookup-key-partial",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "hit-returns-other",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "miss-emits-nothing",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "request-op-reply",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "sha-foreign",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "pro-substituted-on-emit",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "hrd-substituted-on-emit",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors. The separate M-ONELINK unwritable question for this entry is undetermined, not resolved."
+ },
+ {
+  "name": "pln-from-packet",
+  "good_twin": false,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no function body to mutate. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this entry stays in the kill-required denominator, and the kill matrix is VOID, not zero-survivors."
+ },
+ {
+  "name": "unsolicited-reply-merges",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised."
+ },
+ {
+  "name": "tha-arbitrary",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised."
+ },
+ {
+  "name": "optional-checks-omitted",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised and obligation O2 is not evidenced by this run."
+ },
+ {
+  "name": "multi-owner-target",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised."
+ },
+ {
+  "name": "structural-variant",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised."
+ },
+ {
+  "name": "hw-type-agnostic",
+  "good_twin": true,
+  "verdict": "unwritable",
+  "as_expected": true,
+  "reason": "not-authored (NOT unwritable): no implemented tree. 12-wave/roots.ast.json is the driver-ll stage-M stub, the wave never ran, and there is no correct body to write a variant of. Pre-registration 0.3 consequence 4 and booking rule 5.7.4: stage N writes the full register unauthored, this good twin stays in the good-twin denominator, and the kill matrix is VOID. Its SAFE verdict was not obtained, so the over-strong-contract guard was not exercised."
+ }
+]

@@ -1,0 +1,59 @@
+;; ===========================================================================
+;; PROBE 4 — packet generation (RFC 826 lines 169-190)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; The outbound half of the core: a lookup of <protocol type, target protocol
+;; address> in the translation table, and the request that a miss generates.
+;; Hit and miss are the two arms of one total function, so the "generates a
+;; request" obligation of line 175 and the "gives the address back" obligation of
+;; lines 170-172 are proved against the same body rather than separately.
+;;
+;; `BroadcastRequest` names its own destination mode (S5, line 189: broadcast to
+;; all stations on the cable). ar$tha is deliberately absent from the payload:
+;; lines 184-185 say the generator "does not set ar$tha to anything in
+;; particular, because it is this value that it is trying to determine", so there
+;; is no obligation to carry.
+;;
+;; Protocol addresses are compared with `=` only. No ordering on any data sort.
+
+(type Resolution
+  (| Resolved int)
+  (| BroadcastRequest ((int, int), int)))
+
+(def resolve-out [tbl: map[int,int] tpa: int own-hw: int own-pa: int] -> Resolution
+
+  ;; [A27][A28] Hit: hand the caller the 48-bit address that the table holds.
+  (post (=> (map-has tbl tpa) (= result (Resolved (map-get tbl tpa))))
+    :source "[A28] RFC 826 lines 170-172 - if it finds the pair, it gives the corresponding 48.bit Ethernet address back to the caller")
+
+  ;; [A32][A37][A38][A39][A40][A43] Miss: generate a REQUEST carrying this
+  ;; station's own hardware address in ar$sha and its own protocol address in
+  ;; ar$spa, with ar$tpa naming the machine being sought, broadcast to the cable.
+  ;; The opcode is carried by the constructor: `BroadcastRequest` has no REPLY
+  ;; inhabitant, so [A37] is discharged by construction.
+  (post (=> (not (map-has tbl tpa))
+            (= result (BroadcastRequest (pair (pair own-hw own-pa) tpa))))
+    :source "[A32] RFC 826 lines 175-176 - if it does not find the pair, it generates an Ethernet packet with a type field of ether_type$ADDRESS_RESOLUTION")
+
+  ;; [A39] vs [A40] restated alone, because these two fields are adjacent in the
+  ;; generation list of lines 181-184 and are the pair most easily transposed.
+  ;; ar$spa is the generator's OWN protocol address; ar$tpa is the one sought.
+  ;;
+  ;; The `(not (= own-pa tpa))` antecedent is not decoration. Without it the
+  ;; clause is FALSE, and the first draft of this probe was refuted by it: when a
+  ;; station resolves its own protocol address the transposed packet and the
+  ;; correct packet are the same value, so no contract can separate them. RFC 826
+  ;; never rules that case out, so the clause is guarded rather than the caller
+  ;; being constrained by a `pre` the RFC does not license.
+  (post (=> (and (not (map-has tbl tpa)) (not (= own-pa tpa)))
+            (not (= result (BroadcastRequest (pair (pair own-hw tpa) tpa)))))
+    :source "[A39] RFC 826 line 182 - ar$spa with the protocol address of itself")
+
+  ;; [A28, negative] A miss never fabricates an address for the caller.
+  (post (=> (not (map-has tbl tpa)) (not (= result (Resolved own-hw))))
+    :source "[A27] RFC 826 lines 169-170 - the Address Resolution module tries to find this pair in a table; the hand-back of line 171 is under the found arm")
+
+  (if (map-has tbl tpa)
+      (Resolved (map-get tbl tpa))
+      (BroadcastRequest (pair (pair own-hw own-pa) tpa))))

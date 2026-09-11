@@ -1,0 +1,5 @@
+   .fq written to /tmp/recv-reply-mutant.fq
+   body-faithful: recv-reply
+   Running liquid-fixpoint ...
+error: body verification of 'recv-reply' failed (then-branch does not satisfy postcondition) (constraint #0)
+ERROR: --strict-verified-core: refuted: recv-reply

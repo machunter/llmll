@@ -1,0 +1,34 @@
+;; ===========================================================================
+;; PROBE 6 — P-SPOOF: what the merge actually binds (scope section 4, S4)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; This probe exists to show that the scope's intended NEGATIVE result is
+;; stateable inside the verified fragment, and that the contract separating the
+;; true claim from the false one is sharp.
+;;
+;; `frame-src` is the link-layer source address of the frame that carried the
+;; packet - scope section 4, S4. It is in the signature and it is NOT in the
+;; body. That is pre-commitment 4 of the scope document made mechanical: S4 is an
+;; observable, never a precondition on a transition, and a receiver that branched
+;; on it would be a bug in the model rather than a feature. A reader can check
+;; the commitment by reading the body, and the twin file checks the other half:
+;; that the strengthened claim is refuted rather than quietly true.
+;;
+;; What this probe proves is the WEAK, TRUE binding: the hardware address the
+;; table ends up holding for the sender protocol address is the one the packet
+;; ASSERTED in ar$sha. Nothing in RFC 826's algorithm compares ar$sha against the
+;; address that actually transmitted the frame, so nothing stronger is available.
+
+(def merge-binding [tbl: map[int,int] spa: int sha: int frame-src: int] -> map[int,int]
+
+  ;; [A52] The installed address is the packet's ar$sha field.
+  (post (=> (map-has tbl spa) (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 211-213 - update the sender hardware address field of the entry with the new information in the packet")
+
+  ;; [A51] The merge is keyed on the sender protocol address as carried in the
+  ;; packet, and on nothing else the frame supplies.
+  (post (and (map-has result spa) (= (map-get result spa) sha))
+    :source "[A51] RFC 826 lines 210-211 - if the pair <protocol type, sender protocol address> is already in my translation table")
+
+  (map-put tbl spa sha))

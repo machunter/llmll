@@ -1,0 +1,56 @@
+;; ===========================================================================
+;; PROBE 3 MUTANT — the reply that was never swapped
+;; ===========================================================================
+;; Identical to recv-reply.llmll EXCEPT the body sets ar$op to REPLY and sends
+;; the packet without performing the swap of line 221: the request's sender
+;; addresses stay in the sender fields and the local addresses land in the
+;; target fields.
+;;
+;; Plausible because RFC 826 itself invites it. Lines 268-270 tell the
+;; implementer that "the packet buffer may be reused for the reply", and lines
+;; 315-318 sell the register and stack savings of doing so. An implementation
+;; that reuses the buffer, flips ar$op, and forgets that lines 221-222 are two
+;; operations rather than one produces exactly this. The requester then receives
+;; a REPLY that binds its OWN protocol address to its OWN hardware address and
+;; learns nothing, so resolution never completes; and any third station that
+;; merges the packet under lines 210-213 has its entry for the requester
+;; confirmed by a packet the requester did not send.
+;;
+;; Refuted by the [A58] clause: datatype injectivity separates the swapped
+;; payload from the unswapped one.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(type Emission
+  (| NoEmission)
+  (| ReplyUnicast (((int, int), (int, int)), int))
+  (| ReplyBroadcast ((int, int), (int, int))))
+
+(def recv-reply [hw-ok: bool proto-ok: bool am-target: bool op: Opcode
+                 own-hw: int own-pa: int req-sha: int req-spa: int] -> Emission
+
+  (post (=> (not (and (and hw-ok proto-ok) (and am-target (= op OpRequest))))
+            (= result NoEmission))
+    :source "[A45] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet; the opcode test of line 219 is the last of the three")
+
+  (post (=> (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+            (= result (ReplyUnicast (pair (pair (pair own-hw own-pa)
+                                                (pair req-sha req-spa))
+                                          req-sha))))
+    :source "[A58] RFC 826 lines 221-222 - swap hardware and protocol fields, putting the local hardware and protocol addresses in the sender fields")
+
+  (post (=> (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+            (not (= result (ReplyBroadcast (pair (pair own-hw own-pa)
+                                                 (pair req-sha req-spa))))))
+    :source "[A60] RFC 826 lines 224-225 - send the packet to the (new) target hardware address on the same hardware on which the request was received")
+
+  (if (and (and hw-ok proto-ok) (and am-target (= op OpRequest)))
+      ;; BUG: the two halves are transposed. The sender fields still hold the
+      ;; request's sender addresses; the local addresses went into the target
+      ;; fields. Only ar$op was changed.
+      (ReplyUnicast (pair (pair (pair req-sha req-spa)
+                                (pair own-hw own-pa))
+                          req-sha))
+      NoEmission))

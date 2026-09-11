@@ -1,0 +1,48 @@
+;; ===========================================================================
+;; PROBE 5 MUTANT — caching the target pair as well as the sender pair
+;; ===========================================================================
+;; Identical to table-frame.llmll EXCEPT the step also enters
+;; <ar$tpa, ar$tha> into the translation table, on the reasoning that a packet
+;; naming a target hardware address is free information.
+;;
+;; Plausible because the target fields are sitting right there in the decoded
+;; packet, beside the sender fields the algorithm does consume, and because on a
+;; REPLY the target pair really is a valid binding - it is the requester's own,
+;; echoed back. The bug is that the same code runs on a REQUEST, where lines
+;; 184-185 are explicit that ar$tha was never set to anything meaningful: "It
+;; does not set ar$tha to anything in particular, because it is this value that
+;; it is trying to determine", with line 186 offering the broadcast address as an
+;; acceptable filler. So the step installs the target's protocol address bound to
+;; the all-ones broadcast address, or to whatever was left in the buffer, and
+;; every subsequent packet for that target is flooded or dropped.
+;;
+;; Refuted by the frame clauses, which are proved for all `other` and so for the
+;; case `other = tpa`.
+
+(def recv-table-framed [tbl: map[int,int] spa: int sha: int am-target: bool
+                        tpa: int tha: int other: int]
+      -> map[int,int]
+
+  (pre (not (= other spa))
+    :source "[A51] RFC 826 lines 210-211 - the reception step names exactly one table key, the <protocol type, sender protocol address> pair; `other` is any key it does not name")
+
+  (post (= (map-has result other) (map-has tbl other))
+    :source "[A45] RFC 826 lines 200-201 - end of processing and a discarding of the packet: a step that changes no named key changes nothing")
+
+  (post (=> (map-has tbl other) (= (map-get result other) (map-get tbl other)))
+    :source "[A52] RFC 826 lines 211-213 - the update is to the sender hardware address field OF THE ENTRY found for the sender protocol address, and to no other entry")
+
+  (post (=> (map-has tbl spa) (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 231-234 - if an entry already exists for the pair, then the new hardware address supersedes the old one")
+
+  (post (=> (and (not (map-has tbl spa)) am-target)
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A56] RFC 826 lines 216-218 - if Merge_flag is false, add the triplet to the translation table")
+
+  ;; BUG: the target pair is entered too. RFC 826 authorizes exactly one table
+  ;; write per reception, keyed on the SENDER protocol address.
+  (if (map-has tbl spa)
+      (map-put (map-put tbl spa sha) tpa tha)
+      (if am-target
+          (map-put (map-put tbl spa sha) tpa tha)
+          (map-put tbl tpa tha))))

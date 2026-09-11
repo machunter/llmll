@@ -1,0 +1,7 @@
+   .fq written to /tmp/table-frame-mutant.fq
+   body-faithful: recv-table-framed
+   Running liquid-fixpoint ...
+error: body verification of 'recv-table-framed' failed (then-branch does not satisfy postcondition) (constraint #0)
+error: body verification of 'recv-table-framed' failed (else-branch does not satisfy postcondition) (constraint #1)
+error: body verification of 'recv-table-framed' failed (else-branch does not satisfy postcondition) (constraint #2)
+ERROR: --strict-verified-core: refuted: recv-table-framed

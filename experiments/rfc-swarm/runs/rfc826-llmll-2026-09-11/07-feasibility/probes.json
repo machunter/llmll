@@ -1,0 +1,68 @@
+[
+  {
+    "name": "recv-table",
+    "file": "recv-table.llmll",
+    "mutant_file": "recv-table-mutant.llmll",
+    "bug": "enters every sender triplet it overhears, dropping the '?Am I the target protocol address?' test of line 214 that gates the add of line 216 (promiscuous learning, the behaviour RFC 826 confines to the monitor of lines 337-339); one forged broadcast REQUEST then poisons every station on the cable instead of only the station that was addressed",
+    "core_clauses": ["A45", "A51", "A52", "A54", "A56", "A61"],
+    "shape": "main transition, table half: front guards as bool tags, translation table as map[int,int], merge-before-target-test ordering, opcode carried and unread",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified",
+    "mutant_verdict": "refuted: recv-table (then-branch does not satisfy postcondition, constraint #0)",
+    "refuted_by": "[A54] absent pair and not the target must add nothing"
+  },
+  {
+    "name": "merge-before-opcode",
+    "file": "merge-before-opcode.llmll",
+    "mutant_file": "merge-before-opcode-mutant.llmll",
+    "bug": "reads ar$op before touching the table and learns only from a REPLY, treating a REQUEST as a question to answer rather than information to merge; this is the error RFC 826 shouts at in the only double exclamation in the document, line 219 '(NOW look at the opcode!!)', and spends lines 227-229 restating. THE MANDATORY FAMOUS-BUG MUTANT",
+    "core_clauses": ["A52", "A57", "A61"],
+    "shape": "opcode independence of the table outcome, stated by enumerating the two Opcode values in the post; op is a parameter of the contract and absent from the body",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified",
+    "mutant_verdict": "refuted: recv-merge (else-branch does not satisfy postcondition, constraint #3)",
+    "refuted_by": "[A61] the REQUEST arm and the REPLY arm of the table outcome disagree"
+  },
+  {
+    "name": "recv-reply",
+    "file": "recv-reply.llmll",
+    "mutant_file": "recv-reply-mutant.llmll",
+    "bug": "sets ar$op to REPLY and sends without performing the swap of line 221, leaving the request's sender addresses in the sender fields and the local addresses in the target fields; invited by the RFC's own buffer-reuse advice at lines 268-270 and 315-318, and it makes the reply bind the requester's protocol address to the requester's own hardware address, so resolution never completes",
+    "core_clauses": ["A45", "A54", "A57", "A58", "A59", "A60"],
+    "shape": "emitted packet as a CONSTRUCTED n-arm sum with a nested-pair payload ((ar$sha, ar$spa), (ar$tha, ar$tpa)) plus destination; NoEmission as a real value for the discard rule; a separate ReplyBroadcast arm so the destination mode S5 of line 224 is expressible at all",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified",
+    "mutant_verdict": "refuted: recv-reply (then-branch does not satisfy postcondition, constraint #0)",
+    "refuted_by": "[A58] datatype injectivity separates the swapped payload from the transposed one"
+  },
+  {
+    "name": "resolve-out",
+    "file": "resolve-out.llmll",
+    "mutant_file": "resolve-out-mutant.llmll",
+    "bug": "fills ar$spa with the target protocol address instead of its own, transposing the two adjacent 'of itself' / 'of the machine that is trying to be accessed' assignments of lines 181-184; the broadcast request then announces <target protocol address, requester hardware address>, which every station holding an entry for the target merges unconditionally under lines 210-213, blackholing the machine the requester was trying to reach on the whole cable at once",
+    "core_clauses": ["A27", "A28", "A32", "A37", "A38", "A39", "A40", "A43"],
+    "shape": "outbound half as one total function over hit and miss; opcode and destination mode carried by the constructor (BroadcastRequest has no REPLY inhabitant, so A37 and A43 discharge by construction); ar$tha deliberately absent per lines 184-185",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified",
+    "mutant_verdict": "refuted: resolve-out (else-branch does not satisfy postcondition, constraint #1)",
+    "refuted_by": "[A32] on the miss arm, and independently by the guarded [A39] clause"
+  },
+  {
+    "name": "table-frame",
+    "file": "table-frame.llmll",
+    "mutant_file": "table-frame-mutant.llmll",
+    "bug": "also enters <ar$tpa, ar$tha> into the translation table, on the reasoning that a packet naming a target hardware address is free information; on a REPLY the target pair really is a valid binding, which is what makes the bug plausible, but the same code runs on a REQUEST where lines 184-185 say ar$tha was never set to anything in particular and line 186 offers the broadcast address as acceptable filler, so the step installs the target's protocol address bound to noise",
+    "core_clauses": ["A45", "A51", "A52", "A56"],
+    "shape": "THE PRODUCT INVARIANT. LLMLL contracts are quantifier-free, so the frame condition is carried by a WITNESS KEY: `other` is a parameter constrained only to differ from the key the packet names, and because it is a parameter of a body-faithful function the solver proves the clause for all its values. This is the frame condition, not a sample of it",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified, one caller obligation (not (= other spa))",
+    "mutant_verdict": "refuted: recv-table-framed (constraints #0, #1, #2)",
+    "refuted_by": "the two frame clauses, proved for all `other` and hence for the case other = tpa"
+  },
+  {
+    "name": "spoof-binding",
+    "file": "spoof-binding.llmll",
+    "mutant_file": "spoof-binding-mutant.llmll",
+    "bug": "MUTATION IS IN THE CONTRACT, NOT THE BODY, and this is the only probe where that is so. The mutant post claims the hardware address installed for <ar$pro, ar$spa> is the address that actually transmitted the frame. That is scope section 4's P-SPOOF and it is what most people believe ARP does. RFC 826's algorithm reads ar$sha out of the packet body, never compares it to the link-layer frame source, and performs the merge at lines 210-213 before the opcode is examined at line 219, so the claim is false of any faithful implementation",
+    "core_clauses": ["A51", "A52"],
+    "shape": "the scope's intended NEGATIVE result, made mechanical. frame-src (S4) is in the signature and absent from the body, which is scope pre-commitment 4 (S4 is an observable, never a precondition on a transition) checkable by reading the body; the twin checks the other half, that the strengthened claim is refuted rather than quietly true",
+    "probe_verdict": "SAFE (liquid-fixpoint), body_faithful true, display_level verified",
+    "mutant_verdict": "refuted: merge-binding (implementation does not satisfy postcondition, constraint #0)",
+    "refuted_by": "the algorithm establishes no relation between ar$sha and the frame source, so no body implementing lines 203-225 can discharge the claim"
+  }
+]

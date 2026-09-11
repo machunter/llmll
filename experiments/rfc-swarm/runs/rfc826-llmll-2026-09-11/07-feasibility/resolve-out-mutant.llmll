@@ -1,0 +1,47 @@
+;; ===========================================================================
+;; PROBE 4 MUTANT — ar$spa and ar$tpa transposed in the generated request
+;; ===========================================================================
+;; Identical to resolve-out.llmll EXCEPT the generated request carries the TARGET
+;; protocol address in ar$spa instead of the generator's own.
+;;
+;; Plausible because of how RFC 826 words the generation step. Lines 181-184 are
+;; one run-on sentence assigning five fields in a row - "ar$sha with the 48.bit
+;; ethernet address of itself, ar$spa with the protocol address of itself, and
+;; ar$tpa with the protocol address of the machine that is trying to be accessed"
+;; - and the two protocol-address fields are adjacent in both the sentence and
+;; the packet layout of lines 151-155. Getting one of the two `of itself`
+;; readings wrong is a one-token slip.
+;;
+;; The effect is a self-inflicted version of the poisoning the scope's P-SPOOF
+;; records. The broadcast request announces <target protocol address, requester
+;; hardware address>. Every station on the cable that already holds an entry for
+;; the target merges it under lines 210-213, because the merge is unconditional,
+;; and now points the target's traffic at the requester. The requester has
+;; blackholed the very machine it was trying to reach, on every station at once.
+;;
+;; Refuted by the [A32] clause and, independently, by the guarded [A39] clause.
+
+(type Resolution
+  (| Resolved int)
+  (| BroadcastRequest ((int, int), int)))
+
+(def resolve-out [tbl: map[int,int] tpa: int own-hw: int own-pa: int] -> Resolution
+
+  (post (=> (map-has tbl tpa) (= result (Resolved (map-get tbl tpa))))
+    :source "[A28] RFC 826 lines 170-172 - if it finds the pair, it gives the corresponding 48.bit Ethernet address back to the caller")
+
+  (post (=> (not (map-has tbl tpa))
+            (= result (BroadcastRequest (pair (pair own-hw own-pa) tpa))))
+    :source "[A32] RFC 826 lines 175-176 - if it does not find the pair, it generates an Ethernet packet with a type field of ether_type$ADDRESS_RESOLUTION")
+
+  (post (=> (and (not (map-has tbl tpa)) (not (= own-pa tpa)))
+            (not (= result (BroadcastRequest (pair (pair own-hw tpa) tpa)))))
+    :source "[A39] RFC 826 line 182 - ar$spa with the protocol address of itself")
+
+  (post (=> (not (map-has tbl tpa)) (not (= result (Resolved own-hw))))
+    :source "[A27] RFC 826 lines 169-170 - the Address Resolution module tries to find this pair in a table; the hand-back of line 171 is under the found arm")
+
+  (if (map-has tbl tpa)
+      (Resolved (map-get tbl tpa))
+      ;; BUG: ar$spa holds `tpa`, the address being sought, instead of `own-pa`.
+      (BroadcastRequest (pair (pair own-hw tpa) tpa))))

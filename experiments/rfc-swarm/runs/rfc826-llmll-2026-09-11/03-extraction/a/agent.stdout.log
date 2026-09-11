@@ -1,0 +1,9 @@
+`extraction.json` written and validated: 81 normative rows (A1–A81), 40 excluded rows (Ax1–Ax40), all with integer line anchors inside 1–470 and verbatim quotes.
+
+Notes on how the rubric landed:
+
+- **Count**: 81 normative rows, just above the 10.3 band (45–80). The overshoot comes from T1 applied to the field-setting sentence at lines 176–184 (8 rows) and to the split guard/action lines of the reception algorithm under U3.
+- **Falsifier checks**: 15 N rows from 128–155 and 17 from 194–225 (neither region empty); every N row in 245–323 carries `[rationale-origin]` in its obligation text (the output contract has no `flags` field, so the flag is inline); zero N rows in 367–410; no X row cites scope, difficulty, or provability; no row cites RFC 5227/5494/STD 37.
+- **Strength**: 3 `must`, 3 `should`, 1 `may`, 74 `none`, which matches section 0's finding that requirement words barely track obligation in this document. The reception algorithm's 17 rows are all `none`.
+- **Calibration cases**: K2 byte-order note in (A1, A2); K3 registry excluded X6 (Ax7); K4 monitor section yields 10 N rows; K5 example one X2 region row; K6 aging discussion one X5 region row citing line 416; K8 split into the non-constraint (A41) and the permission (A42); K9 optional checks as two N7 rows (A47, A49).
+- **Judgment calls worth flagging for reconciliation**: I read lines 268–269 and 315–318 as X9 conveniences rather than N7 permissions, but kept "a reply has the same length as a request" (A67) as an N4 format constraint. I applied U2's "one unit per field line" over T1 in the packet format block, so each field line is one row carrying both width and meaning rather than two.

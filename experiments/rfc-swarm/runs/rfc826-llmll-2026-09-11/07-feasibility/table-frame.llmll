@@ -1,0 +1,61 @@
+;; ===========================================================================
+;; PROBE 5 — the table frame condition (the product invariant)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; THE SHAPE THE ARCHITECTURE NEEDS, AND WHY IT IS SEPARATE
+;;   Probe 1 says what a reception step does to the entry for the SENDER protocol
+;;   address. It says nothing about the rest of the table. Every safety property
+;;   the eventual writeup wants - a host's binding for C survives a packet from
+;;   B, one station's entry is not collateral damage of another's - is a
+;;   statement about a key the packet does not name.
+;;
+;;   LLMLL contracts are quantifier-free, so there is no `forall k` to write. The
+;;   standard substitute is a WITNESS KEY: `other` is a parameter, constrained
+;;   only to differ from the key the packet names, and the post says the step
+;;   leaves it exactly as it was. Because `other` is universally quantified at
+;;   the VC's outer level (it is a parameter of a body-faithful function, so the
+;;   solver proves the clause for all its values), this is the frame condition
+;;   and not a sample of it.
+;;
+;;   Carrying `other` in the signature is a proof device, not protocol state. It
+;;   is the piece of this probe Stage D most needs to decide about: either the
+;;   transition carries the witness, or the frame condition moves to a separate
+;;   relation over a before-table and an after-table. This probe establishes that
+;;   the first form verifies; it does not claim the second would not.
+
+;;   `tpa` and `tha` are the received packet's TARGET fields. They are carried
+;;   and never read. That is the point: RFC 826 authorizes no table entry from
+;;   them. Lines 184-185 say a generated request "does not set ar$tha to anything
+;;   in particular", so the pair <ar$tpa, ar$tha> on an incoming request is not a
+;;   binding at all, and an implementation that caches it caches noise.
+
+(def recv-table-framed [tbl: map[int,int] spa: int sha: int am-target: bool
+                        tpa: int tha: int other: int]
+      -> map[int,int]
+
+  (pre (not (= other spa))
+    :source "[A51] RFC 826 lines 210-211 - the reception step names exactly one table key, the <protocol type, sender protocol address> pair; `other` is any key it does not name")
+
+  ;; The frame: a key the packet does not name keeps its presence...
+  (post (= (map-has result other) (map-has tbl other))
+    :source "[A45] RFC 826 lines 200-201 - end of processing and a discarding of the packet: a step that changes no named key changes nothing")
+
+  ;; ...and keeps its value.
+  (post (=> (map-has tbl other) (= (map-get result other) (map-get tbl other)))
+    :source "[A52] RFC 826 lines 211-213 - the update is to the sender hardware address field OF THE ENTRY found for the sender protocol address, and to no other entry")
+
+  ;; The named key still behaves as probe 1 requires, so the frame is not bought
+  ;; by making the step do nothing.
+  (post (=> (map-has tbl spa) (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 231-234 - if an entry already exists for the pair, then the new hardware address supersedes the old one")
+
+  (post (=> (and (not (map-has tbl spa)) am-target)
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A56] RFC 826 lines 216-218 - if Merge_flag is false, add the triplet to the translation table")
+
+  (if (map-has tbl spa)
+      (map-put tbl spa sha)
+      (if am-target
+          (map-put tbl spa sha)
+          tbl)))

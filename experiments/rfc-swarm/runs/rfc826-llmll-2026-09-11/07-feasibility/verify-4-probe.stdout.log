@@ -1,0 +1,5 @@
+   .fq written to /tmp/table-frame.fq
+   body-faithful: recv-table-framed
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/table-frame.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/table-frame.llmll.verified.json

@@ -1,0 +1,80 @@
+[
+ {
+  "name": "recv-table",
+  "probe": {
+   "file": "recv-table.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "recv-table-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "merge-before-opcode",
+  "probe": {
+   "file": "merge-before-opcode.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "merge-before-opcode-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "recv-reply",
+  "probe": {
+   "file": "recv-reply.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "recv-reply-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "resolve-out",
+  "probe": {
+   "file": "resolve-out.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "resolve-out-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "table-frame",
+  "probe": {
+   "file": "table-frame.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "table-frame-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "spoof-binding",
+  "probe": {
+   "file": "spoof-binding.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "spoof-binding-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ }
+]

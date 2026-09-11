@@ -1,0 +1,133 @@
+{
+ "stages": {
+  "A": {
+   "status": "complete",
+   "kind": "mechanical",
+   "seconds": 0,
+   "outputs": {
+    "00-source/PROVENANCE.json": "4389b58ff38c65e43f5bc99947bd77a8ca82db0dbbfcb192f177decee85c4333"
+   }
+  },
+  "B": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 97,
+   "outputs": {
+    "01-scope/scope.md": "f1223f849a8c7761e8a0b981ee93eb8f86f03ed9f27ba76f5b1bd898a581cd6a"
+   }
+  },
+  "C": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 137,
+   "outputs": {
+    "02-rubric/rubric.md": "f07609487895e46784439691ef10615b64e1a1fa100ac3a17fa01dad3fe388a7"
+   }
+  },
+  "D": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 595,
+   "outputs": {
+    "03-extraction/a/extraction.json": "151f48143236021a5c51e28739b5fdeb21baab39f496c2399ec65296775da43b",
+    "03-extraction/b/extraction.json": "acc3c1ee824fd12ce1e0e9b8769c0126f29bc1ad70f9a77e3c900b65bc813bfb"
+   }
+  },
+  "E": {
+   "status": "complete",
+   "kind": "mechanical",
+   "seconds": 0,
+   "outputs": {
+    "04-reconcile/SUMMARY.json": "737eafbb098f197a97f8f615f43c703357892a04e9160bd2103c77e1e6311187"
+   }
+  },
+  "F": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 69,
+   "outputs": {
+    "05-core/core.json": "fd5f4de2bab475386852f743418e218cc66c8899b399bf06e8b14fbc834104e3"
+   }
+  },
+  "G": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 298,
+   "outputs": {
+    "06-disposition/inventory-dispositioned.json": "2b846c4fc57617f04ca55546760ce96bc787bf2fba04d8166158d82ce31b1f6b"
+   }
+  },
+  "G2": {
+   "status": "complete",
+   "kind": "gate",
+   "seconds": 0,
+   "outputs": {
+    "06b-audit/audit.json": "76819a7d50cd3716e124c911bfb98f3c004bef57ec07a4dc67123e0656dbe43b"
+   }
+  },
+  "H": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 645,
+   "outputs": {
+    "07-feasibility/feasibility.json": "7ecbdc7d8689629c437f6e2947ef40358fa97969167a87cce212c8f929e43f64"
+   }
+  },
+  "I": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 400,
+   "outputs": {
+    "08-prereg/PRE-REGISTRATION.md": "43a677a99aa7927a3cd6f9da57714129e657e1d6371be0fb8dbde8382e194f29"
+   }
+  },
+  "J": {
+   "status": "complete",
+   "kind": "gate",
+   "seconds": 0,
+   "outputs": {
+    "09-gate/gate.json": "0fc89b3feb4480a1e22c52bc7fbb5d388d4a2e5afd4e7d7970886b18c9612f56"
+   }
+  },
+  "K": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 450,
+   "outputs": {
+    "10-roots/roots.llmll": "e30d8a8536d566d5ea25750890df12c2f48a8894ab7dc35881e8a9894c6a4516"
+   }
+  },
+  "L": {
+   "status": "complete",
+   "kind": "gate",
+   "seconds": 0,
+   "outputs": {
+    "11-freeze/rfc-cov-1.txt": "838d65cd18711f2b1a516262c2481bf3817515d4ca56131d80bc4a576f875c5c",
+    "11-freeze/ROOTS.txt": "b3c5105b0843f42c67706f38b3a987a093ec75c190dc674fd232b13c824939f3"
+   }
+  },
+  "M": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 0,
+   "outputs": {
+    "12-wave/wave.json": "c2f75641e6f8780041ad282f02c481f0917d680cf7814a353f8d889aa716ec38",
+    "12-wave/roots.ast.json": "db9adfa6ea1998f4a4f164980220a89f24fddfd23aca3c37a2b4aaa3ecf5e8f2"
+   }
+  },
+  "N": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 229,
+   "outputs": {
+    "13-kill-matrix/kill-matrix.json": "078b0671de40211c34170c0b6418e5fb392b945c17bc4d2bf3e229fd732469cd"
+   }
+  },
+  "O": {
+   "status": "stopped",
+   "detail": "stage O: the report does not name 22 of the 29 kill-matrix rows: ['merge-key-substituted', 'merge-flag-not-set', 'merge-flag-leaks', 'discard-suppressed', 'tha-harvest', 'reply-fields-not-swapped', 'reply-op-request', 'reply-broadcast', 'reply-to-reply', 'request-unicast', 'spa-tpa-transposed', 'lookup-key-partial', 'hit-returns-other', 'miss-emits-nothing', 'request-op-reply', 'sha-foreign', 'pro-substituted-on-emit', 'pln-from-packet', 'tha-arbitrary', 'multi-owner-target', 'structural-variant', 'hw-type-agnostic']. driver-spec sec 13 requires the FULL result of the perturbation exercise, including perturbations that were not detected. Naming a row is not resolving it; that clause is disclosure-only and this check does not decide it.",
+   "outcome": "PartialThenHalt",
+   "clause": "driver-spec sec 13"
+  }
+ }
+}

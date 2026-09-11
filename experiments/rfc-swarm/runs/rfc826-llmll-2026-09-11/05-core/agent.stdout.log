@@ -1,0 +1,20 @@
+Wrote `05-core/core.json` with 21 core ids.
+
+**What I named core**
+
+- **Sequencing:** A61 (merge the sender triplet before looking at the opcode) and A57 (test the opcode only after the table work). This is the rule RFC 826 shouts about, and it is what makes a request teach its target.
+- **Termination / error:** A45 (any guard false ends processing and discards, no reply, no table change).
+- **Table discipline:** A27, A28 (on-demand lookup in a translation table, answer the hit), A51, A52 (new hardware address supersedes the old, the RFC's own recovery path for a moved host), A54 and A56 (add a new entry only when this station is the target).
+- **Request generation:** A32, A37, A38, A39, A40, A43 (generate on a miss, mark it REQUEST, fill sha/spa/tpa, broadcast it).
+- **Reply generation:** A58, A59, A60 (swap fields, mark REPLY, send unicast to the new target on the arrival interface).
+- **Wire identity:** A2 (ar$op high byte first), A8 and A9 (REQUEST = 1, REPLY = 2).
+
+**What I deliberately left out, and why**
+
+- The nine packet-layout rows (A16 to A25). Getting a field position wrong is a bug in an ARP you clearly did implement; it does not mean you implemented a different protocol.
+- A26 (the driver must consult the module). The obligation falls on a caller outside the Address Resolution module; A27, A28 and A32 carry the same on-demand discipline from inside it.
+- A30 and A31 (discard the pending packet on a miss). The RFC hedges with "probably", and queueing one packet instead is a standard, recognizable ARP.
+- A46 and A48 (the hrd and pro guards). Skipping them is a robustness gap, not a loss of protocol identity; A45 already pins what happens when a guard does fail.
+- A50, A53, A55 (Merge_flag mechanics). These are the bookkeeping device, not the rule; A52 and A56 state the rule directly.
+
+One risk worth flagging now, before disposition: A61 and A57 both state the merge-before-opcode ordering, so a later stage could try to drop A61 as redundant with A57. I kept both on merit. If that happens, the STOP is the correct outcome for a rule this central, not an accident of over-inclusion.

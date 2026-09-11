@@ -1,0 +1,8 @@
+`extraction.json` is written and validated.
+
+- **85 normative rows** (B1–B85), **42 excluded rows** (Bx1–Bx42).
+- Every quote verifies verbatim against its cited line span in the pinned `rfc826.txt` (sha256 `01bc62fe…3c8a6`, 470 lines, matching the rubric's pin).
+- Every non-blank line of 1–470 is covered by at least one row (U5).
+- N-rule spread: N4 21, N1 19, N7 13, N5 9, N2 6, N9 5, N6 4, N10 4, N3 3, N8 1. Fourteen N rows from the format block, sixteen from the reception section, so neither 10.4 falsifier fires.
+- `strength` records only the word present: 76 `none`, 3 each of `must` / `should` / `may`, reflecting the pre-2119 modal vocabulary.
+- Count is 85 against the predicted 45–80 band; the overage comes from T1 splitting the eight field assignments at 176–184 and the algorithm block's guard/action lines into individual rows.

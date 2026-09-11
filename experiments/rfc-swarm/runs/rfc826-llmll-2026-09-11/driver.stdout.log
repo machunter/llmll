@@ -1,0 +1,223 @@
+
+
+[driver-ll] stage A [mechanical] intake and provenance pinning
+
+  fetching https://www.rfc-editor.org/rfc/rfc826.txt
+
+
+  pinned rfc826.txt: 01bc62fe6a37e90f... (470 lines)
+
+
+
+
+[driver-ll] stage B [agent] scope decision
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage C [agent] normativity rubric
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage D [agent] dual blind extraction
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage E [mechanical] mechanical reconciliation
+
+
+
+
+
+[driver-ll] stage F [agent] characteristic core
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage G [agent] disposition pass
+
+
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage G2 [gate] artifact audit
+
+
+
+
+
+[driver-ll] stage H [agent] feasibility probes
+
+
+
+
+
+
+
+
+  probe recv-table: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe merge-before-opcode: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe recv-reply: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe resolve-out: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe table-frame: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe spoof-binding: probe=SAFE mutant=refuted -> ok
+
+
+
+
+[driver-ll] stage I [agent] pre-registration
+
+
+
+
+
+
+
+
+[driver-ll] stage J [gate] the gate
+
+
+
+
+
+[driver-ll] stage K [agent] root contract authoring
+
+
+
+
+
+
+
+
+  authored 25 Encoded rows into roots.llmll (typechecks; ~15 holes)
+
+
+
+
+[driver-ll] stage L [gate] coverage lint and freeze
+
+
+
+
+
+
+
+
+[driver-ll] stage M [agent] the swarm
+
+
+
+
+
+
+
+[driver-ll] stage N [agent] kill matrix
+
+
+
+
+
+  merge-after-opcode: unwritable (kept in the denominator)
+  promiscuous-add: unwritable (kept in the denominator)
+  old-address-wins: unwritable (kept in the denominator)
+  spoof-binding: unwritable (kept in the denominator)
+  merge-key-substituted: unwritable (kept in the denominator)
+  merge-flag-not-set: unwritable (kept in the denominator)
+  merge-flag-leaks: unwritable (kept in the denominator)
+  discard-suppressed: unwritable (kept in the denominator)
+  tha-harvest: unwritable (kept in the denominator)
+  reply-fields-not-swapped: unwritable (kept in the denominator)
+  reply-op-request: unwritable (kept in the denominator)
+  reply-broadcast: unwritable (kept in the denominator)
+  reply-to-reply: unwritable (kept in the denominator)
+  request-unicast: unwritable (kept in the denominator)
+  spa-tpa-transposed: unwritable (kept in the denominator)
+  lookup-key-partial: unwritable (kept in the denominator)
+  hit-returns-other: unwritable (kept in the denominator)
+  miss-emits-nothing: unwritable (kept in the denominator)
+  request-op-reply: unwritable (kept in the denominator)
+  sha-foreign: unwritable (kept in the denominator)
+  pro-substituted-on-emit: unwritable (kept in the denominator)
+  hrd-substituted-on-emit: unwritable (kept in the denominator)
+  pln-from-packet: unwritable (kept in the denominator)
+  unsolicited-reply-merges: unwritable (kept in the denominator)
+  tha-arbitrary: unwritable (kept in the denominator)
+  optional-checks-omitted: unwritable (kept in the denominator)
+  multi-owner-target: unwritable (kept in the denominator)
+  structural-variant: unwritable (kept in the denominator)
+  hw-type-agnostic: unwritable (kept in the denominator)
+
+
+
+
+
+[driver-ll] stage O [agent] writeup
+
+
+
+
+
+
+
+
+
+[driver-ll] STOP at stage O: stage O: the report does not name 22 of the 29 kill-matrix rows: ['merge-key-substituted', 'merge-flag-not-set', 'merge-flag-leaks', 'discard-suppressed', 'tha-harvest', 'reply-fields-not-swapped', 'reply-op-request', 'reply-broadcast', 'reply-to-reply', 'request-unicast', 'spa-tpa-transposed', 'lookup-key-partial', 'hit-returns-other', 'miss-emits-nothing', 'request-op-reply', 'sha-foreign', 'pro-substituted-on-emit', 'pln-from-packet', 'tha-arbitrary', 'multi-owner-target', 'structural-variant', 'hw-type-agnostic']. driver-spec sec 13 requires the FULL result of the perturbation exercise, including perturbations that were not detected. Naming a row is not resolving it; that clause is disclosure-only and this check does not decide it.
+[driver-ll] end status=2

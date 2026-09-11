@@ -1,0 +1,37 @@
+;; ===========================================================================
+;; PROBE 6 MUTANT — P-SPOOF asserted as if RFC 826 established it
+;; ===========================================================================
+;; The mutation here is in the CONTRACT, not the body. That is deliberate, and it
+;; is the one place in this probe set where it is. Stage H is about contract
+;; shapes; the shape being tested is whether a false security claim about ARP can
+;; be written down and then knocked down by the same machinery that proves the
+;; true ones. A body mutant would test something else.
+;;
+;; THE BUG: the [A52] clause now claims that the hardware address installed for
+;; <ar$pro, ar$spa> is `frame-src`, the address that actually transmitted the
+;; frame. This is scope section 4's P-SPOOF, and it is the thing most people
+;; believe ARP does. It is false. The algorithm of lines 203-225 reads ar$sha out
+;; of the packet body and never once compares it to the link-layer source of the
+;; frame that carried it - and it performs the merge at lines 210-213, before the
+;; opcode is examined at line 219, so an attacker on the cable does not even need
+;; to be answering anything. A station can transmit a frame from its own hardware
+;; address carrying any ar$sha it likes, and every receiver that already holds an
+;; entry for that ar$spa will install the forged value.
+;;
+;; The body below is the faithful one, unchanged from spoof-binding.llmll, and
+;; `frame-src` is still absent from it. The refutation therefore says exactly
+;; what the scope wants recorded: not that this implementation is wrong, but that
+;; RFC 826's algorithm does not establish the binding, so no implementation of it
+;; can discharge the claim. A proof that a protocol fails to defend something is
+;; a result, and this is the shape that result takes.
+
+(def merge-binding [tbl: map[int,int] spa: int sha: int frame-src: int] -> map[int,int]
+
+  ;; BUG: `frame-src` where the faithful clause has `sha`.
+  (post (=> (map-has tbl spa) (= (map-get result spa) frame-src))
+    :source "[A52] RFC 826 lines 211-213 - update the sender hardware address field of the entry with the new information in the packet")
+
+  (post (and (map-has result spa) (= (map-get result spa) sha))
+    :source "[A51] RFC 826 lines 210-211 - if the pair <protocol type, sender protocol address> is already in my translation table")
+
+  (map-put tbl spa sha))

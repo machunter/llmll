@@ -1,0 +1,5 @@
+   .fq written to /tmp/spoof-binding.fq
+   body-faithful: merge-binding
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/spoof-binding.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/spoof-binding.llmll.verified.json

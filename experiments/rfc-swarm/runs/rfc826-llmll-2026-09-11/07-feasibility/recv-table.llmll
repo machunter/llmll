@@ -1,0 +1,71 @@
+;; ===========================================================================
+;; PROBE 1 — the reception algorithm's table half (RFC 826 lines 203-218)
+;; ===========================================================================
+;; Stage H feasibility probe. NOT a reference solution; never promoted.
+;;
+;; MODEL SHAPE
+;;   Protocol and hardware addresses are `int` scalars used with `=` and `!=`
+;;   ONLY. No clause here compares two addresses with `<` or `>`: scope section 3
+;;   refuses an order on every data sort, and `int` is simply the equality-
+;;   carrying scalar that Sigma_auto offers. The translation table is
+;;   `map[int,int]` from sender protocol address to hardware address, with the
+;;   protocol type fixed by the `proto-ok` guard rather than folded into the key
+;;   (the key class is {int,string}, so a composite key is not available).
+;;
+;;   The two front guards of lines 203 and 206 travel as `bool` tags, not as
+;;   payload-bearing packet parameters: a `match` ON a payload-bearing ADT
+;;   parameter falls back from body-faithful verification.
+;;
+;; THE ORDERING THAT MATTERS
+;;   The merge of lines 210-213 sits BEFORE the target test of line 214 and is
+;;   not gated on it. Only the ADD of line 216 is gated on being the target.
+;;   `op` is carried and never read by the body, which is the A61 content.
+
+(type Opcode
+  (| OpRequest)
+  (| OpReply))
+
+(def recv-table [hw-ok: bool proto-ok: bool tbl: map[int,int] spa: int sha: int
+                 am-target: bool op: Opcode] -> map[int,int]
+
+  ;; [A45] A guard that evaluates false ends processing and discards the packet:
+  ;; the entry for the sender protocol address is exactly as it was.
+  (post (=> (not (and hw-ok proto-ok))
+            (and (= (map-has result spa) (map-has tbl spa))
+                 (=> (map-has tbl spa) (= (map-get result spa) (map-get tbl spa)))))
+    :source "[A45] RFC 826 lines 200-201 - negative conditionals indicate an end of processing and a discarding of the packet")
+
+  ;; [A51][A52] Present pair => the new hardware address supersedes the old one.
+  ;; Deliberately NOT conditioned on `am-target`: the merge precedes line 214.
+  (post (=> (and (and hw-ok proto-ok) (map-has tbl spa))
+            (= (map-get result spa) sha))
+    :source "[A52] RFC 826 lines 211-213 - if the pair is already in my translation table, update the sender hardware address field of the entry with the new information in the packet")
+
+  ;; [A54][A56] Absent pair AND I am the target => add the triplet.
+  (post (=> (and (and hw-ok proto-ok) (and (not (map-has tbl spa)) am-target))
+            (and (map-has result spa) (= (map-get result spa) sha)))
+    :source "[A56] RFC 826 lines 216-218 - if Merge_flag is false, add the triplet <protocol type, sender protocol address, sender hardware address> to the translation table")
+
+  ;; [A54][A56, negative] Absent pair AND I am NOT the target => nothing is added.
+  ;; This is the clause that separates the core receiver from the monitor of
+  ;; lines 337-339, and the one an implementation drops when it learns from every
+  ;; packet it overhears.
+  (post (=> (and (not (map-has tbl spa)) (not am-target))
+            (not (map-has result spa)))
+    :source "[A54] RFC 826 line 214 - ?Am I the target protocol address? - the add of line 216 sits under the Yes arm of that test")
+
+  ;; [A61] The table outcome does not depend on the opcode, because the merge
+  ;; happens before the opcode is looked at. Stated over both opcode values.
+  (post (and (=> (and (and hw-ok proto-ok) (and (map-has tbl spa) (= op OpRequest)))
+                 (= (map-get result spa) sha))
+             (=> (and (and hw-ok proto-ok) (and (map-has tbl spa) (= op OpReply)))
+                 (= (map-get result spa) sha)))
+    :source "[A61] RFC 826 lines 227-229 - the triplet is merged into the table before the opcode is looked at")
+
+  (if (and hw-ok proto-ok)
+      (if (map-has tbl spa)
+          (map-put tbl spa sha)
+          (if am-target
+              (map-put tbl spa sha)
+              tbl))
+      tbl))

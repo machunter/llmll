@@ -1,0 +1,18 @@
+Wrote `14-report/REPORT.md` (397 lines).
+
+**One thing worth flagging up front:** the four artifacts embedded in your prompt are `driver-ll` stage stubs (59-85 bytes each), but the real run tree on disk has substantial artifacts for stages A-D, F-I, K, and N. I read those instead of the stubs. The picture they give changes what the report can say.
+
+**This run did not produce an implementation.** `driver-ll` (commit `5f61836`) ports 10 of 15 stages and stubs the rest: E (reconciliation), G2 (audit), J (gate), L (coverage lint/freeze), and **M (the swarm)**. Stage M is an agent stage with `seconds: 0`. So two clauses of the claim you asked me to state are not supported here: no swarm implementation, and nothing for the compiler to prove anything against. I stated the claim in full, then dispositioned it clause by clause against what actually ran.
+
+**Numbers that lead:**
+- Class-stratified: **C1 (state transition) 24/32 encoded**; the other 8 are 1 modeled, 2 entailed (B7), 5 monitor-role (B8). C3 1/38, C6 0/11 (excluded by the definition of the class).
+- Characteristic core: **18 of 21 encoded**, all 18 cited by a `:source` clause. Three exited (A2, A8, A9, the wire-value constants) under the A-PARSE boundary.
+- Raw ledger ratio (29/81) stated once and not used, per your instruction.
+
+**The core count triggers a halt condition.** `core_out = 3` meets the characteristic-core gate predicate, but stage J is stubbed so nothing fired. The pre-registration's section 6 anticipated this, declined to re-score the rows, and referred it to the project owner. It also explicitly forbids any writeup from this run stating "the protocol core is verified body-faithfully" without that qualification, so I did not state it.
+
+**Detection yield: 4 defects, each with a witness.** Three from the artifacts (an unsatisfiable `resolve-out` contract refuted where `own-pa = tpa`; the composite-table-key narrowing; the core/boundary conflict). The fourth I found while reading: `kill-matrix.json` records `"verdict": "unwritable"` on all 29 entries while every one of their own `reason` strings says `"not-authored (NOT unwritable)"`. `mutants.json` gets it right. A consumer reading the verdict field alone would score this as a real unwritable result against a frozen surface rather than a void matrix. I reported it rather than editing the frozen stage-N artifact.
+
+**Kill matrix: VOID**, reported with survivors. 23 kill-required + 6 good twins, 0 authored, 0 killed, 0 survivors observed, and the report says plainly that zero-of-zero means nothing and that the over-strong-contract guard went unexercised.
+
+**Scorecard: PARTIAL.** R1, R2, R4 hold (R4 by hand check, since the lint is stubbed); R3, R5, R6 fail. No FAIL-list condition occurred. I disclosed eight trusted steps, with trace induction as T1, and noted the census rests on extractor A alone because stage E never reconciled the two.

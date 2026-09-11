@@ -1,0 +1,5 @@
+   .fq written to /tmp/recv-table.fq
+   body-faithful: recv-table
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/recv-table.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/f4eff122-2edf-4104-ada7-f5bceeedf5cd/scratchpad/run-rfc826/07-feasibility/recv-table.llmll.verified.json
