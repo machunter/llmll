@@ -1,7 +1,7 @@
 ---
 name: clause-2-pre-registration
 title: "DRIVER-LL acceptance clause 2: run plan and pre-registration"
-status: "Rev 1, 2026-09-10. NOT RUN. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
+status: "Rev 2, 2026-09-10. NOT RUN, AND THE GATE ON RUNNING IS DOWN. Rev 1 said no comparator existed; clause2_compare.py merged at 0b0a024 the same day and never touched this file, which is the RECORD-FRESH-1 defect; the second record in this campaign MEASURED to show it, beside driver-ll-phase4-RESTART.md. Section 6 is now 6.1, the comparator as built, and 6.2, a NEW obligation: the live run pins its model in the agent invocation and records the invocation in an operator-written RUN-PROVENANCE.json. Section 6.2 does NOT repair section 4.2, which is a statement about the oracle and stands. Section 9 marks the comparator cost SPENT, because a cost section that lists paid work makes a reader budget it twice, and names the one piece of engineering 6.2 leaves open. The driver does not change for 6.2, BY DECISION: the program under test at its own acceptance run must be the program 4f shipped at e49e968. Two comparator cells are NOT CHECKED and neither holds the run: T5 (no committed run carries a per-stage MANIFEST.json) and T2b (no artifact defines the check). Rev 1's five requirements are kept VERBATIM and the built tool differs from them in both directions; the 6.1 table records both. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
 date: 2026-09-10
 author: experiment-lead
 consumers: [user, language-team, compiler-engineer]
@@ -135,10 +135,14 @@ finding is thereby retired as a gap: stage status is clause 1a's oracle and was 
 2's to own. §4.2 and §4.3 stand, and are now the stated reason the agent-determined classes
 are reported rather than thresholded.
 
-## 6. What must be built before the run
+## 6. What must exist before the run
 
-**No comparator exists in this repository today.** Measured: no script under `scripts/` or
-`experiments/rfc-swarm/tools/` reads a run directory and a `MANIFEST.json` together.
+### 6.1 The comparator. BUILT, and the gate is down
+
+**Rev 1 said no comparator existed. That measurement is now out of date.** The comparator
+is `experiments/rfc-swarm/tools/clause2_compare.py`, 382 lines, merged at `0b0a024` on
+2026-09-10. `scripts/tests/test_clause2_compare.py` carries 17 tests and three negative
+controls: gate-removed, empty-population and floor-drift.
 
 The comparator is the deliverable that gates the run, not the run itself. It must:
 
@@ -149,6 +153,70 @@ The comparator is the deliverable that gates the run, not the run itself. It mus
 3. Compare per decision class, and **report per class**, never as one score.
 4. Report the §4.1 class as **NO ORACLE** rather than as agreement.
 5. Apply artifact *shape* predicates only, per §2.4's last sentence. Never compare content.
+
+**The five requirements above are the Rev 1 list, kept verbatim. The built tool does not
+match that list in either direction, and the table records both differences.** Two cells
+implement checks this section never asked for. Two cells are `NOT CHECKED`.
+
+| Requirement | Cell | State |
+|---|---|---|
+| 1. Read `MANIFEST.json` rows | `T1` | implemented |
+| 2. Read the §3 oracle artifacts | reported set, `R1` and after | implemented |
+| 3. Report per class, never one score | `Report`, one line per cell | implemented |
+| 4. Report the §4.1 class as NO ORACLE | `R1` | implemented |
+| 5. Shape predicates only, never content | `T4`, with `T0` guarding its floor table | implemented |
+| not in the Rev 1 list | `T0`, drift guard that re-reads the reference's byte floors | implemented |
+| not in the Rev 1 list | `T2`, FFI declaration count against the campaign bar of zero | implemented |
+| not in the Rev 1 list | `T2b`, bounded authority | **NOT CHECKED**; no artifact defines the check |
+| implied by §7 row 3 | `T5`, stopped-for-failed | **NOT CHECKED**; see below |
+
+**`T5` does not hold the run.** It compares against the reference's recorded status, which
+lives in `MANIFEST.json`, and no committed run carries one. §8 makes success "Clause 2
+passes with its coverage disclosed", so a disclosed `NOT CHECKED` satisfies that sentence.
+Record `T5` as disclosed coverage. Do not substitute a different reading for it, and do not
+wait for a proposal revision before running.
+
+**Independence is the property to protect.** The comparator re-derives the reference's
+predicates and calls no part of the LLMLL driver. A comparator that asks the driver whether
+the driver was right restates an opinion instead of checking it.
+
+### 6.2 The run pins its model, and records its invocation
+
+Pre-registered. Both obligations hold before any stage starts.
+
+**§4.2 is not repaired by this section, and cannot be.** §4.2 is a statement about the
+oracle, whose model is unrecoverable. This section adds an obligation on the live run so
+that the run does not repeat the defect. §4.2 stands as written.
+
+**The defect in §4.2 is a missing pin, not a missing record.** `claude -p` resolved to
+whatever the default was on 2026-07-25. A run that writes down the default it happened to
+get repeats the defect and adds a note about it.
+
+**Pin.** The live run passes an explicit model identifier in the agent invocation. The port
+takes `--agent-exe` plus repeatable `--agent-arg`
+(`tools/llmll-driver/sequencer.llmll`, the `AgentCfg` flag comment), so the identifier is one
+argument and not a shell string. A run that lets the agent resolve a default model is not a
+valid clause 2 run.
+
+**Record.** The operator writes `RUN-PROVENANCE.json` at the run root before the run starts.
+It carries the verbatim executable, the verbatim argument list, the compiler version from
+`llmll version`, the driver commit, and the ISO date.
+
+**The driver does not change for this.** `00-source/PROVENANCE.json` is stage A's output,
+and stage A shipped at v0.21.2. Its only declared predicate is that it must PARSE
+(`tools/llmll-driver/registry.llmll`, the stage B precondition comment), so an added key
+would not fail `T4`. The reason to keep the model out of it is different: the program under
+test at its own acceptance run must be the program that 4f shipped at `e49e968`. An operator
+sidecar keeps that true.
+
+**The record is falsifiable, which is why it is worth writing.** The port writes
+`agent.stdout.log` and `agent.stderr.log` in each agent directory
+(`tools/llmll-driver/sequencer.llmll`, `agent-dir`). A recorded argument list can be read
+against those logs after the run.
+
+**One limit, stated rather than implied.** Pinning the invocation pins what the run asked
+for. It does not pin what served the request. The claim this record supports is "this model
+was requested", not "this model produced these decisions".
 
 ## 7. Divergence semantics, pre-registered
 
@@ -181,13 +249,34 @@ failure mode §8.1's retirement decision rests on.
 - **The run.** One full fifteen-stage campaign with a live agent over a 470-line RFC. The
   reference run produced 91 inventory rows, 22 holes and 14 mutants. Budget an agent session
   per delegated stage; `PROC-TIMEOUT-1` bounds each one.
-- **The comparator.** Engineering, not compute, and it gates the run. Rev 16 shrinks it: a
-  reported class needs recording beside the oracle, not diffing for equality.
-- **The driver build.** About 30 seconds, measured today on this host after the SDK linker
-  repair.
+- **The comparator. SPENT at Rev 2, and it is not a cost of the run.** It was engineering
+  rather than compute, and it gated the run. It merged at `0b0a024`; see §6.1. Rev 16 had
+  shrunk the estimate, because a reported class needs recording beside the oracle rather
+  than diffing for equality. Do not budget it again.
+- **The one piece of engineering that remains.** §6.2 adds one reported cell, which reads
+  `RUN-PROVENANCE.json` and reports it unchecked when the record is absent. It needs one
+  test and one negative control with the record absent. This is small, and it is
+  `compiler-engineer`'s slot.
+- **The driver build.** About 30 seconds, measured on 2026-09-10 on the author's host after
+  the SDK linker repair. The figure is one measurement on one machine, not a budget.
 
 ## 10. Status
 
-**Nothing has run. No comparator is written. No roadmap row is filed.** The decision in
-§5 belongs to the user and `language-team`; the comparator in §6 is `compiler-engineer`'s
-slot once a reading is chosen.
+**Nothing has run.** That sentence is unchanged from Rev 1 and is still true. The other two
+sentences it stood beside were both out of date, and each is corrected separately below.
+
+**The comparator is written.** §6.1 carries the measurement: `clause2_compare.py`, merged
+`0b0a024`. Rev 1 said the opposite, and the commit that made it untrue never touched this
+file. This is the `RECORD-FRESH-1` defect. Two records in this campaign are now known to
+show it: this one, and `docs/design/driver-ll-phase4-RESTART.md`, whose status field has
+been corrected three times. That count is what has been measured, not a survey of every
+record.
+
+**No dedicated roadmap row exists, and the G0 row carries the clause.** `DRIVER-LL` is the
+only row in G0. Its Next Action step (3) states that acceptance clause 2 has never been
+executed. The roadmap names neither `clause2_compare.py` nor this file, so the row is
+incomplete rather than incorrect. Adding them is `documentation-lead`'s slot.
+
+**What is now open.** The run. §5's adjudication is settled, the §6.1 gate is down, and
+§6.2 states the two obligations the run carries. The decision to spend §9's cost belongs to
+the user.
