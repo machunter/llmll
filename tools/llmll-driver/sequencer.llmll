@@ -269,6 +269,7 @@
   (import shape)    (open shape)
   (import oracle)   (open oracle)
   (import report)   (open report)
+  (import common)   (open common)
 
   ;; ------------------------------------------------------------------
   ;; The proved centre this module adds
@@ -667,38 +668,6 @@
 
   ;; ---- argv ----------------------------------------------------------
 
-  ;; The element following `f`, or "". One left-to-right fold carrying
-  ;; (value-so-far, take-the-next-one); a repeated flag keeps the FIRST value,
-  ;; which is the opposite of argparse and is stated because nothing enforces
-  ;; it.
-  (def-shell flag-value [as: list[string] f: string] -> string
-    (first (list-fold as (pair "" false)
-             (fn [acc: (string, bool) a: string]
-               (if (second acc)
-                   (pair a false)
-                   (if (= a f) (pair (first acc) true) acc))))))
-
-  ;; EVERY element following an occurrence of `f`, in order. --agent-arg is
-  ;; repeatable (proposal section 5 item 1), so the FIRST-wins rule flag-value
-  ;; states above is exactly wrong for it and a second fold is owed rather
-  ;; than a reinterpretation of the first.
-  (def-shell flag-values [as: list[string] f: string] -> list[string]
-    (first (list-fold as (pair (list-empty) false)
-             (fn [acc: (list[string], bool) a: string]
-               (if (second acc)
-                   (pair (list-append (first acc) a) false)
-                   (if (= a f) (pair (first acc) true) acc))))))
-
-  (def-shell dflt [s: string d: string] -> string
-    (if (string-empty? s) d s))
-
-  ;; 1800 is the reference's --timeout default (:1866). A value that does not
-  ;; parse falls back to the default rather than halting, which is where this
-  ;; differs from argparse's `type=int`; the flag is an operator's and a
-  ;; malformed one is not a stage condition.
-  (def-shell int-flag [as: list[string] f: string d: int] -> int
-    (unwrap-or (string-to-int (flag-value as f)) d))
-
   (def-shell parse-agent [as: list[string]] -> AgentCfg
     (AgentCfg (pair (flag-value as "--agent-exe")
                     (pair (flag-values as "--agent-arg")
@@ -748,24 +717,6 @@
                 (if (string-empty? (cfg-rfc-url c))
                     "--rfc-url is required (the RFC stage A fetches as verbatim text)"
                     "")))))
-
-  (def-shell argv-of [r: Response] -> list[string]
-    (match r
-      ((RList as) as)
-      ((RNone)    (list-empty))
-      ((RText _)  (list-empty))
-      ((RCode _)  (list-empty))
-      ((RErr _)   (list-empty))))
-
-  ;; MEASURED at v0.14.84, and the spec does not say which way round it goes:
-  ;; string-split takes the SEPARATOR FIRST. LLMLL.md:2433 gives the type as
-  ;; `string string -> list[string]` with no argument names, the generated
-  ;; body is `string_split sep str` (CodegenHs.hs:359-366), and there is not
-  ;; one call site in the tree to read it off. Getting it backwards splits the
-  ;; separator by the subject and yields [","], which type-checks and passes
-  ;; every check-time gate.
-  (def-shell split-on [sep: string s: string] -> list[string]
-    (string-split sep s))
 
   (def-shell key-selected? [c: Cfg i: int] -> bool
     (if (string-empty? (cfg-only c))
@@ -1906,26 +1857,23 @@
                     (second nxt))))))))
 
 
-  ;; ---- 4d: the compiler-oracle loops -----------------------------------
+  ;; DUPLICATED WITH wave.llmll ON PURPOSE, and program unification does NOT
+  ;; retire it. The comment that used to sit here said the opposite: it called
+  ;; the duplication a thing that "retires at program unification", on the
+  ;; precedent of the 4c barrier. That was written before anyone measured what
+  ;; the two copies are for. They are pinned by two different covers for two
+  ;; different reasons: this copy by test_driver_ll_4d.py, which pins the "SAFE"
+  ;; lexeme against the compiler that prints it, and the wave's copy by
+  ;; test_driver_ll_4e.py, which lists it in SEAM as a function that reads
+  ;; another process's stdout and proves nothing about it. A body-equality
+  ;; census puts it in the collapse set and the census is wrong here. The move
+  ;; was TRIED at the unification job (a) pass and both covers failed.
   ;;
-  ;; Stages H and N invert the artifact flow (restart record section 6 item
-  ;; 6): the agent's catalogue is an INPUT to the stage's own computation and
-  ;; the DRIVER writes the declared output. Stage K's oracle is `llmll check`'s
-  ;; exit status. Every proved decision below is a one-line forward to
-  ;; oracle.llmll or shape.llmll, the 4e pattern, so the call is visible to a
-  ;; reader and to the callerless census rather than buried in an arm.
-  ;;
-  ;; `llmll verify` is folded into ONE arm as `run then read`, the wave's idiom
-  ;; (wave.llmll llmll-run): seq-commands is discard-left, so the arm receives
-  ;; the READ of the stdout file and never the exit status. The header's 4d
-  ;; statement records why that loses nothing. `llmll check` is NOT folded:
-  ;; its decision IS the exit status (proposal section 9.3 item 3), and a read
-  ;; would add a command to learn nothing.
-  ;;
-  ;; The two abstraction functions the header's 4d statement is about.
-  ;; Duplicated from wave.llmll with one strengthening rather than shared:
-  ;; sharing needs a fourth module, and the 4c barrier duplication already set
-  ;; the precedent that retires at program unification.
+  ;; body-faithful-all? is NOT the duplicated one, despite sitting beside it.
+  ;; The wave's sibling is body-faithful?, which takes two arguments and checks
+  ;; that a target name appears; this one takes one and excludes body-fallback:.
+  ;; Different functions with similar names, which is why the older comment's
+  ;; phrase "duplicated with one strengthening" reads as describing both.
   (def-shell verify-safe? [out: string] -> bool
     (string-contains out "SAFE"))
 
@@ -2513,9 +2461,6 @@
   ;; PROVENANCE.json is `{"sources": [{url, file, sha256, lines}, ...]}`;
   ;; json-serialize's whitespace differs from json.dumps(indent=1), which
   ;; nothing consumes (stage B re-serializes it, mode PARSE).
-
-  (def-shell last-field [xs: list[string]] -> string
-    (unwrap-or (list-nth xs (- (list-length xs) 1)) ""))
 
   (def-shell source-name [url: string] -> string
     (let [(n (list-fold (split-on "/" url) ""
