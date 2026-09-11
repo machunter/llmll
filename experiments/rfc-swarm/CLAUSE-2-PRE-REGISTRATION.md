@@ -1,7 +1,7 @@
 ---
 name: clause-2-pre-registration
 title: "DRIVER-LL acceptance clause 2: run plan and pre-registration"
-status: "Rev 2, 2026-09-10. NOT RUN, AND THE GATE ON RUNNING IS DOWN. Rev 1 said no comparator existed; clause2_compare.py merged at 0b0a024 the same day and never touched this file, which is the RECORD-FRESH-1 defect; the second record in this campaign MEASURED to show it, beside driver-ll-phase4-RESTART.md. Section 6 is now 6.1, the comparator as built, and 6.2, a NEW obligation: the live run pins its model in the agent invocation and records the invocation in an operator-written RUN-PROVENANCE.json. Section 6.2 does NOT repair section 4.2, which is a statement about the oracle and stands. Section 9 marks the comparator cost SPENT, because a cost section that lists paid work makes a reader budget it twice, and names the one piece of engineering 6.2 leaves open. The driver does not change for 6.2, BY DECISION: the program under test at its own acceptance run must be the program 4f shipped at e49e968. Two comparator cells are NOT CHECKED and neither holds the run: T5 (no committed run carries a per-stage MANIFEST.json) and T2b (no artifact defines the check). Rev 1's five requirements are kept VERBATIM and the built tool differs from them in both directions; the 6.1 table records both. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
+status: "Rev 3, 2026-09-11. NOT RUN, AND THE GATE ON RUNNING IS DOWN. Rev 3 amends 6.2 ONLY, on a compiler-engineer finding that 6.2 was not implementable as Rev 2 wrote it: RUN-PROVENANCE.json now declares `model` as its own required field, six fields in all, because a checker without it must search argv for a model name and that needs a catalog, which is the [V7-NO-HARDCODE] failure. The pin check is stated as a decidable rule over argv ELEMENTS, never over the joined string. Rev 3 also records what Rev 2 omitted and an operator would have found during the expensive run: argv is the ONLY channel to the agent, because wasi.proc.run has no env parameter (PROC-ENV-1), so an environment-variable pin does not satisfy the obligation. Rev 2, 2026-09-10: Rev 1 said no comparator existed; clause2_compare.py merged at 0b0a024 the same day and never touched this file, which is the RECORD-FRESH-1 defect; the second record in this campaign MEASURED to show it, beside driver-ll-phase4-RESTART.md. Section 6 is now 6.1, the comparator as built, and 6.2, a NEW obligation: the live run pins its model in the agent invocation and records the invocation in an operator-written RUN-PROVENANCE.json. Section 6.2 does NOT repair section 4.2, which is a statement about the oracle and stands. Section 9 marks the comparator cost SPENT, because a cost section that lists paid work makes a reader budget it twice, and names the one piece of engineering 6.2 leaves open. The driver does not change for 6.2, BY DECISION: the program under test at its own acceptance run must be the program 4f shipped at e49e968. Two comparator cells are NOT CHECKED and neither holds the run: T5 (no committed run carries a per-stage MANIFEST.json) and T2b (no artifact defines the check). Rev 1's five requirements are kept VERBATIM and the built tool differs from them in both directions; the 6.1 table records both. Rev 0 put a replay-or-live choice to the user; language-team ADJUDICATED it as live against proposal section 2.3, so section 5 is rewritten and the choice is gone. The adjudication found the disagreement is WIDER than Rev 0 measured, five of six decision classes and not three, and proposal Rev 16 answers it by splitting thresholded from reported. Section 4.1, the missing MANIFEST.json, is RETIRED as a gap: stage status is clause 1a oracle. Sections 4.2 and 4.3 stand."
 date: 2026-09-10
 author: experiment-lead
 consumers: [user, language-team, compiler-engineer]
@@ -199,8 +199,28 @@ argument and not a shell string. A run that lets the agent resolve a default mod
 valid clause 2 run.
 
 **Record.** The operator writes `RUN-PROVENANCE.json` at the run root before the run starts.
-It carries the verbatim executable, the verbatim argument list, the compiler version from
-`llmll version`, the driver commit, and the ISO date.
+It carries six required fields: `agent_exe`, the verbatim executable; `agent_args`, the
+verbatim argument list; `model`, the declared model identifier; `llmll_version`, from
+`llmll version`; `driver_commit`; and `date`, in ISO form.
+
+**`model` is declared as its own field, because the alternative does not work.** Without the
+field, a checker must find a model identifier somewhere inside `agent_args`, and that needs a
+list of known model names. Such a list is a rule fitted to the values one run produced, which
+is the failure `[V7-NO-HARDCODE]` exists to refute (`tools/llmll-driver/validate.llmll`, the
+postcondition comment). A declared field needs no list and does not go out of date.
+
+**The pin check, stated so it is decidable.** The declared `model` is a non-empty string. It
+equals an element of `agent_args`, or it equals the part after the first `=` in an element.
+Both invocation styles pass: `["--model", "claude-opus-5"]` and `["--model=claude-opus-5"]`.
+The test is over elements and never over the joined string. A substring test over the joined
+string would accept `model` of `opus` against a `--workdir` argument whose value merely
+contains the letters "opus", which pins nothing.
+
+**argv is the only channel, so the Pin obligation is forced rather than chosen.**
+`wasi.proc.run` has no env parameter (`PROC-ENV-1`), and the port records that the agent's
+paths reach it through argv (`tools/llmll-driver/sequencer.llmll`, the NO ENV CHANNEL
+comment). An operator who pins a model through an environment variable does NOT meet the Pin
+obligation, and the run is not a valid clause 2 run. Read this before the run, not after it.
 
 **The driver does not change for this.** `00-source/PROVENANCE.json` is stage A's output,
 and stage A shipped at v0.21.2. Its only declared predicate is that it must PARSE
