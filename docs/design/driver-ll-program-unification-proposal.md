@@ -1,7 +1,7 @@
 ---
 name: driver-ll-program-unification-proposal
 title: "DRIVER-LL program unification: the definition nineteen documents use and none wrote"
-status: "Rev 4, 2026-09-11. SETTLED for job (a), which is IN IMPLEMENTATION. Rev 4 records what the first implementation commit measured and the design did not predict: `verify-safe?` was in the COLLAPSE set by BODY EQUALITY, the move was TRIED, and TWO COVERS FAILED. 4d pins the sequencer's copy as an abstraction function over the compiler's transcript; 4e lists the wave's copy in SEAM, the wave functions that read another process's stdout and prove nothing about it. Identical bodies, two seams, two pins. Section 2 clause 2 now carries `verify-safe?` as a NAMED EXCEPTION and the COLLAPSE set is SEVEN. The general rule is in section 4.9: body equality is NECESSARY and NOT SUFFICIENT for collapsing a duplicate, because a pin is about the seam a copy sits on and not about its behaviour. Checked against the other seven: three are pinned at their CALL SITES, which a move does not touch, and four carry no pin. Rev 3, 2026-09-11: Job (b) stays gated on Phase 4 acceptance. Rev 3 records the section 4.7 DECISION the user made: Cfg is two records sharing a name, and the wave's is DERIVED from the campaign's rather than merged with it or left independent. wave's type is renamed WaveCfg and one function wave-cfg-of constructs it. That rename removes all four SILENT HOMONYMS at their source, so Rev 2's blocking risk 2b is UNBLOCKED. New at Rev 3, measured BEFORE the decision was adopted rather than after: five of the wave's eight fields derive from the campaign record and THREE DO NOT, so wave-cfg-of cannot be total over Cfg alone and takes tree, err0 and proto0 as parameters. Two behaviour changes are named: the .wave workdir default disappears, and the wave's --agent-cmd parsing is deleted rather than reconciled, which is the one operator-visible flag job (a) removes. Rev 2, 2026-09-11: Rev 2 folds a compiler-engineer probe that REFUTED Rev 1's escape route and found a defect class Rev 1 did not know about. MEASURED: a colliding (open X) warns per name and EXITS 0, --strict does NOT escalate it, and the IMPORTED binding wins; when both arms carry the same type the program checks clean and nothing distinguishes it; qualified function calls are NOT supported, so Rev 1's import-without-open escape does not exist. The sequencer/wave collision set is 17 functions, 3 constructors and the type Cfg; sequencer/spine collide on NOTHING, so spine merges first and wave last. The 17 split into COLLAPSE 8, SILENT HOMONYMS 4 and LOUD HOMONYMS 5, and the SILENT four are the finding: cfg-workdir reads slot 0 in the sequencer and slot 1 in the wave, both returning string, so a shadowed call would use a stage filter as a directory path and every gate would pass. Cfg is TWO RECORDS SHARING A NAME, ten slots against eight with no slot meaning the same thing; section 4.7 puts three readings and recommends the third. Rev 1's risk 2 is RETIRED by census: zero sibling def-to-def calls across all 11 defs. Rev 1 also named body-faithful-all? as a shared helper and it is not one. Rev 1, 2026-09-11: Defines program unification, which the G0 roadmap row records as named by nineteen places that all USE it and none DEFINE it. It is TWO jobs with DIFFERENT GATES and they must not be one work item: (a) merge the three executables, UNGATED and startable now; (b) port the plumbing campaign section 5.3 excluded, GATED on Phase 4 acceptance, which is the live clause 2 run. (a) is also a PREREQUISITE of (b). Measured for this proposal: job (a) needs NO compiler change and no feature-freeze exception, and it cannot break a proved core, because the three executables hold 424 def-shell against 11 def and all 11 are leaves composed by def-shell. The completion test is decidable today and its sharpest clause is the ORPHAN SET, which must not grow. Corrects one carried figure: the tree holds 14 library modules, not the fifteen the roadmap says."
+status: "Rev 5, 2026-09-11. JOB (a) SPLITS IN TWO and Rev 1 to Rev 4 conflated them, which the implementation found and the design did not. Section 2 clause 3 requires stage-ported? deleted; section 4.3 describes a merge that CANNOT delete it. Measured: started-step branches on stage-ported? and the unported path writes a STUB, and the section 4.3 merge changes only which def-main survives. (a1) ONE BINARY is graded by section 2 clauses 1, 2, 4 and 5, is ungated, and four commits have landed toward it. (a2) RETIRE THE STUB TABLE is graded by clause 3 plus a new clause that every stage writes a real artifact, and it is SUB-PHASE SIZED for three measured reasons in section 4.10: the spine's logic is a 17-arm state machine and not callable functions; stage M's artifact count is holes TIMES attempts and the registry is keyed [i: int] with a STATIC stage-out-count, so stage M fits no registry entry; and the Ctl arm shape is one delegation per stage. JOB (b) DEPENDS ON (a2), NOT (a1): a driver that stubs five of sixteen stages cannot replace rfc_to_implementation.py, so the critical path is longer than the G0 row states. (a2) needs a stage-M multiplicity design that DOES NOT EXIST and that this proposal deliberately does not write. Also corrected: jset is the FIFTH silent homonym, which Rev 3 named without classifying. Rev 4, 2026-09-11: Rev 4 records what the first implementation commit measured and the design did not predict: `verify-safe?` was in the COLLAPSE set by BODY EQUALITY, the move was TRIED, and TWO COVERS FAILED. 4d pins the sequencer's copy as an abstraction function over the compiler's transcript; 4e lists the wave's copy in SEAM, the wave functions that read another process's stdout and prove nothing about it. Identical bodies, two seams, two pins. Section 2 clause 2 now carries `verify-safe?` as a NAMED EXCEPTION and the COLLAPSE set is SEVEN. The general rule is in section 4.9: body equality is NECESSARY and NOT SUFFICIENT for collapsing a duplicate, because a pin is about the seam a copy sits on and not about its behaviour. Checked against the other seven: three are pinned at their CALL SITES, which a move does not touch, and four carry no pin. Rev 3, 2026-09-11: Job (b) stays gated on Phase 4 acceptance. Rev 3 records the section 4.7 DECISION the user made: Cfg is two records sharing a name, and the wave's is DERIVED from the campaign's rather than merged with it or left independent. wave's type is renamed WaveCfg and one function wave-cfg-of constructs it. That rename removes all four SILENT HOMONYMS at their source, so Rev 2's blocking risk 2b is UNBLOCKED. New at Rev 3, measured BEFORE the decision was adopted rather than after: five of the wave's eight fields derive from the campaign record and THREE DO NOT, so wave-cfg-of cannot be total over Cfg alone and takes tree, err0 and proto0 as parameters. Two behaviour changes are named: the .wave workdir default disappears, and the wave's --agent-cmd parsing is deleted rather than reconciled, which is the one operator-visible flag job (a) removes. Rev 2, 2026-09-11: Rev 2 folds a compiler-engineer probe that REFUTED Rev 1's escape route and found a defect class Rev 1 did not know about. MEASURED: a colliding (open X) warns per name and EXITS 0, --strict does NOT escalate it, and the IMPORTED binding wins; when both arms carry the same type the program checks clean and nothing distinguishes it; qualified function calls are NOT supported, so Rev 1's import-without-open escape does not exist. The sequencer/wave collision set is 17 functions, 3 constructors and the type Cfg; sequencer/spine collide on NOTHING, so spine merges first and wave last. The 17 split into COLLAPSE 8, SILENT HOMONYMS 4 and LOUD HOMONYMS 5, and the SILENT four are the finding: cfg-workdir reads slot 0 in the sequencer and slot 1 in the wave, both returning string, so a shadowed call would use a stage filter as a directory path and every gate would pass. Cfg is TWO RECORDS SHARING A NAME, ten slots against eight with no slot meaning the same thing; section 4.7 puts three readings and recommends the third. Rev 1's risk 2 is RETIRED by census: zero sibling def-to-def calls across all 11 defs. Rev 1 also named body-faithful-all? as a shared helper and it is not one. Rev 1, 2026-09-11: Defines program unification, which the G0 roadmap row records as named by nineteen places that all USE it and none DEFINE it. It is TWO jobs with DIFFERENT GATES and they must not be one work item: (a) merge the three executables, UNGATED and startable now; (b) port the plumbing campaign section 5.3 excluded, GATED on Phase 4 acceptance, which is the live clause 2 run. (a) is also a PREREQUISITE of (b). Measured for this proposal: job (a) needs NO compiler change and no feature-freeze exception, and it cannot break a proved core, because the three executables hold 424 def-shell against 11 def and all 11 are leaves composed by def-shell. The completion test is decidable today and its sharpest clause is the ORPHAN SET, which must not grow. Corrects one carried figure: the tree holds 14 library modules, not the fifteen the roadmap says."
 date: 2026-09-11
 author: language-team
 consumers: [compiler-engineer, user, documentation-lead, experiment-lead]
@@ -64,6 +64,42 @@ orphan takes: an import from a program, not a call site". When `wave` stops bein
 a program, they return to the orphan set unless the unified program imports them.
 **A grown orphan set means the merge dropped an import**, and the existing cover
 names which one.
+
+## 2.5 Rev 5: job (a) is TWO jobs, and Rev 1 to Rev 4 conflated them
+
+**The inconsistency, found during implementation and not during design.** §2 clause 3
+requires `stage-ported?` to be deleted. §4.3 describes a merge that cannot delete it.
+Both were written at Rev 1 and neither was checked against the other.
+
+**Measured at Rev 5**, in `sequencer.llmll`'s `started-step`: the stage loop branches
+on `stage-ported?`, and the unported path calls `write-cmd`, which is a `mkdir` and a
+write of `stub-body`. The merge §4.3 describes changes which `def-main` survives. It
+does not touch that branch. **Five of sixteen stages would still write stubs in a
+driver that had passed every clause of §2 except clause 3.**
+
+So job (a) splits:
+
+**(a1) ONE BINARY.** Delete two `def-main` declarations, add the outer sum of §4.3,
+dispatch in `:step`. Retires the three-program structure and every name collision.
+**Does NOT retire `stage-ported?`.**
+
+**(a2) RETIRE THE STUB TABLE.** Give stages E, G2, J, L and M real bodies inside the
+sequencer's stage loop, then delete `stage-ported?`.
+
+**Acceptance splits with them.** (a1) is graded by §2 clauses 1, 2, 4 and 5. (a2) is
+graded by clause 3 plus a clause Rev 5 adds: **every stage writes a real artifact and
+none writes a stub**. Clause 3 alone is not enough, because deleting the table without
+landing the bodies would leave `started-step` with one arm and the wrong one.
+
+**THE CAMPAIGN CLAIM IS THE REASON THIS SPLIT MATTERS.** If (a1) ships and the
+roadmap records "program unification complete", the driver still stubs five of sixteen
+stages and the record says otherwise. The G0 row names program unification as one step
+before Phase 5; it is two, and the second is sub-phase sized.
+
+**Job (b) depends on (a2) and not on (a1).** Campaign §8.1 retires
+`rfc_to_implementation.py` when the LLMLL driver can replace it. A driver that stubs
+five stages cannot. Rev 1 to Rev 4 sequenced (b) behind "program unification" without
+saying which half, and the half it needs is the larger one.
 
 ## 3. Two jobs, two gates
 
@@ -185,6 +221,15 @@ colliding name must be renamed or collapsed. It cannot be hidden.
 `sequencer` and `spine` collide on **nothing**: no function, no constructor, no
 type. `wave` and `spine` collide on `jset` alone. Every other collision is
 `sequencer` against `wave`.
+
+**CORRECTED at Rev 5: `jset` is the FIFTH silent homonym, and Rev 3 named it without
+classifying it.** Measured: the wave's falls back to the ORIGINAL object
+(`(unwrap-or (json-set o k v) o)`) and the spine's to an EMPTY one
+(`(unwrap-or (json-set o k v) json-object)`), on identical signatures. Opposite
+behaviour when `json-set` fails. The silent count in §4.6 is five, not four. Naming a
+collision is not classifying it, and this is the second time in this proposal that a
+name-level census missed a behaviour-level difference; the first was `verify-safe?`
+in §4.9.
 
 So `spine` merges first and carries almost no risk. `wave` merges last, behind the
 deletions in §4.6, because it carries the whole collision set.
@@ -360,6 +405,36 @@ has two. The COLLAPSE set is therefore **seven**.
 Both surviving copies carry a comment naming the other and naming the cover that
 pins it. The older comment in `sequencer.llmll` said this duplication "retires at
 program unification", which is now false, and it is replaced rather than left.
+
+### 4.10 Why (a2) is a sub-phase and not a refactor
+
+Three measurements, taken at Rev 5 after the §2.5 split was found.
+
+**1. The spine's stage logic is a state machine, not a set of callable functions.**
+`spine-step` is a linear counter with seventeen arms, `s = 0` through `s = 16`,
+driving `wasi.proc.run` commands for stages E, J, L and G2. Porting them means
+mapping seventeen steps onto the sequencer's `Ctl` arms. There is no function to call.
+
+**2. Stage M does not fit the registry, and this is a design problem.** Every registry
+accessor is keyed on the stage index: `stage-out-count [i: int] -> int` gives a
+**static** artifact count per stage. Stage M's artifact count is holes times attempts,
+settled at run time. It is not a function of `i`. Folding stage M in therefore needs
+either a registry shape that admits variable multiplicity, or a mechanism that keeps
+stage M outside the per-stage artifact accounting. **Neither exists and neither is
+designed.** `wave.llmll`'s header recorded this at 4e and deferred it: Rev 12 found
+stage M "fitting no `[i: int] -> int` registry entry", and the header calls folding it
+in "a restructure of a 1760-line module".
+
+**3. The sequencer's `Ctl` carries one `Delegate Body` arm per stage**, which the wave
+header describes as "one delegation, one exit status". Stage M is many delegations and
+many exit statuses. The arm shape is wrong for it, not merely unoccupied.
+
+**What (a2) needs before an engineer can scope it.** A design for stage M's
+multiplicity: either the registry admits a run-time artifact count, or stage M is
+accounted for differently from the other fifteen and the difference is written down.
+That is a `language-team` question and **this proposal does not answer it.** Rev 5
+scopes (a2) and stops there, because answering it inside a revision whose subject is
+job (a)'s shape would be the same conflation §2.5 exists to undo.
 
 ## 5. Job (b): port the plumbing
 
