@@ -6,7 +6,7 @@ synthetic run under tmp_path from the REFERENCE's own stage table. That is the
 same discipline the driver cover uses: assert against the reference, never
 against the port's copy of it.
 
-THREE CELLS ARE NEGATIVE CONTROLS AND THEY ARE THE POINT.
+FOUR CELLS ARE NEGATIVE CONTROLS AND THEY ARE THE POINT.
 
   * `test_the_gate_removed_control` deletes the T4 check and asserts the cell
     that should fail then passes. Without it, a T4 that never fires would look
@@ -17,6 +17,9 @@ THREE CELLS ARE NEGATIVE CONTROLS AND THEY ARE THE POINT.
   * `test_the_floor_drift_guard_fires` feeds a reference whose floors moved and
     asserts T0 catches it. The comparator encodes the floors, so this is what
     stops the encoded copy drifting away from the source it claims to mirror.
+  * `test_the_model_pin_removed_control` removes P2 and asserts the run that
+    must fail then passes. Its input is the oracle's OWN agent invocation,
+    which names a binary and no model, so the witness is not hypothetical.
 
 Every assertion reads the tool's own verdict LINE. None reads an exit status
 alone: a status cannot distinguish a pass from a check that did not run.
@@ -50,13 +53,29 @@ ref = _load(REFERENCE, "rfc_reference_for_clause2")
 STAGES = list(ref.STAGES)
 
 
+_OMIT = object()
+
+# The section 6.2 sidecar a compliant operator writes. Every cell in this file
+# gets one by default, because P1 and P2 are thresholded: a builder that omitted
+# it would fail all seventeen pre-existing cells at once rather than the one
+# under test.
+GOOD_PROV = {"agent_exe": "claude",
+             "agent_args": ["--model", "claude-opus-5", "-p", "{prompt}"],
+             "model": "claude-opus-5",
+             "llmll_version": "v0.23.1",
+             "driver_commit": "e49e968",
+             "date": "2026-09-11"}
+
+
 def _run_dir(tmp_path: pathlib.Path, *, drop: str | None = None,
              sizes: dict[str, int] | None = None,
-             halt: tuple[str, str] | None = None) -> pathlib.Path:
+             halt: tuple[str, str] | None = None,
+             prov=_OMIT) -> pathlib.Path:
     """Build a synthetic run whose every stage is complete, then perturb one thing.
 
     `drop` removes a stage's manifest row. `sizes` overrides a stage's declared
-    artifact size. `halt` records (stage_key, detail) as a stopped row.
+    artifact size. `halt` records (stage_key, detail) as a stopped row. `prov`
+    replaces the section 6.2 sidecar; pass None to write no sidecar at all.
     """
     run = tmp_path / "run"
     run.mkdir(exist_ok=True)
@@ -86,6 +105,11 @@ def _run_dir(tmp_path: pathlib.Path, *, drop: str | None = None,
     (run / "MANIFEST.json").write_text(
         json.dumps({"rfc_url": "https://example.invalid/rfc826.txt", "stages": stages},
                    indent=1), encoding="utf-8")
+    if prov is _OMIT:
+        prov = GOOD_PROV
+    if prov is not None:
+        (run / "RUN-PROVENANCE.json").write_text(
+            prov if isinstance(prov, str) else json.dumps(prov), encoding="utf-8")
     return run
 
 
@@ -261,3 +285,105 @@ def test_the_reported_half_names_no_oracle_for_stage_status(tmp_path, capsys):
     _call(_run_dir(tmp_path))
     out = _verdict(capsys)
     assert "R1 stage status" in out and "NO ORACLE" in out, out
+
+
+# --------------------------------------------------------------------------
+# P1 and P2: the model pin, pre-registration section 6.2 (Rev 3).
+# --------------------------------------------------------------------------
+def test_a_run_with_no_provenance_fails_P1(tmp_path, capsys):
+    """Both obligations are unmet by one omission, and both say so separately."""
+    rc = _call(_run_dir(tmp_path, prov=None))
+    out = _verdict(capsys)
+    assert "FAIL         P1" in out and "RUN-PROVENANCE.json is absent" in out, out
+    assert "FAIL         P2" in out, out
+    assert "CLAUSE-2 FAIL" in out and rc == 1
+
+
+def test_a_provenance_missing_a_field_fails_P1(tmp_path, capsys):
+    """The cell names the missing field. A generic parse error would not locate it."""
+    bad = {k: v for k, v in GOOD_PROV.items() if k != "driver_commit"}
+    rc = _call(_run_dir(tmp_path, prov=bad))
+    out = _verdict(capsys)
+    assert "FAIL         P1" in out and "driver_commit" in out, out
+    assert rc == 1
+
+
+def test_unreadable_provenance_fails_P1_without_killing_the_run(tmp_path, capsys):
+    """A malformed sidecar must not stop the other cells from reporting."""
+    rc = _call(_run_dir(tmp_path, prov="{not json"))
+    out = _verdict(capsys)
+    assert "FAIL         P1" in out and "not readable JSON" in out, out
+    assert "T1" in out and "T4" in out, "the other cells must still report"
+    assert rc == 1
+
+
+def test_an_undeclared_model_fails_P2(tmp_path, capsys):
+    bad = {**GOOD_PROV, "model": ""}
+    rc = _call(_run_dir(tmp_path, prov=bad))
+    out = _verdict(capsys)
+    assert "FAIL         P2" in out and "declared no model" in out, out
+    assert rc == 1
+
+
+def test_the_oracle_invocation_shape_fails_P2(tmp_path, capsys):
+    """POSITIVE WITNESS. The minimal firing input, and it is not hypothetical.
+
+    This is the oracle's own agent invocation (runs/rfc826/RESULTS.md:175)
+    translated into the port's --agent-exe / --agent-arg flags. It names the
+    binary and no model, which is exactly the section 4.2 defect. The run that
+    produced the oracle would fail this cell, which is the point of the cell.
+    """
+    bad = {**GOOD_PROV,
+           "agent_args": ["-p", "{prompt}", "--allowedTools", "Read,Write,Bash",
+                          "--permission-mode", "acceptEdits"]}
+    rc = _call(_run_dir(tmp_path, prov=bad))
+    out = _verdict(capsys)
+    assert "FAIL         P2" in out and "appears in NO element" in out, out
+    assert "CLAUSE-2 FAIL" in out and rc == 1
+
+
+def test_a_model_only_in_an_unrelated_argument_fails_P2(tmp_path, capsys):
+    """The test is over ELEMENTS. A substring test over the join would pass this."""
+    bad = {**GOOD_PROV, "model": "opus",
+           "agent_args": ["--workdir", "/tmp/opus-run", "-p", "{prompt}"]}
+    rc = _call(_run_dir(tmp_path, prov=bad))
+    out = _verdict(capsys)
+    assert "FAIL         P2" in out, out
+    assert rc == 1
+
+
+def test_both_invocation_styles_pass_P2(tmp_path, capsys):
+    """--model X and --model=X are both admitted; neither is imposed on the operator."""
+    joined = {**GOOD_PROV, "agent_args": ["--model=claude-opus-5", "-p", "{prompt}"]}
+    rc = _call(_run_dir(tmp_path, prov=joined))
+    out = _verdict(capsys)
+    assert "ok           P2" in out and "CLAUSE-2 PASS" in out, out
+    assert rc == 0
+
+
+def test_the_model_pin_removed_control(tmp_path, capsys, monkeypatch):
+    """NEGATIVE CONTROL. Remove P2 and assert the run that must fail then passes.
+
+    Without this cell, a P2 that never fires looks identical to a P2 that fires
+    correctly. The input is the positive witness above: the oracle's own
+    invocation, which carries no model.
+    """
+    monkeypatch.setattr(cmp_mod, "p2_model_pinned", lambda *_a, **_k: None)
+    bad = {**GOOD_PROV,
+           "agent_args": ["-p", "{prompt}", "--allowedTools", "Read,Write,Bash"]}
+    rc = _call(_run_dir(tmp_path, prov=bad))
+    out = _verdict(capsys)
+    assert "FAIL         P2" not in out, "the control did not remove the cell"
+    assert "CLAUSE-2 PASS" in out and rc == 0, out
+
+
+def test_the_model_pin_is_reported_beside_the_agent_logs(tmp_path, capsys):
+    """R7 records what the run asked for. It never gates: section 6.2's own limit."""
+    run = _run_dir(tmp_path)
+    (run / "02-extract").mkdir(parents=True, exist_ok=True)
+    (run / "02-extract" / "agent.stdout.log").write_text("x", encoding="utf-8")
+    rc = _call(run)
+    out = _verdict(capsys)
+    assert "R7 model pin" in out and "claude-opus-5" in out, out
+    assert "1 agent log(s)" in out and "NO ORACLE" in out, out
+    assert rc == 0

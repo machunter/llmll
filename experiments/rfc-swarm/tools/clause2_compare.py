@@ -14,6 +14,14 @@ The stage table comes from the REFERENCE (`scripts/rfc_to_implementation.py`'s o
 them out of the reference source. If you are tempted to import the port's tables to
 save work, that is the failure this paragraph exists to prevent.
 
+TWO CELLS HAVE THE OPERATOR AS THEIR SUBJECT, NOT THE PORT.
+P1 and P2 decide the model pin from pre-registration section 6.2: the run must
+pass an explicit model identifier to the agent and record the invocation in an
+operator-written RUN-PROVENANCE.json at the run root. They are thresholded,
+because section 6.2 says a run that lets the agent resolve a default model is
+not a valid clause 2 run, and such a run cannot make clause 2 pass. Their
+messages name the operator so a failure is not read as a defect in the driver.
+
 THE VERDICT IS A LINE, NOT AN EXIT STATUS. Every cell prints `ok`, `FAIL` or
 `NOT CHECKED`, and the run ends on `CLAUSE-2 PASS` or `CLAUSE-2 FAIL: ...`. A caller
 greps the line. An exit status alone cannot distinguish "passed" from "did not run",
@@ -46,6 +54,15 @@ RFC_COVERAGE = REPO / "scripts" / "rfc_coverage.py"
 FLOORS = {"B": 200, "C": 400}
 
 TERMINAL = {"complete", "stopped", "failed"}
+
+# The operator's sidecar, pre-registration section 6.2. Six fields, and `model`
+# is one of them BECAUSE the alternative does not work: without a declared
+# model, a checker has to find a model name somewhere inside `agent_args`, and
+# that needs a list of known names. Such a list is a rule fitted to the values
+# one run produced, which is what [V7-NO-HARDCODE] exists to refute.
+PROV = "RUN-PROVENANCE.json"
+REQUIRED_PROV_FIELDS = ("agent_exe", "agent_args", "model",
+                        "llmll_version", "driver_commit", "date")
 
 
 class Report:
@@ -231,10 +248,84 @@ def t5_stopped_for_failed(rep: Report) -> None:
 
 
 # --------------------------------------------------------------------------
+# P1 and P2: the model pin, pre-registration section 6.2.
+#
+# THE SUBJECT OF THESE TWO CELLS IS THE OPERATOR, NOT THE PORT. Every other
+# thresholded cell asks whether the LLMLL driver behaved; these two ask whether
+# the run was set up as clause 2 requires. They are thresholded anyway, because
+# this tool decides whether clause 2 PASSES, and section 6.2 says a run that
+# lets the agent resolve a default model is not a valid clause 2 run. A run
+# that is not a clause 2 run cannot make clause 2 pass. Each message names the
+# operator so a reader does not read a failure here as a defect in the driver.
+#
+# NOT `NOT CHECKED`. The T2b precedent does not apply: T2b is unchecked because
+# no artifact defines its check, and section 6.2 defines this one. A cell that
+# reports the same verdict whether the operator complied or not demands no
+# positive evidence and is indistinguishable from a cell that never runs.
+# --------------------------------------------------------------------------
+def p1_provenance_present(rep: Report, run: pathlib.Path):
+    """Read the operator's sidecar. Returns the record, or None when unusable.
+
+    fatal=False on purpose. A malformed sidecar fails THIS cell and lets the
+    other cells still report: the operator learns the state of the whole run
+    rather than the first thing that went wrong.
+    """
+    prov = read_json(run / PROV, fatal=False)
+    if prov is None:
+        rep.fail("P1", f"{PROV} is absent at the run root. Section 6.2 requires the "
+                       "operator to write it BEFORE the run starts, so it cannot be "
+                       "supplied now without fabricating it.")
+        return None
+    if prov is UNREADABLE:
+        rep.fail("P1", f"{PROV} is not readable JSON")
+        return None
+    if not isinstance(prov, dict):
+        rep.fail("P1", f"{PROV} is not a JSON object")
+        return None
+    missing = [f for f in REQUIRED_PROV_FIELDS if f not in prov]
+    if missing:
+        rep.fail("P1", f"{PROV} omits {len(missing)} required field(s): "
+                       + ", ".join(missing))
+        return None
+    rep.ok("P1", f"{PROV} carries all {len(REQUIRED_PROV_FIELDS)} required fields")
+    return prov
+
+
+def p2_model_pinned(rep: Report, prov) -> None:
+    """The pin itself: the declared model must appear in the recorded argv.
+
+    The test is over ELEMENTS of `agent_args` and never over the joined string.
+    A substring test over the join would accept model `opus` against
+    `["--workdir", "/tmp/opus-run"]`, which pins nothing. Both invocation
+    styles pass: ["--model", "X"] and ["--model=X"].
+    """
+    if prov is None:
+        rep.fail("P2", f"no usable {PROV}, so the pin has no evidence. Section 6.2 "
+                       "carries two obligations and this is the second one.")
+        return
+    model = prov.get("model")
+    if not isinstance(model, str) or not model:
+        rep.fail("P2", "`model` is not a non-empty string; the run declared no model")
+        return
+    args = prov.get("agent_args")
+    if not isinstance(args, list):
+        rep.fail("P2", "`agent_args` is not a list, so the declared model cannot be "
+                       "checked against the invocation")
+        return
+    toks = [a for a in args if isinstance(a, str)]
+    if any(a == model or a.split("=", 1)[-1] == model for a in toks):
+        rep.ok("P2", f"model {model!r} is pinned in the recorded invocation "
+                     f"({len(toks)} argv element(s))")
+        return
+    rep.fail("P2", f"model {model!r} appears in NO element of agent_args, so the run "
+                   f"declared a model it did not pass to the agent. argv={toks!r}")
+
+
+# --------------------------------------------------------------------------
 # Reported classes. Recorded with n, never thresholded.
 # --------------------------------------------------------------------------
 def reported(rep: Report, stages, manifest: dict, run: pathlib.Path,
-             oracle: pathlib.Path) -> None:
+             oracle: pathlib.Path, prov=None) -> None:
     rows = manifest.get("stages") or {}
     counts: dict[str, int] = {}
     for st in stages:
@@ -257,6 +348,28 @@ def reported(rep: Report, stages, manifest: dict, run: pathlib.Path,
     or_wave = read_json(oracle / "wave.json", fatal=False)
     rep.note("R5 wave partition", _wave_line(run_wave, or_wave))
     rep.note("R6 retry budget", _attempts_line(run_wave, or_wave))
+    rep.note("R7 model pin", _prov_line(run, prov))
+
+
+def _prov_line(run: pathlib.Path, prov) -> str:
+    """Put the declared invocation beside the agent logs the run actually wrote.
+
+    REPORTED and never thresholded, for the reason section 6.2 states as its own
+    limit: the sidecar is written by the operator, so it attests rather than
+    observes. It pins what the run ASKED FOR, not what served the request. The
+    log count is what the run produced, so the two sit side by side and a reader
+    can see whether a declared invocation had any delegated calls at all.
+
+    The oracle side is NO ORACLE by construction: no committed run carries a
+    sidecar, and section 4.2 is the finding that says why it cannot be added.
+    """
+    logs = len(list(run.glob("**/agent.stdout.log")))
+    if not isinstance(prov, dict):
+        return f"run NO RECORD / {logs} agent log(s) / oracle NO ORACLE (section 4.2)"
+    model = prov.get("model", "?")
+    exe = prov.get("agent_exe", "?")
+    return (f"run requested {model!r} via {exe!r} / {logs} agent log(s) / "
+            "oracle NO ORACLE (section 4.2: the oracle's model is unrecoverable)")
 
 
 def _gate_line(run_g, or_g) -> str:
@@ -360,11 +473,13 @@ def main(argv: list[str] | None = None) -> int:
     t3_halt_on_output(rep, manifest, a.stdout)
     t4_complete_shape(rep, stages, manifest, a.run)
     t5_stopped_for_failed(rep)
+    prov = p1_provenance_present(rep, a.run)
+    p2_model_pinned(rep, prov)
     for line in rep.lines:
         print(line)
 
     rep2 = Report()
-    reported(rep2, stages, manifest, a.run, a.oracle)
+    reported(rep2, stages, manifest, a.run, a.oracle, prov)
     print("CLAUSE-2 reported (not thresholded; divergence here is a finding)")
     for line in rep2.lines:
         print(line)
