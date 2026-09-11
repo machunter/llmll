@@ -442,12 +442,18 @@
   (def-shell cid-array [rs: list[Json]] -> Json
     (json-of-list (list-map rs (fn [r: Json] (json-of-string (str-field r "cid"))))))
 
-  (def-shell jset [o: Json k: string v: Json] -> Json
+  ;; NOT `jset`, which is what this was called until program unification. The
+  ;; wave has a function of the same name and the SAME SIGNATURE whose fallback
+  ;; is the ORIGINAL object; this one's is an EMPTY object. Identical shape,
+  ;; opposite behaviour on a failed json-set, so under `(open ...)` one would
+  ;; shadow the other with nothing but a warning that exits 0. The name now
+  ;; carries the difference.
+  (def-shell jset-or-empty [o: Json k: string v: Json] -> Json
     (unwrap-or (json-set o k v) json-object))
 
   (def-shell gate-report [rs: list[Json]] -> string
     (json-serialize
-      (jset (jset (jset (jset (jset json-object
+      (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty json-object
         "verifiable_carried" (json-of-int (n-carried rs)))
         "verifiable_total"   (json-of-int (n-verifiable rs)))
         "coverage_note"      (json-of-string "reported, NOT thresholded"))
