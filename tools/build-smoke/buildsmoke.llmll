@@ -333,8 +333,10 @@
     (| Drv8S)      ;; ran `stack path` in the sequencer's out dir
     (| Drv8R)      ;; read that install root
     (| Drv8P)      ;; ran driver_ll_cover.py; status arrives
-    ;; stage 9, the DRIVER-LL 4e wave cover
-    (| Wav9)       ;; built wave.llmll; status arrives
+    ;; stage 9, the DRIVER-LL 4e wave cover. The wave is a LIBRARY since
+    ;; program unification job (a2), so this builds the one driver program and
+    ;; the cover reaches the wave through its `wave` sub-command.
+    (| Wav9)       ;; built sequencer.llmll; status arrives
     (| Wav9S)      ;; ran `stack path` in the wave's out dir
     (| Wav9R)      ;; read that install root
     (| Wav9P)      ;; ran wave_cover.py; status arrives
@@ -1052,7 +1054,7 @@
 
   (def-shell wav9-build [b: Bs] -> Command
     (wasi.proc.run (get-s b "subject")
-                   ["build" "wave.llmll" "-o" (w-out-of (get-s b "work"))]
+                   ["build" "sequencer.llmll" "-o" (w-out-of (get-s b "work"))]
                    (d-dir-of (get-s b "root"))
                    (w-log-of (get-s b "work"))
                    (w-log-of (get-s b "work"))
@@ -2305,26 +2307,26 @@
                                    (w-sir-of (get-s b "work"))
                                    120 "/dev/null"))
                 (go b Ending
-                    (wasi.io.stdout (fail-line "the DRIVER-LL wave does not build.")))))
+                    (wasi.io.stdout (fail-line "the DRIVER-LL driver does not build.")))))
           ((Wav9S)
             (if (ok? r)
                 (go b Wav9R (wasi.fs.read (w-sir-of (get-s b "work"))))
                 (go b Ending
                     (wasi.io.stdout (fail-line
-                      "built the DRIVER-LL wave but stack reported no install root for it. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
+                      "built the DRIVER-LL driver but stack reported no install root for it. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))))
           ((Wav9R)
             (let [(sir (chomp (bs-text r)))]
               (if (string-empty? sir)
                   (go b Ending
                       (wasi.io.stdout (fail-line
-                        "built the DRIVER-LL wave but found no wave binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
+                        "built the DRIVER-LL driver but found no sequencer binary under its install root. Without running it this stage observes nothing, which is the failure mode it exists to prevent.")))
                   ;; The cover drives the REAL compiler, not a stub, so the
                   ;; subject passes it the same binary this port resolved for
                   ;; itself at stage 2.
                   (go b Wav9P
                       (wasi.proc.run "python3"
                                      [(w-cover-py (get-s b "root"))
-                                      "--wave" (string-concat sir "/bin/wave")
+                                      "--wave" (string-concat sir "/bin/sequencer")
                                       "--llmll" (get-s b "subject")]
                                      (get-s b "root")
                                      (w-cov-of (get-s b "work"))
@@ -2334,7 +2336,7 @@
             (if (ok? r)
                 (go b Vg10
                     (seq-commands
-                      (wasi.io.stdout (pass-line "DRIVER-LL 4e wave cover (7 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree)"))
+                      (wasi.io.stdout (pass-line "DRIVER-LL 4e wave cover (9 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record)"))
                       (vg10-build b)))
                 (go b Ending
                     (wasi.io.stdout (fail-line
