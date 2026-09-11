@@ -128,7 +128,7 @@ SEAM = {
 # Reads a string, but its subject is the operator's own argv. Named here with
 # its reason rather than filtered silently, so a second exception has to be
 # argued for.
-NOT_A_SUBPROCESS_READ = {"missing-flags"}
+NOT_A_SUBPROCESS_READ = {"wave-missing-flags"}
 
 
 def _params(src: str, name: str) -> str:
@@ -284,7 +284,7 @@ def test_the_three_matches_over_ctl_agree():
     src = _uncommented(WAVE)
     arms = set(_ctl_arms())
     assert len(arms) >= 10, f"WCtl lost arms: {sorted(arms)}"
-    for fn in ("wave-step", "wave-done?", "done-code"):
+    for fn in ("wave-step", "wave-done?", "wave-done-code"):
         named = set(re.findall(r"\(\((\w+)[ )]", _body_of(src, fn)))
         assert named == arms, (
             f"{fn} does not match WCtl: missing {sorted(arms - named)}, "
@@ -296,7 +296,7 @@ def test_exactly_one_arm_is_terminal():
     depend on which one the run happened to reach."""
     body = _body_of(_uncommented(WAVE), "wave-done?")
     trues = re.findall(r"\(\((\w+)[^)]*\)\s+true\)", body)
-    assert trues == ["Done"], f"the terminal arms are {trues}, not just Done"
+    assert trues == ["WDone"], f"the terminal arms are {trues}, not just WDone"
 
 
 def test_the_main_options_are_in_the_fixed_order():
