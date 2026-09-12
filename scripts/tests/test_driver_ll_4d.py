@@ -169,10 +169,11 @@ def test_the_port_constructs_partial_then_halt_at_the_two_stage_sites():
     users = {d for d, body in SEQ_DEFS.items()
              if re.search(r"[\s(]PartialThenHalt[\s)]", body)}
     stage_sites = users - injector
-    assert stage_sites == {"hwrote-step", "o-decide", "j-decide"}, (
+    assert stage_sites == {"hwrote-step", "o-decide", "j-decide",
+                           "g2-wrote-step"}, (
         f"PartialThenHalt is constructed by {sorted(stage_sites)} outside the "
-        "injector; the stage sites are hwrote-step (4d), o-decide (4f) and "
-        "j-decide (clause 3)")
+        "injector; the stage sites are hwrote-step (4d), o-decide (4f), and "
+        "j-decide and g2-wrote-step (clause 3)")
     assert '"driver-spec sec 4:146-147"' in SEQ_DEFS["hwrote-step"], (
         "the stopped row must name the clause that authorised it")
     assert '"driver-spec sec 13"' in SEQ_DEFS["o-decide"], (

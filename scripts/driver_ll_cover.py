@@ -108,6 +108,14 @@ if name == "extraction.json":
         rows[0]["line_start"] = "2"
     if mode == "empty-extraction":
         rows = []
+    # Stage G2's reported half: a declared normative strength that does not
+    # occur in the row's own quote. The quote is "q", so no strength family
+    # hits it. The reference reports this and never halts, because it fires on
+    # CORRECT rows (three TFTP rows cite a requirements-summary table where the
+    # strength is a column position rather than a word).
+    if mode == "strength-absent":
+        for r in rows:
+            r["strength"] = "MUST"
     out.write_text(json.dumps(
         {"extractor": tag, "normative": rows,
          "excluded": [{"id": tag + "x", "source": "SPEC", "line_start": 1,
@@ -141,6 +149,12 @@ if name == "inventory-dispositioned.json":
                "barrier": "B5", "reason": "string structure", "core": True}
     if mode == "bad-class":
         row["class"] = "C9"
+    # Stage G2's STOP: a dispositioned row whose cid is in no census row. It
+    # satisfies check_dispositioned's shape, so stage G passes it through and
+    # G2 is the first stage that can see it.
+    if mode == "uncited-row":
+        row = {"cid": "ZZ9", "class": "C1", "disposition": "Encoded",
+               "reason": "cites a census row that does not exist"}
     out.write_text(json.dumps({"rows": [row]}))
     sys.exit(0)
 
@@ -1744,6 +1758,96 @@ def e4(b, wd):
     # tells the two apart: no spawn, no transcript.
     want(not (wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
          "the stage halted before the spawn, so no child transcript exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage G2, the artifact audit.
+#
+# The port lands two of the reference's three halves and names the two it does
+# not in the artifact's own `note`. The citation half needs a token-coverage
+# ratio and LLMLL has no floats; the delegated half is a roadmap row, so that a
+# new agent-delegated stage does not arrive under a port.
+# ---------------------------------------------------------------------------
+
+
+def localG2(cell: str, why: str):
+    """The stage G2 sibling. `self_test()` pins two counts over the frozen TFTP
+    census and never drives the stage."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def audit_json(wd: Path) -> dict:
+    out = wd / "06b-audit" / "audit.json"
+    want(out.exists(), "06b-audit/audit.json is absent: stage G2 wrote no "
+                       "declared output")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@localG2("G2a", "the audit checks every dispositioned row against the census, "
+                "reports, and completes; the note names both omitted halves")
+def g2a(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["G2"], "gate")
+    g = audit_json(wd)
+    want(set(g) == {"rows", "citations_checked", "uncited_rows",
+                    "declared_strength_absent_from_quote", "note"},
+         f"06b-audit/audit.json is not the members this port fills: {sorted(g)}")
+    want("driver-ll" not in g,
+         "06b-audit/audit.json is still the 4a stub body, so the stage did not run")
+    want(g["uncited_rows"] == [] and g["citations_checked"] == g["rows"],
+         f"every dispositioned row cites a census row here: {g}")
+    # THE OMISSIONS ARE IN THE ARTIFACT, not only in a comment. A reader of
+    # audit.json must not infer the port's scope from which members are present.
+    want("no floats" in g["note"] and "delegated half" in g["note"],
+         f"the note names both halves this port omits: {g['note']!r}")
+
+
+@localG2("G2b", "a dispositioned row citing no census row halts AFTER the "
+                "declared write: stopped, PartialThenHalt, sec 14:479-483")
+def g2b(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2", mode="uncited-row")
+    want_rc(r, 2)
+    row = r.stages()["G2"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 14:479-483",
+         f"the STOP names the clause that authorised it: {row}")
+    # The ordering IS the cell, as it is for stage J: the reference writes
+    # audit.json and THEN evaluates its three require_spec calls.
+    g = audit_json(wd)
+    want(g["uncited_rows"] == ["ZZ9"],
+         f"the report names the row that fired the STOP: {g['uncited_rows']}")
+    want(g["citations_checked"] == 0 and g["rows"] == 1,
+         f"an uncited row is counted out of citations_checked: {g}")
+
+
+@localG2("G2c", "a declared strength absent from its own quote is REPORTED and "
+                "does NOT halt: it fires on correct rows")
+def g2c(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2", mode="strength-absent")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["G2"], "gate")
+    g = audit_json(wd)
+    want(g["declared_strength_absent_from_quote"] != [],
+         f"the strength check found nothing, so the cell asserts nothing: {g}")
+    want(g["uncited_rows"] == [],
+         "this cell must isolate the reported half from the STOP")
+
+
+@localG2("G2d", "an absent census is failed, not stopped: the audit has no "
+                "citations to check and that is not a defined condition")
+def g2d(b, wd):
+    seed_disposition(wd, json.dumps({"rows": [
+        {"cid": "A0", "class": "C1", "disposition": "Encoded", "reason": "r"}]}))
+    r = drive(b, wd, "G2")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["G2"], "failed", "Errored", clause=False)
+    want_in("extraction-a.json", r)
+    want(not (wd / "06b-audit" / "audit.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
 
 
 def main() -> int:
