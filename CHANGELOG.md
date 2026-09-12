@@ -4,6 +4,70 @@
 
 <a id="Latest"></a>
 
+## v0.23.4: one dispatch table replaces two, and the driver's last stub write is deleted (2026-09-12)
+
+**Unification completion-test clause 3 closes, and with it the `DRIVER-LL` program-unification
+line.** `registry.stage-ported?` required deleting rather than correcting, and
+[`docs/design/driver-ll-program-unification-proposal.md`](docs/design/driver-ll-program-unification-proposal.md)
+§2.5 adds the clause that deleting it alone does not satisfy: every stage writes a real artifact and
+none writes a stub. Both now hold. Design:
+[`docs/design/driver-ll-clause3-spine-fold-proposal.md`](docs/design/driver-ll-clause3-spine-fold-proposal.md),
+Rev 1 SETTLED.
+
+- **One table replaces two, and the replacement closes a defect rather than tidying a chain.**
+  `registry.stage-machine` answers `intake`, `spine`, `wave` or `delegate` for each of the sixteen
+  stages, every index 0 to 14 named and the final arm index 15, so no unnamed index reaches a
+  sentinel. `stage-ported?` carried a retirement schedule and `stage-fanout` routed stage M ahead of
+  a `stage-kind` test; both are deleted. **`stage-kind` answers `mechanical` for stage A AND stage
+  E**, so that test was keyed on a label two stages carry and implemented for exactly one, and stage
+  E's `false` row in `stage-ported?` was the only thing keeping the reconciliation stage out of stage
+  A's URL-fetch loop. `stage-kind` now labels and decides nothing.
+- **Stages E, G2, J and L are ported from `spine.llmll` into the stage loop.** J writes
+  `09-gate/gate.json` and **then** evaluates the two conditions driver-spec §6 enforces, which is the
+  order `rfc_to_implementation.py` runs in (:921-932, then :936 and :939), so a gate halt is
+  `PartialThenHalt` and records `stopped`. E runs `reconcile.py` over the pair stage D staged and
+  writes the reference's four-member `04-reconcile/SUMMARY.json`. G2 lands two of three halves and
+  names the third in the artifact's own `note`. L freezes the clause surface and is the one stage of
+  the four whose proved centre transfers intact, `stage-l-outcome` having the `PartialThenHalt` arm
+  that `stage-e-outcome` and `stage-g2-outcome` lack.
+- **Driver CLI change: `--reference-dir` is now REQUIRED for stages E and L.** It was optional,
+  because the language-reference provisioner silently skips a missing file. Those two stages resolve
+  `experiments/rfc-swarm/tools/reconcile.py` and `scripts/rfc_coverage.py` from it; a tool path is
+  not an artifact path and has no workdir fallback. Each records `failed` and names the flag when it
+  is empty. **No new flag**, and nothing that worked before breaks: both stages wrote stubs until now.
+- **The stub path is deleted, not disabled.** The `stub` machine value, the `started-step` arm that
+  read it, and `write-cmd`, `stub-body` and the `Made` `Ctl` state all go with stage L. From
+  sub-phase 4a until this release an unported stage wrote a placeholder to each artifact it declared.
+  **Sixteen of sixteen stages now write a real artifact.**
+- **Three defects in the design proposal, each refuted by a mutation control rather than by argument,
+  and each reading the reference as WEAKER than it is.** §9 says four proved cores acquire a live
+  caller; three cannot, because `stage-e-passes`, `stage-j-pins` and `stage-g2-pins` pin the committed
+  TFTP corpus and their `NOVACUOUS` posts prove a divergent count fails the stage. §8 case 1 routes
+  stage E's non-zero reconciler exit through `stage-e-outcome`, which has no `Errored` arm. §8 case 5
+  calls the uncited-rows check a report; it is a `require_spec`. **Rev 2 is owed.**
+- **Ten mutation controls, nine caught, and the tenth is recorded rather than smoothed over.** No
+  cover cell catches a **failed declared write**, for J, E, G2 or L: inducing one needs an unwritable
+  path mid-run and the cover has no mechanism for it. The 4d and 4f ports carry the same gap.
+- **`spine.llmll`'s replay harness is superseded and deliberately NOT deleted.** `spine-step` is the
+  18-state counter that replayed all four stages against the committed corpus, and all four now run
+  in the stage loop. Deleting it changes the file and therefore its `.verified.json`, which the
+  clause 3 acceptance forbids this work from doing. Phase 4's gap inventory owes an entry for it and
+  for the replay guarantee that ends here by design.
+
+**G0 does not close here.** Job (b), the clause 2 re-run, the Phase 4 close with its gap inventory
+and the Phase 5 conformance claim all follow.
+
+**No compiler change, no `llmll` CLI change, no JSON-AST schema change**; nothing under `compiler/`
+was touched, and `LLMLL.md` moves only its banner. The driver's own flags are documented in
+[`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1942 examples, 0 failures (unchanged; no Haskell touched). pytest 291 passed, 23 skipped (314
+collected, from 311 at v0.23.3). [`scripts/driver_ll_cover.py`](scripts/driver_ll_cover.py) 63 to
+**80** cells and [`scripts/wave_cover.py`](scripts/wave_cover.py) unchanged at 14, both outside
+pytest and both RUN: 80 of 80 and 14 of 14, against the built driver and the real compiler.
+
+---
+
 ## v0.23.3: stage M hands its agent four declared inputs, and until now it could not invoke its agent at all (2026-09-12)
 
 **The stage M agent contract lands.** Sub-phase 4e settled that the checkout brief is the agent's
