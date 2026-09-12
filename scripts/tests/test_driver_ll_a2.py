@@ -245,6 +245,60 @@ def test_stage_m_declares_two_outputs_and_the_fold_uses_both():
 
 
 # ---------------------------------------------------------------------------
+# 6. The exit seam: which wave codes halt the stage
+# ---------------------------------------------------------------------------
+
+def test_only_two_wave_codes_halt_the_stage():
+    """THE CLAUSE A PLAUSIBLE PORT GETS WRONG, and nothing else grades it.
+
+    `stage_M_wave` holds two `require` calls and neither fires on a finding, on
+    a protocol fault, or on an unsealed tree: it logs all three and returns. So
+    four of the wave's six exit codes record the stage COMPLETE, and a port that
+    read any non-zero code as a failure would halt where the reference continues.
+    Stage N would then never run and the campaign would lose the kill matrix for
+    a reason that is not a defect in the fill wave.
+
+    NO COVER CELL REACHES THIS. `driver_ll_cover.py` M1 drives the failing path,
+    because that is the only wave code its stub compiler can produce; W2 and W9
+    grade a finding at the wave level, one layer below the stage outcome. A
+    findings run continuing into stage N is asserted here and nowhere else.
+
+    The assertion is on the code set rather than on the arms, because the way
+    this breaks is a code JOINING the halt chain, not an arm changing shape.
+    """
+    body = _body_of(_uncommented(SEQUENCER), "fan-join")
+    halting = sorted(int(c) for c in re.findall(r"\(=\s*code\s*(\d+)\)", body))
+    assert halting == [2, 4], (
+        f"fan-join halts on wave codes {halting}, not [2, 4]. Codes 0, 1, 3 and 5 "
+        "must fall through to to-summed: they are a clean run, a finding, a "
+        "protocol failure and an unsealed tree, and the reference records the "
+        "stage complete for all four.")
+    assert "to-summed" in body, \
+        "fan-join no longer rejoins the post-stage path on a completing code"
+
+
+def test_the_token_halt_is_stopped_and_the_empty_tree_is_failed():
+    """The two halting codes take DIFFERENT dispositions and the difference is
+    driver-spec's, not a preference.
+
+    Code 4 is the token discipline, which `token.llmll` cites to driver-spec
+    section 10:371 as [S10-NOTHELD]. A halt on a condition the SPECIFICATION
+    defines is `stopped` per section 4:125-127. Code 2 is a `require` in the
+    reference, so it is `failed`. Recording code 4 as failed would report a gate
+    that fired as an accident, which section 4:135-137 names as the dangerous
+    direction.
+    """
+    body = _body_of(_uncommented(SEQUENCER), "fan-join")
+    four = body[body.find("(= code 4)"):body.find("(= code 2)")]
+    assert "ConditionUnmet" in four, \
+        "the token halt is no longer a spec-defined stop"
+    assert "halt-errored" not in four, \
+        "the token halt records failed; driver-spec sec 4:135-137 names that direction"
+    two = body[body.find("(= code 2)"):]
+    assert "halt-errored" in two, "the empty-tree halt no longer records failed"
+
+
+# ---------------------------------------------------------------------------
 # 6. The emit guard
 # ---------------------------------------------------------------------------
 

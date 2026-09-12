@@ -1,7 +1,7 @@
 ---
 name: driver-ll-stage-m-fanout-proposal
 title: "DRIVER-LL stage M: the fan-out dimension, and the registry change it does not need"
-status: "Rev 1, 2026-09-11. Answers the design question the program-unification proposal Rev 5 section 4.10 scoped and deliberately did not write. MEASURED CORRECTION TO THAT SECTION: item 2 says stage M's artifact count is holes times attempts and therefore fits no registry entry. `stage-out-count` counts DECLARED outputs and stage M declares TWO, statically; the per-attempt directories are undeclared scratch, exactly as the reference's are. What varies at run time is how many times ONE delegation tag is executed, and NO registry column has ever carried that number for ANY stage. Stage H's probe rows and stage N's mutant rows are already that dimension and they live in the `Loop` payload. So the registry needs no new shape and item 2 overstates the gap; item 3 is correct as written and is what this proposal answers. The design is: one new registry KIND tag (`stage-fanout`), ONE new `Ctl` arm carrying the wave's own state pair, and an exit mapping read off the reference rather than chosen. FOUR OF THE WAVE'S SIX EXIT CODES MAP TO `Finished`, which is the clause a wrong port breaks: treating a non-zero code as a stage failure would halt the run where the reference continues and stage N would never run. Code 4 records `stopped` and not `failed`, because driver-spec section 10 defines the condition. TWO DRIFTS FOUND WHILE READING, both inside the driver tree: `stage-provision-ref?` returns false for M while the comment above it names M, and `wave.llmll` writes ONE of stage M's two declared outputs. The second is graded work and not tidiness: two of the clause 2 comparator's reported classes read `wave.json`. One payload widening is required and only one."
+status: "Rev 2, 2026-09-11. SHIPPED, and three of this proposal's specifics did not survive implementation. THE SHARPEST IS SECTION 11 OBLIGATION 1, WHICH RESTS ON A FALSE PREMISE. It states that `drv-status`'s `[EXIT-RANGE]` post discharges body-faithfully today and that a non-literal arm would break it, and it prescribes promoting the clamp into a proved `def`. MEASURED from `sequencer.llmll.verified.json`: that post sits at `display_level: asserted`, with no `body_faithful` key and no `verified_hash`. It has never been discharged, and this document's own closing paragraph in that section cites the sequencer header saying so. NO NEW PROVED `def` WAS NEEDED. What actually constrained the arm is different and the compiler said it: `drv-status` is a `def`, so strict-core ADMISSIBILITY applies to its arms, and `llmll check` rejected the call with `callee 'wave-status' is not body-faithful and not in the trusted prelude`. `isCoreBodySyntactic` admits an `EApp` syntactically; the admissibility check is a separate gate. The resolution is simpler than this proposal's: `fan-step` leaves through `Ending` for BOTH values of `k`, so a `Fan` state is never terminal and all three status arms stay integer literals. SECTION 3.2 WAS WRONG TO FILL `stage-prompt 13`: the reference renders `stage-M-fill.md` and the port does not, because `begin-attempt` hands the agent `brief.json` and an output path, which is the checkout-brief-is-the-sole-channel discipline, and cover cell W1 asserts exactly two arguments. The row stays empty and the registry comment now says why. SECTION 3.4 WAS WRONG TO SET `stage-provision-ref? 13` TRUE: a true row would claim a behaviour the code lacks, which is the defect class that section exists to repair. The row stays FALSE and the comment records the gap. Section 3.4 asked whether the omission was a decision or an oversight; MEASURED, it is an OVERSIGHT, because no document anywhere records it. WHAT HELD: section 1, section 2, section 4, section 6 including the code-4-is-`stopped` reading and all seven rows, section 7, and section 10 case 3. ONE THING THIS PROPOSAL DID NOT PREDICT: a second `Ctl` arm, `FanBoot`, carries the AST-emit guard, because re-emitting resets every hole a partial run had filled. Rev 1, 2026-09-11. Answers the design question the program-unification proposal Rev 5 section 4.10 scoped and deliberately did not write. MEASURED CORRECTION TO THAT SECTION: item 2 says stage M's artifact count is holes times attempts and therefore fits no registry entry. `stage-out-count` counts DECLARED outputs and stage M declares TWO, statically; the per-attempt directories are undeclared scratch, exactly as the reference's are. What varies at run time is how many times ONE delegation tag is executed, and NO registry column has ever carried that number for ANY stage. Stage H's probe rows and stage N's mutant rows are already that dimension and they live in the `Loop` payload. So the registry needs no new shape and item 2 overstates the gap; item 3 is correct as written and is what this proposal answers. The design is: one new registry KIND tag (`stage-fanout`), ONE new `Ctl` arm carrying the wave's own state pair, and an exit mapping read off the reference rather than chosen. FOUR OF THE WAVE'S SIX EXIT CODES MAP TO `Finished`, which is the clause a wrong port breaks: treating a non-zero code as a stage failure would halt the run where the reference continues and stage N would never run. Code 4 records `stopped` and not `failed`, because driver-spec section 10 defines the condition. TWO DRIFTS FOUND WHILE READING, both inside the driver tree: `stage-provision-ref?` returns false for M while the comment above it names M, and `wave.llmll` writes ONE of stage M's two declared outputs. The second is graded work and not tidiness: two of the clause 2 comparator's reported classes read `wave.json`. One payload widening is required and only one."
 date: 2026-09-11
 author: language-team
 consumers: [compiler-engineer, user, documentation-lead, experiment-lead]
@@ -107,6 +107,23 @@ the registry finds it.
 `stage-agent-dir 13 j` is already `12-wave` through `stage-out-dir`, and does not
 move.
 
+> **CORRECTED at Rev 2: neither row is filled, and filling either would have been
+> the defect this proposal warns about elsewhere.**
+>
+> **`stage-prompt 13` stays empty.** The reference renders `stage-M-fill.md`; the
+> port renders no template for stage M. `begin-attempt` in
+> [`wave.llmll`](../../tools/llmll-driver/wave.llmll) hands the agent two things,
+> `brief.json` and an output path, which is the checkout-brief-is-the-sole-channel
+> discipline this repository keeps everywhere else. Cover cell W1 in
+> [`wave_cover.py`](../../scripts/wave_cover.py) asserts exactly those two
+> arguments, off the `wd/h0-a0/argv.json` the stub agent records. **A filled row
+> would state a delegation shape the code does not use.** This proposal read the
+> reference for that row and did not read the port. The registry comment now
+> carries the reason, and it also warns that `stage-prompt` and `stage-agent-label`
+> are empty for stage M for two DIFFERENT reasons which a reader must not merge.
+>
+> **`stage-provision-ref? 13` stays false.** See the Rev 2 note in §3.4.
+
 ### 3.3 `stage-agent-label` stays empty for stage M, and the comment must say why
 
 The reference's label is `fill-{fn}#{attempt}`, a function of the hole's function
@@ -130,6 +147,25 @@ The row is probably false because stage M was stubbed when the column was writte
 It may instead be false by a decision nobody recorded. **The engineer reads the call
 site before flipping the row, and records which of the two it was.** Flipping it
 without reading would be the class of move this repository keeps catching.
+
+> **ANSWERED at Rev 2, and the row does not move.** The check ran and the answer is
+> **oversight**: `_provision_reference` runs inside `stage_M_wave`'s per-hole
+> closure, `wave.llmll` does not provision, and **no document anywhere records the
+> omission**. Not `wave.llmll`'s header, not `wave_cover.py`, not
+> [`driver-ll-phase4-proposal.md`](driver-ll-phase4-proposal.md). A decision leaves
+> a record and this one left none.
+>
+> **The row stays FALSE anyway, and §3.2 above prescribed the wrong move.** The port
+> does not provision the language reference. Setting the row true would make the
+> table claim a behaviour the code lacks, which is the defect class this section
+> exists to repair rather than to commit in the other direction. The row now carries
+> a comment naming the gap, the call site, and the three documents that are silent
+> about it.
+>
+> **The fix is not blocked, and the comment says that too.** Cover cell W1 asserts
+> the agent receives two ARGUMENTS; provisioning puts two files in a directory, so
+> the cell does not forbid it. Closing the gap is a port change with its own cover
+> row, and it is not (a2)'s.
 
 ## 4. Control shape: `Ctl` gains one arm, not twelve
 
@@ -155,6 +191,28 @@ no collision and no flattening. The wave keeps its twelve arms in
 **`k = -1` is the standalone wave run.** The unified program's `Boot 0` arm already
 receives argv. When argv starts with `wave`, it enters `Fan (-1, ...)` and the wave's
 own flag parse runs unchanged. §8 is why this matters.
+
+> **SHIPPED at Rev 2, with one arm this section did not predict.** The decision held:
+> one outer arm carrying the inner state, no flattening, the wave keeps its twelve
+> arms. Two details moved.
+>
+> **`Fan` carries a start clock beside `k`.** The shipped arm is
+> `(| Fan (int, (int, (Wv, WCtl))))`. The second `int` is the stage's start time,
+> which `fan-exit` needs to hand `to-summed` and which the wave does not track.
+>
+> **`Ctl` gained a SECOND arm, `FanBoot`, and it exists for a guard.**
+> `stage_M_wave` emits the AST tree only when the tree is absent or `--force` is set.
+> **Re-emitting would reset every hole a partial run had already filled**, which
+> would destroy the property §10 case 2 makes the argument for: a halted stage M
+> leaves no manifest row, re-runs, and re-derives the hole list from the tree, so a
+> filled hole is no longer a hole. Resume at hole granularity is free only while the
+> tree survives. The guard needs the tree's own hash before the wave seeds, and a
+> `Command` result cannot be inspected inside the arm that issues it, so the probe
+> needs a state of its own. `FanBoot (int, int)` carries `k` and the start clock,
+> `started-step` issues `wasi.fs.sha256` on the declared tree path, and
+> `fanboot-step` prepends the emit only when the hash is empty and `--force` is
+> absent. **This proposal named the guard in §5 and did not notice it needed an
+> arm.** The §4.3 reasoning it rests on is unchanged; the arm count is two.
 
 ## 5. The entry seam
 
@@ -183,6 +241,28 @@ issues `llmll holes --json` and enters `WBoot 1`. **No wave arm changes.**
 `llmll build 12-wave/roots.llmll --emit -o 12-wave`, guarded by a `tree.exists()`
 test that `--force` overrides. The port needs the same copy and the same emit ahead of
 `wave-seed`. A failed emit is a `require` in the reference, so it records `failed`.
+
+> **SHIPPED at Rev 2, with three corrections to this section.**
+>
+> **The split named the wrong survivor.** `wave-init` does not keep the argv path
+> under its own name. It splits into `wave-seed [c: WaveCfg]`, which the stage arm
+> enters past the argv parse, and `wave-boot-args [as: list[string]]`, which the
+> `wave` sub-command takes. No `wave-init` remains. **No wave arm changed**, which is
+> what this section claimed and what the fold had to achieve.
+>
+> **`err0` and `proto0` now have a sequencer source, so the last table row is
+> closed.** `--error-budget` and `--protocol-budget` shipped on the sequencer with
+> the same must-be-at-least-1 guard the wave carries, and `fan-cfg [c: Cfg i: int]`
+> reads them off `Cfg`. Risk 1 is resolved rather than carried.
+>
+> **The emit is not a command issued ahead of `wave-seed`. It is `FanBoot`'s step.**
+> The guard needs the tree's hash first, which needs a state; see the Rev 2 note in
+> §4. The copy and the emit are one sequenced `Command` in `fanboot-step`, ahead of
+> the seed's own. **A failed emit is still `failed`**, and the fold reaches it
+> through the same terminal code 2 as an empty tree, because the emit's response is
+> consumed by the holes read that follows it. The reference separates the two causes
+> in its message text and the port's detail names both rather than guessing which
+> one fired.
 
 ## 6. The exit seam: the wave's exit code is not the stage's outcome
 
@@ -244,6 +324,23 @@ after the seal transcript is read and before `WEnding`.
 `12-wave/roots.ast.json` needs no new write. `llmll patch` rewrites it in place, which
 is why the wave takes a backup per attempt.
 
+> **SHIPPED at Rev 2. The payload widening is exactly the one named here; the write
+> site is one step later than this section states.** `Wv` gained `fills: Json` and
+> the two per-hole terminal arms append a row. The write lands in **`sealing-step`**,
+> not in `seal`. `seal` issues the verify command and returns a `Sealing` state;
+> `sealing-step` consumes that transcript and returns `WEnding`. **`WEnding` is not
+> terminal, so the command `sealing-step` returns IS performed**, while the command
+> the `WEnding` arm returns on the way to `WDone` is the one RC-4 drops. Writing from
+> the terminal arm would construct the file and never put it on disk. That is the
+> failure the sequencer's own halt path records, and this section's "before
+> `WEnding`" is one arm too early to be safe.
+>
+> **Cover cells W8 and W9 were added for the file**, so `wave_cover.py` is nine cells
+> and not seven. W9 also refuted an off-by-one this design did not reach: `at-next`
+> increments `n` when an attempt has FINISHED, so a hole closing at a budget of 2
+> records `n = 2` after two attempts, and the accept path names the attempt that
+> succeeded instead. The `fills` rows carry the corrected field.
+
 ## 8. How the 4e cover survives
 
 [`test_driver_ll_callers.py`](../../scripts/tests/test_driver_ll_callers.py) records
@@ -284,6 +381,37 @@ Stage M's share of (a2)'s two clauses.
 
 Clause 5 is the one a plausible implementation gets wrong, and §10 case 3 is the
 witness that shows what it costs.
+
+> **MEASURED at Rev 2, clause by clause.**
+>
+> **Clause 1 is not met and stage M is not why.** `stage-ported?` is **not deleted**.
+> Clause 3 of the unification proposal's completion test needs E, G2, J and L out of
+> `spine.llmll` as well, and those four are still a seventeen-arm counter there. Row
+> 13 is now **dead and unread**, because `started-step` consults `stage-fanout`
+> before it consults this table. The row is recorded as dead in the table's own
+> comment rather than flipped, because flipping is cosmetic and the clause asks for
+> deletion. **Stage M's share of clause 1 is discharged; the clause is not.**
+>
+> **Clause 2 is met.** Both declared outputs are real. `12-wave/wave.json` carries
+> one `fills` row per hole and cells W8 and W9 assert it.
+>
+> **Clause 3 reads nine cells now, not seven.** All seven original cells are
+> unchanged in what they assert, which is what the fold had to achieve rather than a
+> convenience; W8 and W9 are additions for the record file.
+>
+> **Clause 4 is met and the orphan set was re-measured, not deduced.** `_programs()`
+> returns `{"sequencer"}` and the orphan set is unchanged at `{liveness, shell}`.
+> `fill` and `token` now reach a program through the sequencer's import of `wave`:
+> one link longer, same answer.
+>
+> **Clause 5 shipped and no cell drives it end to end.** `fan-join` maps codes 0, 1,
+> 3 and 5 to `to-summed`, which is the completing path, and the mapping site carries
+> the reason as a comment. What grades it is split: M1 in
+> [`driver_ll_cover.py`](../../scripts/driver_ll_cover.py) is the only cell that
+> drives stage M through the stage loop and it exercises the **failed** path, while
+> W2 and W9 grade a finding at the wave level. **A findings run that continues into
+> stage N is asserted at the source and not at the seam**, and that is worth knowing
+> before anyone reads clause 5 as covered.
 
 ## 10. Edge cases
 
@@ -343,6 +471,50 @@ proved, because no driver with a product state is provable there, and that
 `exit-code`'s `[EXIT-NOVACUOUS]` post carries the weight instead. **The `Fan` arm must
 not weaken either.**
 
+> **CORRECTED at Rev 2. Obligation 1 rests on a false premise, and the paragraph
+> directly above is the evidence against the two paragraphs above it.** This
+> obligation says the `[EXIT-RANGE]` post discharges body-faithfully today, that a
+> non-literal arm would break that, and that the remedy is a new proved `def`
+> carrying the same post. The first claim is false, so the second does not follow and
+> the third was never needed.
+>
+> **MEASURED from the sequencer's `.verified.json` sidecar**, which is generated and
+> is not in the index, so it is named and not linked.
+> `drv-status`'s post sits at `display_level: asserted`. It carries **no
+> `body_faithful` key and no `verified_hash`**. It has never been discharged. The
+> contrast in the same sidecar is `exit-code`, whose `[EXIT-NOVACUOUS]` post carries
+> `body_faithful: true`, `display_level: verified` by liquid-fixpoint, and a
+> `verified_hash`. **No new proved `def` was added and none was needed.** The
+> sentence "every existing arm returns an int literal" is also wrong: the `Done` arm
+> already held the inline clamp `(if (< c 0) 1 (if (> c 255) 255 c))` before the fold.
+>
+> **What actually constrained the arm is a different gate, and the compiler named
+> it.** `drv-status` is a `def`, so **strict-core admissibility** applies to its arms
+> and forbids a call to a callee that is not body-faithful. `llmll check` rejected
+> `((Fan f) (wave-status (fn-ws f)))` with `callee 'wave-status' is not body-faithful
+> and not in the trusted prelude`, emitted from
+> [`Diagnostic.hs`](../../compiler/src/LLMLL/Diagnostic.hs). `wave-status` is a
+> `def-shell`. **The two gates are separate and this proposal merged them.**
+> `isCoreBodySyntactic` in [`Syntax.hs`](../../compiler/src/LLMLL/Syntax.hs) admits
+> `EApp` syntactically, so the shape passes the syntactic leg; admissibility is the
+> leg that rejected it. A design that reasons only about VC discharge will keep
+> missing this, because the rejection happens at `check`, before verification runs.
+>
+> **The shipped resolution is simpler than the remedy above.** `fan-step` leaves
+> through `Ending` for **both** values of `k`: the standalone run (`k < 0`) goes to
+> `Ending code` and the folded run goes to `fan-exit`. A `Fan` state is therefore
+> **never terminal**, `drv-status` reads the code off `Done` with the clamp it already
+> had, and the `Fan` and `FanBoot` arms stay integer literals like every other
+> non-terminal arm. `Ending` and not `Done` for a second reason: `drv-done?` reports
+> `Ending` as not terminal, so the command handed over is performed, and on the
+> ending step that command carries the `12-wave/wave.json` write. Going straight to
+> `Done` would drop it (RC-4).
+>
+> **Nothing about the post changed, and that is the point.** The post is still
+> `asserted`, still clamped by construction, and still fails in the safe direction.
+> `[EXIT-NOVACUOUS]` on `exit-code` still carries the weight. **The `Fan` arm weakens
+> neither, and it weakens neither by not participating.**
+
 **2. The code-to-`Outcome` mapping of §6.** Channel: contract, through
 `record-outcome`'s four posts. `record-outcome` is already proved and does not move.
 The new obligation is that the mapping is total over the wave's terminal codes, and
@@ -400,6 +572,38 @@ sort, no uninterpreted function and no axiom.
    change, no new builtin, no schema change and no new WASI surface. The v0.8.1a to
    v0.10 feature freeze was lifted at v0.11, so no exception arises either way.
 
+> **CORRECTED at Rev 2, against what the fold touched.** Item 8 held exactly: **no
+> file under `compiler/` changed.** Five items moved.
+>
+> - **Item 1**, `registry.llmll`: one new `def-shell` and **zero filled rows**. Both
+>   rows this proposal would have filled stay as they were, each with a comment
+>   saying why. See §3.2 and §3.4.
+> - **Item 2**, `sequencer.llmll`: **two** `Ctl` arms, not one, and **no proved clamp
+>   `def`**. See §4 and §11.
+> - **Item 3**, `wave.llmll`: the split is `wave-seed` and `wave-boot-args`, and the
+>   `wave.json` write is in `sealing-step`. See §5 and §7.
+> - **Item 5**: nine cells, not seven, and
+>   [`build_smoke.sh`](../../scripts/build_smoke.sh) stage 9 builds the **sequencer**,
+>   there being no wave binary.
+> - **Item 7 is done.**
+>   [`driver-ll-program-unification-proposal.md`](driver-ll-program-unification-proposal.md)
+>   Rev 6 folds the §4.10 item 2 correction, records item 3 as the item this design
+>   answered, and takes the stubbed-stage count to four.
+>
+> **One surface this list missed entirely.** `sequencer.llmll` grew `--error-budget`
+> and `--protocol-budget`, which risk 1 named as an unresolved source and did not
+> place on this list. `common.llmll` also gained `jset`, collapsed out of
+> `manifest.llmll` and `wave.llmll` when the sequencer opened both.
+>
+> **A consequence outside the driver tree, found after the fold and recorded here so
+> the list is complete.** Stage 9 of the build gate has a reference half and an LLMLL
+> port half. The fold changed the reference and not
+> [`buildsmoke.llmll`](../../tools/build-smoke/buildsmoke.llmll), which kept building
+> `wave.llmll`; that now emits a library and no binary, so the port rejected an
+> unmutated tree and `main` went red. **Every TOOL-LL gate is three artifacts**: a
+> reference, a port, and a differential cover that runs both. This list traced the
+> driver's covers and not the build gate's.
+
 ## 13. Risks
 
 **1. The two retry budgets have no sequencer source.** Classify: scope. The
@@ -410,6 +614,12 @@ port has two, which 4e settled and this proposal does not reopen. **Bite: compli
 consequence for the unification proposal: §3 assigns the operator CLI surface to job
 (b) and lists four flags, and these two belong to (a2), so that list is short by two.
 
+> **RESOLVED at Rev 2, by the move this risk proposed.** `--error-budget` and
+> `--protocol-budget` shipped on the sequencer, with the identical "must be at least
+> 1" guard the wave already carried, and `fan-cfg` reads them off `Cfg`. The
+> consequence this risk named was correct and the unification proposal's Rev 6 folds
+> it into its §3.
+
 **2. Deleting the wave's `def-main` moves the 4e acceptance cover.** Classify:
 verification-ergonomics. The sub-command keeps every cell and changes how they are
 invoked. **Bite: complicates.** The cover must be re-run and seen to pass before (a2)
@@ -419,6 +629,17 @@ claims clause 1. A cover that is edited and not re-run proves nothing.
 verification-ergonomics. **Bite: complicates.** The §11 obligation 1 remedy keeps the
 post discharging. Skipping it leaves the arm's return value unconstrained while the
 post still reads as if it were checked, which is worse than an unchecked arm.
+
+> **CORRECTED at Rev 2. The risk is real and its second sentence contradicts its
+> first.** A post that is contract-checked and not proved is not "discharging", so
+> there was nothing for the §11 remedy to keep. The post is at `asserted` in the
+> sidecar and always has been. **Bite: none, as shipped.** The `Fan` arm returns a
+> literal and never reaches the post with a wave code, because a `Fan` state is never
+> terminal; the code reaches the post through `Done`, where the clamp that already
+> existed makes the declared range true by construction. The reading worth keeping is
+> the one this risk states last: **a post that reads as if it were checked is worse
+> than an unchecked arm**, which is why the sidecar and not the `post` form is the
+> thing to read before designing against it.
 
 **4. Stage M records complete on four of the wave's six codes.** Classify:
 spec-drift risk against a reader, not against the code. A reader meeting `stage M
@@ -437,6 +658,12 @@ comparator reads them.
 Classify: spec-drift. **Bite: complicates.** §3.4 states the check the engineer runs
 before flipping it.
 
+> **ANSWERED at Rev 2: omission.** No document records the gap, and a decision leaves
+> a record. **The risk survives its own answer in a changed form**: the row stays
+> false, so the registry now records an unrepaired port gap rather than an
+> unexplained one. **Bite: only matters at scale**, and the remedy is a port change
+> with its own cover row rather than a table edit. See the Rev 2 note in §3.4.
+
 ## 14. What (a2) still owes after this design
 
 Stage M is one of the five stubbed stages. E, J, L and G2 remain, and §4.10 item 1
@@ -448,6 +675,12 @@ proposal does not touch that.
 **(a2) is unblocked for stage M. It is not unblocked as a whole.** The spine's four
 stages need their own scoping turn, and job (b) still waits behind all five.
 
+> **MEASURED at Rev 2: stage M has landed, so the count is FOUR.** E, G2, J and L
+> remain, and job (b) waits behind those four rather than behind five. §4.10 item 1
+> of the unification proposal is untouched by this work and is where clause 3 of its
+> completion test now sits. The sentence above is the last place in this document
+> that says five; do not read the count off it.
+
 ## 15. Deferred theory questions
 
 None. Three candidates were raised and all three failed the negative test, because
@@ -456,3 +689,13 @@ reading the tree answered them. The refinement-mapping question was answered by
 question was answered by `drv-status`. The outcome mapping was answered by the
 reference's `require` family. Nothing is appended to
 [`theory-questions.md`](theory-questions.md).
+
+> **RE-RUN at Rev 2, and nothing is appended.** Rev 2's own three corrections each
+> failed the negative test, and each failed it the same way: reading the tree
+> answered them. The sidecar answered the discharge question, `Diagnostic.hs` and
+> `Syntax.hs` answered the admissibility question, and `wave.llmll` with
+> `wave_cover.py` answered both registry rows. **The Rev 1 exit-range entry is worth
+> re-reading as a warning rather than as a closed item**: it was answered by reading
+> the `post` form and not the sidecar, which is the wrong artifact for that question
+> and is how §11's false premise got in. A candidate that a grep answers is homework,
+> and a candidate answered by the WRONG grep is homework that has not been done.
