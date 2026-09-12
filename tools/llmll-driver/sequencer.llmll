@@ -7,15 +7,21 @@
 ;; delegated output. None of the three is re-implemented here, which is Phase
 ;; 3's standing rule (spine.llmll:12-16).
 ;;
-;; SEVEN OF THE SIXTEEN STAGES HAVE NO BODY HERE. Proposal section 9's 4a row
-;; held all sixteen at a stub; the 4b row lands B, C and I, the 4c row D, F
-;; and G, and the 4d row H, K and N. M is the wave's (wave.llmll, 4e) and
-;; stays a stub in THIS program until unification. A stage that is not ported
-;; writes a stub byte-string to each artifact it declares and nothing else;
-;; the eleven resume and outcome transitions of section 2.3 are decided over
-;; those stubs exactly as they would be over real artifacts, because the
-;; resume gate reads digests and a completion record and never the content.
-;; registry.stage-ported? is the switch and carries the retirement schedule.
+;; THREE OF THE SIXTEEN STAGES HAVE NO BODY HERE, and clause 3 is landing
+;; those three. Proposal section 9's 4a row held all sixteen at a stub; the 4b
+;; row lands B, C and I, the 4c row D, F and G, and the 4d row H, K and N; 4f
+;; lands O; program unification job (a2) folds M in over the wave machine; and
+;; clause 3 lands J here, with E, G2 and L following on this branch. A stage
+;; that is not ported writes a stub byte-string to each artifact it declares and
+;; nothing else; the eleven resume and outcome transitions of section 2.3 are
+;; decided over those stubs exactly as they would be over real artifacts,
+;; because the resume gate reads digests and a completion record and never the
+;; content.
+;;
+;; registry.stage-machine IS THE SWITCH, and it replaced two tables rather than
+;; one. stage-ported? carried the retirement schedule and stage-fanout routed
+;; stage M ahead of the kind test; both are deleted. The schedule now lives in
+;; stage-machine's `stub` value, which this branch's last commit deletes.
 ;;
 ;; ------------------------------------------------------------------
 ;; SECTION 7 STATEMENT 3 OF 3 [DISCLOSURE validate.verdict-of], NEW AT 4b
@@ -517,7 +523,28 @@
     ;;   FanBoot  r is wasi.fs.sha256 of the AST tree, the emit's own guard
     ;;   Fan      r is whatever the wave's current arm asked for
     (| FanBoot  (int, int))
-    (| Fan      (int, (int, (Wv, WCtl)))))
+    (| Fan      (int, (int, (Wv, WCtl))))
+    ;; Clause 3: the stages ported from spine.llmll. ONE arm for all four, on
+    ;; the same reasoning the `Fan` arm carries: a machine per arm would put
+    ;; four near-identical entries in four exhaustive matches for no property
+    ;; the payload does not already give.
+    ;;
+    ;;   k       the stage-loop index, which every post-stage path is keyed on
+    ;;   s       the stage's OWN counter, from zero. spine.llmll's `spine-step`
+    ;;           is one 18-state counter running four stages back to back, and
+    ;;           a single counter cannot give a manifest row, an outcome and a
+    ;;           resume point per stage. The clause 3 proposal section 3
+    ;;           measures it: a run halted inside L must leave E and J recorded
+    ;;           complete and must re-enter at L, not at the reconciler.
+    ;;   start   the clock reading the stage started at
+    ;;   halts   whether the stage's proved decision says to halt. Stage J's
+    ;;           comes from gate.gate-halts and is computed while the parsed
+    ;;           inventory is still in hand, because a Response carries only the
+    ;;           latest command's payload.
+    ;;   clause  which spec clause to cite if it does halt. REPORTING, not
+    ;;           deciding: gate-halts decides WHETHER, the counts decide only
+    ;;           which of the two enforced conditions to name.
+    (| Spine    (int, (int, (int, (bool, string))))))
 
   ;; ---- accessors, written once ---------------------------------------
   ;;
@@ -707,6 +734,19 @@
   (def-shell rc-code [d: (int, int)] -> int (second d))
   (def-shell mk-rc [k: int code: int] -> Ctl
     (Recorded (pair k code)))
+
+  (def-shell sp-k     [d: (int, (int, (int, (bool, string))))] -> int
+    (first d))
+  (def-shell sp-s     [d: (int, (int, (int, (bool, string))))] -> int
+    (first (second d)))
+  (def-shell sp-start [d: (int, (int, (int, (bool, string))))] -> int
+    (first (second (second d))))
+  (def-shell sp-halts [d: (int, (int, (int, (bool, string))))] -> bool
+    (first (second (second (second d)))))
+  (def-shell sp-clause [d: (int, (int, (int, (bool, string))))] -> string
+    (second (second (second (second d)))))
+  (def-shell mk-sp [k: int s: int start: int halts: bool clause: string] -> Ctl
+    (Spine (pair k (pair s (pair start (pair halts clause))))))
 
   (def-shell run-of [s: (Run, Ctl)] -> Run (first s))
   (def-shell phase-of [s: (Run, Ctl)] -> Ctl (second s))
@@ -1458,17 +1498,37 @@
 
   ;; ------------------------------------------------------------------
 
+  ;; ONE TABLE, FOUR MACHINES, AND NO KIND TEST. Clause 3 replaced
+  ;; stage-ported? and stage-fanout with registry.stage-machine, and the reason
+  ;; is a defect the old shape hid rather than a tidier chain. `stage-kind`
+  ;; answers `mechanical` for stage A AND stage E, so the `mechanical` branch
+  ;; this function used to take was keyed on a label two stages carry and
+  ;; implemented for exactly one. The false stage-ported? row was the only thing
+  ;; hiding it: flipping stage E's row to true, and changing nothing else, sent
+  ;; the reconciliation stage into stage A's URL-fetch loop.
+  ;;
+  ;; THE REGISTRY DECIDES, NOT AN INDEX TEST. registry.llmll's header states the
+  ;; reason: a table written as syntax is a constant a reader enumerates from
+  ;; the source. This function reads stage-machine and no other table to choose
+  ;; a machine, and tests no stage index. scripts/tests/test_driver_ll_a2.py is
+  ;; the guard.
+  ;;
+  ;; THE `stub` ARM IS SCHEDULED FOR DELETION together with the registry value
+  ;; it reads. E, G2 and L land on this branch and take it to no rows.
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Ctl), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
-        (if (> (stage-fanout (idx-at rn k)) 0)
-            (go rn (mk-fb k (ns-of r))
-                (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 1)))
-            (if (stage-ported? (idx-at rn k))
-                (if (= (stage-kind (idx-at rn k)) "mechanical")
-                    (a-enter rn k (ns-of r))
-                    (begin-body rn k (ns-of r)))
-                (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0))))))
+        (let [(m (stage-machine (idx-at rn k)))]
+          (if (= m "wave")
+              (go rn (mk-fb k (ns-of r))
+                  (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn k) 1)))
+          (if (= m "intake")
+              (a-enter rn k (ns-of r))
+          (if (= m "spine")
+              (spine-enter rn k (ns-of r))
+          (if (= m "delegate")
+              (begin-body rn k (ns-of r))
+              (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0)))))))))
 
   ;; ---- Pre -------------------------------------------------------------
   ;;
@@ -2818,6 +2878,153 @@
   (def-shell awrote-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
     (to-summed rn (lp-k l) (lp-start l)))
 
+  ;; ------------------------------------------------------------------
+  ;; Clause 3: stage J, the gate.
+  ;;
+  ;; rfc_to_implementation.py's stage_J_gate reads the dispositioned inventory,
+  ;; writes 09-gate/gate.json (:921-932), and THEN evaluates its two enforced
+  ;; conditions (:936, :939). That order is the stage's whole shape, and
+  ;; stage.llmll:26-27 is the arm it selects: declared artifacts already on disk
+  ;; plus a halt is PartialThenHalt, which records `stopped` and not `failed`.
+  ;; A port that halted first would lose a declared artifact.
+  ;;
+  ;; THE SEVEN PINNED COUNTS ARE NOT THIS STAGE'S, and reading them as this
+  ;; stage's is the error this paragraph exists to stop. spine.stage-j-pins pins
+  ;; rows=124, encoded=46, core=15, carried=62, verifiable=65 and excluded=53
+  ;; against the committed TFTP corpus, and its [J-NOVACUOUS] post PROVES that a
+  ;; divergent row count fails the stage. Those are self_test()'s pins
+  ;; (rfc_to_implementation.py:1413-1444), not stage_J_gate's. Calling them from
+  ;; the stage loop would record `stopped` on every campaign whose inventory is
+  ;; not that one corpus. The stage's own decision is gate.gate-halts and
+  ;; nothing else. So stage-j-pins keeps its contract, keeps its frozen verdict,
+  ;; and acquires no caller here; proved and uncalled is the state
+  ;; spine.llmll:42-46 already records for gate.remedy-for.
+  ;;
+  ;; CALLER OBLIGATION, stated because a def-shell caller does not discharge it.
+  ;; gate-halts's [S6-DOM] pre requires `verifiable >= carried`. It holds by
+  ;; construction, because spine.n-carried filters FROM the verifiable rows
+  ;; (spine.llmll:399-401). That argument lives in this comment and not in the
+  ;; solver, and it moved here with the call site.
+
+  ;; The dispositioned inventory is stage G's declared output. The gate reads it
+  ;; by ABSOLUTE stage index and not by selection index, so a run selecting J
+  ;; alone still reads what G declares.
+  ;;
+  ;; registry.stage-pre-path is NOT the table for this. The pre-input tables
+  ;; drive PROMPT injection and a gate delegates nothing, which is why
+  ;; stage-pre-count answers zero for J.
+  (def-shell g-disposition-index [] -> int 6)
+
+  (def-shell j-inventory-path [c: Cfg] -> string
+    (wd-path c (stage-out (g-disposition-index) 0)))
+
+  (def-shell j-absent-detail [rn: Run] -> string
+    (string-concat-many
+      ["stage J: " (j-inventory-path (cfg-of rn)) " is absent, or its bytes do "
+       "not decode. A gate cannot evaluate a condition over an inventory it "
+       "cannot read; run stage G, or delete its manifest row to re-run it."]))
+
+  (def-shell j-parse-detail [rn: Run e: string] -> string
+    (string-concat-many
+      ["stage J: " (j-inventory-path (cfg-of rn)) " does not parse as JSON ("
+       e "). The reference reaches this condition as a traceback."]))
+
+  (def-shell j-write-detail [rn: Run k: int] -> string
+    (string-concat-many
+      ["stage J: " (art-path (cfg-of rn) (idx-at rn k) 0) " could not be "
+       "written, so the gate halted before its declared output existed."]))
+
+  ;; WHICH clause to cite, and only that. gate.gate-halts decides WHETHER the
+  ;; gate halts. This decides which of the two conditions driver-spec section 6
+  ;; enforces gets named in the manifest row. The characteristic-core condition
+  ;; is cited first when both fire, which is the order :936 and :939 evaluate in.
+  (def-shell j-clause [rs: list[Json]] -> string
+    (if (> (list-length (core-out-rows rs)) 0)
+        "driver-spec sec 6:224-227"
+        "driver-spec sec 6:229-231"))
+
+  (def-shell j-halt-detail [clause: string] -> string
+    (if (= clause "driver-spec sec 6:224-227")
+        (string-concat-many
+          ["stage J: a clause named as characteristic of the subject matter is "
+           "dispositioned out. 09-gate/gate.json names the rows under "
+           "characteristic_core_dispositioned_out, and it was written before "
+           "this halt."])
+        (string-concat-many
+          ["stage J: an excluded clause cites no reason from the list closed "
+           "before the run. 09-gate/gate.json names the rows under "
+           "exclusions_outside_barrier_list, and it was written before this "
+           "halt."])))
+
+  ;; The Outcome comes from the proved def and this shell does not re-decide it.
+  ;;
+  ;; `pins-ok` IS THE LITERAL `true` HERE, and that is not a guard going slack.
+  ;; stage-j-outcome's [S4-STOPPED] arm exists for self_test's seven pins, which
+  ;; the header above measures as not this stage's. The two conditions the stage
+  ;; does own arrive as `halts`, from gate-halts. An inventory that cannot be
+  ;; read or parsed halts earlier, through halt-errored, so no live path reaches
+  ;; ConditionUnmet or Errored here. Both arms are written out anyway, because
+  ;; every match in this module is exhaustive.
+  (def-shell j-decide [rn: Run d: (int, (int, (int, (bool, string))))] -> ((Run, Ctl), Command)
+    (match (stage-j-outcome true (sp-halts d))
+      ((Finished)        (to-summed rn (sp-k d) (sp-start d)))
+      ((PartialThenHalt) (halt-with rn (sp-k d) PartialThenHalt
+                                    (j-halt-detail (sp-clause d)) (sp-clause d)))
+      ((ConditionUnmet)  (halt-with rn (sp-k d) ConditionUnmet
+                                    (j-halt-detail (sp-clause d)) (sp-clause d)))
+      ((Errored)         (halt-errored rn (sp-k d)
+                                       (j-halt-detail (sp-clause d))))))
+
+  ;; s=0. The mkdir and the read are one command, and RC-2 is discard-left, so
+  ;; the Response the next arm receives is the READ's.
+  (def-shell j-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (go rn (mk-sp k 0 start false "")
+        (seq-commands
+          (wasi.fs.mkdir (art-dir (cfg-of rn) (idx-at rn k) 0))
+          (wasi.fs.read (j-inventory-path (cfg-of rn))))))
+
+  ;; s=0 -> s=1. The halt decision and its clause are computed HERE, while the
+  ;; parsed inventory is still in hand: a Response carries only the latest
+  ;; command's payload, so by s=1 the inventory is gone. spine-step re-read the
+  ;; artifact at its s=6 for exactly this reason; carrying two scalars costs one
+  ;; less filesystem read.
+  (def-shell j-read-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (not (present? r))
+        (halt-errored rn (sp-k d) (j-absent-detail rn))
+        (match (json-parse (text-of r))
+          ((Success inv)
+            (go rn (mk-sp (sp-k d) 1 (sp-start d)
+                          (j-halts (rows-of inv)) (j-clause (rows-of inv)))
+                (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (sp-k d)) 0)
+                               (gate-report (rows-of inv)))))
+          ((Error e) (halt-errored rn (sp-k d) (j-parse-detail rn e))))))
+
+  ;; s=1. The declared output is on disk by now, or the write failed and the
+  ;; stage never got one.
+  (def-shell j-wrote-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (copy-failed? r)
+        (halt-errored rn (sp-k d) (j-write-detail rn (sp-k d)))
+        (j-decide rn d)))
+
+  ;; ---- the spine machines -------------------------------------------
+  ;;
+  ;; Clause 3 lands J. E, G2 and L follow on this branch, each adding an entry
+  ;; arm here and its own states below, and each flipping its registry.
+  ;; stage-machine row from "stub" to "spine". A stage reaches these functions
+  ;; only because stage-machine answered "spine" for it.
+  (def-shell spine-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (j-enter rn k start))
+
+  ;; NOT `spine-step`. spine.llmll already has a function of that name, this
+  ;; module opens it, and unification clause 5 is absolute: a silent homonym
+  ;; across two opened modules type-checks and shadows with a warning that
+  ;; exits 0.
+  (def-shell spine-arm-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response]
+      -> ((Run, Ctl), Command)
+    (if (= (sp-s d) 0)
+        (j-read-step rn d r)
+        (j-wrote-step rn d r)))
+
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Ctl), Command)
     (let [(i (idx-at rn (b-k b)))]
@@ -2934,7 +3141,8 @@
       ((OWrote l)   (owrote-step (run-of s) l r))
       ((OSkip l)    (oskip-step  (run-of s) l r))
       ((FanBoot d)  (fanboot-step (run-of s) d r))
-      ((Fan f)      (fan-step    (run-of s) f input r))))
+      ((Fan f)      (fan-step    (run-of s) f input r))
+      ((Spine d)    (spine-arm-step (run-of s) d r))))
 
   (def-shell drv-done? [s: (Run, Ctl)] -> bool
     (match (phase-of s)
@@ -2976,7 +3184,10 @@
       ;; NEVER true. `fan-step` intercepts every ending before it re-wraps and
       ;; leaves through `Ending`, so no `Fan` state terminates a run, and that
       ;; holds for the standalone `wave` sub-command too.
-      ((Fan f)      false)))
+      ((Fan f)      false)
+      ;; NEVER true for the same reason: a spine machine leaves through
+      ;; `to-summed` or through `halt-with`, and both re-enter the stage loop.
+      ((Spine d)    false)))
 
   (def-shell done-code [s: (Run, Ctl)] -> int
     (match (phase-of s)
@@ -3015,7 +3226,8 @@
       ((OWrote _)   1)
       ((OSkip _)    1)
       ((FanBoot _)  1)
-      ((Fan f)      1)))
+      ((Fan f)      1)
+      ((Spine _)    1)))
 
   ;; The terminal marker. It leaves through :on-done rather than through a
   ;; step, because RC-4 drops the terminating step's command and a halt report
@@ -3077,7 +3289,10 @@
       ;; A LITERAL, because a `Fan` state is never terminal: `fan-step` leaves
       ;; through `Ending` for both values of `k`. This arm must also stay a
       ;; literal, because :status is strict-core and may not call a `def-shell`.
-      ((Fan f)      1)))
+      ((Fan f)      1)
+      ;; A LITERAL for both reasons: a `Spine` state is never terminal, and
+      ;; :status may not call a `def-shell` to ask.
+      ((Spine sp)   1)))
 
   (def-main
     :mode    console

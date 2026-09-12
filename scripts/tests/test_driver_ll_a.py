@@ -65,14 +65,24 @@ def _fn(name: str) -> ast.FunctionDef:
     raise AssertionError(f"{name} is not a top-level function of {DRIVER.name}")
 
 
-def test_stage_a_is_ported_and_is_the_only_mechanical_stage_that_is():
-    """Index 0 is true in stage-ported?; E (index 4), the other mechanical
-    stage, stays a stub until a reconcile.py invocation is available. The
-    sequencer routes a ported MECHANICAL stage to a-enter, not to the agent
-    body, on the stage-kind table rather than on a hardcoded index."""
-    ported = {int(i) for i in re.findall(r"\(if \(= i (\d+)\) true", REG_DEFS["stage-ported?"])}
-    assert 0 in ported and 4 not in ported, sorted(ported)
-    assert '(= (stage-kind (idx-at rn k)) "mechanical")' in SEQ_DEFS["started-step"]
+def test_stage_a_is_the_only_stage_routed_to_the_intake_machine():
+    """Stage A owns `a-enter` and no other stage may reach it.
+
+    THE TABLE AND THE TEST BOTH CHANGED AT CLAUSE 3, and the reason is a defect
+    this test used to assert INTO existence. It read the `stage-kind` test in
+    `started-step` as the routing rule, and `stage-kind` answers `mechanical`
+    for stage A AND for stage E. So the rule was keyed on a label two stages
+    carry and implemented for exactly one, and stage E's false `stage-ported?`
+    row was the only thing keeping the second one out of stage A's URL-fetch
+    loop. `registry.stage-machine` answers `intake` for stage A alone, and the
+    kind table no longer decides anything.
+    """
+    rows = re.findall(r'\(if \(= i (\d+)\)\s*"([a-z]+)"',
+                      REG_DEFS["stage-machine"])
+    assert [i for i, m in rows if m == "intake"] == ["0"], rows
+    assert "stage-machine" in SEQ_DEFS["started-step"]
+    assert "stage-kind" not in SEQ_DEFS["started-step"], \
+        "started-step routes on stage-kind again, which is wrong for stage E"
     assert "(a-enter rn k" in SEQ_DEFS["started-step"]
 
 

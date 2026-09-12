@@ -133,6 +133,12 @@ if name == "inventory-dispositioned.json":
     if mode == "listed-barrier":
         row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
                "barrier": "B5", "reason": "string structure"}
+    # Gate J's characteristic-core condition, and the ONLY shape that reaches it
+    # through the full pipeline: the barrier must be on the closed list or stage
+    # G halts first, on its own spec-defined clause (shape.llmll:215-240).
+    if mode == "core-out":
+        row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+               "barrier": "B5", "reason": "string structure", "core": True}
     if mode == "bad-class":
         row["class"] = "C9"
     out.write_text(json.dumps({"rows": [row]}))
@@ -1501,6 +1507,128 @@ def o4(b, wd):
     want_in("is present and is not a JSON array", r)
     want(not (wd / "REPORT.md").exists(),
          "the halt is decided before the copy, so no declared output exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage J, the gate.
+#
+# The four cells below are the first in this cover for a stage ported from
+# spine.llmll. The rig has no stage J mode at all and `self_test()` pins seven
+# COUNTS over the committed TFTP corpus rather than exercising the stage, so
+# every cell here is local by construction.
+#
+# WHY THE DISPATCH ITSELF GETS NO CELL. Clause 3 replaced stage-ported? and
+# stage-fanout with registry.stage-machine, and the defect that shape hid was
+# stage E reaching stage A's URL-fetch loop. That witness is constructible only
+# against the OLD code, by flipping a row that no longer exists; with stage E
+# still `stub` the two dispatches are observationally identical. So the dispatch
+# is pinned where it is decidable, as a source property in
+# scripts/tests/test_driver_ll_a2.py, and at run time by M1 and the `registry`
+# cell, which route through stage-machine for every stage in a full run.
+# ---------------------------------------------------------------------------
+
+
+def localJ(cell: str, why: str):
+    """The clause 3 sibling. `self_test()` pins counts over a frozen corpus and
+    never drives stage J, so the rig has nothing to mirror."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def seed_disposition(wd: Path, body: str) -> None:
+    """Stage G's declared output, written by hand.
+
+    Two of the four cells below cannot reach their condition through stage G at
+    all, so they seed what G would have produced and select J alone. That is the
+    resumed-run reading spine.llmll:229 already names: the gate re-checks an
+    inventory it did not watch being written.
+    """
+    d = wd / "06-disposition"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "inventory-dispositioned.json").write_text(body, encoding="utf-8")
+
+
+def gate_json(wd: Path) -> dict:
+    """Guarded, and the guard is not decoration.
+
+    The M1 mutation control (halt BEFORE the declared write) made this raise
+    FileNotFoundError out of the cell body, which escapes the runner's
+    `except Failure` and takes the whole cover down with a traceback instead of
+    reporting one cell. A cover that crashes reports nothing about the other
+    cells, so every read of a declared output states its own absence first.
+    """
+    g = wd / "09-gate" / "gate.json"
+    want(g.exists(),
+         "09-gate/gate.json is absent: stage J wrote no declared output")
+    return json.loads(g.read_text(encoding="utf-8"))
+
+
+@localJ("J1", "a gate that fires neither condition writes a REAL report and "
+              "completes; the five members are the reference's, not a stub's")
+def j1(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,J")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["J"], "gate")
+    g = gate_json(wd)
+    want(set(g) == {"verifiable_carried", "verifiable_total", "coverage_note",
+                    "characteristic_core_dispositioned_out",
+                    "exclusions_outside_barrier_list"},
+         f"09-gate/gate.json is not the reference's report (:921-932): {sorted(g)}")
+    want("driver-ll" not in g,
+         "09-gate/gate.json is still the 4a stub body, so the stage did not run")
+    want(g["coverage_note"] == "reported, NOT thresholded",
+         "the coverage note carries driver-spec sec 6:219's semantics verbatim")
+    want(g["characteristic_core_dispositioned_out"] == []
+         and g["exclusions_outside_barrier_list"] == [],
+         f"neither enforced condition has rows, or the gate would have halted: {g}")
+
+
+@localJ("J2", "the characteristic-core condition halts the gate AFTER the "
+              "declared write: stopped, PartialThenHalt, sec 6:224-227")
+def j2(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,J", mode="core-out")
+    want_rc(r, 2)
+    row = r.stages()["J"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 6:224-227",
+         f"a stopped gate names the condition that authorised it: {row}")
+    # The ordering IS the cell. rfc_to_implementation.py writes the report at
+    # :921-932 and evaluates its conditions at :936 and :939, which is what
+    # makes the Outcome PartialThenHalt rather than ConditionUnmet.
+    want((wd / "09-gate" / "gate.json").exists(),
+         "the report MUST be on disk before the halt, or the stage lost a "
+         "declared artifact and the Outcome degrades to ConditionUnmet")
+    want(gate_json(wd)["characteristic_core_dispositioned_out"] == ["A0"],
+         "the report names the row that fired the condition")
+
+
+@localJ("J3", "the barrier condition halts the gate; it is UNREACHABLE through "
+              "stage G, which halts on the same inventory first")
+def j3(b, wd):
+    seed_disposition(wd, json.dumps({"rows": [
+        {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+         "reason": "no barrier at all"}]}))
+    r = drive(b, wd, "J")
+    want_rc(r, 2)
+    row = r.stages()["J"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 6:229-231",
+         f"the second enforced condition cites its own clause: {row}")
+    want(gate_json(wd)["exclusions_outside_barrier_list"] == ["A0"],
+         "the report names the exclusion that cites no listed barrier")
+
+
+@localJ("J4", "an inventory that does not parse is FAILED, not stopped: the two "
+              "halt channels must not collapse")
+def j4(b, wd):
+    seed_disposition(wd, "not json at all\n")
+    r = drive(b, wd, "J")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["J"], "failed", "Errored", clause=False)
+    want(not (wd / "09-gate" / "gate.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
 
 
 def main() -> int:

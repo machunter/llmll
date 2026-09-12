@@ -51,6 +51,16 @@
   (if (= i 15) "O"
       "?")))))))))))))))))
 
+;; WHAT A STAGE IS. This table does NOT decide what RUNS it. stage-machine
+;; below does that, and conflating the two is what produced the stage E defect
+;; the clause 3 proposal section 4.1 measures: `mechanical` is carried by stage A
+;; AND stage E, and the `mechanical` branch started-step used to take was
+;; implemented for exactly one of them. Flipping stage E's row in the deleted
+;; stage-ported? table to true sent the reconciliation stage into stage A's
+;; URL-fetch loop, and the false row was the only thing hiding it.
+;;
+;; After the clause 3 fold this table is read at two sites and both are
+;; REPORTING: the stage banner line and complete-row's manifest field.
 (def-shell stage-kind [i: int] -> string
   (if (= i 0)  "mechanical"
   (if (= i 1)  "agent"
@@ -69,6 +79,63 @@
   (if (= i 14) "agent"
   (if (= i 15) "agent"
       "?")))))))))))))))))
+
+;; WHICH MACHINE RUNS THE STAGE.
+;;
+;; The dimension this registry did not carry until clause 3, and the one
+;; stage-ported? was standing in for, which is why deleting that table was not a
+;; subtraction. It replaces stage-fanout as well: that table answered a non-zero
+;; int for stage M alone so that started-step could route stage M ahead of the
+;; kind test, and once this table answers "wave" the two answer the same
+;; question. Two dispatch tables where one will do is the kind of row that
+;; becomes incorrect quietly, which is what the stage M row in stage-ported? did.
+;;
+;;   intake    A          the URL fetch loop over wasi.http.get
+;;   spine     J          the machines ported from spine.llmll
+;;   wave      M          the fan-out machine, one delegation per hole
+;;   delegate  ten stages the agent-delegated path, through begin-body
+;;   stub      E, G2, L   NOT YET PORTED, and this value is a SCHEDULE
+;;
+;; EVERY INDEX 0 TO 14 IS NAMED AND THE FINAL ARM IS INDEX 15. There is no
+;; catch-all: stage O is the else because the chain ends there, not because an
+;; unnamed index falls through to a sentinel the way stage-key's "?" does.
+;;
+;; THE `stub` VALUE CARRIES A RETIREMENT SCHEDULE, so it is the same kind of row
+;; stage-ported? was. That is recorded here rather than hidden. Clause 3 lands E,
+;; G2 and L on this branch, each flipping its own row to "spine", and the
+;; branch's last commit deletes this value together with the started-step arm
+;; that reads it. A `stub` row surviving a merge to main is the defect this
+;; paragraph exists to make greppable.
+;;
+;; WHAT THIS TABLE IS NOT. It is not an artifact count and it is not a
+;; delegation count. stage-out-count counts DECLARED outputs and stage M declares
+;; two, statically; the per-attempt directories the wave creates are undeclared
+;; scratch, exactly as the reference's 12-wave/agent-NN-fn directories are.
+;;
+;; SEPARATE FROM stage-tag-count, for the reason that table's own header gives.
+;; D's two tags are two DIFFERENT extractors, with two prompt substitutions, two
+;; provisioned input sets and two declared outputs. M's holes are ONE tag run
+;; many times. Widening stage-tag-count would make those the same idea.
+;;
+;; SEPARATE FROM stage-oracle, which is the compiler loop that FOLLOWS a passing
+;; delegated output. The wave machine CONTAINS its delegation.
+(def-shell stage-machine [i: int] -> string
+  (if (= i 0)  "intake"
+  (if (= i 1)  "delegate"
+  (if (= i 2)  "delegate"
+  (if (= i 3)  "delegate"
+  (if (= i 4)  "stub"
+  (if (= i 5)  "delegate"
+  (if (= i 6)  "delegate"
+  (if (= i 7)  "stub"
+  (if (= i 8)  "delegate"
+  (if (= i 9)  "delegate"
+  (if (= i 10) "spine"
+  (if (= i 11) "delegate"
+  (if (= i 12) "stub"
+  (if (= i 13) "wave"
+  (if (= i 14) "delegate"
+      "delegate"))))))))))))))))
 
 (def-shell stage-name [i: int] -> string
   (if (= i 0)  "intake and provenance pinning"
@@ -126,54 +193,6 @@
 ;; CONTRACT declares, which is what makes validate.verdict-of subject-neutral,
 ;; and it must not become a value measured from a run.
 ;; ------------------------------------------------------------------
-
-;; True for the stages sub-phases 4b, 4c and 4d land. Every other stage keeps
-;; the 4a stub write. This is scaffolding with a schedule, exactly as the 4a
-;; injector is: 4c retired D, F and G from the false half, 4d retires H, K and
-;; N, 4e landed M in wave.llmll rather than here (so 13 stays false by design),
-;; 4f O. A and E are mechanical and outside proposal section 9's sub-phase
-;; table; A is ported over wasi.http.get (v0.21.0, the STOP lifted) as the
-;; roadmap's step (3), and E waits on a reconcile.py invocation.
-;;
-;; 4f lands O and takes the count to eleven. Stage O is the LAST stage this
-;; program stubs that is its own to land: E, G2, J and L are real in
-;; spine.llmll and M in wave.llmll, and all five stay stubbed here until
-;; program unification retires this table.
-;;
-;; STAGE M'S ROW IS NOW DEAD AND THE TABLE KEEPS IT ANYWAY. Program unification
-;; job (a2) folded stage M into the sequencer's stage loop, and `started-step`
-;; reads `stage-fanout` BEFORE it reads this table, so row 13 is never
-;; consulted. It reads false and stage M is ported, which is exactly the kind of
-;; sentence this table exists to stop being true; it is recorded here rather
-;; than repaired because flipping the row would be cosmetic and deleting the
-;; table is blocked on E, J, L and G2, which still live unreached in
-;; spine.llmll. Section 2 clause 3 of the unification proposal deletes this
-;; table, not corrects it, and that clause closes when those four land.
-;;
-;; SO THE COUNT OF STAGES THIS PROGRAM STILL STUBS IS FOUR, not five: E, G2, J
-;; and L. Do not read "five stubbed stages" off this table any more.
-;;
-;; 4c LANDS D, F AND G TOGETHER rather than in its plan's stated order, and the
-;; reason is a data dependency the plan did not weigh. F reads
-;; 04-reconcile/data/extraction-a.json, which stage D stages there (:663-665),
-;; and G reads the core F writes. A tree with D still stubbed cannot exercise F
-;; or G end to end at all, because the 4a stub writes to the stage's own
-;; declared outputs and not to the directory the next stage reads. The plan's
-;; "smallest first" ordering was an authoring argument and shape.llmll already
-;; discharged it; the landing order follows the pipeline.
-;;
-(def-shell stage-ported? [i: int] -> bool
-  (if (= i 0) true
-  (if (= i 1) true
-  (if (= i 2) true
-  (if (= i 3) true
-  (if (= i 5) true
-  (if (= i 6) true
-  (if (= i 8) true
-  (if (= i 9) true
-  (if (= i 11) true
-  (if (= i 14) true
-  (if (= i 15) true false))))))))))))
 
 ;; The byte floor the stage contract declares for the stage's declared output.
 ;; NEGATIVE means the contract declares no floor.
@@ -302,10 +321,11 @@
 ;; column and a reader must not collapse them. The reference's stage M label is
 ;; `f"fill-{fn}#{attempt}"`, a function of the hole's name and the attempt
 ;; number, and no [i: int j: int] -> string entry can hold a value settled at run
-;; time. stage-fanout is what separates the two readings: "" with a zero fanout
-;; means the stage delegates to no agent, and "" with a non-zero fanout means the
-;; label is composed by the fan-out machine, which knows the hole. This is the
-;; same technique stage-floor's -1 needed and stage-shape supplied.
+;; time. stage-machine is what separates the two readings: "" at a stage whose
+;; machine is "delegate" means the stage delegates to no agent, and "" at the one
+;; stage whose machine is "wave" means the label is composed by the fan-out
+;; machine, which knows the hole. This is the same technique stage-floor's -1
+;; needed and stage-shape supplied.
 ;;
 ;; stage-prompt IS FILLED FOR M AND WAS EMPTY UNTIL THE STAGE M AGENT CONTRACT.
 ;; The comment here used to say the row must stay empty because wave.llmll hands
@@ -603,33 +623,6 @@
 ;;         matrix is written only when oracle.matrix-complete? holds
 (def-shell stage-oracle [i: int] -> int
   (if (= i 8) 1 (if (= i 11) 2 (if (= i 14) 3 0))))
-
-;; Which run-time work-item source the stage delegates over. 0 is none: the
-;; stage delegates each of its stage-tag-count tags exactly ONCE, and the static
-;; tables above give every invocation its label and its directory.
-;;
-;;   1  M  one delegation per HOLE in the AST at declared output 1, retried
-;;         under two budgets. The count is DATA and is never a function of i.
-;;
-;; WHAT THIS TABLE IS NOT. It is not an artifact count. stage-out-count counts
-;; DECLARED outputs and stage M declares two, statically; the per-attempt
-;; directories the wave creates are undeclared scratch, exactly as the
-;; reference's 12-wave/agent-NN-fn directories are. The program-unification
-;; proposal's section 4.10 item 2 read stage M's multiplicity off the wrong
-;; column and concluded the registry needed a run-time artifact count. It does
-;; not, and no stage has ever had one: stage H's probe rows and stage N's mutant
-;; rows are the same dimension and they live in the sequencer's Loop payload,
-;; seeded from a JSON array read at run time.
-;;
-;; SEPARATE FROM stage-tag-count, for the reason that table's own header gives.
-;; D's two tags are two DIFFERENT extractors, with two prompt substitutions, two
-;; provisioned input sets and two declared outputs. M's holes are ONE tag run
-;; many times. Widening stage-tag-count would make those the same idea.
-;;
-;; SEPARATE FROM stage-oracle, which is the compiler loop that FOLLOWS a passing
-;; delegated output. This is the loop that CONTAINS the delegation.
-(def-shell stage-fanout [i: int] -> int
-  (if (= i 13) 1 0))
 
 ;; The directory of stage-out i j, workdir-relative. "." for a top-level
 ;; artifact: wasi.fs.mkdir creates parents (measured) and is RNone on a
