@@ -102,16 +102,28 @@ content-shape validation of `shape.llmll`, and the verification-outcome channel 
 3 through the `:status` projection, so no shell sits between the acceptance criterion and the
 program.
 
-**Ten of the sixteen stage bodies are real**, measured off `registry.stage-ported?`, which
-returns true for exactly ten indices. B (scope), C (rubric) and I (pre-registration) landed at
-4b; D (extraction), F (core) and G (dispositions) at 4c; H (feasibility probes), K (root
-contract authoring) and N (kill matrix) at 4d; A (intake and provenance pinning) with the stage A
-port. The nine delegated ones read their inputs, render their prompt, spawn the agent through
-`wasi.proc.run`, and validate what the agent wrote. M (the swarm) is [`wave.llmll`](wave.llmll)'s
-and stays a stub in this program until the two unify. The other five write a stub to each
-artifact they declare, which is enough for every resume and outcome transition to be decided over
-real digests and a real completion record; `registry.stage-ported?` is the switch and carries the
-retirement schedule.
+**Twelve of the sixteen stage bodies are real at v0.23.2**, and the epoch is part of the
+sentence for the reason the parenthetical below gives. Eleven of them are measured off
+`registry.stage-ported?`, which returns true for exactly eleven indices: B (scope), C (rubric)
+and I (pre-registration) landed at 4b; D (extraction), F (core) and G (dispositions) at 4c;
+H (feasibility probes), K (root contract authoring) and N (kill matrix) at 4d; O (writeup) at 4f;
+A (intake and provenance pinning) with the stage A port. Ten of those eleven are delegated: they
+read their inputs, render their prompt, spawn the agent through `wasi.proc.run`, and validate
+what the agent wrote. A is the mechanical one.
+
+**M (the swarm) is the twelfth and it is NOT in that table.** Program unification job (a2) folded
+it into the stage loop, and it is reached through `registry.stage-fanout` rather than through
+`stage-ported?`: `started-step` consults the fan-out tag FIRST, so stage M's `false` row in
+`stage-ported?` is dead and unread. [`wave.llmll`](wave.llmll) still holds its state machine and
+is now a library that [`sequencer.llmll`](sequencer.llmll) imports. **Do not count the false rows
+in `stage-ported?` and call the answer the stub count.** It returns five and the true figure is
+four.
+
+**Four stages still write a stub**: E, G2, J and L, which live unreached in
+[`spine.llmll`](spine.llmll) until the rest of job (a2) lands. Each writes a stub to every
+artifact it declares, which is enough for every resume and outcome transition to be decided over
+real digests and a real completion record. `stage-ported?` is the switch for those four and
+carries the retirement schedule; the whole table is deleted, not corrected, when they land.
 
 **Stage A is the first mechanical stage in this program, over `wasi.http.get` (v0.21.0).** It
 was a filed STOP from v0.14.83 until that builtin shipped. Per source, `--rfc-url` then each
@@ -170,9 +182,12 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **58 cells** with stage A,
-from 52 at 4d and 39 before it; the thirteen 4d cells are H1 to H5, K1 to K3, N1 to N4 and F0, and
-the six stage A cells A1 to A6. The 4d cells run the **real
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **63 cells at v0.23.2**,
+from 62 at 4f, 58 with stage A, 52 at 4d and 39 before it. The figure is the count the runner
+prints, not one incremented from the previous sentence, for the reason the parenthetical further
+down gives; this line stated the stage A figure for two releases. The thirteen 4d cells are H1 to
+H5, K1 to K3, N1 to N4 and F0, the six stage A cells A1 to A6, the four 4f cells O1 to O4, and M1
+is the one cell that drives the folded stage M through the stage loop. The 4d cells run the **real
 compiler** (`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions
 under test, so a stub compiler would assert the port against a transcript the cover wrote
 itself. The checks that need no toolchain are in
@@ -250,7 +265,11 @@ driver, or behaviour it still has, or behaviour every LLMLL console program had:
 which said ten and was already short by one before sub-phase 4b touched it, then said
 twenty-seven and was short by four once 4c added `shape.llmll` and its three cruxes. A count
 stated without its epoch reads as current, and this is the **fourth** instance the DRIVER-LL line
-has recorded of exactly that. The file's own `frozen_at` field is the same defect one level in:
+has recorded of exactly that. **A FIFTH is recorded at v0.23.2 and it is this file's own**: the
+stage-body paragraph above read "ten of the sixteen" from sub-phase 4d until program unification,
+and stage O had made it eleven at 4f. Nobody incremented it and nobody re-measured it, so it
+stated a 4d figure for two releases. It now carries its epoch, which is the remedy this
+parenthetical has been recommending since the first instance. The file's own `frozen_at` field is the same defect one level in:
 it reads `v0.14.86` while four cases were added after that release, and it cannot be corrected
 until 4c has a release of its own.)
 
