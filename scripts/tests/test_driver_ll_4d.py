@@ -213,12 +213,27 @@ def test_the_hole_count_reaches_only_a_log_line():
 
 def test_stage_needs_llmll_agrees_with_the_prompt_files():
     """A stage carries {{llmll}} iff its prompt template does. Computed over
-    the files rather than remembered; M's template carries it too and M is
-    the wave's, so it has no stage-prompt row and drops out by itself."""
+    the files rather than remembered.
+
+    M JOINED THE SET AT THE STAGE M AGENT CONTRACT. This test used to expect
+    {8, 11} and said M "has no stage-prompt row and drops out by itself". The
+    row was empty because sub-phase 4e rendered no prompt at all for stage M,
+    which driver-spec section 8 part 3 refutes: a rendered task statement is a
+    declared input because the driver declares it. The row now names
+    stage-M-fill.md and the WAVE renders it, per attempt.
+
+    M'S stage-needs-llmll? ROW IS DESCRIPTIVE AND NOT CONSULTED, which is why
+    this test is where it earns its place. `render` in sequencer.llmll reads
+    that row and stage M never reaches `render`: wave.llmll substitutes
+    {{llmll}} unconditionally, because a wave with no compiler command cannot
+    run. So nothing at run time would notice the row going stale, and this
+    check over the prompt FILES is the only thing that would.
+    """
     prompts = _table_strings("stage-prompt")
     carrying = {i for i, names in prompts.items() if names
                 and "{{llmll}}" in (PROMPTS / names[0]).read_text()}
-    assert carrying == {8, 11}, f"prompts carrying {{{{llmll}}}}: {sorted(carrying)}"
+    assert carrying == {8, 11, 13}, \
+        f"prompts carrying {{{{llmll}}}}: {sorted(carrying)}"
     assert _table_indices("stage-needs-llmll?") == carrying
 
 

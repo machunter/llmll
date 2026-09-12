@@ -4,6 +4,98 @@
 
 <a id="Latest"></a>
 
+## v0.23.3: stage M hands its agent four declared inputs, and until now it could not invoke its agent at all (2026-09-12)
+
+**The stage M agent contract lands.** Sub-phase 4e settled that the checkout brief is the agent's
+only input and called that the sole-channel discipline. driver-spec §8 does not say that, and this
+project's own
+[`docs/design/driver-ll-phase4-proposal.md`](docs/design/driver-ll-phase4-proposal.md) §5 item 1
+refuted it first: that item settled `--agent-exe` plus repeatable `--agent-arg` **with the
+placeholders substituted per argument**, and 4e built a stage that substitutes nothing and appends
+two paths instead. §8's third paragraph settles the term by definition — the driver MUST be able to
+report any file in an agent's directory that was not among **its declared inputs** — so a declared
+input is a driver-side commitment and a rendered task statement is one. The repair is
+[`docs/design/driver-ll-stage-m-agent-contract-proposal.md`](docs/design/driver-ll-stage-m-agent-contract-proposal.md),
+Rev 1 SETTLED.
+
+- **The defect was measured, not argued: stage M could not invoke its agent at all.** Run the `wave`
+  sub-command with the argument vector the 2026-09-11 clause 2 campaign actually used and the agent
+  receives `--model`, `claude-opus-5`, the **literal string** `{prompt}`, the **literal string**
+  `{out}`, the brief path and the body path. The committed wrapper tests its third argument for
+  readability and exits **2** on the literal, before any model is reached. One `--agent-arg` list was
+  serving two incompatible calling conventions: every other delegated stage maps it through
+  `subst-arg`, and stage M passed it raw and appended its own two paths.
+- **Three gates and the templated path was outside all three.** No cover cell passed `--agent-arg`,
+  so the untemplated case was the only one exercised;
+  [`scripts/driver_ll_cover.py`](scripts/driver_ll_cover.py) stopped selecting stage M at the (a2)
+  fold; and the clause 2 run never reached stage M, because stage M was stubbed.
+- **Driver CLI change: `sequencer wave ...` requires `--prompt` and `--pristine`, and accepts
+  `--reference-dir`.** `--prompt` is the resolved `stage-M-fill.md` template, `--pristine` is the
+  authored `roots.llmll` the agent self-checks against. Both are required, checked **after**
+  `--agent-cmd` so an operator missing that flag still sees its message. **A campaign run needs no
+  new operator flag**: inside the stage loop `fan-cfg` composes all three from `--prompts-dir`,
+  `registry.stage-prompt` and `--reference-dir`, which the sequencer already takes. This is the
+  driver's CLI, not the compiler's; the `llmll` command surface does not change.
+- **The wave renders the prompt per attempt, and the stage loop cannot.** Every placeholder in
+  `registry.stage-pre-key` names an artifact read once per stage before delegating, which is why
+  `render` can run in the stage loop. Three of stage M's four are settled per attempt inside the hole
+  loop: `{{hole}}` is the function name, `{{brief}}` is the checkout brief re-taken each attempt, and
+  `{{errors}}` is the previous attempt's compiler output. So the registry keeps only the basename and
+  `stage-pre-count` for M stays **zero**.
+- **The agent gets the pristine subject, which is the clause `FS-COPY-1` shipped for.** driver-spec
+  §8 part 4 requires the self-check copy to be the **original, unmodified** subject. `FS-COPY-1`
+  shipped `wasi.fs.copy` citing exactly that clause, and 4e then used the builtin for its per-attempt
+  backup and never for the agent's copy. The copy is now taken from the authored `roots.llmll` and
+  never from the `.ast.json` the wave patches in place, which by the second hole carries the first
+  hole's accepted fill. The language reference (`LLMLL.md` and the JSON-AST schema) is provisioned
+  alongside it; `registry.stage-provision-ref?` row 13 was **false** while the reference called
+  `_provision_reference` there, and it is true now.
+- **Attempt n+1 receives attempt n's compiler output, and until now it received byte-identical
+  input.** `Att` gains a seventh slot and `at-next` takes the text as a parameter, so each call site
+  states what the next attempt reads: the two checkout failures carry the previous text forward, and
+  the agent-failure and rejection paths supply new text. driver-spec §9 requires two separately
+  counted retry budgets and makes only an exhausted error budget a finding; with identical input that
+  budget samples agent nondeterminism rather than measuring repair. `fill.next-error-budget` is
+  unaffected and was always correct — what changed is the input the running program gives it. A first
+  attempt renders the reference's literal `(first attempt)`.
+- **Two new wave exit codes, and they take `tmpl-step`'s dispositions rather than new ones.** **6** is
+  a prompt template that is absent or empty, recorded `Absent`; **7** is a rendered prompt whose
+  placeholders survived, recorded `Malformed`. Every other delegated stage reaches its template
+  through `tmpl-step` and records those two, so a stage M manifest row does not get a vocabulary of
+  its own. Codes 0, 1, 3 and 5 still record the stage **complete**.
+- **`replace-all` and `subst-arg` move to [`tools/llmll-driver/common.llmll`](tools/llmll-driver/common.llmll).**
+  `sequencer.llmll` imports `wave.llmll`, so the wave could not reach a function the sequencer held,
+  and a second copy is how the two calling conventions parted in the first place. They are the first
+  members of that module to arrive with one copy rather than two, and its header says so.
+- **The cover goes from 9 cells to 14, and six mutation controls say each one grades something.**
+  W10 passes `--agent-arg` and fails if the substitution is lost; W11 asserts attempt 2's prompt
+  carries attempt 1's transcript; W12 asserts the scratch copy is byte-identical to the authored
+  roots and still carries its holes at the **second** hole; W13 and W14 drive the two new exit codes,
+  which would otherwise be halts no cell had ever reached. Cell W1's two-argument assertion survives
+  as written and its comment now cites §8 instead of an argument count: the claim was right and the
+  mechanism was wrong, because an argument count establishes none of §8.
+- **`FS-ISOLATION-1` stays open and gains one measured item.** `undo` writes `tree.bak` into an
+  attempt directory, and that file is a copy of a tree carrying every sibling hole's accepted fill.
+  It is written after that attempt's agent exits, so no agent sees it in its own directory during its
+  own run, and nothing stops one reading a peer's. `wasi.proc.run` takes no confinement parameter, so
+  a confining spawn is a language change and not a port decision; it is recorded as `Q-008` in
+  [`docs/design/theory-questions.md`](docs/design/theory-questions.md). The port reproduces the
+  reference's isolation posture exactly and hardens nothing.
+
+**No compiler change, no `llmll` CLI change, no JSON-AST schema change**; nothing under `compiler/`
+was touched, and `LLMLL.md` moves only its banner. The driver's own flags are documented in
+[`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1942 examples, 0 failures (unchanged; no Haskell touched). pytest 288 passed, 23 skipped (311
+collected, from 297 at v0.23.2), the 14 new checks in
+[`scripts/tests/test_driver_ll_stage_m.py`](scripts/tests/test_driver_ll_stage_m.py).
+[`scripts/wave_cover.py`](scripts/wave_cover.py) 9 to 14 cells and
+[`scripts/driver_ll_cover.py`](scripts/driver_ll_cover.py) unchanged at 63, both outside pytest and
+both RUN: 14 of 14 and 63 of 63, against the built driver and the real compiler.
+[`scripts/build_smoke_cover.py`](scripts/build_smoke_cover.py) 9 of 9 cells agree.
+
+---
+
 ## v0.23.2: the driver becomes one program, and the acceptance run that had never been executed runs (2026-09-11)
 
 **`DRIVER-LL` program unification lands as two jobs, and DRIVER-LL acceptance clause 2 is executed

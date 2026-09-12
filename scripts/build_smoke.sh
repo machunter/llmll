@@ -1066,7 +1066,7 @@ fi
 
 # --- 9. DRIVER-LL sub-phase 4e acceptance cover: the serial wave. ------------
 #
-# The nine cells of scripts/wave_cover.py, driven against the BUILT DRIVER
+# The fourteen cells of scripts/wave_cover.py, driven against the BUILT DRIVER
 # binary and the REAL compiler.
 #
 # THE WAVE IS A LIBRARY SINCE PROGRAM UNIFICATION JOB (a2). It has no def-main,
@@ -1115,7 +1115,7 @@ if [ -f "$WAVE_SRC" ]; then
   names the cell and the assertion."
   fi
   cat "$OUTDIR/.wave-cover.log"
-  echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (9 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record)"
+  echo "BUILD-GATE-1 PASS: DRIVER-LL 4e wave cover (14 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record, argument substitution with the model pin, the error channel across attempts, the pristine copy and the language reference, an unreadable template, a prompt that kept a placeholder)"
 fi
 
 # --- 10. DRIFT-CI-1, decided by an LLMLL program. ----------------------------
