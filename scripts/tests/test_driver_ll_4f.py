@@ -235,7 +235,7 @@ def test_the_port_now_constructs_partial_then_halt_at_three_stage_sites():
     users = {d for d, body in SEQ_DEFS.items()
              if re.search(r"[\s(]PartialThenHalt[\s)]", body)}
     assert users - injector == {"hwrote-step", "o-decide", "j-decide",
-                                "g2-wrote-step"}, (
+                                "g2-wrote-step", "l-decide"}, (
         f"the stage sites are {sorted(users - injector)}")
     assert '"driver-spec sec 13"' in SEQ_DEFS["o-decide"], (
         "a stopped row names the clause that authorised it")

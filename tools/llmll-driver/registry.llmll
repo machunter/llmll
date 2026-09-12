@@ -91,21 +91,23 @@
 ;; becomes incorrect quietly, which is what the stage M row in stage-ported? did.
 ;;
 ;;   intake    A          the URL fetch loop over wasi.http.get
-;;   spine     J          the machines ported from spine.llmll
+;;   spine     E, G2, J, L the machines ported from spine.llmll
 ;;   wave      M          the fan-out machine, one delegation per hole
 ;;   delegate  ten stages the agent-delegated path, through begin-body
-;;   stub      E, G2, L   NOT YET PORTED, and this value is a SCHEDULE
 ;;
 ;; EVERY INDEX 0 TO 14 IS NAMED AND THE FINAL ARM IS INDEX 15. There is no
 ;; catch-all: stage O is the else because the chain ends there, not because an
 ;; unnamed index falls through to a sentinel the way stage-key's "?" does.
 ;;
-;; THE `stub` VALUE CARRIES A RETIREMENT SCHEDULE, so it is the same kind of row
-;; stage-ported? was. That is recorded here rather than hidden. Clause 3 lands E,
-;; G2 and L on this branch, each flipping its own row to "spine", and the
-;; branch's last commit deletes this value together with the started-step arm
-;; that reads it. A `stub` row surviving a merge to main is the defect this
-;; paragraph exists to make greppable.
+;; THERE IS NO `stub` VALUE AND NO STUB WRITE. Clause 3 carried one, on a stated
+;; schedule, for exactly as long as E, G2 and L were unported; stage L was the
+;; last and its commit deleted the value, the started-step arm that read it, and
+;; `stub-body` and `write-cmd` with them. EVERY STAGE IN THIS DRIVER NOW WRITES
+;; A REAL ARTIFACT, which is the clause the program-unification proposal's
+;; section 2.5 adds and which deleting stage-ported? alone did not satisfy.
+;; Sixteen of sixteen. Do not reintroduce a schedule value here: a stage that
+;; cannot be ported yet is a filed STOP, per the campaign's rule, and not a
+;; table row that quietly writes a placeholder.
 ;;
 ;; WHAT THIS TABLE IS NOT. It is not an artifact count and it is not a
 ;; delegation count. stage-out-count counts DECLARED outputs and stage M declares
@@ -132,7 +134,7 @@
   (if (= i 9)  "delegate"
   (if (= i 10) "spine"
   (if (= i 11) "delegate"
-  (if (= i 12) "stub"
+  (if (= i 12) "spine"
   (if (= i 13) "wave"
   (if (= i 14) "delegate"
       "delegate"))))))))))))))))

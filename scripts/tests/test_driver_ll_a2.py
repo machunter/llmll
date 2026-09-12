@@ -276,18 +276,23 @@ def test_stage_machine_is_total_over_the_sixteen_stages_with_no_default_arm():
         f"stage-machine's final arm is {tail}, and stage O is `delegate`"
 
 
-def test_the_stub_machine_value_carries_its_own_retirement():
-    """The `stub` value is a SCHEDULE, so it is the same kind of row
-    `stage-ported?` was. The difference is that this branch deletes it. This
-    test states the remaining rows so the deletion is a visible diff and not a
-    quiet survival into main.
+def test_the_stub_machine_value_is_gone_and_so_is_the_arm_that_read_it():
+    """The `stub` value was a SCHEDULE, so it was the same kind of row
+    `stage-ported?` was. The difference is that clause 3 deleted it.
+
+    Both halves are asserted, because either one surviving alone is the defect:
+    a table value with no arm routes a stage nowhere, and an arm with no value
+    is a stub write waiting for a row to reach it.
     """
     body = _body_of(_uncommented(REGISTRY), "stage-machine")
     rows = re.findall(r'\(=\s*i\s*(\d+)\)\s*"([a-z]+)"', body)
-    stubs = [i for i, v in rows if v == "stub"]
-    assert stubs == ["12"], \
-        f"stage-machine stubs {stubs}; clause 3 has landed J (10), E (4) and "\
-        f"G2 (7); L (12) is the last and its commit deletes this value"
+    assert [i for i, v in rows if v == "stub"] == [], \
+        f"stage-machine stubs {[i for i, v in rows if v == 'stub']} again"
+    assert set(v for _, v in rows) <= {"intake", "spine", "wave", "delegate"}, \
+        f"stage-machine answers a value clause 3 did not leave: {set(v for _, v in rows)}"
+    seq = _uncommented(SEQUENCER)
+    assert "write-cmd" not in seq and "stub-body" not in seq, \
+        "the stub-write machinery is back in the sequencer"
 
 
 def test_stage_m_declares_two_outputs_and_the_fold_uses_both():

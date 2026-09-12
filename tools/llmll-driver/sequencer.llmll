@@ -469,7 +469,6 @@
     (| Boot     int)
     (| Digest   (int, (int, (bool, (bool, string)))))
     (| Started  int)
-    (| Made     (int, (int, int)))
     (| Pre      Body)
     (| Srcs     Body)
     (| Src      Body)
@@ -727,12 +726,6 @@
   (def-shell mk-kc [k: int start: int enc: int holes: int] -> Ctl
     (KCheck (pair k (pair start (pair enc holes)))))
 
-  (def-shell md-k [d: (int, (int, int))] -> int (first d))
-  (def-shell md-j [d: (int, (int, int))] -> int (first (second d)))
-  (def-shell md-start [d: (int, (int, int))] -> int (second (second d)))
-  (def-shell mk-md [k: int j: int start: int] -> Ctl
-    (Made (pair k (pair j start))))
-
   (def-shell sm-k [d: (int, (int, (int, Json)))] -> int (first d))
   (def-shell sm-j [d: (int, (int, (int, Json)))] -> int (first (second d)))
   (def-shell sm-start [d: (int, (int, (int, Json)))] -> int (first (second (second d))))
@@ -857,32 +850,6 @@
 
   (def-shell art-dir [c: Cfg i: int j: int] -> string
     (string-concat-many [(cfg-workdir c) "/" (stage-out-dir i j)]))
-
-  ;; No body for the thirteen stages 4b does not port. The content is
-  ;; per-artifact so that two stubs never share a digest, which would make a
-  ;; cross-stage digest confusion invisible.
-  ;;
-  ;; A `.json` artifact gets a JSON stub, NEW AT 4b and for a reason 4a could
-  ;; not have. Stage B is now real and reads stage A's PROVENANCE.json through
-  ;; json-parse; stage A is not ported (it needs HTTP-GET-1) and is not listed
-  ;; in any of proposal section 9's sub-phase rows, so its stub is what a run
-  ;; selecting A,B hands to stage B. With the flat text stub every such run
-  ;; halted at B on "does not parse as JSON", which is a correct decision over
-  ;; a wrong input rather than a decision about the pipeline. The distinctness
-  ;; property is unchanged: the stage key and the artifact path are both still
-  ;; in the body, so no two stubs share a digest.
-  (def-shell json-artifact? [p: string] -> bool
-    (let [(k (string-length p))]
-      (and (> k 5) (= (string-slice p (- k 5) k) ".json"))))
-
-  (def-shell stub-body [i: int j: int] -> string
-    (if (json-artifact? (stage-out i j))
-        (string-concat-many
-          ["{\n \"driver-ll\": \"4a stub\",\n \"stage\": \"" (stage-key i)
-           "\",\n \"artifact\": \"" (stage-out i j) "\"\n}\n"])
-        (string-concat-many
-          ["driver-ll 4a stub\nstage=" (stage-key i)
-           "\nartifact=" (stage-out i j) "\n"])))
 
   ;; ---- 4b paths and string helpers -----------------------------------
 
@@ -1240,11 +1207,6 @@
   (def-shell halt-errored [rn: Run k: int detail: string] -> ((Run, Ctl), Command)
     (halt-with rn k Errored detail ""))
 
-  (def-shell write-cmd [rn: Run k: int j: int] -> Command
-    (seq-commands (wasi.fs.mkdir (art-dir (cfg-of rn) (idx-at rn k) j))
-                  (wasi.fs.write (art-path (cfg-of rn) (idx-at rn k) j)
-                                 (stub-body (idx-at rn k) j))))
-
   ;; ------------------------------------------------------------------
   ;; 4b: the ported body of a delegated stage.
   ;;
@@ -1532,8 +1494,10 @@
   ;; a machine, and tests no stage index. scripts/tests/test_driver_ll_a2.py is
   ;; the guard.
   ;;
-  ;; THE `stub` ARM IS SCHEDULED FOR DELETION together with the registry value
-  ;; it reads. E, G2 and L land on this branch and take it to no rows.
+  ;; THE `stub` ARM IS GONE, and with it the last stub write in this program.
+  ;; The `delegate` arm is now the else, because the chain ends there and not
+  ;; because an unnamed machine falls through to it: registry.stage-machine is
+  ;; total over the sixteen stages and answers one of four values.
   (def-shell started-step [rn: Run k: int r: Response] -> ((Run, Ctl), Command)
     (if (halts-pre? rn k)
         (halt-now rn k (injected-outcome rn k) (ns-of r))
@@ -1545,9 +1509,7 @@
               (a-enter rn k (ns-of r))
           (if (= m "spine")
               (spine-enter rn k (ns-of r))
-          (if (= m "delegate")
-              (begin-body rn k (ns-of r))
-              (go rn (mk-md k 0 (ns-of r)) (write-cmd rn k 0)))))))))
+              (begin-body rn k (ns-of r))))))))
 
   ;; ---- Pre -------------------------------------------------------------
   ;;
@@ -3392,6 +3354,173 @@
         (g2-rows-step rn d r)
         (g2-wrote-step rn d r))))
 
+  ;; ------------------------------------------------------------------
+  ;; Clause 3: stage L, the coverage gate and the clause freeze.
+  ;;
+  ;; rfc_to_implementation.py's stage_L_coverage runs `llmll verify --trust-report
+  ;; --json` over stage K's roots, writes the report, derives ROOTS.txt from its
+  ;; entry names, runs RFC-COV-1 at freeze strength, and THEN guards the
+  ;; coverage exit with `require_spec` citing driver-spec sec 11:386-397. All
+  ;; three files are written before that guard, so the halt is PartialThenHalt.
+  ;;
+  ;; STAGE L IS THE ONE STAGE OF THE FOUR WHOSE PROVED CENTRE TRANSFERS INTACT,
+  ;; and that is a measurement rather than a preference. `stage-l-passes` is
+  ;; `(= cov-exit 0)` and nothing else, so it carries no frozen corpus; and
+  ;; `stage-l-outcome` HAS a PartialThenHalt arm, which `stage-e-outcome` and
+  ;; `stage-g2-outcome` do not. So both proved defs decide the live stage here,
+  ;; where E, G2 and J each needed a channel around theirs.
+  ;;
+  ;; TWO DECLARED OUTPUTS, and a third file that is not one. 11-freeze/
+  ;; trust-report.json is undeclared scratch, exactly as the clause 3 proposal
+  ;; section 8 case 4 records; the declared pair is rfc-cov-1.txt and ROOTS.txt.
+  ;;
+  ;; THE TWO CHILD RUNS REDIRECT DIFFERENTLY AND MUST. wasi.proc.run merges
+  ;; stdout and stderr on STRING equality of the two paths. RFC-COV-1's
+  ;; transcript is the reference's `cov.stdout + cov.stderr`, so that one merges.
+  ;; The verify run's stdout is the trust report itself, and merging stderr into
+  ;; it would put diagnostics inside a document the next state parses as JSON,
+  ;; so that one does not.
+  ;;
+  ;; DISCLOSED: the reference echoes RFC-COV-1's stdout line by line onto the
+  ;; driver's own log. This port names the exit status and the transcript path
+  ;; instead. Reproducing the echo costs one more state and one more read of a
+  ;; file that is already a declared output.
+
+  (def-shell l-roots-path [c: Cfg] -> string
+    (wd-path c (stage-out 11 0)))
+
+  (def-shell l-tr-path [c: Cfg] -> string
+    (wd-path c "11-freeze/trust-report.json"))
+
+  (def-shell l-tr-err [c: Cfg] -> string
+    (wd-path c "11-freeze/trust-report.stderr.txt"))
+
+  (def-shell l-cov-tool [c: Cfg] -> string
+    (string-concat-many [(cfg-refdir c) "/scripts/rfc_coverage.py"]))
+
+  (def-shell l-no-refdir-detail [] -> string
+    (string-concat-many
+      ["stage L: --reference-dir is empty, so scripts/rfc_coverage.py cannot be "
+       "resolved. RFC-COV-1 is a TOOL and not an artifact, so it comes from the "
+       "repository root and never from the run workdir. Pass --reference-dir."]))
+
+  (def-shell l-tr-detail [rn: Run what: string] -> string
+    (string-concat-many
+      ["stage L: " (l-tr-path (cfg-of rn)) " " what
+       ". The clause surface is the trust report's entry names, so ROOTS.txt "
+       "cannot be derived without it. Its stderr is beside it."]))
+
+  (def-shell l-write-detail [rn: Run k: int] -> string
+    (string-concat-many
+      ["stage L: " (art-path (cfg-of rn) (idx-at rn k) 1) " could not be "
+       "written, so the stage produced no clause surface."]))
+
+  (def-shell l-cov-detail [rn: Run k: int n: int] -> string
+    (string-concat-many
+      ["stage L: RFC-COV-1 exited " (int-to-string n)
+       " at freeze strength. The clause surface cannot be frozen while the "
+       "inventory and the citations disagree. Its transcript is "
+       (art-path (cfg-of rn) (idx-at rn k) 0)
+       ", written before this halt."]))
+
+  (def-shell l-cov-line [n: int] -> string
+    (string-concat-many
+      ["  RFC-COV-1 at freeze strength exited " (int-to-string n)
+       "; its full output is 11-freeze/rfc-cov-1.txt"]))
+
+  ;; s=0. The verify run's stdout IS the trust report. 300 seconds, as
+  ;; spine.llmll passes, and it does not fire (PROC-TIMEOUT-1, open).
+  (def-shell l-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (let [(c (cfg-of rn))]
+      (if (string-empty? (cfg-refdir c))
+          (halt-errored rn k (l-no-refdir-detail))
+          (go rn (mk-sp k 0 start false "" json-object)
+              (seq-commands
+                (wasi.fs.mkdir (art-dir c (idx-at rn k) 0))
+                (wasi.proc.run (cfg-llmll c)
+                               ["verify" (l-roots-path c) "--trust-report" "--json"]
+                               "."
+                               (l-tr-path c)
+                               (l-tr-err c)
+                               300
+                               "/dev/null"))))))
+
+  ;; s=0 -> s=1. THE VERIFY EXIT CODE IS NOT GUARDED, and that is the reference
+  ;; rather than an omission: it writes p.stdout whatever the code and reads the
+  ;; entries out of it. A roots file that refutes still produces a report, and
+  ;; RFC-COV-1 is what rules on the surface.
+  (def-shell l-ran-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
+    (go rn (mk-sp (sp-k d) 1 (sp-start d) false "" json-object)
+        (wasi.fs.read (l-tr-path (cfg-of rn)))))
+
+  ;; s=1 -> s=2. ROOTS.txt is the entry names newline-joined with a trailing
+  ;; newline, which is spine.roots-file.
+  (def-shell l-tr-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
+    (if (not (present? r))
+        (halt-errored rn (sp-k d) (l-tr-detail rn "is absent, or its bytes do not decode"))
+        (match (json-parse (text-of r))
+          ((Success tr)
+            (go rn (mk-sp (sp-k d) 2 (sp-start d) false "" json-object)
+                (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (sp-k d)) 1)
+                               (roots-file tr))))
+          ((Error e) (halt-errored rn (sp-k d)
+                       (l-tr-detail rn (string-concat "does not parse as JSON: " e)))))))
+
+  ;; s=2 -> s=3. RFC-COV-1's transcript MERGES its two streams, because the
+  ;; reference writes `cov.stdout + cov.stderr` into one file.
+  (def-shell l-wrote-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
+    (if (copy-failed? r)
+        (halt-errored rn (sp-k d) (l-write-detail rn (sp-k d)))
+        (let [(c (cfg-of rn))]
+          (go rn (mk-sp (sp-k d) 3 (sp-start d) false "" json-object)
+              (wasi.proc.run "/usr/bin/python3"
+                             [(l-cov-tool c)
+                              "--inventory" (wd-path c (stage-out 6 0))
+                              "--trust-report" (l-tr-path c)
+                              "--roots" (art-path c (idx-at rn (sp-k d)) 1)
+                              "--require-full-coverage"]
+                             "."
+                             (art-path c (idx-at rn (sp-k d)) 0)
+                             (art-path c (idx-at rn (sp-k d)) 0)
+                             120
+                             "/dev/null")))))
+
+  ;; s=3. BOTH PROVED DEFS DECIDE HERE, which is what makes stage L different
+  ;; from the other three: `stage-l-passes` reads the exit status and
+  ;; `stage-l-outcome` turns it into the Outcome, PartialThenHalt included,
+  ;; because both declared outputs are already on disk.
+  (def-shell l-decide [rn: Run d: (int, (int, (int, (bool, (string, Json))))) n: int] -> ((Run, Ctl), Command)
+    (let [(nxt (match (stage-l-outcome (stage-l-passes n))
+                 ((Finished)        (to-summed rn (sp-k d) (sp-start d)))
+                 ((PartialThenHalt) (halt-with rn (sp-k d) PartialThenHalt
+                                               (l-cov-detail rn (sp-k d) n)
+                                               "driver-spec sec 11:386-397"))
+                 ((ConditionUnmet)  (halt-with rn (sp-k d) ConditionUnmet
+                                               (l-cov-detail rn (sp-k d) n)
+                                               "driver-spec sec 11:386-397"))
+                 ((Errored)         (halt-errored rn (sp-k d) (l-cov-detail rn (sp-k d) n)))))]
+      (pair (first nxt)
+            (seq-commands (wasi.io.stdout (l-cov-line n)) (second nxt)))))
+
+  (def-shell l-cov-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
+    (match r
+      ((RCode n)  (l-decide rn d n))
+      ((RNone)    (l-decide rn d (- 0 1)))
+      ((RText _)  (l-decide rn d (- 0 1)))
+      ((RList _)  (l-decide rn d (- 0 1)))
+      ((RErr e)   (halt-errored rn (sp-k d)
+                    (string-concat-many
+                      ["stage L: RFC-COV-1 could not be run (" e ")"])))))
+
+  (def-shell l-arm-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
+    (if (= (sp-s d) 0)
+        (l-ran-step rn d r)
+    (if (= (sp-s d) 1)
+        (l-tr-step rn d r)
+    (if (= (sp-s d) 2)
+        (l-wrote-step rn d r)
+        (l-cov-step rn d r)))))
+
   ;; ---- the spine machines -------------------------------------------
   ;;
   ;; Clause 3 lands J then E. G2 and L follow on this branch, each adding an
@@ -3411,7 +3540,9 @@
         (e-enter rn k start)
     (if (= (stage-key (idx-at rn k)) "G2")
         (g2-enter rn k start)
-        (j-enter rn k start))))
+    (if (= (stage-key (idx-at rn k)) "L")
+        (l-enter rn k start)
+        (j-enter rn k start)))))
 
   ;; NOT `spine-step`. spine.llmll already has a function of that name, this
   ;; module opens it, and unification clause 5 is absolute: a silent homonym
@@ -3423,7 +3554,9 @@
         (e-arm-step rn d r)
     (if (= (stage-key (idx-at rn (sp-k d))) "G2")
         (g2-arm-step rn d r)
-        (j-arm-step rn d r))))
+    (if (= (stage-key (idx-at rn (sp-k d))) "L")
+        (l-arm-step rn d r)
+        (j-arm-step rn d r)))))
 
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Ctl), Command)
@@ -3449,13 +3582,6 @@
       ((RNone)    (outp-decide rn b false 0 ""))
       ((RCode _)  (outp-decide rn b false 0 ""))
       ((RList _)  (outp-decide rn b false 0 ""))))
-
-  (def-shell made-step [rn: Run d: (int, (int, int)) r: Response] -> ((Run, Ctl), Command)
-    (if (< (+ (md-j d) 1) (stage-out-count (idx-at rn (md-k d))))
-        (go rn (mk-md (md-k d) (+ (md-j d) 1) (md-start d))
-            (write-cmd rn (md-k d) (+ (md-j d) 1)))
-        (go rn (mk-sm (md-k d) 0 (md-start d) json-object)
-            (wasi.fs.sha256 (art-path (cfg-of rn) (idx-at rn (md-k d)) 0)))))
 
   ;; The reference's outputs map is comprehended over the declared outputs THAT
   ;; EXIST (:2010-2011), so a missing artifact yields a SHORT map rather than a
@@ -3509,7 +3635,6 @@
       ((Boot n)     (boot-step   (run-of s) n r))
       ((Digest d)   (digest-step (run-of s) d r))
       ((Started k)  (started-step (run-of s) k r))
-      ((Made d)     (made-step   (run-of s) d r))
       ((Pre b)      (pre-step    (run-of s) b r))
       ((Srcs b)     (srcs-step   (run-of s) b r))
       ((Src b)      (src-step    (run-of s) b r))
@@ -3549,7 +3674,6 @@
       ((Boot _)     false)
       ((Digest _)   false)
       ((Started _)  false)
-      ((Made _)     false)
       ((Pre _)      false)
       ((Srcs _)     false)
       ((Src _)      false)
@@ -3594,7 +3718,6 @@
       ((Boot _)     1)
       ((Digest _)   1)
       ((Started _)  1)
-      ((Made _)     1)
       ((Pre _)      1)
       ((Srcs _)     1)
       ((Src _)      1)
@@ -3654,7 +3777,6 @@
       ((Boot b)     1)
       ((Digest d)   1)
       ((Started k)  1)
-      ((Made m)     1)
       ((Pre pb)     1)
       ((Srcs sb)    1)
       ((Src cb)     1)

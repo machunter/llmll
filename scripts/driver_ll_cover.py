@@ -155,6 +155,15 @@ if name == "inventory-dispositioned.json":
     if mode == "uncited-row":
         row = {"cid": "ZZ9", "class": "C1", "disposition": "Encoded",
                "reason": "cites a census row that does not exist"}
+    # Stage L's STOP: an Encoded row that no contract cites. The stub roots.llmll
+    # carries `:source "[A0] ..."` and nothing else, so a second Encoded row
+    # makes RFC-COV-1 report 1/2 cited and fail at freeze strength.
+    if mode == "uncovered-row":
+        out.write_text(json.dumps({"rows": [
+            row,
+            {"cid": "A1", "class": "C1", "disposition": "Encoded",
+             "reason": "encoded, and no contract cites it"}]}))
+        sys.exit(0)
     out.write_text(json.dumps({"rows": [row]}))
     sys.exit(0)
 
@@ -1848,6 +1857,123 @@ def g2d(b, wd):
     want_in("extraction-a.json", r)
     want(not (wd / "06b-audit" / "audit.json").exists(),
          "the read is guarded before the write, so no declared output exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage L, the coverage gate and the clause freeze.
+#
+# The last of the four, and the only one whose proved centre transfers intact:
+# `stage-l-passes` is `(= cov-exit 0)` and carries no frozen corpus, and
+# `stage-l-outcome` has the PartialThenHalt arm the other three outcome
+# functions lack. Both decide the live stage.
+#
+# L1 RUNS THE REAL COMPILER AND THE REAL RFC-COV-1. `llmll verify --trust-report
+# --json` produces the entry names ROOTS.txt is derived from, and RFC-COV-1
+# rules on the surface. A fixture for either would test the cover's own idea of
+# a trust report.
+# ---------------------------------------------------------------------------
+
+
+def localL(cell: str, why: str):
+    """The stage L sibling. `self_test()` pins exactly one value for this stage,
+    RFC-COV-1's exit status, and never drives it."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+@localL("L1", "both declared outputs are written and ROOTS.txt is the trust "
+              "report's entry names; trust-report.json is undeclared scratch")
+def l1(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K,L")
+    want_rc(r, 0)
+    row = r.stages()["L"]
+    want_complete_row(row, "gate")
+    want(set(row["outputs"]) == {"11-freeze/rfc-cov-1.txt", "11-freeze/ROOTS.txt"},
+         f"the outputs map is the two DECLARED artifacts: {sorted(row['outputs'])}")
+    # The third file exists and must NOT be declared. Proposal section 8 case 4.
+    want((wd / "11-freeze" / "trust-report.json").exists(),
+         "the trust report is written, as undeclared scratch")
+    roots = (wd / "11-freeze" / "ROOTS.txt").read_text(encoding="utf-8")
+    want(roots.endswith("\n") and roots.strip() != "",
+         f"ROOTS.txt is the entry names newline-joined with a trailing newline: {roots!r}")
+    tr = json.loads((wd / "11-freeze" / "trust-report.json").read_text(encoding="utf-8"))
+    want([e["name"] for e in tr.get("entries", [])] == roots.split("\n")[:-1],
+         f"ROOTS.txt is derived from the report's entries, not from the source: "
+         f"{roots!r} against {[e.get('name') for e in tr.get('entries', [])]}")
+    want_in("RFC-COV-1 at freeze strength exited 0", r)
+
+
+@localL("L2", "RFC-COV-1 failing at freeze strength halts AFTER both declared "
+              "writes: stopped, PartialThenHalt, sec 11:386-397")
+def l2(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K,L", mode="uncovered-row")
+    want_rc(r, 2)
+    row = r.stages()["L"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 11:386-397",
+         f"the freeze STOP names the clause that authorised it: {row}")
+    # The ordering IS the cell. Both artifacts precede the require_spec in the
+    # reference, which is what makes this PartialThenHalt and not ConditionUnmet.
+    for rel in ("11-freeze/rfc-cov-1.txt", "11-freeze/ROOTS.txt"):
+        want((wd / rel).exists(),
+             f"{rel} MUST be on disk before the halt, or the stage lost a "
+             f"declared artifact and the Outcome degrades")
+    want("RFC-COV-1" in (wd / "11-freeze" / "rfc-cov-1.txt").read_text(encoding="utf-8"),
+         "the transcript is the tool's own output, merged from both streams")
+
+
+@localL("L3", "a verify that leaves no readable trust report is failed, not "
+              "stopped: there is no clause surface to freeze or to fail")
+def l3(b, wd):
+    # No 10-roots/roots.llmll, because stage K did not run.
+    r = drive(b, wd, "L")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["L"], "failed", "Errored", clause=False)
+    want_in("trust-report.json", r)
+    want(not (wd / "11-freeze" / "ROOTS.txt").exists(),
+         "no clause surface was derived, so no declared output exists")
+
+
+@localL("L4", "--reference-dir absent stops the stage BEFORE the verify spawn: "
+              "RFC-COV-1 is a tool path with no workdir fallback")
+def l4(b, wd):
+    r = drive(b, wd, "L", reference_dir=None)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["L"], "failed", "Errored", clause=False)
+    want_in("--reference-dir is empty", r)
+    # The discriminator, as it is for stage E: the guard fires before any child
+    # runs, so neither the trust report nor its stderr file exists.
+    want(not (wd / "11-freeze" / "trust-report.json").exists(),
+         "the stage halted before the verify spawn, so no child ran")
+
+
+@localL("L5", "a run halted inside L leaves E and J complete and re-enters at "
+              "L, which is why each spine machine counts from its own zero")
+def l5(b, wd):
+    # First run: L halts at freeze strength, E, G2 and J complete before it.
+    r = drive(b, wd, "B,C,D,E,F,G,G2,J,K,L", mode="uncovered-row")
+    want_rc(r, 2)
+    for key in ("E", "G2", "J"):
+        want_complete_row(r.stages()[key], r.stages()[key]["kind"])
+    want_halt_row(r.stages()["L"], "stopped", "PartialThenHalt", clause=True)
+
+    # Second run, no --force. THE ACCEPTANCE ITEM: the upstream spine stages are
+    # skipped on their digests and only L is attempted again. A single shared
+    # counter, which is what spine.llmll's `spine-step` is, would restart at the
+    # reconciler instead; each machine counting from its own zero is what makes
+    # this decidable per stage.
+    r2 = drive(b, wd, "B,C,D,E,F,G,G2,J,K,L", mode="uncovered-row")
+    want_rc(r2, 2)
+    for key in ("E", "J"):
+        want_in(f"stage {key} (", r2)
+        want(r2.stages()[key].get("status") == "complete",
+             f"stage {key} was re-run or downgraded on resume: {r2.stages()[key]}")
+    want_in("already complete, skipping", r2)
+    want_halt_row(r2.stages()["L"], "stopped", "PartialThenHalt", clause=True)
+    want("04-reconcile/SUMMARY.json" in r2.stages()["E"].get("outputs", {}),
+         "a skipped stage keeps the outputs map its own run recorded")
 
 
 def main() -> int:
