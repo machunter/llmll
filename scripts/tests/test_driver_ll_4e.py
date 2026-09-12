@@ -126,10 +126,20 @@ SEAM = {
     "termination-observed?", "seal-holds?",
 }
 
-# Reads a string, but its subject is the operator's own argv. Named here with
-# its reason rather than filtered silently, so a second exception has to be
-# argued for.
-NOT_A_SUBPROCESS_READ = {"wave-missing-flags"}
+# Reads a string, but its subject is NOT another process's output. Each is named
+# here with its reason rather than filtered silently, so a further exception has
+# to be argued for.
+#
+#   wave-missing-flags  its subject is the operator's own argv.
+#   has-unfilled?       its subject is the prompt the DRIVER just rendered, and
+#                       the check is the reference's `require(not left, ...)` in
+#                       `ctx.prompt`. It is not an observation of anyone else's
+#                       stdout, so filing it in SEAM would claim an unproved
+#                       verification surface this module does not have. The
+#                       parameter is deliberately named `rendered` and not `out`,
+#                       which is what keeps the conjunction below from catching
+#                       it twice over.
+NOT_A_SUBPROCESS_READ = {"wave-missing-flags", "has-unfilled?"}
 
 
 def _params(src: str, name: str) -> str:

@@ -248,12 +248,12 @@ def test_stage_m_declares_two_outputs_and_the_fold_uses_both():
 # 6. The exit seam: which wave codes halt the stage
 # ---------------------------------------------------------------------------
 
-def test_only_two_wave_codes_halt_the_stage():
+def test_the_four_halting_wave_codes_are_the_ones_that_halt():
     """THE CLAUSE A PLAUSIBLE PORT GETS WRONG, and nothing else grades it.
 
     `stage_M_wave` holds two `require` calls and neither fires on a finding, on
     a protocol fault, or on an unsealed tree: it logs all three and returns. So
-    four of the wave's six exit codes record the stage COMPLETE, and a port that
+    four of the wave's exit codes record the stage COMPLETE, and a port that
     read any non-zero code as a failure would halt where the reference continues.
     Stage N would then never run and the campaign would lose the kill matrix for
     a reason that is not a defect in the fill wave.
@@ -263,16 +263,22 @@ def test_only_two_wave_codes_halt_the_stage():
     grade a finding at the wave level, one layer below the stage outcome. A
     findings run continuing into stage N is asserted here and nowhere else.
 
-    The assertion is on the code set rather than on the arms, because the way
-    this breaks is a code JOINING the halt chain, not an arm changing shape.
+    CODES 6 AND 7 JOINED AT THE STAGE M AGENT CONTRACT, and the set they joined
+    is what this test is about. The prompt template is a declared input
+    (driver-spec section 8 part 3), so an absent or empty one is a halt and so
+    is a rendered prompt that kept a placeholder. This test expected [2, 4] and
+    now expects [2, 4, 6, 7]. The SET is still the assertion, because the way
+    this breaks is a code joining the halt chain, not an arm changing shape, and
+    a completing code joining it is the failure that costs a campaign its kill
+    matrix.
     """
     body = _body_of(_uncommented(SEQUENCER), "fan-join")
     halting = sorted(int(c) for c in re.findall(r"\(=\s*code\s*(\d+)\)", body))
-    assert halting == [2, 4], (
-        f"fan-join halts on wave codes {halting}, not [2, 4]. Codes 0, 1, 3 and 5 "
-        "must fall through to to-summed: they are a clean run, a finding, a "
-        "protocol failure and an unsealed tree, and the reference records the "
-        "stage complete for all four.")
+    assert halting == [2, 4, 6, 7], (
+        f"fan-join halts on wave codes {halting}, not [2, 4, 6, 7]. Codes 0, 1, "
+        "3 and 5 must fall through to to-summed: they are a clean run, a "
+        "finding, a protocol failure and an unsealed tree, and the reference "
+        "records the stage complete for all four.")
     assert "to-summed" in body, \
         "fan-join no longer rejoins the post-stage path on a completing code"
 
@@ -294,8 +300,21 @@ def test_the_token_halt_is_stopped_and_the_empty_tree_is_failed():
         "the token halt is no longer a spec-defined stop"
     assert "halt-errored" not in four, \
         "the token halt records failed; driver-spec sec 4:135-137 names that direction"
-    two = body[body.find("(= code 2)"):]
+    two = body[body.find("(= code 2)"):body.find("(= code 6)")]
     assert "halt-errored" in two, "the empty-tree halt no longer records failed"
+
+    # THE TWO PROMPT HALTS TAKE `tmpl-step`'s DISPOSITIONS AND NOT NEW ONES.
+    # Every other delegated stage reaches its template through `tmpl-step`,
+    # which records `Absent` for a template it cannot read and `Malformed` for
+    # one whose placeholders survived. Stage M reaches its template through the
+    # wave, and a different vocabulary for the same two conditions would make a
+    # manifest row's disposition depend on which stage produced it.
+    six = body[body.find("(= code 6)"):body.find("(= code 7)")]
+    assert "Absent" in six, \
+        "an unreadable stage M template no longer records Absent"
+    seven = body[body.find("(= code 7)"):]
+    assert "Malformed" in seven, \
+        "a stage M prompt with unfilled placeholders no longer records Malformed"
 
 
 # ---------------------------------------------------------------------------

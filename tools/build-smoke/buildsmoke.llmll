@@ -2336,7 +2336,7 @@
             (if (ok? r)
                 (go b Vg10
                     (seq-commands
-                      (wasi.io.stdout (pass-line "DRIVER-LL 4e wave cover (9 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record)"))
+                      (wasi.io.stdout (pass-line "DRIVER-LL 4e wave cover (14 cells: accept, finding, unfaithful fill, two-brief contention, two usage stops, unsealed tree, the wave.json record, a finding in that record, argument substitution with the model pin, the error channel across attempts, the pristine copy and the language reference, an unreadable template, a prompt that kept a placeholder)"))
                       (vg10-build b)))
                 (go b Ending
                     (wasi.io.stdout (fail-line

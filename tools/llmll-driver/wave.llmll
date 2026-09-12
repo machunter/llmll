@@ -8,13 +8,26 @@
 ;; which is exactly why no gate could catch it, and why stage H's own defect
 ;; turned on our own artifacts is what this sub-phase exists to close.
 ;;
-;; A SEPARATE PROGRAM, NOT A SEQUENCER ARM, and the reason is structural. The
-;; sequencer's `Ctl` sum carries one `Delegate Body` arm per stage: one
-;; delegation, one exit status. Stage M is holes TIMES attempts, the one stage
-;; with variable multiplicity, which Rev 12 recorded as fitting no
-;; `[i: int] -> int` registry entry. Folding it into the stage loop is a
-;; restructure of a 1760-line module that 4e's acceptance clause does not ask
-;; for; unification stays deferred with 4d, 4f and stage A.
+;; A LIBRARY SINCE PROGRAM UNIFICATION JOB (a2), AND IT WAS A SEPARATE PROGRAM
+;; BEFORE. The paragraph here used to argue that stage M could not be a
+;; sequencer arm, because the sequencer's `Ctl` carries one `Delegate Body` arm
+;; per stage and stage M is holes TIMES attempts. The fold answered that with a
+;; `Fan` arm carrying this module's whole state, so the argument is history and
+;; is kept only so a reader who finds it quoted elsewhere knows it was retired.
+;; This module has no `def-main`; `sequencer wave ...` reaches the same machine.
+;;
+;; WHAT STAGE M OWES ITS AGENT, which sub-phase 4e did not port and the stage M
+;; agent contract adds. 4e settled that the checkout brief is the agent's only
+;; input and called that the sole-channel discipline. driver-spec section 8 does
+;; not say that, and the Phase 4 proposal's own section 5 item 1 refuted it
+;; first: that item settled `--agent-exe` plus repeatable `--agent-arg`, with
+;; the placeholders SUBSTITUTED PER ARGUMENT, and 4e built a stage that
+;; substitutes nothing and appends two paths instead. Section 8 part 3 settles
+;; the term by definition: the driver MUST be able to report any file in an
+;; agent's directory that was not among ITS DECLARED INPUTS, so a declared input
+;; is a driver-side commitment and a rendered task statement is one. The four
+;; declared inputs are the rendered prompt, the checkout brief, the pristine
+;; subject copy of section 8 part 4, and the language reference.
 ;;
 ;; THE FOUR ABSTRACTION FUNCTIONS ARE THE UNPROVED SEAM, and §7 of the proposal
 ;; inventories them as such. They are shell-side observations of another
@@ -216,13 +229,49 @@
   ;; TYPECHECKS. Every projection in this module is in one of the accessors
   ;; below and no use site writes a bare (first (second ...)).
 
-  ;; tree, (workdir, (llmll, (agent, (agent-args, (timeout, (err0, proto0))))))
-  (type WaveCfg (| WaveCfg (string, (string, (string, (string, (list[string], (int, (int, int)))))))))
+  ;; THE DECLARED INPUTS, driver-spec section 8 part 3, as one record rather
+  ;; than three more slots on WaveCfg. Three slots and a maximum projection
+  ;; depth of two, which is the point: WaveCfg's chain is already eight deep and
+  ;; risk 6 of the Phase 4 proposal is that a wrong projection over a pair chain
+  ;; TYPECHECKS. A twelve-deep chain of mostly-strings is how that defect gets
+  ;; written, so the three paths travel together under their own accessors.
+  ;;
+  ;; tpl-path, (pristine, refdir)
+  ;;
+  ;;   tpl-path  the stage-M-fill.md template, resolved. The sequencer builds it
+  ;;             from --prompts-dir and registry.stage-prompt; the standalone
+  ;;             `wave` sub-command takes it as --prompt.
+  ;;   pristine  the ORIGINAL, unmodified subject, which is the authored
+  ;;             roots.llmll and never the .ast.json this wave patches in place.
+  ;;   refdir    the language reference's root, or "" for no copies. The
+  ;;             sequencer passes "" when registry.stage-provision-ref? is false,
+  ;;             so the decision stays in the table.
+  (type Decl (| Decl (string, (string, string))))
 
-  ;; One attempt at one hole: k, (n, (err, (proto, (token, body)))). The token
-  ;; and the body node are per-attempt and are cleared by at-next, so a retry
-  ;; cannot resubmit the previous attempt's token against a re-read tree.
-  (type Att (| Att (int, (int, (int, (int, (string, string)))))))
+  ;; tree, (workdir, (llmll, (agent, (agent-args, (timeout, (err0, (proto0,
+  ;; decl)))))))
+  (type WaveCfg (| WaveCfg (string, (string, (string, (string, (list[string], (int, (int, (int, Decl))))))))))
+
+  ;; One attempt at one hole: k, (n, (err, (proto, (token, (body, errors))))).
+  ;; The token and the body node are per-attempt and are cleared by at-next, so
+  ;; a retry cannot resubmit the previous attempt's token against a re-read
+  ;; tree.
+  ;;
+  ;; `errors` IS THE SEVENTH SLOT AND IT IS NOT CLEARED, which is the opposite
+  ;; of the two before it. It carries the PREVIOUS attempt's compiler output
+  ;; into the next attempt's prompt, and the reference renders it as {{errors}}.
+  ;; Without it attempt n+1 receives byte-identical input to attempt n, which
+  ;; makes the error budget a sampling loop where driver-spec section 9 means it
+  ;; as a repair loop. `fill.next-error-budget` is unaffected and was always
+  ;; correct; what changes is whether the running program supplies the input
+  ;; that gives the budget meaning.
+  ;;
+  ;; THREE STRINGS IN A ROW IS THE HAZARD THIS COMMENT EXISTS FOR. `token`,
+  ;; `body` and `errors` all project to `string`, so a swapped accessor
+  ;; typechecks and passes every type-level gate. The three accessors are
+  ;; written once, below, and `test_driver_ll_stage_m.py` asserts they project
+  ;; three distinct positions.
+  (type Att (| Att (int, (int, (int, (int, (string, (string, string))))))))
 
   ;; cfg, (holes, (accepted, (findings, (protocol-failures, fills)))). The holes
   ;; travel as raw list[Json] straight from `llmll holes --json`, on
@@ -236,7 +285,12 @@
   ;; declares that file (registry.llmll, stage-out i=13 j=0) and this module did
   ;; not write it until now, so one of stage M's two declared outputs did not
   ;; exist. The clause 2 comparator reads `fills` for R5 and `attempts` for R6.
-  (type Wv (| Wv (WaveCfg, (list[Json], (int, (int, (int, Json)))))))
+  ;; `tpl` IS A SEVENTH SLOT AND IT IS RUN STATE, NOT CONFIG. The template text
+  ;; is known only after the boot read, so putting it in WaveCfg would mean
+  ;; rebuilding a record whose whole point is that it does not change. It sits
+  ;; beside `fills`, which is `Json`, so a swapped projection between the two is
+  ;; a type error rather than a silent defect.
+  (type Wv (| Wv (WaveCfg, (list[Json], (int, (int, (int, (Json, string))))))))
 
   ;; Each arm names the RESPONSE it is about to receive, since the console loop
   ;; delivers the response to the command issued on entry to the arm. Named
@@ -290,7 +344,27 @@
   (def-shell wcfg-err0 [c: WaveCfg] -> int
     (match c ((WaveCfg p) (first (second (second (second (second (second (second p))))))))))
   (def-shell wcfg-proto0 [c: WaveCfg] -> int
-    (match c ((WaveCfg p) (second (second (second (second (second (second (second p))))))))))
+    (match c ((WaveCfg p) (first (second (second (second (second (second (second (second p)))))))))))
+  (def-shell wcfg-decl [c: WaveCfg] -> Decl
+    (match c ((WaveCfg p) (second (second (second (second (second (second (second (second p)))))))))))
+
+  ;; The declared inputs, projected at depth two at most. `mk-decl` is the one
+  ;; constructor and `sequencer.llmll`'s `fan-cfg` is its second caller.
+  (def-shell mk-decl [tpl: string pristine: string refdir: string] -> Decl
+    (Decl (pair tpl (pair pristine refdir))))
+  (def-shell decl-tpl-path [d: Decl] -> string
+    (match d ((Decl p) (first p))))
+  (def-shell decl-pristine [d: Decl] -> string
+    (match d ((Decl p) (first (second p)))))
+  (def-shell decl-refdir [d: Decl] -> string
+    (match d ((Decl p) (second (second p)))))
+
+  (def-shell wcfg-tpl-path [c: WaveCfg] -> string
+    (decl-tpl-path (wcfg-decl c)))
+  (def-shell wcfg-pristine [c: WaveCfg] -> string
+    (decl-pristine (wcfg-decl c)))
+  (def-shell wcfg-refdir [c: WaveCfg] -> string
+    (decl-refdir (wcfg-decl c)))
 
   (def-shell at-k [a: Att] -> int
     (match a ((Att q) (first q))))
@@ -303,22 +377,33 @@
   (def-shell at-token [a: Att] -> string
     (match a ((Att q) (first (second (second (second (second q))))))))
   (def-shell at-body [a: Att] -> string
-    (match a ((Att q) (second (second (second (second (second q))))))))
+    (match a ((Att q) (first (second (second (second (second (second q)))))))))
+  (def-shell at-errors [a: Att] -> string
+    (match a ((Att q) (second (second (second (second (second (second q)))))))))
 
-  (def-shell mk-att [k: int n: int err: int proto: int tok: string body: string] -> Att
-    (Att (pair k (pair n (pair err (pair proto (pair tok body)))))))
+  (def-shell mk-att [k: int n: int err: int proto: int
+                     tok: string body: string errs: string] -> Att
+    (Att (pair k (pair n (pair err (pair proto (pair tok (pair body errs))))))))
 
   (def-shell at-with-token [a: Att t: string] -> Att
-    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) t (at-body a)))
+    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) t (at-body a) (at-errors a)))
   (def-shell at-with-body [a: Att b: string] -> Att
-    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) (at-token a) b))
+    (mk-att (at-k a) (at-n a) (at-err a) (at-proto a) (at-token a) b (at-errors a)))
 
   ;; The NEXT attempt at the same hole, carrying the budgets its caller
   ;; computed and dropping the token and the body. Bumping `n` is what gives
   ;; every attempt its own directory, so no arm can read a previous attempt's
   ;; stdout file and mistake it for its own.
-  (def-shell at-next [a: Att err: int proto: int] -> Att
-    (mk-att (at-k a) (+ (at-n a) 1) err proto "" ""))
+  ;;
+  ;; `errs` IS A PARAMETER AND NOT A CLEAR, which is why the caller states it.
+  ;; The two checkout failures carry the previous text forward, because a
+  ;; checkout that produced no token says nothing about the fill and the
+  ;; reference does not overwrite `errors` there either. The agent-failure and
+  ;; rejection paths supply new text. A cleared slot would put the next attempt
+  ;; back on byte-identical input, which is the defect this slot exists to fix,
+  ;; so no default is offered here.
+  (def-shell at-next [a: Att err: int proto: int errs: string] -> Att
+    (mk-att (at-k a) (+ (at-n a) 1) err proto "" "" errs))
 
   (def-shell w-cfg [w: Wv] -> WaveCfg
     (match w ((Wv p) (first p))))
@@ -331,10 +416,16 @@
   (def-shell w-bad [w: Wv] -> int
     (match w ((Wv p) (first (second (second (second (second p))))))))
   (def-shell w-fills [w: Wv] -> Json
-    (match w ((Wv p) (second (second (second (second (second p))))))))
+    (match w ((Wv p) (first (second (second (second (second (second p)))))))))
+  (def-shell w-tpl [w: Wv] -> string
+    (match w ((Wv p) (second (second (second (second (second (second p)))))))))
 
-  (def-shell mk-wv [c: WaveCfg hs: list[Json] ok: int fnd: int bad: int fl: Json] -> Wv
-    (Wv (pair c (pair hs (pair ok (pair fnd (pair bad fl)))))))
+  (def-shell mk-wv [c: WaveCfg hs: list[Json] ok: int fnd: int bad: int
+                    fl: Json tpl: string] -> Wv
+    (Wv (pair c (pair hs (pair ok (pair fnd (pair bad (pair fl tpl))))))))
+
+  (def-shell w-with-tpl [w: Wv t: string] -> Wv
+    (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (w-bad w) (w-fills w) t))
 
   (def-shell w-fills-list [w: Wv] -> list[Json]
     (unwrap-or (json-array (w-fills w)) (list-empty)))
@@ -363,15 +454,23 @@
   ;; waiting to happen, which is what the accessors above already exist to stop.
   (def-shell mk-wave-cfg [tree: string workdir: string llmll: string
                           agent: string agent-args: list[string]
-                          timeout: int err0: int proto0: int] -> WaveCfg
+                          timeout: int err0: int proto0: int
+                          decl: Decl] -> WaveCfg
     (WaveCfg (pair tree
                (pair workdir
                      (pair llmll
                            (pair agent
                                  (pair agent-args
                                        (pair timeout
-                                             (pair err0 proto0)))))))))
+                                             (pair err0
+                                                   (pair proto0 decl))))))))))
 
+  ;; THE STANDALONE SUB-COMMAND TAKES PATHS AND THE STAGE ARM COMPOSES THEM.
+  ;; `--prompt` is the resolved template and not a directory, because this
+  ;; module does not import the registry and so cannot turn --prompts-dir plus
+  ;; a stage index into a file name. `fan-cfg` in sequencer.llmll does exactly
+  ;; that and hands the result over, which keeps the registry the one table that
+  ;; knows a stage's prompt basename.
   (def-shell parse-wave-cfg [as: list[string]] -> WaveCfg
     (mk-wave-cfg (flag-value as "--tree")
                  (dflt (flag-value as "--workdir") ".wave")
@@ -380,7 +479,10 @@
                  (flag-values as "--agent-arg")
                  (int-flag as "--timeout" 900)
                  (int-flag as "--error-budget" 3)
-                 (int-flag as "--protocol-budget" 3)))
+                 (int-flag as "--protocol-budget" 3)
+                 (mk-decl (flag-value as "--prompt")
+                          (flag-value as "--pristine")
+                          (flag-value as "--reference-dir"))))
 
   ;; "" when the run is startable.
   ;;
@@ -398,6 +500,11 @@
   ;; a .llmll "reads as zero holes", which is false, and the cover cell written
   ;; to that claim is what caught it. Stopping at parse turns an eight-step
   ;; misdiagnosis into one line.
+  ;;
+  ;; THE TWO NEW FLAGS COME AFTER --agent-cmd AND THE ORDER IS NOT COSMETIC.
+  ;; Cover cell W5 drops --agent-cmd alone and asserts the message names that
+  ;; flag. A check placed above it would answer a different flag for the same
+  ;; input and the cell would grade a message no operator would see.
   (def-shell wave-missing-flags [c: WaveCfg] -> string
     (if (string-empty? (wcfg-tree c))
         "--tree is required (the .ast.json the wave fills; llmll build FILE --emit writes it)"
@@ -407,11 +514,15 @@
             "--llmll-cmd is required (the compiler this wave shells out to)"
             (if (string-empty? (wcfg-agent c))
                 "--agent-cmd is required (the executable that authors one body node)"
-                (if (< (wcfg-err0 c) 1)
-                    "--error-budget must be at least 1"
-                    (if (< (wcfg-proto0 c) 1)
-                        "--protocol-budget must be at least 1"
-                        "")))))))
+                (if (string-empty? (wcfg-tpl-path c))
+                    "--prompt is required (the stage-M-fill.md template this wave renders per attempt; driver-spec sec 8 makes the rendered task statement a declared input)"
+                    (if (string-empty? (wcfg-pristine c))
+                        "--pristine is required (the ORIGINAL roots.llmll the agent self-checks against; driver-spec sec 8 part 4 forbids handing over the tree this wave patches)"
+                        (if (< (wcfg-err0 c) 1)
+                            "--error-budget must be at least 1"
+                            (if (< (wcfg-proto0 c) 1)
+                                "--protocol-budget must be at least 1"
+                                "")))))))))
 
   ;; ---- paths ---------------------------------------------------------------
   ;;
@@ -432,6 +543,105 @@
   (def-shell llmll-run [c: WaveCfg a: Att args: list[string] out: string err: string] -> Command
     (wasi.proc.run (wcfg-compiler c) args "." (in-dir c a out) (in-dir c a err)
                    (wcfg-timeout c) "/dev/null"))
+
+  ;; ---- the declared inputs -------------------------------------------------
+  ;;
+  ;; driver-spec section 8, in the three parts that reach this module. Part 2:
+  ;; the agent's directory holds only its declared inputs. Part 3: the driver
+  ;; must be able to report a file that was not among them. Part 4: the
+  ;; self-check copy MUST be the original, unmodified subject.
+  ;;
+  ;; PART 3 IS NOT IMPLEMENTED AND IS `FS-ISOLATION-1`. This module provisions
+  ;; the declared set and audits nothing, which is the reference's posture
+  ;; exactly. `wasi.proc.run` takes an executable, an argument vector, a working
+  ;; directory, three handle paths and a timeout, and NO confinement parameter,
+  ;; so a confining spawn is a language change rather than a port decision; it
+  ;; is recorded as Q-008. Two things in this workdir are reachable by an agent
+  ;; that goes looking: the live tree named by --tree, and `tree.bak`, which
+  ;; `undo` writes into an attempt directory and which carries every sibling
+  ;; hole's accepted fill. The pristine copy removes the MOTIVE for looking and
+  ;; the prompt instructs against it. Neither is a structural bar.
+
+  ;; The prompt's file name, in the agent's own directory. `PROMPT.md` is what
+  ;; `prompt-file` in sequencer.llmll writes for every other delegated stage.
+  (def-shell prompt-path [c: WaveCfg a: Att] -> string
+    (in-dir c a "PROMPT.md"))
+
+  ;; `scratch.llmll` is the reference's name for it and the template names that
+  ;; file to the agent, so this string and the template agree or the agent is
+  ;; told to check work against a file that is not there.
+  (def-shell scratch-path [c: WaveCfg a: Att] -> string
+    (in-dir c a "scratch.llmll"))
+
+  ;; The language reference: LLMLL.md and the JSON-AST schema, which is
+  ;; `_provision_reference`'s pair. The tool manual and not the answer; neither
+  ;; file says anything about the target RFC.
+  ;;
+  ;; THE SCHEMA LOSES ITS DIRECTORY ON THE WAY IN, as the reference's
+  ;; `wd / src.name` does: the agent's copy is `llmll-ast.schema.json` at the
+  ;; top of its own directory, which is the name the template tells it to read.
+  (def-shell ref-copies-cmd [c: WaveCfg a: Att tail: Command] -> Command
+    (if (string-empty? (wcfg-refdir c))
+        tail
+        (seq-commands
+          (wasi.fs.copy (string-concat (wcfg-refdir c) "/LLMLL.md")
+                        (in-dir c a "LLMLL.md"))
+          (seq-commands
+            (wasi.fs.copy (string-concat (wcfg-refdir c) "/docs/llmll-ast.schema.json")
+                          (in-dir c a "llmll-ast.schema.json"))
+            tail))))
+
+  ;; PER ATTEMPT AND NOT PER HOLE, because the directory is per attempt. The
+  ;; reference provisions once per hole, outside its retry loop, since its agent
+  ;; directory is per hole. Following the directory is the safe direction: each
+  ;; attempt's directory then holds its own declared inputs rather than
+  ;; inheriting them from an attempt that has already been judged.
+  (def-shell provision-cmd [c: WaveCfg a: Att tail: Command] -> Command
+    (seq-commands
+      (wasi.fs.copy (wcfg-pristine c) (scratch-path c a))
+      (ref-copies-cmd c a tail)))
+
+  ;; ---- the rendered task statement -----------------------------------------
+  ;;
+  ;; THE WAVE RENDERS AND THE STAGE LOOP DOES NOT, and that is a design decision
+  ;; rather than a convenience. Every placeholder in `registry.stage-pre-key`
+  ;; names an artifact read ONCE per stage before delegating, which is why
+  ;; `render` in sequencer.llmll can run in the stage loop. Three of stage M's
+  ;; four are settled per attempt inside the hole loop: `{{hole}}` is the
+  ;; function name, `{{brief}}` is the checkout brief re-taken each attempt, and
+  ;; `{{errors}}` is the previous attempt's compiler output. `{{llmll}}` is the
+  ;; exception and is substituted here too, so one function holds the whole set.
+  ;;
+  ;; `registry.stage-pre-count` for stage M is therefore ZERO and stays zero:
+  ;; stage M reads no artifact BEFORE delegating.
+  ;;
+  ;; THE FIRST-ATTEMPT LITERAL IS THE REFERENCE'S, `errors or "(first attempt)"`.
+  ;; Rendering an empty string would leave the prompt's last-but-one heading
+  ;; with nothing under it, which reads to an agent as an attempt that produced
+  ;; no output rather than as an attempt that has not happened.
+  (def-shell errors-or-first [errs: string] -> string
+    (if (string-empty? errs) "(first attempt)" errs))
+
+  (def-shell render-prompt [tpl: string hole: string llmll: string
+                            brief: string errs: string] -> string
+    (replace-all
+      (replace-all
+        (replace-all (replace-all tpl "{{hole}}" hole) "{{llmll}}" llmll)
+        "{{errors}}" (errors-or-first errs))
+      "{{brief}}" brief))
+
+  ;; `rendered` AND NOT `out`, AND THE PARAMETER NAME IS THE WHOLE POINT: the
+  ;; seam census in test_driver_ll_4e.py identifies a reader of another
+  ;; process's stdout as a function taking `out: string` that calls
+  ;; `string-contains`. A
+  ;; parameter named `out` here would file a check on the driver's OWN prompt
+  ;; into the unproved-transcript seam, where it does not belong. The census
+  ;; names this function in NOT_A_SUBPROCESS_READ instead, with that reason.
+  ;;
+  ;; The reference's `ctx.prompt` ends with `require(not left, ...)`, so an
+  ;; unfilled placeholder is a stage failure there and is one here.
+  (def-shell has-unfilled? [rendered: string] -> bool
+    (string-contains rendered "{{"))
 
   ;; ---- reading what the compiler said --------------------------------------
 
@@ -596,7 +806,7 @@
   (def-shell wave-enter [w: Wv k: int] -> ((Wv, WCtl), Command)
     (if (>= k (list-length (w-holes w)))
         (seal w (final-code w))
-        (begin-attempt w (mk-att k 0 (wcfg-err0 (w-cfg w)) (wcfg-proto0 (w-cfg w)) "" ""))))
+        (begin-attempt w (mk-att k 0 (wcfg-err0 (w-cfg w)) (wcfg-proto0 (w-cfg w)) "" "" ""))))
 
   (def-shell seal [w: Wv code: int] -> ((Wv, WCtl), Command)
     (let [(c (w-cfg w))]
@@ -632,35 +842,82 @@
                 ["[wave] whole-tree --strict-verified-core: "
                  (if held "SEALED" "NOT SEALED")]))))))
 
-  ;; Step one: the brief. The token this returns is released immediately, and
-  ;; the brief FILE is the agent's only input, which is the checkout-brief-is-
-  ;; the-sole-channel discipline this repository keeps everywhere else.
+  ;; Step one: the directory, its declared inputs, and the brief. The token this
+  ;; returns is released immediately.
+  ;;
+  ;; THE BRIEF IS NO LONGER THE AGENT'S ONLY INPUT, and this comment said it was
+  ;; until the stage M agent contract. The provisioning below is driver-spec
+  ;; section 8 part 4: where the agent needs a copy of the subject to check its
+  ;; own work, the copy MUST be the original, unmodified subject. The rendered
+  ;; prompt follows at `brief-step`, which is the first arm that holds the brief
+  ;; text the template needs.
+  ;;
+  ;; THE COPIES ARE UNCHECKED, which is `ref-copies`'s tolerance in
+  ;; sequencer.llmll and `if src.exists()` in the reference. `seq-commands`
+  ;; performs both effects whatever the left one answered, so a missing
+  ;; --reference-dir or an absent roots file leaves the agent without a file and
+  ;; does not halt. Reproduced rather than hardened: a halt the reference does
+  ;; not take would diverge from the oracle in a direction the comparator cannot
+  ;; attribute.
   (def-shell begin-attempt [w: Wv a: Att] -> ((Wv, WCtl), Command)
     (let [(c (w-cfg w))]
       (wave-go w (Brief a)
           (seq-commands
             (wasi.fs.mkdir (att-dir c a))
-            (seq-commands
-              (llmll-run c a ["checkout" (wcfg-tree c) (ptr-of (hole-at w (at-k a)))]
-                         "brief.json" "brief.err")
-              (wasi.fs.read (in-dir c a "brief.json")))))))
+            (provision-cmd c a
+              (seq-commands
+                (llmll-run c a ["checkout" (wcfg-tree c) (ptr-of (hole-at w (at-k a)))]
+                           "brief.json" "brief.err")
+                (wasi.fs.read (in-dir c a "brief.json"))))))))
 
   ;; An empty token means the checkout itself failed (it writes prose to stderr
   ;; and leaves stdout empty, measured). That is a PROTOCOL fault and spends the
   ;; protocol budget: [S9-SEPARATE]'s reasoning applies to it for the same
   ;; reason it applies to contention, since neither says anything about whether
   ;; an agent can fill the hole.
+  ;; THE PROMPT IS RENDERED HERE AND NOWHERE ELSE, because this is the first arm
+  ;; that holds all four values the template needs. `r` carries the brief text,
+  ;; `at-errors` carries the previous attempt's compiler output, the hole gives
+  ;; the function name and the config gives the compiler command.
+  ;;
+  ;; THE WRITE IS SEQUENCED AHEAD OF THE RELEASE AND THE RESPONSE IS THE
+  ;; RELEASE'S. `seq-commands` is discard-left, so the `Rel` arm still receives
+  ;; what it expects; the write's own answer is dropped, which is what
+  ;; `delegate-cmd` in sequencer.llmll does with its prompt write and what the
+  ;; reference does with `prompt_path.write_text`.
+  ;;
+  ;; THE BRIEF REACHES THE TEMPLATE AS THE COMPILER WROTE IT. The reference
+  ;; renders `json.dumps(brief, indent=1)` and this renders the raw stdout of
+  ;; `llmll checkout`. Same content, different whitespace, and the clause 2
+  ;; comparator reads neither.
   (def-shell brief-step [w: Wv a: Att r: Response] -> ((Wv, WCtl), Command)
     (let [(c (w-cfg w))]
       (let [(tok (token-in (wave-text-of r)))]
         (if (string-empty? tok)
-            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1))
+            ;; The previous text is CARRIED and not replaced: a checkout that
+            ;; produced no token says nothing about the fill.
+            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1) (at-errors a))
                               "the checkout produced no token")
-            (wave-go w (Rel (at-with-token a tok))
-                (seq-commands
-                  (wasi.io.stdout (phase-line (at-k a) (at-n a) "briefing" Briefing))
-                  (llmll-run c a ["checkout" (wcfg-tree c) "--release" tok]
-                             "rel.out" "rel.err")))))))
+            (let [(rendered (render-prompt (w-tpl w)
+                                           (target-of (hole-at w (at-k a)))
+                                           (wcfg-compiler c)
+                                           (wave-text-of r)
+                                           (at-errors a)))]
+              (if (has-unfilled? rendered)
+                  (wave-go w (WEnding 7)
+                      (wasi.io.stdout
+                        (string-concat-many
+                          ["[wave] STOP: the rendered prompt still carries a "
+                           "{{placeholder}}; the template at "
+                           (wcfg-tpl-path c)
+                           " names a value this wave does not substitute"])))
+                  (wave-go w (Rel (at-with-token a tok))
+                      (seq-commands
+                        (wasi.fs.write (prompt-path c a) rendered)
+                        (seq-commands
+                          (wasi.io.stdout (phase-line (at-k a) (at-n a) "briefing" Briefing))
+                          (llmll-run c a ["checkout" (wcfg-tree c) "--release" tok]
+                                     "rel.out" "rel.err"))))))))))
 
   ;; THE RELEASE IS ALREADY DONE WHEN THIS ARM RUNS, so the guard is a check on
   ;; the labelling and not on the effect. `must-release-before-agent?` is
@@ -669,6 +926,29 @@
   ;; is what consuming a proved decision looks like: the branch exists so that
   ;; the proof is what rules it out, and it exits 4 rather than continuing if
   ;; the invariant ever stops holding.
+  ;;
+  ;; THE ARGUMENT VECTOR IS SUBSTITUTED AND NOTHING IS APPENDED, which is the
+  ;; stage M agent contract's item 1 and the Phase 4 proposal's section 5 item
+  ;; 1 before it. This arm appended `brief.json` and `body.json` to the
+  ;; operator's arguments and substituted nothing until then, so one
+  ;; `--agent-arg` list served two incompatible calling conventions. MEASURED
+  ;; with the 2026-09-11 campaign's real vector: the agent received `--model`,
+  ;; `claude-opus-5`, the literal string `{prompt}`, the literal string `{out}`,
+  ;; the brief path and the body path, and the committed wrapper tested its
+  ;; third argument for readability and exited 2 before any model ran.
+  ;;
+  ;; A VECTOR CARRYING NO PLACEHOLDER NOW REACHES THE AGENT UNCHANGED AND EMPTY
+  ;; OF PATHS. That is the contract: the operator states where the prompt and
+  ;; the output go. Cover cell W1 passes `{prompt}` and `{out}` and still
+  ;; asserts the agent receives exactly two paths, which is what driver-spec
+  ;; section 8 is about; an argument COUNT establishes none of section 8 by
+  ;; itself, and the cell's comment now says so.
+  ;;
+  ;; THE WORKING DIRECTORY IS THE AGENT'S OWN AND WAS ".". The template tells
+  ;; the agent to run `verify scratch.llmll` and to write `body.json` in its
+  ;; working directory, and both instructions need that directory to be the one
+  ;; the files are in. `delegate-cmd` in sequencer.llmll and `AgentRunner.run`
+  ;; in the reference both pass the agent's directory.
   (def-shell rel-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
     (let [(c (w-cfg w))]
       (if (must-release-before-agent? AgentWorking)
@@ -677,10 +957,13 @@
                 (wasi.io.stdout (phase-line (at-k a) (at-n a) "agent" AgentWorking))
                 (seq-commands
                   (wasi.proc.run (wcfg-agent c)
-                                 (list-append
-                                   (list-append (wcfg-agent-args c) (in-dir c a "brief.json"))
-                                   (in-dir c a "body.json"))
-                                 "." (in-dir c a "agent.out") (in-dir c a "agent.err")
+                                 (list-map (wcfg-agent-args c)
+                                   (fn [x: string]
+                                     (subst-arg x (prompt-path c a)
+                                                  (in-dir c a "body.json")
+                                                  (att-dir c a))))
+                                 (att-dir c a)
+                                 (in-dir c a "agent.out") (in-dir c a "agent.err")
                                  (wcfg-timeout c) "/dev/null")
                   (wasi.fs.read (in-dir c a "body.json")))))
           (wave-go w (WEnding 4)
@@ -696,7 +979,11 @@
     (let [(c (w-cfg w))]
       (let [(body (string-trim (wave-text-of r)))]
         (if (string-empty? body)
-            (retry-or-give-up w (at-next a (spend-budget (at-err a) "") (at-proto a))
+            ;; NEW TEXT, because this one IS about the fill. The reference sets
+            ;; `errors = str(e)` on the Halt an agent timeout or a missing body
+            ;; raises, and the next attempt renders it.
+            (retry-or-give-up w (at-next a (spend-budget (at-err a) "") (at-proto a)
+                                  "the previous attempt wrote no body.json (the agent timed out, or exited without writing its output)")
                               "the agent produced no body node")
             (wave-go w (Fresh (at-with-body a body))
                 (seq-commands
@@ -712,7 +999,9 @@
     (let [(c (w-cfg w))]
       (let [(tok (token-in (wave-text-of r)))]
         (if (string-empty? tok)
-            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1))
+            ;; CARRIED, for the reason `brief-step`'s checkout failure carries
+            ;; it: a checkout that produced no token says nothing about the fill.
+            (retry-or-give-up w (at-next a (at-err a) (- (at-proto a) 1) (at-errors a))
                               "the resubmission checkout produced no token")
             (wave-go w (Applied (at-with-token a tok))
                 (seq-commands
@@ -758,7 +1047,8 @@
             (undo w a
                   (spend-budget (at-err a) out)
                   (if (contention? out) (- (at-proto a) 1) (at-proto a))
-                  (if (contention? out) "contention" "the patch was refused"))))))
+                  (if (contention? out) "contention" "the patch was refused")
+                  out)))))
 
   ;; The per-fill bar, section 9, and `applied` is `true` by construction here:
   ;; this arm is reachable only through `patch-succeeded?`. The other three
@@ -784,15 +1074,21 @@
                     (llmll-run c a ["checkout" (wcfg-tree c) "--release" (at-token a)]
                                "relok.out" "relok.err")))
               (undo w a (spend-budget (at-err a) out) (at-proto a)
-                    "the fill did not clear the per-fill bar"))))))
+                    "the fill did not clear the per-fill bar" out))))))
 
   ;; Restore, then release. IN THAT ORDER and both are owed: the restore undoes
   ;; a patch that may have landed, and the release is what keeps the next
   ;; checkout from failing with `already checked out`. Skipping the release
   ;; wedges the hole, measured.
-  (def-shell undo [w: Wv a: Att err: int proto: int why: string] -> ((Wv, WCtl), Command)
+  ;; `why` AND `errs` ARE TWO STRINGS AND NOT ONE. `why` is the short reason the
+  ;; reject line prints and the fill row records; `errs` is the compiler's whole
+  ;; transcript, which the next attempt's prompt renders as {{errors}}. Folding
+  ;; them would either put a 2 KB transcript in a log line or hand the agent
+  ;; four words where the reference hands it the compiler's output.
+  (def-shell undo [w: Wv a: Att err: int proto: int why: string errs: string]
+      -> ((Wv, WCtl), Command)
     (let [(c (w-cfg w))]
-      (wave-go w (Undoing (at-next a err proto))
+      (wave-go w (Undoing (at-next a err proto errs))
           (seq-commands
             (wasi.io.stdout (reject-line (at-k a) (at-n a) why err proto))
             (seq-commands
@@ -828,8 +1124,8 @@
                                       (if fnd "finding" "protocol-failure")
                                       (at-n a) why)))]
         (let [(w2 (if fnd
-                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (+ (w-find w) 1) (w-bad w) fl)
-                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (+ (w-bad w) 1) fl)))]
+                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (+ (w-find w) 1) (w-bad w) fl (w-tpl w))
+                      (mk-wv (w-cfg w) (w-holes w) (w-ok w) (w-find w) (+ (w-bad w) 1) fl (w-tpl w))))]
           (let [(e (wave-enter w2 (+ (at-k a) 1)))]
             (pair (first e)
                   (seq-commands (wasi.io.stdout (close-line (at-k a) fnd why))
@@ -841,7 +1137,8 @@
   (def-shell closing-step [w: Wv a: Att] -> ((Wv, WCtl), Command)
     (wave-enter (mk-wv (w-cfg w) (w-holes w) (+ (w-ok w) 1) (w-find w) (w-bad w)
                        (add-fill w (fill-row (hole-at w (at-k a)) "filled"
-                                             (+ (at-n a) 1) "")))
+                                             (+ (at-n a) 1) ""))
+                       (w-tpl w))
            (+ (at-k a) 1)))
 
   ;; ---- boot ----------------------------------------------------------------
@@ -851,16 +1148,44 @@
   ;; `WaveCfg` it built from its own `Cfg` and the registry rather than from a
   ;; command line. Splitting the parse off is what lets one machine serve both
   ;; the stage arm and the standalone `wave` sub-command the 4e cover drives.
+  ;; THE TEMPLATE IS READ ONCE AND RENDERED MANY TIMES, and the split matters.
+  ;; The template is static and the values are per attempt, so a read per
+  ;; attempt would buy nothing and would move a `--prompts-dir` fault from boot
+  ;; into the middle of a run. `WBoot 2` is the read and `WBoot 1` is the hole
+  ;; list, which is the order they are needed in.
   (def-shell wave-seed [c: WaveCfg] -> ((Wv, WCtl), Command)
-    (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty))) (WBoot 1)
-        (seq-commands
-          (wasi.fs.mkdir (wcfg-workdir c))
-          (seq-commands
-            (wasi.proc.run (wcfg-compiler c) ["holes" (wcfg-tree c) "--json"] "."
-                           (string-concat (wcfg-workdir c) "/holes.json")
-                           (string-concat (wcfg-workdir c) "/holes.err")
-                           (wcfg-timeout c) "/dev/null")
-            (wasi.fs.read (string-concat (wcfg-workdir c) "/holes.json"))))))
+    (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty)) "") (WBoot 2)
+        (wasi.fs.read (wcfg-tpl-path c))))
+
+  (def-shell wave-holes-cmd [c: WaveCfg] -> Command
+    (seq-commands
+      (wasi.fs.mkdir (wcfg-workdir c))
+      (seq-commands
+        (wasi.proc.run (wcfg-compiler c) ["holes" (wcfg-tree c) "--json"] "."
+                       (string-concat (wcfg-workdir c) "/holes.json")
+                       (string-concat (wcfg-workdir c) "/holes.err")
+                       (wcfg-timeout c) "/dev/null")
+        (wasi.fs.read (string-concat (wcfg-workdir c) "/holes.json")))))
+
+  ;; AN EMPTY READ AND AN ABSENT FILE TAKE THE SAME ARM, and both halt. A
+  ;; missing template answers RErr, which `wave-text-of` maps to "", and a
+  ;; present but empty template answers "" directly. Both hand the agent no task
+  ;; statement, so one code and a message naming both causes is right here; the
+  ;; same shape `fan-join` uses for code 2, which also carries two causes.
+  ;; Code 6 and not 2: 2 is the usage stop and the empty tree, and the stage arm
+  ;; must be able to say which of the three happened.
+  (def-shell wave-tmpl-step [w: Wv r: Response] -> ((Wv, WCtl), Command)
+    (let [(c (w-cfg w))]
+      (let [(tpl (wave-text-of r))]
+        (if (string-empty? tpl)
+            (wave-go w (WEnding 6)
+                (wasi.io.stdout
+                  (string-concat-many
+                    ["[wave] STOP: the prompt template at " (wcfg-tpl-path c)
+                     " is not readable, or is empty. The rendered task statement "
+                     "is a declared input (driver-spec sec 8), so the wave does "
+                     "not run without it."])))
+            (wave-go (w-with-tpl w tpl) (WBoot 1) (wave-holes-cmd c))))))
 
   ;; THE ARGV PATH, which the `wave` sub-command takes and the stage arm does
   ;; not. A LEADING "wave" TOKEN IS HARMLESS HERE and is deliberately not
@@ -873,12 +1198,14 @@
           (wave-seed c)
           ;; Before any hole exists, so no tally attaches. The literal 2 is
           ;; sequencer.llmll's usage-stop code.
-          (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty))) (WEnding 2)
+          (wave-go (mk-wv c (list-empty) 0 0 0 (json-of-list (list-empty)) "") (WEnding 2)
               (wasi.io.stdout (string-concat "[wave] STOP: " (wave-missing-flags c)))))))
 
   (def-shell wave-boot-step [w: Wv n: int r: Response] -> ((Wv, WCtl), Command)
     (if (= n 0)
         (wave-boot-args (argv-of r))
+      (if (= n 2)
+        (wave-tmpl-step w r)
         (let [(hs (holes-in (wave-text-of r)))]
           (if (= (list-length hs) 0)
               ;; A tree with nothing to fill. Not the .llmll mistake, which
@@ -891,7 +1218,7 @@
                       ["[wave] STOP: no holes in " (wcfg-tree (w-cfg w))
                        " (nothing to fill, or `llmll holes` did not run; its "
                        "stderr is in the workdir as holes.err)"])))
-              (wave-enter (mk-wv (w-cfg w) hs 0 0 0 (json-of-list (list-empty))) 0)))))
+              (wave-enter (mk-wv (w-cfg w) hs 0 0 0 (json-of-list (list-empty)) (w-tpl w)) 0))))))
 
   ;; ---- the console harness -------------------------------------------------
   ;;

@@ -54,6 +54,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE = REPO / "tools" / "llmll-driver" / "fixtures" / "wave-roots.llmll"
+# The stage M prompt template, which is a DECLARED INPUT since the stage M agent
+# contract (driver-spec section 8 part 3). `registry.stage-prompt` row 13 names
+# this basename and `fan-cfg` resolves it under --prompts-dir; the standalone
+# `wave` sub-command takes the resolved path as --prompt.
+TEMPLATE = REPO / "experiments" / "rfc-swarm" / "prompts" / "stage-M-fill.md"
 
 # One line per step. A two-hole run with one retry is about 20 steps; 400 is
 # generous on purpose, because the failure mode of a tight budget is exit 70,
@@ -65,17 +70,34 @@ BUDGET = 400
 # inherited by the child, which is the same channel `driver_ll_cover.py` uses
 # for STUB_MODE and the one proposal section 5 item 2 settles.
 #
-# THE STUB READS THE BRIEF AND NOTHING ELSE, which is the "never hinted" half
-# of the 4e clause. It records its argv so W1 can assert the wave handed it a
-# brief path and an output path and no third channel.
+# THE STUB READS ITS RENDERED PROMPT AND ITS BRIEF, which are two of the four
+# declared inputs driver-spec section 8 lets the driver commit to. It read the
+# brief through `sys.argv[1]` until the stage M agent contract, when that slot
+# became the rendered task statement and the brief moved to a plain file in the
+# agent's own directory. The stub records its argv so W1 and W10 can assert what
+# the wave handed it.
+#
+# IT WORKS IN ITS OWN DIRECTORY, which is what the wave now passes as the child
+# process's working directory. So `brief.json` and `scratch.llmll` are bare
+# names here, exactly as the template tells a real agent they are.
 STUB = r'''#!/usr/bin/env python3
 import json, os, sys
 
-brief_path, out_path = sys.argv[1], sys.argv[2]
-with open(os.path.join(os.path.dirname(out_path), "argv.json"), "w") as fh:
+# THE LAST TWO, NOT THE FIRST TWO, and the campaign's real wrapper is why:
+# it reads `--model <MODEL> <PROMPT> <OUT>`, so the two paths are at the END of
+# a vector whose head the operator chose. A stub keyed on argv[1] would work
+# for the bare two-placeholder vector and break for every real one, which is
+# the shape cell W10 exists to drive.
+prompt_path, out_path = sys.argv[-2], sys.argv[-1]
+with open("argv.json", "w") as fh:
     json.dump(sys.argv[1:], fh)
 
-brief = json.load(open(brief_path))
+# The rendered prompt must be READABLE. A wave that stopped substituting hands
+# over the literal string `{prompt}`, and this open raises, which is the same
+# failure the campaign's real wrapper reports as exit 2.
+prompt = open(prompt_path).read()
+
+brief = json.load(open("brief.json"))
 goal = brief["postcondition_goal"]
 var = "n" if "(+ n 1)" in goal else "m"
 mode = os.environ.get("WAVE_STUB_MODE", "good")
@@ -156,13 +178,40 @@ class Cell:
         self.agent = self.dir / "agent.py"
         self.agent.write_text(STUB)
         self.agent.chmod(0o755)
+        # The REAL template, not a stand-in. The wave renders whatever
+        # `--prompt` names, so a cell driving a hand-written fixture would grade
+        # the port against a file the campaign never uses. This is the same
+        # file `registry.stage-prompt` row 13 names.
+        self.prompt_tpl = TEMPLATE
+        self.agent_args = ["{prompt}", "{out}"]
 
     def argv(self, **over) -> list[str]:
-        a = {"--tree": "tree.ast.json", "--workdir": "wd",
+        """The vector every cell starts from.
+
+        `--workdir` IS ABSOLUTE AND WAS THE RELATIVE STRING `wd`. The wave now
+        runs the agent with the agent's own directory as its working directory,
+        which is what `delegate-cmd` and the reference's AgentRunner both do and
+        what makes the template's `verify scratch.llmll` instruction mean
+        anything. A relative workdir would then hand the child a path it cannot
+        resolve from inside that directory. `driver_ll_cover.py` has passed an
+        absolute workdir since it was written.
+
+        `--agent-arg` CARRIES THE PLACEHOLDERS AND NOTHING APPENDS. The wave
+        appended `brief.json` and `body.json` to the operator's arguments until
+        the stage M agent contract, so a vector with no `--agent-arg` still
+        reached the agent carrying two paths. It no longer does: the operator
+        says where the prompt and the output go. W1 still asserts exactly two
+        paths reach the agent, which is the assertion that mattered.
+        """
+        a = {"--tree": "tree.ast.json", "--workdir": str(self.dir / "wd"),
              "--llmll-cmd": str(self.llmll), "--agent-cmd": str(self.agent),
+             "--prompt": str(self.prompt_tpl), "--pristine": "roots.llmll",
              "--error-budget": "2", "--protocol-budget": "2"}
         a.update(over)
-        return [x for k, v in a.items() if v is not None for x in (k, v)]
+        flat = [x for k, v in a.items() if v is not None for x in (k, v)]
+        for ph in self.agent_args:
+            flat += ["--agent-arg", ph]
+        return flat
 
     def env(self, mode: str) -> dict:
         e = dict(os.environ)
@@ -247,12 +296,19 @@ def w1(binary, c: Cell):
     want("SEALED" in r.line("--strict-verified-core"),
          f"the seal did not hold on a fully and faithfully filled tree\n{r.out}")
     want(c.bodies() == ["op", "op"], f"the tree is not filled: {c.bodies()}")
-    # The "never hinted" half of the clause: the agent's whole input is the
-    # brief path and an output path. A third argument would be a side channel.
+    # THE TWO-ARGUMENT ASSERTION SURVIVES AND ITS REASON CHANGED. This comment
+    # used to read "the agent's whole input is the brief path and an output
+    # path; a third argument would be a side channel". The claim was right and
+    # the mechanism was wrong: driver-spec section 8 forbids a peer's directory,
+    # a peer's output and a worked answer, and an argument COUNT establishes
+    # none of the three. The agent still receives exactly two paths, because the
+    # cover passes exactly two `--agent-arg` placeholders; what changed is that
+    # the first names a RENDERED TASK STATEMENT rather than the raw brief, which
+    # section 8 part 3 makes a declared input because the driver declares it.
     argv = json.loads(next(c.dir.glob("wd/h0-a0/argv.json")).read_text())
     want(len(argv) == 2, f"the agent was handed {len(argv)} arguments, not 2: {argv}")
-    want(argv[0].endswith("brief.json") and argv[1].endswith("body.json"),
-         f"the agent's arguments are not (brief, out): {argv}")
+    want(argv[0].endswith("PROMPT.md") and argv[1].endswith("body.json"),
+         f"the agent's arguments are not (prompt, out): {argv}")
 
 
 @cell("W2", "a refused patch spends the ERROR budget and exhausting it is a finding")
@@ -455,6 +511,163 @@ def w9(binary, c: Cell):
     want(json.loads((c.dir / "wd" / "wave.json").read_text())
          ["whole_tree"]["sealed"] is False,
          "a tree with holes left in it must not record as sealed")
+
+
+# ---------------------------------------------------------------------------
+# The stage M agent contract: the three cells no gate had
+# ---------------------------------------------------------------------------
+#
+# THREE GATES AND THE TEMPLATED PATH WAS OUTSIDE ALL THREE. No cell passed
+# `--agent-arg`, so the untemplated case was the only one this cover exercised;
+# `driver_ll_cover.py` stopped selecting stage M at the (a2) fold; and the
+# 2026-09-11 clause 2 run never reached stage M because stage M was stubbed. The
+# defect that survived all three is measured in
+# `docs/design/driver-ll-stage-m-agent-contract-proposal.md` section 1.
+
+
+@cell("W10", "the argument vector is SUBSTITUTED per argument and the model pin "
+             "survives")
+def w10(binary, c: Cell):
+    # THE CELL SECTION 4.5 OWES. It fails if the substitution is lost: without
+    # it the agent's third argument is the literal string `{prompt}`, the stub's
+    # `open(prompt_path)` raises, no body.json is written, and both budgets go.
+    c.agent_args = ["--model", "stub-opus", "{prompt}", "{out}"]
+    r = run(binary, c, "good")
+    want_rc(r, 0)
+    argv = json.loads(next(c.dir.glob("wd/h0-a0/argv.json")).read_text())
+    want(len(argv) == 4, f"the agent was handed {len(argv)} arguments, not 4: {argv}")
+    # THE PIN, and it is not incidental. The clause 2 pre-registration section
+    # 6.2 checks the model by reading the argument vector the run recorded, so
+    # an invocation that dropped `--model` would break that check for eleven of
+    # a campaign's agent sessions.
+    want(argv[0] == "--model" and argv[1] == "stub-opus",
+         f"an argument carrying no placeholder was not passed through: {argv}")
+    want("{prompt}" not in argv and "{out}" not in argv,
+         f"a placeholder reached the agent unsubstituted: {argv}")
+    want(argv[2].endswith("PROMPT.md") and argv[3].endswith("body.json"),
+         f"the substituted paths are not (prompt, out): {argv}")
+    prompt = (c.dir / "wd" / "h0-a0" / "PROMPT.md").read_text()
+    want("{{" not in prompt,
+         "the rendered prompt still carries a placeholder; the wave is supposed "
+         "to halt on that rather than hand it over")
+    # DISCRIMINATING, not a presence check: the rendered values have to be THIS
+    # hole's. A renderer keyed on the wrong hole passes every check above.
+    want("add-one" in prompt, f"the prompt does not name hole 0's function")
+    want(c.llmll.name in prompt or str(c.llmll) in prompt,
+         "the prompt does not carry the compiler command the agent self-checks "
+         "with; {{llmll}} was not substituted")
+    want("postcondition_goal" in prompt,
+         "the prompt does not carry the checkout brief; {{brief}} was not "
+         "substituted")
+
+
+@cell("W11", "attempt n+1 renders attempt n's compiler output, and attempt 1 "
+             "says so")
+def w11(binary, c: Cell):
+    # THE ERROR CHANNEL, and it is not cosmetic. driver-spec section 9 requires
+    # two separately counted retry budgets and makes only an exhausted error
+    # budget a finding. The port cleared the token and the body and carried only
+    # the budgets, so attempt n+1 received BYTE-IDENTICAL input to attempt n:
+    # the error budget sampled agent nondeterminism where the reference's
+    # measures repair. `fill.next-error-budget` was always correct; what was
+    # missing is the input that gives the budget meaning.
+    r = run(binary, c, "wrong")
+    want_rc(r, 1)
+    first = (c.dir / "wd" / "h0-a0" / "PROMPT.md").read_text()
+    second = (c.dir / "wd" / "h0-a1" / "PROMPT.md").read_text()
+    want("(first attempt)" in first,
+         "attempt 1 does not render the reference's literal, so its prompt "
+         "leaves a heading with nothing under it")
+    want("(first attempt)" not in second,
+         "attempt 2 still says it is the first attempt; the errors slot was "
+         "cleared rather than carried")
+    # The two prompts must actually DIFFER, which is the whole claim.
+    want(first != second,
+         "attempt 2 received byte-identical input to attempt 1")
+    # And the difference must be the compiler's output rather than any change.
+    want("PatchAuthError" in second or "refuted" in second or "verify" in second
+         or "SAFE" in second or "body-fallback" in second,
+         f"attempt 2's prompt carries no compiler transcript:\n{second[-1200:]}")
+
+
+@cell("W12", "the agent's directory holds the PRISTINE subject and the language "
+             "reference")
+def w12(binary, c: Cell):
+    # driver-spec section 8 part 4: where the agent needs a copy of the subject
+    # to check its own work, the copy MUST be the original, unmodified subject.
+    # `FS-COPY-1` shipped `wasi.fs.copy` citing that clause, and sub-phase 4e
+    # then used the builtin for its per-attempt backup and never for the agent's
+    # copy, so the mechanism existed and the clause it was built for was unmet.
+    refdir = c.dir / "refdir"
+    (refdir / "docs").mkdir(parents=True)
+    (refdir / "LLMLL.md").write_text("# stand-in language reference\n")
+    (refdir / "docs" / "llmll-ast.schema.json").write_text('{"stand-in": true}\n')
+    r = run(binary, c, "good", **{"--reference-dir": str(refdir)})
+    want_rc(r, 0)
+    d = c.dir / "wd" / "h0-a0"
+    scratch = d / "scratch.llmll"
+    want(scratch.exists(), "the agent got no pristine copy to self-check against")
+    # PRISTINE MEANS THE AUTHORED ROOTS AND NOT THE TREE. This is the assertion
+    # that discriminates: point the copy at `--tree` instead and hole 1's
+    # directory holds hole 0's ACCEPTED FILL, which is a peer's output and is
+    # what section 8 forbids by name.
+    want(scratch.read_text() == (c.dir / "roots.llmll").read_text(),
+         "the scratch copy is not byte-identical to the authored roots")
+    want("?body-" in scratch.read_text(),
+         "the scratch copy carries no named holes, so it is a filled tree "
+         "rather than the pristine subject")
+    late = c.dir / "wd" / "h1-a0" / "scratch.llmll"
+    want(late.exists() and late.read_text() == (c.dir / "roots.llmll").read_text(),
+         "the SECOND hole's copy is not pristine; it carries hole 0's fill, "
+         "which is a peer's output (driver-spec sec 8)")
+    # The language reference, which is `_provision_reference`'s pair. The tool
+    # manual and not the answer: neither file says anything about the subject.
+    want((d / "LLMLL.md").exists(),
+         "the agent was asked to write LLMLL with no language reference")
+    want((d / "llmll-ast.schema.json").exists(),
+         "the schema the template calls the authority on node shapes is absent")
+    # The schema loses its directory on the way in, as the reference's
+    # `wd / src.name` does, so the template's bare file name resolves.
+    want(not (d / "docs").exists(),
+         "the schema arrived under docs/ and the template names it bare")
+
+
+@cell("W13", "a prompt template that cannot be read stops the wave at code 6")
+def w13(binary, c: Cell):
+    # THE WITNESS FOR A GUARD THAT WOULD OTHERWISE BE DEAD CODE. `fan-join`
+    # gained an arm for code 6 and `test_driver_ll_a2.py` asserts its
+    # disposition statically, but a halt no cell reaches is a halt nobody has
+    # seen fire. Every other delegated stage halts on its template read
+    # (`tmpl-step`, Absent); stage M reaches its template through the wave, and
+    # this is where that condition is exercised.
+    r = run(binary, c, "good", **{"--prompt": str(c.dir / "not-a-template.md")})
+    want_rc(r, 6)
+    want("STOP" in r.out and "not readable" in r.out,
+         f"the stop does not name the cause\n{r.out}")
+    # BEFORE ANY HOLE, which is the point of reading at boot rather than per
+    # attempt: a --prompts-dir fault is a setup error and must not surface nine
+    # steps into a run that has already spent a checkout.
+    want("ACCEPTED" not in r.out and "briefing" not in r.out,
+         f"the wave reached the hole loop before noticing its template\n{r.out}")
+
+
+@cell("W14", "a rendered prompt that kept a placeholder stops at code 7 rather "
+             "than reaching the agent")
+def w14(binary, c: Cell):
+    # The reference's `ctx.prompt` ends with `require(not left, ...)`, so an
+    # unfilled placeholder is a stage failure there. A port without this check
+    # hands the agent the literal string `{{scope}}` and the run looks healthy
+    # until someone reads a prompt. THE TEMPLATE IS THE REAL ONE PLUS ONE LINE,
+    # so this cell measures the port's renderer against a template edit rather
+    # than against a hand-written stand-in.
+    edited = c.dir / "edited-template.md"
+    edited.write_text(TEMPLATE.read_text() + "\n## A section added later\n\n{{scope}}\n")
+    r = run(binary, c, "good", **{"--prompt": str(edited)})
+    want_rc(r, 7)
+    want("{{placeholder}}" in r.out or "placeholder" in r.out,
+         f"the stop does not name the cause\n{r.out}")
+    want(not list(c.dir.glob("wd/h0-a0/argv.json")),
+         "the agent ran on a prompt the wave could not finish rendering")
 
 
 def main() -> int:

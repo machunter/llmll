@@ -8,6 +8,13 @@
 ;; in two modules") can pass, and so that `(open common)` in both callers
 ;; introduces no shadow.
 ;;
+;; TWO MORE ARRIVED WITH ONE COPY, NOT TWO, and the difference is stated rather
+;; than smoothed over. `replace-all` and `subst-arg` were the sequencer's alone
+;; until the stage M agent contract needed them in the wave. They are at the
+;; foot of this file with their own reason. So this module's rule is now "a
+;; function two of these modules need", and the collapse set is the seven that
+;; reached it by the first route.
+;;
 ;; SEVEN AND NOT EIGHT. `verify-safe?` was measured into the collapse set by
 ;; body equality, the move was tried, and TWO COVERS FAILED: 4d pins the
 ;; sequencer's copy as an abstraction function over the compiler's transcript,
@@ -99,3 +106,38 @@
 ;; This wrapper exists so the argument order is stated once.
 (def-shell split-on [sep: string s: string] -> list[string]
   (string-split sep s))
+
+;; ---- template and argument substitution ----------------------------------
+;;
+;; MOVED IN FROM sequencer.llmll RATHER THAN COLLAPSED FROM TWO COPIES, which
+;; makes these two the first members of this module that arrive with a single
+;; copy. The reason is the import graph and not a preference: `sequencer.llmll`
+;; imports `wave.llmll`, so the wave cannot reach a function the sequencer
+;; holds, and the stage M agent contract needs both of these in the wave. The
+;; only other shape is a second copy in the wave, which is exactly what
+;; program unification section 2 clause 2 forbids and what this module exists
+;; to prevent.
+
+;; Every occurrence of `needle` replaced by `repl`. There is no
+;; string-replace builtin, so this is split-then-rejoin: the fold emits the
+;; first part bare and every later part preceded by the replacement, which
+;; is exactly `repl.join(parts)`.
+(def-shell replace-all [s: string needle: string repl: string] -> string
+  (second (list-fold (split-on needle s) (pair true "")
+            (fn [acc: (bool, string) p: string]
+              (pair false
+                    (if (first acc) p
+                        (string-concat-many [(second acc) repl p])))))))
+
+;; AgentRunner's template expansion (:301-303), applied per ARGUMENT rather
+;; than to one shell string (driver-ll-phase4-proposal.md section 5 item 1).
+;; {workdir} is the AGENT's directory, which is what the reference passes:
+;; `workdir` there is the first parameter of AgentRunner.run.
+;;
+;; STAGE M IS THE SECOND CALLER SINCE THE STAGE M AGENT CONTRACT. Every
+;; delegated stage now reaches the agent through this one function, so the
+;; "one list serving two conventions" defect the contract proposal measured
+;; cannot recur without deleting a call site.
+(def-shell subst-arg [a: string prompt: string out: string wd: string] -> string
+  (replace-all (replace-all (replace-all a "{prompt}" prompt) "{out}" out)
+               "{workdir}" wd))

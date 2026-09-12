@@ -238,9 +238,10 @@
   (if (= i 8)  "stage-H-feasibility.md"
   (if (= i 9)  "stage-I-prereg.md"
   (if (= i 11) "stage-K-contracts.md"
+  (if (= i 13) "stage-M-fill.md"
   (if (= i 14) "stage-N-mutants.md"
   (if (= i 15) "stage-O-writeup.md"
-      "")))))))))))
+      ""))))))))))))
 
 ;; ------------------------------------------------------------------
 ;; Sub-phase 4c: the invocation dimension.
@@ -306,12 +307,17 @@
 ;; label is composed by the fan-out machine, which knows the hole. This is the
 ;; same technique stage-floor's -1 needed and stage-shape supplied.
 ;;
-;; stage-prompt is empty for M for a DIFFERENT reason and the two must not be
-;; read as one. The template stage-M-fill.md exists, and the port does not render
-;; it: wave.llmll hands the agent the checkout brief and an output path, which is
-;; the sole-channel discipline, and cover cell W1 asserts exactly those two
-;; arguments. A filled stage-prompt row would state a delegation shape the code
-;; does not use.
+;; stage-prompt IS FILLED FOR M AND WAS EMPTY UNTIL THE STAGE M AGENT CONTRACT.
+;; The comment here used to say the row must stay empty because wave.llmll hands
+;; the agent the checkout brief and an output path, and called that the
+;; sole-channel discipline. driver-spec section 8 does not say that. Its third
+;; paragraph requires the driver to report any file in an agent's directory that
+;; was not among ITS DECLARED INPUTS, which makes a declared input a driver-side
+;; commitment; a rendered task statement is one because the driver declares it.
+;; So the row names the template and the WAVE renders it, per attempt, because
+;; {{hole}}, {{brief}} and {{errors}} are settled inside the hole loop and the
+;; stage loop never sees them. stage-pre-count stays zero for M for that reason:
+;; the stage reads no artifact BEFORE delegating.
 (def-shell stage-agent-label [i: int j: int] -> string
   (if (= i 1)  "scope"
   (if (= i 2)  "rubric"
@@ -504,13 +510,21 @@
 ;; ------------------------------------------------------------------
 
 ;; Whether the stage's prompt carries {{llmll}}, the compiler command the
-;; agent is told to self-check with. H and K (`llmll=ctx.llmll` in both
-;; prompt calls). M's prompt carries it too and M is the wave's, not this
-;; program's. The value substituted is --llmll-cmd, the same executable the
+;; agent is told to self-check with. H, K and M (`llmll=ctx.llmll` in all three
+;; prompt calls). The value substituted is --llmll-cmd, the same executable the
 ;; stage then runs itself, so the agent's self-check and the stage's oracle
 ;; cannot silently name two compilers.
+;;
+;; M'S ROW IS DESCRIPTIVE AND NOT CONSULTED, and the asymmetry is stated rather
+;; than hidden. `render` in sequencer.llmll reads this table and stage M never
+;; reaches `render`: the wave does its own rendering and substitutes {{llmll}}
+;; unconditionally, because a wave with no compiler command cannot run at all.
+;; The row is filled because this table describes the PROMPT FILES, and
+;; test_driver_ll_4d.py computes the {{llmll}} set from those files and checks
+;; it against this row. An empty row would make that check report a true
+;; invariant over a table that had stopped describing stage M.
 (def-shell stage-needs-llmll? [i: int] -> bool
-  (if (= i 8) true (= i 11)))
+  (if (= i 8) true (if (= i 11) true (= i 13))))
 
 ;; Whether the stage provisions the LANGUAGE reference into the agent's
 ;; directory before delegating: _provision_reference, called by H, K, M and N.
@@ -520,16 +534,22 @@
 ;; unchecked copies have the same tolerance. This is the tool manual and not
 ;; the answer: neither file says anything about the target RFC.
 ;;
-;; STAGE M IS FALSE AND THE REFERENCE CALLS IT THERE. That is a PORT GAP and not
-;; a decision, measured at the (a2) fold: _provision_reference runs inside
-;; stage_M_wave's per-hole closure, wave.llmll does not provision, and NO
-;; document records the omission. Not wave.llmll's header, not wave_cover.py,
-;; not the Phase 4 proposal. The row stays false because a true row would claim
-;; a behaviour the code does not have, which is the defect this comment block
-;; exists to stop. Cover cell W1 does not forbid the fix: it asserts the agent
-;; receives two ARGUMENTS, and provisioning puts files in a directory.
+;; STAGE M WAS FALSE HERE AND THE REFERENCE CALLS IT THERE. That was a PORT GAP
+;; and not a decision, measured at the (a2) fold: _provision_reference runs
+;; inside stage_M_wave's per-hole closure, wave.llmll did not provision, and no
+;; document recorded the omission. The stage M agent contract closes it. The row
+;; is now TRUE and `fan-cfg` reads it: a true row passes --reference-dir into the
+;; WaveCfg and a false row passes the empty string, which is what tells the wave
+;; to copy nothing. So this row decides a behaviour rather than describing one,
+;; which is the opposite of the stage-needs-llmll? row above; read both comments
+;; before assuming either.
+;;
+;; THE WAVE PROVISIONS PER ATTEMPT AND THE REFERENCE PER HOLE. The port's agent
+;; directory is per (hole, attempt) and the reference's is per hole, so the copy
+;; has to follow the directory. That is the safe direction: each attempt's
+;; directory then holds its own declared inputs rather than inheriting them.
 (def-shell stage-provision-ref? [i: int] -> bool
-  (if (= i 8) true (if (= i 11) true (= i 14))))
+  (if (= i 8) true (if (= i 11) true (if (= i 13) true (= i 14)))))
 
 ;; THE FILE THE AGENT WRITES, which for two stages is NOT the declared output.
 ;; Restart record section 6 item 6: stages H and N invert the artifact flow.

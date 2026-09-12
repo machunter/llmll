@@ -863,16 +863,9 @@
     (let [(ps (split-on "/" p))]
       (unwrap-or (list-nth ps (- (list-length ps) 1)) p)))
 
-  ;; Every occurrence of `needle` replaced by `repl`. There is no
-  ;; string-replace builtin, so this is split-then-rejoin: the fold emits the
-  ;; first part bare and every later part preceded by the replacement, which
-  ;; is exactly `repl.join(parts)`.
-  (def-shell replace-all [s: string needle: string repl: string] -> string
-    (second (list-fold (split-on needle s) (pair true "")
-              (fn [acc: (bool, string) p: string]
-                (pair false
-                      (if (first acc) p
-                          (string-concat-many [(second acc) repl p])))))))
+  ;; `replace-all` MOVED TO common.llmll for the stage M agent contract. The
+  ;; wave renders its own prompt per attempt and cannot reach a function this
+  ;; module holds, because this module imports the wave and not the reverse.
 
   ;; Python's f"{n:5d}", built by cases rather than by string-slice so the
   ;; half-open convention of one more builtin is not on the critical path.
@@ -922,13 +915,10 @@
   (def-shell barriers-json [] -> string
     "{\n \"B1\": \"timing / liveness\",\n \"B2\": \"transport binding\",\n \"B3\": \"trace-level property\",\n \"B4\": \"opaque transform\",\n \"B5\": \"string structure\",\n \"B6\": \"superseded / deprecated\",\n \"B7\": \"entailed by the model or by a named sibling row\",\n \"B8\": \"outside any tool\"\n}")
 
-  ;; AgentRunner's template expansion (:301-303), applied per ARGUMENT rather
-  ;; than to one shell string (proposal section 5 item 1). {workdir} is the
-  ;; AGENT's directory, which is what the reference passes: `workdir` there is
-  ;; the first parameter of AgentRunner.run, i.e. ctx.d("01-scope").
-  (def-shell subst-arg [a: string prompt: string out: string wd: string] -> string
-    (replace-all (replace-all (replace-all a "{prompt}" prompt) "{out}" out)
-                 "{workdir}" wd))
+  ;; `subst-arg` MOVED TO common.llmll for the same reason `replace-all` did.
+  ;; Stage M is its second caller, so every delegated stage now reaches its
+  ;; agent through one substitution and the "one list serving two conventions"
+  ;; defect cannot recur without deleting a call site.
 
   ;; ---- response projections ------------------------------------------
 
@@ -1296,6 +1286,18 @@
   (def-shell mk-fan [k: int start: int ws: (Wv, WCtl)] -> Ctl
     (Fan (pair k (pair start ws))))
 
+  ;; The pristine subject, written ONCE and read by two callers. `emit-tree-cmd`
+  ;; writes it and `fan-cfg` declares it to the agent, so the path the wave
+  ;; copies to `scratch.llmll` and the path the emit produced cannot drift.
+  ;;
+  ;; PRISTINE MEANS THE AUTHORED ROOTS AND NOT THE TREE. driver-spec section 8
+  ;; part 4 requires the agent's self-check copy to be the ORIGINAL, unmodified
+  ;; subject. `art-path c i 1` is the .ast.json the wave patches in place, so it
+  ;; carries every sibling hole's accepted fill by the second hole and is the
+  ;; one thing this copy must never be.
+  (def-shell wave-roots-path [c: Cfg i: int] -> string
+    (string-concat-many [(art-dir c i 1) "/roots.llmll"]))
+
   ;; The record the folded stage runs under. Built from `Cfg` and the registry,
   ;; where the standalone run builds it from argv.
   ;;
@@ -1303,10 +1305,19 @@
   ;; 12-wave/wave.json at j=0 and 12-wave/roots.ast.json at j=1, and the AST is
   ;; what `llmll holes` reads and `llmll patch` rewrites in place.
   ;;
-  ;; The agent arguments are passed RAW, as the wave passed them. Every other
-  ;; delegated stage substitutes placeholders into a rendered prompt; stage M
-  ;; renders no prompt, because the checkout brief is the agent's sole channel
-  ;; and cover cell W1 asserts exactly the two paths it gets.
+  ;; THE AGENT ARGUMENTS ARE PASSED FOR SUBSTITUTION, NOT RAW, and that is the
+  ;; stage M agent contract's item 1. They were passed raw until then, and the
+  ;; wave appended two paths of its own, so one `--agent-arg` list served two
+  ;; incompatible calling conventions. Measured: the campaign's real vector
+  ;; reached the agent carrying the literal strings `{prompt}` and `{out}`, and
+  ;; the wrapper exited 2 on the unreadable literal before any model ran. The
+  ;; SUBSTITUTION ITSELF STAYS IN THE WAVE, because only the wave knows the
+  ;; per-attempt prompt and body paths.
+  ;;
+  ;; THE REGISTRY DECIDES THE REFERENCE COPIES. `stage-provision-ref?` is the
+  ;; row `_provision_reference`'s four callers fill, and an empty directory here
+  ;; is what tells the wave to copy nothing. That keeps the decision in the
+  ;; table and the tolerance in one place.
   (def-shell fan-cfg [c: Cfg i: int] -> WaveCfg
     (mk-wave-cfg (art-path c i 1)
                  (art-dir c i 0)
@@ -1315,12 +1326,15 @@
                  (ag-args (cfg-agent c))
                  (ag-timeout (cfg-agent c))
                  (cfg-err0 c)
-                 (cfg-proto0 c)))
+                 (cfg-proto0 c)
+                 (mk-decl (tmpl-file c i)
+                          (wave-roots-path c i)
+                          (if (stage-provision-ref? i) (cfg-refdir c) ""))))
 
   ;; Copy the authored roots beside the stage's own artifacts, then emit the
   ;; AST. `stage_M_wave`'s first three statements, in its order.
   (def-shell emit-tree-cmd [c: Cfg i: int] -> Command
-    (let [(src (string-concat-many [(art-dir c i 1) "/roots.llmll"]))]
+    (let [(src (wave-roots-path c i))]
       (seq-commands
         (wasi.fs.mkdir (art-dir c i 1))
         (seq-commands
@@ -1361,6 +1375,8 @@
   ;;   5  every hole accepted, tree NOT sealed         Finished
   ;;   2  no holes in the tree                         Errored   (a `require`)
   ;;   4  a token held while an agent worked           ConditionUnmet
+  ;;   6  the prompt template is absent or empty       Absent
+  ;;   7  the rendered prompt kept a placeholder       Malformed
   ;;
   ;; CODE 4 IS `stopped` AND NOT `failed`. token.llmll cites [S10-NOTHELD] to
   ;; driver-spec section 10:371, which DEFINES the condition, so section
@@ -1374,6 +1390,14 @@
   ;; reaches both through the same arm, because the emit's own response is
   ;; consumed by the holes read that follows it. The disposition is `failed`
   ;; either way and the detail names both causes rather than guessing.
+  ;;
+  ;; CODES 6 AND 7 ARE THE PROMPT, and they take the dispositions `tmpl-step`
+  ;; gives every other delegated stage rather than new ones. 6 is a template
+  ;; that is absent or empty, which is `Absent`; 7 is a template whose
+  ;; placeholders survived rendering, which is `Malformed`. Splitting them is
+  ;; what keeps a stage M manifest row naming the cause an operator can act on:
+  ;; a missing file is a `--prompts-dir` fault and a leftover `{{...}}` is a
+  ;; template the port does not fill.
   (def-shell fan-join [rn: Run k: int start: int code: int] -> ((Run, Ctl), Command)
     (if (= code 4)
         (halt-with rn k ConditionUnmet
@@ -1387,7 +1411,18 @@
                 ["stage M: no holes to fill. Either `llmll build --emit` wrote "
                  "no tree, or the tree it wrote carries no holes; see "
                  "12-wave/build.err and 12-wave/holes.err."]))
-            (to-summed rn k start))))
+            (if (= code 6)
+                (halt-verdict rn k Absent
+                  (string-concat-many
+                    ["prompt " (stage-prompt (idx-at rn k)) ": not readable, or "
+                     "empty, under --prompts-dir "
+                     (ag-prompts (cfg-agent (cfg-of rn)))]))
+                (if (= code 7)
+                    (halt-verdict rn k Malformed
+                      (string-concat-many
+                        ["prompt " (stage-prompt (idx-at rn k))
+                         ": unfilled placeholders remain after substitution"]))
+                    (to-summed rn k start))))))
 
   ;; The wave's own command still has to be PERFORMED. The ending step is where
   ;; 12-wave/wave.json is written and the seal line is printed, so the join
