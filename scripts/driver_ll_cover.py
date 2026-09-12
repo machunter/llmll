@@ -1631,6 +1631,121 @@ def j4(b, wd):
          "the read is guarded before the write, so no declared output exists")
 
 
+# ---------------------------------------------------------------------------
+# Clause 3: stage E, the mechanical reconciliation.
+#
+# The second stage ported from the spine, and the first that spawns a TOOL. The
+# tool is `experiments/rfc-swarm/tools/reconcile.py`, resolved from the
+# repository root through `--reference-dir` and never from the run workdir,
+# which is the distinction the clause 3 proposal section 2 exists to draw.
+#
+# E1 RUNS THE REAL RECONCILER. Measured before these cells were written: the
+# stub agent's two-row extractions reconcile cleanly and the report carries
+# every member stage E reads. A fixture reconciler would have tested the cover's
+# own arithmetic instead.
+# ---------------------------------------------------------------------------
+
+
+def localE(cell: str, why: str):
+    """The stage E sibling. `self_test()` pins counts over the frozen TFTP
+    corpus and never drives the stage, so nothing here mirrors the rig."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def fake_reconciler(wd: Path, body: str) -> Path:
+    """A repository root holding nothing but the tool stage E spawns.
+
+    Used by the cells whose condition is DOWNSTREAM of a reconciler that exited
+    0. The real tool cannot produce them: it writes a well-formed report or it
+    fails, and a stage that halts on the exit status never reaches the read.
+    """
+    root = wd.parent / (wd.name + "-repo")
+    tools = root / "experiments" / "rfc-swarm" / "tools"
+    tools.mkdir(parents=True, exist_ok=True)
+    (tools / "reconcile.py").write_text(body, encoding="utf-8")
+    return root
+
+
+def summary_json(wd: Path) -> dict:
+    out = wd / "04-reconcile" / "SUMMARY.json"
+    want(out.exists(), "04-reconcile/SUMMARY.json is absent: stage E wrote no "
+                       "declared output")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@localE("E1", "the real reconciler runs over stage D's staged pair and the "
+              "summary carries the reference's four members, nested ones whole")
+def e1(b, wd):
+    r = drive(b, wd, "B,C,D,E")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["E"], "mechanical")
+    g = summary_json(wd)
+    want(set(g) == {"a_only", "b_only", "line_coverage", "rule_agreement"},
+         f"04-reconcile/SUMMARY.json is not write_json's four members: {sorted(g)}")
+    want("driver-ll" not in g,
+         "04-reconcile/SUMMARY.json is still the 4a stub body, so the stage did "
+         "not run")
+    want(isinstance(g["a_only"], int) and isinstance(g["b_only"], int),
+         f"a_only and b_only are len() of the unmatched arrays: {g}")
+    # The two nested members are copied as JSON rather than reprojected member
+    # by member, which is what keeps the float lexemes the reconciler emits.
+    want(isinstance(g["line_coverage"], dict) and isinstance(g["rule_agreement"], dict),
+         f"the nested members are objects, not scalars: {g}")
+    want("compared" in g["rule_agreement"],
+         f"rule_agreement is the reconciler's own object: {g['rule_agreement']}")
+    want((wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the child's transcript is written whatever it exits")
+
+
+@localE("E2", "a reconciler that exits non-zero is FAILED, not stopped: the "
+              "reference guards it with a plain require")
+def e2(b, wd):
+    # No 04-reconcile/data, because stage D did not run. The real reconciler
+    # exits 1 on the missing extraction-a.json, measured.
+    r = drive(b, wd, "E")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("reconcile.py exited 1", r)
+    want((wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the transcript is written BEFORE the exit status is judged, as the "
+         "reference writes it before its require")
+    want(not (wd / "04-reconcile" / "SUMMARY.json").exists(),
+         "a stage that halted on the exit status wrote no declared output")
+
+
+@localE("E3", "a reconciler that exits 0 and leaves an unreadable report is "
+              "failed on the READ, which the real tool cannot produce")
+def e3(b, wd):
+    root = fake_reconciler(wd, "import sys, pathlib\n"
+                               "d = pathlib.Path(sys.argv[1])\n"
+                               "d.mkdir(parents=True, exist_ok=True)\n"
+                               "(d / 'reconciliation.json').write_text('not json')\n"
+                               "sys.exit(0)\n")
+    r = drive(b, wd, "E", reference_dir=root)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("does not parse as JSON", r)
+    want(not (wd / "04-reconcile" / "SUMMARY.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
+
+
+@localE("E4", "--reference-dir absent stops the stage BEFORE the spawn: the "
+              "reconciler is a tool path and has no workdir fallback")
+def e4(b, wd):
+    r = drive(b, wd, "E", reference_dir=None)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("--reference-dir is empty", r)
+    # THE DISCRIMINATOR. A stage that resolved the tool to a relative path and
+    # spawned it anyway would also record failed, and the transcript is what
+    # tells the two apart: no spawn, no transcript.
+    want(not (wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the stage halted before the spawn, so no child transcript exists")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--driver", default=os.environ.get("DRIVER_LL_BIN", ""))

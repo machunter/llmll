@@ -124,7 +124,7 @@
   (if (= i 1)  "delegate"
   (if (= i 2)  "delegate"
   (if (= i 3)  "delegate"
-  (if (= i 4)  "stub"
+  (if (= i 4)  "spine"
   (if (= i 5)  "delegate"
   (if (= i 6)  "delegate"
   (if (= i 7)  "stub"

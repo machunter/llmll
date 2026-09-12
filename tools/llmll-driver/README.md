@@ -102,18 +102,18 @@ content-shape validation of `shape.llmll`, and the verification-outcome channel 
 3 through the `:status` projection, so no shell sits between the acceptance criterion and the
 program.
 
-**Thirteen of the sixteen stage bodies are real**, measured at the clause 3 opening commit, and
+**Fourteen of the sixteen stage bodies are real**, measured at the clause 3 stage E commit, and
 the epoch is part of the sentence for the reason the parenthetical below gives. One table says
-which: `registry.stage-machine` answers which MACHINE runs each stage, and only three rows
-answer `stub`.
+which: `registry.stage-machine` answers which MACHINE runs each stage, and only two rows answer
+`stub`.
 
 | machine | stages | what runs |
 |---|---|---|
 | `intake` | A | the fetch loop over `wasi.http.get` |
 | `delegate` | B, C, D, F, G, H, I, K, N, O | render the prompt, spawn the agent, validate what it wrote |
 | `wave` | M | the fill wave, one delegation per hole |
-| `spine` | J | a body ported from [`spine.llmll`](spine.llmll) |
-| `stub` | E, G2, L | NOT YET PORTED |
+| `spine` | E, J | a body ported from [`spine.llmll`](spine.llmll) |
+| `stub` | G2, L | NOT YET PORTED |
 
 **That table replaced two, and the replacement closed a defect rather than tidying a chain.**
 `stage-ported?` carried a retirement schedule and `stage-fanout` routed stage M ahead of a
@@ -123,11 +123,11 @@ keyed on a label two stages carry and implemented for exactly one; stage E's `fa
 loop. Both tables are deleted, not corrected, which is what unification completion-test clause 3
 requires. `stage-kind` survives as a label and decides nothing.
 
-**Three stages still write a stub**: E, G2 and L, which live unreached in
+**Two stages still write a stub**: G2 and L, which live unreached in
 [`spine.llmll`](spine.llmll) until the rest of clause 3 lands. Each writes a stub to every
 artifact it declares, which is enough for every resume and outcome transition to be decided over
 real digests and a real completion record. The `stub` value carries the retirement schedule and
-is deleted with the last of the three.
+is deleted with the last of the two.
 
 **Stage J is the first stage ported from the spine.** It reads stage G's dispositioned inventory
 from the run workdir, writes `09-gate/gate.json`, and THEN evaluates the two conditions
@@ -136,6 +136,16 @@ then :936 and :939). That order decides the outcome: declared artifacts on disk 
 `PartialThenHalt`, recorded `stopped` and not `failed`. **The seven counts `spine.stage-j-pins`
 pins are self_test's, not the stage's**, and they stay uncalled: they pin the committed TFTP
 corpus, so calling them from the stage loop would stop every campaign run over any other RFC.
+
+**Stage E is the second, and the first stage in this program that spawns a TOOL.** It runs
+`experiments/rfc-swarm/tools/reconcile.py` over `04-reconcile/data`, which stage D staged during
+the same run, and writes the reference's four-member `04-reconcile/SUMMARY.json`. **The tool is
+resolved from the repository root through `--reference-dir` and never from the run workdir**,
+because a tool path is not an artifact path; the flag is optional for the language-reference
+provisioning that first needed it and REQUIRED for this stage, which records `failed` and names
+the flag when it is empty. A non-zero reconciler exit is `failed` and not `stopped`: the
+reference guards it with a plain `require`. `stage-e-passes` stays uncalled for the reason stage
+J's pins do.
 
 **Stage A is the first mechanical stage in this program, over `wasi.http.get` (v0.21.0).** It
 was a filed STOP from v0.14.83 until that builtin shipped. Per source, `--rfc-url` then each
@@ -194,13 +204,13 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **67 cells at the clause 3
-opening commit**, from 63 at v0.23.2, 62 at 4f, 58 with stage A, 52 at 4d and 39 before it. The
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **71 cells at the clause 3
+stage E commit**, from 67 at its opening commit, 63 at v0.23.2, 62 at 4f, 58 with stage A, 52 at 4d and 39 before it. The
 figure is the count the runner prints, not one incremented from the previous sentence, for the
 reason the parenthetical further down gives; this line stated the stage A figure for two
 releases. The thirteen 4d cells are H1 to H5, K1 to K3, N1 to N4 and F0, the six stage A cells A1
-to A6, the four 4f cells O1 to O4, the four clause 3 cells J1 to J4, and M1 is the one cell that
-drives the folded stage M through the stage loop. The 4d cells run the **real compiler**
+to A6, the four 4f cells O1 to O4, the eight clause 3 cells J1 to J4 and E1 to E4, and M1 is the
+one cell that drives the folded stage M through the stage loop. The 4d cells run the **real compiler**
 (`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions under test,
 so a stub compiler would assert the port against a transcript the cover wrote itself. The checks
 that need no toolchain are in

@@ -285,9 +285,9 @@ def test_the_stub_machine_value_carries_its_own_retirement():
     body = _body_of(_uncommented(REGISTRY), "stage-machine")
     rows = re.findall(r'\(=\s*i\s*(\d+)\)\s*"([a-z]+)"', body)
     stubs = [i for i, v in rows if v == "stub"]
-    assert stubs == ["4", "7", "12"], \
-        f"stage-machine stubs {stubs}; clause 3 lands E (4), G2 (7) and L (12), "\
-        f"and its last commit deletes this value"
+    assert stubs == ["7", "12"], \
+        f"stage-machine stubs {stubs}; clause 3 has landed J (10) and E (4), "\
+        f"G2 (7) and L (12) follow, and its last commit deletes this value"
 
 
 def test_stage_m_declares_two_outputs_and_the_fold_uses_both():

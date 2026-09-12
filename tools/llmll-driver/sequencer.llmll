@@ -573,10 +573,20 @@
   (def-shell cfg-llmll [c: Cfg] -> string
     (match c ((Cfg p) (first (second (second (second (second (second (second p))))))))))
 
-  ;; The repository root the language reference is copied from, or "". The
-  ;; two files are LLMLL.md and docs/llmll-ast.schema.json relative to it,
-  ;; the reference's `REPO / ...` (_provision_reference). Optional, because the
+  ;; THE REPOSITORY ROOT, and it now has two consumers rather than one.
+  ;;
+  ;; The language reference is copied from it: LLMLL.md and
+  ;; docs/llmll-ast.schema.json relative to it, the reference's `REPO / ...`
+  ;; (_provision_reference). That consumer treats it as OPTIONAL, because the
   ;; reference silently skips a file that is not there.
+  ;;
+  ;; Clause 3 adds the second. Stage E spawns experiments/rfc-swarm/tools/
+  ;; reconcile.py, which the reference also resolves from `REPO` (:79). A TOOL
+  ;; path is not an artifact path and must not be workdir-derived; the clause 3
+  ;; proposal section 2 says so in the paragraph it exists to say it in. For
+  ;; that consumer the flag is REQUIRED, and stage E records `failed` with a
+  ;; detail naming the flag when it is empty. No new flag: this value already
+  ;; is the repository root, and its own first sentence said so.
   (def-shell cfg-refdir [c: Cfg] -> string
     (match c ((Cfg p) (first (second (second (second (second (second (second (second p)))))))))))
 
@@ -3006,14 +3016,179 @@
         (halt-errored rn (sp-k d) (j-write-detail rn (sp-k d)))
         (j-decide rn d)))
 
+  (def-shell j-arm-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (= (sp-s d) 0)
+        (j-read-step rn d r)
+        (j-wrote-step rn d r)))
+
+  ;; ------------------------------------------------------------------
+  ;; Clause 3: stage E, the mechanical reconciliation.
+  ;;
+  ;; rfc_to_implementation.py's stage_E_reconcile spawns reconcile.py over
+  ;; 04-reconcile/data, writes the child's transcript, REQUIRES exit 0, reads
+  ;; the reconciliation report and writes 04-reconcile/SUMMARY.json with four
+  ;; members. Stage D stages the two extractions into that directory during the
+  ;; same run, and registry.stage-stage-dest already declares the destination.
+  ;;
+  ;; THE HALT IS `failed` AND NOT `stopped`, which is a correction to the clause
+  ;; 3 proposal's section 8 case 1 rather than a reading of it. That case routes
+  ;; the non-zero exit through `stage-e-outcome`, and `stage-e-outcome` has no
+  ;; Errored arm: its failure arm is ConditionUnmet, which stage.record-outcome
+  ;; maps to Stopped. The reference's guard is a plain `require`, so driver-spec
+  ;; section 4 makes it `failed`. So the channel is `halt-errored`, the same one
+  ;; stage A's failed fetch uses, and the proposal owes a Rev 2.
+  ;;
+  ;; `stage-e-passes` ACQUIRES NO CALLER, for the reason stage J's header gives
+  ;; at length. It pins compared=43 and (1, 10) unmatched rows against the
+  ;; committed TFTP corpus and its [E-NOVACUOUS] post PROVES a divergent row
+  ;; count fails. That is self_test's acceptance, not the stage's. The stage's
+  ;; own condition is the child's exit status.
+
+  (def-shell e-data-dir [c: Cfg] -> string
+    (wd-path c "04-reconcile/data"))
+
+  (def-shell e-report-path [c: Cfg] -> string
+    (wd-path c "04-reconcile/data/reconciliation.json"))
+
+  ;; ONE path for stdout and stderr, and the builtin merges on STRING EQUALITY
+  ;; (LLMLL.md sec 13, wasi.proc.run). That reproduces the reference's
+  ;; `rc.stdout + rc.stderr` into one file at :the transcript write.
+  ;;
+  ;; DISCLOSED DIVERGENCE: the spec does not specify the interleaving, because
+  ;; it is the order the child flushes rather than the order it writes. Python
+  ;; concatenates the two captured buffers, so a child that buffers one stream
+  ;; and not the other produces the same bytes in a different order here. The
+  ;; file is undeclared scratch and no cell reads its content.
+  (def-shell e-transcript [c: Cfg] -> string
+    (wd-path c "04-reconcile/reconcile.stdout.txt"))
+
+  (def-shell e-tool [c: Cfg] -> string
+    (string-concat-many
+      [(cfg-refdir c) "/experiments/rfc-swarm/tools/reconcile.py"]))
+
+  (def-shell e-no-refdir-detail [] -> string
+    (string-concat-many
+      ["stage E: --reference-dir is empty, so experiments/rfc-swarm/tools/"
+       "reconcile.py cannot be resolved. The reconciler is a TOOL and not an "
+       "artifact, so it comes from the repository root and never from the run "
+       "workdir. Pass --reference-dir."]))
+
+  (def-shell e-exit-detail [rn: Run n: int] -> string
+    (string-concat-many
+      ["stage E: reconcile.py exited " (int-to-string n) ". Its transcript is "
+       (e-transcript (cfg-of rn))
+       ". The reference guards this with a plain require, so the stage is "
+       "failed rather than stopped."]))
+
+  (def-shell e-report-detail [rn: Run what: string] -> string
+    (string-concat-many
+      ["stage E: " (e-report-path (cfg-of rn)) " " what
+       ". reconcile.py exited 0 and wrote no report this stage could read, so "
+       "the reconciliation cannot be summarised."]))
+
+  (def-shell e-write-detail [rn: Run k: int] -> string
+    (string-concat-many
+      ["stage E: " (art-path (cfg-of rn) (idx-at rn k) 0) " could not be "
+       "written, so the stage produced no declared output."]))
+
+  (def-shell jobj-or-empty [o: Json k: string] -> Json
+    (unwrap-or (json-get o k) json-object))
+
+  ;; write_json(ctx.d("04-reconcile", "SUMMARY.json"), {...}), four members.
+  ;; The reference takes `report.get(k, {})` for both nested members, so an
+  ;; absent one becomes an empty object rather than a missing key.
+  (def-shell e-summary [rep: Json] -> string
+    (json-serialize
+      (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty json-object
+        "a_only" (json-of-int (unmatched-count rep "A_unmatched_rows")))
+        "b_only" (json-of-int (unmatched-count rep "B_unmatched_rows")))
+        "line_coverage" (jobj-or-empty rep "line_coverage"))
+        "rule_agreement" (jobj-or-empty rep "rule_agreement"))))
+
+  ;; The three figures the reference logs (:the three log calls), as one line.
+  (def-shell e-report-line [rep: Json] -> string
+    (string-concat-many
+      ["  reconciled: " (int-to-string (compared-of rep))
+       " rows compared, " (int-to-string (unmatched-count rep "A_unmatched_rows"))
+       " A-only, " (int-to-string (unmatched-count rep "B_unmatched_rows"))
+       " B-only"]))
+
+  ;; s=0. The timeout is 120 and it DOES NOT FIRE in a built program
+  ;; (PROC-TIMEOUT-1, open). The reference's subprocess.run carries no timeout
+  ;; at all, so the port reproduces rather than hardens, and no cell may claim
+  ;; a budget-overrun halt here.
+  (def-shell e-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
+    (let [(c (cfg-of rn))]
+      (if (string-empty? (cfg-refdir c))
+          (halt-errored rn k (e-no-refdir-detail))
+          (go rn (mk-sp k 0 start false "")
+              (seq-commands
+                (wasi.fs.mkdir (art-dir c (idx-at rn k) 0))
+                (wasi.proc.run "/usr/bin/python3"
+                               [(e-tool c) (e-data-dir c)]
+                               "."
+                               (e-transcript c)
+                               (e-transcript c)
+                               120
+                               "/dev/null"))))))
+
+  (def-shell e-ran-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (match r
+      ((RCode n)
+        (if (= n 0)
+            (go rn (mk-sp (sp-k d) 1 (sp-start d) false "")
+                (wasi.fs.read (e-report-path (cfg-of rn))))
+            (halt-errored rn (sp-k d) (e-exit-detail rn n))))
+      ((RNone)   (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))
+      ((RText _) (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))
+      ((RErr e)  (halt-errored rn (sp-k d)
+                   (string-concat-many
+                     ["stage E: reconcile.py could not be run (" e ")"])))
+      ((RList _) (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))))
+
+  (def-shell e-read-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (not (present? r))
+        (halt-errored rn (sp-k d) (e-report-detail rn "is absent, or its bytes do not decode"))
+        (match (json-parse (text-of r))
+          ((Success rep)
+            (go rn (mk-sp (sp-k d) 2 (sp-start d) false "")
+                (seq-commands
+                  (wasi.io.stdout (e-report-line rep))
+                  (wasi.fs.write (art-path (cfg-of rn) (idx-at rn (sp-k d)) 0)
+                                 (e-summary rep)))))
+          ((Error e) (halt-errored rn (sp-k d)
+                       (e-report-detail rn (string-concat "does not parse as JSON: " e)))))))
+
+  (def-shell e-wrote-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (copy-failed? r)
+        (halt-errored rn (sp-k d) (e-write-detail rn (sp-k d)))
+        (to-summed rn (sp-k d) (sp-start d))))
+
+  (def-shell e-arm-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response] -> ((Run, Ctl), Command)
+    (if (= (sp-s d) 0)
+        (e-ran-step rn d r)
+    (if (= (sp-s d) 1)
+        (e-read-step rn d r)
+        (e-wrote-step rn d r))))
+
   ;; ---- the spine machines -------------------------------------------
   ;;
-  ;; Clause 3 lands J. E, G2 and L follow on this branch, each adding an entry
-  ;; arm here and its own states below, and each flipping its registry.
-  ;; stage-machine row from "stub" to "spine". A stage reaches these functions
-  ;; only because stage-machine answered "spine" for it.
+  ;; Clause 3 lands J then E. G2 and L follow on this branch, each adding an
+  ;; arm to both functions below and flipping its own registry.stage-machine row
+  ;; from "stub" to "spine". A stage reaches these functions only because
+  ;; stage-machine answered "spine" for it.
+  ;;
+  ;; THE STAGE IS DISPATCHED BEFORE THE COUNTER, and that is forced rather than
+  ;; stylistic. Each machine counts from its own zero (the `Spine` arm's header
+  ;; says why), so `s = 0` means the reconciler for E and the inventory read for
+  ;; J. A dispatch on the counter alone would route one stage's state into the
+  ;; other's arm, which type-checks. `stage-key` is a registry table, so this
+  ;; reads the registry rather than testing an index, exactly as `started-step`
+  ;; does one level up.
   (def-shell spine-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
-    (j-enter rn k start))
+    (if (= (stage-key (idx-at rn k)) "E")
+        (e-enter rn k start)
+        (j-enter rn k start)))
 
   ;; NOT `spine-step`. spine.llmll already has a function of that name, this
   ;; module opens it, and unification clause 5 is absolute: a silent homonym
@@ -3021,9 +3196,9 @@
   ;; exits 0.
   (def-shell spine-arm-step [rn: Run d: (int, (int, (int, (bool, string)))) r: Response]
       -> ((Run, Ctl), Command)
-    (if (= (sp-s d) 0)
-        (j-read-step rn d r)
-        (j-wrote-step rn d r)))
+    (if (= (stage-key (idx-at rn (sp-k d))) "E")
+        (e-arm-step rn d r)
+        (j-arm-step rn d r)))
 
   (def-shell outp-decide [rn: Run b: Body present: bool size: int t: string]
       -> ((Run, Ctl), Command)

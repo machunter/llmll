@@ -77,13 +77,13 @@ SHAPE_DEFS = ("extraction-conforms?", "core-conforms?",
 
 # index -> letter, from registry.llmll's own stage table. Duplicated here on
 # purpose: a test that reads the table it is checking cannot fail.
-PORTED = {0: "A", 1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 8: "H", 9: "I",
-          10: "J", 11: "K", 13: "M", 14: "N", 15: "O"}
+PORTED = {0: "A", 1: "B", 2: "C", 3: "D", 4: "E", 5: "F", 6: "G", 8: "H",
+          9: "I", 10: "J", 11: "K", 13: "M", 14: "N", 15: "O"}
 
 # The stages that still write the 4a stub, and the value that says so.
-# Clause 3 lands E, G2 and L on the same branch and then deletes this value
-# together with the `started-step` arm that reads it.
-STUBBED = {4: "E", 7: "G2", 12: "L"}
+# Clause 3 lands J then E; G2 and L follow on the same branch and the last of
+# them deletes this value together with the `started-step` arm that reads it.
+STUBBED = {7: "G2", 12: "L"}
 
 
 def _machine_rows() -> dict[int, str]:
@@ -234,7 +234,7 @@ def test_the_shape_posts_are_named():
 # 2. Which stages claim to be ported
 # ---------------------------------------------------------------------------
 
-def test_exactly_three_stages_still_write_a_stub_and_they_are_the_expected_three():
+def test_exactly_two_stages_still_write_a_stub_and_they_are_the_expected_two():
     """`registry.stage-machine` is the switch between a real body and a stub.
 
     Flipping a stage on before its body exists produces a tree that compiles
