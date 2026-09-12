@@ -220,15 +220,22 @@ def test_the_proved_decision_is_forwarded_exactly_once():
         assert post in REPORT.read_text(), f"{post} is a clause of the proved core"
 
 
-def test_the_port_now_constructs_partial_then_halt_at_two_stage_sites():
+def test_the_port_now_constructs_partial_then_halt_at_three_stage_sites():
     """4d landed the first (stage H's probe-polarity bar) and 4f lands the
     second. The sequencer's own retirement schedule said 4f would retire the
     constructor from the injector; it had already been retired at 4d, and the
-    comment is corrected rather than left to mislead the next reader."""
+    comment is corrected rather than left to mislead the next reader.
+
+    CLAUSE 3 LANDS THE THIRD, stage J's gate. This file keeps its own copy of
+    the census on purpose, as `test_driver_ll_4d.py` does: the two were written
+    by different sub-phases and a site that arrives in one and not the other is
+    the disagreement worth seeing.
+    """
     injector = {"injected-outcome", "halt-clause", "stamped-step", "halts-post?"}
     users = {d for d, body in SEQ_DEFS.items()
              if re.search(r"[\s(]PartialThenHalt[\s)]", body)}
-    assert users - injector == {"hwrote-step", "o-decide"}, (
+    assert users - injector == {"hwrote-step", "o-decide", "j-decide",
+                                "g2-wrote-step", "l-decide"}, (
         f"the stage sites are {sorted(users - injector)}")
     assert '"driver-spec sec 13"' in SEQ_DEFS["o-decide"], (
         "a stopped row names the clause that authorised it")

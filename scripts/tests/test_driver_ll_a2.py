@@ -29,9 +29,12 @@ Five of them:
     parse gives the right code with the wrong message, which `want_rc` alone
     does not catch;
 
-  * THE REGISTRY DECIDES WHICH STAGE FANS OUT. `started-step` reads
-    `stage-fanout` rather than testing an index, and the table is non-zero for
-    exactly the stage the wave handles.
+  * THE REGISTRY DECIDES WHICH MACHINE RUNS EACH STAGE. `started-step` reads
+    `stage-machine` rather than testing an index, that table answers "wave" for
+    exactly the stage the wave handles, and it is total over the sixteen stages
+    with no catch-all arm. Clause 3 replaced two tables with this one:
+    `stage-ported?` carried a retirement schedule and `stage-fanout` routed
+    stage M ahead of a `stage-kind` test that was wrong for stage E.
 
 AGAINST THE SOURCE TEXT, on the reasoning `test_driver_ll_4c.py` gives: this
 tier runs on a machine with no toolchain.
@@ -72,11 +75,20 @@ def _uncommented(path: pathlib.Path) -> str:
 
 
 def _body_of(src: str, name: str) -> str:
-    """One def's text, from its opening paren to the next top-level def."""
+    """One def's text, from its opening paren to the next def.
+
+    THE TERMINATOR MATCHES ANY INDENTATION, and that is a repair rather than a
+    tidy-up. It used to require exactly two spaces, which is the sequencer's
+    module-body indent. `registry.llmll` has no module body: its defs sit at
+    column zero, so no terminator ever matched there and every registry lookup
+    returned the whole rest of the file. The clause 3 assertions caught it,
+    because `stage-machine` and the five string tables below it share a row
+    shape and a lookup that ran past the end collected all of them.
+    """
     m = re.search(r"\(def(?:-shell)?\s+" + re.escape(name) + _IDENT_TAIL, src)
     assert m, f"{name} is not defined"
     rest = src[m.end():]
-    nxt = re.search(r"\n  \(def(?:-shell)?\s", rest)
+    nxt = re.search(r"\n[ ]*\(def(?:-shell)?\s", rest)
     return rest[:nxt.start()] if nxt else rest
 
 
@@ -206,27 +218,81 @@ def test_started_step_routes_on_the_registry_and_not_on_an_index():
     constant a reader enumerates from the source. A bare index test in the stage
     loop puts the fact where no reader of the registry finds it."""
     body = _body_of(_uncommented(SEQUENCER), "started-step")
-    assert "stage-fanout" in body, "started-step no longer reads stage-fanout"
+    assert "stage-machine" in body, "started-step no longer reads stage-machine"
     assert not re.search(r"\(=\s*\(idx-at[^)]*\)\s*\d+\)", body), \
         "started-step tests a bare stage index instead of the registry"
 
 
-def test_the_fanout_branch_precedes_the_kind_branch():
-    """Stage M's kind is `agent`, so a `stage-kind` test reached first would
-    send it to `begin-body`, which renders a prompt template stage M does not
-    have and delegates once."""
+def test_started_step_reads_no_other_registry_table_to_choose_a_machine():
+    """Clause 3 acceptance item 2, and the defect it closes.
+
+    `stage-kind` answers `mechanical` for stage A AND stage E, so the kind test
+    `started-step` used to take was keyed on a label two stages carry and
+    implemented for exactly one of them. The false `stage-ported?` row was the
+    only thing hiding it. One table decides the machine now, and the two tables
+    that used to are deleted.
+    """
     body = _body_of(_uncommented(SEQUENCER), "started-step")
-    assert body.find("stage-fanout") < body.find("stage-kind"), \
-        "started-step tests stage-kind before stage-fanout"
+    for gone in ("stage-kind", "stage-ported?", "stage-fanout"):
+        assert gone not in body, \
+            f"started-step still reads {gone} to choose a machine"
 
 
-def test_stage_fanout_is_non_zero_for_exactly_stage_m():
-    """The table and the fold must name the same stage. A second non-zero row
+def test_the_two_replaced_tables_are_deleted_and_not_corrected():
+    """Unification completion-test clause 3 requires `stage-ported?` DELETED and
+    not corrected. A table kept and flipped is the row that becomes incorrect
+    quietly, which is exactly what its own stage M row did."""
+    reg = REGISTRY.read_text(encoding="utf-8")
+    for gone in ("stage-ported?", "stage-fanout"):
+        assert f"def-shell {gone}" not in reg, \
+            f"{gone} is still defined in registry.llmll"
+
+
+def test_stage_machine_answers_wave_for_exactly_stage_m():
+    """The table and the fold must name the same stage. A second "wave" row
     would send a stage into the wave's machine with no arm to receive it."""
-    body = _body_of(_uncommented(REGISTRY), "stage-fanout")
-    nonzero = re.findall(r"\(=\s*i\s*(\d+)\)\s*(\d+)", body)
-    assert [(i, v) for i, v in nonzero if v != "0"] == [("13", "1")], \
-        f"stage-fanout's non-zero rows are {nonzero}, not stage M alone"
+    body = _body_of(_uncommented(REGISTRY), "stage-machine")
+    rows = re.findall(r'\(=\s*i\s*(\d+)\)\s*"([a-z]+)"', body)
+    assert [i for i, v in rows if v == "wave"] == ["13"], \
+        f"stage-machine answers \"wave\" for {[i for i, v in rows if v == 'wave']}, "\
+        f"not stage M alone"
+
+
+def test_stage_machine_is_total_over_the_sixteen_stages_with_no_default_arm():
+    """Clause 3 acceptance item 1.
+
+    Indices 0 to 14 are named explicitly and the final arm IS index 15, so no
+    unnamed index falls through to a sentinel the way `stage-key`'s "?" does.
+    A catch-all here would answer for a stage nobody wrote a row for, which is
+    the failure mode the registry's header exists to prevent.
+    """
+    body = _body_of(_uncommented(REGISTRY), "stage-machine")
+    rows = re.findall(r'\(=\s*i\s*(\d+)\)\s*"([a-z]+)"', body)
+    assert [i for i, _ in rows] == [str(n) for n in range(15)], \
+        f"stage-machine names {[i for i, _ in rows]}, not indices 0 to 14"
+    assert '"?"' not in body, "stage-machine carries a sentinel catch-all arm"
+    tail = re.findall(r'"([a-z]+)"\)+\s*$', body.strip())
+    assert tail == ["delegate"], \
+        f"stage-machine's final arm is {tail}, and stage O is `delegate`"
+
+
+def test_the_stub_machine_value_is_gone_and_so_is_the_arm_that_read_it():
+    """The `stub` value was a SCHEDULE, so it was the same kind of row
+    `stage-ported?` was. The difference is that clause 3 deleted it.
+
+    Both halves are asserted, because either one surviving alone is the defect:
+    a table value with no arm routes a stage nowhere, and an arm with no value
+    is a stub write waiting for a row to reach it.
+    """
+    body = _body_of(_uncommented(REGISTRY), "stage-machine")
+    rows = re.findall(r'\(=\s*i\s*(\d+)\)\s*"([a-z]+)"', body)
+    assert [i for i, v in rows if v == "stub"] == [], \
+        f"stage-machine stubs {[i for i, v in rows if v == 'stub']} again"
+    assert set(v for _, v in rows) <= {"intake", "spine", "wave", "delegate"}, \
+        f"stage-machine answers a value clause 3 did not leave: {set(v for _, v in rows)}"
+    seq = _uncommented(SEQUENCER)
+    assert "write-cmd" not in seq and "stub-body" not in seq, \
+        "the stub-write machinery is back in the sequencer"
 
 
 def test_stage_m_declares_two_outputs_and_the_fold_uses_both():

@@ -108,6 +108,14 @@ if name == "extraction.json":
         rows[0]["line_start"] = "2"
     if mode == "empty-extraction":
         rows = []
+    # Stage G2's reported half: a declared normative strength that does not
+    # occur in the row's own quote. The quote is "q", so no strength family
+    # hits it. The reference reports this and never halts, because it fires on
+    # CORRECT rows (three TFTP rows cite a requirements-summary table where the
+    # strength is a column position rather than a word).
+    if mode == "strength-absent":
+        for r in rows:
+            r["strength"] = "MUST"
     out.write_text(json.dumps(
         {"extractor": tag, "normative": rows,
          "excluded": [{"id": tag + "x", "source": "SPEC", "line_start": 1,
@@ -133,8 +141,29 @@ if name == "inventory-dispositioned.json":
     if mode == "listed-barrier":
         row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
                "barrier": "B5", "reason": "string structure"}
+    # Gate J's characteristic-core condition, and the ONLY shape that reaches it
+    # through the full pipeline: the barrier must be on the closed list or stage
+    # G halts first, on its own spec-defined clause (shape.llmll:215-240).
+    if mode == "core-out":
+        row = {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+               "barrier": "B5", "reason": "string structure", "core": True}
     if mode == "bad-class":
         row["class"] = "C9"
+    # Stage G2's STOP: a dispositioned row whose cid is in no census row. It
+    # satisfies check_dispositioned's shape, so stage G passes it through and
+    # G2 is the first stage that can see it.
+    if mode == "uncited-row":
+        row = {"cid": "ZZ9", "class": "C1", "disposition": "Encoded",
+               "reason": "cites a census row that does not exist"}
+    # Stage L's STOP: an Encoded row that no contract cites. The stub roots.llmll
+    # carries `:source "[A0] ..."` and nothing else, so a second Encoded row
+    # makes RFC-COV-1 report 1/2 cited and fail at freeze strength.
+    if mode == "uncovered-row":
+        out.write_text(json.dumps({"rows": [
+            row,
+            {"cid": "A1", "class": "C1", "disposition": "Encoded",
+             "reason": "encoded, and no contract cites it"}]}))
+        sys.exit(0)
     out.write_text(json.dumps({"rows": [row]}))
     sys.exit(0)
 
@@ -1501,6 +1530,450 @@ def o4(b, wd):
     want_in("is present and is not a JSON array", r)
     want(not (wd / "REPORT.md").exists(),
          "the halt is decided before the copy, so no declared output exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage J, the gate.
+#
+# The four cells below are the first in this cover for a stage ported from
+# spine.llmll. The rig has no stage J mode at all and `self_test()` pins seven
+# COUNTS over the committed TFTP corpus rather than exercising the stage, so
+# every cell here is local by construction.
+#
+# WHY THE DISPATCH ITSELF GETS NO CELL. Clause 3 replaced stage-ported? and
+# stage-fanout with registry.stage-machine, and the defect that shape hid was
+# stage E reaching stage A's URL-fetch loop. That witness is constructible only
+# against the OLD code, by flipping a row that no longer exists; with stage E
+# still `stub` the two dispatches are observationally identical. So the dispatch
+# is pinned where it is decidable, as a source property in
+# scripts/tests/test_driver_ll_a2.py, and at run time by M1 and the `registry`
+# cell, which route through stage-machine for every stage in a full run.
+# ---------------------------------------------------------------------------
+
+
+def localJ(cell: str, why: str):
+    """The clause 3 sibling. `self_test()` pins counts over a frozen corpus and
+    never drives stage J, so the rig has nothing to mirror."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def seed_disposition(wd: Path, body: str) -> None:
+    """Stage G's declared output, written by hand.
+
+    Two of the four cells below cannot reach their condition through stage G at
+    all, so they seed what G would have produced and select J alone. That is the
+    resumed-run reading spine.llmll:229 already names: the gate re-checks an
+    inventory it did not watch being written.
+    """
+    d = wd / "06-disposition"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "inventory-dispositioned.json").write_text(body, encoding="utf-8")
+
+
+def gate_json(wd: Path) -> dict:
+    """Guarded, and the guard is not decoration.
+
+    The M1 mutation control (halt BEFORE the declared write) made this raise
+    FileNotFoundError out of the cell body, which escapes the runner's
+    `except Failure` and takes the whole cover down with a traceback instead of
+    reporting one cell. A cover that crashes reports nothing about the other
+    cells, so every read of a declared output states its own absence first.
+    """
+    g = wd / "09-gate" / "gate.json"
+    want(g.exists(),
+         "09-gate/gate.json is absent: stage J wrote no declared output")
+    return json.loads(g.read_text(encoding="utf-8"))
+
+
+@localJ("J1", "a gate that fires neither condition writes a REAL report and "
+              "completes; the five members are the reference's, not a stub's")
+def j1(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,J")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["J"], "gate")
+    g = gate_json(wd)
+    want(set(g) == {"verifiable_carried", "verifiable_total", "coverage_note",
+                    "characteristic_core_dispositioned_out",
+                    "exclusions_outside_barrier_list"},
+         f"09-gate/gate.json is not the reference's report (:921-932): {sorted(g)}")
+    want("driver-ll" not in g,
+         "09-gate/gate.json is still the 4a stub body, so the stage did not run")
+    want(g["coverage_note"] == "reported, NOT thresholded",
+         "the coverage note carries driver-spec sec 6:219's semantics verbatim")
+    want(g["characteristic_core_dispositioned_out"] == []
+         and g["exclusions_outside_barrier_list"] == [],
+         f"neither enforced condition has rows, or the gate would have halted: {g}")
+
+
+@localJ("J2", "the characteristic-core condition halts the gate AFTER the "
+              "declared write: stopped, PartialThenHalt, sec 6:224-227")
+def j2(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,J", mode="core-out")
+    want_rc(r, 2)
+    row = r.stages()["J"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 6:224-227",
+         f"a stopped gate names the condition that authorised it: {row}")
+    # The ordering IS the cell. rfc_to_implementation.py writes the report at
+    # :921-932 and evaluates its conditions at :936 and :939, which is what
+    # makes the Outcome PartialThenHalt rather than ConditionUnmet.
+    want((wd / "09-gate" / "gate.json").exists(),
+         "the report MUST be on disk before the halt, or the stage lost a "
+         "declared artifact and the Outcome degrades to ConditionUnmet")
+    want(gate_json(wd)["characteristic_core_dispositioned_out"] == ["A0"],
+         "the report names the row that fired the condition")
+
+
+@localJ("J3", "the barrier condition halts the gate; it is UNREACHABLE through "
+              "stage G, which halts on the same inventory first")
+def j3(b, wd):
+    seed_disposition(wd, json.dumps({"rows": [
+        {"cid": "A0", "class": "C1", "disposition": "Dispositioned out",
+         "reason": "no barrier at all"}]}))
+    r = drive(b, wd, "J")
+    want_rc(r, 2)
+    row = r.stages()["J"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 6:229-231",
+         f"the second enforced condition cites its own clause: {row}")
+    want(gate_json(wd)["exclusions_outside_barrier_list"] == ["A0"],
+         "the report names the exclusion that cites no listed barrier")
+
+
+@localJ("J4", "an inventory that does not parse is FAILED, not stopped: the two "
+              "halt channels must not collapse")
+def j4(b, wd):
+    seed_disposition(wd, "not json at all\n")
+    r = drive(b, wd, "J")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["J"], "failed", "Errored", clause=False)
+    want(not (wd / "09-gate" / "gate.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage E, the mechanical reconciliation.
+#
+# The second stage ported from the spine, and the first that spawns a TOOL. The
+# tool is `experiments/rfc-swarm/tools/reconcile.py`, resolved from the
+# repository root through `--reference-dir` and never from the run workdir,
+# which is the distinction the clause 3 proposal section 2 exists to draw.
+#
+# E1 RUNS THE REAL RECONCILER. Measured before these cells were written: the
+# stub agent's two-row extractions reconcile cleanly and the report carries
+# every member stage E reads. A fixture reconciler would have tested the cover's
+# own arithmetic instead.
+# ---------------------------------------------------------------------------
+
+
+def localE(cell: str, why: str):
+    """The stage E sibling. `self_test()` pins counts over the frozen TFTP
+    corpus and never drives the stage, so nothing here mirrors the rig."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def fake_reconciler(wd: Path, body: str) -> Path:
+    """A repository root holding nothing but the tool stage E spawns.
+
+    Used by the cells whose condition is DOWNSTREAM of a reconciler that exited
+    0. The real tool cannot produce them: it writes a well-formed report or it
+    fails, and a stage that halts on the exit status never reaches the read.
+    """
+    root = wd.parent / (wd.name + "-repo")
+    tools = root / "experiments" / "rfc-swarm" / "tools"
+    tools.mkdir(parents=True, exist_ok=True)
+    (tools / "reconcile.py").write_text(body, encoding="utf-8")
+    return root
+
+
+def summary_json(wd: Path) -> dict:
+    out = wd / "04-reconcile" / "SUMMARY.json"
+    want(out.exists(), "04-reconcile/SUMMARY.json is absent: stage E wrote no "
+                       "declared output")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@localE("E1", "the real reconciler runs over stage D's staged pair and the "
+              "summary carries the reference's four members, nested ones whole")
+def e1(b, wd):
+    r = drive(b, wd, "B,C,D,E")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["E"], "mechanical")
+    g = summary_json(wd)
+    want(set(g) == {"a_only", "b_only", "line_coverage", "rule_agreement"},
+         f"04-reconcile/SUMMARY.json is not write_json's four members: {sorted(g)}")
+    want("driver-ll" not in g,
+         "04-reconcile/SUMMARY.json is still the 4a stub body, so the stage did "
+         "not run")
+    want(isinstance(g["a_only"], int) and isinstance(g["b_only"], int),
+         f"a_only and b_only are len() of the unmatched arrays: {g}")
+    # The two nested members are copied as JSON rather than reprojected member
+    # by member, which is what keeps the float lexemes the reconciler emits.
+    want(isinstance(g["line_coverage"], dict) and isinstance(g["rule_agreement"], dict),
+         f"the nested members are objects, not scalars: {g}")
+    want("compared" in g["rule_agreement"],
+         f"rule_agreement is the reconciler's own object: {g['rule_agreement']}")
+    want((wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the child's transcript is written whatever it exits")
+
+
+@localE("E2", "a reconciler that exits non-zero is FAILED, not stopped: the "
+              "reference guards it with a plain require")
+def e2(b, wd):
+    # No 04-reconcile/data, because stage D did not run. The real reconciler
+    # exits 1 on the missing extraction-a.json, measured.
+    r = drive(b, wd, "E")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("reconcile.py exited 1", r)
+    want((wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the transcript is written BEFORE the exit status is judged, as the "
+         "reference writes it before its require")
+    want(not (wd / "04-reconcile" / "SUMMARY.json").exists(),
+         "a stage that halted on the exit status wrote no declared output")
+
+
+@localE("E3", "a reconciler that exits 0 and leaves an unreadable report is "
+              "failed on the READ, which the real tool cannot produce")
+def e3(b, wd):
+    root = fake_reconciler(wd, "import sys, pathlib\n"
+                               "d = pathlib.Path(sys.argv[1])\n"
+                               "d.mkdir(parents=True, exist_ok=True)\n"
+                               "(d / 'reconciliation.json').write_text('not json')\n"
+                               "sys.exit(0)\n")
+    r = drive(b, wd, "E", reference_dir=root)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("does not parse as JSON", r)
+    want(not (wd / "04-reconcile" / "SUMMARY.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
+
+
+@localE("E4", "--reference-dir absent stops the stage BEFORE the spawn: the "
+              "reconciler is a tool path and has no workdir fallback")
+def e4(b, wd):
+    r = drive(b, wd, "E", reference_dir=None)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["E"], "failed", "Errored", clause=False)
+    want_in("--reference-dir is empty", r)
+    # THE DISCRIMINATOR. A stage that resolved the tool to a relative path and
+    # spawned it anyway would also record failed, and the transcript is what
+    # tells the two apart: no spawn, no transcript.
+    want(not (wd / "04-reconcile" / "reconcile.stdout.txt").exists(),
+         "the stage halted before the spawn, so no child transcript exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage G2, the artifact audit.
+#
+# The port lands two of the reference's three halves and names the two it does
+# not in the artifact's own `note`. The citation half needs a token-coverage
+# ratio and LLMLL has no floats; the delegated half is a roadmap row, so that a
+# new agent-delegated stage does not arrive under a port.
+# ---------------------------------------------------------------------------
+
+
+def localG2(cell: str, why: str):
+    """The stage G2 sibling. `self_test()` pins two counts over the frozen TFTP
+    census and never drives the stage."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+def audit_json(wd: Path) -> dict:
+    out = wd / "06b-audit" / "audit.json"
+    want(out.exists(), "06b-audit/audit.json is absent: stage G2 wrote no "
+                       "declared output")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@localG2("G2a", "the audit checks every dispositioned row against the census, "
+                "reports, and completes; the note names both omitted halves")
+def g2a(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["G2"], "gate")
+    g = audit_json(wd)
+    want(set(g) == {"rows", "citations_checked", "uncited_rows",
+                    "declared_strength_absent_from_quote", "note"},
+         f"06b-audit/audit.json is not the members this port fills: {sorted(g)}")
+    want("driver-ll" not in g,
+         "06b-audit/audit.json is still the 4a stub body, so the stage did not run")
+    want(g["uncited_rows"] == [] and g["citations_checked"] == g["rows"],
+         f"every dispositioned row cites a census row here: {g}")
+    # THE OMISSIONS ARE IN THE ARTIFACT, not only in a comment. A reader of
+    # audit.json must not infer the port's scope from which members are present.
+    want("no floats" in g["note"] and "delegated half" in g["note"],
+         f"the note names both halves this port omits: {g['note']!r}")
+
+
+@localG2("G2b", "a dispositioned row citing no census row halts AFTER the "
+                "declared write: stopped, PartialThenHalt, sec 14:479-483")
+def g2b(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2", mode="uncited-row")
+    want_rc(r, 2)
+    row = r.stages()["G2"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 14:479-483",
+         f"the STOP names the clause that authorised it: {row}")
+    # The ordering IS the cell, as it is for stage J: the reference writes
+    # audit.json and THEN evaluates its three require_spec calls.
+    g = audit_json(wd)
+    want(g["uncited_rows"] == ["ZZ9"],
+         f"the report names the row that fired the STOP: {g['uncited_rows']}")
+    want(g["citations_checked"] == 0 and g["rows"] == 1,
+         f"an uncited row is counted out of citations_checked: {g}")
+
+
+@localG2("G2c", "a declared strength absent from its own quote is REPORTED and "
+                "does NOT halt: it fires on correct rows")
+def g2c(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,G2", mode="strength-absent")
+    want_rc(r, 0)
+    want_complete_row(r.stages()["G2"], "gate")
+    g = audit_json(wd)
+    want(g["declared_strength_absent_from_quote"] != [],
+         f"the strength check found nothing, so the cell asserts nothing: {g}")
+    want(g["uncited_rows"] == [],
+         "this cell must isolate the reported half from the STOP")
+
+
+@localG2("G2d", "an absent census is failed, not stopped: the audit has no "
+                "citations to check and that is not a defined condition")
+def g2d(b, wd):
+    seed_disposition(wd, json.dumps({"rows": [
+        {"cid": "A0", "class": "C1", "disposition": "Encoded", "reason": "r"}]}))
+    r = drive(b, wd, "G2")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["G2"], "failed", "Errored", clause=False)
+    want_in("extraction-a.json", r)
+    want(not (wd / "06b-audit" / "audit.json").exists(),
+         "the read is guarded before the write, so no declared output exists")
+
+
+# ---------------------------------------------------------------------------
+# Clause 3: stage L, the coverage gate and the clause freeze.
+#
+# The last of the four, and the only one whose proved centre transfers intact:
+# `stage-l-passes` is `(= cov-exit 0)` and carries no frozen corpus, and
+# `stage-l-outcome` has the PartialThenHalt arm the other three outcome
+# functions lack. Both decide the live stage.
+#
+# L1 RUNS THE REAL COMPILER AND THE REAL RFC-COV-1. `llmll verify --trust-report
+# --json` produces the entry names ROOTS.txt is derived from, and RFC-COV-1
+# rules on the surface. A fixture for either would test the cover's own idea of
+# a trust report.
+# ---------------------------------------------------------------------------
+
+
+def localL(cell: str, why: str):
+    """The stage L sibling. `self_test()` pins exactly one value for this stage,
+    RFC-COV-1's exit status, and never drives it."""
+    def deco(fn):
+        SCENARIOS.append((cell, "(clause 3, no reference counterpart) " + why, fn))
+        return fn
+    return deco
+
+
+@localL("L1", "both declared outputs are written and ROOTS.txt is the trust "
+              "report's entry names; trust-report.json is undeclared scratch")
+def l1(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K,L")
+    want_rc(r, 0)
+    row = r.stages()["L"]
+    want_complete_row(row, "gate")
+    want(set(row["outputs"]) == {"11-freeze/rfc-cov-1.txt", "11-freeze/ROOTS.txt"},
+         f"the outputs map is the two DECLARED artifacts: {sorted(row['outputs'])}")
+    # The third file exists and must NOT be declared. Proposal section 8 case 4.
+    want((wd / "11-freeze" / "trust-report.json").exists(),
+         "the trust report is written, as undeclared scratch")
+    roots = (wd / "11-freeze" / "ROOTS.txt").read_text(encoding="utf-8")
+    want(roots.endswith("\n") and roots.strip() != "",
+         f"ROOTS.txt is the entry names newline-joined with a trailing newline: {roots!r}")
+    tr = json.loads((wd / "11-freeze" / "trust-report.json").read_text(encoding="utf-8"))
+    want([e["name"] for e in tr.get("entries", [])] == roots.split("\n")[:-1],
+         f"ROOTS.txt is derived from the report's entries, not from the source: "
+         f"{roots!r} against {[e.get('name') for e in tr.get('entries', [])]}")
+    want_in("RFC-COV-1 at freeze strength exited 0", r)
+
+
+@localL("L2", "RFC-COV-1 failing at freeze strength halts AFTER both declared "
+              "writes: stopped, PartialThenHalt, sec 11:386-397")
+def l2(b, wd):
+    r = drive(b, wd, "B,C,D,F,G,K,L", mode="uncovered-row")
+    want_rc(r, 2)
+    row = r.stages()["L"]
+    want_halt_row(row, "stopped", "PartialThenHalt", clause=True)
+    want(row.get("clause") == "driver-spec sec 11:386-397",
+         f"the freeze STOP names the clause that authorised it: {row}")
+    # The ordering IS the cell. Both artifacts precede the require_spec in the
+    # reference, which is what makes this PartialThenHalt and not ConditionUnmet.
+    for rel in ("11-freeze/rfc-cov-1.txt", "11-freeze/ROOTS.txt"):
+        want((wd / rel).exists(),
+             f"{rel} MUST be on disk before the halt, or the stage lost a "
+             f"declared artifact and the Outcome degrades")
+    want("RFC-COV-1" in (wd / "11-freeze" / "rfc-cov-1.txt").read_text(encoding="utf-8"),
+         "the transcript is the tool's own output, merged from both streams")
+
+
+@localL("L3", "a verify that leaves no readable trust report is failed, not "
+              "stopped: there is no clause surface to freeze or to fail")
+def l3(b, wd):
+    # No 10-roots/roots.llmll, because stage K did not run.
+    r = drive(b, wd, "L")
+    want_rc(r, 3)
+    want_halt_row(r.stages()["L"], "failed", "Errored", clause=False)
+    want_in("trust-report.json", r)
+    want(not (wd / "11-freeze" / "ROOTS.txt").exists(),
+         "no clause surface was derived, so no declared output exists")
+
+
+@localL("L4", "--reference-dir absent stops the stage BEFORE the verify spawn: "
+              "RFC-COV-1 is a tool path with no workdir fallback")
+def l4(b, wd):
+    r = drive(b, wd, "L", reference_dir=None)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["L"], "failed", "Errored", clause=False)
+    want_in("--reference-dir is empty", r)
+    # The discriminator, as it is for stage E: the guard fires before any child
+    # runs, so neither the trust report nor its stderr file exists.
+    want(not (wd / "11-freeze" / "trust-report.json").exists(),
+         "the stage halted before the verify spawn, so no child ran")
+
+
+@localL("L5", "a run halted inside L leaves E and J complete and re-enters at "
+              "L, which is why each spine machine counts from its own zero")
+def l5(b, wd):
+    # First run: L halts at freeze strength, E, G2 and J complete before it.
+    r = drive(b, wd, "B,C,D,E,F,G,G2,J,K,L", mode="uncovered-row")
+    want_rc(r, 2)
+    for key in ("E", "G2", "J"):
+        want_complete_row(r.stages()[key], r.stages()[key]["kind"])
+    want_halt_row(r.stages()["L"], "stopped", "PartialThenHalt", clause=True)
+
+    # Second run, no --force. THE ACCEPTANCE ITEM: the upstream spine stages are
+    # skipped on their digests and only L is attempted again. A single shared
+    # counter, which is what spine.llmll's `spine-step` is, would restart at the
+    # reconciler instead; each machine counting from its own zero is what makes
+    # this decidable per stage.
+    r2 = drive(b, wd, "B,C,D,E,F,G,G2,J,K,L", mode="uncovered-row")
+    want_rc(r2, 2)
+    for key in ("E", "J"):
+        want_in(f"stage {key} (", r2)
+        want(r2.stages()[key].get("status") == "complete",
+             f"stage {key} was re-run or downgraded on resume: {r2.stages()[key]}")
+    want_in("already complete, skipping", r2)
+    want_halt_row(r2.stages()["L"], "stopped", "PartialThenHalt", clause=True)
+    want("04-reconcile/SUMMARY.json" in r2.stages()["E"].get("outputs", {}),
+         "a skipped stage keeps the outputs map its own run recorded")
 
 
 def main() -> int:

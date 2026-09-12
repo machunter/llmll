@@ -77,8 +77,32 @@ SHAPE_DEFS = ("extraction-conforms?", "core-conforms?",
 
 # index -> letter, from registry.llmll's own stage table. Duplicated here on
 # purpose: a test that reads the table it is checking cannot fail.
-PORTED = {0: "A", 1: "B", 2: "C", 3: "D", 5: "F", 6: "G", 8: "H", 9: "I",
-          11: "K", 14: "N", 15: "O"}
+PORTED = {0: "A", 1: "B", 2: "C", 3: "D", 4: "E", 5: "F", 6: "G", 7: "G2",
+          8: "H", 9: "I", 10: "J", 11: "K", 12: "L", 13: "M", 14: "N", 15: "O"}
+
+# NO STAGE WRITES A STUB. Clause 3's last commit deleted the `stub` value, the
+# `started-step` arm that read it, and `write-cmd` and `stub-body` with them.
+# The empty set is the assertion, not a placeholder: a value reappearing here is
+# a stub write reappearing in the driver.
+STUBBED: dict[int, str] = {}
+
+
+def _machine_rows() -> dict[int, str]:
+    """`registry.stage-machine` as a map, index 15 included.
+
+    The table names indices 0 to 14 explicitly and its final arm IS index 15,
+    so the last value is read positionally rather than from a row that is not
+    written. A catch-all there would answer for a stage nobody wrote a row for;
+    `test_driver_ll_a2.py` is what asserts there is none.
+    """
+    block = REGISTRY.read_text().split("(def-shell stage-machine ")[1] \
+                                .split("\n(def-shell ")[0]
+    rows = {int(i): m for i, m in
+            re.findall(r'\(if \(= i (\d+)\)\s*"([a-z]+)"', block)}
+    tail = re.findall(r'"([a-z]+)"\)+\s*$', block.strip())
+    assert len(rows) == 15 and tail, f"stage-machine is not the shape this reads: {block}"
+    rows[15] = tail[0]
+    return rows
 
 
 def _fn(name: str) -> ast.FunctionDef:
@@ -211,36 +235,40 @@ def test_the_shape_posts_are_named():
 # 2. Which stages claim to be ported
 # ---------------------------------------------------------------------------
 
-def test_exactly_eleven_stages_claim_to_be_ported_and_they_are_the_expected_eleven():
-    """`registry.stage-ported?` is the switch between a real body and a stub.
+def test_no_stage_writes_a_stub_and_every_index_names_a_real_machine():
+    """`registry.stage-machine` is the switch between a real body and a stub,
+    and after clause 3 it has no stub side.
 
-    Flipping a stage on before its body exists produces a tree that compiles
-    and lies, which is strictly worse than one that does not compile, and no
-    proof and no type would catch it. The letters come from the reference's own
-    stage list so that a renumbering on either side is a failure here.
+    Flipping a stage on before its body exists produces a tree that compiles and
+    lies, which is strictly worse than one that does not compile, and no proof
+    and no type would catch it. The letters come from the reference's own stage
+    list so that a renumbering on either side is a failure here.
 
-    Sub-phase 4d took the set from six to nine: H (8), K (11) and N (14).
-    The stage A port took it to ten: A (0), over `wasi.http.get`. Sub-phase 4f
-    takes it to ELEVEN: O (15), the writeup and its perturbation-omission
-    check. E, G2, J, L and M keep the 4a stub write; E, G2, J and L are real in
-    `spine.llmll` and M in `wave.llmll`, so their indices stay false here by
-    design and stay false until program unification retires this table.
+    THE TABLE THIS TEST READS CHANGED AT CLAUSE 3, twice. `stage-ported?` was
+    deleted rather than corrected, together with `stage-fanout`, and
+    `stage-machine` answers which machine runs a stage instead. Then clause 3
+    took the stub list from five to zero: J at the dispatch commit, E at the
+    reconciler port, G2 at the audit port, L last. Stage M (13) was never on
+    that list after job (a2) folded it into the wave arm, and its `false` row in
+    the old table was dead and unread.
+
+    This is the clause the program-unification proposal's section 2.5 adds and
+    which deleting `stage-ported?` alone did not satisfy: every stage writes a
+    real artifact and none writes a stub.
     """
-    block = REGISTRY.read_text().split("(def-shell stage-ported? ")[1] \
-                                .split("\n(def-shell ")[0]
-    ported = {int(i) for i in re.findall(r"\(if \(= i (\d+)\) true", block)}
+    machines = _machine_rows()
+    stubbed = {i for i, m in machines.items() if m == "stub"}
+    assert stubbed == set(STUBBED), (
+        f"stage-machine stubs {sorted(stubbed)}; clause 3 left it with none")
+    ported = {i for i, m in machines.items() if m != "stub"}
     assert ported == set(PORTED), (
-        f"stage-ported? claims {sorted(ported)}; expected {sorted(PORTED)} "
-        f"({', '.join(PORTED[i] for i in sorted(PORTED))})")
+        f"stage-machine runs a real body for {sorted(ported)}; expected "
+        f"{sorted(PORTED)} ({', '.join(PORTED[i] for i in sorted(PORTED))})")
 
-    stages = [n for n in ast.walk(TREE) if isinstance(n, ast.Call)
-              and isinstance(n.func, ast.Name) and n.func.id == "Stage"]
-    letters = [c.args[0].value for c in stages
-               if c.args and isinstance(c.args[0], ast.Constant)]
-    for i, letter in PORTED.items():
-        assert letter in letters, (
-            f"index {i} is ported as stage {letter}, which the reference's "
-            "own stage list does not contain")
+    seq = (DRIVER_LL / "sequencer.llmll").read_text(encoding="utf-8")
+    for gone in ("write-cmd", "stub-body"):
+        assert gone not in seq, (
+            f"{gone} is back in the sequencer, so something writes a stub again")
 
 
 def test_stage_D_runs_two_tagged_extractors_and_the_registry_agrees():

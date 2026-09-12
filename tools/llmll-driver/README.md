@@ -102,28 +102,77 @@ content-shape validation of `shape.llmll`, and the verification-outcome channel 
 3 through the `:status` projection, so no shell sits between the acceptance criterion and the
 program.
 
-**Twelve of the sixteen stage bodies are real at v0.23.2**, and the epoch is part of the
-sentence for the reason the parenthetical below gives. Eleven of them are measured off
-`registry.stage-ported?`, which returns true for exactly eleven indices: B (scope), C (rubric)
-and I (pre-registration) landed at 4b; D (extraction), F (core) and G (dispositions) at 4c;
-H (feasibility probes), K (root contract authoring) and N (kill matrix) at 4d; O (writeup) at 4f;
-A (intake and provenance pinning) with the stage A port. Ten of those eleven are delegated: they
-read their inputs, render their prompt, spawn the agent through `wasi.proc.run`, and validate
-what the agent wrote. A is the mechanical one.
+**All sixteen stage bodies are real**, measured at the clause 3 stage L commit, and the epoch is
+part of the sentence for the reason the parenthetical below gives. One table says which:
+`registry.stage-machine` answers which MACHINE runs each stage, and **no row answers `stub`,
+because there is no longer such a value**.
 
-**M (the swarm) is the twelfth and it is NOT in that table.** Program unification job (a2) folded
-it into the stage loop, and it is reached through `registry.stage-fanout` rather than through
-`stage-ported?`: `started-step` consults the fan-out tag FIRST, so stage M's `false` row in
-`stage-ported?` is dead and unread. [`wave.llmll`](wave.llmll) still holds its state machine and
-is now a library that [`sequencer.llmll`](sequencer.llmll) imports. **Do not count the false rows
-in `stage-ported?` and call the answer the stub count.** It returns five and the true figure is
-four.
+| machine | stages | what runs |
+|---|---|---|
+| `intake` | A | the fetch loop over `wasi.http.get` |
+| `delegate` | B, C, D, F, G, H, I, K, N, O | render the prompt, spawn the agent, validate what it wrote |
+| `wave` | M | the fill wave, one delegation per hole |
+| `spine` | E, G2, J, L | a body ported from [`spine.llmll`](spine.llmll) |
 
-**Four stages still write a stub**: E, G2, J and L, which live unreached in
-[`spine.llmll`](spine.llmll) until the rest of job (a2) lands. Each writes a stub to every
-artifact it declares, which is enough for every resume and outcome transition to be decided over
-real digests and a real completion record. `stage-ported?` is the switch for those four and
-carries the retirement schedule; the whole table is deleted, not corrected, when they land.
+**That table replaced two, and the replacement closed a defect rather than tidying a chain.**
+`stage-ported?` carried a retirement schedule and `stage-fanout` routed stage M ahead of a
+`stage-kind` test. `stage-kind` answers `mechanical` for stage A AND for stage E, so that test was
+keyed on a label two stages carry and implemented for exactly one; stage E's `false` row in
+`stage-ported?` was the only thing keeping the reconciliation stage out of stage A's URL-fetch
+loop. Both tables are deleted, not corrected, which is what unification completion-test clause 3
+requires. `stage-kind` survives as a label and decides nothing.
+
+**No stage writes a stub, and the machinery that wrote them is deleted.** From sub-phase 4a
+until clause 3 an unported stage wrote a placeholder byte-string to each artifact it declared,
+which was enough for every resume and outcome transition to be decided over real digests and a
+real completion record. Stage L was the last, and its commit deleted the `stub` value, the
+`started-step` arm that read it, and `write-cmd` and `stub-body` with them. That is the clause
+the program-unification proposal's section 2.5 adds and which deleting `stage-ported?` alone did
+not satisfy.
+
+**Stage J is the first stage ported from the spine.** It reads stage G's dispositioned inventory
+from the run workdir, writes `09-gate/gate.json`, and THEN evaluates the two conditions
+driver-spec section 6 enforces, which is the order `rfc_to_implementation.py` runs in (:921-932,
+then :936 and :939). That order decides the outcome: declared artifacts on disk plus a halt is
+`PartialThenHalt`, recorded `stopped` and not `failed`. **The seven counts `spine.stage-j-pins`
+pins are self_test's, not the stage's**, and they stay uncalled: they pin the committed TFTP
+corpus, so calling them from the stage loop would stop every campaign run over any other RFC.
+
+**Stage E is the second, and the first stage in this program that spawns a TOOL.** It runs
+`experiments/rfc-swarm/tools/reconcile.py` over `04-reconcile/data`, which stage D staged during
+the same run, and writes the reference's four-member `04-reconcile/SUMMARY.json`. **The tool is
+resolved from the repository root through `--reference-dir` and never from the run workdir**,
+because a tool path is not an artifact path; the flag is optional for the language-reference
+provisioning that first needed it and REQUIRED for this stage, which records `failed` and names
+the flag when it is empty. A non-zero reconciler exit is `failed` and not `stopped`: the
+reference guards it with a plain `require`. `stage-e-passes` stays uncalled for the reason stage
+J's pins do.
+
+**Stage G2 is the third, and it lands two of the reference's three halves.** It checks every
+dispositioned row against the census in `04-reconcile/data/extraction-a.json`, writes
+`06b-audit/audit.json`, and THEN halts when a row cites a cid the census does not carry. That
+STOP is the reference's own `require_spec`, citing driver-spec sec 14:479-483. A declared
+normative strength absent from its own quote is REPORTED and never halts, because it fires on
+correct rows. **The two omitted halves are named in the artifact's own `note`**, so a reader
+learns the port's scope from the artifact rather than inferring it from which members are
+present: the citation half needs a token-coverage ratio and LLMLL has no floats, and the
+delegated half is a roadmap row, because a new agent-delegated stage must not arrive under a
+port. It is also the one machine that reads two artifacts and decides over both, so its state
+carries the census the next `Response` will not.
+
+**Stage L is the fourth, and the only one whose proved centre transfers intact.** It runs
+`llmll verify --trust-report --json` over stage K's roots, derives `11-freeze/ROOTS.txt` from
+the report's entry names, runs RFC-COV-1 at freeze strength, and THEN halts when the coverage
+tool exits non-zero, citing driver-spec sec 11:386-397. Both declared outputs are on disk before
+that halt; `11-freeze/trust-report.json` is undeclared scratch. `stage-l-passes` is
+`(= cov-exit 0)` and carries no frozen corpus, and `stage-l-outcome` has the `PartialThenHalt`
+arm that `stage-e-outcome` and `stage-g2-outcome` lack, so both proved defs decide the live
+stage where the other three each needed a channel around theirs.
+
+**The two child runs redirect differently and must.** `wasi.proc.run` merges stdout and stderr
+when the two path strings are equal. RFC-COV-1's transcript is the reference's
+`cov.stdout + cov.stderr`, so that one merges; the verify run's stdout is the trust report
+itself, and merging diagnostics into a document the next state parses as JSON would corrupt it.
 
 **Stage A is the first mechanical stage in this program, over `wasi.http.get` (v0.21.0).** It
 was a filed STOP from v0.14.83 until that builtin shipped. Per source, `--rfc-url` then each
@@ -182,20 +231,51 @@ void the auditability `wasi.proc.run`'s exec/argv split delivers. There is no en
 channel, `wasi.proc.run` having no env parameter, so the two paths reach the agent through argv.
 
 The acceptance cover is [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py), run by
-`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **63 cells at v0.23.2**,
-from 62 at 4f, 58 with stage A, 52 at 4d and 39 before it. The figure is the count the runner
-prints, not one incremented from the previous sentence, for the reason the parenthetical further
-down gives; this line stated the stage A figure for two releases. The thirteen 4d cells are H1 to
-H5, K1 to K3, N1 to N4 and F0, the six stage A cells A1 to A6, the four 4f cells O1 to O4, and M1
-is the one cell that drives the folded stage M through the stage loop. The 4d cells run the **real
-compiler** (`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions
-under test, so a stub compiler would assert the port against a transcript the cover wrote
-itself. The checks that need no toolchain are in
+`scripts/build_smoke.sh` **stage 8** against the **built** sequencer: **80 cells at the clause 3
+stage L commit**, from 75 at stage G2, 71 at stage E, 67 at its opening commit, 63 at v0.23.2, 62 at 4f, 58 with stage A, 52 at 4d and 39 before it. The
+figure is the count the runner prints, not one incremented from the previous sentence, for the
+reason the parenthetical further down gives; this line stated the stage A figure for two
+releases. The thirteen 4d cells are H1 to H5, K1 to K3, N1 to N4 and F0, the six stage A cells A1
+to A6, the four 4f cells O1 to O4, the seventeen clause 3 cells J1 to J4, E1 to E4, G2a to G2d and
+L1 to L5, and M1 is the one cell that drives the folded stage M through the stage loop. The 4d cells run the **real compiler**
+(`--llmll`), on the 4e precedent: `llmll verify` and `llmll check` are the decisions under test,
+so a stub compiler would assert the port against a transcript the cover wrote itself. The checks
+that need no toolchain are in
 [`scripts/tests/test_driver_ll_4a_cover.py`](../../scripts/tests/test_driver_ll_4a_cover.py),
 [`scripts/tests/test_driver_ll_4b.py`](../../scripts/tests/test_driver_ll_4b.py),
 [`scripts/tests/test_driver_ll_4c.py`](../../scripts/tests/test_driver_ll_4c.py),
-[`scripts/tests/test_driver_ll_4d.py`](../../scripts/tests/test_driver_ll_4d.py) and
-[`scripts/tests/test_driver_ll_a.py`](../../scripts/tests/test_driver_ll_a.py).
+[`scripts/tests/test_driver_ll_4d.py`](../../scripts/tests/test_driver_ll_4d.py),
+[`scripts/tests/test_driver_ll_4f.py`](../../scripts/tests/test_driver_ll_4f.py),
+[`scripts/tests/test_driver_ll_a.py`](../../scripts/tests/test_driver_ll_a.py) and
+[`scripts/tests/test_driver_ll_a2.py`](../../scripts/tests/test_driver_ll_a2.py). **The 4f and
+(a2) files were owed to this list from v0.23.3 and this is where that debt is paid.**
+
+## The `wave` sub-command, and what stage M owes its agent
+
+`sequencer wave` runs the fill wave on its own, for its own exit code rather than for a stage
+outcome. It is the same machine the stage loop reaches through `stage-machine`'s `wave` row; the
+sub-command exists because [`scripts/wave_cover.py`](../../scripts/wave_cover.py) grades that
+machine against the real compiler, which the stage loop cannot serve.
+
+Four flags are required and two of them arrived at **v0.23.3**, with the stage M agent contract:
+
+- `--tree`, the `.ast.json` the wave fills. It must be a `.ast.json`; checkout and patch refuse
+  `.llmll` source. `llmll build FILE --emit` writes it.
+- `--llmll-cmd`, the compiler this wave shells out to.
+- `--agent-cmd`, the executable that authors one body node, plus repeatable `--agent-arg`.
+- **`--prompt`**, the `stage-M-fill.md` template the wave renders per attempt. Driver-spec
+  section 8 makes the rendered task statement a **declared input**, so the template is named on
+  the command line rather than composed in the program.
+- **`--pristine`**, the ORIGINAL `roots.llmll` the agent self-checks against. Driver-spec section
+  8 part 4 forbids handing the agent the tree this wave is patching.
+
+`--error-budget` and `--protocol-budget` each default to 3 and each must be at least 1.
+
+**Stage M declares four inputs to its agent, and until v0.23.3 it passed none of them.** The
+argument vector is substituted per argument; the prompt is rendered **in the wave**, because
+`{{hole}}`, `{{brief}}` and `{{errors}}` are per-attempt values the stage loop never sees; the
+agent gets the pristine subject; and the previous attempt's compiler output reaches the next
+prompt. See [`docs/design/driver-ll-stage-m-agent-contract-proposal.md`](../../docs/design/driver-ll-stage-m-agent-contract-proposal.md).
 
 **4c shipped with nothing in the no-toolchain tier; the tier arrived later.** The 4c file landed
 after 4c's release and the 4d tier landed with 4d. The two provisioning defects 4c found remain

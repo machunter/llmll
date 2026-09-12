@@ -156,18 +156,32 @@ def test_the_port_constructs_partial_then_halt_at_the_two_stage_sites():
     4d landed the FIRST, stage H's probe-polarity bar. 4f landed the second,
     stage O's perturbation-omission check, so this assertion moved and the
     reason is recorded here rather than in a commit message: this test is what
-    makes a third site arrive as a decision rather than as a diff."""
+    makes a third site arrive as a decision rather than as a diff.
+
+    THE THIRD SITE ARRIVED AT CLAUSE 3, and it is stage J's gate. It is the
+    first of the three the REFERENCE itself writes as write-then-halt:
+    rfc_to_implementation.py builds 09-gate/gate.json at :921-932 and evaluates
+    its two enforced conditions at :936 and :939. The other two are conditions
+    the port decides after a write it issued. All three select the same arm of
+    stage.record-outcome and all three must name their clause.
+    """
     injector = {"injected-outcome", "halt-clause", "stamped-step", "halts-post?"}
     users = {d for d, body in SEQ_DEFS.items()
              if re.search(r"[\s(]PartialThenHalt[\s)]", body)}
     stage_sites = users - injector
-    assert stage_sites == {"hwrote-step", "o-decide"}, (
+    assert stage_sites == {"hwrote-step", "o-decide", "j-decide",
+                           "g2-wrote-step", "l-decide"}, (
         f"PartialThenHalt is constructed by {sorted(stage_sites)} outside the "
-        "injector; the stage sites are hwrote-step (4d) and o-decide (4f)")
+        "injector; the stage sites are hwrote-step (4d), o-decide (4f), and "
+        "j-decide, g2-wrote-step and l-decide (clause 3)")
     assert '"driver-spec sec 4:146-147"' in SEQ_DEFS["hwrote-step"], (
         "the stopped row must name the clause that authorised it")
     assert '"driver-spec sec 13"' in SEQ_DEFS["o-decide"], (
         "and so must 4f's")
+    # Stage J cites ONE of two clauses, chosen by which enforced condition
+    # fired. gate.gate-halts decides whether; j-clause decides only which.
+    assert "(sp-clause d)" in SEQ_DEFS["j-decide"], (
+        "and so must clause 3's, from the clause its own read step computed")
 
 
 def test_the_h_bar_is_decided_one_step_after_the_write():
