@@ -4,6 +4,108 @@
 
 <a id="Latest"></a>
 
+## v0.23.2: the driver becomes one program, and the acceptance run that had never been executed runs (2026-09-11)
+
+**`DRIVER-LL` program unification lands as two jobs, and DRIVER-LL acceptance clause 2 is executed
+for the first time.** The phrase "program unification" had appeared in nineteen places that all used
+it and none defined it; it is now defined and split, in
+[`docs/design/driver-ll-program-unification-proposal.md`](docs/design/driver-ll-program-unification-proposal.md).
+**(a1)** removed every name collision between the three driver executables and made
+[`tools/llmll-driver/spine.llmll`](tools/llmll-driver/spine.llmll) a library (`a3df712`). **(a2)**
+folded stage M into the sequencer's stage loop, so the driver is one program (`b9be306`); its design
+is
+[`docs/design/driver-ll-stage-m-fanout-proposal.md`](docs/design/driver-ll-stage-m-fanout-proposal.md).
+Between them, the live campaign run happened (`1c4d208`).
+
+- **Driver CLI change: the `wave` binary no longer exists.** `llmll build
+  tools/llmll-driver/wave.llmll` now produces a **library**, because `wave.llmll` lost its
+  `def-main`. The same state machine is reached through the sequencer as `sequencer wave --tree
+  <ast.json> --workdir <dir> --llmll-cmd <cmd> --agent-cmd <cmd> [--error-budget N]
+  [--protocol-budget N]`. The sub-command is dispatched **before** the sequencer's own flag parse, so
+  a wave invocation keeps the wave's usage text at exit 2 rather than the sequencer's. This is the
+  driver's CLI, not the compiler's; the `llmll` command surface does not change.
+- **The sequencer gains `--error-budget` and `--protocol-budget`.** Both default to **3**. Both must
+  be at least 1, checked in `missing-flags` with two new STOP messages at **exit 2**, because the
+  folded stage M enters the wave past the wave's own flag parse and would otherwise skip the
+  identical guard there. `next-error-budget` carries `pre (>= err 0)` and every call site spends
+  before it re-tests, so a zero budget would reach that precondition negative.
+- **Stage M writes both of its declared outputs for the first time.** `registry.llmll` declares
+  `12-wave/wave.json` and `12-wave/roots.ast.json` as stage M's two outputs; `wave.llmll` had never
+  written the first. `Wv` gains a `fills` slot, the two per-hole terminal arms append a row, and the
+  write lands in `sealing-step` because `WEnding` is not terminal and RC-4 drops a terminal arm's
+  command.
+- **The driver now stubs FOUR stages, not five, and reading that number off
+  `registry.stage-ported?` gives the wrong answer.** `started-step` consults the new `stage-fanout`
+  kind tag **before** it consults `stage-ported?`, so stage M's `false` in that table is never read.
+  The row is left in place and the comment records why: section 2 clause 3 of the unification
+  proposal **deletes** that table rather than correcting it, and that needs E, G2, J and L, which are
+  still a seventeen-arm counter in `spine.llmll`. **Unification completion-test clauses 1, 2, 4 and 5
+  close; clause 3 stays open**, and job (b), retiring
+  [`scripts/rfc_to_implementation.py`](scripts/rfc_to_implementation.py), still waits on those four
+  stages.
+- **The registry needed a new kind tag and no new shape, which is smaller than the design predicted.**
+  The unification proposal's §4.10 item 2 read the wrong column: `stage-out-count` counts **declared**
+  outputs and stage M declares two, statically. The per-attempt directories are undeclared scratch,
+  as the reference's `12-wave/agent-NN-fn` are. What varies at run time is how many times one
+  delegation tag executes, and no registry column has ever carried that for any stage: stage H's
+  probe rows and stage N's mutant rows are the same dimension and live in the sequencer's `Loop`
+  payload. `Ctl` gains two arms instead: `FanBoot`, which probes for the AST tree, and `Fan`, which
+  carries the wave's own `(Wv, WCtl)` pair.
+- **Four of the wave's six exit codes record the stage COMPLETE, and a plausible port gets this
+  wrong.** `stage_M_wave` logs a finding, a protocol fault and an unsealed tree and then returns;
+  only its two `require` calls halt. A port that read any non-zero code as a stage failure would halt
+  where the reference continues, and stage N would never run. Code 4 records `stopped` and not
+  `failed`, because driver-spec §10:371 defines that condition.
+- **DRIVER-LL acceptance clause 2: `CLAUSE-2 PASS`, over 11 of 16 stages.** The live run against RFC
+  826 executed on 2026-09-11, with eleven agent sessions under `claude-opus-5`, pinned in argv and
+  recorded in an operator-written `RUN-PROVENANCE.json`. **7 thresholded items met, 2 disclosed `NOT
+  CHECKED`** (`T2b`, `T5`). Sixteen stages reached a terminal state, fifteen `complete` and one
+  `stopped`. Stage A pinned the RFC to the oracle's exact sha256 and 470 lines. Artifacts:
+  [`experiments/rfc-swarm/runs/rfc826-llmll-2026-09-11/`](experiments/rfc-swarm/runs/rfc826-llmll-2026-09-11/);
+  plan and result:
+  [`experiments/rfc-swarm/CLAUSE-2-PRE-REGISTRATION.md`](experiments/rfc-swarm/CLAUSE-2-PRE-REGISTRATION.md)
+  at Rev 6. **This is a pass over the 11 stages that were ported at run time, not a full clause 2
+  result**, and the record says so: §8's Success clause needs every deterministic decision class to
+  agree, and five of them read stubs.
+- **The run halted at stage O, and a stub four stages upstream is why.** Stage O's driver-spec §13
+  validator rejected the report for naming 7 of 29 kill-matrix rows rather than all 29. Stage M was
+  stubbed, so no implemented tree existed; stage N was handed the stub and authored 0 mutants; the
+  report correctly recorded the kill matrix **VOID** rather than zero-survivors. **The agent's report
+  is correct and the validator behaves as v0.23.1 built it. Neither is the finding.** Under §7 this
+  is a **reportable** divergence and not a blocking one: the port halted where the reference
+  completed, the conservative direction, and the reference could not have halted here at all because
+  that validator is new at 4f. It is the first time the validator has fired on a live agent's output.
+- **A comparator defect found on the way, and landed before the fold on purpose.**
+  [`experiments/rfc-swarm/tools/clause2_compare.py`](experiments/rfc-swarm/tools/clause2_compare.py)
+  read the run side of stage M's record at `<run>/wave.json`; every real run writes
+  `12-wave/wave.json`, which is what the registry declares. So `R5` (wave partition) and `R6` (retry
+  budget) reported `absent` whatever stage M did, **and would have kept reporting it after stage M
+  became real**. Its own test wrote the fixture at the same wrong path, so the suite pinned the
+  defect instead of catching it; the fixture moves and a negative control is added.
+- **`BUILD-GATE-1` had no cheap parity check between its reference and its port, and `main` went red
+  finding that out.** (a2) changed [`scripts/build_smoke.sh`](scripts/build_smoke.sh) stage 9 to build
+  the sequencer and left [`tools/build-smoke/buildsmoke.llmll`](tools/build-smoke/buildsmoke.llmll)
+  building `wave.llmll`, which now emits a library and no binary. The only instrument that could
+  catch it was `scripts/build_smoke_cover.py`, which ran **16m43s** in the opt-in C5 job; the
+  **31-second** job that runs on every push saw nothing, because no test in `scripts/tests/` so much
+  as named `buildsmoke.llmll`. `scripts/tests/test_build_smoke_parity.py` compares every
+  `BUILD-GATE-1 PASS:` verdict line across the two sources in **both** directions, importing
+  `EXPECTED_DIVERGENCES` from the cover rather than restating it. It is the fast half of the gate and
+  not a replacement: it settles whether the two sides say the same words, and the cover still settles
+  whether they fire at the same time.
+
+**No compiler change, no `llmll` CLI change, no JSON-AST schema change**; nothing under `compiler/`
+was touched, and `LLMLL.md` moves only its banner. The driver's own flags are documented in
+[`tools/llmll-driver/README.md`](tools/llmll-driver/README.md).
+
+1942 examples, 0 failures (unchanged; no Haskell touched). pytest 274 passed, 23 skipped (297
+collected, from 252 at v0.23.1). `wave_cover.py` 7 to 9 cells and `driver_ll_cover.py` 62 to 63,
+both outside pytest and both RUN: 9 of 9 and 63 of 63, against the unified binary and the real
+compiler. `build_smoke_cover.py` 9 of 9 cells agree, cell 1 included, which is the cell that
+caught the stage 9 port miss.
+
+---
+
 ## v0.23.1: the driver checks a report the reference never checked, and seven of eight MUSTs say so (2026-09-10)
 
 **`DRIVER-LL` sub-phase 4f ships: stage O is ported into
