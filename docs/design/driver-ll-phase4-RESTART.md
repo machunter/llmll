@@ -1,7 +1,7 @@
 ---
 name: driver-ll-phase4-restart
 title: "DRIVER-LL Phase 4: session restart record"
-status: "LIVE, and its NEXT POINTER HAS NOW BEEN CORRECTED THREE TIMES. The defect is the same every time: a refresh corrects the body and leaves this field, and a restarting session reads this field first. 2026-08-18 corrected a pointer that still named the CI-gate port after that port had closed at v0.16.1 (recorded in docs/design/tool-ll-RESTART.md). 2026-09-10 corrected a field that called 4d parked and stage A a filed STOP after both had shipped; the refresh that day (b7ccee4) corrected sections 2, 6, 8 and 10 and LEFT THIS FIELD. 2026-09-10, later the same day, corrected it a third time after sub-phase 4f shipped, which this field still called not started. The campaign was adjudicated LIVE on 2026-09-07; the sequence to Phase 5 is in the roadmap G0 row. MEASURED FROM GIT at each correction: 4d SHIPPED v0.21.1 (4eedf8b, stages H, K and N over oracle.llmll); stage A PORTED v0.21.2 (3e1c1af), once HTTP-GET-1 shipped v0.21.0 (dc2c9cf) and lifted its STOP; 4f SHIPPED v0.23.1 (e49e968, merged ecaf418), landing stage O, report.llmll and the driver-spec section 13 validator, with cover cells O1 to O4 passing on CI run 34524333081 and the cover going 58 to 62 cells. WHAT IS OPEN: program unification, and NOTHING SCOPES IT. It is named as next by this file, by the stage A plan, by the 4f plan twice and by the G0 row, and it is defined by none of them; the nearest thing to a definition is section 2 of this file, where the driver is thousands of lines of Python and shell and no LLMLL program does work anyone needs done. It needs a plan before it needs an engineer. The Phase 5 conformance claim follows it, bounded by SPEC-TIER-1, FS-ISOLATION-1 and PROC-TIMEOUT-1. The last commit that touches tools/llmll-driver/ is e49e968. Delete this file when Phase 4 closes."
+status: "LIVE, and its NEXT POINTER HAS NOW BEEN CORRECTED FOUR TIMES. The defect is the same every time: a refresh corrects the body and leaves this field, and a restarting session reads this field first. The defect has an owner. It is filed as RECORD-FRESH-1 in roadmap group G8, drafted at `record-fresh-1-proposal.md`, and this correction is that row's fourth data point. 2026-08-18 corrected a pointer that still named the CI-gate port after that port had closed at v0.16.1 (`196969a`; recorded in docs/design/tool-ll-RESTART.md). 2026-09-10 corrected a field that called 4d parked and stage A a filed STOP after both had shipped (`ea41731`); the refresh that day (b7ccee4) corrected sections 2, 6, 8 and 10 and LEFT THIS FIELD. 2026-09-10, later the same day, corrected it a third time after sub-phase 4f shipped, which this field still called not started (`ce6c830`). 2026-09-11 corrects it a fourth time, and this instance is the sharpest measurement the defect has produced. MEASURED: 25 non-merge commits landed after `ce6c830`, 8 of them INSIDE docs/design/ and 7 inside tools/llmll-driver/, and NOT ONE touched this file. A co-edit rule narrowed to this folder would not have fired either, which is the second refutation RECORD-FRESH-1 now carries. BOTH HALVES OF THE OLD WHAT IS OPEN SENTENCE WERE FALSE. It read: program unification, and NOTHING SCOPES IT. Program unification IS scoped, by two design proposals. `driver-ll-program-unification-proposal.md` at Rev 6 defines the phrase and splits job (a) into (a1) one binary and (a2) retire the stub table. `driver-ll-stage-m-fanout-proposal.md` at Rev 2 answers the stage-M multiplicity question that (a2) blocked on and that the unification proposal deliberately did not write. And half of it has SHIPPED and is TAGGED: job (a) released as v0.23.2 on 2026-09-11. The campaign was adjudicated LIVE on 2026-09-07; the sequence to Phase 5 is in the roadmap G0 row. MEASURED FROM GIT at each correction: 4d SHIPPED v0.21.1 (4eedf8b, stages H, K and N over oracle.llmll); stage A PORTED v0.21.2 (3e1c1af), once HTTP-GET-1 shipped v0.21.0 (dc2c9cf) and lifted its STOP; 4f SHIPPED v0.23.1 (e49e968, merged ecaf418), landing stage O, report.llmll and the driver-spec section 13 validator, with cover cells O1 to O4 passing on CI run 34524333081 and the cover going 58 to 62 cells; (a1) SHIPPED v0.23.2 (merged a3df712), taking three driver programs to two, making spine.llmll a LIBRARY and collapsing every name collision between the three modules; (a2) SHIPPED v0.23.2 (merged b9be306), folding stage M into the sequencer stage loop over a new `stage-fanout` kind tag, deleting the `def-main` in wave.llmll, and making `_programs()` return ONE name. WHAT IS OPEN AT v0.23.2. Unification completion-test clauses 1, 2, 4 and 5 CLOSE. CLAUSE 3 STAYS OPEN: it requires `stage-ported?` DELETED and not corrected, and that needs stages E, G2, J and L, which are still a seventeen-arm counter in spine.llmll with no caller. Job (b), the section 5.3 plumbing port and therefore the retirement of scripts/rfc_to_implementation.py, has no plan and gates on clause 3. DO NOT COUNT FALSE ROWS IN `registry.stage-ported?`. That table answers false five times and THE DRIVER STUBS FOUR STAGES, not five: `started-step` consults `stage-fanout` BEFORE the table, so the stage M row is dead and never read. The comment above the table says so. THE WAVE COVER IS NINE CELLS, not the seven this field and sections 1, 3, 7 and 8 used to state. W8 and W9 were added when the wave began writing its declared output 12-wave/wave.json, and scripts/build_smoke.sh stage 9 states nine. PHASE 4 IS NOT CLOSED, and that is a judgement this correction makes rather than an assumption it carries. Sub-phase 4f acceptance in `driver-ll-phase4-proposal.md` section 9 requires clauses 1a, 1b AND 2, plus the phase close and the gap inventory. Clause 2 was EXECUTED on 2026-09-11 (`1c4d208`, comparator fix `8db8255`) and it is a CLAUSE-2 PASS over 11 of 16 stages, disclosed as NOT a full clause 2 result: five stages read stubs at run time, the run halted at stage O, and the stage M stub four stages upstream is the cause. (a2) unblocks a full run and NOBODY HAS RE-RUN IT. No commit and no document records a Phase 4 close or a gap inventory; a grep over docs/ and CHANGELOG.md finds neither. SO THIS FILE IS CORRECTED AND NOT RETIRED. The last line below still says to delete it when Phase 4 closes and that is still right. Retirement and the archive move are the documentation-lead slot under DOC-CONSOLIDATE, not this file's slot and not a restarting session's. The Phase 5 conformance claim follows program unification, bounded by SPEC-TIER-1, FS-ISOLATION-1 and PROC-TIMEOUT-1. The last commit that touches tools/llmll-driver/ is 4f74e84. Delete this file when Phase 4 closes."
 date: 2026-08-18
 author: language-team
 consumers: [compiler-engineer, experiment-lead, documentation-lead, user]
@@ -24,6 +24,14 @@ design, the proposal wins; when they disagree about state, re-measure.
 ---
 
 ## 1. Where the work is
+
+> **This section is the 4e-era snapshot and NONE OF IT IS CURRENT STATE,
+> re-measured 2026-09-11.** Everything it calls uncommitted has shipped.
+> `7fcd9d3` and the seven commits under it are in `main`, `dd1220c` is an
+> ancestor of `main`, and every file below that this section calls untracked or
+> modified-not-committed is tracked and committed. The cover it calls seven-cell
+> is **nine** cells (section 7). The section is kept because sections 4 and 9
+> were measured against exactly this tree. Read it as history, never as state.
 
 Branch `hole-status-sibling/brief-unfilled-status`, **eight commits ahead of
 main** (main at `dd1220c`), **nothing pushed**:
@@ -48,8 +56,8 @@ fb706cd docs(design): Q-003 and Q-004, the HOLE-STATUS-SIBLING deferrals
   **builds through GHC**, and runs.
 - [`tools/llmll-driver/fixtures/wave-roots.llmll`](../../tools/llmll-driver/fixtures/wave-roots.llmll),
   two holes.
-- [`scripts/wave_cover.py`](../../scripts/wave_cover.py), the seven-cell
-  acceptance cover.
+- [`scripts/wave_cover.py`](../../scripts/wave_cover.py), the acceptance
+  cover: **seven cells then, nine now** (section 7).
 - [`scripts/tests/test_driver_ll_4e.py`](../../scripts/tests/test_driver_ll_4e.py),
   the 20-test no-toolchain tier.
 
@@ -165,8 +173,8 @@ cell on each.
 
 **It runs**, against
 [`tools/llmll-driver/fixtures/wave-roots.llmll`](../../tools/llmll-driver/fixtures/wave-roots.llmll)
-emitted to `.ast.json`, and section 7's cover is the seven-cell version of the
-two runs that first showed it.
+emitted to `.ast.json`, and section 7's cover is the version of the two runs
+that first showed it: **seven cells then, nine now**.
 
 **The census moved by four assertions, not one.** The previous session's
 prediction was that
@@ -175,6 +183,9 @@ prediction was that
 `token` stopped being orphans *with* it, so the assertion moved rather than
 passing. Everything in that file derives from `_programs()`, so a third
 `def-main` moves the program set, the orphan set and the register together.
+**Program unification job (a2) then deleted that `def-main` on 2026-09-11, and
+the register moved a second time: `_programs()` now returns one name,
+`sequencer`, and the wave state machine is reached as `sequencer wave ...`.**
 The four `4e-owes-caller` rows are **deleted**, not widened; the remaining
 eight are `oracle.*` (four), `shape.probe-rows-conform?`, `liveness.advancing`,
 `gate.remedy-for` and `shell.status-line`.
@@ -351,10 +362,11 @@ proved from its own bodies. A tally that already reported a finding keeps its
 own code, because the seal was always going to fail on a tree with holes left
 in it and counting that twice would report one defect as two.
 
-**The cover**, [`scripts/wave_cover.py`](../../scripts/wave_cover.py), seven
-cells, **no stub compiler anywhere**: every cell runs real `checkout`, real
-`patch` and real `verify`, because those three commands are the decisions under
-test.
+**The cover**, [`scripts/wave_cover.py`](../../scripts/wave_cover.py), **nine
+cells** (seven at 4e; W8 and W9 were added on 2026-09-11, when the wave began
+writing its declared output 12-wave/wave.json), **no stub compiler anywhere**:
+every cell runs real `checkout`, real `patch` and real `verify`, because those
+three commands are the decisions under test.
 
 | Cell | What it pins |
 |---|---|
@@ -365,6 +377,8 @@ test.
 | W5 | a missing required flag stops before any hole exists |
 | W6 | a `.llmll` tree is refused at parse |
 | W7 | every hole accepted and the tree **still not sealed**, exit 5 |
+| W8 | the declared output `wave.json` records **one row per hole**, each row carrying the fields the clause 2 comparator reads, and `attempts` **one-based** |
+| W9 | a finding reaches `wave.json` as a row with its budget and its cause, which is what makes W8's `status` field discriminating |
 
 **W3 answers a question the plan did not know it had.** `patch` verifies for
 itself, so most wrong bodies never reach the per-fill bar; the obvious reading
@@ -401,7 +415,8 @@ the ASCII lexeme, that the three `WCtl` matches agree, and that the cover is
 wired into the build gate and its banner counts the cells it runs.
 
 **Wired in**: [`scripts/build_smoke.sh`](../../scripts/build_smoke.sh) stage 9
-builds the wave and runs the cover. 4c shipped a cover nothing invoked; this
+builds the driver and runs the cover (it built the separate wave binary until
+job (a2) folded it in). 4c shipped a cover nothing invoked; this
 one does not.
 
 **Frozen**: `wave.llmll` is in
@@ -433,7 +448,7 @@ in this repository's docs have been stale by hundreds.
 | [`tools/refute-crux/refutecrux.llmll`](../../tools/refute-crux/refutecrux.llmll) (was `scripts/refute-crux-gate.sh`, retired by `TOOL-LL`) | 80 passed, 0 failed (was 79; `wave.llmll`'s frozen verdict is the 80th) |
 | [`tools/doc-path-lint/pathlint.llmll`](../../tools/doc-path-lint/pathlint.llmll) (was `scripts/doc_path_lint.py`, retired at v0.14.99) | 886 citations, all resolve |
 | [`scripts/driver_ll_cover.py`](../../scripts/driver_ll_cover.py) | 39 passed, 0 failed, needs a **rebuilt** sequencer via `--driver` |
-| [`scripts/wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, 0 failed, needs `--wave` **and** `--llmll` |
+| [`scripts/wave_cover.py`](../../scripts/wave_cover.py) | 7 passed, 0 failed, needs `--wave` **and** `--llmll`. **NINE cells since 2026-09-11**, and `--wave` now takes the ONE driver binary |
 | [`scripts/version_gate.sh`](../../scripts/version_gate.sh) | PASS at 0.14.87 |
 | [`scripts/build_smoke.sh`](../../scripts/build_smoke.sh) | PASS, stages 1 to 9 |
 | frontmatter parse | 60 of 60. **No general gate protects it**; see section 10, where this is now recorded as partially discharged by [`tools/doc-archive/docarchive.llmll`](../../tools/doc-archive/docarchive.llmll) |
