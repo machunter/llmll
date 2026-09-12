@@ -232,3 +232,34 @@ Why it does not block. `SHELL-FALLBACK-SILENT-1` ships two ordinary warnings eit
 on the syntactic repair and one on the emitter's own refusal, and both are disclosure rather than
 inference. An answer would tell us whether the repairable-shape test is an instance of something
 general, and therefore whether it should grow past the one case that motivated it.
+
+## Q-008  (2026-09-12)  Status: OPEN
+
+Is there an established discipline for a sealed-FFI language to bound what a child process it
+spawns may read, without introducing a trust tier for the child?
+
+Context. The DRIVER-LL port delegates work to an agent by running it as a child process. The
+target specification the port reproduces requires that independence between agents be structural
+rather than instructed: each agent gets a directory holding only its declared inputs, and must not
+be given a peer's output or a worked answer. The reference implementation meets the readable half
+of that by handing each agent a pristine copy of the subject, and meets the rest by instructing the
+agent not to look elsewhere. An instruction is exactly what the clause says independence must not
+rest on.
+
+The port cannot do better with what the language offers. The builtin that spawns a child takes an
+executable, an argument vector, a working directory, three handle paths and a timeout. It takes no
+confinement parameter. The spec's own effect summary names that builtin as an opaque boundary and
+gives it the top element: it runs an arbitrary program and can reach anything the catalog names and
+more. So the capability clause bounds the parent and says nothing about the child.
+
+A confining variant is easy to imagine and not obviously cheap. The question is what it would cost
+a language whose whole capability story is static and parent-side. An operating-system sandbox
+moves the guarantee outside the language, where no verification claim reaches it. A capability
+parameter on the spawn builtin makes the guarantee a runtime property of a child nobody verified,
+which is a different kind of claim from the ones the trust lattice already carries.
+
+What is wanted is the reference class. Object-capability systems pass authority as unforgeable
+values and do not spawn unmodelled children. Sandboxing literature treats the confinement as an
+operating-system property and does not ask what it does to a source-level effect summary. Neither
+seems to be the case here, where a verified parent must make a checkable claim about an unverified
+child's reach.
