@@ -57,6 +57,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import tempfile
 import threading
 from functools import partial
@@ -84,6 +85,15 @@ out    = pathlib.Path(sys.argv[1])
 prompt = pathlib.Path(sys.argv[2])
 mode   = os.environ.get("STUB_MODE", "ok")
 name   = out.name
+
+# PROC-TIMEOUT-1: an agent that outlives its budget. Unreachable until the
+# generated project shipped `-threaded`, because System.Timeout.timeout could
+# not interrupt the FFI call waitForProcess blocks in, so a budget of 1 against
+# a child of 30 returned the child's own exit after thirty seconds.
+if mode == "slow-agent":
+    import time
+    time.sleep(30)
+
 
 # Sub-phase 4c: D, F and G declare a SHAPE rather than a byte floor
 # (registry.stage-shape), so their stubs write schema-valid JSON and the padding
@@ -279,11 +289,20 @@ class Failure(Exception):
 
 
 class Run:
-    def __init__(self, proc: subprocess.CompletedProcess, workdir: Path):
+    def __init__(self, proc: subprocess.CompletedProcess, workdir: Path,
+                 elapsed: float = 0.0):
         self.rc = proc.returncode
         self.out = proc.stdout
         self.err = proc.stderr
         self.workdir = workdir
+        # WALL CLOCK, for PROC-TIMEOUT-1 alone. A budget that does not fire is
+        # indistinguishable from one that fires late by every other signal the
+        # run produces: same exit code, same manifest row, same stdout. Only
+        # the duration separates them.
+        self.elapsed = elapsed
+
+    def seconds(self) -> float:
+        return self.elapsed
 
     def manifest(self) -> dict:
         p = self.workdir / "MANIFEST.json"
@@ -385,15 +404,17 @@ def drive(binary: Path, workdir: Path, only: str, *,
         cmd.append("--force")
     if halt_at:
         cmd += ["--halt-at", halt_at, "--halt-kind", halt_kind]
+    _t0 = time.monotonic()
     proc = subprocess.run(cmd, input="x\n" * BUDGET, capture_output=True,
                           text=True, cwd=str(workdir.parent),
                           env=dict(os.environ, STUB_MODE=mode))
+    _elapsed = time.monotonic() - _t0
     if proc.returncode == 70:
         raise Failure(
             f"the run exited 70: stdin was exhausted before :done? fired, so "
             f"the step budget of {BUDGET} is too small for this scenario. "
             f"This is a harness error, not a driver decision.\n{proc.stdout}")
-    return Run(proc, workdir)
+    return Run(proc, workdir, _elapsed)
 
 
 # STAGE M IS NO LONGER A STUB WRITE, so the cells below seed its declared output
@@ -1987,6 +2008,32 @@ def l5(b, wd):
     want_halt_row(r2.stages()["L"], "stopped", "PartialThenHalt", clause=True)
     want("04-reconcile/SUMMARY.json" in r2.stages()["E"].get("outputs", {}),
          "a skipped stage keeps the outputs map its own run recorded")
+
+
+# ---------------------------------------------------------------------------
+# PROC-TIMEOUT-1: the budget-overrun halt, reachable for the first time.
+#
+# The roadmap row named this as "a real gap in a shipped sub-phase's coverage,
+# not a cosmetic one": the halt was written at 4b and unreachable through the
+# timeout path, so 4b exercised its `RErr` arm via spawn failure instead. With
+# `-threaded` emitted by the compiler the budget fires, and this cell is the
+# first to drive the arm the driver was always meant to have.
+# ---------------------------------------------------------------------------
+
+
+@local("P1", "an agent that outlives its budget is FAILED, and the halt names "
+             "the budget rather than the agent's own exit status")
+def p1(b, wd):
+    r = drive(b, wd, "B", mode="slow-agent", timeout=1)
+    want_rc(r, 3)
+    want_halt_row(r.stages()["B"], "failed", "Errored", clause=False)
+    # THE DISCRIMINATOR. Before -threaded this run took thirty seconds and
+    # recorded `complete`, because the budget was silently inert rather than
+    # late. A cell asserting only the exit code would have passed on a driver
+    # that waited out the child and then failed it for another reason.
+    want(r.seconds() < 20,
+         f"the budget did not fire: the run took {r.seconds()}s against a "
+         f"1s budget and a 30s agent, which is PROC-TIMEOUT-1 returning")
 
 
 def main() -> int:

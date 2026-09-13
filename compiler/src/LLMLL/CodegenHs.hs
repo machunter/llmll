@@ -1965,12 +1965,24 @@ emitEventLogPreamble =
   -- printed 18,316 bytes. Linux CI passed the same run because 18 KiB is under
   -- 64 KiB, which is why it reached the tree unseen.
   --
-  -- A forked reader over the pipe was REFUSED, not overlooked. The generated
-  -- project ships no ghc-options, so this is the non-threaded RTS, and
-  -- GHC.IO.FD.writeRawBufferPtr takes its blocking branch for a handle whose
-  -- fdIsNonBlocking is False, which stdout's is. A blocking write on
-  -- descriptor 1 stops every green thread, the reader included. A regular
-  -- file has no buffer bound, so the step completes whatever it prints.
+  -- A forked reader over the pipe was REFUSED, not overlooked, and ITS
+  -- PREMISE HAS SINCE CHANGED while the refusal stands on its own.
+  --
+  -- The argument was: the generated project ships no ghc-options, so this is
+  -- the non-threaded RTS, and GHC.IO.FD.writeRawBufferPtr takes its blocking
+  -- branch for a handle whose fdIsNonBlocking is False, which stdout's is. A
+  -- blocking write on descriptor 1 stops every green thread, the reader
+  -- included.
+  --
+  -- PROC-TIMEOUT-1 SHIPPED `-threaded` (emitPackageYaml below), so the first
+  -- clause of that argument is now false: the RTS way is `rts_thr`. The
+  -- refusal is KEPT because the reason to keep it is the second clause and not
+  -- the first: a regular file has no buffer bound, so the step completes
+  -- whatever it prints, and a capture that cannot deadlock at any size is
+  -- better than one that survives because a runtime schedules around it.
+  -- Re-deriving the forked reader from the threaded RTS would trade a
+  -- structural property for a scheduling one. Recorded here rather than left
+  -- for a reader to find the stale premise and conclude the file is wrong.
   --
   -- THE FILE LIVES UNDER getTemporaryDirectory AND NOT IN THE WORKING
   -- DIRECTORY. A step that lists its own directory must not see the capture;
@@ -2485,6 +2497,28 @@ emitPackageYaml modName hasMain httpGet hackagePkgs =
          , "  " <> pkgName <> ":"
          , "    main: Main.hs"
          , "    source-dirs: src"
+         -- PROC-TIMEOUT-1. `-threaded` is what makes wasi.proc.run's timeout
+         -- FIRE. Without it the RTS way is `rts_v`, System.Timeout.timeout
+         -- cannot interrupt the FFI call `waitForProcess` blocks in, and a
+         -- one-second budget against a thirty-second child exits 0 reporting
+         -- thirty seconds: the budget is silently inert rather than late.
+         --
+         -- MEASURED 2026-09-12 at the smallest unit, one `wasi.proc.run` of
+         -- `/bin/sleep 30` with a budget of 1. Before: `rts_v`, 30s. After:
+         -- `rts_thr`, 1s.
+         --
+         -- THE ROADMAP ROW SAID THIS OPTION DOES NOT WORK AND THE ROW WAS
+         -- WRONG, which is why this comment gives the measurement rather than
+         -- the conclusion. The earlier attempt hand-edited an ALREADY-BUILT
+         -- project, and stack does not relink an executable when only
+         -- package.yaml and the .cabal file change; `rm -rf .stack-work/dist`
+         -- then produced `rts_thr` from the same one-line edit. A generated
+         -- project is built fresh by `llmll build`, so it never meets that
+         -- stale-dist case, and the option reaches the link on the first
+         -- build. A stale artifact reading as "the fix did not work" is the
+         -- failure mode this paragraph exists to stop repeating.
+         , "    ghc-options:"
+         , "      - -threaded"
          , "    dependencies:"
          , "      - " <> pkgName
          ]

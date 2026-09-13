@@ -4,6 +4,48 @@
 
 <a id="Latest"></a>
 
+## v0.23.5: `wasi.proc.run`'s timeout fires, and the row that said it could not be fixed was wrong (2026-09-12)
+
+**`PROC-TIMEOUT-1` closes.** `emitPackageYaml` now emits `ghc-options: -threaded` on the generated
+executable stanza. Without it the RTS way is `rts_v`, `System.Timeout.timeout` cannot interrupt the
+FFI call `waitForProcess` blocks in, and a budget is **silently inert rather than late**: a
+one-second budget against a thirty-second child exits 0 reporting thirty seconds, with the stage
+recorded `complete`.
+
+- **Measured at the smallest unit, one `wasi.proc.run` of `/bin/sleep 30` with a budget of 1.**
+  Before: `rts_v`, 30 seconds. After: `rts_thr`, 1 second. A fresh `llmll build` produces the
+  threaded binary with no hand edit.
+- **THE ROADMAP ROW SAID THIS FIX DOES NOT WORK AND THE ROW WAS WRONG.** It read: adding
+  `ghc-options: -threaded` to the generated package did not move the RTS way, so anyone reaching for
+  `emitPackageYaml` would ship a change measuring identically to no change at all. **The option
+  reaches the link step.** The earlier attempt hand-edited an already-built project, and **stack does
+  not relink an executable when only `package.yaml` and the `.cabal` file change**. `rm -rf
+  .stack-work/dist` produced `rts_thr` from the same one-line edit, and the emitted `.cabal` had
+  carried `ghc-options: -threaded` the whole time. The row stood for a month as a warning away from
+  the correct repair.
+- **The budget-overrun halt is reachable for the first time.** It was written at sub-phase 4b and
+  unreachable through the timeout path, so 4b exercised its `RErr` arm via spawn failure instead;
+  the row called that a real gap in a shipped sub-phase's coverage. Cover cell **P1** drives it, and
+  its **negative control is the pre-fix binary**: run against a driver built at `rts_v`, P1 fails
+  with exit 0 after the run waits the child out. The cover harness gained a wall clock for it,
+  because a budget that does not fire is indistinguishable from one that fires late by every other
+  signal a run produces.
+- **One premise elsewhere in `CodegenHs.hs` went stale and is corrected rather than left to
+  mislead.** The refusal of a forked reader over the stdout pipe rested partly on "the generated
+  project ships no ghc-options, so this is the non-threaded RTS". That clause is now false. **The
+  refusal is kept**, because its other clause is the structural one: a regular file has no buffer
+  bound, and a capture that cannot deadlock at any size beats one that survives because a runtime
+  schedules around it.
+
+**Every generated program is now threaded.** That is a behaviour change for any LLMLL program that
+calls `wasi.proc.run` with a budget: the budget now fires.
+
+1942 examples, 0 failures. pytest 291 passed, 23 skipped.
+[`scripts/driver_ll_cover.py`](scripts/driver_ll_cover.py) 80 to **81** cells and
+[`scripts/wave_cover.py`](scripts/wave_cover.py) unchanged at 14, both RUN: 81 of 81 and 14 of 14.
+
+---
+
 ## v0.23.4: one dispatch table replaces two, and the driver's last stub write is deleted (2026-09-12)
 
 **Unification completion-test clause 3 closes, and with it the `DRIVER-LL` program-unification

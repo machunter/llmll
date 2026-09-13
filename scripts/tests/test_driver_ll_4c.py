@@ -508,26 +508,35 @@ def test_the_driver_calls_regex_match_nowhere():
         "hand-rolled and says so at the site.")
 
 
-def test_no_cover_cell_claims_to_exercise_the_unreachable_overrun_halt():
-    """`PROC-TIMEOUT-1` is open and D, F and G each invoke an agent.
+def test_a_cover_cell_now_exercises_the_budget_overrun_halt():
+    """`PROC-TIMEOUT-1` CLOSED at v0.23.5, and this guard inverts with it.
 
-    Three budget-overrun halts are therefore written and unreachable through
-    the timeout. A cover cell whose description claimed one would be reporting
-    coverage the run cannot have, which is the failure mode the whole cover
-    exists to prevent, turned inward. `--timeout` appears in the cover's own
-    process plumbing, which is not a claim and is not matched here.
+    It used to assert that NO cell claimed an overrun path, because the halt was
+    written and unreachable: `wasi.proc.run`'s budget could not fire in a
+    non-threaded RTS, so a cell whose description claimed one would have been
+    reporting coverage the run could not have. `emitPackageYaml` now emits
+    `-threaded`, the budget fires, and the ABSENCE of such a cell is the defect
+    rather than the discipline.
+
+    THE INVERSION IS THE POINT AND IS RECORDED RATHER THAN SUBSTITUTED. A guard
+    whose premise is repaired must not be deleted quietly: the same claim is
+    forbidden before the fix and required after it, and only the fix separates
+    the two readings. `--timeout` in the cover's own process plumbing is not a
+    claim and is not matched here.
     """
     tree = ast.parse(COVER.read_text(), filename=str(COVER))
     claims = []
     for n in ast.walk(tree):
         if not isinstance(n, ast.Call) or not isinstance(n.func, ast.Name):
             continue
-        if n.func.id not in {"scenario", "local", "local4c"}:
+        if not n.func.id.startswith(("scenario", "local")):
             continue
         for a in n.args:
             if isinstance(a, ast.Constant) and isinstance(a.value, str) \
-                    and re.search(r"\b(timeout|overrun|budget)\b", a.value, re.I):
+                    and re.search(r"\b(overrun|budget)\b", a.value, re.I):
                 claims.append(a.value[:70])
-    assert not claims, (
-        f"a cover cell claims an overrun path: {claims}. PROC-TIMEOUT-1 is "
-        "open, so no cell can exercise one and none may say it does.")
+    assert claims, (
+        "no cover cell exercises the budget-overrun halt. PROC-TIMEOUT-1 is "
+        "closed at v0.23.5, so the halt is reachable and a cover that does not "
+        "drive it carries the gap the row named rather than avoiding a false "
+        "claim.")
