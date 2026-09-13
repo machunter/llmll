@@ -1,0 +1,73 @@
+;; Stage H feasibility probe 2 — the RFC's own double-exclamation rule.
+;;
+;; "Notice that the <protocol type, sender protocol address, sender hardware
+;;  address> triplet is merged into the table before the opcode is looked at."
+;;                                                      (RFC 826 lines 227-229)
+;;
+;; The shape under test: can a contract pin an *ordering* claim about control flow
+;; when the fragment has no order on any data value? It can, restated as an
+;; independence claim — the table outcome does not vary with `ar$op`. The body
+;; matches all three opcodes so that a divergent arm is a real possibility the
+;; contract has to exclude.
+;;
+;; `gated` abbreviates the hardware/protocol/optional-length conjunction that
+;; probe 1 discharges in full; this probe is about the ordering, not the gate.
+
+(module merge-before-opcode
+
+  ;; A nullary-only sum lowers to an int tag and stays inside QF-LIA.
+  (type Op
+    (| Request)
+    (| Reply)
+    (| Other))
+
+  (def merge-before-opcode
+      [tbl: map[int,int]
+       op: Op
+       gated: bool
+       skey: int sha: int tpa: int mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (!= okey skey)
+      :source "frame witness: okey ranges over table keys other than <ar$pro, ar$spa>")
+
+    ;; [M1] The merge outcome is stated without naming the opcode at all.
+    (post (=> (and gated (map-has tbl skey))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 209-213, 227-229 — the merge precedes the opcode test")
+
+    ;; [M2] The citable instance. An opcode this node implements no handling for
+    ;; still updates an existing entry; the packet is discarded only afterwards.
+    ;; Stage B §6 records this as an in-scope attacker consequence.
+    (post (=> (and (= op Other) (and gated (map-has tbl skey)))
+              (= (map-get result skey) sha))
+      :source "RFC 826 lines 219, 227-234, 308-309 — merge before the ar$op test, including an unhandled opcode")
+
+    ;; [M3] The target gate survives the restatement: no opcode buys an add.
+    (post (=> (and (not (map-has tbl skey)) (!= tpa mypa))
+              (not (map-has result skey)))
+      :source "RFC 826 line 214 — the target test gates the add under every opcode")
+
+    ;; [M4] Frame.
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+
+    (match op
+      ((Request) (if gated
+                     (if (map-has tbl skey)
+                         (map-put tbl skey sha)
+                         (if (= tpa mypa) (map-put tbl skey sha) tbl))
+                     tbl))
+      ((Reply)   (if gated
+                     (if (map-has tbl skey)
+                         (map-put tbl skey sha)
+                         (if (= tpa mypa) (map-put tbl skey sha) tbl))
+                     tbl))
+      ((Other)   (if gated
+                     (if (map-has tbl skey)
+                         (map-put tbl skey sha)
+                         (if (= tpa mypa) (map-put tbl skey sha) tbl))
+                     tbl)))))

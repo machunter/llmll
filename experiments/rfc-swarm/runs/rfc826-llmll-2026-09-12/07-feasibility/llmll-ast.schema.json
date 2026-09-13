@@ -1,0 +1,1205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://llmll.dev/schemas/v0.11/ast.schema.json",
+  "title": "LLMLL v0.11 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.11.0' (PROC-BOUNDARY-1: optional 'status' on def-main, an exit-status projection from the state type to int; was 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+
+  "$defs": {
+
+    "Program": {
+      "description": "Top-level structure. A file is a flat list of statements (no implicit root module). Wrap in a module statement if namespacing is desired.",
+      "type": "object",
+      "required": ["schemaVersion", "statements"],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "description": "Must be '0.11.0'. The compiler rejects files with an unrecognised version, but reads 0.10.0, 0.9.0, 0.8.0, 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "type": "string",
+          "const": "0.11.0"
+        },
+        "llmll_version": {
+          "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
+          "type": "string"
+        },
+        "source_file": {
+          "description": "Optional: original .llmll filename for diagnostics.",
+          "type": "string"
+        },
+        "statements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Statement" }
+        }
+      }
+    },
+
+    "Statement": {
+      "description": "A top-level definition. Corresponds to EBNF 'statement'.",
+      "oneOf": [
+        { "$ref": "#/$defs/DefCore" },
+        { "$ref": "#/$defs/DefShell" },
+        { "$ref": "#/$defs/DefInterface" },
+        { "$ref": "#/$defs/DefInvariant" },
+        { "$ref": "#/$defs/TypeDecl" },
+        { "$ref": "#/$defs/GenDecl" },
+        { "$ref": "#/$defs/CheckDecl" },
+        { "$ref": "#/$defs/ImportDecl" },
+        { "$ref": "#/$defs/ModuleDecl" },
+        { "$ref": "#/$defs/OpenDecl" },
+        { "$ref": "#/$defs/ExportDecl" },
+        { "$ref": "#/$defs/DefMain" },
+        { "$ref": "#/$defs/TrustDecl" },
+        { "$ref": "#/$defs/WeaknessOkDecl" }
+      ]
+    },
+
+    "DefCore": {
+      "description": "A strict-core function with optional pre/post contracts. Corresponds to EBNF 'def'. Kind must be exactly 'def'. Body is restricted to the core-body whitelist (ELit, EVar, QF-LIA EOp, ELet with PVar, EIf under path-limit, EApp to body-faithful or trusted-prelude callees, EMatch on Result 2-arm, ?hole/?name/?choose/?request-cap/?scaffold/?delegate/?delegate-async). Excluded: lambda, letrec, do-notation, ?proof-required, non-linear arithmetic, opaque crypto, untrusted FFI. Self-recursion is excluded — use def-shell for recursive functions. Return type is optional (DEF-RET): declare return_type to type a body hole and check the body against it; omit to infer. Under GrammarCoreInversion (default since v0.11), this is the standard form for high-assurance functions eligible for body-faithful SMT verification. LT-INV v0.11.",
+      "type": "object",
+      "required": ["kind", "name", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":         { "type": "string", "const": "def" },
+        "return_type":  { "$ref": "#/$defs/Type", "description": "DEF-RET (v0.7.0): optional declared return type. When present, a body hole is typed against it and the body is checked against it; a refinement-aliased return adds the §3.4.1 obligation. Omit to infer." },
+        "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'. Mutually exclusive with pre_clauses." },
+        "pre_source":   { "type": "string", "description": "Clause-level :source provenance for the scalar pre (v0.6; LLMLL.md section 4.6). Free-form citation text, e.g. an RFC clause. Pure metadata. Requires pre; mutually exclusive with pre_clauses." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only. Mutually exclusive with post_clauses." },
+        "post_source":  { "type": "string", "description": "Clause-level :source provenance for the scalar post (v0.6). Same semantics as pre_source. Requires post; mutually exclusive with post_clauses." },
+        "pre_clauses":  { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct precondition list, each clause carrying its own optional :source. The effective precondition is the left and-fold of the clause exprs in array order. Mutually exclusive with pre/pre_source; a one-element array is normalized to the scalar shape on read." },
+        "post_clauses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct postcondition list ('result' in scope in each clause). Same fold and exclusivity semantics as pre_clauses." },
+        "spec_entropy": {
+          "type": "string",
+          "enum": ["strict", "intentional", "unknown"],
+          "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). 'strict' = maximally constraining spec; 'intentional' = intentionally loose to allow diverse implementations; 'unknown' = not yet classified. Absent means the compiler applies heuristic classification."
+        },
+        "body":         { "$ref": "#/$defs/Expr" }
+      },
+      "examples": [
+        {
+          "kind": "def",
+          "name": "withdraw",
+          "params": [
+            {"name": "balance", "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "amount",  "param_type": {"kind": "primitive", "name": "int"}}
+          ],
+          "pre":  {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]},
+          "post": {"kind": "op", "op": "=",  "args": [{"kind": "var", "name": "result"}, {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}]},
+          "body": {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}
+        },
+        {
+          "kind": "def",
+          "name": "clamp",
+          "params": [
+            {"name": "lo",  "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "hi",  "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "val", "param_type": {"kind": "primitive", "name": "int"}}
+          ],
+          "pre":  {"kind": "op", "op": "<=", "args": [{"kind": "var", "name": "lo"}, {"kind": "var", "name": "hi"}]},
+          "post": {"kind": "op", "op": "and", "args": [
+            {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "result"}, {"kind": "var", "name": "lo"}]},
+            {"kind": "op", "op": "<=", "args": [{"kind": "var", "name": "result"}, {"kind": "var", "name": "hi"}]}
+          ]},
+          "body": {"kind": "if",
+            "cond": {"kind": "op", "op": "<", "args": [{"kind": "var", "name": "val"}, {"kind": "var", "name": "lo"}]},
+            "then": {"kind": "var", "name": "lo"},
+            "else": {"kind": "if",
+              "cond": {"kind": "op", "op": ">", "args": [{"kind": "var", "name": "val"}, {"kind": "var", "name": "hi"}]},
+              "then": {"kind": "var", "name": "hi"},
+              "else": {"kind": "var", "name": "val"}}}
+        }
+      ]
+    },
+
+    "DefShell": {
+      "description": "A permissive-shell function with optional pre/post contracts. Corresponds to EBNF 'def-shell'. Kind must be exactly 'def-shell'. Admits the full body language: lambda, self-recursive calls, wasi.* capability calls, do-notation, ?proof-required, and arbitrary user-function calls. Verified at the contract tier (pre/post contract-only proof) rather than body-faithful SMT. Use for recursive algorithms, effectful computations, and any body form excluded from the strict-core whitelist. Return type is optional (DEF-RET): declare return_type to type a body hole and check the body against it; omit to infer. LT-INV v0.11.",
+      "type": "object",
+      "required": ["kind", "name", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":         { "type": "string", "const": "def-shell" },
+        "return_type":  { "$ref": "#/$defs/Type", "description": "DEF-RET (v0.7.0): optional declared return type. Same semantics as on DefCore." },
+        "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'. Mutually exclusive with pre_clauses." },
+        "pre_source":   { "type": "string", "description": "Clause-level :source provenance for the scalar pre (v0.6). Same semantics as on DefCore." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only. Mutually exclusive with post_clauses." },
+        "post_source":  { "type": "string", "description": "Clause-level :source provenance for the scalar post (v0.6). Same semantics as on DefCore." },
+        "pre_clauses":  { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct precondition list. Same fold and exclusivity semantics as on DefCore." },
+        "post_clauses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ContractClause" }, "description": "SRC-CONJ-1 (0.9.0): per-conjunct postcondition list. Same fold and exclusivity semantics as on DefCore." },
+        "spec_entropy": {
+          "type": "string",
+          "enum": ["strict", "intentional", "unknown"],
+          "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). Same semantics as on DefCore."
+        },
+        "body":         { "$ref": "#/$defs/Expr" },
+        "decreases":    { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Expr" }, "description": "REC-DESCENT (v0.8.0): optional termination-measure list, def-shell only. Each element is an int-valued expression over the params (same binding scope as 'pre'; 'result' not in scope). A length-1 list discharges via well-foundedness + call-site strict descent; a longer list discharges via the lexicographic order on N^k (equal tuple arity required across the recursive SCC). Absent means no declared measure." }
+      },
+      "examples": [
+        {
+          "kind": "def-shell",
+          "name": "factorial",
+          "params": [
+            {"name": "n", "param_type": {"kind": "primitive", "name": "int"}}
+          ],
+          "pre":  {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 0}]},
+          "post": {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "result"}, {"kind": "lit-int", "value": 1}]},
+          "body": {"kind": "if",
+            "cond": {"kind": "op", "op": "=", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 0}]},
+            "then": {"kind": "lit-int", "value": 1},
+            "else": {"kind": "app", "fn": "*", "args": [
+              {"kind": "var", "name": "n"},
+              {"kind": "app", "fn": "factorial", "args": [{"kind": "op", "op": "-", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 1}]}]}
+            ]}}
+        }
+      ]
+    },
+
+    "ContractClause": {
+      "description": "SRC-CONJ-1 (0.9.0): one authored contract clause with its own optional :source provenance. Used by the pre_clauses/post_clauses arrays on def/def-shell; the effective contract side is the left and-fold of the clause exprs in array order. The S-expression equivalent is repeated (pre e :source \"...\") / (post e :source \"...\") clauses. Provenance is pure metadata: it never affects type checking, verification, or codegen; the trust report surfaces it as pre_sources/post_sources arrays in author order.",
+      "type": "object",
+      "required": ["expr"],
+      "additionalProperties": false,
+      "properties": {
+        "expr":   { "$ref": "#/$defs/Expr", "description": "The clause expression (one conjunct of the effective contract side). Must be bool-typed." },
+        "source": { "type": "string", "description": "Optional :source citation for this clause, e.g. \"RFC 1350 s5\". Free-form; a traceability pointer, not a fidelity proof." }
+      },
+      "examples": [
+        {
+          "expr": {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "m"}, {"kind": "lit-int", "value": 0}]},
+          "source": "RFC 1350 s5 - block numbers begin at one, zero reserved for RRQ/WRQ ack"
+        }
+      ]
+    },
+
+    "DefInterface": {
+      "description": "A named interface (contract boundary). Corresponds to EBNF 'def-interface'.",
+      "type": "object",
+      "required": ["kind", "name", "methods"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "const": "def-interface" },
+        "name":    { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "methods": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IfaceMethod" }
+        }
+      }
+    },
+
+    "IfaceMethod": {
+      "description": "One method slot in a def-interface.",
+      "type": "object",
+      "required": ["name", "fn_type"],
+      "additionalProperties": false,
+      "properties": {
+        "name":    { "type": "string" },
+        "fn_type": { "$ref": "#/$defs/TypeFn" }
+      }
+    },
+
+    "DefInvariant": {
+      "description": "A module-level invariant. Stored and type-checked in v0.2; LiquidHaskell verification is Phase 2b.",
+      "type": "object",
+      "required": ["kind", "name", "param", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "def-invariant" },
+        "name":  { "type": "string" },
+        "param": { "$ref": "#/$defs/TypedParam" },
+        "body":  { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "TypeDecl": {
+      "description": "A user-defined type: either a refinement type alias (where) or a sum type (ADT). Corresponds to EBNF 'type-decl'.",
+      "type": "object",
+      "required": ["kind", "name", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "type-decl" },
+        "name": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "body": {
+          "oneOf": [
+            { "$ref": "#/$defs/TypeWhere", "description": "Refinement type alias: (where [x: base] predicate)" },
+            {
+              "description": "Sum type / ADT: list of (| Constructor payload) arms",
+              "type": "object",
+              "required": ["kind", "variants"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "const": "sum" },
+                "variants": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/Variant" }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "examples": [
+        {
+          "kind": "type-decl",
+          "name": "Word",
+          "body": {
+            "kind": "where",
+            "binding": "s",
+            "base_type": {"kind": "primitive", "name": "string"},
+            "predicate": {"kind": "op", "op": ">", "args": [{"kind": "app", "fn": "string-length", "args": [{"kind": "var", "name": "s"}]}, {"kind": "lit-int", "value": 0}]}
+          }
+        },
+        {
+          "kind": "type-decl",
+          "name": "Color",
+          "body": {
+            "kind": "sum",
+            "variants": [
+              {"constructor": "Red",   "payload": {"kind": "primitive", "name": "unit"}},
+              {"constructor": "Green", "payload": {"kind": "primitive", "name": "unit"}},
+              {"constructor": "Blue",  "payload": {"kind": "primitive", "name": "unit"}}
+            ]
+          }
+        }
+      ]
+    },
+
+    "Variant": {
+      "description": "One arm of a sum type. Omit 'payload' for nullary constructors.",
+      "type": "object",
+      "required": ["constructor"],
+      "additionalProperties": false,
+      "properties": {
+        "constructor": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "payload":     { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "GenDecl": {
+      "description": "A custom value generator for a refinement type alias. Used by the PBT engine. Corresponds to EBNF 'gen-decl'.",
+      "type": "object",
+      "required": ["kind", "type_name", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "gen-decl" },
+        "type_name": { "type": "string", "description": "The refinement type alias this generator produces values for." },
+        "body":      { "$ref": "#/$defs/Expr", "description": "Expression yielding a value of the base type satisfying the dependent constraint." }
+      }
+    },
+
+    "CheckDecl": {
+      "description": "A property-based test. Must contain exactly one for-all. Corresponds to EBNF 'check'. OBLIG-PBT-4 (v0.10.6): optional 'subjects' array carries explicit ':subject f' / ':subjects [f g …]' keyword metadata; absent or empty omission keeps the v0.10.5 head-position-scan semantics at the PBT writeback site.",
+      "type": "object",
+      "required": ["kind", "label", "for_all"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "check" },
+        "label":    { "type": "string" },
+        "for_all":  { "$ref": "#/$defs/ForAll" },
+        "subjects": {
+          "description": "Optional explicit-subject opt-in (OBLIG-PBT-4). Each entry is a contracted function name receiving its own DLTested record on the property's pass; all entries share the same pbt_witnesses hash. Must contain ≥1 entry when present (S6); duplicates are deduped (S7).",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "ForAll": {
+      "description": "The single for-all body inside a check block.",
+      "type": "object",
+      "required": ["kind", "bindings", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "for-all" },
+        "bindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "body": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ImportDecl": {
+      "description": "Capability or FFI import. In v0.2+, the compiler resolves user-module paths to source files. Built-in prefixes (wasi.*, haskell.*, c.*) are handled by the codegen preamble — no file lookup occurs. Use the 'hub.' prefix for registry packages.",
+      "type": "object",
+      "required": ["kind", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "import" },
+        "path":       { "type": "string", "description": "Dot-separated qualified path, e.g. 'wasi.io', 'haskell.aeson', or 'hub.llmll-crypto.hash.bcrypt'." },
+        "capability": { "$ref": "#/$defs/CapabilitySpec" },
+        "interface":  {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IfaceMethod" },
+          "description": "For FFI imports: the typed interface the foreign library exposes."
+        }
+      }
+    },
+
+    "CapabilitySpec": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":          { "type": "string" },
+        "path_or_port":  { "type": "string", "description": "e.g. '/data' for fs, '8080' for http." },
+        "deterministic": { "type": "boolean", "default": false }
+      }
+    },
+
+    "ModuleDecl": {
+      "description": "An optional namespace wrapper. The module name is for documentation and tooling display only; the canonical module path is derived from the file's location relative to the source root (see LLMLL.md §8.1). Body is flattened during compilation.",
+      "type": "object",
+      "required": ["kind", "name", "imports", "statements"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "module" },
+        "name":       { "type": "string" },
+        "imports":    { "type": "array", "items": { "$ref": "#/$defs/ImportDecl" } },
+        "statements": { "type": "array", "items": { "$ref": "#/$defs/Statement" } }
+      }
+    },
+
+    "TypedParam": {
+      "description": "A named, typed parameter. Pair-type in 'param_type' is supported since v0.2.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":       { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "param_type": { "$ref": "#/$defs/Type" },
+        "untyped":    { "type": "boolean", "default": false, "description": "Legacy field — no longer needed since v0.2. Pair-type in param_type is fully supported." },
+        "comment":    { "type": "string", "description": "When untyped=true, document the expected type here." }
+      }
+    },
+
+    "Type": {
+      "description": "Any LLMLL type expression. Corresponds to EBNF 'type'.",
+      "oneOf": [
+        { "$ref": "#/$defs/TypePrimitive" },
+        { "$ref": "#/$defs/TypeList" },
+        { "$ref": "#/$defs/TypeMap" },
+        { "$ref": "#/$defs/TypeResult" },
+        { "$ref": "#/$defs/TypePromise" },
+        { "$ref": "#/$defs/TypeBytes" },
+        { "$ref": "#/$defs/TypeFn" },
+        { "$ref": "#/$defs/TypeWhere" },
+        { "$ref": "#/$defs/TypePair" },
+        { "$ref": "#/$defs/TypeCommand" },
+        { "$ref": "#/$defs/TypeNamed" }
+      ]
+    },
+
+    "TypePrimitive": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "primitive" },
+        "name": { "type": "string", "enum": ["int", "float", "string", "bool", "unit"] }
+      }
+    },
+
+    "TypeList": {
+      "type": "object",
+      "required": ["kind", "elem_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "list" },
+        "elem_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeMap": {
+      "type": "object",
+      "required": ["kind", "key_type", "val_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "map" },
+        "key_type": { "$ref": "#/$defs/Type" },
+        "val_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeResult": {
+      "type": "object",
+      "required": ["kind", "ok_type", "err_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "result" },
+        "ok_type":  { "$ref": "#/$defs/Type" },
+        "err_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypePromise": {
+      "type": "object",
+      "required": ["kind", "inner_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "promise" },
+        "inner_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeBytes": {
+      "type": "object",
+      "required": ["kind", "length"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "bytes" },
+        "length": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "TypeFn": {
+      "description": "A function type. Named params are documentation-only; both 'typed' and bare type arrays are valid.",
+      "type": "object",
+      "required": ["kind", "params", "return_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":        { "type": "string", "const": "fn-type" },
+        "params":      {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" },
+          "description": "Parameter types. Names are optional (doc-only)."
+        },
+        "return_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeWhere": {
+      "description": "A refinement type alias: (where [binding: base] predicate).",
+      "type": "object",
+      "required": ["kind", "binding", "base_type", "predicate"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "where" },
+        "binding":   { "type": "string" },
+        "base_type": { "$ref": "#/$defs/Type" },
+        "predicate": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "TypePair": {
+      "description": "A 2-tuple product type: (a, b). v0.3 PR 1: now backed by TPair internally (distinct from Result in diagnostics and JSON-AST output).",
+      "type": "object",
+      "required": ["kind", "fst", "snd"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "pair-type" },
+        "fst":  { "$ref": "#/$defs/Type" },
+        "snd":  { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeCommand": {
+      "description": "The opaque Command type. Cannot be pattern-matched.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "command" }
+      }
+    },
+
+    "TypeNamed": {
+      "description": "A user-defined type referenced by name, e.g. 'Word', 'PositiveInt', 'GameState'.",
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "named" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "Expr": {
+      "description": "Any expression. Corresponds to EBNF 'expr'.",
+      "oneOf": [
+        { "$ref": "#/$defs/ExprLitInt" },
+        { "$ref": "#/$defs/ExprLitFloat" },
+        { "$ref": "#/$defs/ExprLitString" },
+        { "$ref": "#/$defs/ExprLitBool" },
+        { "$ref": "#/$defs/ExprVar" },
+        { "$ref": "#/$defs/ExprLet" },
+        { "$ref": "#/$defs/ExprIf" },
+        { "$ref": "#/$defs/ExprMatch" },
+        { "$ref": "#/$defs/ExprApp" },
+        { "$ref": "#/$defs/ExprQualApp" },
+        { "$ref": "#/$defs/ExprOp" },
+        { "$ref": "#/$defs/ExprPair" },
+        { "$ref": "#/$defs/ExprLambda" },
+        { "$ref": "#/$defs/ExprAwait" },
+        { "$ref": "#/$defs/ExprDo" },
+        { "$ref": "#/$defs/ExprHole" },
+        { "$ref": "#/$defs/ExprLitList" }
+      ]
+    },
+
+    "ExprLitInt": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-int" },
+        "value": { "type": "integer" }
+      }
+    },
+
+    "ExprLitFloat": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-float" },
+        "value": { "type": "number" }
+      }
+    },
+
+    "ExprLitString": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-string" },
+        "value": {
+          "type": "string",
+          "description": "String content. RFC 8259 JSON escaping applies: use \\uXXXX for non-ASCII and control characters (e.g. \\u001b for ESC, \\n for newline). C-style \\xNN is not valid JSON and will cause a parse error."
+        }
+      }
+    },
+
+    "ExprLitBool": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-bool" },
+        "value": { "type": "boolean" }
+      }
+    },
+
+    "ExprVar": {
+      "description": "A variable reference. 'result' is only valid inside a post clause.",
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "var" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "ExprLet": {
+      "description": "Sequential let bindings (let*). Each binding is in scope for all subsequent bindings and the body.",
+      "type": "object",
+      "required": ["kind", "bindings", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "let" },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["expr"],
+            "additionalProperties": false,
+            "properties": {
+              "name":    { "type": "string", "description": "Simple binding: name = expr (ergonomic shorthand)" },
+              "pattern": { "$ref": "#/$defs/Pattern", "description": "Destructuring binding: (pair x y) = expr" },
+              "expr": { "$ref": "#/$defs/Expr" }
+            },
+            "oneOf": [
+              { "required": ["name"] },
+              { "required": ["pattern"] }
+            ]
+          }
+        },
+        "body": { "$ref": "#/$defs/Expr" }
+      },
+      "examples": [
+        {
+          "kind": "let",
+          "bindings": [
+            {"name": "x", "expr": {"kind": "lit-int", "value": 1}},
+            {"name": "y", "expr": {"kind": "op", "op": "+", "args": [{"kind": "var", "name": "x"}, {"kind": "lit-int", "value": 1}]}}
+          ],
+          "body": {"kind": "var", "name": "y"}
+        }
+      ]
+    },
+
+    "ExprIf": {
+      "description": "Conditional: (if cond then else). All three branches are required.",
+      "type": "object",
+      "required": ["kind", "cond", "then_branch", "else_branch"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":        { "type": "string", "const": "if" },
+        "cond":        { "$ref": "#/$defs/Expr" },
+        "then_branch": { "$ref": "#/$defs/Expr" },
+        "else_branch": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprMatch": {
+      "description": "Pattern match. MUST be exhaustive — include a catch-all arm (\"_\") if needed.",
+      "type": "object",
+      "required": ["kind", "scrutinee", "arms"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "match" },
+        "scrutinee": { "$ref": "#/$defs/Expr" },
+        "arms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/MatchArm" }
+        }
+      }
+    },
+
+    "MatchArm": {
+      "type": "object",
+      "required": ["pattern", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "$ref": "#/$defs/Pattern" },
+        "body":    { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "Pattern": {
+      "description": "A match pattern. Corresponds to EBNF 'pattern'.",
+      "oneOf": [
+        {
+          "description": "Catch-all wildcard: _",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "type": "string", "const": "wildcard" } }
+        },
+        {
+          "description": "Variable binding: captures the value.",
+          "type": "object",
+          "required": ["kind", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "bind" },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "description": "Literal equality: match a specific value.",
+          "type": "object",
+          "required": ["kind", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":  { "type": "string", "const": "literal" },
+            "value": { "oneOf": [{"type": "integer"}, {"type": "number"}, {"type": "string"}, {"type": "boolean"}] }
+          }
+        },
+        {
+          "description": "Constructor pattern: (ConstructorName sub-patterns...).",
+          "type": "object",
+          "required": ["kind", "constructor"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "constructor" },
+            "constructor": { "type": "string" },
+            "sub_patterns": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Pattern" }
+            }
+          }
+        }
+      ]
+    },
+
+    "ExprApp": {
+      "description": "A plain function call: (fn-name arg1 arg2 ...). Use for user-defined def/def-shell and built-in stdlib functions.",
+      "type": "object",
+      "required": ["kind", "fn", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "app" },
+        "fn":   { "type": "string", "pattern": "^[^.]+$", "description": "Name of the function. No dots. Use qual-app for qualified calls." },
+        "args": { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      }
+    },
+
+    "ExprQualApp": {
+      "description": "A qualified capability call: (wasi.io.stdout ...). Use for command constructors.",
+      "type": "object",
+      "required": ["kind", "qual_fn", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "const": "qual-app" },
+        "qual_fn": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_?\\-]*(\\.[A-Za-z_][A-Za-z0-9_?\\-]*)+$", "description": "Dot-separated qualified name with at least one dot, e.g. 'wasi.io.stdout'." },
+        "args":    { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      }
+    },
+
+    "ExprOp": {
+      "description": "A built-in operator: +, -, *, /, =, !=, <, >, <=, >=, and, or, not, mod.",
+      "type": "object",
+      "required": ["kind", "op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "op" },
+        "op":   {
+          "type": "string",
+          "enum": ["+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=", "and", "or", "not", "mod", "=>", "<=>"]
+        },
+        "args": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Expr" },
+          "description": "Unary ops (not) take 1 arg. All others take exactly 2."
+        }
+      }
+    },
+
+    "ExprPair": {
+      "description": "A 2-tuple constructor: (pair fst snd).",
+      "type": "object",
+      "required": ["kind", "fst", "snd"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "pair" },
+        "fst":  { "$ref": "#/$defs/Expr" },
+        "snd":  { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprLambda": {
+      "description": "An anonymous function: (fn [params] body).",
+      "type": "object",
+      "required": ["kind", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "lambda" },
+        "params": { "type": "array", "items": { "$ref": "#/$defs/TypedParam" } },
+        "body":   { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprAwait": {
+      "description": "Await a Promise[t]: (await promise-expr). The expression's inferred type is Result[t, DelegationError], not bare t. The generated code wraps Async.wait in exception handling so agent failures are captured as Result.Error rather than propagating as uncaught exceptions. Breaking change from v0.2 where await returned bare t.",
+      "type": "object",
+      "required": ["kind", "expr"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "await" },
+        "expr": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprDo": {
+      "description": "Monadic do-notation: a sequence of bound steps and plain expressions.",
+      "type": "object",
+      "required": ["kind", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "do" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DoStep" }
+        }
+      }
+    },
+
+    "DoStep": {
+      "description": "A single step in a do-block (PR 2: unified form). Named steps bind the state component; anonymous steps discard it (state-loss hazard if non-terminal). Old kinds 'bind-step' and 'expr-step' are rejected with a migration error pointing to 'do-step'.",
+      "type": "object",
+      "required": ["kind", "expr"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "do-step" },
+        "expr":       { "$ref": "#/$defs/Expr" },
+        "name":       { "type": "string", "description": "If present, bound to the state component of expr's result (former bind-step). If absent, the state component is discarded (former expr-step)." },
+        "state_type": { "$ref": "#/$defs/Type", "description": "Optional hint: the state type S. Required only when expr itself is a hole." },
+        "discard":    { "type": "boolean", "default": false, "description": "DISCARD-1 (0.10.0). Declares that this step's COMMAND component is intentionally dropped. A non-final step whose expr yields a Command is a type error unless this is true. Illegal on the FINAL step, whose command is the block's result and is performed. Absent and false are equivalent, and the emitter omits the field when false, so unmarked programs round-trip byte-identically. Orthogonal to 'name', which governs the STATE component." }
+      }
+    },
+
+    "ExprLitList": {
+      "description": "List literal: [a, b, c]. Desugared by the parser to nested list-prepend calls.",
+      "type": "object",
+      "required": ["kind", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-list" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      },
+      "examples": [
+        { "kind": "lit-list", "items": [] },
+        { "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " }
+        ]}
+      ]
+    },
+
+    "ExprHole": {
+      "description": "A typed hole. Can be named, a choice, a capability request, a scaffold, or a delegation.",
+      "oneOf": [
+        {
+          "description": "?name — named placeholder.",
+          "type": "object",
+          "required": ["kind", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "hole-named" },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "description": "?choose(a, b, c) — option selection.",
+          "type": "object",
+          "required": ["kind", "options"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":    { "type": "string", "const": "hole-choose" },
+            "options": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "description": "?request-cap(path) — request a new capability from the operator.",
+          "type": "object",
+          "required": ["kind", "cap_path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":     { "type": "string", "const": "hole-request-cap" },
+            "cap_path": { "type": "string" }
+          }
+        },
+        {
+          "description": "?scaffold — cold-start a module from a known template.",
+          "type": "object",
+          "required": ["kind", "template"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":     { "type": "string", "const": "hole-scaffold" },
+            "template": { "type": "string" },
+            "options":  { "type": "object", "additionalProperties": true }
+          }
+        },
+        {
+          "description": "?delegate — blocking delegation to a named agent.",
+          "type": "object",
+          "required": ["kind", "agent", "description", "return_type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "hole-delegate" },
+            "agent":       { "type": "string", "description": "Bare agent identifier (without the surface `@` sigil). The `@` is S-expression surface syntax; in JSON-AST the bare name is stored. Example: 'crypto-agent', not '@crypto-agent'. See LLMLL.md §11.2." },
+            "description": { "type": "string" },
+            "return_type": { "$ref": "#/$defs/Type" },
+            "on_failure":  { "$ref": "#/$defs/Expr" }
+          }
+        },
+        {
+          "description": "?delegate-async — non-blocking delegation. return_type is the INNER type T; the compiler wraps it in Promise[T]. Do not write Promise[T] as return_type. A top-level Promise wrapper is stripped as legacy; nested Promise wrappers are rejected at parse time.",
+          "type": "object",
+          "required": ["kind", "agent", "description", "return_type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "hole-delegate-async" },
+            "agent":       { "type": "string", "description": "Bare agent identifier (without the surface `@` sigil). The `@` is S-expression surface syntax; in JSON-AST the bare name is stored. Example: 'crypto-agent', not '@crypto-agent'. See LLMLL.md §11.2." },
+            "description": { "type": "string" },
+            "return_type": { "$ref": "#/$defs/Type", "description": "The inner type T. The compiler wraps this in Promise[T] automatically. A top-level Promise wrapper is stripped as legacy compatibility; nested Promise wrappers are rejected." }
+          }
+        },
+        {
+          "description": "?proof-required — Phase 2b. Emitted by the compiler for pre/post constraints outside the QF linear arithmetic fragment, or for letrec :decreases measures that are not simple variables. Also valid as a manual annotation. Non-blocking: code compiles with a runtime assertion fallback. Two forms: (1) bare leaf — no 'predicate' field; marks the clause asserted, no active runtime assertion at codegen. (2) predicate-carrying (LT-PPR, v0.11) — optional 'predicate' field present; compiler type-checks it as bool and emits a Haskell runtime assertion (if pred then () else error ...) in pre/post position; non-linear predicates emit a QF-LIA warning at llmll check. Body-position ?proof-required is unchanged. See LLMLL.md §6 and getting-started.md §4.11.",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":   { "type": "string", "const": "hole-proof-required" },
+            "reason": {
+              "type": "string",
+              "enum": ["manual", "non-linear-contract", "complex-decreases"],
+              "default": "manual",
+              "description": "Why this hole was emitted. 'manual' = authored by agent; others = compiler-emitted."
+            },
+            "predicate": {
+              "$ref": "#/$defs/Expr",
+              "description": "LT-PPR (v0.11): optional predicate expression for the predicate-carrying form. Valid in pre/post position only. When present, type-checked as bool; emits a runtime assertion at codegen. Absent for the bare-leaf form."
+            }
+          },
+          "examples": [
+            { "kind": "hole-proof-required", "reason": "non-linear-contract" },
+            { "kind": "hole-proof-required", "reason": "complex-decreases" },
+            { "kind": "hole-proof-required" },
+            {
+              "kind": "hole-proof-required",
+              "reason": "non-linear-contract",
+              "predicate": {
+                "kind": "op",
+                "op": ">=",
+                "args": [
+                  { "kind": "var", "name": "result" },
+                  { "kind": "lit-int", "value": 0 }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+
+    "OpenDecl": {
+      "description": "Pull a module's exports into the current scope without a prefix. NEW in v0.2. Corresponds to EBNF 'open-decl' (LLMLL.md §8.6).",
+      "type": "object",
+      "required": ["kind", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "open" },
+        "path":  { "type": "string", "description": "Dot-separated module path to open, e.g. 'app.auth'." },
+        "names": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Selective open: only these names are brought into scope. Omit to open all exports."
+        }
+      },
+      "examples": [
+        { "kind": "open", "path": "app.auth" },
+        { "kind": "open", "path": "app.auth", "names": ["hash-password", "verify-token"] }
+      ]
+    },
+
+    "ExportDecl": {
+      "description": "Restrict the names exported by this module to those listed. NEW in v0.2. If absent, all top-level defs are exported. Corresponds to EBNF 'export-decl' (LLMLL.md §8.7).",
+      "type": "object",
+      "required": ["kind", "names"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "export" },
+        "names": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Names of def, def-shell, type, def-interface, or gen declarations to export. check and def-invariant are never exported."
+        }
+      },
+      "examples": [
+        { "kind": "export", "names": ["hash-password", "verify-token"] }
+      ]
+    },
+
+    "DefMain": {
+      "description": "Declares the program entry point and runtime harness. Corresponds to EBNF 'def-main' (§9.5 LLMLL.md). Without a def-main the compiler generates a library only. At most one def-main per program.",
+      "type": "object",
+      "required": ["kind", "mode", "step"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "def-main" },
+        "mode": {
+          "description": "Selects the generated harness template.",
+          "oneOf": [
+            { "type": "string", "enum": ["console", "cli"] },
+            {
+              "type": "object",
+              "required": ["kind", "port"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "const": "http" },
+                "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+              }
+            }
+          ]
+        },
+        "init": {
+          "description": "Expression returning (State, Command) pair. Executed once at startup. Optional — if absent the initial state is ().",
+          "$ref": "#/$defs/Expr"
+        },
+        "step": {
+          "description": "Function or expression of type (State, String) -> (State, Command). Called on each input line (console) or OS args (cli).",
+          "$ref": "#/$defs/Expr"
+        },
+        "done?": {
+          "description": "Predicate of type State -> Bool. When true the console loop exits (optional).",
+          "$ref": "#/$defs/Expr"
+        },
+        "on-done": {
+          "description": "Function of type State -> Command called once when done? returns true (optional).",
+          "$ref": "#/$defs/Expr"
+        },
+        "status": {
+          "description": "PROC-BOUNDARY-1 (0.11.0). Total function of type State -> int, applied to the FINAL state when done? holds; the process then exits with the result. Optional: absent means exit 0 on that path, which is every pre-0.11.0 program's behaviour. Declare the range on the named function's contract: {v : int | 0 <= v && v <= 255}. POSIX truncates a status to the low 8 bits, so an unconstrained 256 would exit 0 and report success. NOT consulted when stdin reaches EOF: where done? IS declared that path exits a fixed 70, because a projection from state alone cannot distinguish a completed run from a starved one (the distinguishing predicate, done?, lives outside the state). 70 is not reserved from the program, so a shell can tell neither path from success but cannot tell exhaustion from a deliberately-returned 70. Where done? is NOT declared, EOF is normal termination and the program exits 0: a program with no completion predicate has no notion of completion, so exhaustion is not starvation. The discriminator is whether done? is DECLARED, not whether it fired. Console mode only; ignored in cli and http, which perform no Command and have no terminal state to project.",
+          "$ref": "#/$defs/Expr"
+        }
+      }
+    },
+
+    "PatchEnvelope": {
+      "description": "LLMLL patch request envelope (v0.3). Submitted to 'llmll patch' CLI or POST /patch HTTP endpoint. Not part of the AST schema proper — companion definition for agent tooling.",
+      "type": "object",
+      "required": ["token", "patch"],
+      "additionalProperties": false,
+      "properties": {
+        "token": { "type": "string", "description": "Checkout bearer token from 'llmll checkout'." },
+        "patch": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PatchOp" },
+          "description": "RFC 6902 operations to apply to the JSON-AST."
+        }
+      }
+    },
+
+    "PatchOp": {
+      "description": "A single RFC 6902 JSON-Patch operation (v0.3). Supported ops: replace, add, remove, test. 'move' and 'copy' are deferred to a future release.",
+      "type": "object",
+      "required": ["op", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "op":    { "type": "string", "enum": ["replace", "add", "remove", "test"] },
+        "path":  { "type": "string", "description": "RFC 6901 JSON Pointer targeting a node within the checked-out subtree." },
+        "value": { "description": "The value to use for replace/add/test. Required for replace, add, test. Must be absent for remove." }
+      },
+      "if": { "properties": { "op": { "enum": ["replace", "add", "test"] } } },
+      "then": { "required": ["value"] }
+    },
+
+    "CheckoutToken": {
+      "description": "Checkout token response from 'llmll checkout' or POST /checkout (v0.3; context-aware v0.3.5). Companion definition for agent tooling.",
+      "type": "object",
+      "required": ["pointer", "token", "ttl"],
+      "additionalProperties": true,
+      "properties": {
+        "pointer":   { "type": "string", "description": "RFC 6901 JSON Pointer to the checked-out hole. Normalized: leading zeros in numeric segments are stripped (EC-3)." },
+        "hole_kind": { "type": "string", "description": "The kind of hole (e.g. 'hole-delegate', 'hole-named')." },
+        "token":     { "type": "string", "description": "32-character hex bearer token. Include in patch requests." },
+        "ttl":       { "type": "integer", "description": "Lock time-to-live in seconds. Default: 3600 (1 hour)." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Lock creation time (ISO 8601)." },
+        "in_scope": {
+          "description": "v0.3.5: Bindings visible at the hole site (Γ delta). Sorted by source priority; may be truncated.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "source"],
+            "properties": {
+              "name":   { "type": "string" },
+              "type":   { "type": "string", "description": "LLMLL type notation (e.g. 'list[int]', '(int, string)')." },
+              "source": { "type": "string", "enum": ["param", "let-binding", "match-arm", "open-import"] }
+            }
+          }
+        },
+        "expected_return_type": { "type": "string", "description": "v0.3.5: Inferred return type at the hole site (τ as LLMLL type label)." },
+        "available_functions": {
+          "description": "v0.3.5: Non-wasi.* function signatures (Σ), monomorphized against concrete scope types. DEMO-COMP (0.12.1): contracted-user entries additionally carry pre/post/tier/return_type — the contract an agent must discharge (pre) and may assume (post). pre/post/tier are null when absent (a pre-free callee → pre:null → no call-site obligation; builtins → tier:null).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "params", "returns", "status"],
+            "properties": {
+              "name":        { "type": "string" },
+              "params":      { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "type": { "type": "string" } } } },
+              "returns":     { "type": "string" },
+              "return_type": { "type": "string", "description": "DEMO-COMP (0.12.1): alias of 'returns'." },
+              "status":      { "type": "string", "enum": ["filled", "hole", "builtin"] },
+              "pre":         { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): rendered precondition; null if pre-free." },
+              "post":        { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): rendered postcondition; null if absent." },
+              "tier":        { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): effective trust tier (verified/contract-checked/asserted); null for builtins." }
+            }
+          }
+        },
+        "consumed_guarantees": {
+          "description": "DEMO-COMP (0.12.1): discharged callee postconditions the enclosing function consumes as available hypotheses. SEPARATE channel from 'assumptions' (which carries TCB escape hatches): a consumed guarantee is a proven fact, NOT an assumption. Surfaces shipped v0.9.0 assume-guarantee composition. 'callee_tier' is the callee's actual effective trust tier (never hardcoded 'verified'); a function never lists its own post (self/SCC self-edges filtered). 'instantiated' is re-derived by substitution, not solver-witnessed — the 'discharged' status rests on 'callee_tier'.",
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["callee", "guarantee", "instantiated", "callee_tier", "status"],
+            "properties": {
+              "callee":       { "type": "string", "description": "The contracted callee whose post is consumed." },
+              "guarantee":    { "type": "string", "description": "The callee's raw postcondition (rendered)." },
+              "instantiated": { "type": "string", "description": "post[ai/xi, result/<call-result>] — actuals substituted into the callee post." },
+              "callee_tier":  { "type": "string", "description": "The callee's effective trust tier (soundness lever — never hardcoded)." },
+              "status":       { "type": "string", "enum": ["discharged"], "description": "Always 'discharged' (the callee's own verification carries the guarantee)." }
+            }
+          }
+        },
+        "brief_version": { "type": "string", "description": "DEMO-COMP (0.12.1): schema version of the checkout brief (previously unversioned)." },
+        "type_definitions": {
+          "description": "v0.3.5: User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name":         { "type": "string" },
+              "kind":         { "type": "string", "enum": ["sum", "alias", "dependent"] },
+              "constructors": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "payload": { "type": "string" } } } },
+              "base_type":    { "type": "string" },
+              "recursive":    { "type": "boolean", "description": "True if cycle detected during alias expansion (EC-4)." }
+            }
+          }
+        },
+        "scope_truncated": { "type": "boolean", "description": "v0.3.5: True if in_scope was truncated to the 50-entry limit (C6)." }
+      }
+    },
+
+    "TrustDecl": {
+      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def or def-shell function declaration. Multiple trust declarations per module are allowed; duplicates are idempotent.",
+      "type": "object",
+      "required": ["kind", "target", "level"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "trust" },
+        "target": { "type": "string", "description": "Dot-separated qualified function name, e.g. 'crypto.hash.pbkdf2'." },
+        "level":  { "type": "string", "enum": ["proven", "tested", "asserted"], "description": "The verification level being acknowledged. Sample counts for 'tested' are compiler-internal (stored in sidecar .verified.json, not in surface syntax)." }
+      },
+      "examples": [
+        { "kind": "trust", "target": "crypto.hash.pbkdf2", "level": "asserted" },
+        { "kind": "trust", "target": "auth.verify-token", "level": "tested" }
+      ]
+    },
+
+    "WeaknessOkDecl": {
+      "description": "Suppression governance declaration. Silences --spec-coverage 'unspecified' warnings for a named function. Both 'name' and 'reason' are required; an empty reason is rejected by the parser (LLMLL.md §4.5). Corresponds to EBNF '(weakness-ok fn-name \"reason\")'. v0.6.",
+      "type": "object",
+      "required": ["kind", "name", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "weakness-ok" },
+        "name":   { "type": "string", "description": "Name of the function to suppress weakness warnings for." },
+        "reason": { "type": "string", "minLength": 1, "description": "Mandatory non-empty reason for the suppression." }
+      },
+      "examples": [
+        { "kind": "weakness-ok", "name": "render-board", "reason": "pure string rendering — no meaningful postcondition" }
+      ]
+    },
+
+    "PatchResult": {
+      "description": "Result of 'llmll patch' / POST /patch. Companion definition for agent tooling. The 'result' tag discriminates the outcome. DEMO-COMP (0.12.1): a PatchVerifyError that is specifically a caller failing to discharge a callee precondition carries an additional discriminated sub-reason 'callee-precondition-unmet' plus {callee, required_pre, call_site_pointer} — distinct from a plain body-post violation (which omits 'reason'). This is an additive, optional payload on the existing PatchVerifyError shape; existing consumers that key only on 'result' are unaffected.",
+      "type": "object",
+      "required": ["result"],
+      "additionalProperties": true,
+      "properties": {
+        "result":            { "type": "string", "enum": ["PatchSuccess", "PatchTypeError", "PatchVerifyError", "PatchApplyError", "PatchAuthError"] },
+        "statements":        { "type": "integer", "description": "PatchSuccess: number of statements in the result." },
+        "diagnostics":       { "type": "array", "description": "PatchTypeError / PatchVerifyError: rebased diagnostics." },
+        "message":           { "type": "string", "description": "PatchApplyError / PatchAuthError: human-readable error." },
+        "reason":            { "type": "string", "enum": ["callee-precondition-unmet"], "description": "DEMO-COMP (0.12.1): present on PatchVerifyError only when the failure is a callee precondition unmet (a 'call-pre:' constraint), not a body-post violation." },
+        "callee":            { "type": "string", "description": "DEMO-COMP: the callee whose precondition was not discharged." },
+        "required_pre":      { "type": "string", "description": "DEMO-COMP: the callee precondition the caller failed to prove (rendered)." },
+        "call_site_pointer": { "type": "string", "description": "DEMO-COMP: JSON pointer to the failing call site." }
+      },
+      "examples": [
+        { "result": "PatchVerifyError", "reason": "callee-precondition-unmet", "callee": "withdraw", "required_pre": "(>= balance amount)", "call_site_pointer": "/statements/4/body" }
+      ]
+    }
+
+  },
+
+  "$ref": "#/$defs/Program"
+}

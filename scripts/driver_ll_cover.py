@@ -1595,15 +1595,28 @@ def j1(b, wd):
     want_rc(r, 0)
     want_complete_row(r.stages()["J"], "gate")
     g = gate_json(wd)
-    want(set(g) == {"verifiable_carried", "verifiable_total", "coverage_note",
-                    "characteristic_core_dispositioned_out",
-                    "exclusions_outside_barrier_list"},
-         f"09-gate/gate.json is not the reference's report (:921-932): {sorted(g)}")
+    # THE REFERENCE'S SHAPE, not the port's. This cell asserted the port's own
+    # five flat keys until the 2026-09-12 clause 2 re-run, which is the
+    # fitted-assertion failure: a cell that pins an implementation to itself
+    # cannot see it diverge. rfc_to_implementation.py:1085-1096 builds a nested
+    # four-member document. `ratio` is the one member the port omits, because it
+    # is a float and the surface has no float injection.
+    want(set(g) == {"verifiable_subject_matter", "characteristic_core",
+                    "exclusions_outside_barrier_list", "raw_ledger"},
+         f"09-gate/gate.json is not the reference's report (:1085-1096): {sorted(g)}")
     want("driver-ll" not in g,
          "09-gate/gate.json is still the 4a stub body, so the stage did not run")
-    want(g["coverage_note"] == "reported, NOT thresholded",
-         "the coverage note carries driver-spec sec 6:219's semantics verbatim")
-    want(g["characteristic_core_dispositioned_out"] == []
+    want(set(g["verifiable_subject_matter"]) == {"carried", "total", "note"},
+         f"verifiable_subject_matter is not the reference's block, minus ratio: "
+         f"{sorted(g['verifiable_subject_matter'])}")
+    want(g["verifiable_subject_matter"]["note"] == "reported, NOT thresholded",
+         "the note carries driver-spec sec 6:219's semantics verbatim")
+    want(set(g["characteristic_core"]) == {"total", "dispositioned_out"},
+         f"characteristic_core is not the reference's block: {sorted(g['characteristic_core'])}")
+    want(set(g["raw_ledger"]) == {"Encoded", "Deployment-modeled", "Vectored",
+                                  "Dispositioned out"},
+         f"raw_ledger is not DISPOSITIONS (:98): {sorted(g['raw_ledger'])}")
+    want(g["characteristic_core"]["dispositioned_out"] == []
          and g["exclusions_outside_barrier_list"] == [],
          f"neither enforced condition has rows, or the gate would have halted: {g}")
 
@@ -1623,7 +1636,7 @@ def j2(b, wd):
     want((wd / "09-gate" / "gate.json").exists(),
          "the report MUST be on disk before the halt, or the stage lost a "
          "declared artifact and the Outcome degrades to ConditionUnmet")
-    want(gate_json(wd)["characteristic_core_dispositioned_out"] == ["A0"],
+    want(gate_json(wd)["characteristic_core"]["dispositioned_out"] == ["A0"],
          "the report names the row that fired the condition")
 
 

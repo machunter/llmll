@@ -1,0 +1,60 @@
+;; Mutant of probe 2. The contract is byte-identical to merge-before-opcode.llmll;
+;; only the `Other` arm changed.
+;;
+;; Bug: opcode validation hoisted above the merge. The implementation checks
+;; `ar$op` first and discards anything that is neither REQUEST nor REPLY without
+;; touching the table. That is the ordinary defensive reading of a protocol
+;; handler, and it is exactly what RFC 826 lines 227-229 single out as wrong: the
+;; merge is unconditional on the opcode, and the discard of lines 200-201 happens
+;; only after the table has already been written.
+;;
+;; [M2] is the clause that must catch it.
+
+(module merge-before-opcode
+
+  (type Op
+    (| Request)
+    (| Reply)
+    (| Other))
+
+  (def merge-before-opcode
+      [tbl: map[int,int]
+       op: Op
+       gated: bool
+       skey: int sha: int tpa: int mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (!= okey skey)
+      :source "frame witness: okey ranges over table keys other than <ar$pro, ar$spa>")
+
+    (post (=> (and gated (map-has tbl skey))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 209-213, 227-229 — the merge precedes the opcode test")
+
+    (post (=> (and (= op Other) (and gated (map-has tbl skey)))
+              (= (map-get result skey) sha))
+      :source "RFC 826 lines 219, 227-234, 308-309 — merge before the ar$op test, including an unhandled opcode")
+
+    (post (=> (and (not (map-has tbl skey)) (!= tpa mypa))
+              (not (map-has result skey)))
+      :source "RFC 826 line 214 — the target test gates the add under every opcode")
+
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+
+    (match op
+      ((Request) (if gated
+                     (if (map-has tbl skey)
+                         (map-put tbl skey sha)
+                         (if (= tpa mypa) (map-put tbl skey sha) tbl))
+                     tbl))
+      ((Reply)   (if gated
+                     (if (map-has tbl skey)
+                         (map-put tbl skey sha)
+                         (if (= tpa mypa) (map-put tbl skey sha) tbl))
+                     tbl))
+      ;; BUG: an unrecognised opcode is discarded before the merge.
+      ((Other)   tbl))))

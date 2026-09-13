@@ -1,0 +1,91 @@
+{
+ "stages": {
+  "A": {
+   "status": "complete",
+   "kind": "mechanical",
+   "seconds": 0,
+   "outputs": {
+    "00-source/PROVENANCE.json": "4389b58ff38c65e43f5bc99947bd77a8ca82db0dbbfcb192f177decee85c4333"
+   }
+  },
+  "B": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 139,
+   "outputs": {
+    "01-scope/scope.md": "e592daca75b0a9c31fe48ea1f47dc6abb5ff8654f89cf6002b876cdaf26fcc85"
+   }
+  },
+  "C": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 176,
+   "outputs": {
+    "02-rubric/rubric.md": "2cfca26a05290fab453fa9451e2dd4b284708423428f47962f05a84c7095fc28"
+   }
+  },
+  "D": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 679,
+   "outputs": {
+    "03-extraction/a/extraction.json": "14969327c5489ca7315d468367933d69ca41f7928f0274e86b43d082a4a456d7",
+    "03-extraction/b/extraction.json": "129e865829c6dc6be0fb8433b00455cd84608a69077387fd223c834cfb261b6f"
+   }
+  },
+  "E": {
+   "status": "complete",
+   "kind": "mechanical",
+   "seconds": 0,
+   "outputs": {
+    "04-reconcile/SUMMARY.json": "fcb02e6ee53be4d6eab1d193c5d7979b707df035d3bf26a7efd65f7b9eeaddb2"
+   }
+  },
+  "F": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 59,
+   "outputs": {
+    "05-core/core.json": "a6136962f6cc6584ae035d1050864a4bc532473d18f1d80c06d3bff0571c5444"
+   }
+  },
+  "G": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 297,
+   "outputs": {
+    "06-disposition/inventory-dispositioned.json": "bdb011eead00ed1b30b3137805a6bf964ee9489228eeb6d0ceb62440b2e53370"
+   }
+  },
+  "G2": {
+   "status": "complete",
+   "kind": "gate",
+   "seconds": 0,
+   "outputs": {
+    "06b-audit/audit.json": "113166d3ad5436846b6e03e07b2036b6707112d1f32fe23a354fa2172250faab"
+   }
+  },
+  "H": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 708,
+   "outputs": {
+    "07-feasibility/feasibility.json": "8f7e1e86793d4bf8c58c4f5a45339cb552dce9d1d6178231e563298a2ffae9d5"
+   }
+  },
+  "I": {
+   "status": "complete",
+   "kind": "agent",
+   "seconds": 348,
+   "outputs": {
+    "08-prereg/PRE-REGISTRATION.md": "2daeeaf8daa01f1219e4a842a0dc9434b4bfce5f02f7de1ae3c8fbe34642c5d3"
+   }
+  },
+  "J": {
+   "status": "stopped",
+   "detail": "stage J: a clause named as characteristic of the subject matter is dispositioned out. 09-gate/gate.json names the rows under characteristic_core_dispositioned_out, and it was written before this halt.",
+   "outcome": "PartialThenHalt",
+   "clause": "driver-spec sec 6:224-227"
+  }
+ }
+}

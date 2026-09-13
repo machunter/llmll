@@ -1,0 +1,5 @@
+   .fq written to /tmp/learn-sender-only.fq
+   body-faithful: learn-sender-only
+   Running liquid-fixpoint ...
+✅ /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/a2a45ac7-fb71-4505-97c7-093916fe77e4/scratchpad/clause2-run2/wd/07-feasibility/learn-sender-only.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to /private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/a2a45ac7-fb71-4505-97c7-093916fe77e4/scratchpad/clause2-run2/wd/07-feasibility/learn-sender-only.llmll.verified.json

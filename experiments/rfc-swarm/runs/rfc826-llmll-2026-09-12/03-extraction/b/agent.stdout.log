@@ -1,0 +1,11 @@
+`extraction.json` written to the working directory. 83 normative rows, 72 excluded rows.
+
+Verification run against the local `rfc826.txt` (sha256 `01bc62fe...`, matching the rubric's pin, 470 lines):
+
+- Every quote appears verbatim inside its cited line span (whitespace-normalized), after fixing three spans that were off by a line.
+- All spans are integers within 1..470 with `line_start <= line_end`; ids sequential; rules confined to `N1`-`N10` and `X1`-`X8`; strength confined to must/should/may/none.
+- Every non-blank line of the source is cited by at least one row, normative or excluded.
+
+Distribution: N3 packet format and encoding 22, N6 table state 17, N1 party behavior 11, N5 field assignment 11, N4 constants 5, N2 reception algorithm 5, N9 generalization 4, N7 discard 3, N8 permissions 3, N10 environment assumptions 2. Requirement words actually present: 2 `must`, 7 `should`, 2 `may`, 72 rows carried by indicative or imperative mood with no requirement word, which matches the rubric's prediction that a keyword scan would miss the document's core.
+
+Rubric cases that bind extraction were followed as written: line 23's `must` excluded under T3 (Bx3), line 70's `should` excluded under X6 (Bx11), lines 65-66 normative (B2), the 170-175 lookup split into three rows (B22, B23, B24), the `ar$tha` split into unconstrained plus permission (B34, B35), the monitor's unconditional table entry rowed against X8 (B70), lines 423-424 rowed under N10 (B73), and the aging discussion rowed under T11 (B71, B74-B77, B79-B81). No rubric amendment was required: every obligation I found was reached by an existing N or X rule.

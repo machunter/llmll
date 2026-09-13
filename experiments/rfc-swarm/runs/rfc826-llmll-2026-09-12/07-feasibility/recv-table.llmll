@@ -1,0 +1,81 @@
+;; Stage H feasibility probe 1 — the table half of the RFC 826 reception algorithm.
+;;
+;; This body is a throwaway. It exists only to test whether the contract shape
+;; verifies body-faithfully and whether the same shape refutes the historically
+;; attested promiscuous-learning bug. It is never promoted into the deliverable.
+;;
+;; Representation decisions under test (Stage B commitments):
+;;   * Every opaque protocol scalar (HwAddr, ProtoAddr, the table key) is `int`
+;;     and is touched by `=` / `!=` ONLY. No ordering operator appears in this
+;;     file, so no order is imported into the model (Stage B §3).
+;;   * The translation table is `map[int,int]`. The key is the
+;;     <protocol type, sender protocol address> pair of lines 210-213, carried as
+;;     one opaque injectively-encoded scalar; the value is the hardware address.
+;;   * `okey` is a Skolem witness for "some other key", standing in for the
+;;     universally quantified frame condition the fragment forbids (Stage B §1).
+
+(module recv-table
+
+  (def recv-table
+      [tbl: map[int,int]
+       have-hw: bool
+       ck-hln: bool hln-ok: bool
+       speaks-pro: bool
+       ck-pln: bool pln-ok: bool
+       skey: int sha: int tpa: int mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (!= okey skey)
+      :source "frame witness: okey ranges over table keys other than <ar$pro, ar$spa>")
+
+    ;; [T1] Merge. An entry already present for the sender pair takes the new
+    ;; sender hardware address, whatever the target fields say.
+    (post (=> (and have-hw
+                   (and (or (not ck-hln) hln-ok)
+                        (and speaks-pro
+                             (and (or (not ck-pln) pln-ok)
+                                  (map-has tbl skey)))))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 209-213 — update the sender hardware address field of the entry")
+
+    ;; [T2] Add. Absent an entry, the triplet is added only when this node is the
+    ;; target protocol address.
+    (post (=> (and have-hw
+                   (and (or (not ck-hln) hln-ok)
+                        (and speaks-pro
+                             (and (or (not ck-pln) pln-ok)
+                                  (and (not (map-has tbl skey)) (= tpa mypa))))))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 214-218 — if Merge_flag is false, add the triplet")
+
+    ;; [T3] No promiscuous add. This is the clause the mutant must break: a packet
+    ;; not addressed to this node may never create an entry. No gate conjunct is
+    ;; needed, so the clause is strictly stronger than the negation of [T2].
+    (post (=> (and (not (map-has tbl skey)) (!= tpa mypa))
+              (not (map-has result skey)))
+      :source "RFC 826 line 214 — the target test gates the add; lines 197-201 discard otherwise")
+
+    ;; [T4] Gate fall-through. A packet failing the hardware, protocol, or optional
+    ;; length checks leaves the sender entry exactly as it was.
+    (post (=> (not (and have-hw
+                        (and (or (not ck-hln) hln-ok)
+                             (and speaks-pro (or (not ck-pln) pln-ok)))))
+              (<=> (map-has result skey) (map-has tbl skey)))
+      :source "RFC 826 lines 197-208 — negative conditionals end processing and discard the packet")
+
+    ;; [T5] Frame. Nothing outside the sender key moves, in presence or in value.
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+
+    (if (and have-hw
+             (and (or (not ck-hln) hln-ok)
+                  (and speaks-pro (or (not ck-pln) pln-ok))))
+        (if (map-has tbl skey)
+            (map-put tbl skey sha)
+            (if (= tpa mypa)
+                (map-put tbl skey sha)
+                tbl))
+        tbl)))

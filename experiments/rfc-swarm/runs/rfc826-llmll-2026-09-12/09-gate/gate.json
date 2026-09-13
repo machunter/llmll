@@ -1,0 +1,29 @@
+{
+ "verifiable_subject_matter": {
+  "carried": 28,
+  "total": 58,
+  "note": "reported, NOT thresholded"
+ },
+ "characteristic_core": {
+  "total": 26,
+  "dispositioned_out": [
+   "A2",
+   "A11",
+   "A12",
+   "A14",
+   "A15",
+   "A16",
+   "A17",
+   "A18",
+   "A19",
+   "A20"
+  ]
+ },
+ "exclusions_outside_barrier_list": [],
+ "raw_ledger": {
+  "Encoded": 23,
+  "Deployment-modeled": 5,
+  "Vectored": 0,
+  "Dispositioned out": 62
+ }
+}

@@ -430,9 +430,19 @@
                 (n-carried rs)
                 (n-verifiable rs)))
 
-  ;; 09-gate/gate.json, rfc_to_implementation.py:921-932. The `ratio` member is
-  ;; omitted: it is a float, and the surface has no float injection. The note it
-  ;; carried is kept, because "reported, NOT thresholded" is the semantics.
+  ;; 09-gate/gate.json, rfc_to_implementation.py:1085-1096.
+  ;;
+  ;; THE SHAPE WAS FLAT AND THE REFERENCE'S IS NESTED, and a live clause 2 run
+  ;; found it where no cover cell could: the cells asserted the PORT's own five
+  ;; keys, so they pinned the port to itself. The citation this comment used to
+  ;; carry, `:921-932`, was correct at Phase 3 and the reference has grown since;
+  ;; those lines are now stage G2's require_spec calls. Cite the construct and
+  ;; re-measure the line.
+  ;;
+  ;; The `ratio` member is still omitted: it is a float, and the surface has no
+  ;; float injection. The reference emits `null` for it when there is no
+  ;; verifiable subject matter, and a reader can divide the two integers beside
+  ;; it. Every other member of all four is reproduced.
   (def-shell cid-array [rs: list[Json]] -> Json
     (json-of-list (list-map rs (fn [r: Json] (json-of-string (str-field r "cid"))))))
 
@@ -445,14 +455,35 @@
   (def-shell jset-or-empty [o: Json k: string v: Json] -> Json
     (unwrap-or (json-set o k v) json-object))
 
+  ;; DISPOSITIONS, rfc_to_implementation.py:98, in the reference's own order.
+  (def-shell n-disposed [rs: list[Json] d: string] -> int
+    (list-length (list-filter rs (fn [r: Json] (= (str-field r "disposition") d)))))
+
+  (def-shell raw-ledger [rs: list[Json]] -> Json
+    (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty json-object
+      "Encoded"            (json-of-int (n-disposed rs "Encoded")))
+      "Deployment-modeled" (json-of-int (n-disposed rs "Deployment-modeled")))
+      "Vectored"           (json-of-int (n-disposed rs "Vectored")))
+      "Dispositioned out"  (json-of-int (n-disposed rs "Dispositioned out"))))
+
+  (def-shell verifiable-block [rs: list[Json]] -> Json
+    (jset-or-empty (jset-or-empty (jset-or-empty json-object
+      "carried" (json-of-int (n-carried rs)))
+      "total"   (json-of-int (n-verifiable rs)))
+      "note"    (json-of-string "reported, NOT thresholded")))
+
+  (def-shell core-block [rs: list[Json]] -> Json
+    (jset-or-empty (jset-or-empty json-object
+      "total"             (json-of-int (n-core rs)))
+      "dispositioned_out" (cid-array (core-out-rows rs))))
+
   (def-shell gate-report [rs: list[Json]] -> string
     (json-serialize
-      (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty json-object
-        "verifiable_carried" (json-of-int (n-carried rs)))
-        "verifiable_total"   (json-of-int (n-verifiable rs)))
-        "coverage_note"      (json-of-string "reported, NOT thresholded"))
-        "characteristic_core_dispositioned_out" (cid-array (core-out-rows rs)))
-        "exclusions_outside_barrier_list"       (cid-array (bad-barrier-rows rs)))))
+      (jset-or-empty (jset-or-empty (jset-or-empty (jset-or-empty json-object
+        "verifiable_subject_matter" (verifiable-block rs))
+        "characteristic_core"       (core-block rs))
+        "exclusions_outside_barrier_list" (cid-array (bad-barrier-rows rs)))
+        "raw_ledger" (raw-ledger rs))))
 
   (def-shell counts-line [rs: list[Json]] -> string
     (cat3 (cat3 "stage-J-counts=rows:" (int-to-string (list-length rs))

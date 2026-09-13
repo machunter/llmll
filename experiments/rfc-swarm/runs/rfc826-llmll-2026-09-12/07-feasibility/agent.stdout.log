@@ -1,0 +1,20 @@
+Stage H is done. Six probe pairs, all meeting the bar.
+
+| Probe | Verdict | Mutant | Verdict |
+|---|---|---|---|
+| `recv-table` | SAFE, body-faithful | promiscuous learning (target test of line 214 dropped) | refuted |
+| `merge-before-opcode` | SAFE, body-faithful | opcode validation hoisted above the merge | refuted |
+| `reply-emit` | SAFE, body-faithful | literal-swap misreading of lines 221-222 | refuted |
+| `resolve-out` | SAFE, body-faithful | generated request carries the sought address in `ar$spa` | refuted |
+| `supersede-two` | SAFE, body-faithful | first-writer-wins | refuted |
+| `learn-sender-only` | SAFE, body-faithful | caches the target pair from `ar$tha` | refuted |
+
+`--weakness-check` reports no spec weakness on any of the six, and a grep confirms no ordering or arithmetic operator appears in any of the twelve files, so Stage B's equality-only commitment holds mechanically rather than by assertion.
+
+**Mandatory mutant.** ARP's attested bug is promiscuous cache update, the thing every ARP-spoofing tool relies on. That is `recv-table-mutant`, and the clause that catches it is `[T3]`: `¬has(tbl,skey) ∧ tpa ≠ mypa ⇒ ¬has(result,skey)`, deliberately carrying no gate conjunct so it is strictly stronger than the negation of the add rule.
+
+**Three fragment boundaries cost a rewrite** and are written up in `FINDINGS.md` §3 because Stage D will hit all three: a `def` cannot call a same-file `def` (the callee's evidence does not exist during the pass that would create it); a `let` bound to a map-valued `if` falls back, so composition is a nested store rather than a bound intermediate state; and `map-has` over a `map-put` in guard position falls back, so a re-read of intermediate table state has to be written out as its select-over-store equivalent.
+
+**Two things I want flagged rather than buried.** First, the table key: the fragment admits only `int` and `string` map keys, so RFC 826's `<protocol type, protocol address>` pair is carried as one opaque encoded scalar. That is where the pair-key gap is absorbed, and it interacts with gap G-3. Second, the spoofed-binding negative result is genuinely unprobeable in this stage's shape, not omitted: the attacker model makes "the table only holds true bindings" false of the *correct* implementation, so probe and mutant would both come back refuted. `FINDINGS.md` §4 records it so its absence from `probes.json` does not read as an oversight.
+
+No reference solution was promoted; the bodies stay in `07-feasibility/`.

@@ -1,0 +1,38 @@
+{
+ "counts": {
+  "A_rows": 90,
+  "B_rows": 83
+ },
+ "line_coverage": {
+  "RFC826": {
+   "A_lines": 156,
+   "B_lines": 151,
+   "both": 142,
+   "union": 165,
+   "jaccard": 0.8606,
+   "A_only_lines": 14,
+   "B_only_lines": 9
+  }
+ },
+ "row_matching": {
+  "one_to_one": 39,
+  "A_rows_matching_multiple_B": 38,
+  "A_unmatched": 3,
+  "B_unmatched": 2
+ },
+ "rule_agreement": {
+  "compared": 39,
+  "identical": 36,
+  "raw_agreement": 0.9231,
+  "cohens_kappa": 0.9014
+ }
+}
+
+A-only rows (3):
+  A69 RFC826:[294, 295] [N8] A request may cause a reply to be generated, and a reply is a response to a previous request; the opcode is wh
+  A70 RFC826:[298, 299] [N3] Every address resolution packet must carry the sender hardware address and the sender protocol address.
+  A71 RFC826:[302, 304] [N3] A request must carry the target protocol address, because the receiver decides from it whether to record the s
+
+B-only rows (2):
+  B7 RFC826:[131, 133] [N3] An implementation must communicate <protocol, address> to 48-bit Ethernet address mappings using the packet fo
+  B71 RFC826:[415, 415] [N6] An implementation may age out or time out translation table entries.

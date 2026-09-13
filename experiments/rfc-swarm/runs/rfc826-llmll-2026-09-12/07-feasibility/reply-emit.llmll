@@ -1,0 +1,67 @@
+;; Stage H feasibility probe 3 — the reply half of the RFC 826 reception algorithm.
+;;
+;; Shape under test: can a contract pin a *constructed emission* — decision plus
+;; every field of the outgoing packet plus its hardware destination — by
+;; constructor equality over an admissible sum whose payload is a pair nest?
+;;
+;; Field layout of the Send payload:
+;;   (dst, ((ar$sha, ar$spa), (ar$tha, ar$tpa)))
+;; `ar$op` is not a payload field: Send *is* the REPLY (lines 220, 223).
+;;
+;; `tha` is a parameter the correct body never reads. Line 312 says ar$tha "has no
+;; meaning in the request form", and Stage B §4 item 3 carries the field precisely
+;; so that underspecification stays representable. An obligation whose truth
+;; depended on `tha` would be a defect in the obligation; the mutant is what
+;; happens when the *body* depends on it.
+
+(module reply-emit
+
+  (type Op
+    (| Request)
+    (| Reply)
+    (| Other))
+
+  (type Emit
+    (| Silent)
+    (| Send (int, ((int, int), (int, int)))))
+
+  (def reply-emit
+      [op: Op
+       gated: bool
+       tpa: int mypa: int
+       myhw: int
+       sha: int spa: int tha: int
+       bcast: int]
+      -> Emit
+
+    (pre (!= bcast sha)
+      :source "RFC 826 lines 186-187 — the broadcast address is a distinguished per-hardware constant")
+
+    ;; [R1] The reply, jointly: sender fields are this node's own, target fields
+    ;; are the requester's, destination is the requester's hardware address.
+    (post (=> (and gated (and (= op Request) (= tpa mypa)))
+              (= result (Send (pair sha (pair (pair myhw mypa) (pair sha spa))))))
+      :source "RFC 826 lines 221-225 — swap, putting the local addresses in the sender fields; reading disambiguated by lines 396-401")
+
+    ;; [R2] Otherwise nothing is emitted. Covers the failed gate, a non-REQUEST
+    ;; opcode, and a REQUEST addressed to someone else.
+    (post (=> (not (and gated (and (= op Request) (= tpa mypa))))
+              (= result Silent))
+      :source "RFC 826 lines 197-201, 214, 219 — negative conditionals end processing and discard the packet")
+
+    ;; [R3] The destination is not the broadcast address. Implied by [R1], kept
+    ;; separate because it is the clause that carries the attacker-model content:
+    ;; a broadcast reply hands every station on the cable a mapping it never asked
+    ;; for (Stage B §4 item 5).
+    (post (=> (and gated (and (= op Request) (= tpa mypa)))
+              (!= result (Send (pair bcast (pair (pair myhw mypa) (pair sha spa))))))
+      :source "RFC 826 lines 224-225, 400-401 — sends the packet directly (not broadcast)")
+
+    (if gated
+        (match op
+          ((Request) (if (= tpa mypa)
+                         (Send (pair sha (pair (pair myhw mypa) (pair sha spa))))
+                         Silent))
+          ((Reply)   Silent)
+          ((Other)   Silent))
+        Silent)))

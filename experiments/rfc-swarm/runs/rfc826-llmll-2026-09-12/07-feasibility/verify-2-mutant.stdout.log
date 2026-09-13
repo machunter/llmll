@@ -1,0 +1,5 @@
+   .fq written to /tmp/reply-emit-mutant.fq
+   body-faithful: reply-emit
+   Running liquid-fixpoint ...
+error: body verification of 'reply-emit' failed (then-branch does not satisfy postcondition) (constraint #0)
+ERROR: --strict-verified-core: refuted: reply-emit

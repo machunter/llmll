@@ -1,0 +1,63 @@
+;; Mutant of probe 1. The contract is byte-identical to recv-table.llmll; only the
+;; body changed.
+;;
+;; Bug: promiscuous learning. The target test of line 214 is dropped, so any
+;; packet that clears the hardware/protocol gate installs a fresh entry for its
+;; sender pair even though the packet was not addressed to this node. This is the
+;; attested ARP cache-poisoning enabler: it is what lets an unsolicited reply or a
+;; request broadcast to the cable plant a binding on every listener.
+;;
+;; [T3] is the clause that must catch it.
+
+(module recv-table
+
+  (def recv-table
+      [tbl: map[int,int]
+       have-hw: bool
+       ck-hln: bool hln-ok: bool
+       speaks-pro: bool
+       ck-pln: bool pln-ok: bool
+       skey: int sha: int tpa: int mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (!= okey skey)
+      :source "frame witness: okey ranges over table keys other than <ar$pro, ar$spa>")
+
+    (post (=> (and have-hw
+                   (and (or (not ck-hln) hln-ok)
+                        (and speaks-pro
+                             (and (or (not ck-pln) pln-ok)
+                                  (map-has tbl skey)))))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 209-213 — update the sender hardware address field of the entry")
+
+    (post (=> (and have-hw
+                   (and (or (not ck-hln) hln-ok)
+                        (and speaks-pro
+                             (and (or (not ck-pln) pln-ok)
+                                  (and (not (map-has tbl skey)) (= tpa mypa))))))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 214-218 — if Merge_flag is false, add the triplet")
+
+    (post (=> (and (not (map-has tbl skey)) (!= tpa mypa))
+              (not (map-has result skey)))
+      :source "RFC 826 line 214 — the target test gates the add; lines 197-201 discard otherwise")
+
+    (post (=> (not (and have-hw
+                        (and (or (not ck-hln) hln-ok)
+                             (and speaks-pro (or (not ck-pln) pln-ok)))))
+              (<=> (map-has result skey) (map-has tbl skey)))
+      :source "RFC 826 lines 197-208 — negative conditionals end processing and discard the packet")
+
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+
+    ;; BUG: the (= tpa mypa) target test is gone; the add fires unconditionally.
+    (if (and have-hw
+             (and (or (not ck-hln) hln-ok)
+                  (and speaks-pro (or (not ck-pln) pln-ok))))
+        (map-put tbl skey sha)
+        tbl)))

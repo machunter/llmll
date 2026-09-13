@@ -1,0 +1,12 @@
+Wrote `05-core/core.json` with 26 of the 90 inventory rows named as core.
+
+**What's in, and why:**
+
+- **Wire format (A11, A12, A14, A15, A16, A17, A18, A19, A20):** the nine packet-data fields in order. The variable-length address fields governed by ar$hln/ar$pln are what make this ARP rather than a fixed Ethernet/IP mapping packet; get the layout wrong and nothing parses.
+- **Encoding (A2):** ar$op high-byte-first. The RFC flags this as the one thing needing special care, and getting it wrong means no peer ever recognizes a request.
+- **Generation (A24, A28, A33, A34, A35, A36, A39):** hit path returns the address; miss path builds an ADDRESS_RESOLUTION packet with opcode REQUEST, own sha/spa, the sought tpa, and broadcasts it.
+- **Reception (A41, A47, A49, A50, A51, A52, A53, A54, A55):** the termination rule (negative conditional discards), the merge/supersede rule, the target test, the REQUEST-only reply gate, the merge-before-opcode sequencing rule, and reply construction sent directly to the requester.
+
+**Deliberately excluded** despite looking important: A26/A27 (discarding the pending packet on a miss) since implementations that queue instead are still recognizably ARP; A42/A44 (hardware-type and protocol checks) since skipping them is a bug, not a different protocol; A62 (no periodic broadcasting) and A89 (hosts speak only for themselves) since they are design rationale that later extensions like gratuitous and proxy ARP relax; A57, A70, A71, A76, which restate observable behavior already covered by A47, A34/A35, A36, and A2.
+
+Two judgment calls worth flagging: A19 (ar$tha) is core only as a layout position, since its content is unconstrained in a request, and A55 (directed reply) is included because the RFC states it twice, though a broadcast reply would still resolve.

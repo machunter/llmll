@@ -1,0 +1,31 @@
+{
+  "core_ids": [
+    "A2",
+    "A11",
+    "A12",
+    "A14",
+    "A15",
+    "A16",
+    "A17",
+    "A18",
+    "A19",
+    "A20",
+    "A24",
+    "A28",
+    "A33",
+    "A34",
+    "A35",
+    "A36",
+    "A39",
+    "A41",
+    "A47",
+    "A49",
+    "A50",
+    "A51",
+    "A52",
+    "A53",
+    "A54",
+    "A55"
+  ],
+  "rationale": "A2: If ar$op is written in native order on a low-byte-first machine, every peer reads the opcode as 256 or 512, no request is ever recognized, and nothing interoperates. A11: ar$hrd is the first word of the packet data and names the hardware address space, so misplacing it means peers are parsing a different packet. A12: ar$pro is the second word and names the protocol being resolved, and it is half the key under which every table entry is stored. A14: ar$hln states the hardware address length that determines where ar$sha, ar$tha and every field after them begin. A15: ar$pln states the protocol address length that determines the extent of ar$spa and ar$tpa. A16: ar$op carries the request/reply distinction, the only thing that separates a question from an answer. A17: ar$sha carries the sender hardware address, which is the value the whole protocol exists to distribute. A18: ar$spa carries the sender protocol address, the key half of the mapping every receiver learns. A19: ar$tha holds its fixed place in the layout and carries the requester's hardware address in a reply. A20: ar$tpa names the address being asked about and is the value each receiver tests itself against. A24: A successful lookup must hand the 48-bit address back to the caller, or resolution never results in a transmitted packet. A28: The generated query must be an Ethernet packet typed ether_type$ADDRESS_RESOLUTION, or no receiving Ethernet module will hand it to an Address Resolution module. A33: A query that does not carry ares_op$REQUEST provokes no reply from anyone. A34: A request without the sender's own hardware address gives the target nothing to answer to and nothing to record. A35: A request without the sender's own protocol address leaves the target unable to key the mapping it just learned. A36: A request that does not name the protocol address being sought asks nobody anything. A39: Broadcasting the request is how the query reaches a station whose hardware address is by definition not yet known. A41: Ending processing and discarding the packet on any failed test is the protocol's termination and error rule; continuing past a failed test makes a station answer for hardware, protocols and addresses that are not its own. A47: Overwriting the stored hardware address of an existing <protocol type, sender protocol address> pair is what lets the table recover when a host's hardware address changes. A49: The ar$tpa self-test is what stops every station on the cable from adding entries for and replying to exchanges that are not addressed to it. A50: Recording the sender triplet when this station is the target is how the protocol's bidirectionality assumption pays off, sparing the target a second resolution. A51: Replying to anything other than a REQUEST turns every exchange into a reply loop. A52: Merging the sender information before the opcode is examined is the protocol's characteristic sequencing rule; examining the opcode first throws away everything a reply would have taught. A53: Building the reply by swapping the hardware and protocol fields and placing the local addresses in the sender fields is the only way the answer carries the value that was asked for. A54: A reply that still carries REQUEST will be answered rather than recorded, producing the same loop. A55: Sending the reply directly to the new target hardware address rather than broadcasting it is what keeps resolution traffic off every other station on the cable."
+}

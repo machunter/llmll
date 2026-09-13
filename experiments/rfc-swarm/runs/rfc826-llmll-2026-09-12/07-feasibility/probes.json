@@ -1,0 +1,31 @@
+[
+  {"name": "recv-table",
+   "file": "recv-table.llmll",
+   "mutant_file": "recv-table-mutant.llmll",
+   "bug": "promiscuous learning: drops the target test of RFC 826 line 214, so any packet clearing the hardware/protocol gate installs an entry for its sender pair even when the packet was not addressed to this node (the ARP cache-poisoning enabler)"},
+
+  {"name": "merge-before-opcode",
+   "file": "merge-before-opcode.llmll",
+   "mutant_file": "merge-before-opcode-mutant.llmll",
+   "bug": "opcode validation hoisted above the merge: an opcode that is neither REQUEST nor REPLY is discarded without touching the table, contradicting lines 227-229 ('merged into the table before the opcode is looked at')"},
+
+  {"name": "reply-emit",
+   "file": "reply-emit.llmll",
+   "mutant_file": "reply-emit-mutant.llmll",
+   "bug": "the literal-swap misreading of lines 221-222: the reply exchanges sender and target fields without substituting the local addresses, so it advertises the requester's own binding back at it and reads ar$tha, which line 312 says has no meaning in a request"},
+
+  {"name": "resolve-out",
+   "file": "resolve-out.llmll",
+   "mutant_file": "resolve-out-mutant.llmll",
+   "bug": "a generated REQUEST carries the address being resolved in ar$spa instead of this node's own protocol address, breaking the local form of the no-propagation claim at lines 459-466 (Stage B gap G-2)"},
+
+  {"name": "supersede-two",
+   "file": "supersede-two.llmll",
+   "mutant_file": "supersede-two-mutant.llmll",
+   "bug": "first-writer-wins: the second reception adds a binding but refuses to overwrite an existing one, the common anti-spoofing bolt-on, contradicting lines 231-234 ('the new hardware address supersedes the old one')"},
+
+  {"name": "learn-sender-only",
+   "file": "learn-sender-only.llmll",
+   "mutant_file": "learn-sender-only-mutant.llmll",
+   "bug": "learning both ends: the target pair <ar$pro, ar$tpa> -> ar$tha is cached alongside the sender triplet, entering a binding the sender was never asked to fill in (line 312) and that no clause in lines 209-218 authorises"}
+]

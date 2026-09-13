@@ -1,0 +1,59 @@
+;; Mutant of probe 6. The contract is byte-identical to learn-sender-only.llmll;
+;; only the write branch changed.
+;;
+;; Bug: learning both ends. The implementation enters the target pair
+;; <ar$pro, ar$tpa> -> ar$tha alongside the sender triplet, on the reasoning that
+;; the packet names both stations and a cache entry is free. RFC 826 enters one
+;; triplet (lines 209-218), and line 312 says ar$tha has no meaning in the request
+;; form, so on a request the extra entry is a binding to a field the sender was
+;; told not to fill in.
+;;
+;; Under the Stage B §6 attacker model this is a poisoning primitive in its own
+;; right: every field of an arriving packet is attacker-chosen, so a receiver that
+;; learns the target fields accepts a binding for a station the sender never
+;; claimed to be, from a packet the receiver was not even the target of.
+;;
+;; [F2] is the clause that must catch it.
+
+(module learn-sender-only
+
+  (def learn-sender-only
+      [tbl: map[int,int]
+       gated: bool
+       skey: int sha: int
+       tkey: int tha: int
+       tpa: int mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (!= tkey skey)
+      :source "RFC 826 lines 210-213 — sender and target pairs are distinct keys in an exchange between two stations")
+    (pre (and (!= okey skey) (!= okey tkey))
+      :source "frame witness: okey ranges over keys that are neither pair in this packet")
+
+    ;; [F1] The sender triplet is learned, on the merge path and the add path.
+    (post (=> (and gated (or (map-has tbl skey) (= tpa mypa)))
+              (and (map-has result skey) (= (map-get result skey) sha)))
+      :source "RFC 826 lines 209-218 — merge the sender pair, or add the sender triplet when this node is the target")
+
+    ;; [F2] The target pair is not learned. This is the clause the mutant breaks.
+    (post (<=> (map-has result tkey) (map-has tbl tkey))
+      :source "RFC 826 lines 209-218, 312 — only the sender triplet is entered; ar$tha has no meaning in a request")
+    (post (=> (map-has tbl tkey) (= (map-get result tkey) (map-get tbl tkey)))
+      :source "RFC 826 lines 209-218, 312 — only the sender triplet is entered; ar$tha has no meaning in a request")
+
+    ;; [F3] Nothing else moves either.
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — only the sender pair's entry is written")
+
+    ;; [F4] The target gate, carried so the frame is not the only thing under test.
+    (post (=> (and (not (map-has tbl skey)) (!= tpa mypa))
+              (not (map-has result skey)))
+      :source "RFC 826 line 214 — the target test gates the add")
+
+    ;; BUG: the target pair is cached too.
+    (if (and gated (or (map-has tbl skey) (= tpa mypa)))
+        (map-put (map-put tbl skey sha) tkey tha)
+        tbl)))

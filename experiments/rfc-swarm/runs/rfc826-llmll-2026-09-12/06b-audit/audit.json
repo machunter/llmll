@@ -1,0 +1,15 @@
+{
+ "rows": 90,
+ "citations_checked": 90,
+ "uncited_rows": [],
+ "declared_strength_absent_from_quote": [
+  "A3",
+  "A27",
+  "A38",
+  "A70",
+  "A71",
+  "A79",
+  "A90"
+ ],
+ "note": "uncited_rows is a STOP. declared_strength_absent_from_quote is reported and NOT thresholded: it fires on correct rows. THIS PORT OMITS TWO HALVES the reference has, and names them rather than leaving the reader to infer the shape from what is here: unresolved_citations and span_nearly_right need a token-coverage ratio, and LLMLL has no floats; reasons_audited and reasons_flagged are the delegated half, filed as a roadmap row so that a new agent-delegated stage does not arrive under a port."
+}

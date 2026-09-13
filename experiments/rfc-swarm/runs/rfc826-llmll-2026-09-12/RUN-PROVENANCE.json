@@ -1,0 +1,15 @@
+{
+  "agent_exe": "./agent-wrapper.sh",
+  "agent_args": [
+    "--model",
+    "claude-opus-5",
+    "{prompt}",
+    "{out}"
+  ],
+  "model": "claude-opus-5",
+  "llmll_version": "llmll 0.23.4",
+  "driver_commit": "991d293",
+  "date": "2026-09-12",
+  "_note": "Written BEFORE the run, per CLAUSE-2-PRE-REGISTRATION.md section 6.2. Second clause 2 attempt of 2026-09-12. The first halted at stage J on six characteristic-core rows the stage G agent dispositioned out, which is the gate working; it also exposed that 09-gate/gate.json carried a flat shape where the reference nests, and that defect is fixed before this run.",
+  "agent_exe_asrun": "/private/tmp/claude-501/-Users-burcsahinoglu-Documents-llmll/a2a45ac7-fb71-4505-97c7-093916fe77e4/scratchpad/clause2-run2/agent-wrapper.sh"
+}

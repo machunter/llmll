@@ -1,0 +1,80 @@
+[
+ {
+  "name": "recv-table",
+  "probe": {
+   "file": "recv-table.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "recv-table-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "merge-before-opcode",
+  "probe": {
+   "file": "merge-before-opcode.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "merge-before-opcode-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "reply-emit",
+  "probe": {
+   "file": "reply-emit.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "reply-emit-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "resolve-out",
+  "probe": {
+   "file": "resolve-out.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "resolve-out-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "supersede-two",
+  "probe": {
+   "file": "supersede-two.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "supersede-two-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ },
+ {
+  "name": "learn-sender-only",
+  "probe": {
+   "file": "learn-sender-only.llmll",
+   "safe": true,
+   "body_faithful": true
+  },
+  "mutant": {
+   "file": "learn-sender-only-mutant.llmll",
+   "safe": false
+  },
+  "pass": true
+ }
+]

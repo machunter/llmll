@@ -1,0 +1,6 @@
+   .fq written to /tmp/resolve-out-mutant.fq
+   body-faithful: resolve-out
+   call-pre obligations: resolve-out
+   Running liquid-fixpoint ...
+error: body verification of 'resolve-out' failed (else-branch does not satisfy postcondition) (constraint #1)
+ERROR: --strict-verified-core: refuted: resolve-out

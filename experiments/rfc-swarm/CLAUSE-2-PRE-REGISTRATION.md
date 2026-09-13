@@ -318,6 +318,69 @@ validator has fired on a live agent's output.
 **R2, R3, R5 and R6 diverged, as §6.3 registered in advance.** Those are stages J, E
 and M, three of the five stubs. `R4` found a real inventory at `06-disposition/`.
 
+### 6.5 THE RE-RUN HAPPENED, and the gate halted it. 2026-09-12
+
+**`CLAUSE-2 FAIL`: one thresholded item unmet (`T1`), six met, two disclosed
+`NOT CHECKED` (`T2b`, `T5`).** Artifacts at
+[`runs/rfc826-llmll-2026-09-12/`](runs/rfc826-llmll-2026-09-12/). Driver at
+v0.23.4 (`991d293`), the first release in which **no stage writes a stub**: stage
+M landed at v0.23.2 with its agent contract at v0.23.3, and stages E, G2, J and L
+at v0.23.4. Seven agent sessions under `claude-opus-5`, pinned and recorded per
+§6.2.
+
+**Eleven stages reached a terminal state, ten `complete` and one `stopped`.
+Stages K, L, M, N and O were never attempted**, because a halted gate ends the
+run (driver-spec §6). That is why `T1` fails, and it is the only thresholded
+failure.
+
+**Gate J halted on its characteristic-core condition, and the gate was right.**
+Stage G dispositioned **ten of twenty-six** characteristic-core rows out, every
+one of them an ARP packet octet-layout obligation — field position and width,
+`ar$sha` occupying exactly `ar$hln` bytes — under barriers **B4 and B5, both on
+the closed list**. driver-spec §6:224-227 requires a halt when any clause named
+as characteristic is excluded. `09-gate/gate.json` was written before the halt and
+the row records `stopped` with `PartialThenHalt`.
+
+**THIS REPRODUCES AND IS NOT AGENT VARIANCE.** An earlier attempt the same day,
+on the same target and model, drew **twenty-two** core rows and excluded **six**,
+the same layout family, and halted the same way. Two independent runs agree with
+each other.
+
+**They disagree with the oracle, and the disagreement is at stage F rather than at
+the gate.** The July 2026 Python run drew **nineteen** core rows from ninety-one,
+dispositioned **none** out, and passed. Its core is behavioural: table lookup, the
+resolve hit and miss postconditions, request generation. Neither run's core is
+wrong on its face, and **this document does not adjudicate which reading of RFC
+826 is correct**; that is a judgement about ARP and not about the driver.
+
+**The sharper reading cuts toward the oracle, and is recorded rather than
+softened: a narrower core passes this gate more easily.** Nineteen of ninety-one
+rows, all `Encoded`, is the shape `spine.stage-j-pins`'s own comment warns about,
+where a gate stays green through its own blind spot. A run that names more
+characteristic clauses and then finds some outside the verifiable fragment has
+measured something; a run that names fewer has measured less.
+
+**What this run establishes, and it is the campaign's own question.** On RFC 826,
+the characteristic core as drawn by two independent frontier agents contains
+obligations about packet byte layout, and **those are outside LLMLL's verifiable
+fragment**. The gate refuses to certify a target it cannot carry. That is a
+finding about the language's reach, which is what the campaign exists to measure,
+and it is stronger evidence than a pass over a narrower core would have been.
+
+**Two port defects were found by this run and by no cover cell, and both are
+fixed.** `09-gate/gate.json` carried a **flat** five-key shape where
+`rfc_to_implementation.py:1085-1096` writes a **nested** four-member document; the
+J cover cells asserted the port's own keys, so they pinned the port to itself and
+could not see the divergence. And `clause2_compare.py` read the run-side stage E
+summary as `reconciliation-summary.json` where both sides write `SUMMARY.json`,
+so `R3` reported `absent` for a stage that had run correctly. With both fixed,
+`R2` reads `core_out=10 outside_barrier=0 carried=28/58` and `R3` reads
+`a_only=3 b_only=2 jaccard=0.8606 kappa=0.9014 n_compared=39`.
+
+**`R2` and `R3` diverge from the oracle and neither is a stub artefact any more.**
+That is the difference from 2026-09-11: every divergence this run reports is
+between two real bodies.
+
 ## 7. Divergence semantics, pre-registered
 
 Registered before any run, so a disagreement is a result and not an argument.

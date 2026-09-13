@@ -1,0 +1,55 @@
+;; Stage H feasibility probe 4 — the outbound half: resolution and request generation.
+;;
+;; Shape under test: two things at once. First, a table *read* whose key-presence
+;; precondition has to be discharged by the surrounding guard rather than assumed.
+;; Second, the local form of the no-propagation claim at lines 459-466, which
+;; Stage B gap G-2 says is the only form that survives the attacker model: every
+;; packet this node emits carries this node's own addresses in the sender fields.
+;;
+;; Field layout of the AskFor payload:
+;;   (dst, ((ar$sha, ar$spa), (ar$tha, ar$tpa)))
+;;
+;; `any-tha` encodes line 184 — the sender "does not set ar$tha to anything in
+;; particular". It is a free parameter, so the contract is discharged for every
+;; value of it at once; that is what makes the underspecification representable
+;; rather than silently resolved (Stage B §4 item 3).
+
+(module resolve-out
+
+  (type Outcome
+    (| Resolved int)
+    (| AskFor (int, ((int, int), (int, int)))))
+
+  (def resolve-out
+      [tbl: map[int,int]
+       key: int sought: int
+       myhw: int mypa: int
+       bcast: int
+       any-tha: int]
+      -> Outcome
+
+    (pre (!= sought mypa)
+      :source "modeling restriction: RFC 826 has no self-resolution; a node does not ARP for its own protocol address")
+
+    ;; [A1] Table hit: the address is resolved locally and nothing is emitted.
+    (post (=> (map-has tbl key)
+              (= result (Resolved (map-get tbl key))))
+      :source "RFC 826 lines 158-165 — look up the pair in the translation table")
+
+    ;; [A2] Table miss: a REQUEST goes out, broadcast, with this node's own
+    ;; addresses in the sender fields and the sought address in ar$tpa.
+    (post (=> (not (map-has tbl key))
+              (= result (AskFor (pair bcast (pair (pair myhw mypa) (pair any-tha sought))))))
+      :source "RFC 826 lines 176-190 — ar$sha := myHw, ar$spa := myPa, ar$tpa := sought, broadcast to all stations")
+
+    ;; [A3] The local no-propagation form. The generated request does not carry
+    ;; the address being asked about in the sender protocol address field. Implied
+    ;; by [A2]; kept separate because it is the clause that states gap G-2's
+    ;; survivable half on its own terms.
+    (post (=> (not (map-has tbl key))
+              (!= result (AskFor (pair bcast (pair (pair myhw sought) (pair any-tha sought))))))
+      :source "RFC 826 lines 181-182, 459-466 — hosts don't transmit information about anyone other than themselves")
+
+    (if (map-has tbl key)
+        (Resolved (map-get tbl key))
+        (AskFor (pair bcast (pair (pair myhw mypa) (pair any-tha sought)))))))

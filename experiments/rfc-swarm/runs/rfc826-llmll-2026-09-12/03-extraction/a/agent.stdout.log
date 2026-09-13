@@ -1,0 +1,10 @@
+`extraction.json` is written and validated.
+
+- **90 normative rows** (A1–A90), **56 excluded rows** (Ax1–Ax56).
+- Every quote was checked back against its cited line span in `rfc826.txt` (whitespace-normalized substring match): 0 mismatches. Ten spans/quotes were corrected during that check where a sentence wrapped across a line boundary.
+- Schema checks pass: integer spans within 1–470, unique sequential ids, `source` = `RFC826` throughout, `rule` in `N1..N10` / `X1..X8`, `strength` restricted to the contract's `must` / `should` / `may` / `none`.
+
+Two uniform decisions worth flagging, since they affect how rows compare:
+
+1. **Strength mapping.** The contract enumerates four values but RFC 826 predates RFC 2119 and carries most obligations in the indicative. I mapped the rubric's ladder onto the four: `must` ← must/necessary/needed/requires; `should` ← should; `may` ← may/can/could/optional/optionally/probably/perhaps/supposed; `none` ← no requirement word present. 70 of 90 rows are `none`, which is the expected shape for this document.
+2. **Rubric worked cases honored as binding.** Line 23's `must` is excluded (addressee is Ethernet hardware, X3); line 70's `should` is excluded (binds a registrant, X6); lines 337–339 (monitor's unconditional table entry) rows normative despite X8; lines 415–416 are excluded as the document's own scope disclaimer while the aging obligations around it row under T11.

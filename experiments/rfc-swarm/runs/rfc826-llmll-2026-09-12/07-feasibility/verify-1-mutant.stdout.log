@@ -1,0 +1,5 @@
+   .fq written to /tmp/merge-before-opcode-mutant.fq
+   body-faithful: merge-before-opcode
+   Running liquid-fixpoint ...
+error: body verification of 'merge-before-opcode' failed (else-branch does not satisfy postcondition) (constraint #8)
+ERROR: --strict-verified-core: refuted: merge-before-opcode

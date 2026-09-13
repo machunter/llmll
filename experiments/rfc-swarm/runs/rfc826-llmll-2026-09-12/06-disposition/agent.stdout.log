@@ -1,0 +1,25 @@
+`inventory-dispositioned.json` is written: 90 rows, one class and one disposition each, barriers on exactly the excluded rows, order matching the inventory.
+
+## STOP CONDITION
+
+Ten characteristic-core rows are `Dispositioned out`. I have not re-classified any of them to make the gate pass, and each says so in its `reason`.
+
+| Rows | Barrier | Why |
+|---|---|---|
+| A2 | B4 opaque transform | The clause constrains what encode/decode do to `ar$op`; the core's only assumption about `decode` is well-sortedness (Stage B section 2). |
+| A11, A12, A14, A15, A16, A17, A18, A19, A20 | B5 string structure | Field position, field width, and the `hln`/`pln`-parameterized extents of the four address fields. Offsets and slices over a byte sequence are what section 2 put outside. |
+
+The conflict is structural, not a grading choice: the characteristic core contains the packet format (lines 141-155) and the opcode byte-order note (lines 65-66), while the Stage B boundary, fixed before extraction, excludes the wire format. Both documents were written before any disposition, so this is exactly the case Stage G says gets re-scoped rather than re-graded.
+
+On each of those rows an expressible residue exists and I refused to exit on it. For A11 the residue is "the decoded record has an `hrd` field of sort `HwType`", which is the datatype declaration; retiring the row under B7 on that surrogate is the move the B7 limit forbids. Same pattern at A16 (the "REQUEST or REPLY" value constraint is carried by A33/A54 for emitted packets and is deliberately false for received ones, since the attacker may deliver `OTHER`) and at A14/A15 (the in-fragment reading `hln = hlen(hrd)` is A43/A31's clause, not theirs).
+
+## The rest of the ledger
+
+- **Encoded 23** (16 of them core: A24, A28, A33-A36, A39, A41, A47, A49-A55). Each `reason` names a contract shape, for example A52: the receive step's post-state table is independent of `p.op`, with the same VC discharged at `p.op = OTHER`, which fixes where the opcode test sits in the guard nesting and is what A47's effect clause leaves open.
+- **Deployment-modeled 5** (A37, A38, A43, A45, A60), each naming the recorded decision: unconstrained `ar$tha` (section 4 item 3), free `checkHln`/`checkPln` (item 4), uninterpreted `ProtoType` (item 2).
+- **Vectored 0.** Section 7 says the X/Y example at lines 367-410 is not a clause source and neither of its two uses produces a verified row, and no `check` block was executed in this pipeline. Nothing is claimed on a test vector.
+- **Dispositioned out 62**: B5 16, B1 10, B7 10, B4 8, B8 8, B2 7, B3 2, B6 1.
+
+Three partial encodings are stated as limits inside their `reason` rather than hidden: A28 carries the emission trigger but not the `ether_type` conjunct (frame header is out), A39 carries `dst = bcast(hrd)` but not delivery or interface selection, A55 carries `dst = req.sha` but not `dst != bcast(hrd)`, since an attacker may put the broadcast address in `ar$sha`.
+
+Two exclusions worth checking closely, because they are where a coverage number could have been bought: A56 (reply on the arrival interface) exits under B2 with the reason stated as the missing multi-interface model, not as "the equality is vacuous", and A89 exits under B7 naming A34, A35, and A53 as what entails its local form, with the global no-propagation claim left unclaimed per gap G-2.

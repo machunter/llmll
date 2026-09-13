@@ -1,0 +1,6 @@
+   .fq written to /tmp/supersede-two-mutant.fq
+   body-faithful: supersede-two
+   Running liquid-fixpoint ...
+error: body verification of 'supersede-two' failed (then-branch does not satisfy postcondition) (constraint #1)
+error: body verification of 'supersede-two' failed (else-branch does not satisfy postcondition) (constraint #3)
+ERROR: --strict-verified-core: refuted: supersede-two

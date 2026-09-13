@@ -1,0 +1,88 @@
+{
+ "counts": {
+  "A_rows": 90,
+  "B_rows": 83
+ },
+ "line_coverage": {
+  "RFC826": {
+   "A_lines": 156,
+   "B_lines": 151,
+   "both": 142,
+   "union": 165,
+   "jaccard": 0.8606,
+   "A_only_lines": 14,
+   "B_only_lines": 9
+  }
+ },
+ "row_matching": {
+  "one_to_one": 39,
+  "A_rows_matching_multiple_B": 38,
+  "A_unmatched": 3,
+  "B_unmatched": 2
+ },
+ "A_unmatched_rows": [
+  {
+   "id": "A69",
+   "source": "RFC826",
+   "lines": [
+    294,
+    295
+   ],
+   "rule": "N8",
+   "quote": "The opcode is to determine if this is a request (which may cause a reply) or a reply to a ",
+   "obligation": "A request may cause a reply to be generated, and a reply is a response to a previous request; the opcode is what distinguishes the two."
+  },
+  {
+   "id": "A70",
+   "source": "RFC826",
+   "lines": [
+    298,
+    299
+   ],
+   "rule": "N3",
+   "quote": "The sender hardware address and sender protocol address are absolutely necessary.",
+   "obligation": "Every address resolution packet must carry the sender hardware address and the sender protocol address."
+  },
+  {
+   "id": "A71",
+   "source": "RFC826",
+   "lines": [
+    302,
+    304
+   ],
+   "rule": "N3",
+   "quote": "The target protocol address is necessary in the request form of the packet so that a machi",
+   "obligation": "A request must carry the target protocol address, because the receiver decides from it whether to record the sender and whether to reply."
+  }
+ ],
+ "B_unmatched_rows": [
+  {
+   "id": "B7",
+   "source": "RFC826",
+   "lines": [
+    131,
+    133
+   ],
+   "rule": "N3",
+   "quote": "To communicate mappings from <protocol, address> pairs to 48.bit Ethernet addresses, a pac",
+   "obligation": "An implementation must communicate <protocol, address> to 48-bit Ethernet address mappings using the packet format given below, not a format of its own choosing"
+  },
+  {
+   "id": "B71",
+   "source": "RFC826",
+   "lines": [
+    415,
+    415
+   ],
+   "rule": "N6",
+   "quote": "It may be desirable to have table aging and/or timeouts.",
+   "obligation": "An implementation may age out or time out translation table entries."
+  }
+ ],
+ "rule_agreement": {
+  "compared": 39,
+  "identical": 36,
+  "raw_agreement": 0.9231,
+  "cohens_kappa": 0.9014
+ }
+}

@@ -1,0 +1,5 @@
+   .fq written to /tmp/recv-table-mutant.fq
+   body-faithful: recv-table
+   Running liquid-fixpoint ...
+error: body verification of 'recv-table' failed (then-branch does not satisfy postcondition) (constraint #0)
+ERROR: --strict-verified-core: refuted: recv-table

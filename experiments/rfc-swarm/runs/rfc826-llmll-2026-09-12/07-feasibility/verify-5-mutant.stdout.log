@@ -1,0 +1,5 @@
+   .fq written to /tmp/learn-sender-only-mutant.fq
+   body-faithful: learn-sender-only
+   Running liquid-fixpoint ...
+error: body verification of 'learn-sender-only' failed (then-branch does not satisfy postcondition) (constraint #0)
+ERROR: --strict-verified-core: refuted: learn-sender-only

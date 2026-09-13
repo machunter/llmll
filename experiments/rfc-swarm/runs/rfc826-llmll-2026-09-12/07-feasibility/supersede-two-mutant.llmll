@@ -1,0 +1,91 @@
+;; Mutant of probe 5. The contract is byte-identical to supersede-two.llmll; only
+;; the second reception's write condition changed.
+;;
+;; Bug: first-writer-wins. The second reception adds a binding when none exists
+;; but refuses to overwrite one that does — the "don't let a later ARP change a
+;; mapping we already hold" defence that gets bolted onto ARP caches to blunt
+;; spoofing. It is a real and popular implementation choice, and it directly
+;; contradicts lines 231-234: "if an entry already exists ... then the new
+;; hardware address supersedes the old one."
+;;
+;; Worth being precise about what this mutant is for. It is not a claim that
+;; last-writer-wins is the safer behaviour; Stage B §6 says the opposite, that
+;; supersession is what makes cache poisoning work. It is a claim that a contract
+;; transcribing RFC 826 has to be refuted by an implementation that departs from
+;; RFC 826, whichever direction the departure improves things. A contract that
+;; accepted both orderings would not be transcribing the document.
+;;
+;; [S1] and [S2] are the clauses that must catch it.
+
+(module supersede-two
+
+  (def supersede-two
+      [tbl: map[int,int]
+       gated1: bool skey1: int sha1: int tpa1: int
+       gated2: bool skey2: int sha2: int tpa2: int
+       mypa: int
+       okey: int]
+      -> map[int,int]
+
+    (pre (and (!= okey skey1) (!= okey skey2))
+      :source "frame witness: okey ranges over keys neither reception writes")
+
+    ;; [S1] Supersession. When both receptions are admitted and name the same
+    ;; pair, the later hardware address is what the table holds.
+    (post (=> (and gated1
+                   (and gated2
+                        (and (= skey1 skey2)
+                             (or (map-has tbl skey1) (= tpa1 mypa)))))
+              (and (map-has result skey2) (= (map-get result skey2) sha2)))
+      :source "RFC 826 lines 231-234 — the new hardware address supersedes the old one; Stage B O-1")
+
+    ;; [S2] The superseded value is gone, not merely shadowed. This is the clause
+    ;; a first-writer-wins implementation breaks.
+    (post (=> (and gated1
+                   (and gated2
+                        (and (= skey1 skey2)
+                             (and (or (map-has tbl skey1) (= tpa1 mypa))
+                                  (!= sha1 sha2)))))
+              (!= (map-get result skey2) sha1))
+      :source "RFC 826 lines 231-234, 443-445 — supersession, not accumulation")
+
+    ;; [S3] Independence on distinct keys — the product half. Each reception's
+    ;; outcome survives the other.
+    (post (=> (and (!= skey1 skey2)
+                   (and gated1 (or (map-has tbl skey1) (= tpa1 mypa))))
+              (and (map-has result skey1) (= (map-get result skey1) sha1)))
+      :source "RFC 826 lines 210-218 — each reception writes only its own sender pair")
+    (post (=> (and (!= skey1 skey2)
+                   (and gated2 (or (map-has tbl skey2) (= tpa2 mypa))))
+              (and (map-has result skey2) (= (map-get result skey2) sha2)))
+      :source "RFC 826 lines 210-218 — each reception writes only its own sender pair")
+
+    ;; [S4] The target gate survives composition: a second reception not addressed
+    ;; to this node still cannot create an entry.
+    (post (=> (and (!= skey1 skey2)
+                   (and (not (map-has tbl skey2)) (!= tpa2 mypa)))
+              (not (map-has result skey2)))
+      :source "RFC 826 line 214 — the target test gates the add at every step")
+
+    ;; [S5] Frame across both steps.
+    (post (<=> (map-has result okey) (map-has tbl okey))
+      :source "RFC 826 lines 210-218 — nothing outside the two sender pairs moves")
+    (post (=> (map-has tbl okey) (= (map-get result okey) (map-get tbl okey)))
+      :source "RFC 826 lines 210-218 — nothing outside the two sender pairs moves")
+
+    ;; A reception writes iff it is gated and either the sender pair is already
+    ;; present (merge, lines 210-213) or this node is the target (add, 214-218).
+    (if (and gated1 (or (map-has tbl skey1) (= tpa1 mypa)))
+        ;; In this branch the first reception wrote skey1, so the second
+        ;; reception's merge test on the intermediate table is
+        ;; (skey2 = skey1) or (skey2 was already present). The select-over-store
+        ;; step is written out because the emitter refuses a `map-has` applied to
+        ;; a `map-put` in guard position.
+        ;; BUG: the second reception adds but never supersedes.
+        (if (and gated2 (and (not (or (= skey2 skey1) (map-has tbl skey2))) (= tpa2 mypa)))
+            (map-put (map-put tbl skey1 sha1) skey2 sha2)
+            (map-put tbl skey1 sha1))
+        ;; BUG: same refusal on the branch where the first reception wrote nothing.
+        (if (and gated2 (and (not (map-has tbl skey2)) (= tpa2 mypa)))
+            (map-put tbl skey2 sha2)
+            tbl))))

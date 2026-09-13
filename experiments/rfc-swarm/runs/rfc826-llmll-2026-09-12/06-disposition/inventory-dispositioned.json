@@ -1,0 +1,271 @@
+{"rows": [
+  {"cid": "A1", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "Byte order is a property of the encode/decode transform, and section 2 makes decode an assumed interface about which the core assumes exactly one thing: that a successful decode yields well-sorted field values. No obligation inside the core mentions a byte, so there is nothing for a high-byte-first claim to constrain."},
+
+  {"cid": "A2", "class": "C4", "disposition": "Dispositioned out", "core": true, "barrier": "B4",
+   "reason": "Same barrier as A1: the clause constrains the internals of encode and decode for ar$op on a low-byte-first machine, and the core's only assumption about decode is well-sortedness (section 2, 'no obligation discharged inside the core says anything about decode'). CORE ROW DISPOSITIONED OUT: A2 is in the characteristic core, and it is excluded here because the Stage B scope put the wire format outside before extraction. Per the Stage G rule it is not re-classified to make the gate pass. The pipeline must STOP and the target be re-scoped."},
+
+  {"cid": "A3", "class": "C2", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "The claim relates a 48-bit physical address width to a 6-byte hardware address length, which is arithmetic over widths; section 1 declares Len an uninterpreted sort with named constants and section 3 imports no arithmetic. Inside the decode boundary a HwAddr is an opaque value with no width at all (section 2), so the octet width of the encoded address cannot be stated."},
+
+  {"cid": "A4", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "The mapping from the enumeration symbol ares_op$REQUEST to the number 1 is what the encoder does. Section 1 models the opcode as a finite enumeration {REQUEST, REPLY, OTHER} with no numeric denotation, so the value 1 has no representation in the core."},
+
+  {"cid": "A5", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "Transmission order of the opcode's bytes is a property of the encode transform; same barrier as A1."},
+
+  {"cid": "A6", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "As A4, for ares_op$REPLY and the number 2: the symbol-to-number mapping belongs to the encoder, and the model's opcode enumeration carries no numeric denotation."},
+
+  {"cid": "A7", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "As A4, for ares_hrd$Ethernet and the number 1. HwType is an uninterpreted sort in section 1, so its constants have no numeric encoding inside the core."},
+
+  {"cid": "A8", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The Ethernet frame header is not in the modeled state (section 5 item 2). The reception algorithm at lines 197-225 never reads it, and carrying it would let the core check rules RFC 826 does not state."},
+
+  {"cid": "A9", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "Same exclusion as A8, and this is the field gap G-1 is about: the core holds neither the frame source address nor any relation between it and ar$sha, so the tempting check 'frame source equals ar$sha' is a rule about a protocol RFC 826 did not write."},
+
+  {"cid": "A10", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The Ethernet type field is a frame header field, and the demultiplexing it drives is the binding of this protocol to its transport (section 5 item 2). The modeled receive step takes an already-decoded ARP packet as its premise."},
+
+  {"cid": "A11", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "The obligation is the field's position and width in the packet's octet stream: first field of the packet data, 16 bits. Recovering positions means offset arithmetic over a byte sequence, which section 2 puts outside the fragment. The expressible residue, that the decoded record has an hrd field of sort HwType, is the datatype declaration and constrains no implementation; Stage G's limit on B7 forbids retiring the row on that surrogate. CORE ROW DISPOSITIONED OUT: the characteristic core contains the packet format and the Stage B scope put the packet format outside. Not re-graded. STOP."},
+
+  {"cid": "A12", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "As A11, for ar$pro as the second field of the packet data at 16 bits: field position and width are octet-stream structure, excluded by the decode boundary of section 2, and the record-signature residue is the declaration rather than an obligation. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A13", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "The set of assigned ether_type$<protocol> values is an external registry administered outside the document (lines 68-75 name the authority). Membership in it is not a property of any implementation's step relation and no query in any tool decides it; section 1 declares ProtoType uninterpreted precisely so that no registry is imported."},
+
+  {"cid": "A14", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "Two parts, both outside. The layout part (third field, 8 bits) is octet-stream structure. The semantic part, that ar$hln gives the byte length of each hardware address carried in the packet, is the 'actual encoded length' reading section 2 explicitly places outside, because inside the boundary an address has no length. The in-fragment reading p.hln = hlen(p.hrd) is a different clause, carried by A43 on reception and A31 on generation. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A15", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "As A14, for ar$pln as the fourth field at 8 bits giving the byte length of each protocol address. The in-fragment reading p.pln = plen(p.pro) belongs to A45 and A32. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A16", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "The obligation is position and width (fifth field, 16 bits), which is octet-stream structure outside the decode boundary. The residual value constraint, that the field holds REQUEST or REPLY, is carried by no contract either: for emitted packets it is the clauses of A33 and A54, and for received packets it is false in this model by design, since the attacker of section 6 may deliver ar$op = OTHER and the merge still runs. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A17", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "The obligation is that ar$sha occupies exactly ar$hln bytes: a length-parameterized slice of a byte sequence at an attacker-chosen offset, which is the string/sequence theory section 2 excludes as undecidable in general and outside the fragment of section 1. Inside the boundary a HwAddr is opaque and has no length to compare. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A18", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "As A17, for ar$spa at m = ar$pln bytes. The extent depends on a packet field the attacker chooses, and the slice is outside the fragment. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A19", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "As A17, for ar$tha at n = ar$hln bytes. The underspecification of this field's content is a separate matter and is recorded at A37; what exits here is the octet extent. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A20", "class": "C3", "disposition": "Dispositioned out", "core": true, "barrier": "B5",
+   "reason": "As A17, for ar$tpa at m = ar$pln bytes, the last field of the packet data. Position, extent and the total packet extent 8+2n+2m are octet-stream structure. CORE ROW DISPOSITIONED OUT. STOP."},
+
+  {"cid": "A21", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The clause is about routing having chosen a next-hop protocol address and the piece of hardware on which the station is expected. Which piece of hardware is the interface binding excluded in section 5 item 1; the modeled node has one interface, so the model holds no interface identity for the clause to constrain."},
+
+  {"cid": "A22", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "An obligation on the hardware driver, not on the Address Resolution module: every Ethernet transmission must first consult the module. The driver is not the verified component, and the model contains no transmit path that bypasses the module for the clause to forbid."},
+
+  {"cid": "A23", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the clauses carrying A24 and A26, which fix the generation step's output on a hit and on a miss respectively. Once both branches of select(table,(pro,tpa)) are constrained, 'the module looks the pair up' places no further constraint on the step relation."},
+
+  {"cid": "A24", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step, hit branch: if select(table,(pro,tpa)) = Some(h) then the step's output to the caller is that same h, table' = table, and no address resolution packet is emitted. This rules out returning a value other than the one stored under the queried key, and rules out emitting a REQUEST for a key already present."},
+
+  {"cid": "A25", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "An obligation on the hardware driver, which the model does not contain. The generation step's output is the resolved address; what the caller does with it afterwards is another component's behavior, and no obligation in the module's step relation reaches it."},
+
+  {"cid": "A26", "class": "C1", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the generation step, miss branch: select(table,(pro,tpa)) = None implies the step yields no resolved address to the caller, so the pending datagram is given no destination, and the step takes the request-generation branch that A28 constrains. Disjoint from A24's hit branch, so neither clause entails the other."},
+
+  {"cid": "A27", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "The up-call informing the caller crosses into the layer above, which section 5 item 6 places in the environment together with the higher-layer retransmission it presumes. The modeled step has no notification channel, and the source hedges the behavior ('probably informs the caller')."},
+
+  {"cid": "A28", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: select(table,(pro,tpa)) = None implies the post-state carries an emission, with the emitted packet's fields fixed by the clauses of A29 through A36. This is the emission trigger that section 7 keeps IN-CORE. Stated limit: the conjunct about the Ethernet type field ether_type$ADDRESS_RESOLUTION is not carried by this contract, because the frame header is not in the modeled state (section 5 item 2, and A10)."},
+
+  {"cid": "A29", "class": "C1", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the generation step: emitted.hrd = Ethernet, the named HwType constant of section 1, in the 10Mbit Ethernet instantiation. It rules out emitting a request that names a hardware type other than the one the node is generating on."},
+
+  {"cid": "A30", "class": "C1", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the generation step: emitted.pro equals the ProtoType component of the key whose lookup missed, that is, the same pro used in select(table,(pro,tpa)). It rules out emitting a request under a protocol other than the one being resolved."},
+
+  {"cid": "A31", "class": "C3", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the generation step: emitted.hln = hlen(emitted.hrd), which for the Ethernet instantiation is the named Len constant six (section 1, hlen(Ethernet) = six). Stated limit: the parenthetical justification, that six is the byte count of a 48-bit address, is arithmetic over widths and is not carried; only the equality against the named constant is."},
+
+  {"cid": "A32", "class": "C3", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the generation step: emitted.pln = plen(emitted.pro), the Len the protocol type determines (section 1). It rules out emitting a length that belongs to a different protocol."},
+
+  {"cid": "A33", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: emitted.op = REQUEST, discharged over the opcode enumeration {REQUEST, REPLY, OTHER}, so emitting REPLY or OTHER from the generation path is ruled out."},
+
+  {"cid": "A34", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: emitted.sha = myHw. Together with A35 and the reply clause A53 this is the local form of the no-propagation claim recorded as gap G-2: every packet this node emits carries this node's own hardware address in the sender field."},
+
+  {"cid": "A35", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: emitted.spa = myPa(emitted.pro), the node's own address in the protocol being resolved, and not any address read out of the table."},
+
+  {"cid": "A36", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: emitted.tpa equals the ProtoAddr component of the key whose lookup missed, so the request asks for the address the caller actually needs resolved."},
+
+  {"cid": "A37", "class": "C1", "disposition": "Deployment-modeled", "core": false,
+   "reason": "Realized by the recorded modeling decision of section 4 item 3: ar$tha is carried in the packet record, and in a generated REQUEST it is an unconstrained value of sort HwAddr related to nothing else in the state. Every generation-step verification condition is discharged with it symbolic, which is exactly the row's obligation that no receiver may rely on its content. Any obligation whose truth depended on it would be a defect in that obligation, not a property of the protocol."},
+
+  {"cid": "A38", "class": "C1", "disposition": "Deployment-modeled", "core": false,
+   "reason": "Realized by the same recorded decision (section 4 item 3): because emitted.tha is unconstrained, the assignment tha := bcast(hrd) is among the values the model admits and no contract excludes it. The permission is realized by the deliberate absence of a constraint, and is not proved."},
+
+  {"cid": "A39", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the generation step: the emission's destination hardware address = bcast(emitted.hrd), the distinguished per-hardware-type broadcast constant of section 1. Stated limits: which stations actually receive the frame is environment (section 5 item 7), and the selection of the piece of hardware is the interface binding excluded in section 5 item 1; the contract fixes the destination value only, which is what section 7 keeps IN-CORE for lines 188-190."},
+
+  {"cid": "A40", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The hand-off from the Ethernet module is driven by the frame type field demultiplex, and the frame header is not in the modeled state (section 5 item 2). The modeled receive step takes an already-decoded packet as its premise, so there is no dispatch decision inside the core for a contract to constrain."},
+
+  {"cid": "A41", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step, the shape of every negative branch: failure of a guard yields no emission and no table write beyond those already performed before that guard. For the guards preceding the merge (hardware type, protocol, and the optional length checks) this is table' = table and no emission; for the target and opcode guards it is no emission with table' equal to the merge-only table of A47. The shape is what distinguishes discard from rollback: the merge at lines 210-213 precedes the target gate at line 214 and survives its failure, which is the behavior section 6 names as in-scope. The identities of the individual guards are the clauses of A42, A44, A49 and A51; this clause fixes what failing one does."},
+
+  {"cid": "A42", "class": "C1", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the receive step: every table write and every emission is conditioned on haveHw(p.hrd). This supplies the guard's identity, which A41's negative-branch shape presupposes but does not name; an implementation with no hardware-type test at all satisfies A41 vacuously and violates this."},
+
+  {"cid": "A43", "class": "C3", "disposition": "Deployment-modeled", "core": false,
+   "reason": "Realized by the recorded modeling decision of section 4 item 4: checkHln is a free boolean constant and every verification condition is discharged for both settings, so no property in the ledger may depend on the check being performed, which is the row's 'permitted but not required'. The predicate guarded by it is the in-fragment reading of section 2, p.hln = hlen(p.hrd). The other reading, that ar$hln matches the actual byte length of the encoded ar$sha, is not modeled at all; inside the boundary a HwAddr has no length."},
+
+  {"cid": "A44", "class": "C1", "disposition": "Encoded", "core": false,
+   "reason": "Contract on the receive step: every table write and every emission is conditioned on speaks(p.pro), the receiver's own configuration predicate from section 4 item 2, evaluated on the packet's protocol type rather than on the table's contents."},
+
+  {"cid": "A45", "class": "C3", "disposition": "Deployment-modeled", "core": false,
+   "reason": "Realized by the same recorded decision (section 4 item 4): checkPln is a free boolean constant, every verification condition is discharged for both settings, and the predicate it guards is p.pln = plen(p.pro). The actual-encoded-length reading is outside for the same reason as in A43."},
+
+  {"cid": "A46", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the clauses carrying A47 and A50. Merge_flag is a straight-line local, not a state variable that survives the step, and its value is determined by select(table,(p.pro,p.spa)); the model discharges A47 under the Some branch of that test and A50 under the None branch. Initialising the flag to false has no counterpart in the step relation beyond that test."},
+
+  {"cid": "A47", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step, the effect of the merge: with the hardware and protocol guards passed and select(table,(p.pro,p.spa)) = Some(_), table' = store(table,(p.pro,p.spa),Some(p.sha)). The value written is the packet's sender hardware address, and by extensionality of the array no other key changes, so the frame condition is the store equation rather than a quantified 'all other keys unchanged' (section 4 item 1). Where the merge sits relative to the opcode test is the separate clause A52; this clause fixes only what the update writes."},
+
+  {"cid": "A48", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the same pair as A46: setting Merge_flag true on an update names the select(table,(p.pro,p.spa)) = Some(_) branch, which is the guard A47 is discharged under and the negation of the guard A50 is discharged under. The flag carries no information the key-presence test does not already carry."},
+
+  {"cid": "A49", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step: the add of A50 and the emission of A51 through A55 occur only in executions where p.tpa = myPa(p.pro); when p.tpa is any other value, the post-state table is the merge-only table and no packet is emitted. This is the target gate at line 214, and it is what separates a conforming node from the monitor role excluded in section 5 item 5."},
+
+  {"cid": "A50", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step, add branch: p.tpa = myPa(p.pro) and select(table,(p.pro,p.spa)) = None imply table' = store(table,(p.pro,p.spa),Some(p.sha)), with no other key changed. 'Merge_flag is false' is, in the model, the key being absent in the pre-state."},
+
+  {"cid": "A51", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step: an emission in the post-state implies p.op = REQUEST, with the hardware, protocol and target guards passed. A packet with op = REPLY or op = OTHER produces no emission, however its other fields are chosen."},
+
+  {"cid": "A52", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the receive step: the post-state table is independent of p.op. Concretely, the guard set under which the merge and add are discharged is {haveHw(p.hrd), speaks(p.pro), the optional length checks, and for the add the target test}, with no conjunct on p.op, and the same verification condition is discharged at p.op = OTHER. This constrains where the opcode test sits in the guard nesting, which A47's effect clause leaves open, and it is what makes a cache write reachable by a packet that is neither a REQUEST nor a REPLY (section 6). An implementation that tested the opcode first would satisfy A47's effect clause on the packets it merged and violate this one."},
+
+  {"cid": "A53", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the reply-construction step: reply.sha = myHw, reply.spa = myPa(req.pro), reply.tha = req.sha, reply.tpa = req.spa, reply.hrd = req.hrd, reply.pro = req.pro. The local-addresses-in-sender-fields reading is the one the worked example at lines 396-401 disambiguates; a bare swap, which would put req.tha and req.tpa into the sender fields, is ruled out by the first two equalities."},
+
+  {"cid": "A54", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the reply-construction step: reply.op = REPLY, over the enumeration {REQUEST, REPLY, OTHER}, so a node cannot answer a request by echoing REQUEST."},
+
+  {"cid": "A55", "class": "C1", "disposition": "Encoded", "core": true,
+   "reason": "Contract on the reply-emission step: the destination hardware address = reply.tha = req.sha, a unicast to the requester rather than bcast(req.hrd). This is the rule section 4 item 5 admits under the attacker-model test, because it constrains who learns the mapping: a node that broadcast replies would hand every station a mapping it never asked for. Stated limit: the disequality dst != bcast(req.hrd) is not claimed, since an attacker may place the broadcast address in ar$sha; the contract is the equality."},
+
+  {"cid": "A56", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The reply's outgoing interface must be the request's arrival interface, and arrival interface identity is excluded in section 5 item 1 as an obligation on the host's interface dispatch layer. The exclusion is not because the equality is vacuous in a single-interface model; it is that giving the clause content requires a node with several interfaces carrying distinct hardware types and distinct hardware addresses, a materially larger model that this run does not scope."},
+
+  {"cid": "A57", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the clause carrying A47: table' = store(table,(p.pro,p.spa),Some(p.sha)) already makes the arriving hardware address the stored one and drops the previous value, which is what 'supersedes' asserts. What 'new' means is supplied by recorded decision O-1, recency is the step index of the transition system, and not by anything in a packet."},
+
+  {"cid": "A58", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the declared types: section 1 declares HwType an uninterpreted sort and hlen : HwType -> Len a total function, and no clause in this ledger is instantiated at the constant Ethernet, so every verification condition already ranges over an arbitrary hardware type. Parametricity here is the signature, not a further obligation on any step."},
+
+  {"cid": "A59", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "The pair <1, 6> is the numeric denotation the encoder fixes for a HwType constant and a Len constant, and the model gives neither sort a numeric encoding (section 1). What remains in the model is the axiom hlen(Ethernet) = six, which section 1 declares as an assumption the core makes rather than an obligation it discharges, plus the emission equalities of A29 and A31, which are their own clauses. Nothing is left for this row to carry."},
+
+  {"cid": "A60", "class": "C3", "disposition": "Deployment-modeled", "core": false,
+   "reason": "Realized by the recorded modeling decision of section 4 item 2: ProtoType is an uninterpreted sort with no registry predicate and speaks is an uninterpreted predicate over it, so values that are not Ethernet type fields are admitted and every verification condition already ranges over them. The permission is realized by the model declining to constrain the sort, and is not proved."},
+
+  {"cid": "A61", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the clause carrying A30, emitted.pro equals the protocol type being resolved, which is discharged for an arbitrary ProtoType and an arbitrary HwType. Restricting the statement to non-Ethernet hardware adds no conjunct the model can distinguish, since hrd is uninterpreted throughout (A58)."},
+
+  {"cid": "A62", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "Periodicity is defined by elapsed time (the source's own illustration is one packet per station per ten minutes), and the model has no clock: section 3 keeps time out on the source's authority at lines 415-416, and gap G-4 records the consequence. The remainder, 'distributed only as it is needed', has no time-free form separable from the emission triggers the algorithm already fixes."},
+
+  {"cid": "A63", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "The claim is about what the packet's octet stream can carry: one triplet's worth of address fields rather than a repeated group. Field multiplicity in a byte stream is wire structure, outside the decode boundary of section 2; that the decoded record has one field of each name is the datatype declaration and constrains no implementation."},
+
+  {"cid": "A64", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "Equality of two encoded packets' byte lengths, which is the total extent 8+2n+2m of section 2. Inside the boundary a Packet is a record value with no length, so there is nothing to compare."},
+
+  {"cid": "A65", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "The assigned list of hardware address space values is an external registry maintained by an authority the document names at lines 68-75. Membership in it is an administrative fact about the world, not a property of this node's step relation, and no query in any tool decides it."},
+
+  {"cid": "A66", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B6",
+   "reason": "The clause is explicitly a snapshot of that registry at the time of writing ('Currently the only defined value'), and the source itself anticipates further values for Packet Radio Networks at lines 274-277. Further hardware types have been assigned since, so the claim as stated is superseded and is not a requirement any implementation can be checked against."},
+
+  {"cid": "A67", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the declared types: section 1 declares hlen : HwType -> Len and plen : ProtoType -> Len as total functions, so an address length is a function of the hardware and protocol type by construction. The obligation is the signature. The clauses that do constrain an implementation are the emission equalities A31 and A32 and the optional checks A43 and A45."},
+
+  {"cid": "A68", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by A43 and A45 together with the recorded decision of section 4 item 4: the permission is already realized by checkHln and checkPln being free boolean constants with every verification condition discharged for both settings. This rationale restatement adds no further constraint on the step relation."},
+
+  {"cid": "A69", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B3",
+   "reason": "'A reply is a response to a previous request' relates two events in a trace, and section 1 admits only single-step verification conditions and k-induction over one node's step relation. The discriminating role of the opcode, the part of the sentence that constrains a step, is carried by A51 and A54. Under the attacker model of section 6 the trace property is also false of the environment: an unsolicited REPLY is a well-sorted packet that may be delivered at any step."},
+
+  {"cid": "A70", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "The obligation is that the encoded packet always carries ar$sha and ar$spa, that is, field presence in the octet stream, which is wire structure under section 2. That the decoded record has sha and spa fields is the datatype declaration and constrains no implementation, and Stage G's limit on B7 forbids retiring the row on that surrogate. What the two fields are used for is the table clauses A47 and A50."},
+
+  {"cid": "A71", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "As A70, for the presence of ar$tpa in a request: field presence in the octet stream is outside the decode boundary. The receiver-side use the sentence gives as its reason, deciding whether to record the sender and whether to reply, is the separate clause A49, which is encoded."},
+
+  {"cid": "A72", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B3",
+   "reason": "'A reply is only provoked by a request' is a universal property over pairs of events in a trace, outside the single-step and k-induction shapes of section 1, and a bounded trace can exhibit an instance but cannot establish an 'only'. It is refuted by the attacker model of section 6, which may deliver a REPLY unrelated to anything the node sent."},
+
+  {"cid": "A73", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by the clause carrying A53, which fixes reply.tha = req.sha. Inside the model 'the machine making the request' is exactly the request's sender hardware address field, so the sentence restates one conjunct of the swap contract."},
+
+  {"cid": "A74", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "Absence of padding between the address fields is a statement about the octet stream's layout, which section 2 classifies OUT-WIRE for lines 320-323. A decoded record has no inter-field gaps to constrain."},
+
+  {"cid": "A75", "class": "C3", "disposition": "Dispositioned out", "core": false, "barrier": "B5",
+   "reason": "Which byte pairs of the packet data are words is the octet stream's structure, classified OUT-WIRE at lines 320-323 in section 7. The core sees decoded field values, not a byte stream to view."},
+
+  {"cid": "A76", "class": "C4", "disposition": "Dispositioned out", "core": false, "barrier": "B4",
+   "reason": "Transmission order of the three word fields is what the encode transform does, and the core assumes nothing about encode or decode beyond well-sortedness (section 2). Same barrier as A1 and A2."},
+
+  {"cid": "A77", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "The clause constrains a monitor, a role section 5 item 5 excludes: it is an application described inside a rationale section rather than a requirement on a conforming node, and its unconditional table entry directly contradicts the target gate at line 214 that A49 carries. The verified component is not a monitor, and admitting the role would turn every table property into a disjunction over roles and weaken all of them."},
+
+  {"cid": "A78", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "The claim is that connections initiated after a host moves will work, which is liveness, and it is conditioned on a move event the model does not have. Section 3 keeps elapsed time and recovery claims out, and gap G-4 records that no liveness or convergence property is in scope."},
+
+  {"cid": "A79", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "Global uniqueness and permanence of 48-bit hardware addresses is an administrative fact about address allocation across all stations ever built, not a property of this node's step relation. HwAddr is an uninterpreted sort and section 1 quantifies over no set of stations, so no query in any tool ranges over the claim."},
+
+  {"cid": "A80", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "'Should not be allowed to persist forever' is an eventually property over an unbounded trace. The model has no clock and no temporal operators (section 3), and the whole aging discussion is placed outside this protocol by the source at lines 415-416; gap G-4 records the consequence."},
+
+  {"cid": "A81", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "Deletion triggered by a failure to initiate a connection: the failure is detected by a timeout in a layer above, and the clause sits inside the section the source declares outside this protocol at lines 415-416. The model has neither a clock nor such an event, and the source hedges it ('Perhaps')."},
+
+  {"cid": "A82", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "Resetting a timeout presupposes a timeout. Out by section 3, which keeps a clock and a time order out of the core, and out by the source's own declaration at lines 415-416."},
+
+  {"cid": "A83", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "'No packets received for a suitable length of time' is elapsed time plus a negative observation over an interval. Same barrier as A82, and the entry-forgetting it licenses is the aging behavior section 3 excludes."},
+
+  {"cid": "A84", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B2",
+   "reason": "The antecedent is a delivery assumption about the cable, a broadcast REQUEST reaching every station on a perfect Ethernet, which section 5 item 7 places in the environment. The consequent quantifies over all stations, and section 1 attempts no unbounded quantification over a set of nodes."},
+
+  {"cid": "A85", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "'After a suitable time, the daemon considers removing an entry' is elapsed time driving a state change. The daemon belongs to the aging mechanism the source declares outside this protocol at lines 415-416, and the model has no clock (section 3)."},
+
+  {"cid": "A86", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "The probe exists only as a step of the timeout daemon, which has no representation in a model without a clock (section 3). Its unicast destination would have the shape of A55's contract, dst equal to the hardware address held in the entry, but there is no emission event in the modeled step relation for that contract to attach to."},
+
+  {"cid": "A87", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "A small number of retransmissions if needed is scheduling over time, both in the count and in the 'if needed'. Section 3 excludes retransmission counters and timers, and gap G-4 records that no timing property is in scope."},
+
+  {"cid": "A88", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B1",
+   "reason": "'If a REPLY is not seen in a short amount of time' is a timeout on an absent event: both the elapsed time and the negative observation over an interval are outside the fragment of section 1 and outside the ordering boundary of section 3."},
+
+  {"cid": "A89", "class": "C1", "disposition": "Dispositioned out", "core": false, "barrier": "B7",
+   "reason": "Entailed by A34, A35 and A53 taken together: those clauses fix the sender fields of every packet this node emits to myHw and myPa(pro), for the request and for the reply respectively, which is exactly the local form of 'hosts don't transmit information about anyone other than themselves'. The global form, that bad information cannot propagate from machine to machine, needs every emitter to conform and the attacker of section 6 does not; gap G-2 records before extraction that it is not claimed."},
+
+  {"cid": "A90", "class": "C6", "disposition": "Dispositioned out", "core": false, "barrier": "B8",
+   "reason": "Manually resetting the address mapping table is an out-of-band operator action, not a behavior of the Address Resolution module. It is hedged in the source ('Perhaps ... will suffice') and sits inside the section lines 415-416 declare outside this protocol, and no implementation behavior corresponds to it for a tool to range over."}
+]}

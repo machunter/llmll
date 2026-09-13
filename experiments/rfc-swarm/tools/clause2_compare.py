@@ -338,7 +338,13 @@ def reported(rep: Report, stages, manifest: dict, run: pathlib.Path,
     or_gate = read_json(oracle / "gate.json", fatal=False)
     rep.note("R2 gate J", _gate_line(run_gate, or_gate))
 
-    run_rec = read_json(run / "04-reconcile" / "reconciliation-summary.json", fatal=False)
+    # `SUMMARY.json`, which is what BOTH sides write: the reference's
+    # stage_E_reconcile ends `write_json(ctx.d("04-reconcile", "SUMMARY.json"), ...)`
+    # and the port reproduces it. This read named `reconciliation-summary.json`
+    # on the run side until the 2026-09-12 clause 2 re-run, so R3 reported
+    # `absent` for a stage that had run correctly. The ORACLE side keeps that
+    # name, because the curated directory is where it is spelled that way.
+    run_rec = read_json(run / "04-reconcile" / "SUMMARY.json", fatal=False)
     or_rec = read_json(oracle / "reconciliation-summary.json", fatal=False)
     rep.note("R3 stage E", _rec_line(run_rec, or_rec))
 

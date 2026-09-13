@@ -1,0 +1,145 @@
+
+
+[driver-ll] stage A [mechanical] intake and provenance pinning
+
+  fetching https://www.rfc-editor.org/rfc/rfc826.txt
+
+
+  pinned rfc826.txt: 01bc62fe6a37e90f... (470 lines)
+
+
+
+
+[driver-ll] stage B [agent] scope decision
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage C [agent] normativity rubric
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage D [agent] dual blind extraction
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage E [mechanical] mechanical reconciliation
+
+
+  reconciled: 39 rows compared, 3 A-only, 2 B-only
+
+
+
+
+[driver-ll] stage F [agent] characteristic core
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage G [agent] disposition pass
+
+
+
+
+
+
+
+
+
+
+
+
+[driver-ll] stage G2 [gate] artifact audit
+
+
+  citations checked against the census: 90 of 90 rows; declared strength not in its own quote: 7  artifact audit PASS
+
+
+
+
+[driver-ll] stage H [agent] feasibility probes
+
+
+
+
+
+
+
+
+  probe recv-table: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe merge-before-opcode: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe reply-emit: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe resolve-out: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe supersede-two: probe=SAFE mutant=refuted -> ok
+
+
+
+  probe learn-sender-only: probe=SAFE mutant=refuted -> ok
+
+
+
+
+[driver-ll] stage I [agent] pre-registration
+
+
+
+
+
+
+
+
+[driver-ll] stage J [gate] the gate
+
+
+[driver-ll] STOP at stage J: stage J: a clause named as characteristic of the subject matter is dispositioned out. 09-gate/gate.json names the rows under characteristic_core_dispositioned_out, and it was written before this halt.
+[driver-ll] end status=2Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+BrokenPipeError: [Errno 32] Broken pipe

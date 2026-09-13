@@ -1,0 +1,1572 @@
+{
+ "extractor": "B",
+ "normative": [
+  {
+   "id": "B1",
+   "source": "RFC826",
+   "line_start": 63,
+   "line_end": 64,
+   "section": "Notes",
+   "quote": "Numbers here are in the Ethernet standard, which is high byte first.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An implementation must encode numeric fields of the packet high byte first, in the Ethernet standard byte order."
+  },
+  {
+   "id": "B2",
+   "source": "RFC826",
+   "line_start": 65,
+   "line_end": 66,
+   "section": "Notes",
+   "quote": "Therefore, special care must be taken with the opcode field (ar$op) described below.",
+   "rule": "N3",
+   "strength": "must",
+   "obligation": "An implementation must take special care that the opcode field ar$op is emitted and read in high-byte-first order rather than in the host's native byte order."
+  },
+  {
+   "id": "B3",
+   "source": "RFC826",
+   "line_start": 90,
+   "line_end": 93,
+   "section": "The Problem",
+   "quote": "However, the 10Mbit Ethernet requires 48.bit addresses on the physical cable, yet most protocol addresses are not 48.bits long",
+   "rule": "N10",
+   "strength": "none",
+   "obligation": "An implementation relies on 10Mbit Ethernet hardware addresses being 48 bits wide on the cable, and must not assume a protocol address has the same length as or any relationship to that Ethernet address."
+  },
+  {
+   "id": "B4",
+   "source": "RFC826",
+   "line_start": 123,
+   "line_end": 123,
+   "section": "Definitions",
+   "quote": "ares_op$REQUEST (= 1, high byte transmitted first)",
+   "rule": "N4",
+   "strength": "none",
+   "obligation": "An implementation must use the value 1 for the request opcode ares_op$REQUEST."
+  },
+  {
+   "id": "B5",
+   "source": "RFC826",
+   "line_start": 124,
+   "line_end": 124,
+   "section": "Definitions",
+   "quote": "ares_op$REPLY   (= 2)",
+   "rule": "N4",
+   "strength": "none",
+   "obligation": "An implementation must use the value 2 for the reply opcode ares_op$REPLY."
+  },
+  {
+   "id": "B6",
+   "source": "RFC826",
+   "line_start": 126,
+   "line_end": 126,
+   "section": "Definitions",
+   "quote": "ares_hrd$Ethernet (= 1)",
+   "rule": "N4",
+   "strength": "none",
+   "obligation": "An implementation must use the value 1 for the Ethernet hardware address space ares_hrd$Ethernet."
+  },
+  {
+   "id": "B7",
+   "source": "RFC826",
+   "line_start": 131,
+   "line_end": 133,
+   "section": "Packet format",
+   "quote": "To communicate mappings from <protocol, address> pairs to 48.bit Ethernet addresses, a packet format that embodies the Address Resolution protocol is needed.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An implementation must communicate <protocol, address> to 48-bit Ethernet address mappings using the packet format given below, not a format of its own choosing."
+  },
+  {
+   "id": "B8",
+   "source": "RFC826",
+   "line_start": 137,
+   "line_end": 137,
+   "section": "Packet format",
+   "quote": "48.bit: Ethernet address of destination",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "The Ethernet transmission layer of the packet begins with a 48-bit destination Ethernet address."
+  },
+  {
+   "id": "B9",
+   "source": "RFC826",
+   "line_start": 138,
+   "line_end": 138,
+   "section": "Packet format",
+   "quote": "48.bit: Ethernet address of sender",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "The 48-bit Ethernet address of the sender follows the destination address in the Ethernet transmission layer of the packet."
+  },
+  {
+   "id": "B10",
+   "source": "RFC826",
+   "line_start": 139,
+   "line_end": 139,
+   "section": "Packet format",
+   "quote": "16.bit: Protocol type = ether_type$ADDRESS_RESOLUTION",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "The 16-bit Ethernet protocol type field of an address resolution packet must hold ether_type$ADDRESS_RESOLUTION."
+  },
+  {
+   "id": "B11",
+   "source": "RFC826",
+   "line_start": 141,
+   "line_end": 142,
+   "section": "Packet format",
+   "quote": "16.bit: (ar$hrd) Hardware address space (e.g., Ethernet, Packet Radio Net.)",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "The packet data begins with a 16-bit ar$hrd field naming the hardware address space."
+  },
+  {
+   "id": "B12",
+   "source": "RFC826",
+   "line_start": 143,
+   "line_end": 145,
+   "section": "Packet format",
+   "quote": "16.bit: (ar$pro) Protocol address space.  For Ethernet hardware, this is from the set of type fields ether_typ$<protocol>.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "A 16-bit ar$pro field naming the protocol address space follows ar$hrd, and for Ethernet hardware its value is drawn from the ether_type$ set."
+  },
+  {
+   "id": "B13",
+   "source": "RFC826",
+   "line_start": 146,
+   "line_end": 146,
+   "section": "Packet format",
+   "quote": "8.bit: (ar$hln) byte length of each hardware address",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An 8-bit ar$hln field giving the byte length of each hardware address follows ar$pro."
+  },
+  {
+   "id": "B14",
+   "source": "RFC826",
+   "line_start": 147,
+   "line_end": 147,
+   "section": "Packet format",
+   "quote": "8.bit: (ar$pln) byte length of each protocol address",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An 8-bit ar$pln field giving the byte length of each protocol address follows ar$hln."
+  },
+  {
+   "id": "B15",
+   "source": "RFC826",
+   "line_start": 148,
+   "line_end": 148,
+   "section": "Packet format",
+   "quote": "16.bit: (ar$op)  opcode (ares_op$REQUEST | ares_op$REPLY)",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "A 16-bit ar$op opcode field follows ar$pln and carries either ares_op$REQUEST or ares_op$REPLY."
+  },
+  {
+   "id": "B16",
+   "source": "RFC826",
+   "line_start": 149,
+   "line_end": 150,
+   "section": "Packet format",
+   "quote": "nbytes: (ar$sha) Hardware address of sender of this packet, n from the ar$hln field.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An ar$sha field holding the sender's hardware address follows ar$op, and its length in bytes is the value of ar$hln."
+  },
+  {
+   "id": "B17",
+   "source": "RFC826",
+   "line_start": 151,
+   "line_end": 152,
+   "section": "Packet format",
+   "quote": "mbytes: (ar$spa) Protocol address of sender of this packet, m from the ar$pln field.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An ar$spa field holding the sender's protocol address follows ar$sha, and its length in bytes is the value of ar$pln."
+  },
+  {
+   "id": "B18",
+   "source": "RFC826",
+   "line_start": 153,
+   "line_end": 154,
+   "section": "Packet format",
+   "quote": "nbytes: (ar$tha) Hardware address of target of this packet (if known).",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An ar$tha field holding the target's hardware address, if known, follows ar$spa, and its length in bytes is the value of ar$hln."
+  },
+  {
+   "id": "B19",
+   "source": "RFC826",
+   "line_start": 155,
+   "line_end": 155,
+   "section": "Packet format",
+   "quote": "mbytes: (ar$tpa) Protocol address of target.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An ar$tpa field holding the target's protocol address follows ar$tha, and its length in bytes is the value of ar$pln."
+  },
+  {
+   "id": "B20",
+   "source": "RFC826",
+   "line_start": 164,
+   "line_end": 169,
+   "section": "Packet Generation",
+   "quote": "In the case of the 10Mbit Ethernet, address resolution is needed and some lower layer (probably the hardware driver) must consult the Address Resolution module (perhaps implemented in the Ethernet support module) to convert the <protocol type, target protocol address> pair to a 48.bit Ethernet address.",
+   "rule": "N1",
+   "strength": "must",
+   "obligation": "Before transmitting on 10Mbit Ethernet, the lower layer must consult the Address Resolution module to convert the <protocol type, target protocol address> pair into a 48-bit Ethernet address."
+  },
+  {
+   "id": "B21",
+   "source": "RFC826",
+   "line_start": 169,
+   "line_end": 170,
+   "section": "Packet Generation",
+   "quote": "The Address Resolution module tries to find this pair in a table.",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "On being consulted, the Address Resolution module must look the <protocol type, target protocol address> pair up in its translation table."
+  },
+  {
+   "id": "B22",
+   "source": "RFC826",
+   "line_start": 170,
+   "line_end": 172,
+   "section": "Packet Generation",
+   "quote": "If it finds the pair, it gives the corresponding 48.bit Ethernet address back to the caller (hardware driver) which then transmits the packet.",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "If the lookup finds the pair, the module must return the corresponding 48-bit Ethernet address to the calling hardware driver, which then transmits the packet."
+  },
+  {
+   "id": "B23",
+   "source": "RFC826",
+   "line_start": 172,
+   "line_end": 174,
+   "section": "Packet Generation",
+   "quote": "If it does not, it probably informs the caller that it is throwing the packet away",
+   "rule": "N7",
+   "strength": "none",
+   "obligation": "If the lookup fails, the module probably informs the caller that the outbound packet is being discarded."
+  },
+  {
+   "id": "B24",
+   "source": "RFC826",
+   "line_start": 173,
+   "line_end": 175,
+   "section": "Packet Generation",
+   "quote": "it is throwing the packet away (on the assumption the packet will be retransmitted by a higher network layer)",
+   "rule": "N7",
+   "strength": "none",
+   "obligation": "If the lookup fails, the module must discard the outbound packet rather than queue or transmit it, relying on a higher network layer to retransmit."
+  },
+  {
+   "id": "B25",
+   "source": "RFC826",
+   "line_start": 175,
+   "line_end": 176,
+   "section": "Packet Generation",
+   "quote": "generates an Ethernet packet with a type field of ether_type$ADDRESS_RESOLUTION",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "After a failed lookup the module must generate an Ethernet packet whose type field is ether_type$ADDRESS_RESOLUTION."
+  },
+  {
+   "id": "B26",
+   "source": "RFC826",
+   "line_start": 176,
+   "line_end": 178,
+   "section": "Packet Generation",
+   "quote": "The Address Resolution module then sets the ar$hrd field to ares_hrd$Ethernet",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$hrd to ares_hrd$Ethernet."
+  },
+  {
+   "id": "B27",
+   "source": "RFC826",
+   "line_start": 178,
+   "line_end": 179,
+   "section": "Packet Generation",
+   "quote": "ar$pro to the protocol type that is being resolved",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$pro to the protocol type whose address is being resolved."
+  },
+  {
+   "id": "B28",
+   "source": "RFC826",
+   "line_start": 179,
+   "line_end": 180,
+   "section": "Packet Generation",
+   "quote": "ar$hln to 6 (the number of bytes in a 48.bit Ethernet address)",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request on Ethernet the module must set ar$hln to 6."
+  },
+  {
+   "id": "B29",
+   "source": "RFC826",
+   "line_start": 180,
+   "line_end": 180,
+   "section": "Packet Generation",
+   "quote": "ar$pln to the length of an address in that protocol",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$pln to the byte length of an address in the protocol being resolved."
+  },
+  {
+   "id": "B30",
+   "source": "RFC826",
+   "line_start": 181,
+   "line_end": 181,
+   "section": "Packet Generation",
+   "quote": "ar$op to ares_op$REQUEST",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$op to ares_op$REQUEST."
+  },
+  {
+   "id": "B31",
+   "source": "RFC826",
+   "line_start": 181,
+   "line_end": 182,
+   "section": "Packet Generation",
+   "quote": "ar$sha with the 48.bit ethernet address of itself",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$sha to its own 48-bit Ethernet address."
+  },
+  {
+   "id": "B32",
+   "source": "RFC826",
+   "line_start": 182,
+   "line_end": 182,
+   "section": "Packet Generation",
+   "quote": "ar$spa with the protocol address of itself",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$spa to its own protocol address."
+  },
+  {
+   "id": "B33",
+   "source": "RFC826",
+   "line_start": 182,
+   "line_end": 184,
+   "section": "Packet Generation",
+   "quote": "ar$tpa with the protocol address of the machine that is trying to be accessed",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request the module must set ar$tpa to the protocol address of the machine being accessed."
+  },
+  {
+   "id": "B34",
+   "source": "RFC826",
+   "line_start": 184,
+   "line_end": 185,
+   "section": "Packet Generation",
+   "quote": "It does not set ar$tha to anything in particular, because it is this value that it is trying to determine.",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "In a generated request ar$tha is left unconstrained, so an implementation need not set it to any particular value and a peer must not rely on its contents."
+  },
+  {
+   "id": "B35",
+   "source": "RFC826",
+   "line_start": 185,
+   "line_end": 188,
+   "section": "Packet Generation",
+   "quote": "It could set ar$tha to the broadcast address for the hardware (all ones in the case of the 10Mbit Ethernet) if that makes it convenient for some aspect of the implementation.",
+   "rule": "N8",
+   "strength": "none",
+   "obligation": "An implementation is permitted (\"could\") to set ar$tha in a generated request to the hardware broadcast address, all ones on 10Mbit Ethernet, if that is convenient."
+  },
+  {
+   "id": "B36",
+   "source": "RFC826",
+   "line_start": 188,
+   "line_end": 190,
+   "section": "Packet Generation",
+   "quote": "It then causes this packet to be broadcast to all stations on the Ethernet cable originally determined by the routing mechanism.",
+   "rule": "N5",
+   "strength": "none",
+   "obligation": "The module must broadcast the generated request to all stations on the cable that routing selected for the original packet."
+  },
+  {
+   "id": "B37",
+   "source": "RFC826",
+   "line_start": 197,
+   "line_end": 199,
+   "section": "Packet Reception",
+   "quote": "When an address resolution packet is received, the receiving Ethernet module gives the packet to the Address Resolution module",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "On receipt of an address resolution packet the Ethernet module must hand the packet to the Address Resolution module for processing."
+  },
+  {
+   "id": "B38",
+   "source": "RFC826",
+   "line_start": 200,
+   "line_end": 201,
+   "section": "Packet Reception",
+   "quote": "Negative conditionals indicate an end of processing and a discarding of the packet.",
+   "rule": "N7",
+   "strength": "none",
+   "obligation": "Whenever a conditional test in the reception algorithm fails, the implementation must end processing and discard the received packet."
+  },
+  {
+   "id": "B39",
+   "source": "RFC826",
+   "line_start": 203,
+   "line_end": 204,
+   "section": "Packet Reception",
+   "quote": "?Do I have the hardware type in ar$hrd?",
+   "rule": "N2",
+   "strength": "none",
+   "obligation": "The receiver must first test whether it implements the hardware type named in ar$hrd, and proceed only if it does."
+  },
+  {
+   "id": "B40",
+   "source": "RFC826",
+   "line_start": 205,
+   "line_end": 205,
+   "section": "Packet Reception",
+   "quote": "[optionally check the hardware length ar$hln]",
+   "rule": "N8",
+   "strength": "none",
+   "obligation": "The receiver may optionally check the hardware address length ar$hln, and may skip that check."
+  },
+  {
+   "id": "B41",
+   "source": "RFC826",
+   "line_start": 206,
+   "line_end": 207,
+   "section": "Packet Reception",
+   "quote": "?Do I speak the protocol in ar$pro?",
+   "rule": "N2",
+   "strength": "none",
+   "obligation": "The receiver must test whether it speaks the protocol named in ar$pro, and proceed only if it does."
+  },
+  {
+   "id": "B42",
+   "source": "RFC826",
+   "line_start": 208,
+   "line_end": 208,
+   "section": "Packet Reception",
+   "quote": "[optionally check the protocol length ar$pln]",
+   "rule": "N8",
+   "strength": "none",
+   "obligation": "The receiver may optionally check the protocol address length ar$pln, and may skip that check."
+  },
+  {
+   "id": "B43",
+   "source": "RFC826",
+   "line_start": 209,
+   "line_end": 209,
+   "section": "Packet Reception",
+   "quote": "Merge_flag := false",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "The receiver must initialise Merge_flag to false before examining the translation table."
+  },
+  {
+   "id": "B44",
+   "source": "RFC826",
+   "line_start": 210,
+   "line_end": 213,
+   "section": "Packet Reception",
+   "quote": "If the pair <protocol type, sender protocol address> is already in my translation table, update the sender hardware address field of the entry with the new information in the packet",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "If the <protocol type, sender protocol address> pair is already in the translation table, the receiver must update that entry's hardware address with the sender hardware address from the packet."
+  },
+  {
+   "id": "B45",
+   "source": "RFC826",
+   "line_start": 213,
+   "line_end": 213,
+   "section": "Packet Reception",
+   "quote": "set Merge_flag to true",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "When an existing entry is updated, the receiver must set Merge_flag to true."
+  },
+  {
+   "id": "B46",
+   "source": "RFC826",
+   "line_start": 214,
+   "line_end": 215,
+   "section": "Packet Reception",
+   "quote": "?Am I the target protocol address?",
+   "rule": "N2",
+   "strength": "none",
+   "obligation": "After the merge step the receiver must test whether ar$tpa is its own protocol address, and proceed only if it is."
+  },
+  {
+   "id": "B47",
+   "source": "RFC826",
+   "line_start": 216,
+   "line_end": 218,
+   "section": "Packet Reception",
+   "quote": "If Merge_flag is false, add the triplet <protocol type, sender protocol address, sender hardware address> to the translation table.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "If the receiver is the target and Merge_flag is false, it must add the triplet <protocol type, sender protocol address, sender hardware address> to its translation table."
+  },
+  {
+   "id": "B48",
+   "source": "RFC826",
+   "line_start": 219,
+   "line_end": 220,
+   "section": "Packet Reception",
+   "quote": "?Is the opcode ares_op$REQUEST?",
+   "rule": "N2",
+   "strength": "none",
+   "obligation": "The receiver must test whether ar$op is ares_op$REQUEST, and generate a reply only if it is."
+  },
+  {
+   "id": "B49",
+   "source": "RFC826",
+   "line_start": 219,
+   "line_end": 219,
+   "section": "Packet Reception",
+   "quote": "(NOW look at the opcode!!)",
+   "rule": "N2",
+   "strength": "none",
+   "obligation": "The receiver must not look at the opcode until after the table merge and add steps have been performed."
+  },
+  {
+   "id": "B50",
+   "source": "RFC826",
+   "line_start": 221,
+   "line_end": 222,
+   "section": "Packet Reception",
+   "quote": "Swap hardware and protocol fields, putting the local hardware and protocol addresses in the sender fields.",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "To answer a request the receiver must swap the hardware and protocol address fields so that its own hardware and protocol addresses occupy the sender fields and the requester's occupy the target fields."
+  },
+  {
+   "id": "B51",
+   "source": "RFC826",
+   "line_start": 223,
+   "line_end": 223,
+   "section": "Packet Reception",
+   "quote": "Set the ar$op field to ares_op$REPLY",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "In the answering packet the receiver must set ar$op to ares_op$REPLY."
+  },
+  {
+   "id": "B52",
+   "source": "RFC826",
+   "line_start": 224,
+   "line_end": 224,
+   "section": "Packet Reception",
+   "quote": "Send the packet to the (new) target hardware address",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "The receiver must send the reply to the new target hardware address, that is, directly to the requester rather than by broadcast."
+  },
+  {
+   "id": "B53",
+   "source": "RFC826",
+   "line_start": 224,
+   "line_end": 225,
+   "section": "Packet Reception",
+   "quote": "on the same hardware on which the request was received",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "The receiver must send the reply out on the same hardware on which the request arrived."
+  },
+  {
+   "id": "B54",
+   "source": "RFC826",
+   "line_start": 231,
+   "line_end": 234,
+   "section": "Packet Reception",
+   "quote": "Notice also that if an entry already exists for the <protocol type, sender protocol address> pair, then the new hardware address supersedes the old one.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "A newly received sender hardware address must supersede the hardware address already stored for the same <protocol type, sender protocol address> pair."
+  },
+  {
+   "id": "B55",
+   "source": "RFC826",
+   "line_start": 236,
+   "line_end": 237,
+   "section": "Packet Reception",
+   "quote": "The ar$hrd and ar$hln fields allow this protocol and packet format to be used for non-10Mbit Ethernets.",
+   "rule": "N9",
+   "strength": "none",
+   "obligation": "The ar$hrd and ar$hln fields must carry the hardware type and hardware address length so that the same protocol and packet format work on hardware other than 10Mbit Ethernet."
+  },
+  {
+   "id": "B56",
+   "source": "RFC826",
+   "line_start": 237,
+   "line_end": 238,
+   "section": "Packet Reception",
+   "quote": "For the 10Mbit Ethernet <ar$hrd, ar$hln> takes on the value <1, 6>.",
+   "rule": "N4",
+   "strength": "none",
+   "obligation": "On 10Mbit Ethernet the pair <ar$hrd, ar$hln> must be <1, 6>."
+  },
+  {
+   "id": "B57",
+   "source": "RFC826",
+   "line_start": 238,
+   "line_end": 240,
+   "section": "Packet Reception",
+   "quote": "For other hardware networks, the ar$pro field may no longer correspond to the Ethernet type field",
+   "rule": "N9",
+   "strength": "may",
+   "obligation": "On hardware other than Ethernet an implementation must not assume ar$pro is an Ethernet type field value."
+  },
+  {
+   "id": "B58",
+   "source": "RFC826",
+   "line_start": 240,
+   "line_end": 242,
+   "section": "Packet Reception",
+   "quote": "it should be associated with the protocol whose address resolution is being sought",
+   "rule": "N9",
+   "strength": "should",
+   "obligation": "On non-Ethernet hardware the ar$pro value should identify the protocol whose address resolution is being sought."
+  },
+  {
+   "id": "B59",
+   "source": "RFC826",
+   "line_start": 248,
+   "line_end": 248,
+   "section": "Why is it done this way??",
+   "quote": "Periodic broadcasting is definitely not desired.",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "An implementation must not distribute address resolution information by periodic broadcast."
+  },
+  {
+   "id": "B60",
+   "source": "RFC826",
+   "line_start": 260,
+   "line_end": 261,
+   "section": "Why is it done this way??",
+   "quote": "This format does not allow for more than one resolution to be done in the same packet.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An implementation must carry at most one address resolution per packet; the format admits no multiplexing of several resolutions."
+  },
+  {
+   "id": "B61",
+   "source": "RFC826",
+   "line_start": 269,
+   "line_end": 270,
+   "section": "Why is it done this way??",
+   "quote": "a reply has the same length as a request, and several of the fields are the same",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "A reply must have the same length as the request that provoked it, with several fields carried over unchanged."
+  },
+  {
+   "id": "B62",
+   "source": "RFC826",
+   "line_start": 272,
+   "line_end": 274,
+   "section": "Why is it done this way??",
+   "quote": "The value of the hardware field (ar$hrd) is taken from a list for this purpose.  Currently the only defined value is for the 10Mbit Ethernet (ares_hrd$Ethernet = 1).",
+   "rule": "N4",
+   "strength": "none",
+   "obligation": "An implementation must take ar$hrd values from the assigned hardware-type list, of which 1 (10Mbit Ethernet) is the only value defined by this document."
+  },
+  {
+   "id": "B63",
+   "source": "RFC826",
+   "line_start": 288,
+   "line_end": 291,
+   "section": "Why is it done this way??",
+   "quote": "the length fields (ar$hln and ar$pln) are redundant, since the length of a protocol address should be determined by the hardware type (found in ar$hrd) and the protocol type (found in ar$pro)",
+   "rule": "N9",
+   "strength": "should",
+   "obligation": "An implementation should determine hardware and protocol address lengths from the hardware type in ar$hrd and the protocol type in ar$pro rather than from the length fields alone."
+  },
+  {
+   "id": "B64",
+   "source": "RFC826",
+   "line_start": 305,
+   "line_end": 306,
+   "section": "Why is it done this way??",
+   "quote": "if one assumes a reply is only provoked by a request",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "A reply is sent only in response to a request; an implementation does not emit unprovoked replies."
+  },
+  {
+   "id": "B65",
+   "source": "RFC826",
+   "line_start": 312,
+   "line_end": 313,
+   "section": "Why is it done this way??",
+   "quote": "It has no meaning in the request form, since it is this number that the machine is requesting.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "A receiver must not attach meaning to ar$tha in a packet whose opcode is a request."
+  },
+  {
+   "id": "B66",
+   "source": "RFC826",
+   "line_start": 313,
+   "line_end": 314,
+   "section": "Why is it done this way??",
+   "quote": "Its meaning in the reply form is the address of the machine making the request.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "In a reply, ar$tha holds the hardware address of the machine that made the request."
+  },
+  {
+   "id": "B67",
+   "source": "RFC826",
+   "line_start": 320,
+   "line_end": 321,
+   "section": "Why is it done this way??",
+   "quote": "There are no padding bytes between addresses.",
+   "rule": "N3",
+   "strength": "none",
+   "obligation": "An implementation must emit the address fields contiguously, inserting no padding bytes between them."
+  },
+  {
+   "id": "B68",
+   "source": "RFC826",
+   "line_start": 320,
+   "line_end": 322,
+   "section": "Why is it done this way??",
+   "quote": "The packet data should be viewed as a byte stream in which only 3 byte pairs are defined to be words (ar$hrd, ar$pro and ar$op)",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "An implementation should treat the packet data as a byte stream in which only ar$hrd, ar$pro and ar$op are words, all other fields being byte sequences."
+  },
+  {
+   "id": "B69",
+   "source": "RFC826",
+   "line_start": 322,
+   "line_end": 323,
+   "section": "Why is it done this way??",
+   "quote": "which are sent most significant byte first (Ethernet/PDP-10 byte style)",
+   "rule": "N3",
+   "strength": "should",
+   "obligation": "The three word fields ar$hrd, ar$pro and ar$op must be sent most significant byte first."
+  },
+  {
+   "id": "B70",
+   "source": "RFC826",
+   "line_start": 337,
+   "line_end": 339,
+   "section": "Network monitoring and debugging",
+   "quote": "When a monitor receives an Address Resolution packet, it always enters the <protocol type, sender protocol address, sender hardware address> in a table.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "A node acting as a monitor enters the <protocol type, sender protocol address, sender hardware address> triplet in its table for every address resolution packet received, without applying the target-address gate of the reception algorithm."
+  },
+  {
+   "id": "B71",
+   "source": "RFC826",
+   "line_start": 415,
+   "line_end": 415,
+   "section": "Related issue",
+   "quote": "It may be desirable to have table aging and/or timeouts.",
+   "rule": "N6",
+   "strength": "may",
+   "obligation": "An implementation may age out or time out translation table entries."
+  },
+  {
+   "id": "B72",
+   "source": "RFC826",
+   "line_start": 419,
+   "line_end": 421,
+   "section": "Related issue",
+   "quote": "If a host moves, any connections initiated by that host will work, assuming its own address resolution table is cleared when it moves.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "A host that moves clears its own address resolution table."
+  },
+  {
+   "id": "B73",
+   "source": "RFC826",
+   "line_start": 423,
+   "line_end": 424,
+   "section": "Related issue",
+   "quote": "48.bit Ethernet addresses are supposed to be unique and fixed for all time, so they shouldn't change.",
+   "rule": "N10",
+   "strength": "none",
+   "obligation": "The protocol relies on 48-bit Ethernet addresses being unique and permanently fixed to a piece of hardware."
+  },
+  {
+   "id": "B74",
+   "source": "RFC826",
+   "line_start": 429,
+   "line_end": 430,
+   "section": "Related issue",
+   "quote": "it should not be allowed to persist forever",
+   "rule": "N6",
+   "strength": "should",
+   "obligation": "An implementation should not allow incorrect translation information to persist in the table forever."
+  },
+  {
+   "id": "B75",
+   "source": "RFC826",
+   "line_start": 430,
+   "line_end": 433,
+   "section": "Related issue",
+   "quote": "Perhaps failure to initiate a connection should inform the Address Resolution module to delete the information on the basis that the host is not reachable, possibly because it is down or the old translation is no longer valid.",
+   "rule": "N6",
+   "strength": "should",
+   "obligation": "On failure to initiate a connection, the Address Resolution module should perhaps be told to delete the translation entry for the unreachable host."
+  },
+  {
+   "id": "B76",
+   "source": "RFC826",
+   "line_start": 433,
+   "line_end": 436,
+   "section": "Related issue",
+   "quote": "Or perhaps receiving of a packet from a host should reset a timeout in the address resolution entry used for transmitting packets to that host",
+   "rule": "N6",
+   "strength": "should",
+   "obligation": "Receipt of a packet from a host should perhaps reset the timeout on the translation entry used to transmit to that host."
+  },
+  {
+   "id": "B77",
+   "source": "RFC826",
+   "line_start": 436,
+   "line_end": 437,
+   "section": "Related issue",
+   "quote": "if no packets are received from a host for a suitable length of time, the address resolution entry is forgotten",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "A translation entry is forgotten when no packet has been received from that host for a suitable length of time."
+  },
+  {
+   "id": "B78",
+   "source": "RFC826",
+   "line_start": 445,
+   "line_end": 447,
+   "section": "Related issue",
+   "quote": "on a perfect Ethernet where a broadcast REQUEST reaches all stations on the cable, each station will be get the new hardware address",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "Where a broadcast request reaches every station, every station that holds an entry for the sender must end up holding the sender's new hardware address."
+  },
+  {
+   "id": "B79",
+   "source": "RFC826",
+   "line_start": 449,
+   "line_end": 450,
+   "section": "Related issue",
+   "quote": "Another alternative is to have a daemon perform the timeouts.  After a suitable time, the daemon considers removing an entry.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "Timeouts may instead be performed by a daemon that considers an entry for removal after a suitable time."
+  },
+  {
+   "id": "B80",
+   "source": "RFC826",
+   "line_start": 451,
+   "line_end": 453,
+   "section": "Related issue",
+   "quote": "It first sends (with a small number of retransmissions if needed) an address resolution packet with opcode REQUEST directly to the Ethernet address in the table.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "Before removing an entry the daemon first sends a REQUEST packet, with a small number of retransmissions if needed, directly to the Ethernet address recorded in that entry rather than by broadcast."
+  },
+  {
+   "id": "B81",
+   "source": "RFC826",
+   "line_start": 453,
+   "line_end": 454,
+   "section": "Related issue",
+   "quote": "If a REPLY is not seen in a short amount of time, the entry is deleted.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "If no REPLY arrives within a short time of the daemon's probe, the entry is deleted."
+  },
+  {
+   "id": "B82",
+   "source": "RFC826",
+   "line_start": 459,
+   "line_end": 460,
+   "section": "Related issue",
+   "quote": "Since hosts don't transmit information about anyone other than themselves",
+   "rule": "N1",
+   "strength": "none",
+   "obligation": "A host transmits address resolution information only about itself, never about another host."
+  },
+  {
+   "id": "B83",
+   "source": "RFC826",
+   "line_start": 464,
+   "line_end": 466,
+   "section": "Related issue",
+   "quote": "Perhaps manually resetting (or clearing) the address mapping table will suffice.",
+   "rule": "N6",
+   "strength": "none",
+   "obligation": "An implementation may perhaps provide manual resetting or clearing of the address mapping table as the remedy for stale entries."
+  }
+ ],
+ "excluded": [
+  {
+   "id": "Bx1",
+   "source": "RFC826",
+   "line_start": 1,
+   "line_end": 17,
+   "quote": "Network Working Group                                   David C. Plummer",
+   "rule": "X3",
+   "reason": "RFC header, title block, and section label; document metadata, imposes no obligation"
+  },
+  {
+   "id": "Bx2",
+   "source": "RFC826",
+   "line_start": 19,
+   "line_end": 22,
+   "quote": "The implementation of protocol P on a sending host S decides, through protocol P's routing mechanism, that it wants to transmit to a target host T",
+   "rule": "X3",
+   "reason": "abstract; sets the scene for the problem, states no requirement on this module"
+  },
+  {
+   "id": "Bx3",
+   "source": "RFC826",
+   "line_start": 22,
+   "line_end": 24,
+   "quote": "To actually transmit the Ethernet packet a 48.bit Ethernet address must be generated.",
+   "rule": "X3",
+   "reason": "a 'must' inside the abstract; T3 fires first, the addressee is the Ethernet hardware layer, not an implementation of this protocol (rubric section 9 case 1)"
+  },
+  {
+   "id": "Bx4",
+   "source": "RFC826",
+   "line_start": 23,
+   "line_end": 29,
+   "quote": "The addresses of hosts within protocol P are not always compatible with the corresponding Ethernet address (being different lengths or values).  Presented here is a protocol that allows dynamic distribution of the information needed to build tables",
+   "rule": "X3",
+   "reason": "abstract; describes what the document presents rather than imposing a rule"
+  },
+  {
+   "id": "Bx5",
+   "source": "RFC826",
+   "line_start": 31,
+   "line_end": 33,
+   "quote": "Generalizations have been made which allow the protocol to be used for non-10Mbit Ethernet hardware.",
+   "rule": "X3",
+   "reason": "abstract; the generalization rule itself is owned by lines 236-242"
+  },
+  {
+   "id": "Bx6",
+   "source": "RFC826",
+   "line_start": 35,
+   "line_end": 40,
+   "quote": "The protocol proposed here is the result of a great deal of discussion with several other people",
+   "rule": "X3",
+   "reason": "horizontal rule and acknowledgments"
+  },
+  {
+   "id": "Bx7",
+   "source": "RFC826",
+   "line_start": 45,
+   "line_end": 50,
+   "quote": "The method proposed here is presented for your consideration and comment.  This is not the specification of a Internet Standard.",
+   "rule": "X3",
+   "reason": "status disclaimer; front matter, read under rubric decision R-2 as not deleting the document's obligations"
+  },
+  {
+   "id": "Bx8",
+   "source": "RFC826",
+   "line_start": 52,
+   "line_end": 59,
+   "quote": "This protocol was originally designed for the DEC/Intel/Xerox 10Mbit Ethernet.  It has been generalized to allow it to be used for other types of networks.",
+   "rule": "X3",
+   "reason": "note on the document's own history and organisation; tells the reader how the text is arranged"
+  },
+  {
+   "id": "Bx9",
+   "source": "RFC826",
+   "line_start": 61,
+   "line_end": 61,
+   "quote": "DOD Internet Protocol will be referred to as Internet.",
+   "rule": "X3",
+   "reason": "terminology convention for the reader"
+  },
+  {
+   "id": "Bx10",
+   "source": "RFC826",
+   "line_start": 68,
+   "line_end": 69,
+   "quote": "An agreed upon authority is needed to manage hardware name space values (see below).  Until an official authority exists,",
+   "rule": "X6",
+   "reason": "addresses a numbering authority that does not yet exist; binds no implementation of this protocol (T3)"
+  },
+  {
+   "id": "Bx11",
+   "source": "RFC826",
+   "line_start": 69,
+   "line_end": 74,
+   "quote": "requests should be submitted to\n\tDavid C. Plummer\n\tSymbolics, Inc.",
+   "rule": "X6",
+   "reason": "a 'should' binding a person registering a hardware number, not an implementation (rubric section 9 case 3)"
+  },
+  {
+   "id": "Bx12",
+   "source": "RFC826",
+   "line_start": 75,
+   "line_end": 75,
+   "quote": "Alternatively, network mail can be sent to DCP@MIT-MC.",
+   "rule": "X6",
+   "reason": "permission addressed to a registrant, not to an implementation"
+  },
+  {
+   "id": "Bx13",
+   "source": "RFC826",
+   "line_start": 77,
+   "line_end": 83,
+   "quote": "The world is a jungle in general, and the networking game contributes many animals.",
+   "rule": "X1",
+   "reason": "motivation; explains why address resolution is needed"
+  },
+  {
+   "id": "Bx14",
+   "source": "RFC826",
+   "line_start": 83,
+   "line_end": 88,
+   "quote": "there is TELNET and SUPDUP for remote login.  Somewhere below that there is a reliable byte stream protocol, which might be CHAOS protocol, DOD TCP, Xerox BSP or DECnet.",
+   "rule": "X4",
+   "reason": "statements about other protocols and layers, not imposed on this implementation"
+  },
+  {
+   "id": "Bx15",
+   "source": "RFC826",
+   "line_start": 88,
+   "line_end": 90,
+   "quote": "The 10Mbit Ethernet allows all of these protocols (and more) to coexist on a single cable by means of a type field in the Ethernet packet header.",
+   "rule": "X4",
+   "reason": "property of the Ethernet layer; the obligation to set the type field is owned by line 139"
+  },
+  {
+   "id": "Bx16",
+   "source": "RFC826",
+   "line_start": 94,
+   "line_end": 95,
+   "quote": "CHAOS addresses are 16.bits, DOD Internet addresses are 32.bits, and Xerox PUP addresses are 8.bits.",
+   "rule": "X4",
+   "reason": "address widths of neighbouring protocols; no rule in this document relies on these particular values, so N10's reliance test does not rescue them"
+  },
+  {
+   "id": "Bx17",
+   "source": "RFC826",
+   "line_start": 95,
+   "line_end": 97,
+   "quote": "A protocol is needed to dynamically distribute the correspondences between a <protocol, address> pair and a 48.bit Ethernet address.",
+   "rule": "X1",
+   "reason": "statement of the problem this document solves; imposes nothing"
+  },
+  {
+   "id": "Bx18",
+   "source": "RFC826",
+   "line_start": 99,
+   "line_end": 110,
+   "quote": "There are two alternatives: (1) Every implementor invents his/her own method to do some form of address resolution, or (2) every implementor uses a standard",
+   "rule": "X1",
+   "reason": "motivation section; the basis for reading decision R-2 but itself imposes no rule"
+  },
+  {
+   "id": "Bx19",
+   "source": "RFC826",
+   "line_start": 112,
+   "line_end": 121,
+   "quote": "Define the following for referring to the values put in the TYPE field of the Ethernet packet header:\n\tether_type$XEROX_PUP,\n\tether_type$DOD_INTERNET,\n\tether_type$CHAOS, \nand a new one:\n\tether_type$ADDRESS_RESOLUTION.",
+   "rule": "X3",
+   "reason": "names introduced without values; nothing here can be violated (T2). ether_type$ADDRESS_RESOLUTION acquires an obligation later, at line 139"
+  },
+  {
+   "id": "Bx20",
+   "source": "RFC826",
+   "line_start": 122,
+   "line_end": 122,
+   "quote": "Also define the following values (to be discussed later):",
+   "rule": "X3",
+   "reason": "lead-in sentence; the values it introduces row separately at lines 123, 124 and 126"
+  },
+  {
+   "id": "Bx21",
+   "source": "RFC826",
+   "line_start": 135,
+   "line_end": 136,
+   "quote": "Ethernet transmission layer (not necessarily accessible to\n\t the user):",
+   "rule": "X4",
+   "reason": "structural label plus a remark about what the Ethernet layer exposes to the user"
+  },
+  {
+   "id": "Bx22",
+   "source": "RFC826",
+   "line_start": 140,
+   "line_end": 140,
+   "quote": "Ethernet packet data:",
+   "rule": "X3",
+   "reason": "structural label inside the format listing"
+  },
+  {
+   "id": "Bx23",
+   "source": "RFC826",
+   "line_start": 161,
+   "line_end": 164,
+   "quote": "As a packet is sent down through the network layers, routing determines the protocol address of the next hop for the packet and on which piece of hardware it expects to find the station with the immediate target protocol address.",
+   "rule": "X4",
+   "reason": "describes what the routing layer does; the addressee is not this module (T3)"
+  },
+  {
+   "id": "Bx24",
+   "source": "RFC826",
+   "line_start": 199,
+   "line_end": 199,
+   "quote": "which goes through an algorithm similar to the following.",
+   "rule": "X3",
+   "reason": "framing of the algorithm block; the hedge 'similar to' is the reading R-1 records and rejects, not an obligation of its own"
+  },
+  {
+   "id": "Bx25",
+   "source": "RFC826",
+   "line_start": 204,
+   "line_end": 204,
+   "quote": "Yes: (almost definitely)",
+   "rule": "X1",
+   "reason": "control-flow label owned by the test row at line 203; the parenthetical is an aside about likelihood"
+  },
+  {
+   "id": "Bx26",
+   "source": "RFC826",
+   "line_start": 227,
+   "line_end": 231,
+   "quote": "Notice that the <protocol type, sender protocol address, sender hardware address> triplet is merged into the table before the opcode is looked at.  This is on the assumption that communcation is bidirectional",
+   "rule": "X1",
+   "reason": "rationale restating the ordering obligation already owned by line 219 (T1 first-site)"
+  },
+  {
+   "id": "Bx27",
+   "source": "RFC826",
+   "line_start": 234,
+   "line_end": 234,
+   "quote": "Related Issues gives some motivation for this.",
+   "rule": "X1",
+   "reason": "internal cross-reference"
+  },
+  {
+   "id": "Bx28",
+   "source": "RFC826",
+   "line_start": 249,
+   "line_end": 258,
+   "quote": "each broadcasting address resolution information once per 10 minutes (as one possible set of parameters).  This is one packet every 6 seconds.",
+   "rule": "X1",
+   "reason": "worked arithmetic justifying the refusal of periodic broadcast; the rule itself is at line 248"
+  },
+  {
+   "id": "Bx29",
+   "source": "RFC826",
+   "line_start": 261,
+   "line_end": 266,
+   "quote": "This is for simplicity.  If things were multiplexed the packet format would be considerably harder to digest, and much of the information could be gratuitous.",
+   "rule": "X1",
+   "reason": "rationale for the one-resolution-per-packet rule rowed at lines 260-261"
+  },
+  {
+   "id": "Bx30",
+   "source": "RFC826",
+   "line_start": 268,
+   "line_end": 269,
+   "quote": "This format allows the packet buffer to be reused if a reply is generated;",
+   "rule": "X7",
+   "reason": "implementation note about buffer reuse with no peer-observable consequence; the format property that enables it rows separately at lines 269-270"
+  },
+  {
+   "id": "Bx31",
+   "source": "RFC826",
+   "line_start": 274,
+   "line_end": 277,
+   "quote": "There has been talk of using this protocol for Packet Radio Networks as well, and this will require another value as will other future hardware mediums",
+   "rule": "X5",
+   "reason": "speculation about future hardware types and future assignments"
+  },
+  {
+   "id": "Bx32",
+   "source": "RFC826",
+   "line_start": 279,
+   "line_end": 281,
+   "quote": "For the 10Mbit Ethernet, the value in the protocol field (ar$pro) is taken from the set ether_type$.  This is a natural reuse of the assigned protocol types.",
+   "rule": "X1",
+   "reason": "restates the ar$pro constraint already owned by the format line at 143-145 (T1 first-site), plus rationale"
+  },
+  {
+   "id": "Bx33",
+   "source": "RFC826",
+   "line_start": 281,
+   "line_end": 284,
+   "quote": "Combining this with the opcode (ar$op) would effectively halve the number of protocols that can be resolved under this protocol and would make a monitor/debugger more complex",
+   "rule": "X1",
+   "reason": "rationale for keeping protocol and opcode in separate fields"
+  },
+  {
+   "id": "Bx34",
+   "source": "RFC826",
+   "line_start": 284,
+   "line_end": 286,
+   "quote": "It is hoped that we will never see 32768 protocols, but Murphy made some laws which don't allow us to make this assumption.",
+   "rule": "X5",
+   "reason": "speculation about future protocol counts"
+  },
+  {
+   "id": "Bx35",
+   "source": "RFC826",
+   "line_start": 291,
+   "line_end": 292,
+   "quote": "It is included for optional consistency checking, and for network monitoring and debugging (see below).",
+   "rule": "X1",
+   "reason": "states the purpose of the length fields; the permission to check them optionally is owned by lines 205 and 208 (T1 first-site, which precedes T5)"
+  },
+  {
+   "id": "Bx36",
+   "source": "RFC826",
+   "line_start": 294,
+   "line_end": 296,
+   "quote": "The opcode is to determine if this is a request (which may cause a reply) or a reply to a previous request.  16 bits for this is overkill, but a flag (field) is needed.",
+   "rule": "X1",
+   "reason": "rationale for the opcode field's existence and width; the request/reply behaviour is owned by lines 219-225"
+  },
+  {
+   "id": "Bx37",
+   "source": "RFC826",
+   "line_start": 298,
+   "line_end": 300,
+   "quote": "The sender hardware address and sender protocol address are absolutely necessary.  It is these fields that get put in a translation table.",
+   "rule": "X1",
+   "reason": "restates the presence of ar$sha and ar$spa (lines 149-152) and the table-add rule (lines 216-218); a requirement word in a rationale restatement"
+  },
+  {
+   "id": "Bx38",
+   "source": "RFC826",
+   "line_start": 302,
+   "line_end": 305,
+   "quote": "The target protocol address is necessary in the request form of the packet so that a machine can determine whether or not to enter the sender information in a table or to send a reply.",
+   "rule": "X1",
+   "reason": "rationale for including ar$tpa; the tests it justifies are owned by lines 214 and 219"
+  },
+  {
+   "id": "Bx39",
+   "source": "RFC826",
+   "line_start": 306,
+   "line_end": 309,
+   "quote": "It is included for completeness, network monitoring, and to simplify the suggested processing algorithm described above (which does not look at the opcode until AFTER putting the sender information in a table).",
+   "rule": "X1",
+   "reason": "rationale; the ordering it refers to is owned by line 219"
+  },
+  {
+   "id": "Bx40",
+   "source": "RFC826",
+   "line_start": 311,
+   "line_end": 312,
+   "quote": "The target hardware address is included for completeness and network monitoring.",
+   "rule": "X1",
+   "reason": "rationale for including ar$tha; the field itself is owned by lines 153-154"
+  },
+  {
+   "id": "Bx41",
+   "source": "RFC826",
+   "line_start": 315,
+   "line_end": 318,
+   "quote": "this may save some register shuffling or stack space by sending this field to the hardware driver as the hardware destination address of the packet",
+   "rule": "X7",
+   "reason": "implementation note about local resource use; no peer can detect it"
+  },
+  {
+   "id": "Bx42",
+   "source": "RFC826",
+   "line_start": 329,
+   "line_end": 335,
+   "quote": "The above Address Resolution protocol allows a machine to gain knowledge about the higher level protocol activity ... it is not necessary for the monitor to speak any of the higher level protocols involved.",
+   "rule": "X8",
+   "reason": "description of the monitor application, a role a conforming node is not required to play"
+  },
+  {
+   "id": "Bx43",
+   "source": "RFC826",
+   "line_start": 339,
+   "line_end": 341,
+   "quote": "It can determine the length of the hardware and protocol address from the ar$hln and ar$pln fields of the packet.",
+   "rule": "X8",
+   "reason": "monitor restatement of the length-field semantics already owned by lines 146-147"
+  },
+  {
+   "id": "Bx44",
+   "source": "RFC826",
+   "line_start": 341,
+   "line_end": 342,
+   "quote": "If the opcode is a REPLY the monitor can then throw the packet away.",
+   "rule": "X8",
+   "reason": "monitor restatement of the core algorithm's handling of a reply after the merge"
+  },
+  {
+   "id": "Bx45",
+   "source": "RFC826",
+   "line_start": 342,
+   "line_end": 344,
+   "quote": "If the opcode is a REQUEST and the target protocol address matches the protocol address of the monitor, the monitor sends a REPLY as it normally would.",
+   "rule": "X8",
+   "reason": "monitor restatement of the reply rule owned by lines 219-225"
+  },
+  {
+   "id": "Bx46",
+   "source": "RFC826",
+   "line_start": 344,
+   "line_end": 346,
+   "quote": "The monitor will only get one mapping this way, since the REPLY to the REQUEST will be sent directly to the requesting host.",
+   "rule": "X8",
+   "reason": "consequence for the monitor role of the direct-send rule owned by lines 224-225"
+  },
+  {
+   "id": "Bx47",
+   "source": "RFC826",
+   "line_start": 346,
+   "line_end": 348,
+   "quote": "The monitor could try sending its own REQUEST, but this could get two monitors into a REQUEST sending loop, and care must be taken.",
+   "rule": "X8",
+   "reason": "advice about an optional role; the 'must' at line 348 binds a monitor implementor, not an implementation of this protocol"
+  },
+  {
+   "id": "Bx48",
+   "source": "RFC826",
+   "line_start": 350,
+   "line_end": 353,
+   "quote": "Because the protocol and opcode are not combined into one field, the monitor does not need to know which request opcode is associated with which reply opcode for the same higher level protocol.",
+   "rule": "X8",
+   "reason": "consequence of the format for the monitor role; the format decision is owned by line 148"
+  },
+  {
+   "id": "Bx49",
+   "source": "RFC826",
+   "line_start": 353,
+   "line_end": 355,
+   "quote": "The length fields should also give enough information to enable it to \"parse\" a protocol addresses, although it has no knowledge of what the protocol addresses mean.",
+   "rule": "X8",
+   "reason": "a 'should' about what the monitor can do with the length fields; restates lines 146-147 for an optional role"
+  },
+  {
+   "id": "Bx50",
+   "source": "RFC826",
+   "line_start": 357,
+   "line_end": 364,
+   "quote": "A working implementation of the Address Resolution protocol can also be used to debug a non-working implementation.",
+   "rule": "X8",
+   "reason": "debugging application of the monitor role; restates the broadcast and type-field rules owned by lines 139 and 188-190"
+  },
+  {
+   "id": "Bx51",
+   "source": "RFC826",
+   "line_start": 367,
+   "line_end": 391,
+   "quote": "Let there exist machines X and Y that are on the same 10Mbit Ethernet cable. ... and broadcasts this packet to everybody on the cable.",
+   "rule": "X2",
+   "reason": "illustrative trace; restates the generation rules owned by lines 176-190"
+  },
+  {
+   "id": "Bx52",
+   "source": "RFC826",
+   "line_start": 393,
+   "line_end": 402,
+   "quote": "Machine Y gets this packet, and determines that it understands the hardware type (Ethernet), that it speaks the indicated protocol (Internet) and that the packet is for it",
+   "rule": "X2",
+   "reason": "illustrative trace; restates the reception algorithm owned by lines 203-225"
+  },
+  {
+   "id": "Bx53",
+   "source": "RFC826",
+   "line_start": 404,
+   "line_end": 410,
+   "quote": "Machine X gets the reply packet from Y, forms the map from <ET(IP), IPA(Y)> to EA(Y), notices the packet is a reply and throws it away.",
+   "rule": "X2",
+   "reason": "illustrative trace of the reply path; restates rules owned elsewhere"
+  },
+  {
+   "id": "Bx54",
+   "source": "RFC826",
+   "line_start": 415,
+   "line_end": 416,
+   "quote": "The implementation of these is outside the scope of this protocol.",
+   "rule": "X3",
+   "reason": "self-scoping disclaimer; under T11 the sentence itself is metadata while the aging obligations around it still row"
+  },
+  {
+   "id": "Bx55",
+   "source": "RFC826",
+   "line_start": 417,
+   "line_end": 417,
+   "quote": "Here is a more detailed description (thanks to MOON@SCRC@MIT-MC).",
+   "rule": "X3",
+   "reason": "attribution and lead-in"
+  },
+  {
+   "id": "Bx56",
+   "source": "RFC826",
+   "line_start": 421,
+   "line_end": 423,
+   "quote": "However, connections initiated to it by other hosts will have no particular reason to know to discard their old address.",
+   "rule": "X1",
+   "reason": "statement of the problem that motivates aging; no obligation"
+  },
+  {
+   "id": "Bx57",
+   "source": "RFC826",
+   "line_start": 424,
+   "line_end": 426,
+   "quote": "A host could \"move\" if a host name (and address in some other protocol) were reassigned to a different physical piece of hardware.",
+   "rule": "X1",
+   "reason": "defines what 'moving' means for the discussion; binds nothing"
+  },
+  {
+   "id": "Bx58",
+   "source": "RFC826",
+   "line_start": 426,
+   "line_end": 429,
+   "quote": "as we know from experience, there is always the danger of incorrect routing information accidentally getting transmitted through hardware or software error;",
+   "rule": "X1",
+   "reason": "lead-in rationale for the persistence rule rowed at lines 429-430"
+  },
+  {
+   "id": "Bx59",
+   "source": "RFC826",
+   "line_start": 437,
+   "line_end": 439,
+   "quote": "This may cause extra overhead to scan the table for each incoming packet.  Perhaps a hash or index can make this faster.",
+   "rule": "X7",
+   "reason": "implementation note about local cost and data structures; no peer-observable consequence"
+  },
+  {
+   "id": "Bx60",
+   "source": "RFC826",
+   "line_start": 441,
+   "line_end": 443,
+   "quote": "The suggested algorithm for receiving address resolution packets tries to lessen the time it takes for recovery if a host does move.",
+   "rule": "X1",
+   "reason": "states the intent of the reception algorithm; the algorithm itself is owned by lines 203-225"
+  },
+  {
+   "id": "Bx61",
+   "source": "RFC826",
+   "line_start": 443,
+   "line_end": 445,
+   "quote": "Recall that if the <protocol type, sender protocol address> is already in the translation table, then the sender hardware address supersedes the existing entry.",
+   "rule": "X1",
+   "reason": "explicit recall of the supersession rule owned by lines 231-234 (T1 first-site)"
+  },
+  {
+   "id": "Bx62",
+   "source": "RFC826",
+   "line_start": 454,
+   "line_end": 455,
+   "quote": "The request is sent directly so as not to bother every station on the Ethernet.",
+   "rule": "X1",
+   "reason": "rationale for the direct send rowed at lines 451-453"
+  },
+  {
+   "id": "Bx63",
+   "source": "RFC826",
+   "line_start": 455,
+   "line_end": 457,
+   "quote": "Just forgetting entries will likely cause useful information to be forgotten, which must be regained.",
+   "rule": "X1",
+   "reason": "a 'must' stating a consequence in rationale, not an action required of an implementation"
+  },
+  {
+   "id": "Bx64",
+   "source": "RFC826",
+   "line_start": 460,
+   "line_end": 464,
+   "quote": "rebooting a host will cause its address mapping table to be up to date.  Bad information can't persist forever by being passed around from machine to machine;",
+   "rule": "X1",
+   "reason": "consequence of the self-announcement rule rowed at lines 459-460"
+  },
+  {
+   "id": "Bx65",
+   "source": "RFC826",
+   "line_start": 468,
+   "line_end": 469,
+   "quote": "This issue clearly needs more thought if it is believed to be important.  It is caused by any address resolution-like protocol.",
+   "rule": "X5",
+   "reason": "open problem; the document declines to state a rule"
+  },
+  {
+   "id": "Bx66",
+   "source": "RFC826",
+   "line_start": 125,
+   "line_end": 125,
+   "quote": "and",
+   "rule": "X3",
+   "reason": "connector between the definition lines; the values it joins row separately at lines 124 and 126"
+  },
+  {
+   "id": "Bx67",
+   "source": "RFC826",
+   "line_start": 128,
+   "line_end": 129,
+   "quote": "Packet format:",
+   "rule": "X3",
+   "reason": "section heading"
+  },
+  {
+   "id": "Bx68",
+   "source": "RFC826",
+   "line_start": 158,
+   "line_end": 159,
+   "quote": "Packet Generation:",
+   "rule": "X3",
+   "reason": "section heading"
+  },
+  {
+   "id": "Bx69",
+   "source": "RFC826",
+   "line_start": 194,
+   "line_end": 195,
+   "quote": "Packet Reception:",
+   "rule": "X3",
+   "reason": "section heading"
+  },
+  {
+   "id": "Bx70",
+   "source": "RFC826",
+   "line_start": 245,
+   "line_end": 246,
+   "quote": "Why is it done this way??",
+   "rule": "X3",
+   "reason": "section heading"
+  },
+  {
+   "id": "Bx71",
+   "source": "RFC826",
+   "line_start": 326,
+   "line_end": 327,
+   "quote": "Network monitoring and debugging:",
+   "rule": "X3",
+   "reason": "section heading"
+  },
+  {
+   "id": "Bx72",
+   "source": "RFC826",
+   "line_start": 412,
+   "line_end": 413,
+   "quote": "Related issue:",
+   "rule": "X3",
+   "reason": "section heading"
+  }
+ ],
+ "counts": {
+  "normative": 83,
+  "excluded": 72
+ }
+}

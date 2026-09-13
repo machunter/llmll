@@ -1,0 +1,21 @@
+{
+ "a_only": 3,
+ "b_only": 2,
+ "line_coverage": {
+  "RFC826": {
+   "A_lines": 156,
+   "B_lines": 151,
+   "both": 142,
+   "union": 165,
+   "jaccard": 0.8606,
+   "A_only_lines": 14,
+   "B_only_lines": 9
+  }
+ },
+ "rule_agreement": {
+  "compared": 39,
+  "identical": 36,
+  "raw_agreement": 0.9231,
+  "cohens_kappa": 0.9014
+ }
+}
