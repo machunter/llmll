@@ -24,7 +24,7 @@
   ?proof-required)
 
 ;; EFFECT-RESP: third parameter is the previous command's response.
-(def-shell main-step [state: string input: string _r: Response]
+(def-shell main-step [state: unit input: string _r: Response]
   (pair state (wasi.io.stdout "proof-required test")))
 
 (def-main :mode console
