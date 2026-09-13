@@ -1019,11 +1019,11 @@
           ]
         },
         "init": {
-          "description": "Expression returning (State, Command) pair. Executed once at startup. Optional — if absent the initial state is ().",
+          "description": "Expression returning (State, Command) pair. Executed once at startup; its Command is performed and its Response reaches the first step (EFFECT-RESP RC-3). CONSOLE-INIT-1 (0.23.6): REQUIRED unless the step's declared state type is unit. With no init the harness starts the program on (), so a step declaring any other state type is rejected at check with def-main-init-required. The rule applies to console and http; cli binds no initial state and is not subject to it. A state type that is an alias of unit is accepted.",
           "$ref": "#/$defs/Expr"
         },
         "step": {
-          "description": "Function or expression of type (State, String) -> (State, Command). Called on each input line (console) or OS args (cli).",
+          "description": "Function or expression returning a (State, Command) pair. Called on each input line (console) or OS args (cli). EFFECT-RESP (0.14.80): a console step takes THREE parameters, (State, string, Response), where Response carries the result of the Command that step returned on the previous turn; a wrong arity, or a third parameter that is not Response, is rejected at check with def-main-step-arity. cli and http perform no Command and so deliver no response: their step is unchanged at (State, string) -> (State, Command).",
           "$ref": "#/$defs/Expr"
         },
         "done?": {
