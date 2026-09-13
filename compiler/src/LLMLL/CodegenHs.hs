@@ -2277,6 +2277,20 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
     -- initial case. It is performed through llmll_perform (not captureStdout),
     -- which keeps init's own output going straight to the real stdout as it did
     -- before, and it is not logged, as it was not before.
+    --
+    -- CONSOLE-INIT-1: the Nothing arm's () is now the DECLARED state, not a
+    -- default. 'TypeCheck.checkInitRequired' rejects a def-main that omits :init
+    -- unless the step declares a unit state, so this arm is reached only for a
+    -- program whose state type IS unit. Before that check the arm emitted () for
+    -- any declared type, and a step that merely threaded its state built and ran
+    -- on the wrong one, because generated definitions carry no type signatures.
+    --
+    -- This stays an emitter with no opinion, deliberately. All three codegen
+    -- entry points in app/Main.hs (doBuild, doBuildFromJson, doRun) run
+    -- typeCheckStrict and exitFailure before reaching generateHaskell, so the
+    -- check is fail-closed ahead of this line on both the S-expression and the
+    -- JSON-AST paths. A rejection here would duplicate that and would break the
+    -- test helpers that call generateHaskell with no type check in front.
     initBlock = case mInit of
       Nothing -> [ "  let state0 = ()"
                  , "  let r0 = RNone" ]
@@ -2392,6 +2406,11 @@ emitMainBody _ SDefMain{defMainMode = ModeHttp{httpPort = port}, defMainStep = s
   , "main :: IO ()"
   , "main = do"
   , "  putStrLn \"LLMLL HTTP server on port " <> T.pack (show port) <> "\""
+  -- CONSOLE-INIT-1: the () fallback here is the console clause's defect in a
+  -- second place, and the rule covers this mode too.
+  -- 'TypeCheck.checkInitRequired' rejects an http def-main that omits :init
+  -- unless the step declares a unit state, so this maybe reaches its default
+  -- only for a unit-stated program.
   , "  let _state = " <> maybe "()" emitExpr mInit
   , "  -- run " <> T.pack (show port) <> " (app _state) -- uncomment after wiring warp"
   , "  -- where app s req respond = ..."

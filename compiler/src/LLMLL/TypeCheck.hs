@@ -1914,11 +1914,12 @@ checkStatement (SExpr expr) = do
   _ <- inferExpr expr
   pure ()
 
-checkStatement (SDefMain { defMainMode = mode, defMainStep = stepE, defMainDone = doneE
-                         , defMainStatus = statusE }) = do
+checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep = stepE
+                         , defMainDone = doneE, defMainStatus = statusE }) = do
   -- Type-check the step and done? expressions
   stepTy <- inferExpr stepE
   checkStepArity mode stepTy
+  checkInitRequired mode mInit stepTy
   case doneE of
     Nothing -> pure ()
     Just de -> do
@@ -2028,6 +2029,64 @@ checkStepArity ModeConsole stepTy = do
       <> ". Each performed command yields one Response, delivered as the next "
       <> "step's third argument (EFFECT-RESP RC-1)."
 checkStepArity _ _ = pure ()
+
+-- | CONSOLE-INIT-1: @:init@ is required unless the state type is @unit@.
+--
+-- 'emitMainBody' binds @state0 = ()@ when @:init@ is absent, in both the
+-- ModeConsole and the ModeHttp clause, and it does that whatever type the step
+-- declared for its state. Without this check a program can declare @string@ and
+-- run on @()@.
+--
+-- THE SILENT CASE IS THE WORSE ONE. Generated definitions carry no type
+-- signatures, so GHC generalizes a step that only threads its state, and the
+-- program BUILDS AND RUNS with the wrong state type. Both in-tree programs with
+-- no @:init@ were in that shape. The loud case needs a step body that CONSTRAINS
+-- the state, and it dies at GHC with @Expected: String / Actual: ()@ rather than
+-- at @check@. This check moves both cases to @check@ time.
+--
+-- The rule is type-directed and it invents no value. Two alternatives were
+-- rejected in the roadmap row. Deriving @state0@ from the declared type needs a
+-- zero-value-per-type notion, which initializes a program's precondition for it.
+-- A typed @undefined@ moves a compile-time error to run time.
+--
+-- THE TEST IS POSITIVE, AND THAT IS NOT STYLE. It expands aliases and then
+-- demands 'TUnit' by equality. 'compatibleWith' returns True for a 'TVar'
+-- against any type, so a compatibility test would wave an unknown state type
+-- through the guard. 'pType' has no type-variable production and 'pTypedParam'
+-- makes a parameter type mandatory, so a declared state type is never a 'TVar'
+-- today. The positive test is what keeps that true if either fact changes.
+--
+-- ModeCli is excluded by its own clause rather than by omission: 'emitMainBody'
+-- ModeCli emits @print (step args)@ and binds no @state0@, so that harness has
+-- no state to get wrong.
+--
+-- THE SECOND 'expandAlias' IS IDEMPOTENT TODAY, AND IT IS KEPT ON PURPOSE.
+-- 'expandAlias' recurses into @TFn args ret@, so the outer call has already
+-- expanded every parameter and the inner one is a no-op. Keeping it makes this
+-- check independent of that recursion. If the @TFn@ arm ever stops recursing,
+-- the inner call still resolves the state type; without it, an alias of @unit@
+-- would arrive as @TCustom@, compare unequal to 'TUnit', and REJECT a correct
+-- program. The alias pair in the test block decides the behaviour either way:
+-- an alias OF unit is accepted, and an alias of a non-unit type is rejected.
+checkInitRequired :: EntryMode -> Maybe Expr -> Type -> TC ()
+checkInitRequired _       (Just _) _      = pure ()
+checkInitRequired ModeCli Nothing  _      = pure ()
+checkInitRequired _       Nothing  stepTy = do
+  resolved <- expandAlias stepTy
+  case resolved of
+    TFn (p0 : _) _ -> do
+      stateTy <- expandAlias p0
+      unless (stateTy == TUnit) $
+        tcErrorK "def-main-init-required" $
+          "a def-main with no :init must declare a unit state type; :step's state "
+          <> "parameter is " <> typeLabel stateTy <> ", but with no :init the harness "
+          <> "starts the program on (), which is not that type. Declare :init "
+          <> "returning a (State, Command) pair, or declare the state parameter as "
+          <> "unit (CONSOLE-INIT-1)."
+    -- Not a function type, or a function of no parameters: a hole or an
+    -- ill-typed :step, already diagnosed by 'inferExpr' at the call site. A
+    -- second error here would double-report, exactly as in 'checkStepArity'.
+    _ -> pure ()
 
 -- ---------------------------------------------------------------------------
 -- v0.4 CAP-1: Capability Enforcement Helpers

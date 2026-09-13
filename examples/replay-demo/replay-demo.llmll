@@ -16,7 +16,7 @@
 ;; EFFECT-RESP: the third parameter carries the response to the command this
 ;; step returned last turn. This program echoes stdin and never consumes a
 ;; response, so it is bound to `_r`; the arity is part of the def-main contract.
-(def-shell echo-step [state: string input: string _r: Response]
+(def-shell echo-step [state: unit input: string _r: Response]
   (pair state (wasi.io.stdout input)))
 
 (def-main :mode console

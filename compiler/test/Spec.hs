@@ -15707,6 +15707,185 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
       kindsOf src `shouldNotContain` ["def-main-step-arity"]
 
+  -- -----------------------------------------------------------------------
+  -- CONSOLE-INIT-1: :init is required unless the declared state type is unit.
+  --
+  -- emitMainBody binds `state0 = ()` when :init is absent, and it does that
+  -- whatever type the step declared for its state.
+  --
+  -- THE SILENT CASE IS THE ONE THAT SHIPPED, and the row was mis-filed the
+  -- other way round when first written. Generated definitions carry no type
+  -- signatures, so GHC generalizes a step that only THREADS its state, and the
+  -- program builds and runs on () while declaring string. Both in-tree programs
+  -- with no :init were in exactly that shape and built clean.
+  --
+  -- The LOUD case needs a step body that CONSTRAINS the state. MEASURED at
+  -- v0.23.5 against the pre-fix binary: `llmll check` reports OK, and `llmll
+  -- build` then dies inside GHC with "Expected: String / Actual: ()" at
+  -- `outcome <- loop state0 r0 logHandle seqRef`. Cell 1 is that program.
+  --
+  -- The rule covers console AND http: both emitMainBody clauses carry the ()
+  -- fallback. cli is out, and cell 8 pins that. Its clause emits
+  -- `print (step args)` and binds no state0, so it has no state to get wrong.
+  -- -----------------------------------------------------------------------
+
+  describe "CONSOLE-INIT-1: :init is required unless the state type is unit" $ do
+
+    let errsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+        kindsOf src = [k | d <- errsOf src, Just k <- [diagKind d]]
+        cap  = "(import wasi.io (capability stdout))"
+        kind = "def-main-init-required"
+
+    -- CELL 1, THE LOUD CASE AND THE POSITIVE WITNESS. The body applies
+    -- string-concat to the state, which constrains it to string, so GHC catches
+    -- this one today. The check must catch it one gate earlier.
+    it "a step whose BODY constrains a non-unit state is rejected with no :init" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell drive [s: string i: string r: Response]"
+            , "  (pair (string-concat s i) (wasi.io.stdout s)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      kindsOf src `shouldContain` [kind]
+
+    -- CELL 2, THE CORPUS CASE. The body only threads the state, so GHC
+    -- generalizes and this program BUILDS AND RUNS on () today. It is the shape
+    -- both shipped examples had. Nothing but this check reports it.
+    it "a step that merely THREADS a non-unit state is rejected with no :init" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell drive [s: string i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      kindsOf src `shouldContain` [kind]
+
+    -- CELL 3, THE ESCAPE HATCH. This is the migrated shape of both examples.
+    it "a unit state type permits a def-main with no :init" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell drive [s: unit i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 4. A declared :init is the other repair, and it constrains nothing
+    -- about the state type.
+    it "a declared :init permits any state type" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell start [] -> (string, Command) (pair \"\" (wasi.io.stdout \"\")))"
+            , "(def-shell drive [s: string i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :init (start) :step drive)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 5, THE ALIAS NEGATIVE CONTROL. If this fails, the check compared the
+    -- raw parameter type and skipped expandAlias, and a program that names its
+    -- state type loses the escape hatch. (type S unit) parses and checks at
+    -- HEAD, so the cell is constructible independently of this change.
+    it "an ALIAS of unit permits a def-main with no :init" $ do
+      let src = T.unlines
+            [ cap
+            , "(type S unit)"
+            , "(def-shell drive [s: S i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 5b, AND IT IS THE ONE THAT DECIDES. Cell 5 alone cannot tell alias
+    -- RESOLUTION from alias SKIPPING: both let the program through. This cell
+    -- separates them. An alias of a NON-unit type must still be rejected, and
+    -- the message must name the EXPANDED type, which is the only way an alias
+    -- could have reached the comparison.
+    it "an ALIAS of a non-unit type is still rejected, naming the expanded type" $ do
+      let src = T.unlines
+            [ cap
+            , "(type S string)"
+            , "(def-shell drive [s: S i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+          msgs = [diagMessage d | d <- errsOf src, diagKind d == Just kind]
+      kindsOf src `shouldContain` [kind]
+      any (T.isInfixOf "parameter is string") msgs `shouldBe` True
+
+    -- CELL 6, THE http HALF. emitMainBody ModeHttp has the same () fallback in
+    -- `let _state = maybe "()" emitExpr mInit`. checkStepArity returns pure ()
+    -- for every non-console mode, so this state type is read WITHOUT an arity
+    -- rule: http's :step shape is unconstrained today and this check does not
+    -- change that. MEASURED at v0.23.5: this program checks clean.
+    it "http mode is subject to the rule too" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell serve [s: string i: string] -> (string, Command)"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode http 8080 :step serve)"
+            ]
+      kindsOf src `shouldContain` [kind]
+
+    it "http mode with a unit state is accepted with no :init" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell serve [s: unit i: string] -> (unit, Command)"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode http 8080 :step serve)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 8, THE SCOPE GUARD. emitMainBody ModeCli emits `print (step args)`
+    -- and binds no state0, so there is no wrong state to reject. Excluded by an
+    -- explicit clause in checkInitRequired, not by falling off the end.
+    it "cli mode is NOT subject to the rule" $ do
+      let src = T.unlines
+            [ "(def-shell run [args: list[string]] -> string \"ok\")"
+            , "(def-main :mode cli :step run)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 9. The step may be an inline lambda, whose parameter list the check
+    -- resolves the same way checkStepArity does.
+    it "the ELambda step form is checked too" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-main :mode console"
+            , "  :step (fn [s: string i: string r: Response] (pair s (wasi.io.stdout i))))"
+            ]
+      kindsOf src `shouldContain` [kind]
+
+    -- CELL 9b, THE SKETCH PATH. An agent scaffolds a program before it writes
+    -- the step, and a hole infers to a type variable rather than a TFn. The
+    -- check must stay quiet there: 'inferExpr' already reports the hole, and a
+    -- second error would tell the author to fix a state type they have not
+    -- written yet. MEASURED: this program reports the unresolved-hole warning
+    -- and nothing else.
+    it "a ?hole :step draws no init error (sketch mode stays quiet)" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-main :mode console :step ?the-step)"
+            ]
+      kindsOf src `shouldNotContain` [kind]
+
+    -- CELL 10. The message must carry BOTH repairs. An error that named only
+    -- :init would send every author of a stateless program to write an :init
+    -- expression it does not need.
+    it "the error names both repairs, :init and unit" $ do
+      let src = T.unlines
+            [ cap
+            , "(def-shell drive [s: string i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step drive)"
+            ]
+          msgs = [diagMessage d | d <- errsOf src, diagKind d == Just kind]
+      any (T.isInfixOf ":init") msgs `shouldBe` True
+      any (T.isInfixOf "unit") msgs  `shouldBe` True
+      any (T.isInfixOf "string") msgs `shouldBe` True
+
   describe "EFFECT-RESP: Response is a sealed compiler-supplied sum" $ do
 
     let srcOf body = T.unlines
@@ -16333,9 +16512,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "(def-shell fin [s: int] -> bool (>= s 2))"
           , "(def-main :mode console :init (start) :step drive :done? fin)"
           ]
+        -- CONSOLE-INIT-1: the state is `unit` rather than `string` because a
+        -- non-unit state with no :init is now a check error. These three cells
+        -- read only the EMITTED HARNESS TEXT (`let r0 = RNone`, the absence of
+        -- llmll_perform, the absence of the _done placeholder), and the state
+        -- type appears in none of them, so the assertions do not move. The edit
+        -- keeps the suite's own programs valid under the rule.
         noInit = T.unlines
           [ "(import wasi.io (capability stdout))"
-          , "(def-shell drive [s: string i: string r: Response] -> (string, Command)"
+          , "(def-shell drive [s: unit i: string r: Response] -> (unit, Command)"
           , "  (pair s (wasi.io.stdout i)))"
           , "(def-main :mode console :step drive)"
           ]
