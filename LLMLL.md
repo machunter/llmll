@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.23.5)
+# LLMLL: Large Language Model Logical Language (v0.23.6)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.23.5.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.23.6.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1553,6 +1553,7 @@ The LLMLL host runtime processes each `Command` as follows:
 (def-main
   :mode    (console | cli | http PORT)   ;; required, selects the harness template
   :init    init-expr                      ;; returns (State, Command) pair
+                                          ;; required unless the state type is unit
   :step    step-fn                        ;; console: (State, string, Response) -> (State, Command)
   :done?   done-pred                      ;; State -> Bool (optional; console only)
   :on-done on-done-fn                     ;; State -> Command (optional)
@@ -1575,6 +1576,7 @@ A console `:step` takes **three** parameters. Declaring two, one, or a wrong thi
 #### Key semantics
 
 - `:init` must return a `(State, Command)` pair. The `Command` is executed (e.g., print welcome message), and the `State` is passed to the first `:step` call.
+- **`:init` is required unless the `:step`'s declared state type is `unit`.** With no `:init` the harness starts the program on `()`, so a step declaring any other state type is rejected at `check` with `def-main-init-required`. The rule applies to `console` and `http`; the `cli` harness binds no initial state and is not subject to it. A state type that is an alias of `unit` is accepted. The two repairs are to declare `:init`, or to declare the state parameter as `unit`.
 - `:step` receives the current state and one line of input (for `console`) or the OS args (for `cli`). It must return a `(NewState, Command)` pair.
 - `:done?` (optional, console only) receives the new state after each step. If it returns `true`, the loop exits.
 - `:status` (optional, console only) is a **total projection from the state type to `int`**. It is applied to the final state when `:done?` holds, and the process exits with the result. Absent means exit 0. It is **not** consulted when stdin exhausts first; see "The terminal status" below.
@@ -2332,6 +2334,13 @@ def-main    = "(" "def-main"
               (* Fields are read in this order; an out-of-order optional
                  field does not parse. :status is console-only, a total
                  State -> int projection applied when :done? holds (§9.5). *)
+              (* :init's brackets are SYNTAX ONLY. It is semantically
+                 required unless the :step's declared state type is
+                 unit: with no :init the harness starts the program on
+                 (), so any other state type is a check error,
+                 def-main-init-required. console and http are subject
+                 to the rule; cli binds no initial state and is not
+                 (§9.5). *)
 
 (* ============================================================ *)
 (* Property-based tests & generators                            *)

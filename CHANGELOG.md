@@ -4,6 +4,56 @@
 
 <a id="Latest"></a>
 
+## v0.23.6: a `def-main` with no `:init` must declare a unit state (2026-09-13)
+
+**`CONSOLE-INIT-1` closes.** `emitMainBody` binds `state0 = ()` when `:init` is absent, in both the
+`ModeConsole` and the `ModeHttp` clause, and it did that whatever type the step declared. A program
+could declare `string` and run on `()`. `TypeCheck.checkInitRequired` now rejects that at `check`,
+carrying `kind: "def-main-init-required"` in `--json` output.
+
+- **THE SILENT CASE WAS THE SHIPPED ONE, and the row was filed the other way round.** Generated
+  definitions carry no type signatures, so GHC generalizes a step that merely threads its state:
+  the program **builds and runs** on `()` while declaring `string`. Both in-tree programs with no
+  `:init` were in exactly that shape and built clean. The loud case needs a step body that
+  *constrains* the state type, and it dies at GHC with `Expected: String / Actual: ()` on
+  `loop state0`. Both measured at v0.23.5 against the pre-fix binary.
+- **The rule is type-directed and invents no value.** `:init` is required unless the step's declared
+  state type is `unit`, which is a first-class type. Deriving `state0` from the declared type would
+  need a zero-value-per-type notion, which is implicit initialization of a program's precondition; a
+  typed `undefined` moves a compile-time-detectable error to run time. The row rejected both.
+- **The check demands `TUnit` by equality rather than by `compatibleExpanded`.** `compatibleWith`
+  returns `True` for a `TVar` against any type, so a compatibility test would wave an unknown state
+  type through the guard. No declared state type can be a `TVar` today, because `pTypedParam` makes
+  a parameter type mandatory and `pType` has no type-variable production. The positive test keeps
+  the guard closed if either fact changes.
+- **Scope is `console` and `http`, the two `emitMainBody` clauses carrying the `()` fallback.**
+  `cli` is excluded by its own clause rather than by omission: that clause emits `print (step args)`
+  and binds no `state0`, so it has no state to get wrong.
+- **Codegen did not change, and that is deliberate.** `doBuild`, `doBuildFromJson` and `doRun` each
+  run `typeCheckStrict` and `exitFailure` before reaching `generateHaskell`, so the check is
+  fail-closed ahead of the emitter on both the S-expression and the JSON-AST paths.
+
+**Breaking for a program with no `:init` whose step declares a non-unit state.** The in-tree
+migration is two files and one token each: `examples/replay-demo` and `examples/proof_required_test`
+now declare `state: unit`. Neither ever reads its state. **The generated `src/` for both is
+byte-identical before and after**, which is the evidence that `unit` was always the type the harness
+used. Adding an `:init` instead would have broken a gate: `scripts/build_smoke.sh` asserts
+`W-REPLAY-INIT` does not fire on `replay-demo`, and that warning fires on exactly
+`defMainInit = Just _`.
+
+Census re-measured rather than carried forward: 53 `def-main` forms over 1745 `.llmll` files, all
+`:mode console`, and exactly two lacked `:init`. Sixty `def-main` JSON-AST nodes, and the only two
+without `init` sit under the gitignored `generated/`, so the authored JSON-AST population is zero.
+No schema change; `schemaVersion` stays `0.11.0`.
+
+1954 examples, 0 failures. pytest 295 passed, 23 skipped.
+[`scripts/tests/test_console_init_1.py`](scripts/tests/test_console_init_1.py) is new, a corpus
+census that runs without the toolchain, because CI sweeps no corpus with `llmll check`:
+`scripts/check-examples.sh` runs in no job and `scripts/build_smoke.sh` reaches one example. The
+real compiler over all 360 tracked `.llmll` files fires the new error on zero of them.
+
+---
+
 ## v0.23.5: `wasi.proc.run`'s timeout fires, and the row that said it could not be fixed was wrong (2026-09-12)
 
 **`PROC-TIMEOUT-1` closes.** `emitPackageYaml` now emits `ghc-options: -threaded` on the generated
