@@ -371,6 +371,17 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_fallback_census.py -v
 
+      # SIDECAR-ADMIT-1: placed here for the same reason the census step above
+      # is, and not beside the HTTP-GET-1 cells: all four cells call `llmll
+      # verify`, three of them with solver-backed flags. With no fixpoint on
+      # PATH `verify` exits 3 and prints no report, and the cells fail on a
+      # missing line rather than on the defect they pin.
+      - name: Run SIDECAR-ADMIT-1 evidence-laundering cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_sidecar_admit_1.py -v
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail

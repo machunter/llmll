@@ -80,7 +80,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (markBodyFallback, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (markBodyFallback, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1251,6 +1251,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
+        -- SIDECAR-ADMIT-1 part (2): this render has ONE input. The emitter has
+        -- not run on this path, so no tier here was checked against a VC this
+        -- run produced, and no contradiction is detectable. Say so rather than
+        -- let the reader assume the report was validated. Exit status is
+        -- unchanged: a run cannot report what it did not compute.
+        unless json $ TIO.putStrLn
+          "   (sidecar-only report: evidence is read from .verified.json and was \
+          \NOT validated against a run of the VC emitter; use --strict-verify for that)"
         exitSuccess
       -- v0.6: --spec-coverage mode — print coverage report and exit.
       -- --strict-verify defers this exit (mirrors the '--trust-report' vs.
@@ -1397,7 +1405,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                    ]
           -- v0.10 F8: obligation-report degradation (no solver → all status="open")
           when obligationReport $ do
-            sidecar <- loadVerified fp
+            -- SIDECAR-ADMIT-1: staleness gate only. This path exits 3 (solver
+            -- unavailable) whatever happens, so a contradiction exit would mask
+            -- the more specific status. The render must still not show a tier
+            -- the live source no longer supports.
+            (sidecar, _stale, _contra) <- loadCheckedSidecar fp stmts Map.empty
             let trustRpt = buildTrustReport _cache stmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
             TIO.putStrLn reportText
@@ -1462,7 +1474,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- '--strict-verified-core' do not exit here — fall through to the
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
-            oblSidecar <- loadVerified fp
+            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
             let trustRpt = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
@@ -1470,7 +1482,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- unconditionally — a refuted file must fail closed even via the
             -- obligation-report view. Under '--strict-verified-core' fall through
             -- to the post-solver gate instead.
-            unless strictCore (exitWith (fqExitCode fqResult))
+            unless strictCore $ do
+              -- SIDECAR-ADMIT-1: escalate from success only, so a refuted file
+              -- keeps its own exit code.
+              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json oblContra)
+              exitWith (fqExitCode fqResult)
 
           -- EMIT-DIAG-JSON: fold the EMITTER's diagnostics into the report.
           -- 'fqResultToReport' builds the payload from the solver result alone, so
@@ -1489,15 +1505,33 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           case mProofArtifact of
             Nothing -> pure ()
             Just paPath -> do
-              paSidecar <- loadVerified fp
+              -- SIDECAR-ADMIT-1: this read happens BEFORE the SAFE sidecar write
+              -- below, so it consumes the previous run's tiers. That ordering is
+              -- what lets the artifact kernel see a stale positive tier beside
+              -- this run's fallback mark; both read-side passes now run first, so
+              -- the kernel refuses only what neither pass could repair.
+              (paSidecar, _stale, paContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
               let paTrust = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar))))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
-                Left e   -> unless json $ TIO.putStrLn ("   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e)
+                -- SIDECAR-ADMIT-1: the kernel is now the LAST defence, not the
+                -- only one. 'loadCheckedSidecar' has already demoted a tier this
+                -- run contradicts, so 'paTrust' no longer mints a positive tier
+                -- beside a fallback reason and the artifact is written with
+                -- honest tiers instead of being withheld. A 'Left' here means a
+                -- contradiction neither read-side pass could reach, so it keeps
+                -- the refusal. Both branches now reach a '--json' caller: the
+                -- message used to be printed under 'unless json'.
+                Left e   -> do
+                  let m = "   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e
+                  if json then hPutStrLn stderr (T.unpack m) else TIO.putStrLn m
                 Right pa -> do
                   BL.writeFile paPath (encode pa)
                   unless json $ TIO.putStrLn ("   proof-artifact written to " <> T.pack paPath)
+              -- SIDECAR-ADMIT-1: the artifact command holds both inputs, so a
+              -- contradiction it detected must not report success.
+              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json paContra)
 
           -- 6. Report
           if json
@@ -1716,7 +1750,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
           -- '--strict-verified-core' too, so the gate below can fail closed.
           when (trustReport && cdpFlag && not strictCore) $ do
-            sidecar <- loadVerified fp
+            (sidecar, _stale, cdpContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
@@ -1733,6 +1767,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- instead of the prior unconditional exitSuccess (which re-opened the
             -- Defect-1 fail-open on '--trust-report --cdp'). Keyed identically to
             -- the final verdict routing below.
+            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json cdpContra)
             exitWith (fqExitCode fqResult)
 
           -- VERIFY-RPT-1 (Commit 4): post-solver '--strict-verified-core'
@@ -1744,7 +1779,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- reached; emit a refuted-marked trust report here when requested
           -- (and not already emitted via the obligation report) before failing.
           when strictCore $ do
-            stSidecar <- loadVerified fp
+            (stSidecar, _stale, stContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
             -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
             -- drops 'discriminative_axis' to a uniform "not-requested" for
             -- every function under '--strict-verified-core --cdp --json',
@@ -1773,6 +1808,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 else mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
                            (Set.toList refusal)
               exitFailure
+            -- SIDECAR-ADMIT-1: reached only when the refusal set is empty, so
+            -- the run is otherwise heading to the solver's own verdict. Escalate
+            -- from success only.
+            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json stContra)
 
           -- VERIFY-RPT-1 (Defect 1a): route the verdict through the
           -- 'FQVerifyResult' constructor, not the lossy 'reportSuccess'
@@ -2751,6 +2790,54 @@ fqToSolverResult (FQError _)  = RNoVC
 -- | Re-project the trust report into the artifact, minting every per-function
 -- record through the §4.1 kernel. A refuted body VC is pre-demoted off the positive
 -- axis (it did not verify); the kernel still guards the deserialization path.
+-- | SIDECAR-ADMIT-1 (v0.23.7): read the '.verified.json' sidecar the way every
+-- consumer should read it. Two read-side passes, in this order:
+--
+--   1. 'downgradeStaleVerifiedSidecar' — the record must still describe the live
+--      source. A stale or unhashed positive tier is demoted. This is NOT a
+--      failure: the run continues on the demoted value and re-proves.
+--   2. 'downgradeContradictedTiers' — the record must not contradict what THIS
+--      run computed. A positive tier on a function whose body left the
+--      body-faithful fragment is demoted, and IS a failure: the compiler held
+--      both inputs and found them inconsistent.
+--
+-- Before this, seven of nine 'loadVerified' call sites read the file raw. The
+-- two diagnostic lists are returned separately because only the second one
+-- changes the exit status ('contradictionExit').
+loadCheckedSidecar :: FilePath -> [Statement] -> Map.Map Name (T.Text, [T.Text])
+                   -> IO (Map.Map Name ContractStatus, [T.Text], [T.Text])
+loadCheckedSidecar fp stmts marks = do
+  raw <- loadVerified fp
+  let (gated,   staleDiags)   = downgradeStaleVerifiedSidecar stmts raw
+      (checked, contraDiags)  = downgradeContradictedTiers marks gated
+  pure (checked, staleDiags, contraDiags)
+
+-- | SIDECAR-ADMIT-1 unit 3: a run that DETECTED an evidence contradiction does
+-- not exit 0. The consequence follows the detection capability of the
+-- invocation, not a severity preference: a render with no emit result behind it
+-- (the plain '--trust-report' early exit) cannot detect and therefore keeps its
+-- exit status, while a run holding both inputs must not report success on
+-- evidence it has just refused.
+--
+-- Exit code 4 is distinct from 1 (solver UNSAFE), 2 (artifact not found) and
+-- 3 (solver unavailable), so a caller can tell a laundered-evidence refusal from
+-- a disproved contract. It ESCALATES FROM SUCCESS ONLY: every call site guards
+-- this on the status the run would otherwise report, so an already-failing run
+-- keeps its more specific code and no existing non-zero status is rewritten.
+--
+-- The message goes to stderr in JSON mode, which keeps stdout a single valid
+-- JSON document and touches no schema. Before this, the artifact kernel's
+-- refusal was printed under 'unless json', so a '--json' consumer saw exit 0,
+-- a SAFE verdict and an absent artifact with no explanation anywhere.
+contradictionExit :: Bool -> [T.Text] -> IO ()
+contradictionExit _    []    = pure ()
+contradictionExit json diags = do
+  let hdr = "ERROR: laundered evidence refused (SIDECAR-ADMIT-1):" :: T.Text
+  if json
+    then mapM_ (hPutStrLn stderr . T.unpack) (hdr : diags)
+    else mapM_ TIO.putStrLn (hdr : diags)
+  exitWith (ExitFailure 4)
+
 buildProofArtifact :: FilePath -> T.Text -> SolverMeta -> FQVerifyResult -> EmitResult -> TrustReport
                    -> Either LaunderError ProofArtifact
 buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
