@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.23.6)
+# LLMLL: Large Language Model Logical Language (v0.23.7)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.23.6.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.23.7.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -544,6 +544,8 @@ Every remaining pair is comparable, so no meet drops to `asserted` except throug
 >
 > **What still reads the name.** Two persisted formats keep it on the READ side only, because a fail-closed reader would break existing files: a `.verified.json` sidecar carrying it reads as `asserted` and prints one warning (the surrounding evidence record is kept), and a `proof-artifact.json` record carrying it reads as the non-positive `asserted` tier so it still replays. Nothing writes it. The `(trust f :level contract-checked)` surface is **rejected** at parse time with an error naming `TRUST-CC-1`. Design of record: [`docs/design/trust-cc-1-proposal.md`](docs/design/trust-cc-1-proposal.md).
 
+> **A persisted record cannot claim a tier it carries no evidence for (`SIDECAR-ADMIT-1`, v0.23.7).** A `.verified.json` clause whose `display_level` is `verified` or `verified-lean` while its `body_faithful` flag is absent or false is **downgraded to `asserted` on read**, and the downgrade is unconditional: the `verified_hash` attests that the source has not drifted since the record was written, never that a proof happened, so a hash cannot supply the missing evidence. A record carrying the flag keeps the three staleness cases (absent hash, hash drift, no live definition). The rule holds on both channels a record reaches: the entry file's own sidecar, and an imported module's sidecar, where an unbacked tier could otherwise lift a caller through the callee meet (§4.4.3). A downgrade is not a verification failure; the run continues on the demoted value and re-proves.
+
 > [!NOTE]
 > **Epistemic status distinction.** `verified` provides **logical evidence** over the function body: the solver proved the body satisfies the contract for all well-typed inputs, so no counterexample exists within the modelled semantics. `tested` provides **statistical evidence** over a random sample of size N (default 100): the property was not falsified, but may fail on the N+1th input. These are categorically different kinds of evidence and should not be treated as interchangeable trust signals. Before v0.23.0 this note contrasted `tested` with `contract-checked`, which named a third kind — logical evidence over the contract pair alone, independent of the body. Nothing produced it, so the contrast described a state the compiler could not reach; `TRUST-CC-1` retired the level.
 
@@ -622,7 +624,7 @@ Use `--trust-report --json` for machine-readable JSON output suitable for CI or 
 Like `refuted` / `termination_unverified` it is an **orthogonal informational marker**, not a `DisplayLevel` element: it never feeds `evidenceMeet`, the effective level, `refutedClosure` or strict-core admission, and it is never persisted to the sidecar. Two properties need stating because they are easy to assume wrongly.
 
 - **It is LOCAL, not transitive.** A caller of a fallback function does not carry it. That caller is already floored through the tier by the meet over its transitive callees (`NC-024`), so the marker owes it nothing; and body-faithfulness is a property of *one body*, unlike termination, which is a property of a whole cycle and is therefore marked on every member (`NC-034`).
-- **It appears only where the emitter ran in the same invocation.** `--strict-verify` and `--proof-artifact` show it; a plain `llmll verify --trust-report` exits before the emitter runs and shows **no** marker. Its absence is therefore never a claim of proof. It is also **suppressed** for the causes `no-post` and `unfilled-hole`, because neither lost a proof goal: one has no postcondition to prove, the other has a scaffold body with nothing written to prove.
+- **It appears only where the emitter ran in the same invocation.** `--strict-verify` and `--proof-artifact` show it; a plain `llmll verify --trust-report` exits before the emitter runs and shows **no** marker. Its absence is therefore never a claim of proof. It is also **suppressed** for the causes `no-post` and `unfilled-hole`, because neither lost a proof goal: one has no postcondition to prove, the other has a scaffold body with nothing written to prove. Since v0.23.7 the plain-`--trust-report` render states this in its own output: it prints that the report is sidecar-only and was not validated against a run of the VC emitter.
 
 `body_fallback` arrived at `trust_report_version` `1.6.0` as an additive key.
 
