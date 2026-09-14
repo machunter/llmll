@@ -4,6 +4,61 @@
 
 <a id="Latest"></a>
 
+## v0.23.7: a sidecar cannot claim a tier the compiler will not back (2026-09-14)
+
+**`SIDECAR-ADMIT-1` closes.** `downgradeStaleVerifiedSidecar` in `TrustReport.hs` opened with
+`| not (erBodyFaithful er) = (Just er, [])`, so a `.verified.json` record claiming
+`display_level: verified` with the body-faithful flag unset was never hash-checked at all. The
+guard is now keyed on the **tier claim** rather than on the flag: a record that claims no positive
+tier still passes through untouched, and a record that claims one is checked.
+
+- **Four behaviours measured against the pre-fix binary, and three of them were wrong.** A
+  `def-shell` with body `(* n n)` falls back as `nonlinear:*`; its sidecar was hand-edited to claim
+  `verified`. `verify --trust-report` rendered `post: verified (liquid-fixpoint)` and counted
+  `verified: 1`. `verify --proof-artifact --json` refused to mint, printed **nothing at all**, wrote
+  no artifact, and exited 0. `verify --strict-verify` on an UNSAFE run rendered
+  `post: verified (liquid-fixpoint)   [body_fallback: body-outside-fragment; nonlinear:*]` and
+  counted `verified: 1`. The fourth, `--strict-verify` on a SAFE run, was already correct, because
+  the SAFE sidecar write replaces the forged file before the render reads it. All four now render
+  `asserted`, and the fourth is the regression control.
+- **No hash rescues a flag-unset record, and that is stronger than "check the hash".**
+  `erVerifiedHash` attests that the source has not drifted since the record was written. It never
+  attests that a proof happened, and a forged record can carry a hash correctly recomputed from the
+  live body. A positive tier with `body_faithful` unset is therefore downgraded unconditionally; a
+  positive tier with the flag set keeps the three existing hash cases.
+- **The same defect had a second channel, found by a failing test rather than by reading.**
+  `collectContractStatuses` runs the same guard over every **cached** module, precisely so an absent
+  hash on an imported sidecar cannot upgrade a caller's tier (the XMOD-TIER note). The flag
+  exemption meant it never did that for records lacking the flag. One cross-module summary test was
+  pinning that behaviour and now pins the rule; the entry-sidecar path is untouched and still counts
+  `verified`.
+- **Seven of nine sidecar reads in `Main.hs` were raw.** They now go through one `loadCheckedSidecar`
+  helper that gates for staleness and then checks against this run's emit result. A downgrade is
+  **not** a failure: the run continues on the demoted value and re-proves.
+- **A plain `--trust-report` now says it has one input.** The render prints that it is sidecar-only
+  and was not validated against a run of the VC emitter, and it still exits 0. `LLMLL.md` §4.4.4
+  already said the `body_fallback` marker cannot appear on that path; the report now says the same
+  thing where the reader is looking.
+- **`--proof-artifact` writes an artifact where it used to withhold one.** The tier is demoted on
+  read, so `mkFnRecord` no longer sees a positive tier beside a `fallback_reason` and mints a
+  consistent record. The kernel stays as the last defence, and its refusal now reaches a `--json`
+  caller on stderr instead of being printed under `unless json`.
+- **New exit code 4 marks a refused evidence contradiction, and it escalates from success only.**
+  Every call site guards it on the status the run would otherwise report, so a refuted contract
+  keeps exit 1. **It does not fire on any single-version run, measured:** the widened guard repairs
+  the forged record before the contradiction pass can see it, so the pass guards the narrower case
+  of a compiler-version change that moves the fragment without moving the semantics tag. Its
+  positive witness is a unit test that constructs that state directly.
+
+No schema change; `schemaVersion` stays `0.11.0`. No `trust_report_version` change and no
+`.verified.json` format change, so cached sidecars stay readable. In-tree population of the affected
+record shape is **zero**, measured over 682 clause records in 5 committed sidecars.
+
+1961 examples, 0 failures. pytest 295 passed, 27 skipped — four more skips than v0.23.6 because the
+new `scripts/tests/test_sidecar_admit_1.py` cells are `LLMLL_BIN`-gated and run in the
+`spec-roundtrip` job, after the solver is on PATH.
+
+
 ## v0.23.6: a `def-main` with no `:init` must declare a unit state (2026-09-13)
 
 **`CONSOLE-INIT-1` closes.** `emitMainBody` binds `state0 = ()` when `:init` is absent, in both the

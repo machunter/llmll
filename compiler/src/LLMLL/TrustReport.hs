@@ -36,6 +36,8 @@ module LLMLL.TrustReport
   , aggregateTiersPost -- OBLIG-PBT-3: per-post-clause tier-count profile
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , downgradeStaleVerifiedSidecar -- ADMIT-VERIFIED: drop body-faithful evidence on hash drift / absence
+  , downgradeContradictedTiers    -- SIDECAR-ADMIT-1: drop a positive tier THIS RUN contradicts
+  , positiveTier                  -- SIDECAR-ADMIT-1: the tier class whose backing is a body-faithful VC
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
@@ -777,11 +779,16 @@ downgradeStaleSidecar liveSet =
 --   (c) the def name is absent from the live statements (the function the
 --       evidence describes no longer exists / was renamed) — fail closed.
 --
--- Records that are not 'erBodyFaithful' are passed through untouched (they make
--- no body-faithful admission claim). The downgrade is keyed off the bare name;
--- callers that hold qualified-keyed sidecars should run this over the live
--- module's own statements where the keys are bare (the entry-file warm-path),
--- which is exactly the same-file admission seam.
+-- SIDECAR-ADMIT-1 (v0.23.7): the gate is keyed on the TIER CLAIM, not on the
+-- 'erBodyFaithful' flag. The prior condition skipped every record whose flag was
+-- unset, so a record claiming 'verified' with @body_faithful@ absent was never
+-- hash-checked at all: a hand-edited sidecar rendered @post: verified@ and
+-- counted toward @verified:@ in the summary. A record that claims no positive
+-- tier still passes through untouched, because it makes no claim this guard can
+-- check. The downgrade is keyed off the bare name; callers that hold
+-- qualified-keyed sidecars should run this over the live module's own statements
+-- where the keys are bare (the entry-file warm-path), which is exactly the
+-- same-file admission seam.
 downgradeStaleVerifiedSidecar
   :: [Statement]                 -- ^ live statements (source of truth for body+contract)
   -> Map Name ContractStatus     -- ^ persisted sidecar evidence (bare-keyed)
@@ -817,7 +824,19 @@ downgradeStaleVerifiedSidecar stmts =
 
     downgradeER _    _      Nothing   = (Nothing, [])
     downgradeER name clause (Just er)
-      | not (erBodyFaithful er) = (Just er, [])   -- no body-faithful claim
+      -- SIDECAR-ADMIT-1: no positive tier claimed, so there is nothing to check.
+      | not (positiveTier (erDisplayLevel er)) = (Just er, [])
+      -- SIDECAR-ADMIT-1: a positive tier with the body-faithful flag unset is
+      -- downgraded UNCONDITIONALLY, and no hash rescues it. 'erVerifiedHash'
+      -- attests that the source has not drifted since the record was written; it
+      -- never attests that a proof happened. A forged record can carry a correct
+      -- hash recomputed from the live body, so admitting on the hash alone would
+      -- admit exactly the record this case exists to refuse.
+      | not (erBodyFaithful er) =
+          ( Just (demoteToAsserted er)
+          , [ name <> "." <> clause
+              <> " claimed a positive tier with no body-faithful evidence"
+              <> " (body_faithful absent or false). Evidence downgraded to asserted." ] )
       | otherwise =
           let live = Map.lookup name liveHashes
               stale = case (erVerifiedHash er, live) of
@@ -833,10 +852,77 @@ downgradeStaleVerifiedSidecar stmts =
                else let diag = name <> "." <> clause
                           <> " carried body-faithful verified evidence but it is stale ("
                           <> reason <> "). Evidence downgraded to asserted."
-                    in ( Just (er { erDisplayLevel = DLAsserted
-                                  , erBodyFaithful = False
-                                  , erVerifiedHash = Nothing })
-                       , [diag] )
+                    in ( Just (demoteToAsserted er), [diag] )
+
+-- | SIDECAR-ADMIT-1: is this a POSITIVE tier — one whose only legitimate backing
+-- is a discharged body-faithful VC, or a kernel-checked Lean proof?
+--
+-- 'DLTested' and 'DLTestedJoint' are deliberately NOT positive here, even though
+-- 'ProofArtifact.isPositiveTier' counts the coarser @TTested@ as positive. Their
+-- backing is 'erPbtWitnesses', which 'buildTrustReport' already downgrades on its
+-- own terms ('downgradeStaleSidecar'), and no honest PBT record sets
+-- 'erBodyFaithful'. Widening this predicate to them would refuse every one.
+positiveTier :: DisplayLevel -> Bool
+positiveTier (DLVerified _)     = True
+positiveTier (DLVerifiedLean _) = True
+positiveTier DLAsserted         = False
+positiveTier (DLTested _)       = False
+positiveTier (DLTestedJoint _)  = False
+
+-- | SIDECAR-ADMIT-1: clear a clause's evidence back to 'DLAsserted'. Shared by
+-- both read-side downgrade passes so a demoted record cannot keep a hash or a
+-- body-faithful flag that its level no longer justifies.
+demoteToAsserted :: EvidenceRecord -> EvidenceRecord
+demoteToAsserted er = er { erDisplayLevel = DLAsserted
+                         , erBodyFaithful = False
+                         , erVerifiedHash = Nothing }
+
+-- | SIDECAR-ADMIT-1 (v0.23.7): downgrade a persisted positive tier that THIS RUN
+-- contradicts, and report each one.
+--
+-- The contradiction is the same one 'ProofArtifact.mkFnRecord' refuses to mint
+-- ('PositiveWithFallback'): a positive tier on a function whose body left the
+-- body-faithful fragment on this run. The artifact kernel already treats that
+-- state as unrepresentable, and this pass gives the trust report the same rule,
+-- so the two channels answer one question one way.
+--
+-- Applied AFTER 'downgradeStaleVerifiedSidecar' and BEFORE 'buildTrustReport'.
+-- The ordering is the reason this is a sidecar pass and not a report pass: the
+-- summary, the tier profiles and every effective level are computed inside
+-- 'buildTrustReport', so downgrading the evidence first means none of them needs
+-- recomputing and none can disagree with the per-clause render.
+--
+-- The marks are 'Main.bodyFallbackMarks', this run's emit result with 'no-post'
+-- and 'unfilled-hole' already filtered out (both mean no proof goal was lost).
+-- Keys join bare-to-bare on the entry file, exactly as 'markBodyFallback' joins
+-- its marks to 'teName'. A key that does not match leaves the record as it
+-- stands, which is the pre-SIDECAR-ADMIT-1 behaviour and never a new refusal.
+downgradeContradictedTiers
+  :: Map Name (Text, [Text])     -- ^ this run's body-fallback marks, by bare name
+  -> Map Name ContractStatus     -- ^ persisted sidecar evidence (bare-keyed)
+  -> (Map Name ContractStatus, [Text])
+downgradeContradictedTiers marks = Map.foldlWithKey' step (Map.empty, [])
+  where
+    step (mAcc, dAcc) name cs =
+      let (cs', ds) = contradictCS name cs
+      in (Map.insert name cs' mAcc, dAcc ++ ds)
+
+    contradictCS name cs = case Map.lookup name marks of
+      Nothing            -> (cs, [])
+      Just (cause, _cxs) ->
+        let (mPre,  dPre)  = clause name "pre"  cause (csPre cs)
+            (mPost, dPost) = clause name "post" cause (csPost cs)
+        in (cs { csPre = mPre, csPost = mPost }, dPre ++ dPost)
+
+    clause _    _      _     Nothing   = (Nothing, [])
+    clause name cl     cause (Just er)
+      | not (positiveTier (erDisplayLevel er)) = (Just er, [])
+      | otherwise =
+          ( Just (demoteToAsserted er)
+          , [ name <> "." <> cl
+              <> " carried a positive tier that this run contradicts: the body left"
+              <> " the body-faithful fragment (" <> cause <> "), so no VC discharged"
+              <> " the clause. Evidence downgraded to asserted." ] )
 
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).

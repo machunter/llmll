@@ -52,7 +52,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -4394,8 +4394,18 @@ main = hspec $ do
       -- math.safe-add is proven, crypto.hash is asserted, no-contract has no contract
       -- TRUST-CC-1: the proven module's tier is 'verified' now, so the count it
       -- lands in moved from 'tsContractChecked' (the field is gone) to 'tsVerified'.
-      tsVerified (trSummary report) `shouldBe` 1
-      tsAsserted (trSummary report) `shouldBe` 1
+      -- SIDECAR-ADMIT-1 (v0.23.7): and it moved again, to 'tsAsserted'. This
+      -- fixture's "proven" record is 'DLVerified' with 'erBodyFaithful = False'
+      -- and NO 'erVerifiedHash'. 'collectContractStatuses' runs the staleness
+      -- guard over every CACHED module for exactly this reason (the XMOD-TIER
+      -- note: an absent hash on an imported sidecar must not upgrade a tier),
+      -- and the guard used to exempt any record whose body-faithful flag was
+      -- unset — which is every record this fixture builds. The exemption is
+      -- gone, so an unbacked positive tier no longer counts as proven here. The
+      -- entry-sidecar path is unaffected and still counts verified: see
+      -- 'TP-PRE-1' and the two-function effective-tier cell below.
+      tsVerified (trSummary report) `shouldBe` 0
+      tsAsserted (trSummary report) `shouldBe` 2
       tsNone     (trSummary report) `shouldBe` 1
 
     -- Test 5: JSON output is valid JSON and contains expected keys
@@ -14158,6 +14168,88 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fmap erDisplayLevel postER `shouldBe` Just DLAsserted
         fmap erBodyFaithful postER `shouldBe` Just False
         length diags `shouldSatisfy` (> 0)
+
+      -- ---- SIDECAR-ADMIT-1: the gate is keyed on the TIER, not on the flag ----
+      it "SA-1 positive tier with body_faithful unset and no hash is downgraded" $ do
+        -- The forged shape measured on the CLI: a hand-edited sidecar claiming
+        -- 'verified' with no 'body_faithful' and no 'verified_hash'. Before
+        -- SIDECAR-ADMIT-1 the guard's first clause passed it through untouched.
+        let forgedER = dblVerifiedER { erBodyFaithful = False, erVerifiedHash = Nothing }
+            rawCS    = DM.fromList [("double", ContractStatus Nothing (Just forgedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER   = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just DLAsserted
+        fmap erBodyFaithful postER `shouldBe` Just False
+        length diags `shouldSatisfy` (> 0)
+
+      it "SA-2 positive tier with body_faithful unset is downgraded even when the hash is CORRECT" $ do
+        -- The hash attests that the source has not drifted. It never attests
+        -- that a proof happened, and a forger can recompute it from the live
+        -- body, so admitting on the hash alone would admit the forged record.
+        let forgedER = dblVerifiedER { erBodyFaithful = False }   -- keeps the valid dblHash
+            rawCS    = DM.fromList [("double", ContractStatus Nothing (Just forgedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER   = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just DLAsserted
+        length diags `shouldSatisfy` (> 0)
+
+      it "SA-3 honest body-faithful verified record with a fresh hash is UNCHANGED" $ do
+        -- Negative control for SA-1/SA-2: the widened entry condition must not
+        -- refuse the record the whole ADMIT-VERIFIED mechanism exists to admit.
+        let rawCS = DM.fromList [("double", ContractStatus Nothing (Just dblVerifiedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just (DLVerified "liquid-fixpoint")
+        fmap erBodyFaithful postER `shouldBe` Just True
+        diags `shouldBe` []
+
+      it "SA-4 a non-positive tier is passed through with no hash check" $ do
+        -- Negative control: 'asserted' and 'tested' records claim nothing this
+        -- guard can check. A tested record never sets body_faithful, so keying
+        -- the guard on the tier must not start refusing them.
+        let testedER = dblVerifiedER { erDisplayLevel = DLTested 100
+                                     , erBodyFaithful = False
+                                     , erVerifiedHash = Nothing }
+            rawCS    = DM.fromList [("double", ContractStatus Nothing (Just testedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+        fmap erDisplayLevel (csPost (out DM.! "double")) `shouldBe` Just (DLTested 100)
+        diags `shouldBe` []
+
+      -- ---- SIDECAR-ADMIT-1: the contradiction pass ----
+      it "SA-7 an imported module's unbacked positive tier does not upgrade a caller" $ do
+        -- The cross-module channel of the same defect. 'collectContractStatuses'
+        -- gates each CACHED module's own sidecar, so the rule has to hold there
+        -- too: a 'verified' record with no body-faithful evidence must not lift
+        -- a caller's tier through the callee meet.
+        let unbackedER = dblVerifiedER { erBodyFaithful = False, erVerifiedHash = Nothing }
+            rawCS = DM.fromList [("double", ContractStatus Nothing (Just unbackedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+        fmap erDisplayLevel (csPost (out DM.! "double")) `shouldBe` Just DLAsserted
+        length diags `shouldSatisfy` (> 0)
+
+      it "SA-5 a positive tier this run contradicts is downgraded (positive witness)" $ do
+        -- The firing input the CLI cannot build within ONE compiler version: a
+        -- record that PASSES the staleness guard (body-faithful, hash valid)
+        -- while this run's emit result says the body left the fragment. Within a
+        -- version those two disagree only if the semantics tag failed to move
+        -- across a fragment change, which is the case this pass guards.
+        let marks = DM.fromList [("double", ("body-outside-fragment", ["nonlinear:*"]))]
+            rawCS = DM.fromList [("double", ContractStatus Nothing (Just dblVerifiedER) [])]
+            (out, diags) = downgradeContradictedTiers marks rawCS
+            postER = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just DLAsserted
+        fmap erBodyFaithful postER `shouldBe` Just False
+        fmap erVerifiedHash postER `shouldBe` Just Nothing
+        length diags `shouldSatisfy` (> 0)
+
+      it "SA-6 a function with no fallback mark is untouched by the contradiction pass" $ do
+        -- Negative control for SA-5, and the reason a key miss is safe: a name
+        -- absent from the marks keeps the record exactly as the staleness guard
+        -- left it, which is the pre-SIDECAR-ADMIT-1 behaviour.
+        let (out, diags) = downgradeContradictedTiers DM.empty
+              (DM.fromList [("double", ContractStatus Nothing (Just dblVerifiedER) [])])
+        fmap erDisplayLevel (csPost (out DM.! "double")) `shouldBe` Just (DLVerified "liquid-fixpoint")
+        diags `shouldBe` []
 
       it "AV-SG3 absent-hash record is NOT admitted by the leg (admission fail-closed)" $ do
         -- Even WITHOUT running the guard, the admission conjunction itself
