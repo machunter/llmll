@@ -4,6 +4,47 @@
 
 <a id="Latest"></a>
 
+## v0.23.8: an unannotated return no longer arrives at the emitter as an integer (2026-09-15)
+
+**`RET-RESOLVE` ships.** An unannotated definition records the type its body synthesizes, because
+`recordRetType` is called with `fromMaybe bodyType mRet`. When that body calls another unannotated
+definition, the call synthesizes the callee's wildcard, the caller records a wildcard too, and
+`sortA1` lowers it to `FQInt`. No statement order repairs this: `checkStatement` never refines the
+environment binding for a definition, so the wildcard is what every caller sees. Nine measured crash
+shapes shared that root.
+
+- **A Kleene fixpoint at one seam.** `typeCheckWithCacheModeRet'` is the only place the recorded
+  return-type map leaves the type checker, and `resolveRetTypes` now runs there. Each round re-runs
+  `checkStatements` with the previous round's answers seeded into pass 1, and discards every
+  accumulator except the map. Each entry moves from wildcard to concrete at most once, so the
+  iteration is bounded by the candidate count plus one confirming round.
+- **Three side conditions, each with a test.** A declared return type is never revised, and a round
+  may only replace a wildcard with a type that is not itself a wildcard — a freshened wildcard
+  (`?$k`, which `freshenFnType` produces at a call site) counts as a wildcard on both sides, so a
+  chain resolves in the round after its callee instead of freezing. The diagnostic report is taken
+  from the run before the pass, so the type channel cannot move. The `if`-join preference widens from
+  the enclosing function to its strongly-connected component, and `preferConcreteOnSelfCall` is
+  untouched.
+- **The gate is a two-build corpus sweep, and it is empty.** 321 files swept with the pre-change and
+  post-change binaries: 301 `.fq` files and their 301 `.liquid/*.smt2` queries are byte-identical,
+  the 321 stdout captures are identical, and no exit code moved. No verdict moved, so
+  `checker_soundness_version` stays at `"2"` and `codegen_semantics_version` is not spent — `INT-3`
+  needs that one.
+- **`RBP-2`'s expected sort moves from `int` to `bool`, and the preference is not the reason.** It
+  still declines: `g` is neither `h` nor a member of `SCC(h)`. `g` now resolves to `bool`, so the
+  then-branch is concrete, the branches disagree as `bool` against `int`, and `inferExpr (EIf ...)`
+  returns `thenType` on the mismatch path. That fixture is ill-typed either way and crashes
+  liquid-fixpoint on both binaries, so the assertion pins a recovery value. `SC3-2` is the
+  replacement pin, on a well-typed fixture.
+- **Owed, and tracked as `RET-RESOLVE residue (1)`:** `RR-3`, `RR-5`, `SC1-1`, `SC2-2`, the five
+  channel guards, `RES-1`, and the three `RRX-*` module tests. The cross-module seed ships with no
+  test of its own; the sweep shows it changes nothing on the two `xmod` fixtures, which is consistent
+  with a working seed and with an inert one.
+
+**Tests:** 1971 Haskell examples, 0 failures; 317 Python passed, 5 skipped.
+
+---
+
 ## v0.23.7: a sidecar cannot claim a tier the compiler will not back (2026-09-14)
 
 **`SIDECAR-ADMIT-1` closes.** `downgradeStaleVerifiedSidecar` in `TrustReport.hs` opened with
