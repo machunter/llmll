@@ -13,7 +13,7 @@
       "section": "0.1",
       "text": "LLMLL's operational semantics are defined by the generated Haskell program.",
       "disposition": "assumed",
-      "reason": "definitional stance: the generated Haskell is the semantics by decision (§0.1); TRUST-BASE-1 owes the paragraph that names the trusted base"
+      "reason": "definitional stance: the generated Haskell is the semantics by decision (§0.1); the trusted base is named in the same section (NC-036 to NC-040)"
     },
     {
       "id": "NC-002",
@@ -277,6 +277,36 @@
       "id": "NC-033",
       "section": "1.6",
       "text": "See §7 for the sandbox implementation and the enforcement gap.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-036",
+      "section": "0.1",
+      "text": "The soundness statement above rests on components this specification does not itself verify, and they are named here so a reader can see the boundary.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-037",
+      "section": "0.1",
+      "text": "GHC compiles the generated program, so its code generation is taken as faithful to the Haskell the compiler emits.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-038",
+      "section": "0.1",
+      "text": "`CodegenHs` and the codegen preamble produce that program, so the verification conditions describe what they emit rather than the source text a reader sees.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-039",
+      "section": "0.1",
+      "text": "The VC emitter, liquid-fixpoint and Z3 decide every obligation, so a defect in any of them is a defect in the verdict.",
+      "disposition": "informative"
+    },
+    {
+      "id": "NC-040",
+      "section": "0.1",
+      "text": "The `.verified.json` sidecar carries evidence between runs, so the hash that gates a persisted tier belongs to this base rather than sitting outside it (§4.4.1).",
       "disposition": "informative"
     }
   ]
