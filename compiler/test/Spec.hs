@@ -9219,12 +9219,23 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- unchecked assumption about g's return type rather than a fixpoint step.
         -- Note this case does not crash, so asserting "no crash" would not catch a
         -- leak; assert the emitted SORT.
+        -- RET-RESOLVE, 2026-09-15: the expected sort moved from int to bool, and
+        -- the reason is NOT that the preference started firing. It still does not
+        -- fire: 'g' is neither 'h' nor a member of SCC(h), so 'preferConcreteInSCC'
+        -- declines exactly as 'preferConcreteOnSelfCall' did. What moved is
+        -- upstream. 'g' now resolves to bool, so the then-branch is concrete, the
+        -- branches disagree as bool against int, and 'inferExpr (EIf ...)' returns
+        -- 'thenType' on the mismatch path. The fixture is ill-typed either way and
+        -- CRASHES liquid-fixpoint on both binaries ("Cannot unify int with bool"),
+        -- so no verdict moved and this pins a recovery value only. SC3-2 below is
+        -- the replacement pin, on a well-typed fixture where the assertion means
+        -- something.
         er <- emitRet (T.concat
           [ "(def g [n: int] (> n 5))\n"
           , "(def-shell h [n: int] (pre (> n 0)) (post (>= n 0))"
           , " (if (> n 0) (g n) 1))" ])
-        erFQText er `shouldSatisfy`    T.isInfixOf "result : { v : int | true }"
-        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : bool | true }"
+        erFQText er `shouldSatisfy`    T.isInfixOf "result : { v : bool | true }"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
 
       it "RBP-3: both branches concrete and different is still an error" $ do
         -- The rule's premises require one branch to be a wildcard, so it must not
@@ -9246,6 +9257,116 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           [ "(def-shell caller [n: int] -> int (pre (> n 0)) (post (>= result 0))"
           , " (if (is-big n) 1 0))\n(def is-big [n: int] (> n 5))" ])
         erBodyFaithfulFns er `shouldSatisfy` elem "caller"
+
+      -- RET-RESOLVE: the Kleene pass over the recorded return-type map. An
+      -- unannotated definition records the type its BODY synthesizes, so a body
+      -- that calls another unannotated definition records that callee's wildcard
+      -- and the emitter lowers it to FQInt. These assert the resolved sort.
+      -- Design: docs/design/ret-resolve-proposal.md (Rev 3),
+      -- docs/design/ret-resolve-implementation-plan.md (Rev 2).
+
+      it "RR-1: an unannotated caller of an unannotated bool callee sorts result at bool" $ do
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5))) (g n))" ])
+        erFQText er `shouldSatisfy`    T.isInfixOf "result : { v : bool | true }"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "RR-2: the same shape under let resolves identically" $ do
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5)))"
+          , " (let [(b (g n))] b))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "RR-4: an unannotated string callee sorts result at Str and does not crash" $ do
+        er <- emitRet (T.concat
+          [ "(def s [n: int] \"x\")\n"
+          , "(def t [n: int] (pre (> n 0)) (post (= result \"x\")) (s n))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : Str | true }"
+
+      it "RR-6: the annotated control emits byte-identical .fq to the unannotated form" $ do
+        erU <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5))) (g n))" ])
+        erA <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def h [n: int] -> bool (pre (> n 0)) (post (= result (> n 5))) (g n))" ])
+        erFQText erU `shouldBe` erFQText erA
+
+      it "SC1-2: a declared return type is never revised by the pass" $ do
+        -- The body synthesizes bool and the head declares int. def-shell tolerates
+        -- the mismatch, so the pass gets the chance to overwrite and must not take
+        -- it: 'applyRetSeed' only replaces a head that carries NO annotation.
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def-shell h [n: int] -> int (pre (> n 0)) (post (>= result 0)) (g n))" ])
+        erFQText er `shouldSatisfy`    T.isInfixOf "result : { v : int | true }"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "SC2-1 (PASS-1): the diagnostic report is identical with and without the pass" $ do
+        -- SC2': the pass discards every accumulator except the map, and the report
+        -- is taken from the run BEFORE it. 'typeCheck' is the report-only path and
+        -- 'typeCheckWithCacheRet' is the one that runs the pass.
+        let src = T.concat
+              [ "(def g [n: int] (> n 5))\n"
+              , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5))) (g n))" ]
+        case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> do
+            let rptPlain      = typeCheck GrammarCoreInversion builtinEnv stmts
+                (rptPass, _)  = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+            map diagMessage (reportDiagnostics rptPass)
+              `shouldBe` map diagMessage (reportDiagnostics rptPlain)
+            reportSuccess rptPass `shouldBe` reportSuccess rptPlain
+
+      it "SC3-1: inside one SCC the concrete branch determines the group's return type" $ do
+        -- 'a' and 'b' are mutually recursive, so SCC(a) = {a, b}. The then-branch
+        -- calls a GROUP MEMBER and carries the wildcard; the else-branch is a bool
+        -- literal and determines the component. The shipped rule declines here,
+        -- because 'b' is not 'a', which is exactly what SC3' widens.
+        er <- emitRet (T.concat
+          [ "(def-shell a [n: int] (pre (> n 0)) (post (>= n 0)) (if (> n 0) (b n) true))\n"
+          , "(def-shell b [n: int] (pre (> n 0)) (post (>= n 0)) (a n))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "SC3-2: across an SCC boundary the preference does not apply" $ do
+        -- The replacement pin for RBP-2, on a WELL-TYPED fixture. 'g' is foreign to
+        -- SCC(h), so nothing is preferred: both branches resolve to bool on their
+        -- own and agree. If the preference had widened past the component this
+        -- would still read bool, so the discriminating half is the int control
+        -- below, where a foreign callee must not hand its type to the join.
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5)))"
+          , " (if (> n 0) (g n) false))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "CYC-1: an anchorless def-shell cycle stays a wildcard and terminates" $ do
+        -- No literal anchor anywhere in the component, so no round can make it
+        -- concrete. The iteration must stop rather than spin, and the sort falls
+        -- back to FQInt exactly as it did before the pass existed.
+        er <- emitRet (T.concat
+          [ "(def-shell p [n: int] (pre (> n 0)) (post (>= n 0)) (q n))\n"
+          , "(def-shell q [n: int] (pre (> n 0)) (post (>= n 0)) (p n))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "KLEENE-1: the resolved map does not depend on statement order" $ do
+        -- Asserts the MAP and not the emitted text. A qualifier's name carries a
+        -- source offset ('Q_h_post_70'), so reordering two definitions changes the
+        -- .fq bytes for a reason that has nothing to do with this pass.
+        let retMapOf src = case parseStatements GrammarCoreInversion "test" src of
+              Left err    -> error ("parse failed: " <> show err)
+              Right stmts ->
+                snd (typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts)
+            fwd = retMapOf (T.concat
+              [ "(def g [n: int] (> n 5))\n"
+              , "(def h [n: int] (pre (> n 0)) (post (= result (> n 5))) (g n))" ])
+            rev = retMapOf (T.concat
+              [ "(def h [n: int] (pre (> n 0)) (post (= result (> n 5))) (g n))\n"
+              , "(def g [n: int] (> n 5))" ])
+        fwd `shouldBe` rev
+        Map.lookup "h" fwd `shouldBe` Just TBool
 
     -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
     -- (alias-aware emitParamBind) and their predicate folded into the effective

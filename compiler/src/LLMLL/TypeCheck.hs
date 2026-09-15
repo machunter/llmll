@@ -22,6 +22,14 @@ module LLMLL.TypeCheck
     -- FQ-RESULT-SORT-1: report + tau_ret (effective return type per definition)
   , typeCheckStrictWithCacheAndStatusRet
   , typeCheckWithCacheRet
+    -- RET-RESOLVE: the Kleene pass over the recorded return-type map, and the
+    -- two pure helpers it needs. Exported for the RR-*, SC*-*, CYC-* and
+    -- KLEENE-* tests, which assert the pass's own output rather than the
+    -- emitted constraint bytes.
+  , resolveRetTypes
+  , sccOf
+  , preferConcreteInSCC
+  , isBareWildcard
   , runSketch
     -- * Environment
   , TypeEnv
@@ -595,6 +603,25 @@ data TCState = TCState
   -- environment would make pass 1 of 'checkStatements' depend on pass 2
   -- (docs/design/finding-fq-result-sort-default.md, the withdrawn Rev 1 row 1).
   , tcRetTypes       :: Map Name Type
+  -- RET-RESOLVE: the two fields the Kleene pass needs, and BOTH are empty in
+  -- every normal check. They are appended at the END for the reason the
+  -- comment above 'tcRetTypes' gives: the two positional 'TCState'
+  -- constructions gain trailing arguments, which cannot silently swap with an
+  -- adjacent same-typed field.
+  --
+  -- 'tcRetSeed' carries the previous round's resolved return types. Pass 1 of
+  -- 'checkStatements' reads it and overrides an unannotated head's 'TVar "?"'
+  -- with the resolved type, which is the only way a later round sees an
+  -- earlier round's answer: 'collectTopLevel' re-seeds every unannotated head
+  -- at 'TVar "?"' on every run.
+  --
+  -- 'tcRetSCCs' maps each definition to the members of its strongly-connected
+  -- component. A NON-EMPTY map is the pass-mode signal, and it is what selects
+  -- 'preferConcreteInSCC' over the shipped 'preferConcreteOnSelfCall' at an
+  -- 'EIf' join. The type channel never sets it, so the shipped join rule is
+  -- untouched for every caller that is not this pass.
+  , tcRetSeed        :: Map Name Type
+  , tcRetSCCs        :: Map Name (Set.Set Name)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -814,6 +841,130 @@ preferConcreteOnSelfCall mFn thenE thenTy elseE elseTy
   where
     isSelfCall (EApp f _) = Just f == mFn
     isSelfCall _          = False
+
+-- | RET-RESOLVE SC3': the join preference, widened from the enclosing function
+-- to its whole strongly-connected component.
+--
+-- 'preferConcreteOnSelfCall' above stays exactly as shipped, and this is a
+-- SEPARATE function for the reason its own comment gives: widening the shipped
+-- one in place would move the type channel's accept set. This variant runs only
+-- inside 'resolveRetTypes', whose state is discarded.
+--
+-- The widening is sound for the same reason the self-call case is. Inside one
+-- SCC every member's return type is determined together, so a concrete branch
+-- beside a wildcard branch that calls a group member is a least-fixpoint step.
+-- Across an SCC boundary it is not: the callee's return type is determined
+-- elsewhere and preferring the concrete branch would be an unchecked
+-- assumption. That boundary is exactly what 'RBP-2' pins.
+preferConcreteInSCC
+  :: Set.Set Name -- ^ the enclosing definition's SCC members
+  -> Maybe Name   -- ^ enclosing definition ('tcCurrentFn')
+  -> Expr -> Type -- ^ then-branch expression and its synthesized type
+  -> Expr -> Type -- ^ else-branch expression and its synthesized type
+  -> Type
+preferConcreteInSCC scc mFn thenE thenTy elseE elseTy
+  | isGroupCall thenE, isHoleVar thenTy, not (isHoleVar elseTy) = elseTy
+  | isGroupCall elseE, isHoleVar elseTy, not (isHoleVar thenTy) = thenTy
+  | otherwise                                                   = thenTy
+  where
+    -- A self-call is in the group whether or not the call graph recorded it, so
+    -- this is a strict widening of the shipped rule and never a narrowing.
+    isGroupCall (EApp f _) = Just f == mFn || f `Set.member` scc
+    isGroupCall _          = False
+
+-- | RET-RESOLVE: each definition mapped to the members of its
+-- strongly-connected component. A definition in no cycle maps to itself.
+--
+-- Sibling of 'cyclicMembers', which answers a different question: that one
+-- returns the names that sit in SOME cycle, and this one returns the membership
+-- relation SC3' needs. Both read 'buildCallGraph', so neither adds an import.
+sccOf :: [Statement] -> Map Name (Set.Set Name)
+sccOf stmts =
+  let cg   = buildCallGraph stmts
+      sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
+  in Map.fromList
+       [ (m, members)
+       | comp <- sccs
+       , let members = case comp of
+               CyclicSCC ns -> Set.fromList ns
+               AcyclicSCC n -> Set.singleton n
+       , m <- Set.toList members ]
+
+-- | RET-RESOLVE: apply one round's resolved return types to a top-level binding.
+--
+-- SC1 lives here. The seed replaces a return type ONLY when the head carries no
+-- annotation, which is the one case where 'collectTopLevel' wrote a bare
+-- wildcard, and ONLY with a type that is not itself a wildcard. A declared type
+-- is never revised and a named hole is never touched: 'inferHole' returns
+-- @TVar ("?" <> name)@, which fails both arms of 'isBareWildcard'.
+applyRetSeed :: Map Name Type -> (Name, Type) -> (Name, Type)
+applyRetSeed seed b@(n, TFn args ret)
+  | isBareWildcard ret
+  , Just t <- Map.lookup n seed
+  , not (isBareWildcard t) = (n, TFn args t)
+  | otherwise              = b
+applyRetSeed _ b           = b
+
+-- | RET-RESOLVE: the Kleene fixpoint over the recorded return-type map.
+--
+-- An unannotated definition records the type its BODY synthesizes
+-- ('recordRetType' is called with @fromMaybe bodyType mRet@). When that body
+-- calls another unannotated definition, the call synthesizes the callee's
+-- wildcard, so the caller records a wildcard too and the emitter lowers it to
+-- 'FQInt'. One pass cannot fix that in any statement order, because
+-- 'checkStatement' never refines the environment binding for a definition.
+-- This iterates instead: each round re-checks the statements with the previous
+-- round's answers seeded into pass 1, and each entry can move from wildcard to
+-- concrete once.
+--
+-- Three side conditions, and each one is a test in 'Spec.hs':
+--
+--   * SC1, in 'applyRetSeed': a concrete entry is never revised.
+--   * SC2', here: every accumulator of every round is discarded except the map
+--     itself. The caller has already taken its 'DiagnosticReport' from a run
+--     that this function cannot reach, so the type channel cannot move.
+--   * SC3', in 'preferConcreteInSCC': the join preference widens to the SCC.
+--
+-- Termination is a flat-lattice argument. Each entry moves at most once, so the
+-- iteration is bounded by the candidate count plus one confirming round, and
+-- there is no exponential path.
+resolveRetTypes
+  :: GrammarMode
+  -> Bool                       -- ^ strict mode, threaded to each round
+  -> TypeEnv
+  -> AliasMap
+  -> Map Name ContractStatus
+  -> Map Name Type              -- ^ qualified cross-module seed, already resolved
+  -> [Statement]
+  -> Map Name Type              -- ^ the map as one pass recorded it
+  -> Map Name Type
+resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
+  | Map.null candidates = m0    -- nothing to resolve: no extra pass runs at all
+  | otherwise           = go (0 :: Int) m0
+  where
+    candidates = Map.filter isBareWildcard m0
+    sccs       = sccOf stmts
+    maxRounds  = Map.size candidates + 1
+    go k m
+      | k >= maxRounds = m
+      | m' == m        = m
+      | otherwise      = go (k + 1) m'
+      where m' = step m
+    step m =
+      let seeded  = Map.union (Map.filter (not . isBareWildcard) m) xmodSeed
+          (_, st) = runState (checkStatements stmts)
+                      (TCState env [] aliases Nothing False False [] [] cs
+                               Map.empty Map.empty [] strict gm False 0
+                               Map.empty [] Map.empty seeded sccs)
+      in Map.mapWithKey (keep (tcRetTypes st)) m
+    -- SC1 again, on the read side: a round may only replace a wildcard, and only
+    -- with something that is not itself a wildcard. A freshened wildcard
+    -- (@?$k@, which 'freshenFnType' produces at a call site) is a wildcard here,
+    -- so a chain resolves in the round after its callee does instead of freezing.
+    keep synthesized n old
+      | not (isBareWildcard old)                                     = old
+      | Just new <- Map.lookup n synthesized, not (isBareWildcard new) = new
+      | otherwise                                                    = old
 
 -- | True if either type is a hole variable — signals that a unification
 -- failure may disappear once the hole resolves (D3).
@@ -1160,7 +1311,7 @@ tcEmitNonExhaustive typeName missing covered = do
 initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
-          strict gm False 0 Map.empty [] Map.empty
+          strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1366,17 +1517,35 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- route through 'initialTCState', so it needs its own union.
       seededAliases = Map.union (Map.foldl seedAliases Map.empty cache) builtinAliases
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
+      -- RET-RESOLVE: the pass runs AFTER the report is taken, and every
+      -- accumulator of its own runs is discarded (SC2'). 'diags' comes from the
+      -- run on the line above, so the type channel's accept set, its reject set
+      -- and its diagnostic list cannot move. That is by construction and not by
+      -- inspection, which is why 'PASS-1' asserts it directly.
+      resolvedRet = resolveRetTypes gm strict seededEnv seededAliases seededCS
+                                    (qualifiedRetSeed cache) stmts (tcRetTypes st)
   in ( DiagnosticReport
          { reportPhase       = "typecheck"
          , reportDiagnostics = diags
          , reportSuccess     = not hasErrors
          }
-     , tcRetTypes st
+     , resolvedRet
      )
   where
+    -- RET-RESOLVE (cross-module): a cached module's 'meRetTypes' is ALREADY
+    -- resolved, because the loader typechecks that module through this same
+    -- seam. 'seededEnv' carries the module's exports instead, and an export's
+    -- return type comes from 'Module.toExport', which reads the raw annotation
+    -- and so still holds 'TVar "?"' for an unannotated head. Seeding the
+    -- qualified names is what lets a call to 'mod.fn' resolve in the entry
+    -- module. Right-biased like 'seedModule' above, for the same reason.
+    qualifiedRetSeed = Map.foldlWithKey' seedRet Map.empty
+    seedRet acc path menv =
+      let prefix = T.intercalate "." path <> "."
+      in Map.union (Map.mapKeys (prefix <>) (meRetTypes menv)) acc
     seedModule acc path menv =
       let prefix = T.intercalate "." path <> "."
           qualified = Map.mapKeys (prefix <>) (meExports menv)
@@ -1398,7 +1567,12 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
 checkStatements :: [Statement] -> TC ()
 checkStatements stmts = do
   -- First pass: collect all top-level function and type names
-  let topLevel  = mapMaybe collectTopLevel stmts
+  -- RET-RESOLVE: 'collectTopLevel' seeds every unannotated head at 'TVar "?"'
+  -- on every run, so a later round of the Kleene pass cannot see an earlier
+  -- round's answer unless it is applied here. 'tcRetSeed' is EMPTY in every
+  -- normal check, which makes 'applyRetSeed' the identity there.
+  retSeed <- gets tcRetSeed
+  let topLevel  = map (applyRetSeed retSeed) (mapMaybe collectTopLevel stmts)
       aliasMap  = Map.fromList [(n, body) | STypeDef n body <- stmts]
       -- v0.3: collect trust declarations into tcTrusts
       trustMap  = Map.fromList [(trustTarget s, trustLevel s) | s@STrust{} <- stmts]
@@ -2208,7 +2382,18 @@ inferExpr (EIf cond thenE elseE) = do
           -- mismatch path below the program is already in error and 'thenType' is a
           -- recovery value, so changing which broken type propagates buys nothing.
           mFn <- gets tcCurrentFn
-          pure (preferConcreteOnSelfCall mFn thenE thenType elseE elseType)
+          -- RET-RESOLVE SC3': inside the Kleene pass the preference widens from
+          -- the enclosing function to its whole strongly-connected component.
+          -- A non-empty 'tcRetSCCs' is the pass-mode signal and the type
+          -- channel never sets it, so the shipped rule stands for every other
+          -- caller. 'RBP-2' is the pin: its callee is foreign, so it is in
+          -- neither set and the wildcard is retained either way.
+          sccs <- gets tcRetSCCs
+          if Map.null sccs
+            then pure (preferConcreteOnSelfCall mFn thenE thenType elseE elseType)
+            else do
+              let scc = maybe Set.empty (\f -> Map.findWithDefault Set.empty f sccs) mFn
+              pure (preferConcreteInSCC scc mFn thenE thenType elseE elseType)
         else do
           tcWarnOrError $ "if branches have different types: " <> typeLabel thenType
                     <> " vs " <> typeLabel elseType
