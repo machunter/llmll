@@ -1817,10 +1817,35 @@ emitMatch scrut cs =
     isResultExhaustive = "Success" `elem` ctorNames && "Error" `elem` ctorNames
     -- Suppress for TSumType: type-checker already verified exhaustiveness statically;
     -- if running, all constructors are covered (or there's a wildcard — also caught above).
-    isAdtExhaustive = not (null ctorNames)  -- any ctor patterns = ADT match, trust type-checker
+    -- MATCH-CATCHALL-1. This read `isAdtExhaustive = not (null ctorNames)`, on
+    -- the stated ground that any constructor pattern means the type checker
+    -- already proved exhaustiveness. It does not. 'TypeCheck.checkExhaustive'
+    -- proves it for 'TSumType', 'TResult' and 'TBool', and for every other
+    -- scrutinee type it takes its own '_ -> pure () -- unknown type — no false
+    -- positives' arm and proves nothing. Each layer assumed the other checked.
+    --
+    -- The witness ships CLEAN, with no warning to ship past:
+    --
+    --   (type Color (| Red) (| Green) (| Blue))
+    --   (def mk [n: int] (if (> n 0) Red Blue))
+    --   (def-shell pick [n: int] -> int (match (mk n) ((Red) 1) ((Green) 2)))
+    --
+    -- The scrutinee is a call to an unannotated function, so the checker does
+    -- not recognise its type. Emitted before this change:
+    -- `case (mk (n)) of { Red -> 1; Green -> 2 }`, and `pick 0` raised GHC's
+    -- `Non-exhaustive patterns in case`.
+    --
+    -- The suppressor is DELETED rather than replaced by a coverage test. A
+    -- coverage test needs the declared constructor set, 'emitExpr :: Expr ->
+    -- Text' threads no environment, and threading one touches every arm of it
+    -- to suppress an arm that is provably dead. The cost of deleting is that a
+    -- fully-covering ADT match now carries an unreachable catch-all: inert at
+    -- run time, and invisible to the compiler because 'emitPackageYaml' ships
+    -- '-threaded' alone, with no '-Wall' and no '-Werror', so GHC reports no
+    -- redundant-pattern warning. Restore a coverage test here if a generated
+    -- project ever turns warnings on.
     catchAll = if lastIsWild || anyArmIsExhaustive || isEitherExhaustive
                              || isBoolExhaustive || isResultExhaustive
-                             || isAdtExhaustive
                then " "
                else "; _ -> error \"non-exhaustive match\" "
 

@@ -655,6 +655,52 @@ main = hspec $ do
   -- -----------------------------------------------------------------------
   -- CodegenHs regression: :done? indentation (GHC-82311 empty do block)
   -- -----------------------------------------------------------------------
+  -- MATCH-CATCHALL-1: 'emitMatch' suppressed the catch-all whenever any arm was
+  -- a constructor pattern, on the ground that the type checker had already
+  -- proved exhaustiveness. 'checkExhaustive' proves it for TSumType, TResult and
+  -- TBool only, and takes '_ -> pure ()' for every other scrutinee type.
+  describe "MATCH-CATCHALL-1: a constructor arm no longer suppresses the catch-all" $ do
+    let hsOf src = case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> cgHsSource (generateHaskell "test" stmts)
+
+    it "MC-1: a partially-covering match over an unrecognised scrutinee gets a catch-all" $ do
+      -- The witness. 'mk' is unannotated, so the checker does not recognise the
+      -- scrutinee type and emits no warning; 'llmll check' prints OK. Before the
+      -- fix this emitted 'case (mk (n)) of { Red -> 1; Green -> 2 }' and 'pick 0'
+      -- raised GHC's 'Non-exhaustive patterns in case'.
+      let hs = hsOf (T.concat
+            [ "(type Color (| Red) (| Green) (| Blue))\n"
+            , "(def mk [n: int] (if (> n 0) Red Blue))\n"
+            , "(def-shell pick [n: int] -> int (match (mk n) ((Red) 1) ((Green) 2)))" ])
+      hs `shouldSatisfy` T.isInfixOf "non-exhaustive match"
+
+    it "MC-2: a fully-covering match also gets one, and that arm is unreachable" $ do
+      -- The cost of deleting the suppressor rather than replacing it with a
+      -- coverage test. The arm is dead code, and the generated project ships
+      -- '-threaded' alone, with no '-Wall', so GHC reports nothing. This cell
+      -- exists so the trade is asserted rather than assumed; if a coverage test
+      -- is ever restored, this is the expectation that flips.
+      let hs = hsOf (T.concat
+            [ "(type Light (| Red) (| Green) (| Yellow))\n"
+            , "(def-shell nextlight [c: Light] -> Light "
+            , "(match c ((Red) Green) ((Green) Yellow) ((Yellow) Red)))" ])
+      hs `shouldSatisfy` T.isInfixOf "non-exhaustive match"
+
+    it "MC-3: an explicit wildcard arm still suppresses it" $ do
+      let hs = hsOf (T.concat
+            [ "(type Color (| Red) (| Green) (| Blue))\n"
+            , "(def-shell pick [c: Color] -> int (match c ((Red) 1) (_ 2)))" ])
+      hs `shouldNotSatisfy` T.isInfixOf "non-exhaustive match"
+
+    it "MC-4: a Result match covering both arms still suppresses it" $ do
+      -- 'isResultExhaustive' is one of the four suppressors that survive, and it
+      -- is sound without the declared constructor set because the set is fixed.
+      let hs = hsOf (T.concat
+            [ "(def-shell unwrap [r: Result[int string]] -> int "
+            , "(match r ((Success s) s) ((Error e) 0)))" ])
+      hs `shouldNotSatisfy` T.isInfixOf "non-exhaustive match"
+
   describe "CodegenHs (:done? indentation)" $ do
     it "without :done?, loop body is at 6-space indent" $ do
       -- Build a minimal console def-main with no :done?
