@@ -945,15 +945,35 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
     candidates = Map.filter isBareWildcard m0
     sccs       = sccOf stmts
     maxRounds  = Map.size candidates + 1
+    -- RET-RESOLVE (cross-module): the imported seed belongs in the ENVIRONMENT
+    -- and not in 'tcRetSeed'. 'applyRetSeed' only reaches 'collectTopLevel'
+    -- results, which are this module's own definitions, so a qualified key such
+    -- as "pred.is-big" could never match one. The imported names arrive through
+    -- 'seedModule' over 'meExports', and 'Module.toExport' reads the RAW
+    -- annotation, so an unannotated imported callee is bound at 'TVar "?"'
+    -- there. Overriding the qualified binding here is enough for both call
+    -- forms: 'checkStatement (SOpen ...)' derives its bare aliases FROM the
+    -- qualified env entries, so the corrected type reaches '(is-big n)' and
+    -- '(pred.is-big n)' alike.
+    --
+    -- This override is scoped to the pass's own rounds. The report run never
+    -- sees it, so SC2' holds and an imported function's resolved return type
+    -- cannot change what this module accepts.
+    envSeeded = Map.foldrWithKey overrideRet env xmodSeed
+    overrideRet n t acc = case Map.lookup n acc of
+      Just (TFn args ret)
+        | isBareWildcard ret
+        , not (isBareWildcard t) -> Map.insert n (TFn args t) acc
+      _                          -> acc
     go k m
       | k >= maxRounds = m
       | m' == m        = m
       | otherwise      = go (k + 1) m'
       where m' = step m
     step m =
-      let seeded  = Map.union (Map.filter (not . isBareWildcard) m) xmodSeed
+      let seeded  = Map.filter (not . isBareWildcard) m
           (_, st) = runState (checkStatements stmts)
-                      (TCState env [] aliases Nothing False False [] [] cs
+                      (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
                                Map.empty [] Map.empty seeded sccs)
       in Map.mapWithKey (keep (tcRetTypes st)) m
