@@ -1,0 +1,8 @@
+;; The consumer's own head is UNANNOTATED, which is what separates this fixture
+;; from fq-result-sort/consumer.llmll (annotated '-> bool'). Resolving 'h' needs
+;; the imported callee's tau_ret to reach this module's own resolution pass.
+;; 'def-shell' for the same reason fq-result-sort/consumer.llmll uses it: a
+;; strict-core 'def' may not call a callee that is not yet body-faithful.
+(import pred)
+(open pred)
+(def-shell h [n: int] (pre (> n 0)) (post (not (= n 7))) (is-big n))

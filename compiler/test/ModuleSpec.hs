@@ -23,7 +23,10 @@ import LLMLL.TypeCheck
   ( typeCheckStrictWithCache, emptyEnv
   , runSketch, seedCacheEnv, builtinEnv, SketchResult(..), SketchHole(..)
   , ScopeBinding(..), ScopeSource(..)
+  -- RET-RESOLVE cross-module residue tests (RRX-1..3)
+  , resolveRetTypes, typeCheckWithCacheRet, isBareWildcard
   )
+import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch)
@@ -806,3 +809,72 @@ moduleSpec = describe "Module System" $ do
           fmap sbSource (Map.lookup "double" (shEnv h)) `shouldBe` Just SrcOpenImport
           Map.member "lib.double" (shEnv h) `shouldBe` True
         hs  -> expectationFailure ("expected exactly one hole, got " ++ show (length hs))
+
+  -- RET-RESOLVE, cross-module. These three are the residue tests that decide
+  -- whether the imported seed works or is inert. They found it INERT: the seed
+  -- was written into 'tcRetSeed', which only 'applyRetSeed' reads, and that
+  -- function reaches 'collectTopLevel' results — this module's own definitions —
+  -- so a qualified key like "pred.is-big" could never match one. The seed now
+  -- overrides the qualified ENV binding instead. Fixture:
+  -- test/fixtures/ret-resolve-xmod/, whose consumer head is UNANNOTATED, which
+  -- is what separates it from test/fixtures/fq-result-sort/consumer.llmll.
+  describe "RET-RESOLVE cross-module: an imported tau_ret reaches the importing module's pass" $ do
+    let fxRoot = "test/fixtures/ret-resolve-xmod"
+        loadConsumer = do
+          result <- loadModule GrammarCoreInversion False fxRoot [] Map.empty [] ["consumer"]
+          case result of
+            Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+            Right (cache, _ord, env) -> pure (cache, env)
+
+    it "RRX-1: an importing module's unannotated head resolves through the imported callee" $ do
+      -- Before the env override, 'result' sorted at int while the call binder
+      -- sorted at bool, so the body VC equated int with bool across a module
+      -- boundary. That is the same defect FQ-RESULT-SORT-1 closed in-module.
+      (cache, env) <- loadConsumer
+      let stmts = meStatements env
+          -- The verify path: typecheck with the cache, then feed the RESOLVED
+          -- map to the emitter. FQRS-9 above passes Map.empty because the sort
+          -- it asserts rides on 'meRetTypes'; 'result' needs this map.
+          (_rpt, retTypes) =
+            typeCheckWithCacheRet GrammarCoreInversion cache builtinEnv stmts
+      er <- emitFixpointWithCache (EmitOptions True Nothing)
+              (fxRoot ++ "/consumer.llmll") cache retTypes stmts
+      let fq = erFQText er
+      fq `shouldSatisfy`    T.isInfixOf "result : { v : bool | true }"
+      fq `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+      fq `shouldSatisfy`    T.isInfixOf "_bv_call_is_big_0 : { v : bool"
+
+    it "RRX-2: the seed is required, not optional" $ do
+      -- The negative control. Same statements, same environment, and the ONLY
+      -- difference is an empty cross-module seed. 'h' must stay a bare wildcard,
+      -- which is what it did on every build before this repair. Without this
+      -- cell RRX-1 would pass just as well against an inert seed, because the
+      -- call binder's sort rides across on 'meRetTypes' either way (FQRS-9).
+      (cache, env) <- loadConsumer
+      let stmts = meStatements env
+          seedOf = Map.foldrWithKey qual Map.empty
+          qual path menv acc =
+            let prefix = T.intercalate "." path <> "."
+            in Map.union (Map.mapKeys (prefix <>) (meRetTypes menv)) acc
+          envSeed = seedCacheEnv builtinEnv cache
+          -- The pre-pass map, written by hand rather than taken from
+          -- 'typeCheckWithCacheRet'. That entry point RUNS the pass, so feeding
+          -- its output back in would start both arms from an already-resolved
+          -- map, SC1 would hold it fixed, and the control would pass for the
+          -- wrong reason. This is what 'recordRetType' writes before any round.
+          m0 = Map.fromList [("h", TVar "?")]
+          runWith sd = resolveRetTypes GrammarCoreInversion False envSeed
+                         builtinAliases Map.empty sd stmts m0
+      Map.lookup "h" (runWith (seedOf cache)) `shouldBe` Just TBool
+      Map.lookup "h" (runWith Map.empty)      `shouldSatisfy` maybe False isBareWildcard
+
+    it "RRX-3: the pass does not make the importing module's checker stronger" $ do
+      -- SC2' across a module boundary. 'meExports' is built by 'Module.toExport'
+      -- from the RAW annotation, and the override is scoped to the pass's own
+      -- rounds, so nothing the pass resolves may reach what this module exports
+      -- or what it accepts.
+      (_cache, env) <- loadConsumer
+      Map.lookup "h" (meExports env) `shouldSatisfy` maybe False isWildcardReturn
+      where
+        isWildcardReturn (TFn _ r) = isBareWildcard r
+        isWildcardReturn _         = False

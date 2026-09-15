@@ -1,0 +1,3 @@
+;; RET-RESOLVE cross-module fixture: an UNANNOTATED bool-returning contracted def.
+;; Its effective return type is available only from the type checker (tau_ret).
+(def is-big [n: int] (pre (> n 0)) (post (not (= n 7))) (> n 5))

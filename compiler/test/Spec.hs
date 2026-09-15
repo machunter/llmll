@@ -9351,6 +9351,114 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "(def-shell q [n: int] (pre (> n 0)) (post (>= n 0)) (p n))" ])
         erFQText er `shouldSatisfy` T.isInfixOf "result : { v : int | true }"
 
+      it "RR-3: a call nested two if levels deep resolves" $ do
+        er <- emitRet (T.concat
+          [ "(def g [n: int] (> n 5))\n"
+          , "(def-shell h [n: int] (pre (> n 0)) (post (>= n 0))"
+          , " (if (> n 0) (if (> n 3) (g n) false) true))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "result : { v : bool | true }"
+
+      it "RR-5: two mutually recursive def-shells with a literal anchor resolve" $ do
+        -- Both members of the component take the anchor's type, not just the one
+        -- that holds it. The map is the assertion because both functions emit.
+        let src = T.concat
+              [ "(def-shell a [n: int] (pre (> n 0)) (post (>= n 0))"
+              , " (if (> n 0) (b n) true))\n"
+              , "(def-shell b [n: int] (pre (> n 0)) (post (>= n 0)) (a n))" ]
+        case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> do
+            let (_, rt) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+            Map.lookup "a" rt `shouldBe` Just TBool
+            Map.lookup "b" rt `shouldBe` Just TBool
+
+      it "SC1-1: a named-hole return type is retained, not replaced" $ do
+        -- Sketch mode depends on this. 'inferHole' returns TVar ("?" <> name),
+        -- which fails both arms of 'isBareWildcard', so the pass must leave it
+        -- alone rather than resolve it to whatever the rest of the body says.
+        let src = "(def-shell f [n: int] (pre (> n 0)) (post (>= result 0)) ?body)"
+        case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> do
+            let (_, rt) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+            Map.lookup "f" rt `shouldBe` Just (TVar "?body")
+
+      it "SC2-2: runSketch reports the same hole set with the pass in place" $ do
+        -- The pass must not append to 'tcHoles'. It runs 'checkStatements' once
+        -- per round, and each round records the same holes again, so a state
+        -- that leaked would multiply them.
+        let src = T.concat
+              [ "(def g [n: int] (> n 5))\n"
+              , "(def-shell f [n: int] (pre (> n 0)) (post (>= result 0)) ?body)" ]
+        case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> do
+            let sketch = runSketch GrammarCoreInversion builtinEnv stmts defaultPatterns
+            map shName (sketchHoles sketch) `shouldBe` ["?body"]
+
+      it "RES-1: a wildcard resolving to a Result sorts result through the TResult arm" $ do
+        er <- emitRet (T.concat
+          [ "(def mk [n: int] (ok n))\n"
+          , "(def-shell use [n: int] (pre (> n 0)) (post (>= n 0)) (mk n))" ])
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "CH2-1: a wildcard resolving to a non-sortable type falls back and names the cause" $ do
+        -- Channel 2. Resolving tau_ret can move a function OUT of body-faithful,
+        -- because the emitter now sees the real type where it saw FQInt before.
+        -- Invariant I1 requires each such demotion to be enumerated; this is the
+        -- cell that proves the demotion is disclosed rather than silent.
+        er <- emitRet (T.concat
+          [ "(def p [n: int] (pair n (> n 5)))\n"
+          , "(def-shell q [n: int] (pre (> n 0)) (post (>= n 0)) (p n))" ])
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "CH3-1: a wildcard resolving to bytes[n] reaches the emitter as a bytes type" $ do
+        -- Channel 3, the definition-site half. 'bytes-set' absorbs its operand's
+        -- type, so 'w' synthesizes bytes[8] and the unannotated caller inherits
+        -- it through the pass instead of lowering to FQInt.
+        er <- emitRet (T.concat
+          [ "(def w [b: bytes[8]] (bytes-set b 0 1))\n"
+          , "(def-shell c [b: bytes[8]] (pre (>= (bytes-get b 0) 0))"
+          , " (post (>= (bytes-get b 0) 0)) (w b))" ])
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "CH4C-1: a wildcard resolving to bytes[n] is the ARR-RANGE-NAME population" $ do
+        -- The guard the LLMLL.md section 5.3.5 disclosure needs. 'bytesRootedArr'
+        -- grants ground 0 <= select(...) <= 255 facts to every array-sorted
+        -- variable whose generated name lacks a '$has' or '$val' suffix, and a
+        -- resolved 'result' is exactly such a variable. This cell gives that
+        -- disclosure an in-tree witness; before RET-RESOLVE the population was
+        -- measured empty. If ARR-RANGE-NAME closes, revisit this assertion.
+        er <- emitRet (T.concat
+          [ "(def w [b: bytes[8]] (bytes-set b 0 1))\n"
+          , "(def-shell c [b: bytes[8]] (pre (>= (bytes-get b 0) 0))"
+          , " (post (>= (bytes-get b 0) 0)) (w b))" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "255"
+
+      it "CH4B-1: a caller of a bytes-returning wildcard callee assumes the callee's post" $ do
+        -- Channel 4b. The callee's post applies a bytes op to its own result, and
+        -- the caller's tau_ret resolves to the same bytes type, so the call-site
+        -- assumption survives instead of being dropped against an int-sorted
+        -- callee result. Dropping a post is a sound weakening, which is why this
+        -- channel is a repair and not a trust expansion.
+        er <- emitRet (T.concat
+          [ "(def w [b: bytes[8]] (post (>= (bytes-get result 0) 0)) (bytes-set b 0 1))\n"
+          , "(def-shell c [b: bytes[8]] (pre (>= (bytes-get b 0) 0))"
+          , " (post (>= (bytes-get b 0) 0)) (w b))" ])
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
+
+      it "CH5-1: a wildcard resolving to bytes makes wholeArrEqClause fire" $ do
+        -- Channel 5. 'wholeArrEqClause' reads the post for a whole-structure
+        -- equality over an array-typed term. It consults the RESOLVED return
+        -- type, so a post of '(= result b)' that was invisible while 'result'
+        -- sorted at int now routes the contract to fallback. The verdict is
+        -- disclosed, which is what invariant I1 asks of every demotion.
+        er <- emitRet (T.concat
+          [ "(def w [b: bytes[8]] (bytes-set b 0 1))\n"
+          , "(def-shell c [b: bytes[8]] (pre (>= (bytes-get b 0) 0))"
+          , " (post (= result b)) (w b))" ])
+        erBodyFaithfulFns er `shouldNotSatisfy` elem "c"
+
       it "KLEENE-1: the resolved map does not depend on statement order" $ do
         -- Asserts the MAP and not the emitted text. A qualifier's name carries a
         -- source offset ('Q_h_post_70'), so reordering two definitions changes the
