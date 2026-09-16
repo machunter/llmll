@@ -1,0 +1,12 @@
+;; MAP-RET-POST-1 fixture, callee half. The head is UNANNOTATED and the body is
+;; rooted in (map-empty), so the type checker resolves tau_ret to map[k$1,int]:
+;; the VALUE is int, the KEY is a free type variable. 'syntEncodableMapTy'
+;; enumerates concrete keys only, so 'calleeRetSort' sorts the call-result
+;; marker FQInt and no $has/$val components are declared for it.
+;;
+;; Annotating this head is the one-token workaround and it is what lib_ann.llmll
+;; does. Do not "fix" this file: the missing annotation IS the fixture.
+(def mk [k: int]
+  (pre (>= k 0))
+  (post (map-has result k))
+  (map-put (map-empty) k 5))

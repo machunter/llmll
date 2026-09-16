@@ -18526,10 +18526,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "r" er `shouldBe` Nothing
       erBodyFaithfulFns er `shouldBe` ["r"]
 
-    it "the closed vocabulary is eight values and renderFallbackCause stays injective" $ do
+    it "the closed vocabulary is nine values and renderFallbackCause stays injective" $ do
+      -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'. The count is
+      -- pinned on purpose, so a new cause has to be declared here AND added to
+      -- KNOWN_CAUSES in scripts/fallback_census.py, or the census reports it as
+      -- an unknown bucket.
       let cs = [minBound .. maxBound] :: [FallbackCause]
-      length cs `shouldBe` 8
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 8
+      length cs `shouldBe` 9
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 9
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"

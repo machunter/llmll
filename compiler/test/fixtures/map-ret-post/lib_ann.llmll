@@ -1,0 +1,7 @@
+;; MAP-RET-POST-1 positive control: the SAME callee with the return annotated.
+;; tau_ret is now map[int,int], the marker splits, and use_ann.llmll must stay
+;; body-faithful. This is the file that fails if the guard is too broad.
+(def mk-ann [k: int] -> map[int,int]
+  (pre (>= k 0))
+  (post (map-has result k))
+  (map-put (map-empty) k 5))
