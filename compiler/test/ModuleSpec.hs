@@ -37,7 +37,7 @@ import LLMLL.PBT
   , canonicalDefEvidenceHash
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
-import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv)
+import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause)
 import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames, importedContractedFns)
 import Data.Aeson (Value(..))
 import qualified Data.Aeson.KeyMap as KM
@@ -875,6 +875,80 @@ moduleSpec = describe "Module System" $ do
       -- or what it accepts.
       (_cache, env) <- loadConsumer
       Map.lookup "h" (meExports env) `shouldSatisfy` maybe False isWildcardReturn
+
+  -- -----------------------------------------------------------------------
+  -- MAP-RET-POST-1: a post that reads a map-valued `result` must not emit a
+  -- component the binder list does not declare.
+  --
+  -- The defect was a disagreement between two emission decisions. The post
+  -- reflects `result` through the split map encoding off THIS function's
+  -- declared return type, which is concrete. The result binder follows the
+  -- CALL-RESULT MARKER's sort, which is FQInt whenever the callee's map return
+  -- carries an unresolved key: an unannotated `(map-empty)`-rooted body
+  -- resolves tau_ret to map[k$1,int], `syntEncodableMapTy` refuses a
+  -- non-concrete key, and `typeToSort` has no TMap clause. The constraint then
+  -- read `Map_select result$val` with no bind for it, and liquid-fixpoint
+  -- answered `Constraint with free vars [result_val]` with exit 1 instead of a
+  -- verdict.
+  --
+  -- The repair routes that residue to the fallback channel whole, per
+  -- LLMLL.md §5.3.3's exact-reflection rule. It does NOT emit the binders: the
+  -- key sort is undetermined, so a binder would have to guess between
+  -- (Map_t int int) and (Map_t Str int).
+  --
+  -- Files: test/fixtures/map-ret-post/{lib,use,lib_ann,use_ann}.llmll.
+  -- -----------------------------------------------------------------------
+  describe "MAP-RET-POST-1: a map-valued result read in a post never leaves a component unbound" $ do
+    let mrpRoot = "test/fixtures/map-ret-post"
+        -- The real verify path: load, typecheck WITH the cache (so the imported
+        -- tau_ret is carried), then feed the resolved map to the emitter. The
+        -- retTypes map is not optional here: the whole defect rides on what
+        -- tau_ret resolves to, so Map.empty would test a different program.
+        emitMrp entry = do
+          result <- loadModule GrammarCoreInversion False mrpRoot [] Map.empty [] [entry]
+          case result of
+            Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+            Right (cache, _ord, env) -> do
+              let stmts = meStatements env
+                  (_rpt, retTypes) =
+                    typeCheckWithCacheRet GrammarCoreInversion cache builtinEnv stmts
+              emitFixpointWithCache (EmitOptions True Nothing)
+                (mrpRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache retTypes stmts
+
+    it "MRP-1: the witness emits no constraint naming an unbound result component" $ do
+      -- The assertion the row asks for, stated over the artifact rather than
+      -- over an exit status: if `result_val` appears anywhere in the .fq, a
+      -- `bind` for it must appear too. This holds whichever way the emitter
+      -- decides, so it does not encode today's choice of remedy.
+      er <- emitMrp "use"
+      let fq = erFQText er
+          usesVal  = T.isInfixOf "result_val" fq
+          bindsVal = T.isInfixOf "bind" fq && T.isInfixOf "result_val : {" fq
+      (usesVal && not bindsVal) `shouldBe` False
+
+    it "MRP-2: the witness falls back, and names the cause" $ do
+      er <- emitMrp "use"
+      erBodyFallback er `shouldContain` ["use-mk"]
+      ("use-mk" `elem` erBodyFaithfulFns er) `shouldBe` False
+      lookup "use-mk" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundMapResult
+
+    it "MRP-3: the fallback cause renders on the census's closed vocabulary" $ do
+      -- scripts/fallback_census.py pins this string in KNOWN_CAUSES. A rename
+      -- here without a change there reports the bucket as unknown.
+      renderFallbackCause FallbackUnboundMapResult `shouldBe` "map-result-components-unbound"
+
+    it "MRP-4: the positive control stays body-faithful and keeps its split binders" $ do
+      -- The guard that the repair is not too broad. Same program, and the ONLY
+      -- difference is that the callee's return is annotated, so tau_ret's key
+      -- is concrete and the marker splits. This cell fails if the scope check
+      -- fires on a path whose components ARE emitted.
+      er <- emitMrp "use_ann"
+      erBodyFaithfulFns er `shouldContain` ["use-ann"]
+      ("use-ann" `elem` erBodyFallback er) `shouldBe` False
+      let fq = erFQText er
+      fq `shouldSatisfy` T.isInfixOf "result_has : {"
+      fq `shouldSatisfy` T.isInfixOf "result_val : {"
+
       where
         isWildcardReturn (TFn _ r) = isBareWildcard r
         isWildcardReturn _         = False

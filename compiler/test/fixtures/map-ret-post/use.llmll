@@ -1,0 +1,16 @@
+;; MAP-RET-POST-1 crash-guard caller. Its own return IS concrete, so the post
+;; reflects `result` through the split map encoding and emits Map_select over
+;; result$val. The call-result marker is scalar (see lib.llmll), so before the
+;; fix that component had no bind and liquid-fixpoint answered
+;;   Constraint with free vars [result_val]
+;; with exit 1, rather than a verdict.
+;;
+;; After the fix this reports body-fallback (map-result-components-unbound) and
+;; the post stays on the assumption channel at tier `asserted`. It must NOT
+;; report body-faithful: the components still name nothing.
+(import lib)
+(open lib)
+(def-shell use-mk [k: int] -> map[int,int]
+  (pre (>= k 0))
+  (post (>= (map-get result k) 0))
+  (mk k))

@@ -196,6 +196,16 @@ data FallbackCause
   -- does not exist leaving a fragment it never entered. The census excludes
   -- these from the ratio's denominator, so the label must distinguish them.
   | FallbackNoPost         -- ^ no post clause (after DEF-RET return-refinement folding): no goal to prove
+  -- MAP-RET-POST-1: the post reflects `result` through the split map encoding
+  -- (result$has / result$val) on a path where the result binder is emitted
+  -- SCALAR, so the components name nothing. The two decisions read different
+  -- inputs: the post reflects off this function's own declared return type,
+  -- while the binder follows the call-result marker's sort. Where they
+  -- disagree the constraint carries a free variable and liquid-fixpoint
+  -- answers `Crash` instead of a verdict. §5.3.3's exact-reflection rule says
+  -- the residue routes to the fallback channel WHOLE; this cause is that
+  -- route.
+  | FallbackUnboundMapResult -- ^ the post reads `result` as a split map, but the result binder is scalar
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -207,6 +217,7 @@ renderFallbackCause FallbackPathCap      = "path-cap-exceeded"
 renderFallbackCause FallbackMixedMapTail = "mixed-map-tail"
 renderFallbackCause FallbackHole         = "unfilled-hole"
 renderFallbackCause FallbackNoPost       = "no-post"
+renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
 
 data EmitResult = EmitResult
   { erFQFile            :: FQFile           -- ^ the assembled .fq data structure
@@ -1405,7 +1416,32 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- neither needed nor meaningful (mapRetChain's convention:
                     -- the constraint reft var "result" at FQInt is unused).
                     let mapRetMode = maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
-                    forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
+                    -- MAP-RET-POST-1: the post may read `result` through the
+                    -- split map components only when this path emits them.
+                    -- 'mapRetMode' is exactly that decision, and it follows the
+                    -- call-result marker's sort ('arrayResultPath' →
+                    -- 'isMapArrRetSort'). The post, by contrast, reflects off
+                    -- this function's own declared return type. The two
+                    -- disagree when a callee's map return carries an
+                    -- UNRESOLVED KEY: an unannotated `(map-empty)`-rooted body
+                    -- resolves tau_ret to `map[k$1,int]`, which
+                    -- 'syntEncodableMapTy' (:2027) refuses because it
+                    -- enumerates concrete keys only, so 'calleeRetSort' (:3510)
+                    -- falls through 'typeToSort' (no TMap clause) to FQInt and
+                    -- the marker is never split. A concrete `-> map[int,int]`
+                    -- on the caller still reflects the post as a map read, and
+                    -- the constraint then carries `Map_select result$val` with
+                    -- no binder for it.
+                    --
+                    -- Route to fallback rather than emit the missing binders.
+                    -- The key sort is genuinely undetermined here, so a binder
+                    -- would have to GUESS between (Map_t int int) and
+                    -- (Map_t Str int), and the post would then be discharged
+                    -- against an encoding nothing in the program chose. Falling
+                    -- back keeps the post on the assumption channel at tier
+                    -- `asserted`, which is what the adjacent shapes already do.
+                    let unboundMapResult = not mapRetMode && mentionsResultComponents postPred
+                    unless unboundMapResult $ forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
                         bid <- freshBid
@@ -1455,8 +1491,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                       addOrigin cid (ConstraintOrigin name tag ptr srcFile)
-                    -- Mark as body-faithful
-                    addBodyFaithful name
+                    -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
+                    -- scope check refused the post above.
+                    if unboundMapResult
+                      then addBodyFallback name FallbackUnboundMapResult []
+                      else addBodyFaithful name
 
                     -- INT-1 (v0.10.8): tagged body-faithful fns whose body used
                     -- LLMLL-level integer arithmetic over non-literal operands.
@@ -3260,6 +3299,24 @@ predVars (FQOr  ps)           = concatMap predVars ps
 predVars (FQNot p)            = predVars p
 predVars (FQKVar _ args)      = concatMap predVars args
 predVars (FQApp _ args)       = concatMap predVars args  -- NIW: measure args carry the free vars
+
+-- | MAP-RET-POST-1: does this predicate read `result` through the split map
+-- encoding? 'mapPairTermsC' rewrites a map-rooted contract term into the
+-- component pair @result$has@ / @result$val@, and it does so UNCONDITIONALLY
+-- for a variable root (:2204), where its body-channel sibling 'mapPairTermsB'
+-- (:2238) first checks that the components are in scope. The contract channel
+-- therefore names binders the emitter may never declare. This predicate is the
+-- scope check the contract channel lacks, applied at the one site that knows
+-- the answer: the generic body-VC path, after 'mapRetMode' has decided whether
+-- the result binder is split or scalar.
+--
+-- Matched on the `result` root ONLY. A component rooted at a parameter is a
+-- different question: parameter components are declared from the declared
+-- parameter type, which is concrete by construction, so they cannot go
+-- unbound by this mechanism.
+mentionsResultComponents :: FQPred -> Bool
+mentionsResultComponents p =
+  any (`elem` ["result$has", "result$val"]) (predVars p)
 
 nubT :: [Text] -> [Text]
 nubT [] = []

@@ -81,6 +81,7 @@ KNOWN_CAUSES = (
     "mixed-map-tail",
     "unfilled-hole",
     "no-post",
+    "map-result-components-unbound",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the

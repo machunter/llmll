@@ -1,0 +1,9 @@
+;; MAP-RET-POST-1 positive control caller: identical to use.llmll except that
+;; the callee's return is annotated. Must stay body-faithful, and its .fq must
+;; still carry the result$has / result$val binders.
+(import lib_ann)
+(open lib_ann)
+(def-shell use-ann [k: int] -> map[int,int]
+  (pre (>= k 0))
+  (post (map-has result k))
+  (mk-ann k))
