@@ -4,6 +4,61 @@
 
 <a id="Latest"></a>
 
+## v0.23.9: two guards trusted a check that was never made (2026-09-16)
+
+Both defects in this release have the same shape. A guard decided something was safe on the
+strength of a check it believed had happened elsewhere, and in both cases that check does not
+exist. Neither defect could produce a wrong verdict: one raised a runtime error in generated
+Haskell, the other crashed the solver and exited 1.
+
+- **`MATCH-CATCHALL-1`: a constructor arm no longer certifies a match as exhaustive.** `emitMatch`
+  suppressed its `; _ -> error "non-exhaustive match"` arm whenever any arm was a constructor
+  pattern, on the ground its own comment stated: "any ctor patterns = ADT match, trust
+  type-checker". The type checker does not carry that. `checkExhaustive` proves exhaustiveness for
+  `TSumType`, `TResult` and `TBool`, and takes an explicit "unknown type — no false positives" arm
+  for every other scrutinee. A mixed constructor-and-literal match therefore shipped with no
+  catch-all and fell through to GHC's pattern-match exception. Removing the suppressor, rather than
+  threading a coverage test through `emitExpr`, leaves unreachable catch-alls in generated code;
+  generated packages enable neither `-Wall` nor `-Werror`, so that is a cost in bytes and not in
+  builds. **Corpus:** 323 files built, 303 emitted Haskell files compared, 63 differ, every
+  difference the new arm.
+- **`MAP-RET-POST-1`: a post may read a map-valued `result` only where the components are bound.**
+  The contract channel manufactured `result$has`/`result$val` for any variable root, while the
+  emitter decided separately whether to bind them. `mapPairTermsB` already states the rule the
+  contract channel lacked, that a variable root must have split binders in scope, and the check now
+  applies at the generic body-VC path, routing the residue to the fallback channel whole per
+  §5.3.3's exact-reflection rule. **The binders are deliberately not emitted.** An unannotated
+  `(map-empty)`-rooted callee resolves `τ_ret` to `map[k$1,int]`, whose key is a free type
+  variable, so a binder would guess between `(Map_t int int)` and `(Map_t Str int)` and the post
+  would be discharged against an encoding the program never chose. That key defect is filed
+  separately as `MAP-RET-KEY-1`. **`τ_ret` is not the gap:** a bool control shows an unannotated
+  imported callee sorting its marker `bool`, so the cross-module seed carries a resolved return
+  correctly. Pre-fix the solver answered `Constraint with free vars [result_val]` and exited 1;
+  post-fix the function reports `body-fallback` at tier `asserted`. Adds the ninth `FallbackCause`,
+  `map-result-components-unbound`, which `docs/getting-started.md` enumerates and
+  `scripts/fallback_census.py` tracks. **Gate:** corpus `.fq` sweep, 419 files each side against a
+  rebuilt pre-change compiler, byte-identical.
+- **`RET-RESOLVE residue (1)` closes.** The thirteen owed tests landed: `RR-3`, `RR-5`, `SC1-1`,
+  `SC2-2`, the five channel guards `CH2-1`, `CH3-1`, `CH4B-1`, `CH4C-1` and `CH5-1`, `RES-1`, and
+  the three `RRX-*` module tests. The `RRX-*` three were written first because they decide whether
+  the cross-module seed works or is inert, and they found it inert: the seed was written into
+  `tcRetSeed`, which only `applyRetSeed` reads, and that function reaches this module's own
+  definitions, so a qualified key like `pred.is-big` could never match one. The seed overrides the
+  qualified environment binding now. `CH4C-1` is the standing guard for the §5.3.5 channel-4c
+  disclosure and gives it an in-tree witness.
+- **Three roadmap rows corrected from built witnesses rather than from reading.** `ARR-RANGE-NAME`
+  is downgraded to latent: two probes were constructed for its predicted false-fact channel and
+  each emitted zero range facts, so no witness supports the "live" characterisation the record
+  carried. The design objection is untouched, and the row stays open on it.
+- **`codegen_semantics_version` stays `"int-unbounded-1"`, and 63 generated files changing does not
+  spend it.** The stamp's scope is int-versus-machine-int, and the added arm raises a runtime error
+  where GHC already raised one. `INT-3` needs that stamp unspent. `checker_soundness_version` stays
+  at `"2"`: no verdict moved.
+
+**Tests:** 1992 Haskell, 317 Python.
+
+---
+
 ## v0.23.8: an unannotated return no longer arrives at the emitter as an integer (2026-09-15)
 
 **`RET-RESOLVE` ships.** An unannotated definition records the type its body synthesizes, because
