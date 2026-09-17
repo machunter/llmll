@@ -1,0 +1,12 @@
+;; FQ-FREEVAR-GUARD-1. The control for letproj.llmll.
+;;
+;; The same program with the `let` removed. The scrutinee is now an application
+;; and not a variable, so the match is not rewritten and the function falls back
+;; with `body-outside-fragment` before any constraint is emitted. This cell fails
+;; if the guard is credited with a fallback that was already happening, or if the
+;; guard changes a function it must not touch.
+(export pick)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell pick [s: (int, Ctl)] -> int
+  (post (>= result 0))
+  (match (second s) ((Boot) 0) ((Ran) 1) ((Halt) 2)))

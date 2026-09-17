@@ -1,0 +1,29 @@
+;; FQ-FREEVAR-GUARD-1 / CALL-PRE-ARGCALL-1. The witness that carries TWO free
+;; symbols, in two different positions, so one cell pins both halves of the check.
+;;
+;; `dispatch` has the let-bound projection of letproj.llmll, so its three body
+;; constraints name `s` through an environment binder. It also passes a CALL
+;; RESULT to a tag-preconditioned callee, and the call-pre constraint it emits
+;; carries the branch path condition while its env omits the binder that
+;; condition names, so that constraint names `_bv_p_1` in its own lhs.
+;;
+;; Before the guard, liquid-fixpoint answered `Constraint with free vars` four
+;; times: `[s]` on constraints 1, 2 and 3 and `[_bv_p_1]` on constraint 4.
+;; Cells c39 and c40 of docs/design/resp-fact-proposal.md, in one program.
+;;
+;; MEASURED, and recorded because it refutes the remedy the roadmap proposed for
+;; CALL-PRE-ARGCALL-1: adding the omitted bind id to the call-pre's env does NOT
+;; repair constraint 4. That bind's own refinement names `s`, so the constraint
+;; then reports `[s]` instead of `[_bv_p_1]`. The crash moves; it does not go.
+(export dispatch)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell ctl-of [s: (int, Ctl)] -> Ctl
+  (second s))
+(def-shell tag-code [p: Ctl] -> int
+  (pre (= p Ran))
+  (post (>= result 0))
+  1)
+(def-shell dispatch [s: (int, Ctl)] -> int
+  (post (>= result 0))
+  (let [(p (second s))]
+    (match p ((Boot) 0) ((Ran) (tag-code (ctl-of s))) ((Halt) 2))))

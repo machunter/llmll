@@ -1,0 +1,19 @@
+;; FQ-FREEVAR-GUARD-1 / PAIR-PROJ-LET-1. The witness.
+;;
+;; The `let` binds a projection of the pair parameter `s`. That makes the match
+;; scrutinee a variable, so `desugarCtorValues` rewrites the match and the
+;; function becomes body-faithful. The let binder is then emitted as
+;;   bind N _bv_p_0 : { v : int | (v = (pair2_1 s)) }
+;; and `s` itself has NO bind anywhere in the file. Before the guard,
+;; liquid-fixpoint answered `Constraint with free vars [s]` on all three
+;; constraints and exited 1. Cell c39 of docs/design/resp-fact-proposal.md.
+;;
+;; Note where the free symbol sits: in the refinement of an ENVIRONMENT BINDER,
+;; not in the goal. A check that reads only each constraint's own lhs and rhs
+;; flags nothing here.
+(export pick)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell pick [s: (int, Ctl)] -> int
+  (post (>= result 0))
+  (let [(p (second s))]
+    (match p ((Boot) 0) ((Ran) 1) ((Halt) 2))))

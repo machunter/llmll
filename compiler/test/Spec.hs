@@ -18526,14 +18526,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "r" er `shouldBe` Nothing
       erBodyFaithfulFns er `shouldBe` ["r"]
 
-    it "the closed vocabulary is nine values and renderFallbackCause stays injective" $ do
-      -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'. The count is
-      -- pinned on purpose, so a new cause has to be declared here AND added to
-      -- KNOWN_CAUSES in scripts/fallback_census.py, or the census reports it as
-      -- an unknown bucket.
+    it "the closed vocabulary is ten values and renderFallbackCause stays injective" $ do
+      -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'.
+      -- FQ-FREEVAR-GUARD-1 added the tenth: 'FallbackUnboundSymbols', the
+      -- general form of the same defect, decided over the assembled file rather
+      -- than at one translator's emission site. The count is pinned on purpose,
+      -- so a new cause has to be declared here AND added to KNOWN_CAUSES in
+      -- scripts/fallback_census.py, or the census reports it as an unknown
+      -- bucket. This cell is what caught the guard's census script edit.
       let cs = [minBound .. maxBound] :: [FallbackCause]
-      length cs `shouldBe` 9
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 9
+      length cs `shouldBe` 10
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 10
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"

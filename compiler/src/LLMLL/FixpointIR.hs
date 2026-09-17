@@ -44,10 +44,15 @@ module LLMLL.FixpointIR
   , strlitLen
     -- * Constructor symbols (shared by FixpointEmit; FQ-CTOR-COLLIDE-1)
   , fqCtorSym
+    -- * Emission-boundary scope check (FQ-FREEVAR-GUARD-1)
+  , predSymbols
+  , fqFreeSymbols
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Char (isAlphaNum, isUpper, ord)
 import Numeric (showHex)
 
@@ -395,3 +400,80 @@ emitDataDecl d =
             [ cn <> "_" <> T.pack (show i) <> " : " <> emitSort s | (i, s) <- zip [0 :: Int ..] flds ]
       in if null flds then " | " <> cn <> " { }"
                       else " | " <> cn <> " { " <> fields <> " }"
+
+-- ---------------------------------------------------------------------------
+-- FQ-FREEVAR-GUARD-1: the emission-boundary scope check
+-- ---------------------------------------------------------------------------
+
+-- | Every symbol a predicate names: a variable, an application head, and the
+-- arguments of a kvar. Names come back in EMITTED form, because 'sanitizeFQId'
+-- is what the solver reads. Two source names that sanitize to one symbol are one
+-- symbol here, which is the collision 'fqCtorSym' documents.
+predSymbols :: FQPred -> Set.Set Text
+predSymbols p = case p of
+  FQTrue           -> Set.empty
+  FQFalse          -> Set.empty
+  FQLit _          -> Set.empty
+  FQVar v          -> Set.singleton (sanitizeFQId v)
+  FQNot q          -> predSymbols q
+  FQAnd ps         -> Set.unions (map predSymbols ps)
+  FQOr  ps         -> Set.unions (map predSymbols ps)
+  FQBinPred _ a b  -> predSymbols a `Set.union` predSymbols b
+  FQBinArith _ a b -> predSymbols a `Set.union` predSymbols b
+  FQKVar _ args    -> Set.unions (map predSymbols args)
+  FQApp f args     -> Set.insert (sanitizeFQId f) (Set.unions (map predSymbols args))
+
+-- | FQ-FREEVAR-GUARD-1. Report, for each constraint, every symbol the constraint
+-- names that its own environment does not declare.
+--
+-- liquid-fixpoint answers @Crash@ ("Constraint with free vars") instead of a
+-- verdict when that set is not empty, so a caller must run this before it writes
+-- the file. The scope is read and not inferred: 'conEnv' carries the
+-- constraint's own binder IDs.
+--
+-- A symbol is IN SCOPE when one of these is true.
+--
+--   * A binder in 'conEnv' carries the name.
+--   * The file declares it with @constant@. That covers the measure UFs and
+--     every interned @strlit_@ name.
+--   * The file declares it with @data@: the sort name, a constructor symbol, or
+--     a selector field.
+--   * The solver interprets it natively. That set is the @theory@ argument,
+--     because the emitter decides which theory it uses, and this module does not.
+--   * It is the refinement's own bound variable.
+--
+-- The environment is read as a CLOSURE, and not as the constraint's two
+-- refinements alone. A @let@-bound projection puts the free symbol in the
+-- refinement of an environment binder, and not in the goal. The narrower reading
+-- misses it. Measured on cell c39b of @docs/design/resp-fact-proposal.md@: the
+-- solver names @s@ on three constraints, and the narrower reading flags none.
+fqFreeSymbols :: Set.Set Text -> FQFile -> [(FQConstraintId, [Text])]
+fqFreeSymbols theory f =
+    [ (conId c, Set.toList free)
+    | c <- fqConstraints f
+    , let free = constraintFree c
+    , not (Set.null free) ]
+  where
+    bindMap = Map.fromList [ (bindId b, b) | b <- fqBinds f ]
+
+    declared = Set.unions
+      [ Set.fromList [ sanitizeFQId (fqcName k) | k <- fqConstants f ]
+      , Set.fromList $ concat
+          [ sanitizeFQId (ddName d)
+            : [ fqCtorSym cn | (cn, _) <- ddCtors d ]
+            ++ [ fqCtorSym cn <> "_" <> T.pack (show i)
+               | (cn, flds) <- ddCtors d, i <- [0 .. length flds - 1] ]
+          | d <- fqDataDecls f ]
+      , theory ]
+
+    reftFree r = Set.delete (sanitizeFQId (reftVar r)) (predSymbols (reftPred r))
+
+    constraintFree c =
+      let envBinds = [ b | i <- conEnv c, Just b <- [Map.lookup i bindMap] ]
+          inScope  = Set.union declared
+                       (Set.fromList [ sanitizeFQId (bindName b) | b <- envBinds ])
+          named    = Set.unions
+            ( reftFree (conLhs c)
+            : reftFree (conRhs c)
+            : [ reftFree (bindReft b) | b <- envBinds ] )
+      in named Set.\\ inScope

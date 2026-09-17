@@ -82,6 +82,7 @@ KNOWN_CAUSES = (
     "unfilled-hole",
     "no-post",
     "map-result-components-unbound",
+    "constraint-symbols-unbound",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the

@@ -1,0 +1,22 @@
+;; FQ-FREEVAR-GUARD-1. The control for argcall.llmll.
+;;
+;; The scrutinee is a bare `Ctl` parameter, so no pair projection is involved,
+;; and the argument to the tag-preconditioned callee is that same parameter
+;; rather than a call result. This is cell c41 of resp-fact-proposal.md: it is
+;; body-faithful, it emits a real call-pre obligation, and it verifies SAFE.
+;;
+;; It is the cell that fails if the guard is too broad. A guard that flags a
+;; declared constructor symbol, a selector, a theory symbol, or a refinement's
+;; own bound variable would withdraw this function's body VC and demote a
+;; verified function to `asserted`.
+(export dispatch)
+(type Ctl (| Boot) (| Ran) (| Halt))
+(def-shell ctl-id [p: Ctl] -> Ctl
+  p)
+(def-shell tag-code [p: Ctl] -> int
+  (pre (= p Ran))
+  (post (>= result 0))
+  1)
+(def-shell dispatch [p: Ctl] -> int
+  (post (>= result 0))
+  (match p ((Boot) 0) ((Ran) (tag-code p)) ((Halt) 2)))
