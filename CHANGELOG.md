@@ -4,6 +4,59 @@
 
 <a id="Latest"></a>
 
+## v0.23.10: the measurement a row required refuted the row (2026-09-17)
+
+Both items here are roadmap rows that demanded a measurement before any code was written.
+Both measurements ran, and both changed what the row said. One row closed with no compiler
+change at all. The other shipped a guard, and its census refuted two claims the row had made
+about its own candidate list.
+
+- **`FQ-FREEVAR-GUARD-1`: an emitted constraint now names only what its environment declares.**
+  Every "Constraint with free vars" crash has one shape: a predicate names a symbol, the
+  constraint's environment does not declare it, and liquid-fixpoint answers `Crash` rather than
+  a verdict. `MAP-RET-POST-1` (v0.23.9) fixed one member at its own emission site; this is the
+  boundary check for the rest. `fqFreeSymbols` reads per-constraint scope out of `conEnv`, which
+  is exact rather than inferred, and exempts the symbols the file itself declares (`constant`
+  lines, `data` declarations), each refinement's own bound variable, and the solver's
+  interpreted map symbols. **The environment is read as a closure**, not as the constraint's two
+  refinements alone: a `let`-bound projection puts the free symbol in an environment binder's
+  refinement, and the narrower reading misses six of the seven constraints the two witnesses
+  crash on. A flagged constraint routes its owning function to the fallback channel whole, as
+  §5.3.3's exact-reflection rule requires, adding the tenth `FallbackCause`,
+  `constraint-symbols-unbound`, which `docs/getting-started.md` enumerates and
+  `scripts/fallback_census.py` tracks. **The site this row named was wrong.** `addConst` sees a
+  constraint after the three injections but cannot see the bind table or `strLitConsts`, so a
+  check there would report every interned string literal as free; the site is where the
+  assembled `FQFile` first exists. **Census:** 366 files swept, 334 producing a `.fq`, 1519
+  constraints and 6862 qualifiers, zero flagged, and no solver crash of any kind. Dropping each
+  exemption in turn flags 112, 44, 85 and 315 constraints respectively, all of them functions
+  that verify today. **Two candidates left the class and one lost its remedy.**
+  `CLAUSE-CTOR-PAREN-1` was already closed at `d5dd5a8` (v0.17.0), the commit its row credited
+  with fixing body position alone; `desugarCtorValues` carries an `EApp f []` clause naming the
+  witness cell, and the same desugar is applied to `contractPre` and `contractPost`. It and
+  `FQ-CTOR-COLLIDE-1` both crash with a sort error and are not in this class.
+  `CALL-PRE-ARGCALL-1` keeps its row and loses its proposed fix: adding the omitted bind id to
+  the call-pre environment moves that constraint's free symbol from `_bv_p_1` to `s` rather than
+  removing it. **Gate:** corpus `.fq` sweep, 334 files each side against a preserved pre-change
+  compiler, byte-identical, with zero differing verdicts across 366 logs.
+- **`MUL-LIT-1` closes REFUTED by its own step 1, and `LLMLL.md` §5.3.3 is narrowed instead.**
+  The row asked to widen `Σ_auto` to admit a product with an integer-literal operand, and
+  required a measurement first. Conway reports zero nonlinear refusals: `cell-at`, the row's
+  sole witness, is refused on `let`, because the example is list-based and the list class
+  refuses before the arithmetic class is reached. Tree-wide demand is zero; exactly two
+  functions are refused on `nonlinear:*` and both are fixtures that exist to pin that refusal.
+  The spec sentence the widening would have made true sits in §5.3.3, not §5.3.5 as the design
+  record's §9.1 mis-cited and this row inherited twice, and §5.3.3 contradicted itself two dozen
+  lines below its own symbol set. The gap is also wider than the row framed it: `(mod r 8)` and
+  `(/ r 8)` are refused though QF-LIA admits both at a literal operand, `(* 1 r)` and `(* 0 r)`
+  are refused though their linearity is unarguable, and `rem` is not a builtin at all. The new
+  text says the refusal is on the operator and not on the term's linearity, because an agent
+  reading `nonlinear:*` on `(* 1 r)` will rewrite arithmetic that was never the problem.
+
+**Tests:** 2002 Haskell, 322 Python (295 passed, 27 skipped; the skip set is environment-gated).
+
+---
+
 ## v0.23.9: two guards trusted a check that was never made (2026-09-16)
 
 Both defects in this release have the same shape. A guard decided something was safe on the
