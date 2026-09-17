@@ -46,6 +46,7 @@ module LLMLL.FixpointEmit
   , EmitResult(..)
   , FallbackCause(..)
   , renderFallbackCause
+  , arrayTheorySyms               -- FQ-FREEVAR-GUARD-1: the solver's interpreted symbols
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
   , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
@@ -206,6 +207,13 @@ data FallbackCause
   -- the residue routes to the fallback channel WHOLE; this cause is that
   -- route.
   | FallbackUnboundMapResult -- ^ the post reads `result` as a split map, but the result binder is scalar
+  -- FQ-FREEVAR-GUARD-1: the general form of the defect above. A constraint names
+  -- a symbol its own `conEnv` does not declare, so liquid-fixpoint answers
+  -- `Crash` instead of a verdict. 'FallbackUnboundMapResult' is the one member
+  -- caught at its own emission site; this cause is the boundary check that
+  -- catches the rest, and it names no single mechanism because it is decided
+  -- over the assembled file rather than over one translator's inputs.
+  | FallbackUnboundSymbols -- ^ an emitted constraint names a symbol its environment lacks
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -218,6 +226,27 @@ renderFallbackCause FallbackMixedMapTail = "mixed-map-tail"
 renderFallbackCause FallbackHole         = "unfilled-hole"
 renderFallbackCause FallbackNoPost       = "no-post"
 renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
+renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
+
+-- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
+-- (native map theory). Declaring them as UF constants would shadow the theory,
+-- so the measure sweep excludes them, the same way it excludes datatype
+-- constructors.
+--
+-- FQ-FREEVAR-GUARD-1 reads the same set for the opposite reason: these symbols
+-- appear in constraints and no `constant` line declares them, so a scope check
+-- that does not know them reports every map operation as a free symbol. Measured
+-- on the tracked corpus: without this set the check flags 112 constraints across
+-- 39 files, all of them verified today. This was a `let` binding inside the
+-- emitter; it is top-level so that the check and the sweep read ONE definition,
+-- and so that a test can read the same one rather than restating it.
+--
+-- The pin is `liquid-fixpoint-0.9.6.3.1` (scripts/fixpoint.stack.yaml). The
+-- solver interprets more symbols than these three (the Set_ family, Map_union,
+-- and others); this set lists what the emitter can actually produce, so a symbol
+-- outside it cannot reach a constraint.
+arrayTheorySyms :: Set.Set Text
+arrayTheorySyms = Set.fromList ["Map_select", "Map_store", "Map_default"]
 
 data EmitResult = EmitResult
   { erFQFile            :: FQFile           -- ^ the assembled .fq data structure
@@ -717,10 +746,6 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- undeclared symbol. Scanning 'quals' too closes the gap; 'quals'
       -- includes 'builtinQualifiers' (pure int comparisons, no measure
       -- symbols), so this is a no-op for programs that don't hit the gap.
-      -- LEVER-A1: the array-theory operation symbols are INTERPRETED by the
-      -- solver (native map theory) — declaring them as UF constants would
-      -- shadow the theory. Excluded from the sweep like datatype ctors.
-      arrayTheorySyms = Set.fromList ["Map_select", "Map_store", "Map_default"]
       allAppNames = Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
@@ -734,21 +759,70 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       strLitConsts = [ FQConstant n [] FQStr | n <- Set.toList strLitNames ]
       usedMeasures = allAppNames Set.\\ ctorNames Set.\\ arrayTheorySyms Set.\\ strLitNames
       measureConsts = map measureConstant (Set.toList usedMeasures)
-  let fqFile = FQFile (measureConsts ++ strLitConsts) dataDecs quals binds consts
+  -- FQ-FREEVAR-GUARD-1. The check sits HERE, and not at `addConst`, for a reason
+  -- the row that filed this work stated the other way round. `addConst` does see
+  -- a constraint after the three injections, but it cannot see the bind table
+  -- (a separate IORef) and it cannot see `strLitConsts`, which is computed above
+  -- out of every constraint collected. A check at `addConst` would not yet know
+  -- which `strlit_` names get declared, and would report them free. This is the
+  -- first point at which the whole file exists.
+  --
+  -- A flagged constraint routes its OWNING FUNCTION to the fallback channel
+  -- WHOLE, per LLMLL.md §5.3.3's exact-reflection rule and on the
+  -- MAP-RET-POST-1 precedent. Whole includes the function's call-pre
+  -- constraints: a body-fallback function emits none today, so keeping one here
+  -- would invent a shape no other path produces.
+  let fqFile0    = FQFile (measureConsts ++ strLitConsts) dataDecs quals binds consts
+      freeCons   = fqFreeSymbols arrayTheorySyms fqFile0
+      ownerOf c  = coFunction <$> Map.lookup (conId c) table
+      freeByFn   = Map.fromListWith Set.union
+                     [ (coFunction o, Set.fromList syms)
+                     | (cid, syms) <- freeCons
+                     , Just o <- [Map.lookup cid table] ]
+      routed     = Map.keysSet freeByFn
+      -- A flagged constraint with no origin cannot be attributed to a function,
+      -- so it is KEPT and the solver still refuses the file. That is exactly the
+      -- behaviour this guard replaces, narrowed to the one case it cannot
+      -- decide, and it is now reported instead of reaching the user as a crash.
+      orphans    = [ (cid, syms) | (cid, syms) <- freeCons
+                   , isNothing (Map.lookup cid table) ]
+      keptCons   = [ c | c <- consts
+                   , maybe True (not . (`Set.member` routed)) (ownerOf c) ]
+      fqFile     = fqFile0 { fqConstraints = keptCons }
+      bfaithful' = [ n | n <- bfaithful, not (n `Set.member` routed) ]
+      bfallback' = bfallback
+                ++ [ (n, FallbackUnboundSymbols)
+                   | n <- Set.toList routed, n `notElem` map fst bfallback ]
+      guardDiags =
+           [ mkWarning Nothing $ "W-FQ-FREEVAR: '" <> n
+               <> "' emitted a constraint naming " <> T.intercalate ", " (Set.toList syms)
+               <> ", which the constraint's own environment does not declare."
+               <> " Its body VC is withdrawn and its post is assumed."
+           | (n, syms) <- Map.toList freeByFn ]
+        ++ [ mkWarning Nothing $ "W-FQ-FREEVAR: constraint " <> T.pack (show cid)
+               <> " names " <> T.intercalate ", " syms
+               <> ", which its own environment does not declare, and no origin"
+               <> " attributes the constraint to a function."
+           | (cid, syms) <- orphans ]
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
     , erConstraintTable   = table
     , erSkipped           = skipped
-    , erBodyFaithfulFns   = bfaithful
-    , erBodyFallback      = map fst bfallback
-    , erBodyFallbackCauses = bfallback
+    , erBodyFaithfulFns   = bfaithful'
+    , erBodyFallback      = map fst bfallback'
+    , erBodyFallbackCauses = bfallback'
     , erFallbackConstructs = fbConstructs
-    , erDiagnostics       = diags
-    , erEmittedPre        = emPre
-    , erEmittedPost       = emPost
-    , erCallPreFns        = callPre
-    , erOverflowTaintedFns = ovTainted
+    , erDiagnostics       = diags ++ guardDiags
+    -- A routed function emitted nothing that survived, so it must leave these
+    -- four lists too. `erCallPreFns` prints "call-pre obligations: <fn>", and
+    -- leaving a routed function there claims an obligation the .fq no longer
+    -- carries. `erOverflowTaintedFns` is defined over body-faithful functions,
+    -- which a routed function is no longer.
+    , erEmittedPre        = filter (not . (`Set.member` routed)) emPre
+    , erEmittedPost       = filter (not . (`Set.member` routed)) emPost
+    , erCallPreFns        = filter (not . (`Set.member` routed)) callPre
+    , erOverflowTaintedFns = filter (not . (`Set.member` routed)) ovTainted
     , erMeasuredFns        = [ n | (n, (_, es)) <- Map.toList measureMap, all (isJust . exprToPred) es ]
     }
 

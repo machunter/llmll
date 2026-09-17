@@ -37,7 +37,8 @@ import LLMLL.PBT
   , canonicalDefEvidenceHash
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
-import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause)
+import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause, arrayTheorySyms)
+import LLMLL.FixpointIR (fqFreeSymbols, FQFile(..), emptyFQFile, FQConstraint(..), FQBind(..), FQReft(..), FQPred(..), FQBinOp(..), FQSort(..), FQConstant(..), FQDataDecl(..))
 import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames, importedContractedFns)
 import Data.Aeson (Value(..))
 import qualified Data.Aeson.KeyMap as KM
@@ -948,6 +949,138 @@ moduleSpec = describe "Module System" $ do
       let fq = erFQText er
       fq `shouldSatisfy` T.isInfixOf "result_has : {"
       fq `shouldSatisfy` T.isInfixOf "result_val : {"
+
+  -- -----------------------------------------------------------------------
+  -- FQ-FREEVAR-GUARD-1: no emitted constraint may name a symbol its own
+  -- environment does not declare.
+  --
+  -- MAP-RET-POST-1 above is ONE member of this class, caught at its own
+  -- emission site. This is the boundary check that catches the rest. It runs
+  -- where the assembled FQFile first exists, and NOT at `addConst`: `addConst`
+  -- cannot see the bind table, and cannot see `strLitConsts`, which is computed
+  -- out of every constraint already collected.
+  --
+  -- Census, on the tracked corpus at v0.23.9 (366 files, 334 of them producing
+  -- a .fq, 1519 constraints, 6862 qualifiers): the check flags NOTHING, and no
+  -- log carries a solver crash of any kind. The guard is inert on everything
+  -- that verifies today, so the cells below are its whole firing population.
+  --
+  -- Files: test/fixtures/fq-freevar-guard/{letproj,letproj_ctl,argcall,argcall_ctl}.llmll.
+  -- -----------------------------------------------------------------------
+  describe "FQ-FREEVAR-GUARD-1: an emitted constraint names only what its environment declares" $ do
+    let ffgRoot = "test/fixtures/fq-freevar-guard"
+        emitFfg entry = do
+          result <- loadModule GrammarCoreInversion False ffgRoot [] Map.empty [] [entry]
+          case result of
+            Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+            Right (cache, _ord, env) -> do
+              let stmts = meStatements env
+                  (_rpt, retTypes) =
+                    typeCheckWithCacheRet GrammarCoreInversion cache builtinEnv stmts
+              emitFixpointWithCache (EmitOptions True Nothing)
+                (ffgRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache retTypes stmts
+        -- Hand-built files for the unit cells. A test that only ran the two
+        -- witnesses would pass for a check that fires on their exact shape and
+        -- nothing else, so the exemptions and the closure get their own cells.
+        ffgReft p    = FQReft "v" FQInt p
+        ffgBind i n p = FQBind i n (ffgReft p)
+        ffgCon i env l r = FQConstraint i env (ffgReft l) (ffgReft r) []
+
+    it "FFG-1: neither witness leaves a free symbol in the file that is written" $ do
+      -- Stated over the artifact, and not over an exit status, so it holds
+      -- whichever remedy the emitter chooses. Both cells crashed the solver
+      -- before the guard: `[s]` three times for letproj, and `[s]` three times
+      -- plus `[_bv_p_1]` once for argcall.
+      erL <- emitFfg "letproj"
+      fqFreeSymbols arrayTheorySyms (erFQFile erL) `shouldBe` []
+      erA <- emitFfg "argcall"
+      fqFreeSymbols arrayTheorySyms (erFQFile erA) `shouldBe` []
+
+    it "FFG-2: the let-projection witness falls back, and names the cause" $ do
+      er <- emitFfg "letproj"
+      erBodyFallback er `shouldContain` ["pick"]
+      ("pick" `elem` erBodyFaithfulFns er) `shouldBe` False
+      lookup "pick" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+
+    it "FFG-3: the fallback cause renders on the census's closed vocabulary" $ do
+      -- scripts/fallback_census.py pins this string in KNOWN_CAUSES. A rename
+      -- here without a change there reports the bucket as unknown.
+      renderFallbackCause FallbackUnboundSymbols `shouldBe` "constraint-symbols-unbound"
+
+    it "FFG-4: the control falls back for its OWN reason, not this one" $ do
+      -- Same program without the `let`. It already fell back before the guard
+      -- existed, so crediting this guard with it would be a false positive of
+      -- the test rather than of the check.
+      er <- emitFfg "letproj_ctl"
+      lookup "pick" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+
+    it "FFG-5: the call-result witness routes, reports both symbols, and withdraws its call-pre" $ do
+      er <- emitFfg "argcall"
+      lookup "dispatch" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+      -- The warning carries the symbol the solver would have named. `_bv_p_1`
+      -- is the call-pre half; it is the one a check reading only each
+      -- constraint's own lhs and rhs would find, and `s` is the one it misses.
+      let msgs = map diagMessage (erDiagnostics er)
+      msgs `shouldSatisfy` any (T.isInfixOf "W-FQ-FREEVAR")
+      msgs `shouldSatisfy` any (T.isInfixOf "_bv_p_1")
+      -- A routed function emitted no surviving constraint, so it must not be
+      -- listed as carrying a call-pre obligation. Verify prints that list.
+      ("dispatch" `elem` erCallPreFns er) `shouldBe` False
+
+    it "FFG-6: the call-result control stays body-faithful and keeps its call-pre" $ do
+      -- The cell that fails if the guard is too broad. It names a datatype
+      -- constructor, a selector and a refinement's own bound variable, and it
+      -- must reach a verdict.
+      er <- emitFfg "argcall_ctl"
+      erBodyFaithfulFns er `shouldContain` ["dispatch"]
+      ("dispatch" `elem` erBodyFallback er) `shouldBe` False
+      erCallPreFns er `shouldContain` ["dispatch"]
+
+    it "FFG-7: a free symbol in the goal is reported" $ do
+      let f = emptyFQFile
+                { fqBinds       = [ffgBind 0 "x" FQTrue]
+                , fqConstraints = [ffgCon 0 [0]
+                                    (FQBinPred FQEq (FQVar "x") (FQVar "y")) FQTrue] }
+      fqFreeSymbols arrayTheorySyms f `shouldBe` [(0, ["y"])]
+
+    it "FFG-8: a free symbol reachable ONLY through an environment binder is reported" $ do
+      -- The shape of letproj.llmll, reduced. The goal names `x`, `x` is bound,
+      -- and `x`'s own refinement names `y`, which nothing binds. A check that
+      -- reads the constraint's two refinements alone returns [] here, and
+      -- misses six of the seven constraints the two witnesses crashed on.
+      let f = emptyFQFile
+                { fqBinds       = [ffgBind 0 "x" (FQBinPred FQEq (FQVar "v") (FQVar "y"))]
+                , fqConstraints = [ffgCon 0 [0] (FQVar "x") FQTrue] }
+      fqFreeSymbols arrayTheorySyms f `shouldBe` [(0, ["y"])]
+
+    it "FFG-9: a binder the constraint's own env omits is reported, though the file declares it" $ do
+      -- The call-pre half. Bind 1 exists and carries the name, but constraint 0
+      -- does not list it, and per-constraint scope is what the solver reads.
+      let f = emptyFQFile
+                { fqBinds       = [ffgBind 0 "a" FQTrue, ffgBind 1 "b" FQTrue]
+                , fqConstraints = [ffgCon 0 [0] (FQVar "b") FQTrue] }
+      fqFreeSymbols arrayTheorySyms f `shouldBe` [(0, ["b"])]
+
+    it "FFG-10: declared constants, datatype symbols, theory symbols and the reft's own variable are in scope" $ do
+      -- Each of these four exemptions was measured on the tracked corpus. Drop
+      -- the theory symbols and the check flags 112 constraints across 39 files;
+      -- drop the constants, 44 across 19; drop the datatype symbols, 85 across
+      -- 31; drop the reft's own variable, 315 across 105. Every one of those
+      -- functions verifies today, so a missing exemption demotes it.
+      let f = emptyFQFile
+                { fqConstants   = [FQConstant "bytesLen" [FQArr FQInt FQInt] FQInt]
+                , fqDataDecls   = [FQDataDecl "Ctl" 0 [("Ran", []), ("Pair", [FQInt])]]
+                , fqBinds       = [ffgBind 0 "b" FQTrue]
+                , fqConstraints =
+                    [ ffgCon 0 [0]
+                        (FQAnd [ FQApp "bytesLen"    [FQVar "b"]
+                               , FQApp "Map_select"  [FQVar "b", FQLit 0]
+                               , FQApp "Map_store"   [FQVar "b", FQLit 0, FQLit 1]
+                               , FQApp "Map_default" [FQVar "b"]
+                               , FQBinPred FQEq (FQVar "v") (FQApp "ctor_ran" [])
+                               , FQApp "ctor_pair_0" [FQVar "b"] ])
+                        (FQBinPred FQEq (FQVar "v") (FQVar "b")) ] }
+      fqFreeSymbols arrayTheorySyms f `shouldBe` []
 
       where
         isWildcardReturn (TFn _ r) = isBareWildcard r
