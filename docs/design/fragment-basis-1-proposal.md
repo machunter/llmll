@@ -1,7 +1,7 @@
 ---
 name: fragment-basis-1-proposal
 title: "FRAGMENT-BASIS-1: what the example corpus measures, and what Lever B's evidence now is"
-status: "Rev 1, review-ready, awaiting user adjudication. The roadmap row's re-measured labels (54 no-post, 2 contract-post-outside-fragment, 7 body-outside-fragment over 17 example files) are CONFIRMED by an independent census run at v0.23.0. Three findings go past the row. FIRST, the bucket is opened: all 11 fragment escapes in the tracked tree are named with the sub-term each one refused, and NOT ONE is a list-shaped or string-shaped contract. The only two contract-post escapes in the whole tree are erc20's `transfer` and `transfer-from`, and both refuse on `app:total-supply`, a call to a user-defined function inside a post. That is refinement reflection, which is Lever C's mechanism, not Lever B's. SECOND, a full contract-vocabulary census over 1094 post clauses and 885 pre clauses finds exactly 2 list symbols in contract position tree-wide, both `list-length`, which is already inside Σ_auto; a probe confirms that a `list-length` post on a `list[int]` parameter reaches body-faithful today. THIRD, an eliminative probe re-expresses the tictactoe board over `bytes[9]` and reaches body-faithful with no compiler change, so the two tictactoe escapes are a data-representation choice and not a fragment-width limit. The corpus decision is ALREADY MADE in the tree: three contracted game twins exist, one for each game, at 29% function coverage for Conway. The recommendation is to make no new corpus decision, to record Lever B as unevidenced, and to spend the fragment-width budget on the one gap the corpus does demand: `Σ_auto` refuses multiplication by an integer literal, which QF-LIA admits, and a row-major board index needs it. Two instrument findings are filed for routing: the census histogram covers 69 of 156 declared functions in its own population, and `contract-pre-outside-fragment` reads 0 tree-wide while two pre clauses use symbols outside Σ_auto."
+status: "Rev 2, SETTLED 2026-09-09 and CORRECTED 2026-09-16. Section 12 records the correction and sections 1 to 11 stand as the Rev 1 record. Rev 1 recommended spending the fragment-width budget on multiplication by an integer literal, because section 4.6 measured that as the one gap the corpus demands. MEASUREMENT REFUTES THAT RECOMMENDATION. Conway reports ZERO nonlinear refusals: its row-major index function is refused on `let`, because the example is list-based and the list class refuses before the arithmetic class is reached. Tree-wide, exactly two functions are refused on `nonlinear:*` and both are fixtures that exist to pin that refusal; the widening would gain zero functions and break one of those fixtures. Section 9.1 also cites the wrong spec section: the \"genuine QF-LIA\" sentence is in `LLMLL.md` section 5.3.3, which contradicts its own symbol set, not in section 5.3.5, which is accurate. The gap is four operator families rather than products: `mod` and `/` refuse literal-operand forms too, and `rem` is not a builtin at all. Roadmap row MUL-LIT-1 closes as REFUTED and section 5.3.3 owes the narrowing."
 date: 2026-09-09
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -716,3 +716,82 @@ population hole in section 4.7(a) and the container-form construct labels in
 section 8 item 13 are instrument defects. They should be filed against
 `scripts/fallback_census.py` and the emitter's construct reporting, not against
 this row.
+
+---
+
+## 12. Rev 2 correction (2026-09-16): the demand this proposal recorded does not exist
+
+**This section is appended, not merged.** Sections 1 to 11 stand as the Rev 1
+record of what was measured on 2026-09-09. Two of their claims have since been
+refuted by measurement, and a settled analysis is a record rather than a draft,
+so the refutation is recorded beside the claims rather than written over them.
+
+**Claim refuted (1): section 4.6's prediction.** Section 4.6 concluded that a
+literal-coefficient product is what stops Conway, and the roadmap row
+`MUL-LIT-1` was filed on that basis with a demand figure of 1. A census over
+[`../../examples/conways_life_json_verifier/life.ast.json`](../../examples/conways_life_json_verifier/life.ast.json)
+reports **zero** nonlinear refusals in the whole file:
+
+```
+body_faithful: ['neighbor-alive', 'count-neighbors', 'next-cell']
+cause histogram: {'body-outside-fragment': 2, 'no-post': 6}
+nonlinear constructs anywhere: {}
+```
+
+`cell-at`, the row-major index function and the row's own witness, is refused on
+**`let`**, not on `*`. Three probes separate the causes: a `let` with a sum index
+over `list-nth` and `unwrap-or` is refused on `let`; the same `let` with a
+product index over `bytes-get` is refused on `nonlinear:*`; the same `let` with a
+sum index over `bytes-get` reaches **body-faithful**. Conway is list-based, and
+the list class refuses before the arithmetic class is reached. The product is the
+second blocker, not the first.
+
+Of the six nonlinear sites in the file, only three are literal-coefficient, and
+those three sit in `seed-glider`, **which carries no contract** and is therefore
+never evaluated for fragment membership. The other three are `(* width height)`
+in `make-world`, `(* y width)` in `cell-at`, both variable-times-variable, and
+`(mod i width)` in `step-world`, which is not a product at all. Section 9.5's
+fixed-width escape does not rescue the file: at a literal width `(mod i 8)` still
+reports `nonlinear:mod`.
+
+**Claim refuted (2): the tree-wide demand.** Every tracked source containing a
+product was scanned and each candidate measured. Exactly two functions in the
+repository are refused on `nonlinear:*`, and **both are fixtures that exist to
+pin that refusal**: `g` in
+[`../../scripts/doc-claims/nonlinear-body-fallback.llmll`](../../scripts/doc-claims/nonlinear-body-fallback.llmll),
+whose `(* n n)` is variable-times-variable and therefore unaffected by the
+proposed widening, and `nonlinear_post` in
+[`../../scripts/tests/fixtures/fallback-census/census-constructs.llmll`](../../scripts/tests/fixtures/fallback-census/census-constructs.llmll),
+whose `(* n 2)` **is** literal-coefficient and would stop being refused. The
+widening's measured in-tree effect is therefore: zero functions gain
+verification, and one fixture whose purpose is to pin the refusal must be
+rewritten.
+
+[`../../examples/totp_rfc6238/totp_filled.ast.json`](../../examples/totp_rfc6238/totp_filled.ast.json)
+carries nine literal-coefficient products in `dynamic-truncate` and is the
+strongest candidate found. **The file does not typecheck**, which is pre-existing
+(confirmed identical on a pre-change binary) and already filed as roadmap row
+`TOTP-CHECK-1`. It cannot serve as a demand witness until that row closes.
+
+**Claim corrected (3): section 9.1 cites the wrong section.** Section 9.1 states
+that `LLMLL.md` section 5.3.5 calls the shipped symbol set "genuine QF-LIA". That
+sentence is in **section 5.3.3**, at the QF-LIA-core bullet, in the same section
+that fixes the symbol set two dozen lines above it. Section 5.3.5's own row for
+`*`, `/`, `mod` and `rem` is accurate and claims nothing about QF-LIA. So section
+5.3.3 contradicts itself, section 5.3.5 is not involved, and the roadmap row
+inherited the mis-citation when it wrote that "section 5.3.5 owes the narrowing
+instead".
+
+**Claim widened (4): the gap is four operator families, not products.** Section
+9.1 framed the divergence as the literal-coefficient product. Measured, the
+shipped core also refuses `(mod r 8)` and `(/ r 8)`, both of which QF-LIA admits
+at a literal operand, and it refuses `(* 1 r)` and `(* 0 r)`, whose linearity is
+unarguable. The refusal is syntactic on the operator. A separate measurement
+finds `rem` is not a builtin at all: `check` emits "call to unknown function
+'rem'" and passes, so section 5.3.5's row over-promises a routing for it.
+
+**What this changes.** `MUL-LIT-1` closes as refuted rather than shipping. The
+narrowing that section 9.1 assigned to section 5.3.5 is owed by section 5.3.3
+instead, and the Rev 2 text for it is in the language-team proposal of
+2026-09-16. Lever B's status is untouched: it was unevidenced at Rev 1 and this
+correction neither supports nor weakens it.
