@@ -1,0 +1,14 @@
+;; PAIR-PROJ-LET-1. The firewall cell.
+;;
+;; `Tree` is RECURSIVE, so `admissibleDatatype` refuses it and
+;; `sortableComponent` reports the second component as non-sortable. The param
+;; must therefore NOT join the binder set: its binder sort would disagree with
+;; the reflected term. `sigPairUnsafe` already routes the whole function to
+;; fallback through the unchanged `contractSigGuardsBlock`, and this cell fails
+;; if the widening ever reaches past `sortableComponent`.
+(export depth-of)
+(type Tree (| Leaf) (| Node Tree))
+(def-shell depth-of [s: (int, Tree)] -> int
+  (post (>= result 0))
+  (let [(n (first s))]
+    (if (>= n 0) n 0)))
