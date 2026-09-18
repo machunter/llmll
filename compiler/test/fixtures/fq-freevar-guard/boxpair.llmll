@@ -1,0 +1,18 @@
+;; PAIR-PROJ-LET-1. The sort cell, and it is NOT about free symbols.
+;;
+;; The second component is an ADMISSIBLE PAYLOAD SUM. `typeToSortA` lowers it to
+;; the native `(Pair2 int Box)`; the alias-unaware `typeToSort` collapses Box to
+;; int and gives `(Pair2 int int)`. The RESULT binder and `qualSortMap` have used
+;; the alias-aware function since PAIR-RET, so a param binder built with the
+;; other one would put two sorts on one type in one file. liquid-fixpoint answers
+;; that with `Elaborate fails on v == pair2_1 s`, a SORT error and not a
+;; free-symbol error.
+;;
+;; This cell fails if `emitParamBind` ever takes the alias-unaware sort for a
+;; pair. It does not test the guard.
+(export take-first)
+(type Box (| Full int) (| Empty))
+(def-shell take-first [s: (int, Box)] -> int
+  (post (>= result 0))
+  (let [(n (first s))]
+    (if (>= n 0) n 0)))

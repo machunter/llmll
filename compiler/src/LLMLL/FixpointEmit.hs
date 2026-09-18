@@ -970,6 +970,26 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       , n `Set.member` measureVars
                       , isMeasureSort aliases t
                       , not (isIntLike aliases t) ]
+      -- PAIR-PROJ-LET-1: a pair param joins the binder set at its applied
+      -- product sort. Before this, 'isScalarLike' (int-like OR bool-like)
+      -- admitted no pair, so a body that projected a pair param emitted
+      -- `(pair2_1 s)` with nothing declaring `s`: liquid-fixpoint answered
+      -- "Constraint with free vars [s]" and exited 1, and since
+      -- FQ-FREEVAR-GUARD-1 the owning function routes to fallback instead.
+      -- The sort was never the obstacle. 'typeToSortA' is total on TPair and
+      -- the RESULT binder has emitted the same applied sort since PAIR-RET.
+      --
+      -- 'sortableComponent' is the filter, and it is the same arbiter
+      -- 'sigPairUnsafe' already applies to the signature: a component that
+      -- cannot be sorted faithfully (a non-admissible or recursive payload
+      -- sum) would make the binder sort disagree with the reflected term,
+      -- which is the sort-error crash class rather than the free-symbol one.
+      -- Such a function still falls back whole, through the unchanged
+      -- 'contractSigGuardsBlock'.
+      pairParams = [ (n, t) | (n, t) <- params
+                   , TPair a b <- [resolveAliasTy aliases t]
+                   , sortableComponent aliases a
+                   , sortableComponent aliases b ]
   -- v0.8.0: Fix dead early-exit — check condition and exit early if nothing to verify.
   let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
       hasIntParams = not (null intParams)
@@ -979,8 +999,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     else do
 
     -- Emit binders for int params plus any measure-argument carrier params (NIW)
-    -- plus, under the LEVER-A1 gate, bytes[n] params at the array sort.
-    paramBinds <- mapM (emitParamBind aliases freshBid addBind) (intParams ++ measureParams ++ arrParams)
+    -- plus, under the LEVER-A1 gate, bytes[n] params at the array sort, plus
+    -- (PAIR-PROJ-LET-1) any sortable pair param at its applied product sort.
+    paramBinds <- mapM (emitParamBind aliases freshBid addBind)
+                       (intParams ++ measureParams ++ arrParams ++ pairParams)
     -- LEVER-A2: each gated map[int,int] param splits into its two component
     -- binders (m$has at int-0/1, m$val at the value array), both unconstrained
     -- (FQTrue) — a symbolic map is an arbitrary pair of arrays; the encoding's
@@ -1785,9 +1807,21 @@ emitParamBind aliases freshBid addBind (n, t) = do
   -- strengthen one.
   let tagDomain n = FQAnd [ FQBinPred FQGe (FQVar "v") (FQLit 0)
                           , FQBinPred FQLe (FQVar "v") (FQLit (fromIntegral n - 1)) ]
+      -- PAIR-PROJ-LET-1: a pair takes the ALIAS-AWARE sort, and every other
+      -- type keeps 'typeToSort'. 'typeToSort' collapses an admissible
+      -- payload-sum component to int, so an `(int, Box)` param would bind at
+      -- `(Pair2 int int)` while the RESULT binder ('sortA1') and 'qualSortMap'
+      -- (both alias-aware) carry `(Pair2 int Box)`. Two sorts for one type in
+      -- one file is the "Elaborate fails on v == pair2_1 s" crash, which is a
+      -- different class from the free-symbol one this row began in. Keeping
+      -- the other types on 'typeToSort' is what makes the emitted .fq
+      -- byte-identical for every function that has no pair param.
+      paramSort ty = case ty of
+        TPair _ _ -> typeToSortA aliases ty
+        _         -> typeToSort ty
       reft = case bytesLenOf aliases t of
         Just _   -> FQReft "v" byteArraySort FQTrue
-        Nothing  -> FQReft "v" (typeToSort (resolveAliasTy aliases t))
+        Nothing  -> FQReft "v" (paramSort (resolveAliasTy aliases t))
                       (maybe FQTrue tagDomain (nullaryEnumArity aliases t))
       b = FQBind bid n reft
   addBind b

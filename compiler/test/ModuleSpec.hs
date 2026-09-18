@@ -996,11 +996,15 @@ moduleSpec = describe "Module System" $ do
       erA <- emitFfg "argcall"
       fqFreeSymbols arrayTheorySyms (erFQFile erA) `shouldBe` []
 
-    it "FFG-2: the let-projection witness falls back, and names the cause" $ do
+    it "FFG-2: the let-projection witness is body-faithful (PAIR-PROJ-LET-1)" $ do
+      -- This cell asserted the OPPOSITE until PAIR-PROJ-LET-1 shipped. The
+      -- free symbol was never a defect in the constraint; the parameter simply
+      -- had no binder, because 'isScalarLike' admits no pair. The binder now
+      -- exists and the three body constraints discharge.
       er <- emitFfg "letproj"
-      erBodyFallback er `shouldContain` ["pick"]
-      ("pick" `elem` erBodyFaithfulFns er) `shouldBe` False
-      lookup "pick" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+      erBodyFaithfulFns er `shouldContain` ["pick"]
+      ("pick" `elem` erBodyFallback er) `shouldBe` False
+      lookup "pick" (erBodyFallbackCauses er) `shouldBe` Nothing
 
     it "FFG-3: the fallback cause renders on the census's closed vocabulary" $ do
       -- scripts/fallback_census.py pins this string in KNOWN_CAUSES. A rename
@@ -1014,18 +1018,24 @@ moduleSpec = describe "Module System" $ do
       er <- emitFfg "letproj_ctl"
       lookup "pick" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
 
-    it "FFG-5: the call-result witness routes, reports both symbols, and withdraws its call-pre" $ do
+    it "FFG-5: the call-result witness reaches a verdict and keeps its call-pre (CALL-PRE-ARGCALL-1)" $ do
+      -- This cell asserted a route to fallback until PAIR-PROJ-LET-1 shipped.
+      -- BOTH free symbols went with the one binder, which is the answer to the
+      -- question CALL-PRE-ARGCALL-1 asked: `s` was the symbol its own remedy
+      -- kept moving the crash to, and the param binder declares it.
+      --
+      -- `dispatch` now emits a call-pre constraint that liquid-fixpoint
+      -- REFUTES, and the refutation is correct. `ctl-of` is a contract-free
+      -- `def-shell`, so nothing links its opaque result to `(pair2_1 s)` and
+      -- the caller cannot prove `tag-code`'s precondition. Measured on the
+      -- artifact: supply that link by hand and all four constraints are SAFE.
       er <- emitFfg "argcall"
-      lookup "dispatch" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
-      -- The warning carries the symbol the solver would have named. `_bv_p_1`
-      -- is the call-pre half; it is the one a check reading only each
-      -- constraint's own lhs and rhs would find, and `s` is the one it misses.
+      erBodyFaithfulFns er `shouldContain` ["dispatch"]
+      lookup "dispatch" (erBodyFallbackCauses er) `shouldBe` Nothing
+      erCallPreFns er `shouldContain` ["dispatch"]
+      -- No free symbol survives, so the guard emits no warning here.
       let msgs = map diagMessage (erDiagnostics er)
-      msgs `shouldSatisfy` any (T.isInfixOf "W-FQ-FREEVAR")
-      msgs `shouldSatisfy` any (T.isInfixOf "_bv_p_1")
-      -- A routed function emitted no surviving constraint, so it must not be
-      -- listed as carrying a call-pre obligation. Verify prints that list.
-      ("dispatch" `elem` erCallPreFns er) `shouldBe` False
+      msgs `shouldSatisfy` all (not . T.isInfixOf "W-FQ-FREEVAR")
 
     it "FFG-6: the call-result control stays body-faithful and keeps its call-pre" $ do
       -- The cell that fails if the guard is too broad. It names a datatype
@@ -1081,6 +1091,85 @@ moduleSpec = describe "Module System" $ do
                                , FQApp "ctor_pair_0" [FQVar "b"] ])
                         (FQBinPred FQEq (FQVar "v") (FQVar "b")) ] }
       fqFreeSymbols arrayTheorySyms f `shouldBe` []
+
+    -- ---------------------------------------------------------------------
+    -- PAIR-PROJ-LET-1: the parameter binder that closes the two witnesses.
+    --
+    -- The measurement the row demanded, run before any code was written, is
+    -- what these cells pin. A hand-built .fq without a bind for `s` reproduced
+    -- `Constraint with free vars [s]` and exit 1; the same file with
+    -- `bind s : { v : (Pair2 int int) | true }` returned `Safe (3 constraints
+    -- checked)`; and the same file again with a wrong third arm returned
+    -- `Unsafe` on the arm's own constraint, so the discharge is discriminating
+    -- and not vacuous. A binder at `(Pair2 int Ctl)` instead crashed with
+    -- `Elaborate fails on v == pair2_1 s`, which is why the sort is not a free
+    -- choice.
+    -- ---------------------------------------------------------------------
+    it "PPB-1: the witness's constraints SURVIVE, and the file names only what it declares" $ do
+      -- FFG-1 passes on a file whose constraints were WITHDRAWN, so on its own
+      -- it cannot tell a repair from a retreat. This cell is the difference.
+      er <- emitFfg "letproj"
+      let f = erFQFile er
+      length (fqConstraints f) `shouldBe` 3
+      fqFreeSymbols arrayTheorySyms f `shouldBe` []
+
+    it "PPB-2: the pair param binds at its applied product sort" $ do
+      er <- emitFfg "letproj"
+      let sBind = find ((== "s") . bindName) (fqBinds (erFQFile er))
+      fmap (reftSort . bindReft) sBind
+        `shouldBe` Just (FQDataApp "Pair2" [FQInt, FQInt])
+
+    it "PPB-3: an admissible payload-sum component takes the ALIAS-AWARE sort" $ do
+      -- The regression pin for the second half of the patch. `typeToSort`
+      -- collapses Box to int and would give `(Pair2 int int)` here, while the
+      -- RESULT binder and `qualSortMap` carry `(Pair2 int Box)`. Two sorts for
+      -- one type in one file is a sort-error crash, not a free-symbol one.
+      er <- emitFfg "boxpair"
+      let sBind = find ((== "s") . bindName) (fqBinds (erFQFile er))
+      fmap (reftSort . bindReft) sBind
+        `shouldBe` Just (FQDataApp "Pair2" [FQInt, FQData "Box"])
+
+    it "PPB-4: a NON-sortable pair component still falls back, and binds nothing" $ do
+      -- `Tree` is recursive, so `admissibleDatatype` refuses it and
+      -- `sortableComponent` reports the component as non-sortable. The
+      -- widening must not reach past that filter: `sigPairUnsafe` routes the
+      -- whole function through the unchanged `contractSigGuardsBlock`.
+      er <- emitFfg "unsortpair"
+      erBodyFallback er `shouldContain` ["depth-of"]
+      ("depth-of" `elem` erBodyFaithfulFns er) `shouldBe` False
+      find ((== "s") . bindName) (fqBinds (erFQFile er)) `shouldBe` Nothing
+
+    it "PPB-5: the pair binder carries NO tag domain" $ do
+      -- `nullaryEnumArity` returns Nothing for a pair, so the reft is FQTrue.
+      -- A `0 <= v <= n-1` domain on a `(Pair2 ...)`-sorted binder would be
+      -- ill-sorted, and this cell fails if that function ever descends a pair.
+      er <- emitFfg "letproj"
+      let sBind = find ((== "s") . bindName) (fqBinds (erFQFile er))
+      fmap (reftPred . bindReft) sBind `shouldBe` Just FQTrue
+
+    it "PPB-6: a non-pair param is untouched, sort and domain both" $ do
+      -- The same file carries `tag-code [p: Ctl]`. A nullary enum keeps FQInt
+      -- and keeps its int-tag domain, which is what makes the emitted .fq
+      -- byte-identical for every function that has no pair param.
+      er <- emitFfg "argcall"
+      let pBind = find ((== "p") . bindName) (fqBinds (erFQFile er))
+      fmap (reftSort . bindReft) pBind `shouldBe` Just FQInt
+      fmap (reftPred . bindReft) pBind
+        `shouldBe` Just (FQAnd [ FQBinPred FQGe (FQVar "v") (FQLit 0)
+                               , FQBinPred FQLe (FQVar "v") (FQLit 2) ])
+
+    it "PPB-7: every constraint of the witness carries the pair binder in its own env" $ do
+      -- Per-constraint scope is what the solver reads, and it is what
+      -- FQ-FREEVAR-GUARD-1 checks. A binder that exists in the file but sits
+      -- outside a constraint's env is the CALL-PRE-ARGCALL-1 shape, so this
+      -- cell states the requirement over the env rather than over the file.
+      er <- emitFfg "letproj"
+      let f  = erFQFile er
+          sid = fmap bindId (find ((== "s") . bindName) (fqBinds f))
+      case sid of
+        Nothing   -> expectationFailure "letproj emitted no bind named 's'"
+        Just sid' ->
+          map (elem sid' . conEnv) (fqConstraints f) `shouldBe` [True, True, True]
 
       where
         isWildcardReturn (TFn _ r) = isBareWildcard r
