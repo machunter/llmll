@@ -4,6 +4,59 @@
 
 <a id="Latest"></a>
 
+## v0.23.11: a pair parameter had no binder, and the sort was never the obstacle (2026-09-18)
+
+One row required a measurement before any code was written. The measurement answered it, and
+the answer closed a second row that had recorded its own fix as refuted. The two remedies are
+not the same remedy; they compose, which is why neither row could close alone.
+
+- **`PAIR-PROJ-LET-1`: a pair parameter now carries a binder at its applied product sort.**
+  `isScalarLike` admits int-like or bool-like types only, so a pair parameter never reached
+  `emitParamBind` and no `bind` for it was ever written. A body that projected the parameter
+  emitted `(pair2_1 s)` with nothing declaring `s`, and liquid-fixpoint answered `Constraint
+  with free vars [s]` and exited 1; since `FQ-FREEVAR-GUARD-1` (v0.23.10) the owning function
+  routed to fallback at tier `asserted` instead. **The sort was never the obstacle.**
+  `typeToSortA` is total on `TPair`, and the result binder has emitted the same applied sort
+  since PAIR-RET. `sortableComponent` is the filter, and it is the arbiter `sigPairUnsafe`
+  already applies to the signature, so a non-sortable component still falls back whole through
+  the unchanged `contractSigGuardsBlock`. **The sort is alias-aware for a pair and `typeToSort`
+  for everything else**: `typeToSort` collapses an admissible payload-sum component to `int`, so
+  an `(int, Box)` parameter would bind at `(Pair2 int int)` while the result binder and
+  `qualSortMap` carry `(Pair2 int Box)`, and two sorts for one type in one file is a sort-error
+  crash rather than a free-symbol one. **The class is wider than the witness's shape.** The
+  reproduction fixture has no `match` at all, only a `let`-bound `(first s)`, and the
+  pre-change compiler falls back on it with the same cause; any `let`-bound projection of a
+  pair parameter was affected.
+- **`CALL-PRE-ARGCALL-1` closes with it, and its recorded refutation stands.** That row states
+  that adding the omitted bind id to the call-pre environment moves the free symbol from
+  `_bv_p_1` to `s` rather than removing it. That is true of the remedy in isolation and false of
+  the pair binder beside it. `dispatch` in the second witness now reaches a verdict, and its
+  call-pre is refuted correctly, because `ctl-of` is a contract-free `def-shell` and nothing
+  links its opaque result to `(pair2_1 s)`; supplying that link by hand on the artifact makes
+  all four constraints SAFE.
+- **Measured before the patch, on a reconstruction driven straight at liquid-fixpoint.** Without
+  a bind for `s`: `Constraint with free vars [s]` on all three constraints, exit 1. With
+  `bind s : { v : (Pair2 int int) | true }` in each environment: `Safe ( 3 constraints
+  checked)`. The same file with a wrong third arm: `Unsafe` on that arm's own constraint, so the
+  discharge is discriminating rather than vacuous. A binder at `(Pair2 int Ctl)` instead:
+  `Elaborate fails on v == pair2_1 s`, which is why the sort is not a free choice.
+- **Gate: two halves, because the census cannot see the first one.** The fallback census
+  compares verdicts and tiers, and reports **zero per-file record differences across 253 corpus
+  files**, with the ratchet passing. A `.fq` byte-diff over 372 files against a rebuilt
+  pre-change compiler reports **367 byte-identical**; four of the five that differ are this
+  row's own fixtures. The one corpus file is `tools/llmll-driver/sequencer.llmll`, which gains
+  three pair binders, one of them the nested `(Pair2 int (Pair2 int (Pair2 int int)))`. Its
+  constraint count, every `env` line and its census record are unchanged.
+- **`FQ-FREEVAR-GUARD-1` loses its end-to-end firing fixture**, recorded rather than repaired.
+  This change fixes both programs that fired the guard. The check keeps four unit cells over
+  `fqFreeSymbols` and `FFG-3` keeps pinning the cause vocabulary at ten, but no live program
+  now exercises the emitter-to-routing-to-diagnostic path. No synthetic program was written to
+  restore the coverage: a fixture built only to trip a guard tests the fixture.
+
+**Tests:** 2009 Haskell, 322 Python (295 passed, 27 skipped; the skip set is environment-gated).
+
+---
+
 ## v0.23.10: the measurement a row required refuted the row (2026-09-17)
 
 Both items here are roadmap rows that demanded a measurement before any code was written.
