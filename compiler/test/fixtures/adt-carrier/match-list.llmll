@@ -1,0 +1,11 @@
+;; ADT-CYCLE-TLIST. The first of the two mechanisms that sever the recursion.
+;;
+;; `admissiblePayload` admits `int`, `bool` and `string` only, so a `match` that
+;; binds the `Node` payload cannot reach a body-faithful VC. This cell fails if
+;; that refusal is ever widened to admit a list payload, which would put the
+;; recursion inside the fragment and invite the induction §5.3.3 firewalls.
+(export depth)
+(type Tree (| Leaf) (| Node list[Tree]))
+(def-shell depth [t: Tree] -> int
+  (post (>= result 0))
+  (match t ((Leaf) 0) ((Node kids) 1)))

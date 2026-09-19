@@ -1,0 +1,14 @@
+;; ADT-CARRIER-COLLAPSE-1. The same trap through a `Result` carrier.
+;;
+;; `Result` is transparent for the same reason a pair is (COMP-4-RESULT), so the
+;; inner `Tree` collapses to `int` in the field sort. Two carriers, one shape.
+;;
+;; This body constructs the NULLARY arm only, so the function is body-faithful.
+;; That is the sharper half of the pin: the collapsed field sort ships inside a
+;; file that VERIFIES. The collapse is latent, not absent.
+(export mk)
+(type Tree (| Leaf) (| Node Result[Tree, string]))
+(def-shell mk [n: int] -> Tree
+  (pre (>= n 0))
+  (post (= result Leaf))
+  Leaf)

@@ -1,0 +1,18 @@
+;; ADT-CYCLE-TLIST, and the cell that corrected its own first draft.
+;;
+;; Constructing the recursive arm with a real payload does NOT reach a
+;; body-faithful VC. MEASURED, and the cause is not what a reader expects: it is
+;; `constraint-symbols-unbound`, the `FQ-FREEVAR-GUARD-1` guard, and NOT the
+;; §5.3.3 firewall. Emission produces a constraint naming a symbol its own
+;; environment does not declare, and the guard withdraws the body VC whole.
+;;
+;; That distinction is the point of this cell. The construction path is closed by
+;; a guard that catches a malformed constraint, not by a designed firewall. It is
+;; the same accident that masked `carry-list.llmll` before v0.23.11, and
+;; `PAIR-PROJ-LET-1` is the precedent for such an accident being removed. If a
+;; later change repairs this free symbol, this path opens.
+(export mk)
+(type Tree (| Leaf) (| Node list[Tree]))
+(def-shell mk [xs: list[Tree]] -> Tree
+  (post (= result (Node xs)))
+  (Node xs))

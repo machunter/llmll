@@ -1171,6 +1171,98 @@ moduleSpec = describe "Module System" $ do
         Just sid' ->
           map (elem sid' . conEnv) (fqConstraints f) `shouldBe` [True, True, True]
 
+    -- ---------------------------------------------------------------------
+    -- ADT-CYCLE-TLIST / ADT-CARRIER-COLLAPSE-1: a datatype recursive only
+    -- through a carrier.
+    --
+    -- `LLMLL.md` §5.3.3 says such a type is NOT caught by `admissibleDatatype`,
+    -- does not need to be, and may be CARRIED opaquely through a verified
+    -- function. That sentence grants a capability, and these cells are what
+    -- guard it. Each assertion below was measured on the compiler before it was
+    -- written, and two of them contradicted the first draft of their own
+    -- fixture.
+    --
+    -- Files: test/fixtures/adt-carrier/*.llmll.
+    -- ---------------------------------------------------------------------
+    describe "ADT-CARRIER: a datatype recursive only through a carrier" $ do
+      let acrRoot = "test/fixtures/adt-carrier"
+          emitAcr entry = do
+            result <- loadModule GrammarCoreInversion False acrRoot [] Map.empty [] [entry]
+            case result of
+              Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+              Right (cache, _ord, env) -> do
+                let stmts = meStatements env
+                    (_rpt, retTypes) =
+                      typeCheckWithCacheRet GrammarCoreInversion cache builtinEnv stmts
+                emitFixpointWithCache (EmitOptions True Nothing)
+                  (acrRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache retTypes stmts
+          -- The `Node` field sorts of the emitted `Tree` declaration.
+          -- `ddCtors` keys on the SOURCE constructor name; the `ctor_` prefix
+          -- and the lowercasing are applied by `emitFQFile` at render time, so
+          -- the `.fq` text says `ctor_node` and the IR says `Node`. FFG-10
+          -- already demonstrates this with `[("Ran", []), ("Pair", [FQInt])]`.
+          nodeFields er =
+            find ((== "Tree") . ddName) (fqDataDecls (erFQFile er))
+              >>= lookup "Node" . ddCtors
+
+      it "ACR-1: a list-recursive type is CARRIED through a body-faithful function" $ do
+        -- The cell that pins the §5.3.3 sentence. Without it the spec grants a
+        -- capability that nothing guards.
+        er <- emitAcr "carry-list"
+        erBodyFaithfulFns er `shouldContain` ["take-first"]
+        lookup "take-first" (erBodyFallbackCauses er) `shouldBe` Nothing
+        let sBind = find ((== "s") . bindName) (fqBinds (erFQFile er))
+        fmap (reftSort . bindReft) sBind
+          `shouldBe` Just (FQDataApp "Pair2" [FQInt, FQData "Tree"])
+
+      it "ACR-2: the list payload lowers to the OPAQUE carrier, which is what severs the cycle" $ do
+        -- `Lst` is uninterpreted, so the emitted declaration is acyclic and no
+        -- defining equation exists for the solver to unfold. This is the
+        -- mechanism §5.3.3 now names, stated over the artifact.
+        er <- emitAcr "carry-list"
+        nodeFields er `shouldBe` Just [FQList]
+
+      it "ACR-3: matching the recursive arm falls back, and the FIREWALL is the cause" $ do
+        -- `admissiblePayload` admits int, bool and string only. This cell fails
+        -- if that refusal ever widens to a list payload, which would put the
+        -- recursion inside the fragment.
+        er <- emitAcr "match-list"
+        lookup "depth" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+        lookup "depth" (erFallbackConstructs er) `shouldBe` Just ["match-payload-sort"]
+
+      it "ACR-4: constructing the recursive arm falls back on the GUARD, not the firewall" $ do
+        -- MEASURED, and it contradicted this fixture's first draft. The cause is
+        -- `constraint-symbols-unbound`: emission names a symbol the constraint's
+        -- own environment does not declare, and FQ-FREEVAR-GUARD-1 withdraws the
+        -- body VC. The construction path is closed by a guard catching a
+        -- malformed constraint, not by a designed firewall. That is the same
+        -- accident that masked `carry-list` before v0.23.11.
+        er <- emitAcr "build-list"
+        lookup "mk" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+
+      it "ACR-5: a PAIR carrier collapses the recursive component to int" $ do
+        -- ADT-CARRIER-COLLAPSE-1. The field sort says `(Pair2 int int)` while a
+        -- reflected constructor term over that payload would carry `Tree`.
+        er <- emitAcr "collapse-pair"
+        nodeFields er `shouldBe` Just [FQDataApp "Pair2" [FQInt, FQInt]]
+
+      it "ACR-6: a Result carrier collapses it too, inside a file that VERIFIES" $ do
+        -- The sharper half. This body constructs the nullary arm only, so the
+        -- function is body-faithful and the collapsed field sort ships in a file
+        -- that verifies. The collapse is latent, not absent.
+        er <- emitAcr "collapse-result"
+        nodeFields er `shouldBe` Just [FQInt]
+        erBodyFaithfulFns er `shouldContain` ["mk"]
+
+      it "ACR-7: the collapse stays unreachable, and only by accident" $ do
+        -- Nothing reads the collapsed sort because this function falls back, and
+        -- it falls back on the guard rather than on a firewall. If a later change
+        -- repairs that free symbol, as PAIR-PROJ-LET-1 did for the pair-param
+        -- case, this path opens and the sort disagreement becomes reachable.
+        er <- emitAcr "collapse-pair"
+        ("mk" `elem` erBodyFaithfulFns er) `shouldBe` False
+        lookup "mk" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+
       where
         isWildcardReturn (TFn _ r) = isBareWildcard r
         isWildcardReturn _         = False

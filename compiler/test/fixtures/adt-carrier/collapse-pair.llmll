@@ -1,0 +1,19 @@
+;; ADT-CARRIER-COLLAPSE-1. The latent trap, through a PAIR carrier.
+;;
+;; An OPAQUE carrier severs a cycle faithfully: `list[Tree]` emits `Lst`. A
+;; TRANSPARENT carrier does not sever it, it COLLAPSES it. The field sort here is
+;; `(Pair2 int int)`: the inner `Tree` becomes `int`, because the field sort is
+;; computed alias-unaware, while a reflected constructor term over that payload
+;; would carry `Tree`. Two sorts for one type is the `Elaborate fails` class.
+;;
+;; NOT a live defect, and the reason matters. Nothing reads the collapsed sort
+;; because this function falls back, and it falls back on
+;; `constraint-symbols-unbound` — the `FQ-FREEVAR-GUARD-1` guard, not a firewall.
+;; The collapse is therefore unreachable BY ACCIDENT rather than by design, which
+;; is exactly what this row was filed to record.
+(export mk)
+(type Tree (| Leaf) (| Node (int, Tree)))
+(def-shell mk [n: int] -> Tree
+  (pre (>= n 0))
+  (post (= result (Node (pair n Leaf))))
+  (Node (pair n Leaf)))

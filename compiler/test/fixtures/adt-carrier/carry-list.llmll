@@ -1,0 +1,21 @@
+;; ADT-CYCLE-TLIST. The cell that pins the LLMLL.md §5.3.3 sentence.
+;;
+;; `Tree` is recursive THROUGH A LIST. `admissibleDatatype`'s `sumOf` descends
+;; `TSumType` and `TCustom` only, so it never sees the cycle and calls `Tree`
+;; admissible. §5.3.3 says that is correct and does not need repair: the `list`
+;; carrier lowers to the uninterpreted `Lst` sort, so the emitted declaration is
+;; acyclic and no defining equation exists for the solver to unfold.
+;;
+;; The spec sentence grants a capability, and this cell is what guards it: such a
+;; type may be CARRIED opaquely through a verified function. The body projects
+;; the `int` component only, so the VC is QF-LIA over `pair2_0 s`.
+;;
+;; Before v0.23.11 this fell back, and NOT because of the firewall. The pair
+;; parameter had no binder at all, so `FQ-FREEVAR-GUARD-1` routed it. That was
+;; the free-symbol accident; `PAIR-PROJ-LET-1` removed it.
+(export take-first)
+(type Tree (| Leaf) (| Node list[Tree]))
+(def-shell take-first [s: (int, Tree)] -> int
+  (post (>= result 0))
+  (let [(n (first s))]
+    (if (>= n 0) n 0)))
