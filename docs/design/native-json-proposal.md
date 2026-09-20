@@ -467,6 +467,58 @@ Each is real at HEAD, independent of whether JSON-1 ships, and wants its own dis
   undeclared, and a program writing `(type Json …)` would shadow the builtin silently, which is the
   failure `sealedTypeNames` exists to prevent (`:268-274`).
 
+### 9.1 Closure note, 2026-09-19: R-A and R-D are both closed
+
+Appended, not merged. R-A and R-D keep their original text above, because a finding's wording is
+the record of what was seen at the time and two of the claims below are corrections to it.
+
+**R-D closed at `4b45259`.** The claim was corrected where it lived rather than only recorded as
+wrong. It had FOUR live copies, not the two R-D names: `docs/compiler-team-roadmap.md` JSON-1 row,
+`driver-in-llmll-campaign.md` twice (once as prose, once in its own JSON-1 row). The fourth is R-D
+itself, and it is deliberately unchanged, as is F8 in
+`docs/archive/professor-reviews/native-json-review.md`; both quote the claim in order to refute it, and
+deleting a finding's quotation of what it refutes destroys the record. The corrected text cites R-D
+and F8 rather than presenting the conclusion as new. R-D's measurement was reproduced before the
+edit: a `list[a]` parameter binds at the opaque `Lst` carrier and `listLen` reflects into the goal,
+so the post is PROVED; a `Json` parameter receives no binder at all, which is the asymmetry the
+original sentence collapsed.
+
+**R-A closed at `4b45259` as roadmap row `ADT-CYCLE-TLIST`, and THE SPEC SENTENCE MOVED RATHER THAN
+THE GATE.** `LLMLL.md` §5.3.3 now distinguishes a directly recursive datatype, which
+`admissibleDatatype` still firewalls, from one recursive only through a carrier, which it does not
+catch and does not need to. Widening the gate would have removed body-faithful verdicts at five
+sites plus the `TypeCheck.isAdmissibleConstructor` copy and bought no soundness.
+
+**R-A's diagnosis was right and its last clause stopped being true.** "The outcome is produced by
+the match-arm boundary instead" is correct, and is now pinned by cell `ACR-3`: a `match` binding the
+recursive payload falls back with cause `body-outside-fragment` and construct `match-payload-sort`,
+from `admissiblePayload`. But "one shape was tested and it landed at `body-fallback`" stopped
+holding at v0.23.11. `PAIR-PROJ-LET-1` gave pair parameters a binder, and the same shape now reports
+`body-faithful`. The pre-v0.23.11 fallback came from `FQ-FREEVAR-GUARD-1`, because the pair
+parameter had no binder at all; that was the free-symbol accident and never the firewall.
+
+**One thing neither finding anticipated, measured while writing the fixtures.** CONSTRUCTING the
+recursive arm also falls back, but on `constraint-symbols-unbound` and not on the firewall. That
+path is closed by a guard catching a malformed constraint, which is the same accident that masked
+the carry shape, so it is unreachable by accident rather than by design. Cells `ACR-4` and `ACR-7`
+carry this in their names.
+
+**Filed in consequence:** `ADT-CARRIER-COLLAPSE-1`, latent, population zero. A TRANSPARENT carrier
+does not sever a recursive cycle, it COLLAPSES it: `(| Node (int, Tree))` emits
+`ctor_node_0 : (Pair2 int int)` and `(| Node Result[Tree, string])` emits `ctor_node_0 : int`, both
+collapsing the inner type while a reflected constructor term would carry it. Cell `ACR-6` is the
+sharper half: that file is body-faithful, so the collapsed field sort ships inside a file that
+verifies.
+
+**Guarded at `5c044af`**, since the narrowed §5.3.3 sentence grants a capability: five fixtures in
+`compiler/test/fixtures/adt-carrier/` and seven `ACR-*` cells, 2009 to 2016 hspec examples.
+
+**Three citations in the findings above have drifted, and are left as written.** R-A's `LLMLL.md:452`
+now points at the optional-return-type paragraph; the firewall sentence sits near `LLMLL.md:987`.
+R-A's `FixpointEmit.hs:2560-2566` no longer covers `sumOf`, which is inside `admissibleDatatype`.
+R-D's `docs/compiler-team-roadmap.md:58` is short of the JSON-1 row by roughly 586 lines. Cite the
+construct rather than the line; these three are why.
+
 ---
 
 ## 10. Relationship to `docs/archive/professor-reviews/native-json-review.md`
