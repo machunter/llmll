@@ -4,6 +4,78 @@
 
 <a id="Latest"></a>
 
+## v0.23.14: `llmll run` gave every program an empty stdin and then hid what happened (2026-09-21)
+
+Every committed `def-main` program is `:mode console`, and a console program is a stdin-driven step
+machine. `llmll run` handed each one `""` as its stdin, so the whole population failed the same way
+and had done since the command existed. Three defects composed to hide each other, and a fourth of
+the same shape turned up while the first three were being measured.
+
+- **`llmll run` now forwards the parent's stdin.** `doRun` ran the child through
+  `readProcessWithExitCode stackBin [...] ""`, and that trailing `""` was the child's **stdin**. A
+  console program therefore took immediate EOF, executed **zero steps** and exited **70**, the
+  harness's documented EOF convention when `:done?` is declared. The call is now `createProcess`
+  with `std_in`, `std_out` and `std_err` all `Inherit`, then `waitForProcess`. **That also removes
+  the output buffering**, since `readProcessWithExitCode` reads the child to EOF before returning,
+  so a long-running program's progress was withheld until it exited. **The buffering repair ships
+  ungated** and this line is the record of it: asserting incremental arrival needs a timing
+  observation and would be flaky.
+- **The program's own exit status now reaches the caller.** The clause was
+  `ExitFailure _ -> ... exitFailure`; the `_` discarded the child's code and `exitFailure` is always
+  1, so the 70 that named the cause arrived as a bare 1. `exitWith` now carries it, with two
+  branches that are not decoration: `ExitSuccess` routes to `exitSuccess` because
+  `ExitFailure 0` is an error in GHC, which `CodegenHs.hs` already records for the generated
+  harness, and a negative code, which is how `waitForProcess` reports signal death, maps to the
+  `128 + n` shell convention.
+- **A flag-shaped trailing argument now reaches the program.** The pass-through was
+  `many (strArgument ...)` with no `noIntersperse`, so `llmll run p.llmll --root x` was rejected by
+  the compiler's own parser with ``Invalid option `--root'`` **and the top-level usage**, while the
+  help advertised a pass-through and `--` was the undocumented escape. `noIntersperse` and **not**
+  `forwardOptions`: the latter would also forward a `--help` typed before the file, so
+  `llmll run --help` would stop printing that command's help. Measured on a standalone probe against
+  optparse-applicative 0.18.1.0. The `...` help text now names the one case where `--` is still
+  needed, and `README.md`'s command table says the same.
+- **Build diagnostics leave on stderr**, the fourth defect and the one found while measuring the
+  others. The failed-build path wrote them with `TIO.putStr`, so `llmll run p.llmll > out.txt`
+  captured a linker failure into the file meant to hold the program's output. Observed on a macOS
+  SDK link break, where `stdout` carried the whole `tapi` error and `stderr` was empty.
+- **A passing run proved nothing here, so each cell was run against the pre-fix binary first.** All
+  six cells of `scripts/tests/test_run_stdin_1.py` were observed to **FAIL** against the preserved
+  pre-fix binary and to pass against the patched one; the cells name their pre-fix values. The A/B
+  that fixes the whole shape in one measurement, on one program and one generated package: through
+  `llmll run`, stdout `ready` and exit **1**; through `stack exec` on that same package, stdout
+  `readyhello` and exit **3**. So `stack exec` was never the loss point. Corroborated on a committed
+  program nobody wrote for this purpose, `examples/proof_required_test`: stdout empty before, and
+  `proof-required test` after. The cells are gated on `LLMLL_BIN` and run in `spec-roundtrip`
+  beside `test_http_get_1.py`, because they drive a real Stack build and the fast job has no
+  toolchain.
+- **`ADT-CARRIER-COLLAPSE-1` closes on three cells, not on the pin its row asked for.** The row said
+  to file a regression pin; seven cells of that pin (`ACR-1` to `ACR-7`) had already shipped at
+  `5c044af` with the `ADT-CYCLE-TLIST` close, which the row's Next Action was written before and
+  never caught up to. What those seven left was a three-combination residue, and `ACR-8` to `ACR-10`
+  close it: matching a recursive arm through a **pair** carrier and through a **Result** carrier both
+  fall back on the `admissiblePayload` **firewall** (`match-payload-sort`), and constructing through
+  a Result carrier falls back on the `FQ-FREEVAR-GUARD-1` **guard**
+  (`constraint-symbols-unbound`). **The two causes differ and that is the finding**: the free symbol
+  the guard names is `Leaf`, the **nullary** constructor, not the recursive payload, so the guard
+  closing the construction path has nothing to do with the collapse. A later repair of that symbol,
+  which is `PAIR-PROJ-LET-1`'s shape, opens the path and makes the sort disagreement reachable. Each
+  cell asserts the collapsed field sort **and** the fallback, because the row's claim is that the
+  collapse is present and unread.
+- **`ADT-CYCLE-TLIST` leaves Active Items at last.** Its own Next Action cell said to move it at the
+  next release ceremony dated v0.23.12; two ceremonies passed without it, and it sat there at status
+  `CLOSED 2026-09-18` carrying a live `DOC:` marker. That is the exact condition `MARKER-STALE-1`
+  proposes to automate, found by hand here. The fixture that cell said was owed had in fact shipped
+  with it at `5c044af`, as `ACR-1`.
+- **No schema change and no `LLMLL.md` reference change.** The JSON-AST schema is untouched, and
+  `LLMLL.md` names no CLI surface for `run`; the command table in `README.md` is where that surface
+  lives. `docs/getting-started.md` is not touched this release.
+
+**Tests:** 2030 Haskell, 331 Python (298 passed, 33 skipped; the skip set is environment-gated and
+grew by the six new `LLMLL_BIN`-gated cells).
+
+---
+
 ## v0.23.13: every refutation diagnostic now carries the kind the comment promised (2026-09-21)
 
 A comment in `DiagnosticFQ.hs` had described a behaviour the module did not have, and the two
