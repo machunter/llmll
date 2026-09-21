@@ -224,10 +224,20 @@ stripAnsi = go
 -- ---------------------------------------------------------------------------
 
 -- | Convert a FQVerifyResult + ConstraintTable → DiagnosticReport.
+--
 -- Each failed constraint becomes one Diagnostic with machine-readable fields:
 --   diagKind     = Just "lh-unsafe"
 --   diagMessage  = human description of which clause failed
 --   diagPointer  = Just "/statements/N/pre"  (JSON Pointer for AI iteration)
+--
+-- BOTH UNSAFE paths carry that kind: 'toDiag', which builds one Diagnostic per
+-- failed constraint id (including an id absent from the table, which yields an
+-- unknown-origin diagnostic), and 'fallbackUnsafeDiag', the VERIFY-RPT-1
+-- synthetic for an UNSAFE verdict that resolves no id at all. 'toDiag' set only
+-- 'diagPointer' until 2026-09-21, so the two paths disagreed: a RESOLVED
+-- refutation reached @--json@ with the @kind@ key absent while the fallback
+-- carried it, and this comment described neither path. An agent selecting
+-- refutations out of a @--json@ payload now has one key to test.
 fqResultToReport :: FilePath -> ConstraintTable -> FQVerifyResult -> DiagnosticReport
 fqResultToReport _fp _table FQSafe =
   DiagnosticReport
@@ -259,11 +269,16 @@ fqResultToReport _fp _table (FQError txt) =
     , reportSuccess     = False
     }
 
+-- | One Diagnostic per failed constraint id. Both branches carry
+-- @diagKind = Just "lh-unsafe"@, the same kind 'fallbackUnsafeDiag' uses, so
+-- every diagnostic on the UNSAFE path answers to one machine-readable key.
 toDiag :: FilePath -> ConstraintTable -> FQConstraintId -> Maybe Diagnostic
 toDiag fp table cid =
   case Map.lookup cid table of
-    Nothing -> Just $ mkError Nothing $
-               "constraint #" <> T.pack (show cid) <> " failed (unknown origin)"
+    Nothing ->
+      let d = mkError Nothing $
+                "constraint #" <> T.pack (show cid) <> " failed (unknown origin)"
+      in Just d { diagKind = Just "lh-unsafe" }
     Just orig ->
       let msg = case coClause orig of
                   "body-post"      -> "body verification of '" <> coFunction orig
@@ -286,7 +301,7 @@ toDiag fp table cid =
                                       <> "' not verified"
                 <> " (constraint #" <> T.pack (show cid) <> ")"
           d   = mkError Nothing msg
-      in Just d { diagPointer = Just (coJsonPtr orig) }
+      in Just d { diagPointer = Just (coJsonPtr orig), diagKind = Just "lh-unsafe" }
 
 -- | VERIFY-RPT-1 (Defect 1b): fallback diagnostic for an UNSAFE verdict that
 -- carries no resolvable constraint id. Points at the first known origin's

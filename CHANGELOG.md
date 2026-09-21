@@ -4,6 +4,50 @@
 
 <a id="Latest"></a>
 
+## v0.23.13: every refutation diagnostic now carries the kind the comment promised (2026-09-21)
+
+A comment in `DiagnosticFQ.hs` had described a behaviour the module did not have, and the two
+UNSAFE paths disagreed about it. Closing that also closed the sweep three previous releases had
+each deferred as its own pass.
+
+- **`toDiag` now sets `diagKind = Just "lh-unsafe"`, so both UNSAFE paths agree.** The haddock
+  above `fqResultToReport` said each failed constraint becomes a Diagnostic carrying that kind.
+  `toDiag` set only `diagPointer`. Only `fallbackUnsafeDiag`, the `VERIFY-RPT-1` synthetic for an
+  UNSAFE verdict that resolves no constraint id at all, set it. A refutation that DID resolve to a
+  `/statements/N/body` pointer therefore reached `--json` with the `kind` key **absent**, while one
+  that resolved nothing carried it, and the comment described neither path. **The code moved rather
+  than the comment**, because nothing pinned the absent key: `compiler/test/` holds 78 `diagKind`
+  assertions and not one names `lh-unsafe`, and `scripts/tests/` reads an `lh-fixpoint` payload in
+  one place and reads only `message` from it. Both `toDiag` branches set the kind, the
+  unknown-origin one included, since an id absent from the constraint table is still a failed
+  constraint. **Additive on the wire**: `kind` was already an optional field `formatReportJson`
+  emits for other kinds, so no consumer contract widened and the JSON-AST schema is untouched.
+- **Shown discriminating twice, because a passing suite would not have shown it fires.** Reverting
+  only the two `toDiag` hunks and keeping the new cell fails it with `expected: [Just "lh-unsafe"]
+  but got: [Nothing]`. End to end, against a `withdraw` whose body is `(+ balance amount)` under
+  `(post (= result (- balance amount)))`, which refutes with a resolvable id, the pre-fix and
+  post-fix binaries differ by **a single insertion of `"kind":"lh-unsafe"`** and match on every
+  other byte, verdict and exit code included.
+- **Fourteen past-tense rows left Active Items**, the sweep deferred since v0.23.5. Twelve to
+  `Closed [CT] rows` and two to `Resolved cross-cutting items`, each of the latter dated as its own
+  cell required rather than as the release recording the move. `DRIVER-LL` stays by decision and is
+  the one past-tense row left. Active Items falls **69 to 55**; the `OPEN` figure stays **53**,
+  measured, because every row that left was past-tense and none of them began `OPEN`.
+- **A blank line had been ending the Closed table early since 2026-09-09.** It sat between the
+  `HTTP-GET-1` and `FRAGMENT-BASIS-1` rows inside the `<details>` block, and GFM ends a table at a
+  blank line, so `FRAGMENT-BASIS-1` rendered as a paragraph rather than a row. Same silent-render
+  class as the `MATCH-CATCHALL-1` raw pipes repaired at v0.23.11. Three further census-note claims
+  are corrected: `DRIVER-LL` was offered as a row beginning `OPEN` and begins `CLOSED`, a
+  positional claim about the first twenty-two rows was already false, and three stale "this pass"
+  referents are now dated against git.
+- **`docs/getting-started.md` is NOT touched this release**, and no user-facing command, flag or
+  exit code changed. The only wire change is one additional key on diagnostics that were already
+  being emitted.
+
+**Tests:** 2027 Haskell, 325 Python (298 passed, 27 skipped; the skip set is environment-gated).
+
+---
+
 ## v0.23.12: a concurrent verify handed liquid-fixpoint another file's constraints (2026-09-21)
 
 A row had recorded a verdict that changed under load and did not reproduce on five sequential or
