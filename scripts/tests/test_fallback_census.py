@@ -222,6 +222,73 @@ def test_a_verdict_that_disagrees_with_itself_is_reported_unstable(tmp_path):
     assert "disagreed with itself" in r.stdout
 
 
+def test_a_solver_error_is_not_reported_as_a_refutation(tmp_path):
+    """VERDICT-UNSTABLE-1: `success: false` cannot tell the two apart.
+
+    A solver that produced no verdict and a solver that refuted the contract
+    both set `success: false` and both exit 1. The census read `success` alone,
+    so a dead solver was counted and named as a refutation. A refutation is
+    negative evidence; a dead solver is no evidence.
+    """
+    files = {
+        "dead.llmll": {
+            "json": {"body_faithful": ["x"], "body_fallback": [], "body_fallback_causes": {},
+                     "fn_kinds": {"x": "def"}, "success": False, "solver_verdict": "error",
+                     "diagnostics": [{"message": "liquid-fixpoint produced no verdict (exit 137): "}]},
+            "exit": 1,
+            # The confirmation pass sees the same failure, so it is not `unstable`.
+            "then": {"json": {"body_faithful": ["x"], "body_fallback": [],
+                              "body_fallback_causes": {}, "fn_kinds": {"x": "def"},
+                              "success": False, "solver_verdict": "error",
+                              "diagnostics": [{"message": "liquid-fixpoint produced no verdict (exit 137): "}]},
+                     "exit": 1},
+        }
+    }
+    repo = make_repo(tmp_path, files)
+    out = tmp_path / "record.json"
+    r = run_census(tmp_path, repo, "--no-ratchet", "--out", str(out))
+    rec = json.loads(out.read_text())
+    assert rec["files"]["examples/dead.llmll"]["outcome"] == "solver-error"
+    assert "produced no verdict" in r.stdout
+    # It never reads as a pass either: the run proved nothing for this file.
+    assert r.returncode == 2, r.stdout
+
+
+def test_a_genuine_refutation_is_still_reported_as_refuted(tmp_path):
+    """The negative control for the cell above. The label must not move."""
+    repo = make_repo(tmp_path, POPULATION)
+    out = tmp_path / "record.json"
+    run_census(tmp_path, repo, "--no-ratchet", "--out", str(out))
+    rec = json.loads(out.read_text())
+    assert rec["files"]["examples/refuted.llmll"]["outcome"] == "refuted"
+
+
+def test_a_solver_error_is_not_counted_as_a_ratchet_regression(tmp_path):
+    """The code did not regress; the solver died. Report it, do not blame it."""
+    files = {
+        "was_passing.llmll": {
+            "json": {"body_faithful": ["x"], "body_fallback": [], "body_fallback_causes": {},
+                     "fn_kinds": {"x": "def"}, "success": False, "solver_verdict": "error",
+                     "diagnostics": [{"message": "liquid-fixpoint produced no verdict (exit 137): "}]},
+            "exit": 1,
+            "then": {"json": {"body_faithful": ["x"], "body_fallback": [],
+                              "body_fallback_causes": {}, "fn_kinds": {"x": "def"},
+                              "success": False, "solver_verdict": "error",
+                              "diagnostics": [{"message": "no verdict"}]},
+                     "exit": 1},
+        }
+    }
+    repo = make_repo(tmp_path, files)
+    baseline = repo / "scripts" / "fallback-census" / "BASELINE.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text(json.dumps(
+        {"strict_pass": ["examples/was_passing.llmll"], "waivers": {}}), encoding="utf-8")
+    r = run_census(tmp_path, repo)
+    # Exit 2 (the census is incomplete), never exit 1 (the ratchet broke).
+    assert r.returncode == 2, r.stdout
+    assert "passed --strict-verified-core at the baseline" not in r.stdout
+
+
 def test_a_timeout_fails_and_names_the_file(tmp_path):
     files = {"slow.llmll": {"sleep": 3, "json": {"body_faithful": [], "success": True}}}
     repo = make_repo(tmp_path, files)

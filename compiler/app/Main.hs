@@ -21,7 +21,7 @@ import Data.Version (showVersion)
 import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
-import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile, makeAbsolute)
 import System.Environment (lookupEnv)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
@@ -64,7 +64,7 @@ import LLMLL.Diagnostic
   , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -1294,10 +1294,19 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           skipped = erSkipped emitR
 
       -- 3. Write .fq file
-      let baseName = takeBaseName fp
-          fqPath   = case mFqOut of
-                       Just p  -> p
-                       Nothing -> "/tmp/" <> baseName <> ".fq"
+      --
+      -- VERDICT-UNSTABLE-1: the default path is unique per SOURCE FILE, not per
+      -- basename. It used to be @"/tmp/" <> takeBaseName fp <> ".fq"@, so two
+      -- different files with the same basename shared one slot in /tmp and a
+      -- concurrent pair raced between this write and the solver read below.
+      -- Measured 2026-09-20: the census population carries 13 colliding
+      -- basenames over 260 files, and 40 concurrent trials of a same-basename
+      -- pair disagreed with their own isolated verdicts 40 times, 30 of them by
+      -- reporting a REFUTED file SAFE and writing it a 'verified' sidecar.
+      -- The tag hashes the ABSOLUTE path, so the same file keeps one stable slot
+      -- and repeated runs do not accumulate files. An explicit '--fq-out' is
+      -- unchanged: the caller named the path and owns the collision.
+      fqPath <- fqPathFor mFqOut <$> makeAbsolute fp
       TIO.writeFile fqPath fqText
       unless json $ do
         TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
@@ -1421,13 +1430,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- VERIFY-RPT-1 (Commit 2): invoke with '-q --json' so the verdict
           -- carries resolvable constraint ids. '-q' suppresses the human banner
           -- (otherwise the JSON line is ANSI-prefixed and banner-wrapped), and
-          -- '--json' selects the structured envelope. Fall back to the text
-          -- scrape when the JSON envelope does not parse (a differently-built
-          -- fixpoint, or a crash with no envelope).
-          (_code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
+          -- '--json' selects the structured envelope. 'parseFQOutcome' falls
+          -- back to the text scrape when the envelope does not parse (a
+          -- differently-built fixpoint, or a crash with no envelope), and
+          -- requires the exit code to corroborate what the scrape claims.
+          (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
           let outT     = T.pack out
               merged   = outT <> T.pack err
-              fqResult = fromMaybe (parseFQResult merged) (parseFQResultJSON merged)
+              -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
+              -- solver that died must not be reported as a refutation.
+              fqResult = parseFQOutcome lfCode merged
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
@@ -1547,6 +1559,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                       -- and which functions the ratio's denominator may count.
                     , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
                     , "fn_kinds" .= toJSON (fnKindMap stmts)
+                      -- VERDICT-UNSTABLE-1: 'success' cannot tell a refutation
+                      -- from a solver that produced no verdict. Both are false,
+                      -- so every consumer reading 'success' alone reported a
+                      -- dead solver as a refutation. 'scripts/fallback_census.py'
+                      -- did exactly that. This field carries the distinction;
+                      -- 'success' keeps its meaning so no consumer breaks.
+                    , "solver_verdict" .= (case fqResult of
+                        FQSafe     -> "safe"    :: T.Text
+                        FQUnsafe _ -> "refuted"
+                        FQError _  -> "error")
                     ]
               -- Merge by stripping closing } from report and appending body_meta fields
               let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of

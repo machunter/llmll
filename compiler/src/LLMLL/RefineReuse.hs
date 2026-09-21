@@ -68,7 +68,7 @@ import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contract
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
 import           LLMLL.DiagnosticFQ
-  ( FQVerifyResult(..), parseFQResult, parseFQResultJSON )
+  ( FQVerifyResult(..), parseFQOutcome )
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -208,10 +208,11 @@ solveSubsumptionFQ lfBin fq = do
   (path, h)  <- openTempFile tmpDir "llmll-reuse.fq"
   TIO.hPutStr h (emitFQFile fq)
   hClose h
-  (_, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", path] ""
+  (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", path] ""
   removeFile path `catch` \(_ :: IOException) -> pure ()
   let merged = T.pack out <> T.pack err
-  pure (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
+  -- VERDICT-UNSTABLE-1: the exit code is part of the verdict.
+  pure (parseFQOutcome lfCode merged)
 
 -- | Solver-backed subsumption check: does candidate @D@ subsume spawned @Cs@?
 -- Abstains ('False') when the constraint cannot be built (non-QF-LIA) or the

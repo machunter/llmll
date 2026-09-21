@@ -53,7 +53,7 @@ import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), 
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
+import LLMLL.DiagnosticFQ (parseFQOutcome, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Data.List (find, nub)
@@ -593,10 +593,12 @@ reVerify fp stmts bodyTargets
           -- pointers; fall back to the text scrape if the envelope fails to
           -- parse. Shares 'fqResultToReport', so the Defect-1b fallback
           -- diagnostic applies here too — the payload is never empty on reject.
-          (_, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
+          (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
           let outT     = T.pack out
               merged   = outT <> T.pack err
-              fqResult = fromMaybe (parseFQResult merged) (parseFQResultJSON merged)
+              -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
+              -- must not reject a patch as if the contract were refuted.
+              fqResult = parseFQOutcome lfCode merged
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
             FQSafe          -> pure Nothing       -- SAFE → proceed with write

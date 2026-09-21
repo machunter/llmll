@@ -15,6 +15,10 @@ module LLMLL.DiagnosticFQ
   , FQVerifyResult(..)
   , parseFQResult
   , parseFQResultJSON
+  , parseFQOutcome
+    -- * Where the constraint file goes
+  , fqPathFor
+  , pathTag
   , fqResultToReport
   ) where
 
@@ -30,6 +34,11 @@ import Data.Aeson.Types (parseMaybe, parseJSON)
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable (toList)
+import System.Exit (ExitCode(..))
+import System.FilePath (takeBaseName)
+import Numeric (showHex)
+import qualified Crypto.Hash.SHA256 as SHA
+import qualified Data.ByteString as BS
 
 import LLMLL.FixpointIR (FQConstraintId)
 import LLMLL.Diagnostic
@@ -128,6 +137,77 @@ parseFQResultJSON txt =
             _ -> Just (FQUnsafe [])
         _ -> Nothing
     envelopeToResult _ = Nothing
+
+-- | VERDICT-UNSTABLE-1: where 'llmll verify' writes the constraint file.
+--
+-- The default path must be unique per SOURCE FILE. It used to be
+-- @"/tmp/" <> takeBaseName src <> ".fq"@, which is unique per BASENAME, so two
+-- different files with the same basename shared one slot. A concurrent pair
+-- then raced between the write and the solver read, and the loser handed
+-- liquid-fixpoint the other file's constraints.
+--
+-- Measured 2026-09-20 before the fix: the census population carries 13
+-- colliding basenames over 260 files, and 40 concurrent trials of a
+-- same-basename pair disagreed with their own isolated verdicts 40 times. 30
+-- of those reported a REFUTED file SAFE and wrote it a @verified@ sidecar, so
+-- the defect failed OPEN far more often than closed.
+--
+-- @src@ must be ABSOLUTE. A relative path collides exactly as the basename did,
+-- because two workers verifying the same repo-relative file in separate tree
+-- copies would hash the same string.
+--
+-- The tag is stable across runs, so /tmp holds one file per source file rather
+-- than one per run. That is the reason this is a hash rather than
+-- 'System.IO.openTempFile': the accumulation a fresh temp file per run would
+-- cause is worse than the residual it would close. The residual is two
+-- concurrent runs of the SAME absolute path, which write identical bytes.
+fqPathFor :: Maybe FilePath   -- ^ an explicit @--fq-out@, which is honoured as given
+          -> FilePath         -- ^ the ABSOLUTE path of the source file
+          -> FilePath
+fqPathFor (Just out) _   = out
+fqPathFor Nothing    src =
+  "/tmp/llmll-" <> takeBaseName src <> "-" <> T.unpack (pathTag src) <> ".fq"
+
+-- | Twelve hex characters of the SHA256 of a path. Used only by 'fqPathFor'.
+pathTag :: FilePath -> Text
+pathTag p =
+  T.take 12 . T.pack . concatMap byteHex . BS.unpack
+            . SHA.hash . TE.encodeUtf8 . T.pack $ p
+  where
+    byteHex b = let h = showHex b "" in if length h == 1 then '0':h else h
+
+-- | VERDICT-UNSTABLE-1: decide the outcome from the exit code AND the output.
+--
+-- A refutation is negative evidence (@LLMLL.md@ §4.4) and
+-- @--strict-verified-core@ refuses a refuted function, so a solver that DIED
+-- must never be reported as one. 'parseFQResult' alone cannot tell the two
+-- apart: it scans for the substring @UNSAFE@ over stdout and stderr merged, and
+-- it is reached exactly when the JSON envelope does not decode, which is the
+-- crash case. A killed process that emitted a partial @Unsafe@ envelope then
+-- reads as @FQUnsafe []@, and a partial @Safe@ envelope reads as 'FQSafe'.
+--
+-- Measured against the real binary 2026-09-20: @fixpoint -q --json@ exits 0 on
+-- Safe and 1 on Unsafe. Any other code means it produced no verdict. So a
+-- decoded envelope is positive evidence and outranks the code, and a bare
+-- text scrape must be corroborated by the matching code or it becomes
+-- 'FQError'. The rule demands positive evidence; it never trusts an exit
+-- status on its own.
+--
+-- 'parseFQResult' keeps its text-only signature for callers with no exit code.
+parseFQOutcome :: ExitCode -> Text -> FQVerifyResult
+parseFQOutcome code merged =
+  case parseFQResultJSON merged of
+    Just r  -> r          -- a decoded envelope is the solver's own answer
+    Nothing -> case parseFQResult merged of
+      FQUnsafe ids | code == ExitFailure 1 -> FQUnsafe ids
+      FQSafe       | code == ExitSuccess   -> FQSafe
+      FQError e                            -> FQError e
+      _                                    -> FQError noVerdict
+  where
+    noVerdict =
+      "produced no verdict (exit " <> renderExit code <> "): " <> merged
+    renderExit ExitSuccess     = "0"
+    renderExit (ExitFailure n) = T.pack (show n)
 
 -- | Drop ANSI CSI escape sequences (@ESC [ … m@) so a banner-wrapped JSON line
 -- is recoverable. Used only by 'parseFQResultJSON'.
