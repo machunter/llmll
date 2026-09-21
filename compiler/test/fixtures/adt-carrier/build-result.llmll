@@ -1,0 +1,21 @@
+;; ADT-CARRIER-COLLAPSE-1. Constructing the recursive arm through a `Result`
+;; carrier, and the missing sibling of ACR-7.
+;;
+;; `collapse-result.llmll` constructs the NULLARY arm, so its `mk` is
+;; body-faithful and the collapsed field sort ships in a file that verifies. This
+;; file constructs the RECURSIVE arm instead, which is the path that would read
+;; the collapsed sort.
+;;
+;; MEASURED: it falls back on `constraint-symbols-unbound`, and the free symbol
+;; is `Leaf`, the NULLARY constructor, not the recursive payload. That is the
+;; whole reachability risk in one fact. The guard closing this path has nothing
+;; to do with the collapse, so a later repair of the nullary-constructor symbol
+;; opens the path and makes the sort disagreement reachable. `PAIR-PROJ-LET-1` is
+;; the precedent for exactly such a repair landing without anyone noticing what
+;; it unblocked.
+(export mk)
+(type Tree (| Leaf) (| Node Result[Tree, string]))
+(def-shell mk [n: int] -> Tree
+  (pre (>= n 0))
+  (post (= result (Node (ok Leaf))))
+  (Node (ok Leaf)))

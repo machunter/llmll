@@ -1263,6 +1263,51 @@ moduleSpec = describe "Module System" $ do
         ("mk" `elem` erBodyFaithfulFns er) `shouldBe` False
         lookup "mk" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
 
+      -- ACR-8 to ACR-10 close the residue ACR-1..ACR-7 left. Those seven cells
+      -- cover matching on an OPAQUE carrier (ACR-3) and constructing through a
+      -- pair carrier (ACR-7). Three combinations had no cell, and the row's own
+      -- Next Action asks for construction AND matching on a TRANSPARENT carrier.
+      -- Each assertion below was measured on the v0.23.13 binary first.
+      --
+      -- The two causes are different and the difference is the point. Matching
+      -- closes on the `admissiblePayload` FIREWALL, which is a designed refusal.
+      -- Constructing closes on the `FQ-FREEVAR-GUARD-1` GUARD, which is an
+      -- accident. A cell that asserted only "it falls back" would miss that.
+
+      it "ACR-8: matching a PAIR-carrier recursive arm falls back on the firewall" $ do
+        -- Two halves in one cell, because the row's claim is that the collapse
+        -- is PRESENT and UNREAD. Asserting the fallback without the field sort
+        -- would pass on a file where the collapse had been repaired, and
+        -- asserting the field sort without the fallback would not say the path
+        -- is closed.
+        er <- emitAcr "match-pair"
+        nodeFields er `shouldBe` Just [FQDataApp "Pair2" [FQInt, FQInt]]
+        lookup "depth" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+        lookup "depth" (erFallbackConstructs er) `shouldBe` Just ["match-payload-sort"]
+
+      it "ACR-9: matching a Result-carrier recursive arm falls back the same way" $ do
+        -- The sharper carrier: the component collapses all the way to `int`, so
+        -- the declaration carries no trace of `Tree` at all.
+        er <- emitAcr "match-result"
+        nodeFields er `shouldBe` Just [FQInt]
+        lookup "depth" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+        lookup "depth" (erFallbackConstructs er) `shouldBe` Just ["match-payload-sort"]
+
+      it "ACR-10: constructing through a Result carrier falls back on the GUARD" $ do
+        -- ACR-7's missing sibling, and it matters because ACR-6 shows a
+        -- Result-carrier file that VERIFIES. The difference between the two is
+        -- which arm the body constructs: ACR-6's `mk` builds the nullary arm and
+        -- is body-faithful, this one builds the recursive arm and is not.
+        --
+        -- MEASURED: the free symbol the guard names is `Leaf`, the NULLARY
+        -- constructor, and not the recursive payload. The guard that closes this
+        -- path is therefore unrelated to the collapse, which is why the row
+        -- calls the unreachability an accident rather than a firewall.
+        er <- emitAcr "build-result"
+        nodeFields er `shouldBe` Just [FQInt]
+        ("mk" `elem` erBodyFaithfulFns er) `shouldBe` False
+        lookup "mk" (erBodyFallbackCauses er) `shouldBe` Just FallbackUnboundSymbols
+
       where
         isWildcardReturn (TFn _ r) = isBareWildcard r
         isWildcardReturn _         = False

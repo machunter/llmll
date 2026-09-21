@@ -1,0 +1,15 @@
+;; ADT-CARRIER-COLLAPSE-1. Matching the recursive arm through a `Result` carrier.
+;;
+;; The sibling of `match-pair.llmll`, and the sharper of the two: a `Result`
+;; carrier collapses the component all the way to `int`, so the emitted
+;; declaration says `ctor_node_0 : int` and carries no trace of the recursion.
+;;
+;; The firewall refuses the match for the same reason either way. `Result` is not
+;; int, bool or string, so `admissiblePayload` declines the payload and the
+;; function cannot reach a body-faithful VC. This cell fails if that refusal ever
+;; widens to a transparent carrier.
+(export depth)
+(type Tree (| Leaf) (| Node Result[Tree, string]))
+(def-shell depth [t: Tree] -> int
+  (post (>= result 0))
+  (match t ((Leaf) 0) ((Node r) 1)))

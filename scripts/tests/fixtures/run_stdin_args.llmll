@@ -1,0 +1,35 @@
+;; RUN-STDIN-1 (iii). The DELIVERY witness for the pass-through.
+;;
+;; A cell that only checks the parser stops answering "Invalid option" would
+;; prove the parser and nothing else, which is `TOOL-ORACLE-1`'s recorded
+;; residue. This program reads the argument vector and prints it, so the gate
+;; grades what reached the program.
+;;
+;; `wasi.proc.args` is performed by `:init` and its `RList` answer arrives as the
+;; FIRST step's response. The step prints the vector; `:done?` fires on the
+;; second line so the print stays on the performed branch, as in run_stdin.llmll.
+(import wasi.io (capability stdout :deterministic false))
+;; Declared though nothing enforces it: a nullary builtin is an `EVar` and
+;; `checkWasiCapability` runs only from an application (CAP-NULLARY-1). The
+;; authority is real, so the import states it. `versiongate.llmll` does the same.
+(import wasi.proc (capability args :deterministic false))
+
+(def-shell ra-init [] -> (int, Command)
+  (pair 0 wasi.proc.args))
+
+(def-shell ra-step [s: int input: string r: Response] -> (int, Command)
+  (match r
+    ((RNone)    (pair (+ s 1) (wasi.io.stdout "NOARGS")))
+    ((RText t)  (pair (+ s 1) (wasi.io.stdout "NOARGS")))
+    ((RErr e)   (pair (+ s 1) (wasi.io.stdout "NOARGS")))
+    ((RCode n)  (pair (+ s 1) (wasi.io.stdout "NOARGS")))
+    ((RList ns) (pair (+ s 1) (wasi.io.stdout (string-concat-many ns))))))
+
+(def-shell ra-done? [s: int] -> bool
+  (> s 1))
+
+(def-main
+  :mode    console
+  :init    (ra-init)
+  :step    ra-step
+  :done?   ra-done?)

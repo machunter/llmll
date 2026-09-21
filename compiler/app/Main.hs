@@ -98,7 +98,7 @@ import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleCons
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.Feasibility (feasibilityOf, renderWitness, FeasVerdict(..))
 import LLMLL.HoleAnalysis (enclosingFunc)
-import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
+import System.Process (createProcess, proc, std_in, std_out, std_err, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
 import System.IO (hGetLine)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
@@ -182,8 +182,21 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
           (progDesc "Compile .llmll to Haskell; use --emit to write JSON-AST (.ast.json) instead"))
       <> command "build-json" (info (helper <*> buildJsonCmd)
           (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
+      -- RUN-STDIN-1 (iii): 'noIntersperse' stops option parsing after the first
+      -- positional argument, so a flag-shaped pass-through reaches the program
+      -- instead of being rejected by our own parser. Without it, 'llmll run
+      -- prog.llmll --root x' answered "Invalid option `--root'" with the
+      -- top-level usage, although the help below advertises a pass-through.
+      --
+      -- 'noIntersperse' and not 'forwardOptions', which was the other candidate:
+      -- forwardOptions would also forward '--help' typed BEFORE the file, so
+      -- 'llmll run --help' would stop printing this command's help. Measured on
+      -- a standalone probe against optparse-applicative 0.18.1.0: with
+      -- noIntersperse, 'run f.llmll -v' parses '-v' as a pass-through and 'run
+      -- --help' still prints help.
       <> command "run"   (info (helper <*> runCmd)
-          (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
+          (progDesc "Compile and immediately run an LLMLL program (requires def-main)"
+           <> noIntersperse))
       <> command "repl"  (info (helper <*> pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
       <> command "hub"   (info (helper <*> hubCmd)
@@ -253,7 +266,10 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
 
     runCmd = CmdRun
       <$> fileArg
-      <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
+      <*> many (strArgument (metavar "..." <> help
+            "Arguments passed through to the program (everything after FILE, \
+            \flags included; use -- before an argument that starts with - and \
+            \must not be read as one)"))
 
     hubCmd = hsubparser
       (  command "fetch" (info (helper <*> hubFetchCmd)
@@ -892,22 +908,53 @@ doRun json gm fp extraArgs = do
               -- 'executables:' stanza key). 'stack exec' does not build, so
               -- build first; and the child's stdout is the program's output —
               -- pass it through instead of discarding it.
+              --
+              -- RUN-STDIN-1 (iv): the build's diagnostics go to STDERR. They
+              -- went to stdout, so `llmll run prog.llmll > out.txt` captured a
+              -- linker failure into the file that is supposed to hold the
+              -- program's output. Measured on a macOS SDK link break.
               (bcode, _bout, berr) <- readProcessWithExitCode stackBin
                 ["build", "--stack-yaml", outDir <> "/stack.yaml"] ""
               case bcode of
                 ExitFailure _ -> do
-                  TIO.putStr (T.pack berr)
+                  TIO.hPutStr stderr (T.pack berr)
                   exitFailure
                 ExitSuccess -> pure ()
               let exeName = T.unpack (sanitizePkgName modNameT)
-              (code, out, err) <- readProcessWithExitCode stackBin
-                (["exec", "--stack-yaml", outDir <> "/stack.yaml", "--", exeName] ++ extraArgs) ""
-              TIO.putStr (T.pack out)
+              -- RUN-STDIN-1 (i) and the buffering half. This was
+              -- 'readProcessWithExitCode ... ""', and that trailing "" was the
+              -- CHILD'S STDIN. A ':mode console' program is a stdin-driven step
+              -- machine, so it took immediate EOF, ran ZERO steps and exited 70.
+              -- The census at filing time: 20 of 20 committed 'def-main'
+              -- programs are ':mode console', so the population where 'llmll
+              -- run' could work at all was empty.
+              --
+              -- Inheriting all three handles fixes three things at once. The
+              -- child reads the real stdin. Its output reaches the terminal as
+              -- it is produced, rather than being held to EOF by
+              -- readProcessWithExitCode. Its stderr stays stderr instead of
+              -- being re-printed on our stdout.
+              --
+              -- Flush first: our own progress lines are buffered and the child
+              -- writes to the same fd, so an unflushed line would surface after
+              -- the program's output.
+              hFlush stdout
+              (_, _, _, ph) <- createProcess (proc stackBin
+                (["exec", "--stack-yaml", outDir <> "/stack.yaml", "--", exeName] ++ extraArgs))
+                { std_in = Inherit, std_out = Inherit, std_err = Inherit }
+              code <- waitForProcess ph
+              -- RUN-STDIN-1 (ii): PROPAGATE the child's code. This was
+              -- 'ExitFailure _ -> exitFailure', and that '_' discarded it, so
+              -- the 70 that named the cause was reported as a bare 1.
+              --
+              -- The negative arm is signal death: waitForProcess answers
+              -- 'ExitFailure (-n)' when the child died on signal n, and
+              -- 'exitWith' would then set a meaningless low-byte status. 128+n
+              -- is the shell convention and it is what a caller expects.
               case code of
-                ExitSuccess   -> pure ()
-                ExitFailure _ -> do
-                  TIO.putStr (T.pack err)
-                  exitFailure
+                ExitSuccess              -> exitSuccess
+                ExitFailure n | n > 0    -> exitWith (ExitFailure n)
+                              | otherwise -> exitWith (ExitFailure (128 - n))
 
 runCargoCheck :: Bool -> FilePath -> IO Bool
 runCargoCheck = runGhcCheck  -- legacy alias
