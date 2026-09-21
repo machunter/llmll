@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.23.15)
+# LLMLL: Large Language Model Logical Language (v0.23.16)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.23.15.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.23.16.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2550,7 +2550,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-concat` | `string string -> string` | `(string-concat left right)` yields `left` followed by `right`. The **left operand comes first**; a reversed call type-checks and transposes the result. |
 | `string-slice` | `string int int -> string` | `(string-slice s start end)` takes the `[start, end)` half-open slice. The **start comes first**; both indices are `int`, so a transposed pair type-checks and returns `""`. Out-of-range indices **clamp**: `start` and `end` are each clamped into `[0, string-length s]`, so a negative `start` reads from 0 and an `end` past the end reads to the end. This matches `string-char-at`'s out-of-range convention below. |
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string). Returns `""` for negative or out-of-bounds indices. |
-| `string-split` | `string string -> list[string]` | `(string-split sep subject)` splits `subject` on `sep`. The **separator comes first**; both parameters are `string`, so a reversed call type-checks and fails only in its output. |
+| `string-split` | `string string -> list[string]` | `(string-split sep subject)` splits `subject` on `sep`. The **separator comes first**; both parameters are `string`, so a reversed call type-checks and fails only in its output. **An empty separator answers `[subject]`**: it matches at every position, so no split point is well defined and the subject comes back unsplit. `(string-split "" "")` answers `[""]`. **A character decomposition is not this builtin's job** and §13.5 prints the idiom that is: `(list-map (range 0 (string-length s)) (fn [i: int] (string-char-at s i)))`. |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
 | `string-concat-many` | `list[string] -> string` | Concatenate a list of strings (variadic join without separator) |
 | `regex-match` | `string string -> bool` | `(regex-match pattern subject)` matches `subject` against `pattern`. The **pattern comes first**, the opposite of `string-contains` above; a reversed call type-checks. POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total). |
