@@ -64,7 +64,7 @@ import LLMLL.Diagnostic
   , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -851,8 +851,17 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
 
 doRun :: Bool -> GrammarMode -> FilePath -> [String] -> IO ()
 doRun json gm fp extraArgs = do
+  -- RUN-TMPDIR-1: the build directory is keyed on the source file's IDENTITY
+  -- and not on its basename. It was `"/tmp/llmll-run-" <> modName`, so two
+  -- DIFFERENT files sharing a basename shared one directory and one
+  -- .stack-work, and a concurrent pair ran each other's program. `runDirFor`
+  -- is the `fqPathFor` shape that shipped for VERDICT-UNSTABLE-1 at v0.23.12.
+  --
+  -- The package name stays keyed on the basename: it is the generated
+  -- package's identity, not the directory's, and `sanitizePkgName modNameT`
+  -- below derives the executable's component name from it.
+  tmpDir <- runDirFor <$> makeAbsolute fp
   let modName = T.unpack . T.pack $ takeBaseName fp
-      tmpDir  = "/tmp/llmll-run-" <> modName
   -- Build into tmp dir (reuses doBuild logic via shared helpers)
   bs <- BS.readFile fp                            -- TOOL-ENCODING-1
   case decodeSourceUtf8 fp bs >>= parseSrc gm fp of

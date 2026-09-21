@@ -16,8 +16,9 @@ module LLMLL.DiagnosticFQ
   , parseFQResult
   , parseFQResultJSON
   , parseFQOutcome
-    -- * Where the constraint file goes
+    -- * Where the constraint file and the run build directory go
   , fqPathFor
+  , runDirFor
   , pathTag
   , fqResultToReport
   ) where
@@ -168,7 +169,34 @@ fqPathFor (Just out) _   = out
 fqPathFor Nothing    src =
   "/tmp/llmll-" <> takeBaseName src <> "-" <> T.unpack (pathTag src) <> ".fq"
 
--- | Twelve hex characters of the SHA256 of a path. Used only by 'fqPathFor'.
+-- | RUN-TMPDIR-1: where @llmll run@ builds a source file's generated package.
+--
+-- The same defect as 'fqPathFor' in another place. @doRun@ built into
+-- @\"\/tmp\/llmll-run-\" <> takeBaseName fp@, so two different files with one
+-- basename shared one directory and one @.stack-work@. Each run rewrites
+-- @src\/Lib.hs@ and @src\/Main.hs@, so a sequential pair is correct and the
+-- defect needs concurrency.
+--
+-- Measured 2026-09-21 before the fix over four concurrent trials of two
+-- same-basename fixtures: five of eight invocations answered for the wrong
+-- program. Three printed the other program's marker and exited with the other
+-- program's status, with nothing in either stream to say so, and two failed at
+-- exit 1 when @ghc-pkg init@ found the package database already there.
+--
+-- @src@ must be ABSOLUTE, for the reason given above 'fqPathFor'.
+--
+-- The tag is stable across runs, so \/tmp holds one directory per source file
+-- rather than one per run, and the Stack build cache in @.stack-work@ survives
+-- between runs of the same file. That cache is what makes a warm @llmll run@
+-- cost about 6 s instead of a cold build, and it is the reason this is a hash
+-- rather than a fresh temporary directory.
+runDirFor :: FilePath   -- ^ the ABSOLUTE path of the source file
+          -> FilePath
+runDirFor src =
+  "/tmp/llmll-run-" <> takeBaseName src <> "-" <> T.unpack (pathTag src)
+
+-- | Twelve hex characters of the SHA256 of a path. Used by 'fqPathFor' and
+-- 'runDirFor', which key a \/tmp name on a source file's identity.
 pathTag :: FilePath -> Text
 pathTag p =
   T.take 12 . T.pack . concatMap byteHex . BS.unpack

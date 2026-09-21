@@ -28,7 +28,7 @@ import LLMLL.ObligationAssembly
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, fqResultToReport)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
@@ -64,7 +64,7 @@ import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable, listDirectory)
 import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess, readProcessWithExitCode)
-import Data.List (isSuffixOf, isInfixOf, sort, find, nub)
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -3245,6 +3245,50 @@ main = hspec $ do
       let p = fqPathFor Nothing "/repo/examples/a/withdraw.llmll"
       ("llmll-withdraw-" `isInfixOf` p) `shouldBe` True
       (".fq" `isSuffixOf` p) `shouldBe` True
+
+  -- =========================================================================
+  -- RUN-TMPDIR-1: the `llmll run` build directory.
+  --
+  -- The same defect as VU-1 in another place. `doRun` built into
+  -- "/tmp/llmll-run-" <> takeBaseName fp, so two different files with one
+  -- basename shared one directory and one .stack-work. A sequential pair is
+  -- correct, because each run rewrites src/Lib.hs and src/Main.hs, so the
+  -- defect needs concurrency.
+  --
+  -- Measured before the fix over four concurrent trials of two same-basename
+  -- fixtures: five of eight invocations answered for the WRONG program. Three
+  -- printed the other program's marker and exited with the other program's
+  -- status, with nothing in either stream to say so.
+  --
+  -- THE CONCURRENCY CELLS ARE NOT HERE. They drive a real `stack build` and
+  -- live in scripts/tests/test_run_tmpdir_1.py, which the spec-roundtrip job
+  -- runs against the built binary. These four cells are the deterministic
+  -- pin: they grade the key itself, which no scheduling can make pass.
+  -- =========================================================================
+
+  describe "RUN-TMPDIR-1: runDirFor (the llmll run build directory)" $ do
+
+    it "RT-P1: two files with the SAME basename get DIFFERENT build dirs" $ do
+      -- The regression pin. If this fails the collision is back.
+      let a = runDirFor "/work/a/collide.llmll"
+          b = runDirFor "/work/b/collide.llmll"
+      a `shouldNotBe` b
+
+    it "RT-P2: the same file gets the SAME dir twice, so the cache survives" $ do
+      -- A fresh temporary directory per run would pass RT-P1 and fail here,
+      -- and it would lose the .stack-work cache that makes a warm run ~6 s.
+      let d1 = runDirFor "/work/a/collide.llmll"
+          d2 = runDirFor "/work/a/collide.llmll"
+      d1 `shouldBe` d2
+
+    it "RT-P3: the basename still appears, so the generated package is findable" $ do
+      let d = runDirFor "/work/a/withdraw.llmll"
+      ("/tmp/llmll-run-withdraw-" `isPrefixOf` d) `shouldBe` True
+
+    it "RT-P4: the dir is NOT the pre-fix basename-keyed path" $ do
+      -- The pre-fix value verbatim. A patch that keeps the old shape for any
+      -- input fails here rather than in a concurrent run nobody re-ran.
+      runDirFor "/work/a/collide.llmll" `shouldNotBe` "/tmp/llmll-run-collide"
 
   describe "VERDICT-UNSTABLE-1: parseFQOutcome (a dead solver is not a refutation)" $ do
 

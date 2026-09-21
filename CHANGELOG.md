@@ -4,6 +4,56 @@
 
 <a id="Latest"></a>
 
+## v0.23.15: two files with one basename shared one `llmll run` build tree (2026-09-21)
+
+`doRun` built into `/tmp/llmll-run-<basename>`, so two **different** source files sharing a basename
+shared one build directory and one `.stack-work`. Each run rewrites `src/Lib.hs` and `src/Main.hs`,
+so a sequential pair is correct and the defect needs concurrency. This is the same collision
+`VERDICT-UNSTABLE-1` closed for the `.fq` slot three releases ago, in the one other place the
+compiler derives a `/tmp` name from a basename.
+
+- **The build directory is now keyed on the source file's identity.** `runDirFor`
+  (`DiagnosticFQ.hs`) appends twelve hex characters of the SHA256 of the **absolute** source path,
+  which is the `fqPathFor` shape that shipped at v0.23.12, and `doRun` calls it through
+  `makeAbsolute`. **It is a hash and not a fresh temporary directory**: the tag is stable across
+  runs, so `/tmp` holds one directory per source file rather than one per run, and the Stack build
+  cache in `.stack-work` survives between runs of the same file. That cache is what holds a warm
+  `llmll run` near 6 s instead of a cold build. The package name stays keyed on the basename,
+  because that is the generated package's identity and `sanitizePkgName` derives the executable's
+  component name from it.
+- **The failure was silent in three of five cases.** Measured over four concurrent trials of two
+  same-basename fixtures, one printing `I-AM-A` and exiting **3**, the other `I-AM-B` and exiting
+  **4**: **five of eight invocations answered for the wrong program**. Three printed the other
+  program's marker and exited with the other program's status, with nothing in either stream to say
+  so; two died at exit 1 when `ghc-pkg init` found the package database already there. After the
+  patch, zero of eight. **This never reached the trust closure**: `llmll run` emits no evidence and
+  writes no sidecar, so it misled a reader about which program ran. That is a smaller claim than
+  `VERDICT-UNSTABLE-1`'s and the row said so when it was filed.
+- **A concurrent pass is an absence of failure, so it does not carry the gate alone.** Two Stack
+  builds can serialize on the shared `~/.stack` lock, and a serialized pair removes the variable the
+  cell exists to test, which is `VERDICT-UNSTABLE-1`'s recorded mistake in another form. `RT-1` runs
+  the pair concurrently; `RT-2` counts the build directories and reads the generated `Lib.hs` in
+  each, so no scheduling makes it pass; `RT-P1` to `RT-P4` pin the key itself in hspec beside `VU-1`
+  to `VU-4`. `RT-1` and `RT-2` were both observed to **FAIL** against the preserved pre-fix binary.
+- **One cell passes both ways, and the file says which one and why.** `RT-3` asserts that one file
+  reuses one directory. The pre-fix basename key also did that, so the cell is a pin against the
+  other plausible repair, a fresh temporary directory per run, and it is not evidence for this one.
+  A cell that cannot fail against the defect is a pin; naming which cells are which is the point.
+- **The FFI keep-guard is untouched and its latent failure is now unreachable.** The stub write is
+  guarded by `doesFileExist` and prints `KEEPING existing developer file`, which is correct on its
+  own terms and became wrong under a basename key, because program B would inherit program A's
+  hand-edited stub. Two files no longer share a directory, so nothing reaches it. The measured
+  population was already zero: no tracked `.llmll` file carries a `c.<lib>` import.
+- **No schema change, no `LLMLL.md` change and no `README.md` command-table change.** The directory
+  is not a documented surface, and `llmll run`'s CLI behaviour is unchanged. `docs/getting-started.md`
+  is not touched; its two `/tmp/llmll-<name>-<hash>.fq` lines are the `fqPathFor` slot and are
+  unaffected.
+
+**Tests:** 2034 Haskell, 334 Python (298 passed, 36 skipped; the skip set is environment-gated and
+grew by the three new `LLMLL_BIN`-gated cells).
+
+---
+
 ## v0.23.14: `llmll run` gave every program an empty stdin and then hid what happened (2026-09-21)
 
 Every committed `def-main` program is `:mode console`, and a console program is a stdin-driven step
