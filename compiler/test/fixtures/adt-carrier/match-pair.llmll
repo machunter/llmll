@@ -1,0 +1,16 @@
+;; ADT-CARRIER-COLLAPSE-1. Matching the recursive arm through a PAIR carrier.
+;;
+;; `match-list.llmll` states this for an OPAQUE carrier. This file states it for
+;; a TRANSPARENT one, where the field sort has already collapsed: the emitted
+;; declaration says `ctor_node_0 : (Pair2 int int)` and the inner `Tree` is gone.
+;;
+;; MEASURED before this cell was written. The fallback cause is the FIREWALL,
+;; `admissiblePayload` admitting int, bool and string only, and NOT the
+;; `FQ-FREEVAR-GUARD-1` guard that closes the construction path in
+;; `collapse-pair.llmll`. The two halves of this row therefore close for two
+;; different reasons, and only the firewall half is closed by design.
+(export depth)
+(type Tree (| Leaf) (| Node (int, Tree)))
+(def-shell depth [t: Tree] -> int
+  (post (>= result 0))
+  (match t ((Leaf) 0) ((Node p) 1)))
