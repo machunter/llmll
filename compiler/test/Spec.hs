@@ -3331,6 +3331,24 @@ main = hspec $ do
       (T.length jsonTxt > 0)                          `shouldBe` True
       T.isInfixOf "\"phase\":\"lh-fixpoint\"" jsonTxt `shouldBe` True
 
+    -- DF-5: spec/code drift inside the module's own haddock. The comment above
+    -- fqResultToReport promised every failed constraint carries
+    -- diagKind = Just "lh-unsafe", but toDiag set only diagPointer, so a
+    -- RESOLVED unsafe id reached --json with the "kind" key absent while
+    -- fallbackUnsafeDiag carried it. Drop the fix and this cell fails with
+    -- Nothing on both toDiag branches, and the --json assertion fails because
+    -- formatReportJson omits "kind" entirely when diagKind is Nothing.
+    it "DF-5: a resolved unsafe id carries diagKind = Just \"lh-unsafe\"" $ do
+      let table = Map.fromList
+            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json")]
+          r     = fqResultToReport "withdraw.ast.json" table (FQUnsafe [0])
+      map diagKind (reportDiagnostics r) `shouldBe` [Just "lh-unsafe"]
+      -- the unknown-origin branch of toDiag answers to the same kind
+      let rUnknown = fqResultToReport "test.llmll" Map.empty (FQUnsafe [7])
+      map diagKind (reportDiagnostics rUnknown) `shouldBe` [Just "lh-unsafe"]
+      -- and it reaches the --json payload an agent reads
+      T.isInfixOf "\"kind\":\"lh-unsafe\"" (formatReportJson r) `shouldBe` True
+
   -- =========================================================================
   -- VERIFY-RPT-1: reporting-path fail-open fix + refuted trust status.
   -- VR-1..VR-8 per docs/design/verify-reporting-defects-2026-06-04-bug.md.
