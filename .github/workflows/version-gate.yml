@@ -280,6 +280,24 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_run_stdin_1.py -v
 
+      # RUN-TMPDIR-1's runtime cells, here for the same reason as the two steps
+      # above: they drive `llmll run`, and each trial builds TWO generated
+      # packages with Stack.
+      #
+      # ONE CELL IS AN OUTCOME AND TWO ARE THE MECHANISM, deliberately. RT-1
+      # runs the two same-basename fixtures CONCURRENTLY and asserts each
+      # invocation answers its own program. A concurrent pass is an absence of
+      # failure and two Stack builds can serialize, so RT-2 counts the build
+      # directories and reads the generated Lib.hs in each instead: one
+      # directory before the patch, two after it, and no scheduling makes that
+      # cell pass. RT-3 pins the hash key against a per-run temporary
+      # directory, which would lose the .stack-work cache.
+      - name: Run RUN-TMPDIR-1 runtime cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_run_tmpdir_1.py -v
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on

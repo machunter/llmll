@@ -1,0 +1,31 @@
+;; RUN-TMPDIR-1, program B. Its twin is ../a/collide.llmll.
+;;
+;; THE TWO FILES SHARE ONE BASENAME AND DIFFER IN EVERY OBSERVABLE. A prints
+;; I-AM-A and exits 3; B prints I-AM-B and exits 4. Neither value is 0, 1 or
+;; 70: 1 is what the old `exitFailure` answered, and 70 is the console
+;; harness's EOF convention, so a cell reading 3 or 4 cannot be reading either.
+;;
+;; TWO stdin lines by design, as in run_stdin.llmll: the console harness
+;; CONSTRUCTS the terminating step's command without PERFORMING it (RC-4), so
+;; the marker is printed from :init and from the first :step, and line 2
+;; settles the program.
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell b-init [] -> (int, Command)
+  (pair 0 (wasi.io.stdout "I-AM-B")))
+
+(def-shell b-step [s: int input: string r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout "I-AM-B")))
+
+(def-shell b-done? [s: int] -> bool
+  (> s 1))
+
+(def-shell b-status [s: int] -> int
+  4)
+
+(def-main
+  :mode    console
+  :init    (b-init)
+  :step    b-step
+  :done?   b-done?
+  :status  b-status)
