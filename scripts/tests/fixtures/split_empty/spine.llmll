@@ -1,0 +1,33 @@
+;; SPLIT-EMPTY-1, the SPINE cell. This program is the defect itself: it forces
+;; the spine of `(string-split "" "abc")`.
+;;
+;; `list-length` maps to a `length` over the emitted list. Pre-fix that list is
+;; infinite, so this program never prints and never exits. Post-fix it prints
+;; SPINE=1 at once. The cell grades the fix by the marker, and reads a timeout
+;; only as the pre-fix half of the discrimination.
+;;
+;; THE VALUE CELL IS THE STRONGER HALF and this one is kept anyway: it is the
+;; only cell that reproduces what a user actually hits, which is a built program
+;; that hangs with no diagnostic on any check-time channel.
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell s-init [] -> (int, Command)
+  (pair 0
+    (wasi.io.stdout
+      (string-concat "SPINE=" (int-to-string (list-length (string-split "" "abc")))))))
+
+(def-shell s-step [s: int input: string r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout "STEP")))
+
+(def-shell s-done? [s: int] -> bool
+  (> s 1))
+
+(def-shell s-status [s: int] -> int
+  0)
+
+(def-main
+  :mode    console
+  :init    (s-init)
+  :step    s-step
+  :done?   s-done?
+  :status  s-status)

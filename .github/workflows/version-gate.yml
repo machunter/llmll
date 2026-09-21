@@ -298,6 +298,23 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_run_tmpdir_1.py -v
 
+      # SPLIT-EMPTY-1's runtime cells, here for the same reason: they drive
+      # `llmll run` and `llmll build`, so they need the Stack toolchain.
+      #
+      # ONE CELL DISCRIMINATES BY VALUE AND ONE BY TERMINATION, deliberately.
+      # `string_split ""` produced an INFINITE list rather than bottom, and
+      # `list_head` is lazy, so SE-1 reads the head on a program that
+      # terminates on either binary: "" before the patch and "abc" after it. No
+      # timeout grades that cell. SE-4 forces the spine, which is what a user
+      # actually hits, and it asserts the DIGIT in `SPINE=1` rather than mere
+      # termination, because the pre-fix binary prints `SPINE=` and then hangs.
+      # SE-2 and SE-3 are regression guards and pass on both binaries.
+      - name: Run SPLIT-EMPTY-1 runtime cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_split_empty_1.py -v
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on
