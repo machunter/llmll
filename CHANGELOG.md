@@ -4,6 +4,54 @@
 
 <a id="Latest"></a>
 
+## v0.23.12: a concurrent verify handed liquid-fixpoint another file's constraints (2026-09-21)
+
+A row had recorded a verdict that changed under load and did not reproduce on five sequential or
+eight concurrent runs, and claimed no mechanism. The mechanism was a temp-path collision, and the
+control that had cleared it passed because it removed the variable that causes it. The defect fails
+OPEN three times as often as it fails closed, which the row did not say.
+
+- **`VERDICT-UNSTABLE-1`: the default `.fq` path is now unique per source file, not per basename.**
+  `doVerify` built it as `"/tmp/" <> takeBaseName fp <> ".fq"`, so two DIFFERENT files with the same
+  basename shared one slot and a concurrent pair raced between the write and the solver read. The
+  loser handed liquid-fixpoint the other file's constraints and the verdict was computed over the
+  wrong program. `fqPathFor` appends twelve hex characters of the SHA256 of the ABSOLUTE source
+  path. The tag is stable across runs, so `/tmp` holds one file per source file rather than one per
+  run, which is why this is a hash and not `openTempFile`. An explicit `--fq-out` is honoured as
+  given. The residual is two concurrent runs of the SAME absolute path, which write identical bytes.
+- **It failed OPEN, and that is a false `verified`, not a false refutation.** Measured over 40
+  concurrent trials of a same-basename pair, one file SAFE and one genuinely refuted: **30 trials
+  reported the REFUTED file SAFE** and wrote it a sidecar carrying `"level":"verified"` with a
+  `verified_hash`, which `--strict-verified-core` admits on a later run; 10 reported the SAFE file
+  refuted; **0 were correct**. After the fix, 0 and 0. The census population carries **13 colliding
+  basenames over 260 files**, and `spine.ast`, the basename the row names, collides three ways.
+- **The row's own negative control passed because it removed the variable.** Eight concurrent runs
+  of that ONE file all write identical bytes to the shared path, so the race is benign by
+  construction. That result read as exoneration and was not one. No concurrency test was added
+  here for the same reason: a passing concurrent run is an absence of failure, not evidence. The
+  regression pin is `VU-1`, which asserts that two paths with one basename produce two `.fq` slots.
+- **Second defect, same row: a solver that produced no verdict was reported as a refutation.**
+  `FQError` and `FQUnsafe` both set `reportSuccess = False` and both exit 1, so every consumer
+  reading `success` alone called a dead solver a refutation, and `scripts/fallback_census.py` did.
+  A refutation is negative evidence (§4.4); a dead solver is no evidence. `parseFQOutcome` now
+  requires positive evidence for a refutation — a decoded `Unsafe` envelope, or the `UNSAFE` text
+  with exit code 1 — and makes every other shape `FQError`. Measured against the real binary:
+  `fixpoint -q --json` exits **0** on Safe and **1** on Unsafe, so the exit code corroborates, and
+  every call site had been discarding it. Wired into `verify`, `patch` and `RefineReuse`.
+- **The `--json` verify payload gains `solver_verdict`**, one of `safe`, `refuted` or `error`.
+  `success` keeps its meaning, so no existing consumer changes. `scripts/fallback_census.py` gains a
+  `solver-error` outcome distinct from `refuted`: it is re-run by the confirmation pass, it is not
+  counted as a ratchet regression because the proof never ran, and it exits 2 rather than passing
+  quietly.
+- **Gate.** The census at `--jobs 4`, the configuration that filed the row, reports **zero unstable
+  and zero solver-error files** over 253 files at ratio 0.984, run twice with identical outcome
+  counts. No sidecar sweep was owed: the tree carries five tracked `.verified.json` files and none
+  sits on a refuted file, measured rather than assumed.
+
+**Tests:** 2026 Haskell, 325 Python (298 passed, 27 skipped; the skip set is environment-gated).
+
+---
+
 ## v0.23.11: a pair parameter had no binder, and the sort was never the obstacle (2026-09-18)
 
 One row required a measurement before any code was written. The measurement answered it, and

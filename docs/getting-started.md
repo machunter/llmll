@@ -261,7 +261,7 @@ $ llmll hub query --signature "list[int] -> int" --json
 ```console
 # Verify linear arithmetic pre/post contracts at compile time:
 $ stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
-   .fq written to /tmp/hangman.fq
+   .fq written to /tmp/llmll-hangman-55657b40d5d0.fq
    Running liquid-fixpoint ...
 ✅ hangman.llmll — SAFE (liquid-fixpoint)
 
@@ -345,6 +345,8 @@ Spec Coverage Report
 # JSON spec coverage (for CI gates / quality.py):
 $ stack exec llmll -- verify file.llmll --spec-coverage --json
 ```
+
+The `.fq` filename carries a twelve-character tag derived from the source file's **absolute** path, so it differs between machines and between two checkouts of the same repository. That tag is what keeps two files with the same basename, say two different `spine.ast.json`, from sharing one constraint file when they are verified at the same time. Pass `--fq-out` when you want a path you chose.
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
 
@@ -480,7 +482,7 @@ Three obligation channels:
 `verify` is **loud, not silent, when the solver is missing**: if `fixpoint` or `z3` is not on `PATH`, it still writes the `.fq` file, but prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and **exits `3`** (distinct from `1` = refuted) — never a silent pass:
 
 ```
-   .fq written to /tmp/hole-demo.fq
+   .fq written to /tmp/llmll-hole-demo-<12 hex>.fq
    body-fallback: withdraw
 
   ============================================================
@@ -495,6 +497,8 @@ EXIT=3
 ```
 
 The `.fq` file is still written and can be checked manually or in CI once the tools are installed, but do not treat exit `0`/no-error as a pass here — check the exit code, not just "did it crash." If `verify` exits `0` with the solver missing, you are not running the current compiler build.
+
+**A third outcome sits between "proved" and "disproved", and the exit code does not distinguish it.** If the solver is present but returns no verdict — it was killed, or it exited without a parsable answer — `verify` reports that as a solver error, not as a refutation. It exits `1`, the same code a genuine refutation uses, so the exit code alone cannot tell a dead solver from a disproved contract. The `--json` payload carries `solver_verdict` for exactly this: `safe`, `refuted`, or `error`. `success` is `false` for both `refuted` and `error`, so a consumer that reads only `success` will call a dead solver a refutation. Read `solver_verdict`.
 
 > [!IMPORTANT]
 > `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
