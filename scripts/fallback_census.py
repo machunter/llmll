@@ -88,7 +88,9 @@ KNOWN_CAUSES = (
 # Outcomes worth confirming alone before they are believed: each depends on the
 # solver's answer, and the solver is the part of the run that has been seen to
 # disagree with itself under load.
-RECHECK_OUTCOMES = frozenset({"refuted", "timeout", "run-failed"})
+# VERDICT-UNSTABLE-1: a solver error is re-run too. A transient one that
+# passes alone becomes `unstable` through the machinery already here.
+RECHECK_OUTCOMES = frozenset({"refuted", "timeout", "run-failed", "solver-error"})
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -190,6 +192,14 @@ def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
             outcome = "no-goal"
         else:
             outcome = "fallback"
+    elif payload.get("solver_verdict") == "error":
+        # VERDICT-UNSTABLE-1: the solver ran and produced NO verdict. That is
+        # not a refutation, and this branch used to fall through to the one
+        # below and report it as one. A refutation is negative evidence; a dead
+        # solver is no evidence, and the two must not share a label.
+        diags = payload.get("diagnostics") or []
+        detail = ((diags[0].get("message") if diags else "") or "no detail")[:200]
+        outcome = "solver-error"
     elif payload.get("success") is False:
         outcome = "refuted"
     else:
@@ -197,6 +207,7 @@ def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
 
     return {
         "outcome": outcome,
+        **({"detail": detail} if outcome == "solver-error" else {}),
         "body_faithful": faithful,
         "causes": causes,
         "constructs": constructs,
@@ -298,10 +309,13 @@ def check_ratchet(record: dict, baseline: dict) -> tuple[list[str], list[str]]:
         reason = waivers.get(path)
         if isinstance(reason, str) and reason.strip():
             continue
-        if record["files"].get(path, {}).get("outcome") == "unstable":
+        if record["files"].get(path, {}).get("outcome") in ("unstable", "solver-error"):
+            why = record["files"][path]["outcome"]
+            because = ("its verdict is unstable" if why == "unstable"
+                       else "the solver produced no verdict, so the proof never ran")
             notes.append(
                 f"{GATE}: {path} is in the baseline's strict-pass set and did not pass this run, "
-                "because its verdict is unstable; not counted as a regression"
+                f"because {because}; not counted as a regression"
             )
             continue
         failures.append(
@@ -454,6 +468,18 @@ def main(argv: list[str] | None = None) -> int:
     unstable = sorted(p for p, rec in per_file.items() if rec["outcome"] == "unstable")
     for p in unstable:
         print(f"{GATE}: {p} disagreed with itself: {per_file[p]['detail']}; the verdict is not stable")
+
+    # VERDICT-UNSTABLE-1: a solver error that survived the confirmation pass is
+    # reported and exits non-zero. It is NOT a ratchet regression, because the
+    # proof never ran and the run has no evidence either way about the code. It
+    # is also not a pass: a census that quietly drops a file reports success for
+    # a measurement it did not make, which is the failure `SKIP-SILENT-1` names.
+    solver_errors = sorted(p for p, rec in per_file.items() if rec["outcome"] == "solver-error")
+    if solver_errors:
+        for p in solver_errors:
+            print(f"{GATE}: {p}: the solver produced no verdict ({per_file[p].get('detail', '')})")
+        print(f"{GATE}: {len(solver_errors)} file(s) proved nothing; the census is incomplete")
+        return EXIT_SETUP
 
     hard = sorted(p for p, rec in per_file.items() if rec["outcome"] in ("timeout", "run-failed"))
     if hard:

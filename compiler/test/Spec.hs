@@ -28,7 +28,7 @@ import LLMLL.ObligationAssembly
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
@@ -3201,6 +3201,89 @@ main = hspec $ do
       case result of
         FQError _ -> pure ()
         _ -> expectationFailure $ "expected FQError, got: " ++ show result
+
+  -- =========================================================================
+  -- VERDICT-UNSTABLE-1: the constraint file's path, and the exit code's part
+  -- in the verdict.
+  --
+  -- The row recorded a `verify` verdict that changed under census load and did
+  -- not reproduce on five sequential or eight concurrent runs. The cause was
+  -- not load. `doVerify` derived the .fq path from `takeBaseName` alone, so two
+  -- different files with the same basename shared one slot in /tmp and raced
+  -- between the write and the solver read. The eight-concurrent-run control
+  -- passed because eight runs of ONE file write identical bytes, which is why
+  -- that result read as exoneration and was not one.
+  --
+  -- Measured before the fix: 13 colliding basenames over the census's 260
+  -- files, and 40 concurrent trials of a same-basename pair wrong 40 times,
+  -- 30 of them FAIL-OPEN (a refuted file reported SAFE, with a `verified`
+  -- sidecar written for it). After the fix: 0 and 0.
+  --
+  -- THERE IS DELIBERATELY NO CONCURRENCY TEST HERE. A passing concurrent run
+  -- is an absence of failure, not evidence, and trusting one is the mistake the
+  -- row already made. VU-1 pins the property that makes the race impossible.
+  -- =========================================================================
+
+  describe "VERDICT-UNSTABLE-1: fqPathFor (the .fq slot)" $ do
+
+    it "VU-1: two files with the SAME basename get DIFFERENT .fq paths" $ do
+      -- The regression pin. If this fails the race is back.
+      let a = fqPathFor Nothing "/repo/examples/token-revocation-emergent/work/spine.ast.json"
+          b = fqPathFor Nothing "/repo/examples/secure-channel-emergent/work/spine.ast.json"
+      a `shouldNotBe` b
+
+    it "VU-2: the same file gets the SAME path twice, so /tmp does not grow" $ do
+      let p1 = fqPathFor Nothing "/repo/examples/a/spine.ast.json"
+          p2 = fqPathFor Nothing "/repo/examples/a/spine.ast.json"
+      p1 `shouldBe` p2
+
+    it "VU-3: an explicit --fq-out is honoured exactly as given" $
+      fqPathFor (Just "/somewhere/mine.fq") "/repo/examples/a/spine.ast.json"
+        `shouldBe` "/somewhere/mine.fq"
+
+    it "VU-4: the basename still appears, so a manual fixpoint run is findable" $ do
+      let p = fqPathFor Nothing "/repo/examples/a/withdraw.llmll"
+      ("llmll-withdraw-" `isInfixOf` p) `shouldBe` True
+      (".fq" `isSuffixOf` p) `shouldBe` True
+
+  describe "VERDICT-UNSTABLE-1: parseFQOutcome (a dead solver is not a refutation)" $ do
+
+    -- Measured against the real binary 2026-09-20: `fixpoint -q --json` exits 0
+    -- on Safe and 1 on Unsafe. Any other code means it produced no verdict.
+
+    it "VU-5: exit 0 with a Safe envelope is FQSafe" $
+      parseFQOutcome ExitSuccess "{\"contents\":{\"numVald\":1},\"tag\":\"Safe\"}"
+        `shouldBe` FQSafe
+
+    it "VU-6: exit 1 with an Unsafe envelope is FQUnsafe and keeps its ids" $
+      parseFQOutcome (ExitFailure 1) "{\"contents\":[{\"numVald\":0},[7]],\"tag\":\"Unsafe\"}"
+        `shouldBe` FQUnsafe [7]
+
+    it "VU-7: a killed solver with no output is FQError, never a refutation" $
+      case parseFQOutcome (ExitFailure 137) "" of
+        FQError _ -> pure ()
+        other     -> expectationFailure ("expected FQError, got: " ++ show other)
+
+    it "VU-8: a TRUNCATED Unsafe envelope from a killed solver is FQError" $ do
+      -- Before the fix this reached the text scrape, matched the substring
+      -- UNSAFE, and became `FQUnsafe []`: a refutation manufactured from a
+      -- crash. `fqResultToReport` then synthesized a function-level
+      -- diagnostic for it, so the payload looked like a real refutation.
+      case parseFQOutcome (ExitFailure 137) "{\"contents\":[{\"numVald\":0},[0" of
+        FQError _ -> pure ()
+        other     -> expectationFailure ("expected FQError, got: " ++ show other)
+
+    it "VU-9: a TRUNCATED Safe envelope from a killed solver is FQError" $
+      -- The fail-open direction of the same window: the scrape matches SAFE.
+      case parseFQOutcome (ExitFailure 137) "{\"tag\":\"Safe\"" of
+        FQError _ -> pure ()
+        other     -> expectationFailure ("expected FQError, got: " ++ show other)
+
+    it "VU-10: an UNSAFE scrape with an uncorroborated exit code is FQError" $
+      -- No envelope, and the code is not fixpoint's documented UNSAFE code.
+      case parseFQOutcome (ExitFailure 251) "fixpoint: Heap exhausted; UNSAFE" of
+        FQError _ -> pure ()
+        other     -> expectationFailure ("expected FQError, got: " ++ show other)
 
   -- -------------------------------------------------------------------------
   -- fqResultToReport — DiagnosticFQ partial-record regression (fix F-001).
