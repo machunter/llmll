@@ -1,0 +1,44 @@
+;; SPLIT-EMPTY-1, the VALUE cell. This program TERMINATES ON BOTH BINARIES and
+;; discriminates the fix by the value it prints, not by a timeout.
+;;
+;; WHY A TERMINATING CELL EXISTS AT ALL. `string_split ""` produces `"" : go s`
+;; with `s` unchanged, so the result is an INFINITE list of empty strings and
+;; not a hang at the first cell. `list_head` is lazy (`list_head (x:_) = Right
+;; x` in the emitted preamble), so it answers the head of that infinite list and
+;; returns. The pre-fix answer is therefore "" and the post-fix answer is "abc",
+;; and both arrive immediately. A timeout grades nothing here.
+;;
+;; THE OTHER TWO MARKERS ARE REGRESSION GUARDS, not discriminators. Both answer
+;; the same on either binary. COMMA pins the general equation, which the new
+;; equation sits above and must not shadow. EMPTY pins `string-split "" ""`,
+;; the one empty-separator call that already terminated by the first equation.
+;;
+;; TWO stdin lines by design, as in run_tmpdir/a/collide.llmll: the console
+;; harness CONSTRUCTS the terminating step's command without PERFORMING it
+;; (RC-4), so the marker is printed from :init and from the first :step.
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell v-init [] -> (int, Command)
+  (pair 0
+    (wasi.io.stdout
+      (string-concat
+        (string-concat "HEAD=[" (string-concat (unwrap-or (list-head (string-split "" "abc")) "NONE") "]"))
+        (string-concat
+          (string-concat " COMMA=" (int-to-string (list-length (string-split "," "a,b"))))
+          (string-concat " EMPTY=" (int-to-string (list-length (string-split "" "")))))))))
+
+(def-shell v-step [s: int input: string r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout "STEP")))
+
+(def-shell v-done? [s: int] -> bool
+  (> s 1))
+
+(def-shell v-status [s: int] -> int
+  0)
+
+(def-main
+  :mode    console
+  :init    (v-init)
+  :step    v-step
+  :done?   v-done?
+  :status  v-status)

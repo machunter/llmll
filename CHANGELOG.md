@@ -4,6 +4,52 @@
 
 <a id="Latest"></a>
 
+## v0.23.16: `string-split` with an empty separator built a program that hangs (2026-09-21)
+
+`string_split` guarded its general equation on ``sep `isPrefixOf` s`` and recursed on
+`drop (length sep) s`. For an empty separator `isPrefixOf ""` is always True and `drop 0 s` is `s`,
+so the emitted `go` produced `"" : go s` with `s` unchanged. It type-checks, and it **verifies**,
+`string-split` being uninterpreted, so the divergence was invisible to every check-time gate and
+surfaced only as a built program that hangs. `SPLIT-EMPTY-1` had been open since v0.14.88.
+
+- **An empty separator now answers the subject unsplit.** One equation joins the emitted preamble
+  (`CodegenHs.hs`): `string_split [] str = [str]`. At an empty separator **and** an empty subject
+  this equation and the `string_split _ [] = [""]` above it both answer `[""]`, so neither order
+  shadows the other. The signature is unchanged and `string-split` stays uninterpreted, so no
+  obligation moves, nothing enters QF-LIA and nothing escapes to Lean.
+- **The value was an infinite list and not bottom, and that decided the shape of the gate.** The
+  row said "does not terminate", which is true of any consumer that forces the spine and false of
+  one that does not. `list_head` is lazy in the emitted preamble, so a program reading the head
+  **terminates on the pre-fix binary** and answers `""`. Measured against a copy of the v0.23.15
+  binary: `HEAD=[] COMMA=2 EMPTY=1`. `list_nth` forces `length`, so it diverges at index 0 where
+  `list_head` does not.
+- **`SE-1` grades the fix by value, on a program that finishes either way.** No timeout decides it:
+  the pre-fix answer is `""` and the patched answer is `"abc"`, and both arrive at once. `SE-4`
+  forces the spine, which is what a user actually hits, and asserts the **digit** in `SPINE=1`
+  rather than mere termination, because the pre-fix binary prints the `SPINE=` prefix and then
+  hangs. `SE-4` builds first and runs the built executable under a ten-second limit, so the limit
+  measures runtime and never build time.
+- **Two cells pass on both binaries and the file says so.** `SE-2` pins the general equation, which
+  the new equation sits above and must not shadow; `SE-3` pins `(string-split "" "")`, the one
+  empty-separator call that already terminated. They are regression guards, not evidence for this
+  fix. `SE-1` and `SE-4` were both observed to **FAIL** against the preserved pre-fix binary.
+- **The design half of the row stays refuted and no name is added.** A character decomposition
+  composes from shipped builtins, `(list-map (range 0 (string-length s)) (fn [i: int] (string-char-at s i)))`,
+  and `LLMLL.md` §13.5 already prints that idiom. `LLMLL.md` §13.6 now carries the empty-separator
+  value **and** the pointer to that idiom, so a reader who reached for `string-split` as a character
+  split is sent to the form that works. No `string-chars` builtin: the measured demand is zero.
+- **No schema change.** `docs/llmll-ast.schema.json` is untouched; no node shape moves. The
+  `README.md` command table is unchanged.
+- **Filed and not fixed.** `tools/version-gate/versiongate.llmll` and `tools/build-smoke/buildsmoke.llmll`
+  carry comments and a bounded index-list workaround that this defect forced, and those comments now
+  describe a fixed defect. A TOOL-LL gate is three artifacts (reference, port, cover), so editing a
+  port forces parity work that does not belong in this release.
+
+**Tests:** 2034 Haskell, 338 Python (298 passed, 40 skipped; the four new cells are environment-gated
+on `LLMLL_BIN` and run in the `spec-roundtrip` job).
+
+---
+
 ## v0.23.15: two files with one basename shared one `llmll run` build tree (2026-09-21)
 
 `doRun` built into `/tmp/llmll-run-<basename>`, so two **different** source files sharing a basename

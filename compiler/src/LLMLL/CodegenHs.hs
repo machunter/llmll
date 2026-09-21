@@ -415,6 +415,13 @@ runtimePreamble =
   , ""
   , "string_split :: String -> String -> [String]"
   , "string_split _   []  = [\"\"]"
+  -- SPLIT-EMPTY-1: an empty separator matches at every position, so no split
+  -- point is well defined. Without this equation the guard below is always
+  -- True and `go` produces `"" : go s` with `s` unchanged, an INFINITE list.
+  -- The subject comes back unsplit. At an empty sep AND an empty str this
+  -- equation and the one above both answer [""], so neither order shadows the
+  -- other.
+  , "string_split []  str = [str]"
   , "string_split sep str = go str"
   , "  where"
   , "    go [] = [\"\"]"
