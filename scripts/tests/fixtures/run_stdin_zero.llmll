@@ -1,0 +1,26 @@
+;; RUN-STDIN-1. The zero-status sibling of run_stdin.llmll.
+;;
+;; It exists for one trap. `exitWith (ExitFailure 0)` is an error in GHC, which
+;; `CodegenHs.hs` already records for the generated harness, and the propagation
+;; clause in `doRun` inherits it. A cell that only ever saw a non-zero code would
+;; not catch a propagation written as `exitWith (ExitFailure n)` with no branch.
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell rz-init [] -> (int, Command)
+  (pair 0 (wasi.io.stdout "ready")))
+
+(def-shell rz-step [s: int input: string r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout input)))
+
+(def-shell rz-done? [s: int] -> bool
+  (> s 1))
+
+(def-shell rz-status [s: int] -> int
+  0)
+
+(def-main
+  :mode    console
+  :init    (rz-init)
+  :step    rz-step
+  :done?   rz-done?
+  :status  rz-status)

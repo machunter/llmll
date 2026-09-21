@@ -265,6 +265,21 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_http_get_1.py -v
 
+      # RUN-STDIN-1's runtime cells, here for the same reason as the step above:
+      # they drive `llmll run`, which builds a generated package with Stack, so
+      # they need the toolchain and cannot live in the C1-C4 job.
+      #
+      # A PASSING RUN PROVED NOTHING BEFORE THIS PATCH. Every committed
+      # `def-main` program is `:mode console`, and `doRun` handed every one of
+      # them an empty stdin, so the whole population failed the same way. Each
+      # cell was therefore run against the pre-fix binary and observed to FAIL
+      # before the patch was believed; the cells name their pre-fix values.
+      - name: Run RUN-STDIN-1 runtime cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_run_stdin_1.py -v
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on

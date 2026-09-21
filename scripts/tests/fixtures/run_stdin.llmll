@@ -1,0 +1,32 @@
+;; RUN-STDIN-1. The witness: it echoes what it reads, then exits non-zero.
+;;
+;; TWO stdin lines by design, and not one. The console harness's `settle` branch
+;; CONSTRUCTS the terminating step's command and does not PERFORM it (RC-4), so a
+;; program whose `:done?` fires on the step that echoes would print nothing even
+;; with stdin working. This file echoes on line 1 and settles on line 2, which
+;; keeps the echo on the performed branch.
+;;
+;; `:status 3` and not 0, so the gate can tell a propagated code from the
+;; `exitFailure` that replaced it. Before the fix this program answered `ready`
+;; and exit 1 through `llmll run`, and `readyhello` and exit 3 when its own
+;; generated binary was run directly.
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell rs-init [] -> (int, Command)
+  (pair 0 (wasi.io.stdout "ready")))
+
+(def-shell rs-step [s: int input: string r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout input)))
+
+(def-shell rs-done? [s: int] -> bool
+  (> s 1))
+
+(def-shell rs-status [s: int] -> int
+  3)
+
+(def-main
+  :mode    console
+  :init    (rs-init)
+  :step    rs-step
+  :done?   rs-done?
+  :status  rs-status)
