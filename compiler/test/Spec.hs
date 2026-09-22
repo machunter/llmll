@@ -4892,6 +4892,7 @@ main = hspec $ do
             , teAssumedFacts       = []       -- RESP-FACT-1: not exercised in TP-* tests
             , teBuiltinAxioms      = []       -- TRUST-AXIOM: not exercised in TP-* tests
             , teInheritedAxioms    = []       -- TRUST-AXIOM: not exercised in TP-* tests
+            , teGroundFacts        = []       -- TRUST-AXIOM family C: not exercised here
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -11321,7 +11322,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing

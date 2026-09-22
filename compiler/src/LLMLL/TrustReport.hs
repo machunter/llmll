@@ -22,6 +22,7 @@ module LLMLL.TrustReport
   , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
   , markBuiltinAxioms           -- TRUST-AXIOM: per-entry sealed-builtin axiom setter
   , markInheritedAxioms         -- TRUST-AXIOM: per-entry transitive-callee axiom setter
+  , markGroundFacts             -- TRUST-AXIOM family C: per-entry ground-fact-family setter
   , InheritedAxiom(..)          -- TRUST-AXIOM: one inherited row
   , inheritedAxiomJson          -- TRUST-AXIOM: its JSON shape
   , builtinAxiomJson            -- TRUST-AXIOM: its JSON shape
@@ -150,6 +151,12 @@ data TrustEntry = TrustEntry
   -- axiom named nowhere in its own report, which is the defect TRUST-AXIOM
   -- exists to close, one level up.
   , teInheritedAxioms    :: [InheritedAxiom]
+  -- TRUST-AXIOM family C: the ground-fact families this function's constraints
+  -- assumed. `bytesLen(b) >= 0` holds because codegen emits a non-negative
+  -- length; `0 <= select(b,i) <= 255` holds because codegen emits bytes. Like
+  -- the sealed-builtin posts, no obligation discharges either, and both ride
+  -- 'codegen_semantics_version'. Populated by 'markGroundFacts' post-emit.
+  , teGroundFacts        :: [Name]
   } deriving (Show, Eq)
 
 -- | TRUST-AXIOM: one inherited sealed-builtin axiom, or one callee whose
@@ -1163,6 +1170,7 @@ mkEntry qname contract body allCS =
        , teAssumedFacts       = []       -- RESP-FACT-1: filled by markAssumedFacts
        , teBuiltinAxioms      = []       -- TRUST-AXIOM: filled by markBuiltinAxioms post-emit
        , teInheritedAxioms    = []       -- TRUST-AXIOM: filled by markInheritedAxioms post-emit
+       , teGroundFacts        = []       -- TRUST-AXIOM family C: filled by markGroundFacts post-emit
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -1589,6 +1597,12 @@ markBuiltinAxioms rows report = report { trEntries = map stamp (trEntries report
 --
 -- A function's OWN axioms are not repeated here; 'teBuiltinAxioms' carries
 -- those. The two views answer different questions and a reader needs both.
+-- | TRUST-AXIOM family C: attach the ground-fact families to the entry.
+markGroundFacts :: [(Name, [Name])] -> TrustReport -> TrustReport
+markGroundFacts rows report = report { trEntries = map stamp (trEntries report) }
+  where
+    stamp e = e { teGroundFacts = nub (concat [ fs | (n, fs) <- rows, n == teName e ]) }
+
 markInheritedAxioms :: Map Name (Maybe [Name]) -> TrustReport -> TrustReport
 markInheritedAxioms recorded report =
     report { trEntries = map stamp (trEntries report) }
@@ -1860,8 +1874,17 @@ formatEntry bodyFallback e =
         Nothing -> "    ? inherits from " <> iaOrigin a
                      <> " [axiom set UNRECORDED: that callee's sidecar predates the"
                      <> " disclosure, so its assumed set is unknown, not empty]"
+      -- TRUST-AXIOM family C: one line naming the families, not one per fact.
+      -- The facts are injected per occurring term, so a per-fact line would
+      -- scale with the body while saying the same thing each time.
+      groundLine
+        | null (teGroundFacts e) = []
+        | otherwise =
+            [ "    ≈ assumes ground facts [" <> T.intercalate ", " (teGroundFacts e)
+                <> "; codegen-determined; stamp: codegen_semantics_version]"
+                <> " (ASSUMED, not proved: it rides codegen_semantics_version)" ]
   in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
-       ++ axiomLines ++ inheritedLines
+       ++ axiomLines ++ inheritedLines ++ groundLine
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =
@@ -2038,6 +2061,9 @@ formatTrustReportJson report =
       -- same rule. Additive; no 'trust_report_version' change.
       [ "inherited_axioms" .= map inheritedAxiomJson (teInheritedAxioms e)
       | not (null (teInheritedAxioms e)) ] ++
+      -- TRUST-AXIOM family C: additive, only-when-present, same rule.
+      [ "ground_fact_families" .= teGroundFacts e
+      | not (null (teGroundFacts e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

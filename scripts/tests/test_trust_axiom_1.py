@@ -269,3 +269,39 @@ def test_one_row_per_builtin_not_per_occurrence(tmp_path):
         encoding="utf-8")
     out = _verify(tmp_path, prog, "--strict-verify")
     assert out.count("≈ assumes bytes-get") == 1, out[-3000:]
+
+
+def test_ground_fact_families_are_disclosed(tmp_path):
+    """Cell 10 (family C): the injected ground facts are assumed too.
+
+    `0 <= select(b,i) <= 255` holds because codegen emits bytes, and
+    `bytesLen(b) >= 0` because codegen emits a non-negative length. No
+    obligation discharges either. Before this they reached the solver on no
+    reporting channel, exactly like the sealed-builtin posts.
+
+    The line names the FAMILIES, not one row per fact: the facts are injected
+    per occurring term, so a per-fact line would scale with the body while
+    repeating itself.
+    """
+    prog = tmp_path / "rd.llmll"
+    prog.write_text(
+        "(def rd [b: bytes[8] i: int] -> int\n"
+        "  (pre (and (>= i 0) (< i 8)))\n"
+        "  (post (and (>= result 0) (<= result 255)))\n"
+        "  (bytes-get b i))\n",
+        encoding="utf-8")
+    out = _verify(tmp_path, prog, "--strict-verify")
+    assert "assumes ground facts" in out, out[-3000:]
+    assert "byte-range" in out, out[-3000:]
+    assert "measure-nonneg" in out, out[-3000:]
+
+
+def test_a_bytes_free_program_assumes_no_ground_facts(arith_prog):
+    """Cell 11, the negative control for family C.
+
+    An arithmetic body applies no measure and reads no array, so it must
+    disclose no ground-fact family. This is what shows the labels come from the
+    injection site rather than from a blanket annotation.
+    """
+    out = _verify(arith_prog.parent, arith_prog, "--strict-verify")
+    assert "assumes ground facts" not in out, out[-3000:]
