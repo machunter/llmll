@@ -63,7 +63,7 @@ import LLMLL.Diagnostic
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
   , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -75,12 +75,12 @@ import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , buildDivergenceReport, divergenceReportJson )
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
-import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifiedPath)
+import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (markBodyFallback, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1537,13 +1537,33 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 , c /= FallbackNoPost
                 , c /= FallbackHole ]
 
+              -- TRUST-AXIOM: the per-def sealed-builtin axiom sets, persisted so
+              -- a CALLER can name what a callee's evidence rests on. The caller's
+              -- own run never emits the callee's body VC, so the sidecar is the
+              -- only place this can come from.
+              builtinAxiomMap = Map.fromList
+                [ (n, map baBuiltin axs) | (n, axs) <- erBuiltinAxioms emitR ]
+
+              -- TRUST-AXIOM: what the IMPORTED modules recorded, keyed by both
+              -- the bare and the qualified name, because a trust dependency is
+              -- named qualified and a sidecar keys bare. 'Nothing' is preserved
+              -- rather than flattened to an empty list: it means the callee's
+              -- sidecar predates the disclosure, which the report must say.
+              recordedAxiomMap = Map.fromList $ concat
+                [ [ (bare, entry), (T.intercalate "." (mePath menv ++ [bare]), entry) ]
+                | menv <- Map.elems _cache
+                , bare <- case meBuiltinAxioms menv of
+                            Just m  -> Map.keys m
+                            Nothing -> [ n | (n, _) <- Map.toList (meContractStatus menv) ]
+                , let entry = fmap (Map.findWithDefault [] bare) (meBuiltinAxioms menv) ]
+
           -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
           -- embedded trust report is refuted-marked. Under
           -- '--strict-verified-core' do not exit here — fall through to the
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
-            let trustRpt = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar))))
+            let trustRpt = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1581,7 +1601,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               (paSidecar, _stale, paContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar))))
+              let paTrust = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 -- SIDECAR-ADMIT-1: the kernel is now the LAST defence, not the
                 -- only one. 'loadCheckedSidecar' has already demoted a tier this
@@ -1700,7 +1720,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               let obReport      = buildTrustReport _cache stmts provenCS
                   obligationJson = concatMap (map callerObligationJson . teCallerObligations)
                                              (trEntries obReport)
-              saveVerifiedWith fp provenCS obligationJson
+              saveVerifiedWithAxioms fp provenCS obligationJson builtinAxiomMap
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
               pure provenCS
             _ -> pure Map.empty
@@ -1832,11 +1852,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
-            let report = markBodyFallback bodyFallbackMarks
+            let report = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
                            (markDescentDischarged descentDischargedSet
                              (markMeasureNotDecreasing measureNotDecreasingSet
                                (markRefuted refutedSet
-                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults))))
+                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))))))
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -1864,7 +1884,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (cdpFlag && not strictCore) already threads
             -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults))))
+            let stReport = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json
@@ -1918,7 +1938,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   let obReport'       = buildTrustReport _cache stmts upgraded
                       obligationJson' = concatMap (map callerObligationJson . teCallerObligations)
                                                   (trEntries obReport')
-                  saveVerifiedWith fp upgraded obligationJson'
+                  saveVerifiedWithAxioms fp upgraded obligationJson' builtinAxiomMap
                   unless json $ TIO.putStrLn
                     "   .verified.json re-stamped: leanstral proof(s) → verified-lean"
               printDeferredCoverage

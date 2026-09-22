@@ -1092,6 +1092,13 @@ data ModuleEnv = ModuleEnv
     -- its call-result binder at FQInt. Kept as a separate field rather than
     -- folded into 'meContracts' precisely because that rebuild path bypasses
     -- 'meContracts' entirely.
+  , meBuiltinAxioms  :: Maybe (Map Name [Name])
+    -- ^ TRUST-AXIOM: the sealed-builtin axiom set this module's sidecar
+    -- recorded, per def. An importing module cannot recompute it: a caller's
+    -- run never emits the callee's body VC, so the callee's sidecar is the only
+    -- source. 'Nothing' means the sidecar predates the disclosure and the sets
+    -- are UNKNOWN, which a reader must render as unrecorded rather than as
+    -- "assumes nothing"; see 'LLMLL.VerifiedCache.axiomDisclosureVersion'.
   } deriving (Show)
 
 -- | In-memory module cache: populated by post-order DFS load, read by

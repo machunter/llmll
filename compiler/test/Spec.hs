@@ -29,7 +29,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -4341,6 +4341,7 @@ main = hspec $ do
               [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
           , meContracts = DM.empty
           , meRetTypes = DM.empty
+          , meBuiltinAxioms = Nothing
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -4390,6 +4391,7 @@ main = hspec $ do
                , meContractStatus = DM.fromList [(name, contractStatus)]
                , meContracts      = DM.empty
                , meRetTypes      = DM.empty
+               , meBuiltinAxioms = Nothing
                }
 
         -- Module A: "auth.verify" with configurable contract status
@@ -4475,6 +4477,7 @@ main = hspec $ do
                 [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -4486,6 +4489,7 @@ main = hspec $ do
                 [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -4524,6 +4528,7 @@ main = hspec $ do
             , meContractStatus = DM.fromList [(name, cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
 
     -- Test 1: Report includes entry function with its contract levels
@@ -4885,6 +4890,9 @@ main = hspec $ do
             , teJointPostWitness   = False    -- OBLIG-PBT-5a: not exercised here
             , teCallerObligations  = []       -- TRUST-PRE: not exercised in TP-* tests
             , teAssumedFacts       = []       -- RESP-FACT-1: not exercised in TP-* tests
+            , teBuiltinAxioms      = []       -- TRUST-AXIOM: not exercised in TP-* tests
+            , teInheritedAxioms    = []       -- TRUST-AXIOM: not exercised in TP-* tests
+            , teGroundFacts        = []       -- TRUST-AXIOM family C: not exercised here
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -6529,6 +6537,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.empty
             , meContracts = DM.empty
             , meRetTypes = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cache = DM.fromList [( ["helpers"], modAEnv)]
           -- Module B imports helpers, calls wasi.io.stdout directly without own import
@@ -7652,6 +7661,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         er <- emitB "(def gate-mac [n: int mac_ok: int] -> int (pre (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1)))) (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= mac_ok 1))))) (if (= mac_ok 1) n 0))"
         erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
 
+
       -- BOOL-6/7 (v0.14.15): fixpoint accepts `not` only in predicate position; `result
       -- = (not b)` emitted `(result = ((not b)))` — `not` as an operand of `=` — which
       -- liquid-fixpoint rejected as a free var ("Constraint with free vars [not]"), a
@@ -7682,6 +7692,83 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- step-bad / session-pay wrong twins verified SAFE). The guard must fire only
     -- for payload-bearing (genuinely value-opaque) sums. Emission-based (solver
     -- not invoked; refutation probe-verified against the binary on the repro set).
+    -- -----------------------------------------------------------------------
+    -- TRUST-AXIOM: a sealed builtin's assumed fact reaches the trust report
+    --
+    -- Each case goes through 'emitFixpointWith' rather than calling
+    -- 'collectBuiltinAxioms' on a hand-built tree, so it exercises the WHOLE
+    -- seam: the builtin arm of 'bodyToPredM' builds a CallVC, the collector
+    -- walks the emitted BodyVC, the recorder accumulates, and 'EmitResult'
+    -- publishes. A test against a hand-built tree would pass even if the
+    -- recorder were never wired in.
+    -- -----------------------------------------------------------------------
+    describe "TRUST-AXIOM (sealed-builtin axiom disclosure)" $ do
+      let emitTA src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+          axiomsFor n er = concat [ as | (f, as) <- erBuiltinAxioms er, f == n ]
+
+      it "TA-1 (bytes-zero) discloses its constructor axiom, with the length" $ do
+        er <- emitTA "(def mk32 [] -> bytes[32] (bytes-zero))"
+        let axs = axiomsFor "mk32" er
+        map baBuiltin axs `shouldBe` ["bytes-zero"]
+        -- The LENGTH conjunct is the axiom; without it the length is not
+        -- derivable at all (Map_default carries none).
+        map baPredicate axs `shouldSatisfy` any (T.isInfixOf "(bytesLen result) = 32")
+
+      it "TA-2 (bytes-set) discloses its length-preservation axiom" $ do
+        er <- emitTA "(def put [b: bytes[8] i: int v: int] -> bytes[8] (pre (and (and (>= i 0) (< i 8)) (and (>= v 0) (<= v 255)))) (bytes-set b i v))"
+        let axs = axiomsFor "put" er
+        map baBuiltin axs `shouldSatisfy` elem "bytes-set"
+        map baPredicate axs `shouldSatisfy` any (T.isInfixOf "(bytesLen result) = (bytesLen b)")
+
+      -- TA-3/TA-4 carry an explicit post. A post is what gives the function a
+      -- body VC to emit; see TA-9 for the post-less case and why it is correct
+      -- for it to disclose nothing.
+      it "TA-3 (bytes-get) discloses its exact-reflection post" $ do
+        er <- emitTA "(def rd [b: bytes[8] i: int] -> int (pre (and (>= i 0) (< i 8))) (post (and (>= result 0) (<= result 255))) (bytes-get b i))"
+        map baBuiltin (axiomsFor "rd" er) `shouldSatisfy` elem "bytes-get"
+
+      it "TA-4 (map-get) discloses its exact-reflection post" $ do
+        er <- emitTA "(def look [m: map[int int] k: int] -> int (pre (map-has m k)) (post (>= result 0)) (map-get m k))"
+        map baBuiltin (axiomsFor "look" er) `shouldSatisfy` elem "map-get"
+
+      -- THE ACTIVATION GATE. A body with no bytes or map operation must record
+      -- nothing, so a report over such a module stays byte-identical. This is
+      -- the case a source re-walk in TrustReport would have had to mirror by
+      -- hand; the BodyVC walk inherits it.
+      it "TA-5 an arithmetic body discloses no axiom (activation gate inherited)" $ do
+        er <- emitTA "(def add1 [n: int] -> int (post (> result n)) (+ n 1))"
+        erBuiltinAxioms er `shouldBe` []
+
+      -- The category must be DERIVED from factCategoryName, never a literal, so
+      -- a reader can tell an assumed fact from a proved one by one vocabulary.
+      it "TA-6 every row is codegen-determined and names the stamp it rides" $ do
+        er <- emitTA "(def mk32 [] -> bytes[32] (bytes-zero))"
+        let axs = axiomsFor "mk32" er
+        map baCategory axs `shouldSatisfy` all (== "codegen-determined")
+        map baStamp    axs `shouldSatisfy` all (== "codegen_semantics_version")
+
+      -- The result binder must read as `result`, not as the alpha-renaming
+      -- counter's `_bv_call_bytes_zero_0`, which is an emission-order artifact.
+      it "TA-7 the row renders the result binder, not the emission counter" $ do
+        er <- emitTA "(def mk32 [] -> bytes[32] (bytes-zero))"
+        map baPredicate (axiomsFor "mk32" er)
+          `shouldSatisfy` all (not . T.isInfixOf "_bv_call")
+
+      it "TA-8 a user-function call is NOT an axiom (its post is a discharged contract)" $ do
+        er <- emitTA "(def inc [n: int] -> int (pre (>= n 0)) (post (> result n)) (+ n 1))\n(def twice [n: int] -> int (pre (>= n 0)) (post (> result n)) (inc (inc n)))"
+        axiomsFor "twice" er `shouldBe` []
+
+      -- A post-less int-returning function has NOTHING TO PROVE, so no body VC
+      -- is emitted and no axiom is assumed by anything. Disclosing a row here
+      -- would name a dependency that no verdict rests on. A `bytes[n]` return
+      -- is the contrast: FACT-AG-LEN Stage 3 gives it an automatic post, so it
+      -- has a body VC and TA-1 sees the row.
+      it "TA-9 a post-less body discloses nothing (no body VC, so no assumption)" $ do
+        er <- emitTA "(def rd [b: bytes[8] i: int] -> int (pre (and (>= i 0) (< i 8))) (bytes-get b i))"
+        axiomsFor "rd" er `shouldBe` []
+
     describe "ENUM-EQ-FALLBACK (nullary-enum contract atoms stay body-faithful)" $ do
       let emitE src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
@@ -11235,7 +11322,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -11711,7 +11798,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           { meExports = Map.empty, meStatements = ss, meInterfaces = Map.empty
           , meAliasMap = Map.empty, mePath = ["lib"]
           , meContractStatus = Map.empty, meContracts = Map.empty
-          , meRetTypes = Map.empty }
+          , meRetTypes = Map.empty
+          , meBuiltinAxioms = Nothing }
         cacheWith ss = Map.fromList [(["lib"], mkEnv ss)]
         effOfC cache stmts nm = lookup nm (computeEffectSummary cache stmts)
 
@@ -11760,6 +11848,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , meContractStatus = Map.empty
           , meContracts      = Map.empty
           , meRetTypes      = Map.empty
+          , meBuiltinAxioms = Nothing
           }
         coreCache = Map.fromList [(["core"], coreEnv)]
         -- The importer body, parsed so '>='/'-' are exercised against the imported
@@ -11810,6 +11899,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes      = Map.empty
+            , meBuiltinAxioms = Nothing
             }
           strCache = Map.fromList [(["core"], strEnv)]
           badSrc = T.unlines
@@ -12523,6 +12613,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        , meContractStatus = Map.empty
                        , meContracts      = Map.empty
                        , meRetTypes      = Map.empty
+                       , meBuiltinAxioms = Nothing
                        }
             cache  = Map.singleton ["lib"] libEnv
             -- Local file: (open lib) + (check ...) covering f. No local
@@ -14541,6 +14632,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.fromList [("double", cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           importerStmts =
             [ SOpen ["core"] Nothing
@@ -19100,6 +19192,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes       = Map.empty
+            , meBuiltinAxioms = Nothing
             }
           y = cgPackageYaml (generateHaskellMulti "m" [imported] [plain])
       mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (True, d)) httpGetDeps

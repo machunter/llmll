@@ -39,7 +39,7 @@ import LLMLL.Diagnostic
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, emptyEnv, TypeEnv, collectConstructors)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
-import LLMLL.VerifiedCache (loadVerified)
+import LLMLL.VerifiedCache (loadVerified, loadBuiltinAxioms)
 
 -- ---------------------------------------------------------------------------
 -- Module path utilities
@@ -193,9 +193,15 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
               env0    = buildModuleEnv modPath stmts retTypes baseEnv
           -- v0.3: merge sidecar .verified.json to upgrade contract statuses
           sidecar <- loadVerified fp
-          let env = if Map.null sidecar
+          -- TRUST-AXIOM: read the axiom sets from the SAME sidecar, so a caller
+          -- can name what this module's evidence rests on. 'Nothing' here is
+          -- preserved rather than defaulted to an empty map: absence means the
+          -- sidecar predates the disclosure, never that the sets are empty.
+          axioms <- loadBuiltinAxioms fp
+          let env1 = if Map.null sidecar
                 then env0
                 else env0 { meContractStatus = Map.unionWith mergeCS sidecar (meContractStatus env0) }
+              env = env1 { meBuiltinAxioms = axioms }
               cache2  = Map.insert modPath env cache1
               -- Post-order: append THIS module after all its dependencies
               order2  = depOrder ++ [modPath]
@@ -294,6 +300,9 @@ buildModuleEnv path stmts retTypes _env =
        , meContractStatus = contractStats
        , meContracts      = contractsMap
        , meRetTypes       = retTypes
+       -- TRUST-AXIOM: this builder reads no sidecar, so it cannot know the
+       -- axiom sets. The loader below fills them in from the sidecar.
+       , meBuiltinAxioms  = Nothing
        }
   where
     toExport (SDefLogic name params mRet _ _) =
