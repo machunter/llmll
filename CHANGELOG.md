@@ -4,6 +4,83 @@
 
 <a id="Latest"></a>
 
+## v0.24.0: a sealed builtin's assumed fact reaches a channel of the trust report (2026-09-22)
+
+`(bytes-zero)` emits the axiom `bytesLen(r) = n` and `(bytes-set b i v)` emits
+`bytesLen(r) = bytesLen(b)`. Both are ASSUME-polarity facts about sealed builtins that no solver
+discharges, valid only because codegen emits the operation the predicate describes, so both ride
+the `codegen_semantics_version` stamp. The report printed `post: verified (liquid-fixpoint)` and
+named neither. `TRUST-AXIOM` had been open since v0.14.77.
+
+### Disclosure — what a `verified` tier rests on
+
+- **The population was larger than the row named, and it was enumerated rather than assumed.** The
+  row named two `bytesLen` axioms. Every builtin `CallVC` arm was enumerated: four sealed builtins
+  carry an assumed post (`bytes-get`, `bytes-set`, `bytes-zero`, `map-get`), because the
+  exact-reflection posts rest on the same trust channel. Disclosing the length half of a
+  `bytes-set` post while staying silent on the store half would have been arbitrary.
+- **Three ground-fact families join them** (`measure-nonneg`, `byte-range`, `bool-value-range`).
+  `injectRangeFacts` conjoins `m(t) >= 0` per measure application and `0 <= select(b,i) <= 255` per
+  bytes-rooted read; each holds because codegen emits a non-negative length or a byte, and neither
+  is discharged. The labels come from the SAME discrimination that emits the facts
+  (`injectRangeFactsLabeled`), so the emitter and the disclosure cannot disagree about what fired.
+- **Rows come from the emitted `BodyVC`, never from a second walk of the source.** A
+  `CallVC "bytes-zero"` node exists only because the `bytes-zero` arm built it. Measured: deleting
+  the `bytesLen` conjunct flips `make-buffer` SAFE to REFUTED **and** strips exactly that conjunct
+  from the disclosed predicate. A re-derived disclosure would still have printed it.
+- **One row per builtin, not per occurrence.** A three-read body disclosed three rows differing
+  only in an index literal.
+
+### Propagation — the silence one level up
+
+- **A caller inherits its callees' axiom sets, transitively.** Measured before the fix: a
+  two-module program where `use-buffer` is `verified` and its whole post rests on the callee's
+  constructor axiom reported **zero** assumed axioms. The cause is structural, since a caller's run
+  never emits its callee's body VC. `markInheritedAxioms` walks the same `teDeps` edges
+  `refutedClosure` uses; the assume-guarantee argument is identical.
+- **The sidecar is the only possible source, so the set is persisted.** New top-level
+  `builtin_axioms` (per def, only when non-empty) and `axiom_disclosure_version` (`"1"`,
+  **unconditional**). The marker is what makes the omission readable: without it, absence is
+  ambiguous between "uses no sealed builtin" and "written before the disclosure existed", and a
+  reader would report "no axioms" for a callee whose axioms are merely unrecorded. This is the
+  `checker_soundness_version` pattern and deliberately **not** the `overflow_tainted` one, whose
+  field-absence trigger fired on every record because the writer legitimately omitted it.
+- **An unrecorded callee reports as UNRECORDED, not as axiom-free.** Absence of a record is not
+  evidence that no axiom was assumed.
+
+### Reporting surface
+
+Three additive per-entry keys: `builtin_axioms`, `inherited_axioms`, `ground_fact_families`.
+`trust_report_version` stays `1.6.0` on the `harness_assumptions` additive-key precedent. No
+`checker_soundness_version` change. `docs/llmll-ast.schema.json` is untouched; no node shape moves.
+The `README.md` command table is unchanged.
+
+### What did not land, and why
+
+- **The obligation report's `assumptions` channel stays empty.** It was the intended home: a
+  sealed-builtin axiom is a TCB assumption and not a consumed guarantee, a distinction
+  `assembleConsumedGuarantees` states in the source. It is unusable because `TrustChannel` is built
+  at exactly one site, inside `mkHoleObl`, so it reaches hole obligations only and a hole-free
+  program shows nothing. That **predates this release** and was surfaced by it: `trAssumptions` has
+  been assigned the empty list at its single site since DEMO-COMP. Filed as `TRUST-CH-HOLE-1` with
+  a `MEASURE` marker, because whether a non-hole obligation should carry the block at all is the
+  question to settle first.
+- **`LLMLL.md` section 3.5 does not exist** and is cited eight times for the
+  `codegen_semantics_version` stamp, four in `LLMLL.md` and three in compiler source, with the new
+  section 13.12 text inheriting it as an eighth. Section 3 ends at 3.4.6. Named, not fixed: where
+  that stamp is specified is a language-team decision.
+- **`examples/totp_rfc6238/totp_filled.ast.json` does not verify.** `dynamic-truncate` returns
+  `bytes[20]` through an unannotated callee return. Pre-existing and unrelated; its sidecar is the
+  one of five not regenerated and stays at `checker_soundness_version` `"1"`.
+
+**`.fq` byte-identity is the gate this change can meet exactly**, because it emits no constraint
+and mints no binder: **108 of 108 files byte-identical** against `11b526a`, and **109 of 109
+verdicts identical**, re-measured at each of the three stages including after the fact-injection
+refactor.
+
+**Tests:** 2043 Haskell, 349 Python (344 passed, 5 skipped).
+
+
 ## v0.23.16: `string-split` with an empty separator built a program that hangs (2026-09-21)
 
 `string_split` guarded its general equation on ``sep `isPrefixOf` s`` and recursed on
