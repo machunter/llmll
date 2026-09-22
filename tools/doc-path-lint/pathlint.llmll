@@ -75,9 +75,12 @@
 ;; and is what the reference's regex effectively does.
 ;;
 ;; SPLIT-EMPTY-1 is why none of this is a per-character fold: `string-split`
-;; with an empty separator does not terminate, so there is no character
-;; decomposition to fold over, and the other tools scan by folding a LITERAL
-;; index list. This port needs no such fold.
+;; with an empty separator did not terminate, so the other tools scan by
+;; folding a LITERAL index list. This port needs no such fold. That defect
+;; CLOSED at v0.23.16, where an empty separator answers `[subject]`. The
+;; second half of this comment as filed, "there is no character decomposition
+;; to fold over", was REFUTED 2026-08-16: it composes from `range` and
+;; `string-char-at`, and LLMLL.md §13.5 prints the idiom.
 ;;
 ;; `string-split` TAKES THE SEPARATOR FIRST (versiongate.llmll:124 measured it).
 

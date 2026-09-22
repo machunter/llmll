@@ -445,9 +445,12 @@ Do not discover these again. The numbers are stable. Other sections cite them.
    LLMLL tool is a stdin-driven step machine that exits **70** on EOF. 58 lines
    of shell became 278 lines of LLMLL.
 
-2. **`SPLIT-EMPTY-1`: `string-split ""` does not terminate.** It type-checks
-   and it verifies. LLMLL decomposes no characters. A scan must be a fold over
-   a literal index list with a hand-written bound.
+2. **`SPLIT-EMPTY-1`: `string-split ""` did not terminate.** It type-checked
+   and it verified, so a scan was a fold over a literal index list with a
+   hand-written bound, and the three ports still carry that fold. **CLOSED
+   v0.23.16**: an empty separator answers `[subject]`. The "LLMLL decomposes
+   no characters" half was REFUTED 2026-08-16: decomposition composes from
+   `range` and `string-char-at`, and `LLMLL.md` §13.5 prints the idiom.
 
 3. **`CAP-NULLARY-1`: nullary `wasi.*` builtins bypass capability
    enforcement.** `inferExpr (EApp ...)` is the only caller of

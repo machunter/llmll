@@ -43,12 +43,18 @@
 ;; that measurement is the one to start from, and `\d` is absent from TDFA
 ;; while `\b` is present, which is not what a reader of Python's `re` expects.
 ;;
-;; `string-split` WITH AN EMPTY SEPARATOR DOES NOT TERMINATE, so there is no
-;; per-character decomposition to fold over. Measured from the emitted body:
-;; `string_split sep str` guards on ``sep `isPrefixOf` s``, which is always
-;; True for an empty separator, so `go` recurses on `drop 0 s` forever. It
-;; type-checks and it verifies. That is why the scanner is a fold over a
-;; LITERAL index list and not over the characters of the string.
+;; `string-split` WITH AN EMPTY SEPARATOR DID NOT TERMINATE. Measured from the
+;; emitted body: `string_split sep str` guarded on ``sep `isPrefixOf` s``,
+;; which is always True for an empty separator, so `go` recursed on `drop 0 s`
+;; forever. It type-checked and it verified. That is why the scanner is a fold
+;; over a LITERAL index list and not over the characters of the string.
+;; SPLIT-EMPTY-1 CLOSED at v0.23.16: an empty separator answers `[subject]`.
+;; This comment also read "so there is no per-character decomposition to fold
+;; over", which was REFUTED 2026-08-16: decomposition composes as
+;; `(list-map (range 0 (string-length s)) (fn [i: int] (string-char-at s i)))`
+;; and LLMLL.md §13.5 prints the idiom. The bounded fold STAYS. It is the
+;; shape the defect forced, and replacing it is parity work on three
+;; artifacts.
 
 (module versiongate
   (import wasi.io (capability stdout :deterministic false))

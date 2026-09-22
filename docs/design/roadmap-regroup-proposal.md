@@ -119,7 +119,7 @@ Admission: `check` passes and the built program crashes, hangs, or runs with a s
 | Rank | Row | Marker | Note |
 |---|---|---|---|
 | 1 | MATCH-CATCHALL-1 | PLAN | Mixed constructor/literal arms lose the catch-all; GHC exception inside a `Command`. |
-| 2 | SPLIT-EMPTY-1 | DECIDE | Diverges and verifies. Recommendation: an empty separator yields the characters of the subject, the one total answer that also closes the missing character decomposition. |
+| 2 | SPLIT-EMPTY-1 | DECIDE | Diverges and verifies. Recommendation: an empty separator yields the characters of the subject, the one total answer that also closes the missing character decomposition. **OVERRIDDEN. v0.23.16 shipped `[subject]`, the no-op.** The recommendation's stated reason was already refuted on 2026-08-16, three weeks before this document: decomposition composes as a `list-map` over `range` with `string-char-at`, and `LLMLL.md` §13.5 prints the idiom. The no-op therefore leaves no design hole, and the recommendation above is kept as the record of what was recommended. |
 | 3 | CONSOLE-INIT-1 | DECIDE | Recommendation: adopt the row's rule. `:init` is required unless the declared state type is `unit`. |
 | 4 | PROC-TIMEOUT-1 | MEASURE | Reproduce on a small generated program. The one-line `-threaded` fix did not move the RTS. |
 | 5 | RESULT-CTOR-RRW | PLAN | Partial fix v0.14.82. Thread the declaring type. |

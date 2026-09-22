@@ -191,7 +191,7 @@ concluded "nothing here is BLOCKS" and "no new gap" and both were false.
 | Enumerate two known subdirectories | **available** | Composes from flat `wasi.fs.list` on each name; no recursion needed |
 | Enumerate subdirectories of UNKNOWN name | **available via the row above** | Needed by criterion 6's stray-declaration branch (`for dir in "$root"/*/`), which the `fail/` fixture exercises, so it cannot be skipped |
 | Read a file's text | **available**, `wasi.fs.read` | |
-| Split content into lines | **available**, `string-split` | Empty-separator decomposition is absent (`SPLIT-EMPTY-1`), but a `"\n"` separator is all this gate needs |
+| Split content into lines | **available**, `string-split` | An empty separator diverged when this was written (`SPLIT-EMPTY-1`, SHIPPED v0.23.16: it answers `[subject]` now), but a `"\n"` separator is all this gate needs |
 | Recognize a frontmatter delimiter and an `archive-disposition:` prefix | **available, not contractable** | String comparison in a bool-valued body falls back (`STRLIT-BODY-1`), so the recognizer half carries no proof. This is the §7 constraint, not a §5 blocker |
 | Strip surrounding whitespace and quotes | **available** | |
 | Classify a value to a side | **available AND provable** | The adjudicator half. Measured: an input-side contract of the `classify.llmll` shape verifies body-faithful SAFE and misrouting one arm is refuted at constraint #1 |
@@ -206,7 +206,7 @@ concluded "nothing here is BLOCKS" and "no new gap" and both were false.
 | A listing carries no entry KIND, so a file and a directory are indistinguishable without a second call | **SHAPES** | `LIST-KIND-1`, filed 2026-08-10 | One `wasi.fs.list` per root, partitioned by kind in a single pass. Instead the stray-declaration branch calls `wasi.fs.list` on every entry and reads `RErr` as "this is a file", which is a control-flow use of an error channel and costs one IO call per entry |
 | `:mode cli` performs no Command and yields no exit status | **SHAPES** | `MODE-CLI-1` | A straight-line program: scan, print, exit. Instead every port in this campaign is a stdin-driven step machine with an explicit `Ctl` state type, which is the single largest reason a shell gate triples in line count |
 | A bool-valued body whose result is a string comparison falls back, so the frontmatter recognizer carries no proof | **SHAPES** | `STRLIT-BODY-1` | The recognizer and the adjudicator would both be verified. Instead only the adjudicator half is contractable, which is what forces §7's instrument split rather than a single proof covering the gate |
-| `string-split` with an empty separator does not terminate and there is no character decomposition | **COSMETIC** | `SPLIT-EMPTY-1` | Nothing follows: this gate splits on `"\n"` and never needs character-level decomposition |
+| `string-split` with an empty separator did not terminate, and this row also claimed there is no character decomposition | **COSMETIC** | `SPLIT-EMPTY-1`, **SHIPPED v0.23.16**: an empty separator answers `[subject]`. The decomposition half was **REFUTED 2026-08-16**: it composes from `range` and `string-char-at`, and `LLMLL.md` §13.5 prints the idiom | Nothing follows: this gate splits on `"\n"` and never needs character-level decomposition |
 | No recursive directory walk | **COSMETIC** | `FS-WALK-1` | Nothing follows: the archive is two levels and composes from flat lists, which is the census claim and it holds for this gate |
 
 **The first row became `LIST-KIND-1`, filed 2026-08-10, and is deliberately not
