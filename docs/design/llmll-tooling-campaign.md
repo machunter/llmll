@@ -872,8 +872,8 @@ routing is:
 |---|---|---|
 | the campaign, the RFCs, the ports | **nobody's role skill** | plain engineering; the RFC author is whoever ports |
 | `MODE-CLI-1`: complete `:mode cli` or withdraw it | **language-team**, then compiler-engineer | a language-surface question; a fixture is owed before either fix |
-| `SPLIT-EMPTY-1`: what `string-split ""` answers | **language-team** first | the value chosen decides whether the no-decomposition half closes with it, so the order matters |
-| `SPLIT-EMPTY-1`: the divergence itself | **compiler-engineer** | one equation |
+| `SPLIT-EMPTY-1`: what `string-split ""` answers | **language-team**, **ANSWERED 2026-09-21** | the answer is `[subject]`, shipped v0.23.16. The order stopped mattering when the no-decomposition half was refuted on 2026-08-16 (§5): decomposition composes from `range` and `string-char-at`, so the no-op closes nothing and leaves no hole |
+| `SPLIT-EMPTY-1`: the divergence itself | **compiler-engineer**, **SHIPPED 2026-09-21** | one equation, and one equation is what it took: `string_split [] str = [str]` in the emitted preamble, v0.23.16 |
 | `FS-WALK-1` | **language-team**, **SETTLED 2026-08-10** | an unbounded walk in a bounded idiom was a design question, and the measurement dissolved it: 006 needs no walk. The residue, what bounds an unbounded worklist, went to `MODE-CLI-1` rather than becoming a row, because that row is the cause and `PROC-BOUNDARY-1` §4.5 already discloses the diagnostic half |
 | `CAP-NULLARY-1` | **compiler-engineer** | sits under `CAP-1-REAL` |
 | P1 (tags, images) | **the user** | outward-facing |

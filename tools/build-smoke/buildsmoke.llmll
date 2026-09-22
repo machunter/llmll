@@ -560,8 +560,10 @@
   ;; order. Each name must carry a TOP-LEVEL definition in the emitted
   ;; preamble, which the subject tests as `^name ` and this tests as a line
   ;; start followed by the name and a space. A literal list is also what
-  ;; SPLIT-EMPTY-1 forces: `string-split ""` does not terminate, so a scan is
-  ;; a fold over a written-out list.
+  ;; SPLIT-EMPTY-1 forced: `string-split ""` did not terminate, so a scan was
+  ;; a fold over a written-out list. That defect CLOSED at v0.23.16, where an
+  ;; empty separator answers `[subject]`. The written-out list STAYS: it is
+  ;; the shape the defect forced, and it is the subject's list verbatim.
   ;;
   ;; IT WAS NOT VERBATIM, AND THE PORT WAS THE WEAKER SIDE. The difference was
   ;; measured in both directions: thirty names in the subject against
