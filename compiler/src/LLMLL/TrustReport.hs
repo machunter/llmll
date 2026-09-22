@@ -21,6 +21,9 @@ module LLMLL.TrustReport
   , markAssumedFacts            -- RESP-FACT-1: per-entry setter
   , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
   , markBuiltinAxioms           -- TRUST-AXIOM: per-entry sealed-builtin axiom setter
+  , markInheritedAxioms         -- TRUST-AXIOM: per-entry transitive-callee axiom setter
+  , InheritedAxiom(..)          -- TRUST-AXIOM: one inherited row
+  , inheritedAxiomJson          -- TRUST-AXIOM: its JSON shape
   , builtinAxiomJson            -- TRUST-AXIOM: its JSON shape
   , OpenSpecRow(..)             -- DISCLOSE-ROW-1: open [SPEC] row a program's surface touches
   , openSpecRows                -- DISCLOSE-ROW-1: derive them from live statements
@@ -58,7 +61,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, catMaybes, maybeToList, isJust)
-import Data.List (nub, sortOn, foldl')
+import Data.List (nub, sortOn, foldl', find)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Graph (stronglyConnComp, SCC(..))
@@ -140,6 +143,25 @@ data TrustEntry = TrustEntry
   -- map-free function. Additive JSON key 'builtin_axioms', no emit-version
   -- change (the 'harness_assumptions' precedent).
   , teBuiltinAxioms      :: [BuiltinAxiom]
+  -- TRUST-AXIOM: the sealed-builtin axioms this function INHERITS from its
+  -- transitive callees. A caller's run never emits a callee's body VC, so these
+  -- come from the callee's persisted sidecar and never from a re-derivation.
+  -- Without them a caller reaches 'verified' while its whole post rests on an
+  -- axiom named nowhere in its own report, which is the defect TRUST-AXIOM
+  -- exists to close, one level up.
+  , teInheritedAxioms    :: [InheritedAxiom]
+  } deriving (Show, Eq)
+
+-- | TRUST-AXIOM: one inherited sealed-builtin axiom, or one callee whose
+-- axiom set was never recorded.
+--
+-- 'iaBuiltin' is 'Nothing' exactly when the callee's sidecar predates the
+-- disclosure. That case is REPORTED rather than skipped: silence there would
+-- claim the callee assumes nothing, when the truth is that nobody wrote it
+-- down. See 'LLMLL.VerifiedCache.axiomDisclosureVersion'.
+data InheritedAxiom = InheritedAxiom
+  { iaOrigin  :: Name         -- ^ the callee the axiom came from
+  , iaBuiltin :: Maybe Name   -- ^ the sealed builtin; Nothing = unrecorded
   } deriving (Show, Eq)
 
 -- | TRUST-PRE (Part 2): one caller-precondition obligation carried on a
@@ -1140,6 +1162,7 @@ mkEntry qname contract body allCS =
        , teCallerObligations  = []       -- TRUST-PRE: filled by markCallerObligations
        , teAssumedFacts       = []       -- RESP-FACT-1: filled by markAssumedFacts
        , teBuiltinAxioms      = []       -- TRUST-AXIOM: filled by markBuiltinAxioms post-emit
+       , teInheritedAxioms    = []       -- TRUST-AXIOM: filled by markInheritedAxioms post-emit
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -1553,6 +1576,48 @@ markBuiltinAxioms rows report = report { trEntries = map stamp (trEntries report
   where
     stamp e = e { teBuiltinAxioms = concat [ as | (n, as) <- rows, n == teName e ] }
 
+-- | TRUST-AXIOM: attach each transitively-inherited axiom to the entry.
+--
+-- The map is keyed by callee name and carries 'Nothing' for a callee whose
+-- sidecar recorded no axiom set. Built from 'ModuleCache' by the caller, since
+-- this module reads no sidecar itself.
+--
+-- The walk uses 'teDeps', the same dependency edges 'refutedClosure' uses to
+-- propagate refutation. The assume-guarantee argument is identical: a caller's
+-- evidence rests on its callee's post, so whatever that post rests on, the
+-- caller rests on too.
+--
+-- A function's OWN axioms are not repeated here; 'teBuiltinAxioms' carries
+-- those. The two views answer different questions and a reader needs both.
+markInheritedAxioms :: Map Name (Maybe [Name]) -> TrustReport -> TrustReport
+markInheritedAxioms recorded report =
+    report { trEntries = map stamp (trEntries report) }
+  where
+    depsOf n = maybe [] (map tdName . teDeps) (find (\e -> teName e == n) (trEntries report))
+    stamp e = e { teInheritedAxioms = nub (concatMap rowsFor (reach [teName e] [])) }
+      where
+        -- Transitive callees, excluding the function itself.
+        reach []     acc = acc
+        reach (x:xs) acc =
+          let new = [ d | d <- depsOf x, d /= teName e, d `notElem` acc, d `notElem` xs ]
+          in reach (xs ++ new) (if x == teName e then acc else acc ++ [x])
+    rowsFor callee = case Map.lookup callee recorded of
+      Just (Just bs) -> [ InheritedAxiom callee (Just b) | b <- bs ]
+      Just Nothing   -> [ InheritedAxiom callee Nothing ]
+      Nothing        -> []
+
+-- | TRUST-AXIOM: the JSON shape of one inherited-axiom row.
+inheritedAxiomJson :: InheritedAxiom -> Value
+inheritedAxiomJson a = object $
+  [ "origin" .= iaOrigin a ] ++
+  case iaBuiltin a of
+    Just b  -> [ "builtin" .= b
+               , "category" .= ("codegen-determined" :: Text)
+               , "stamp" .= ("codegen_semantics_version" :: Text) ]
+    Nothing -> [ "recorded" .= False
+               , "note" .= ("callee sidecar predates the axiom disclosure; \
+                            \its assumed set is unknown, not empty" :: Text) ]
+
 -- | TRUST-AXIOM: the JSON shape of one sealed-builtin axiom row.
 builtinAxiomJson :: BuiltinAxiom -> Value
 builtinAxiomJson a = object
@@ -1784,7 +1849,19 @@ formatEntry bodyFallback e =
                               <> " [" <> baCategory a <> "; stamp: " <> baStamp a <> "]"
                               <> " (ASSUMED, not proved: it rides codegen_semantics_version)")
                        (teBuiltinAxioms e)
-  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines ++ axiomLines
+      -- TRUST-AXIOM: inherited rows read differently from own rows, so the
+      -- verb differs. "inherits" names a dependency the reader must follow to
+      -- the origin; "assumes" names one this body took on itself.
+      inheritedLines = map renderInherited (teInheritedAxioms e)
+      renderInherited a = case iaBuiltin a of
+        Just b  -> "    ≈ inherits " <> b <> " via " <> iaOrigin a
+                     <> " [codegen-determined; stamp: codegen_semantics_version]"
+                     <> " (ASSUMED, not proved: it rides codegen_semantics_version)"
+        Nothing -> "    ? inherits from " <> iaOrigin a
+                     <> " [axiom set UNRECORDED: that callee's sidecar predates the"
+                     <> " disclosure, so its assumed set is unknown, not empty]"
+  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
+       ++ axiomLines ++ inheritedLines
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =
@@ -1957,6 +2034,10 @@ formatTrustReportJson report =
       -- 'trust_report_version' change (the 'harness_assumptions' precedent).
       [ "builtin_axioms" .= map builtinAxiomJson (teBuiltinAxioms e)
       | not (null (teBuiltinAxioms e)) ] ++
+      -- TRUST-AXIOM: the transitively-inherited set, only-when-present on the
+      -- same rule. Additive; no 'trust_report_version' change.
+      [ "inherited_axioms" .= map inheritedAxiomJson (teInheritedAxioms e)
+      | not (null (teInheritedAxioms e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

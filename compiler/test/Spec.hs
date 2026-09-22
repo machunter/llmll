@@ -4341,6 +4341,7 @@ main = hspec $ do
               [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
           , meContracts = DM.empty
           , meRetTypes = DM.empty
+          , meBuiltinAxioms = Nothing
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -4390,6 +4391,7 @@ main = hspec $ do
                , meContractStatus = DM.fromList [(name, contractStatus)]
                , meContracts      = DM.empty
                , meRetTypes      = DM.empty
+               , meBuiltinAxioms = Nothing
                }
 
         -- Module A: "auth.verify" with configurable contract status
@@ -4475,6 +4477,7 @@ main = hspec $ do
                 [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -4486,6 +4489,7 @@ main = hspec $ do
                 [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -4524,6 +4528,7 @@ main = hspec $ do
             , meContractStatus = DM.fromList [(name, cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
 
     -- Test 1: Report includes entry function with its contract levels
@@ -4886,6 +4891,7 @@ main = hspec $ do
             , teCallerObligations  = []       -- TRUST-PRE: not exercised in TP-* tests
             , teAssumedFacts       = []       -- RESP-FACT-1: not exercised in TP-* tests
             , teBuiltinAxioms      = []       -- TRUST-AXIOM: not exercised in TP-* tests
+            , teInheritedAxioms    = []       -- TRUST-AXIOM: not exercised in TP-* tests
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -6530,6 +6536,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.empty
             , meContracts = DM.empty
             , meRetTypes = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           cache = DM.fromList [( ["helpers"], modAEnv)]
           -- Module B imports helpers, calls wasi.io.stdout directly without own import
@@ -11314,7 +11321,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -11790,7 +11797,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           { meExports = Map.empty, meStatements = ss, meInterfaces = Map.empty
           , meAliasMap = Map.empty, mePath = ["lib"]
           , meContractStatus = Map.empty, meContracts = Map.empty
-          , meRetTypes = Map.empty }
+          , meRetTypes = Map.empty
+          , meBuiltinAxioms = Nothing }
         cacheWith ss = Map.fromList [(["lib"], mkEnv ss)]
         effOfC cache stmts nm = lookup nm (computeEffectSummary cache stmts)
 
@@ -11839,6 +11847,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , meContractStatus = Map.empty
           , meContracts      = Map.empty
           , meRetTypes      = Map.empty
+          , meBuiltinAxioms = Nothing
           }
         coreCache = Map.fromList [(["core"], coreEnv)]
         -- The importer body, parsed so '>='/'-' are exercised against the imported
@@ -11889,6 +11898,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes      = Map.empty
+            , meBuiltinAxioms = Nothing
             }
           strCache = Map.fromList [(["core"], strEnv)]
           badSrc = T.unlines
@@ -12602,6 +12612,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        , meContractStatus = Map.empty
                        , meContracts      = Map.empty
                        , meRetTypes      = Map.empty
+                       , meBuiltinAxioms = Nothing
                        }
             cache  = Map.singleton ["lib"] libEnv
             -- Local file: (open lib) + (check ...) covering f. No local
@@ -14620,6 +14631,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.fromList [("double", cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
+            , meBuiltinAxioms = Nothing
             }
           importerStmts =
             [ SOpen ["core"] Nothing
@@ -19179,6 +19191,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes       = Map.empty
+            , meBuiltinAxioms = Nothing
             }
           y = cgPackageYaml (generateHaskellMulti "m" [imported] [plain])
       mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (True, d)) httpGetDeps

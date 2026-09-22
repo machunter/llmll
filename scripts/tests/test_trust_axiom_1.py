@@ -176,3 +176,96 @@ def test_a_bytes_free_program_discloses_no_axiom(arith_prog):
 
     out_json = _verify(arith_prog.parent, arith_prog, "--strict-verify", "--json")
     assert "builtin_axioms" not in out_json, out_json[-3000:]
+
+
+# ---------------------------------------------------------------------------
+# TRUST-AXIOM propagation (D1/D2(c)/D3): the axiom set crosses a module boundary
+#
+# A caller's run never emits its callee's body VC, so it cannot recompute what
+# the callee assumed. The callee's sidecar is the only source. These cells pin
+# both halves of that: the recorded case, and the case where the callee's
+# sidecar predates the disclosure and the set is UNKNOWN rather than empty.
+#
+# Same-module sibling `def` calls are inadmissible in strict-core bodies, so
+# propagation is inherently CROSS-MODULE and these cells need two files.
+# ---------------------------------------------------------------------------
+
+CALLEE_SRC = """(export make-buffer)
+(def make-buffer [] -> bytes[32]
+  (post (= (bytes-length result) 32))
+  (bytes-zero))
+"""
+
+CALLER_SRC = """(import buf)
+(open buf)
+(def use-buffer [] -> int
+  (post (= result 32))
+  (bytes-length (make-buffer)))
+"""
+
+
+@pytest.fixture(scope="module")
+def two_module_program(tmp_path_factory) -> Path:
+    """The callee is verified first, so its sidecar exists when the caller runs."""
+    d = tmp_path_factory.mktemp("trust-axiom-prop")
+    (d / "buf.llmll").write_text(CALLEE_SRC, encoding="utf-8")
+    (d / "use.llmll").write_text(CALLER_SRC, encoding="utf-8")
+    _verify(d, d / "buf.llmll", "--strict-verify")
+    return d
+
+
+def test_the_callee_records_its_axiom_set_in_the_sidecar(two_module_program):
+    """Cell 6: the sidecar carries the set and the unconditional marker."""
+    doc = json.loads((two_module_program / "buf.llmll.verified.json").read_text())
+    assert doc["axiom_disclosure_version"] == "1"
+    assert doc["builtin_axioms"]["make-buffer"] == ["bytes-zero"]
+
+
+def test_the_caller_inherits_the_callee_axiom(two_module_program):
+    """Cell 7: the caller names an axiom its own body never used.
+
+    Before propagation this report carried zero `assumes` lines while
+    `use-buffer`'s whole post rested on the constructor axiom.
+    """
+    out = _verify(two_module_program, two_module_program / "use.llmll", "--strict-verify")
+    assert "inherits bytes-zero via make-buffer" in out, out[-3000:]
+    assert "ASSUMED, not proved" in out, out[-3000:]
+
+
+def test_an_unrecorded_callee_reads_as_unknown_not_empty(two_module_program, tmp_path):
+    """Cell 8, the fail-closed half, and the reason the marker is unconditional.
+
+    A sidecar written before the disclosure carries no axiom set. Reporting
+    silence there would claim the callee assumes nothing, when the truth is
+    that nobody wrote it down. INT-1 made exactly this mistake in reverse; see
+    the commentary above `sidecarNeedsRevalidation` in VerifiedCache.hs.
+    """
+    d = tmp_path / "unrecorded"
+    shutil.copytree(two_module_program, d)
+    sidecar = d / "buf.llmll.verified.json"
+    doc = json.loads(sidecar.read_text())
+    doc.pop("axiom_disclosure_version", None)
+    doc.pop("builtin_axioms", None)
+    sidecar.write_text(json.dumps(doc), encoding="utf-8")
+
+    out = _verify(d, d / "use.llmll", "--strict-verify")
+    assert "UNRECORDED" in out, out[-3000:]
+    assert "unknown, not empty" in out, out[-3000:]
+    # It must NOT silently claim the callee is axiom-free.
+    assert "inherits bytes-zero" not in out, out[-3000:]
+
+
+def test_one_row_per_builtin_not_per_occurrence(tmp_path):
+    """Cell 9 (D4): a three-read body discloses one row, not three.
+
+    The three rows differed only in an index literal and all asserted that
+    `bytes-get` reflects to `Map_select`. What a reader needs is the SET.
+    """
+    prog = tmp_path / "rmw.llmll"
+    prog.write_text(
+        "(def sum3 [b: bytes[8]] -> int\n"
+        "  (post (>= result 0))\n"
+        "  (+ (+ (bytes-get b 0) (bytes-get b 1)) (bytes-get b 2)))\n",
+        encoding="utf-8")
+    out = _verify(tmp_path, prog, "--strict-verify")
+    assert out.count("≈ assumes bytes-get") == 1, out[-3000:]

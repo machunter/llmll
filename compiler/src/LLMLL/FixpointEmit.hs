@@ -121,7 +121,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes)
-import Data.List (nub, partition)
+import Data.List (nub, nubBy, partition)
+import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
@@ -4553,8 +4554,13 @@ collectCallSites (CallVC c args _ _ _ _ cont) = (c, args) : collectCallSites con
 --
 -- A builtin arm with no assumed post yields no row. None exists today; the
 -- 'Nothing' case is not dead, because 'CallVC' admits it by construction.
+-- TRUST-AXIOM D4: ONE ROW PER BUILTIN, not per occurrence. A three-read body
+-- otherwise yields three rows differing only in an index literal, all asserting
+-- that `bytes-get` reflects to `Map_select`. What a reader needs is the SET of
+-- sealed builtins the evidence rests on, which 'sealedAxiomBuiltins' bounds at
+-- four. The first occurrence supplies the representative predicate.
 collectBuiltinAxioms :: Name -> BodyVC -> [BuiltinAxiom]
-collectBuiltinAxioms defName = go
+collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
     go (SimpleVC _ _)     = []
     go (BranchVC _ _ t e) = go t ++ go e

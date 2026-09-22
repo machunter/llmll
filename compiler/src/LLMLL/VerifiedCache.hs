@@ -10,6 +10,11 @@ module LLMLL.VerifiedCache
   , loadVerified
   , saveVerified
   , saveVerifiedWith   -- TRUST-PRE: variant persisting a top-level caller_obligations array
+  , saveVerifiedWithAxioms       -- TRUST-AXIOM: plus the per-def sealed-builtin axiom sets
+  , loadBuiltinAxioms            -- TRUST-AXIOM: Nothing = unrecorded, Just = recorded
+  , axiomDisclosureVersion       -- TRUST-AXIOM: the unconditional file-level marker
+  , reservedAxiomDisclosureKey
+  , reservedBuiltinAxiomsKey
   , sidecarNeedsRevalidation
   , checkerSoundnessVersion      -- SAFE-ARG: checker-soundness epoch stamped into every sidecar
   , reservedCheckerSoundnessKey
@@ -365,6 +370,35 @@ checkerSoundnessVersion = "2"
 reservedCheckerSoundnessKey :: Text
 reservedCheckerSoundnessKey = "checker_soundness_version"
 
+-- | TRUST-AXIOM: the epoch of the sealed-builtin axiom disclosure.
+--
+-- STAMPED UNCONDITIONALLY, and that is the whole point of it. The per-def
+-- 'builtin_axioms' map is emitted only when non-empty, so its absence alone is
+-- ambiguous: it means either "this function uses no sealed builtin" or "this
+-- sidecar predates the disclosure". A reader that cannot tell those apart
+-- reports "no axioms" for a function whose axioms are merely unrecorded, which
+-- is the silence TRUST-AXIOM exists to close, reintroduced one level down.
+--
+-- This marker resolves it. Present means the writer recorded the set, so an
+-- absent per-def entry means the function genuinely assumed none. Absent means
+-- an older binary wrote the file and the set is UNKNOWN.
+--
+-- This is the 'checkerSoundnessVersion' pattern and deliberately NOT the
+-- 'overflow_tainted' pattern. INT-1 read a missing field as "possibly tainted"
+-- when the writer legitimately omitted it on normal records, so the trigger
+-- fired on every record; see the commentary above 'sidecarNeedsRevalidation'.
+-- A marker at FILE level costs one key per file instead of one per record.
+axiomDisclosureVersion :: Text
+axiomDisclosureVersion = "1"
+
+-- | TRUST-AXIOM: reserved top-level key carrying 'axiomDisclosureVersion'.
+reservedAxiomDisclosureKey :: Text
+reservedAxiomDisclosureKey = "axiom_disclosure_version"
+
+-- | TRUST-AXIOM: reserved top-level key, def name to sealed-builtin names.
+reservedBuiltinAxiomsKey :: Text
+reservedBuiltinAxiomsKey = "builtin_axioms"
+
 -- | TRUST-PRE: save verified status PLUS a persisted top-level
 -- 'caller_obligations' array. The obligation objects are pre-rendered 'Value's
 -- (built with 'TrustReport.callerObligationJson') so this module keeps its lean
@@ -373,11 +407,49 @@ reservedCheckerSoundnessKey = "checker_soundness_version"
 -- property, so its ABSENCE for a given function is itself information, the
 -- deliberate inverse of the non-persisted 'refuted' verdict.
 saveVerifiedWith :: FilePath -> Map Name ContractStatus -> [Value] -> IO ()
-saveVerifiedWith fp statuses obligations = do
+saveVerifiedWith fp statuses obligations =
+  saveVerifiedWithAxioms fp statuses obligations Map.empty
+
+-- | TRUST-AXIOM: 'saveVerifiedWith' plus the per-def sealed-builtin axiom sets.
+--
+-- The map is emitted only when non-empty, so a bytes-free and map-free module's
+-- sidecar keeps its previous shape apart from the one unconditional marker.
+-- 'axiomDisclosureVersion' is what makes that omission readable; see its note.
+saveVerifiedWithAxioms
+  :: FilePath -> Map Name ContractStatus -> [Value] -> Map Name [Text] -> IO ()
+saveVerifiedWithAxioms fp statuses obligations axioms = do
   let path = verifiedPath fp
       pairs = [ AK.fromText k .= csToJSON cs | (k, cs) <- Map.toList statuses ]
       obKey = [ AK.fromText reservedCallerObligationsKey .= obligations ]
       -- SAFE-ARG: stamped UNCONDITIONALLY, which is what makes absence a sound
       -- "written by an older binary" signal in 'sidecarNeedsRevalidation'.
       csKey = [ AK.fromText reservedCheckerSoundnessKey .= checkerSoundnessVersion ]
-  BL.writeFile path (A.encode (object (pairs ++ obKey ++ csKey)))
+      -- TRUST-AXIOM: likewise unconditional, for the same reason.
+      adKey = [ AK.fromText reservedAxiomDisclosureKey .= axiomDisclosureVersion ]
+      axKey = [ AK.fromText reservedBuiltinAxiomsKey
+                  .= object [ AK.fromText n .= bs | (n, bs) <- Map.toList axioms ]
+              | not (Map.null axioms) ]
+  BL.writeFile path (A.encode (object (pairs ++ obKey ++ csKey ++ adKey ++ axKey)))
+
+-- | TRUST-AXIOM: read the per-def sealed-builtin axiom sets from a sidecar.
+--
+-- 'Nothing' means the file carries no 'axiom_disclosure_version', so it was
+-- written before the disclosure existed and the sets are UNKNOWN. A caller must
+-- render that as unrecorded and never as "assumes nothing".
+--
+-- 'Just m' means the writer recorded them. A def absent from @m@ then genuinely
+-- assumed no sealed-builtin axiom.
+loadBuiltinAxioms :: FilePath -> IO (Maybe (Map Name [Text]))
+loadBuiltinAxioms fp = do
+  let path = verifiedPath fp
+  exists <- doesFileExist path
+  if not exists then pure Nothing else do
+    bs <- BL.readFile path
+    pure $ case A.decode bs of
+      Just (Object o) | Just (String _) <- KM.lookup (AK.fromText reservedAxiomDisclosureKey) o ->
+        Just $ case KM.lookup (AK.fromText reservedBuiltinAxiomsKey) o of
+          Just (Object m) -> Map.fromList
+            [ (AK.toText k, [ s | String s <- foldr (:) [] arr ])
+            | (k, Array arr) <- KM.toList m ]
+          _ -> Map.empty
+      _ -> Nothing
