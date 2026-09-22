@@ -20,6 +20,8 @@ module LLMLL.TrustReport
   , assumedFactJson             -- RESP-FACT-1: its JSON shape
   , markAssumedFacts            -- RESP-FACT-1: per-entry setter
   , markBodyFallback            -- TRUST-CC-1: per-entry body_fallback marker
+  , markBuiltinAxioms           -- TRUST-AXIOM: per-entry sealed-builtin axiom setter
+  , builtinAxiomJson            -- TRUST-AXIOM: its JSON shape
   , OpenSpecRow(..)             -- DISCLOSE-ROW-1: open [SPEC] row a program's surface touches
   , openSpecRows                -- DISCLOSE-ROW-1: derive them from live statements
   , openSpecRowJson             -- DISCLOSE-ROW-1: its JSON shape
@@ -67,7 +69,7 @@ import qualified Data.Text.Lazy as TL
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
-import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap, cacheAwareAliasMap)  -- DEF-RET Unit 2; RESP-FACT-1 merged aliases
+import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap, cacheAwareAliasMap, BuiltinAxiom(..))  -- DEF-RET Unit 2; RESP-FACT-1 merged aliases; TRUST-AXIOM rows
 -- RESP-FACT-1 (§12): the disclosure rows come from the same pure analysis the
 -- checker and the emitter run, so the three surfaces cannot drift.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), AssumedFact(..))
@@ -130,6 +132,14 @@ data TrustEntry = TrustEntry
   -- empty for every function outside a requesting module. Additive JSON key
   -- 'assumed_facts', no emit-version change (the 'harness_assumptions' precedent).
   , teAssumedFacts       :: [AssumedFact]
+  -- TRUST-AXIOM: the sealed-builtin axioms this function's body VC assumed.
+  -- One row per builtin occurrence, carrying the post that reached the solver
+  -- at ASSUME polarity. No solver discharged it; it rides
+  -- 'codegen_semantics_version'. Populated by 'markBuiltinAxioms' post-emit
+  -- (the 'markBodyFallback' precedent); empty for every bytes-free and
+  -- map-free function. Additive JSON key 'builtin_axioms', no emit-version
+  -- change (the 'harness_assumptions' precedent).
+  , teBuiltinAxioms      :: [BuiltinAxiom]
   } deriving (Show, Eq)
 
 -- | TRUST-PRE (Part 2): one caller-precondition obligation carried on a
@@ -1129,6 +1139,7 @@ mkEntry qname contract body allCS =
        , teJointPostWitness   = False    -- OBLIG-PBT-5a: marked by markJointEntries
        , teCallerObligations  = []       -- TRUST-PRE: filled by markCallerObligations
        , teAssumedFacts       = []       -- RESP-FACT-1: filled by markAssumedFacts
+       , teBuiltinAxioms      = []       -- TRUST-AXIOM: filled by markBuiltinAxioms post-emit
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -1531,6 +1542,26 @@ markCallerObligations declaredReqs entries = map mark entries
 markAssumedFacts :: [AssumedFact] -> [TrustEntry] -> [TrustEntry]
 markAssumedFacts rows = map (\e -> e { teAssumedFacts = [ r | r <- rows, afDef r == teName e ] })
 
+-- | TRUST-AXIOM: attach each sealed-builtin axiom row to the entry it names.
+--
+-- Post-EMIT, not post-solver: the rows come from the body VC the emitter built,
+-- so they are known before the solver runs and do not depend on its verdict.
+-- This mirrors 'markBodyFallback' exactly, including the seeding of
+-- 'teBuiltinAxioms' to the empty list at entry construction.
+markBuiltinAxioms :: [(Name, [BuiltinAxiom])] -> TrustReport -> TrustReport
+markBuiltinAxioms rows report = report { trEntries = map stamp (trEntries report) }
+  where
+    stamp e = e { teBuiltinAxioms = concat [ as | (n, as) <- rows, n == teName e ] }
+
+-- | TRUST-AXIOM: the JSON shape of one sealed-builtin axiom row.
+builtinAxiomJson :: BuiltinAxiom -> Value
+builtinAxiomJson a = object
+  [ "builtin"   .= baBuiltin a
+  , "predicate" .= baPredicate a
+  , "category"  .= baCategory a
+  , "stamp"     .= baStamp a
+  ]
+
 -- | RESP-FACT-1: the JSON shape of one assumed-fact row.
 assumedFactJson :: AssumedFact -> Value
 assumedFactJson a = object
@@ -1746,7 +1777,14 @@ formatEntry bodyFallback e =
                                 <> " " <> afPredicate a <> " [" <> afCategory a
                                 <> "; premise: " <> afPremise a <> "]" <> assumedNote a)
                          (teAssumedFacts e)
-  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
+      -- TRUST-AXIOM: one line per sealed-builtin axiom. The note repeats
+      -- 'assumedNote' verbatim, because the two rows disclose the same class
+      -- and a reader must not have to learn two phrasings for one fact.
+      axiomLines = map (\a -> "    ≈ assumes " <> baBuiltin a <> " " <> baPredicate a
+                              <> " [" <> baCategory a <> "; stamp: " <> baStamp a <> "]"
+                              <> " (ASSUMED, not proved: it rides codegen_semantics_version)")
+                       (teBuiltinAxioms e)
+  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines ++ axiomLines
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =
@@ -1914,6 +1952,11 @@ formatTrustReportJson report =
       -- 'trust_report_version' change (the 'harness_assumptions' precedent).
       [ "assumed_facts" .= map assumedFactJson (teAssumedFacts e)
       | not (null (teAssumedFacts e)) ] ++
+      -- TRUST-AXIOM: per-entry sealed-builtin axiom rows, only-when-present so
+      -- a bytes-free and map-free report stays byte-identical. Additive; no
+      -- 'trust_report_version' change (the 'harness_assumptions' precedent).
+      [ "builtin_axioms" .= map builtinAxiomJson (teBuiltinAxioms e)
+      | not (null (teBuiltinAxioms e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

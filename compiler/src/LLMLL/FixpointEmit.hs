@@ -46,6 +46,8 @@ module LLMLL.FixpointEmit
   , EmitResult(..)
   , FallbackCause(..)
   , renderFallbackCause
+  , BuiltinAxiom(..)              -- TRUST-AXIOM: one sealed-builtin axiom a function's evidence rests on
+  , sealedAxiomBuiltins           -- TRUST-AXIOM: the builtins whose assumed post is an axiom
   , arrayTheorySyms               -- FQ-FREEVAR-GUARD-1: the solver's interpreted symbols
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
@@ -80,6 +82,7 @@ module LLMLL.FixpointEmit
   , pathBranchSides              -- COMP-3b-general: structural branch provenance (localization)
   , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
+  , collectBuiltinAxioms         -- TRUST-AXIOM: sealed-builtin axioms from the emitted BodyVC
   , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
@@ -138,7 +141,7 @@ import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
-import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..))
+import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..), FactCategory(..), factCategoryName)
 
 -- ---------------------------------------------------------------------------
 -- Configuration (v0.8.0)
@@ -263,7 +266,48 @@ data EmitResult = EmitResult
   , erCallPreFns        :: [Text]           -- ^ v0.9.0: functions that emitted call-pre obligations
   , erOverflowTaintedFns :: [Text]          -- ^ INT-1 (v0.10.8): body-faithful fns whose body uses unbounded-Int arithmetic
   , erMeasuredFns        :: [Text]          -- ^ REC-DESCENT: def-shells with a translatable k=1 decreases measure (the descent-discharge candidate set; on SAFE + whole-SCC-measured ⇒ termination-verified)
+  , erBuiltinAxioms      :: [(Text, [BuiltinAxiom])] -- ^ TRUST-AXIOM: per function, the sealed-builtin axioms its body VC assumed
   } deriving (Show)
+
+-- ---------------------------------------------------------------------------
+-- TRUST-AXIOM: sealed-builtin axiom disclosure
+-- ---------------------------------------------------------------------------
+
+-- | TRUST-AXIOM: one sealed-builtin axiom that a function's body VC ASSUMED.
+--
+-- A builtin 'CallVC' carries its 'cvPostAssumption' at ASSUME polarity. No
+-- solver discharges it and no contract establishes it. It is valid because
+-- codegen emits the operation the predicate describes, so it rides the
+-- @codegen_semantics_version@ stamp (LLMLL.md §3.5) instead of a proof.
+--
+-- The category is the SAME class 'LLMLL.RespFact.FactCodegen' already names:
+-- that constructor's comment cites @bytes-set@'s length-preservation fact by
+-- name. This record extends that disclosure to the bytes and map builtins,
+-- which reach the solver on no channel of the trust report today.
+--
+-- THIS IS DISCLOSURE, NOT A TIER CHANGE. No verdict moves and no function
+-- leaves @--strict-verified-core@ admission. See
+-- docs/design/trust-axiom-implementation-plan.md §(d) for why an axiom taint
+-- would empty the array class instead of disclosing it.
+data BuiltinAxiom = BuiltinAxiom
+  { baDef       :: Name   -- ^ the function whose evidence rests on the axiom
+  , baBuiltin   :: Name   -- ^ the sealed builtin ("bytes-set", "bytes-zero", …)
+  , baPredicate :: Text   -- ^ the rendered assumed post
+  , baCategory  :: Text   -- ^ derived from 'factCategoryName', never a literal
+  , baStamp     :: Text   -- ^ the stamp the axiom rides
+  } deriving (Show, Eq)
+
+-- | TRUST-AXIOM: the builtins whose 'cvPostAssumption' is an axiom rather than
+-- a discharged contract. These are exactly the four builtin 'CallVC' arms of
+-- 'bodyToPredM'. A user function's 'CallVC' is NOT here: its post is the
+-- callee's own contract, discharged by the callee's body VC under
+-- assume-guarantee (LLMLL.md §5.3.4).
+--
+-- ONE SITE, deliberately. The collector and the emitting arms must not hold
+-- separate opinions about membership; 'LLMLL.TypeAdmissibility' exists because
+-- a mirrored gate drifted once already.
+sealedAxiomBuiltins :: Set.Set Name
+sealedAxiomBuiltins = Set.fromList ["bytes-get", "bytes-set", "bytes-zero", "map-get"]
 
 -- ---------------------------------------------------------------------------
 -- Body-VC types (v0.8.0)
@@ -571,6 +615,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   emittedPostRef <- newIORef ([] :: [Text])
   callPreRef <- newIORef ([] :: [Text])  -- v0.9.0: functions with call-pre obligations
   overflowTaintedRef <- newIORef ([] :: [Text])  -- INT-1: body-faithful fns with unbounded-Int arithmetic
+  builtinAxiomsRef <- newIORef ([] :: [(Text, [BuiltinAxiom])])  -- TRUST-AXIOM: per-fn sealed-builtin axioms
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -606,6 +651,10 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
   let addCallPre n = modifyIORef' callPreRef (++ [n])  -- v0.9.0
   let addOverflowTainted n = modifyIORef' overflowTaintedRef (++ [n])  -- INT-1
+  -- TRUST-AXIOM: an axiom-free function records nothing, so a bytes-free and
+  -- map-free module keeps an empty list and emits no disclosure key.
+  let addBuiltinAxioms n axs =
+        unless (null axs) $ modifyIORef' builtinAxiomsRef (++ [(n, axs)])
 
   -- PAIR-RET: emit the polymorphic product datatype `data Pair2 2 = [ | pair2 {...} ]`
   -- exactly once, only when the module actually uses pairs — so a pair-free module's
@@ -631,20 +680,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -661,14 +710,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -725,6 +774,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   emPost    <- readIORef emittedPostRef
   callPre   <- readIORef callPreRef
   ovTainted <- readIORef overflowTaintedRef
+  builtinAxioms <- readIORef builtinAxiomsRef  -- TRUST-AXIOM
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
   let ctorNames = Set.fromList $ concat
@@ -824,6 +874,10 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erCallPreFns        = filter (not . (`Set.member` routed)) callPre
     , erOverflowTaintedFns = filter (not . (`Set.member` routed)) ovTainted
     , erMeasuredFns        = [ n | (n, (_, es)) <- Map.toList measureMap, all (isJust . exprToPred) es ]
+    -- TRUST-AXIOM: a routed function's body VC is withdrawn, so the axioms it
+    -- assumed are no longer assumed by anything. Drop it, for the same reason
+    -- `erCallPreFns` drops it above.
+    , erBuiltinAxioms      = filter (not . (`Set.member` routed) . fst) builtinAxioms
     }
 
 -- ---------------------------------------------------------------------------
@@ -847,6 +901,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
   -> (Text -> IO ())       -- v0.9.0: record call-pre obligation
   -> (Text -> IO ())       -- INT-1: record overflow-tainted function
+  -> (Text -> [BuiltinAxiom] -> IO ())  -- TRUST-AXIOM: record the sealed-builtin axioms this body VC assumed
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
@@ -863,7 +918,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms bodyCounterRef aliases cenv sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
@@ -1749,6 +1804,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- (FQTrue) → a refined param payload is then unprovable →
                     -- refused (sound). The declaration-driven obligation makes the
                     -- elim-side assumption (Stage 1b) sound.
+                    -- TRUST-AXIOM: record the sealed-builtin axioms this body
+                    -- VC assumed. This runs on the same 'bvc' the constraints
+                    -- were emitted from, so the disclosure cannot disagree with
+                    -- what reached the solver.
+                    addBuiltinAxioms name (collectBuiltinAxioms name bvc)
+
                     forM_ (collectCallSites bvc) $ \(callee, callArgs) ->
                       case Map.lookup callee cenv of
                         Nothing -> return ()
@@ -4476,6 +4537,42 @@ collectCallSites :: BodyVC -> [(Name, [FQPred])]
 collectCallSites (SimpleVC _ _)               = []
 collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
 collectCallSites (CallVC c args _ _ _ _ cont) = (c, args) : collectCallSites cont
+
+-- | TRUST-AXIOM: the sealed-builtin axioms this body VC assumed.
+--
+-- READ THE EMITTED TREE, NOT THE SOURCE BODY. A @CallVC "bytes-zero"@ node is
+-- in this tree ONLY because the @bytes-zero@ arm of 'bodyToPredM' built it.
+-- Delete that arm's axiom conjunct and the node's post changes with it, so the
+-- disclosure changes with it. A second walk of the source would not be coupled
+-- that way, and it would have to mirror the activation gate 'bodyToPredFromR'
+-- applies through its @callNames@ set. This walk inherits that gate for free.
+--
+-- The traversal is 'collectCallSites' with a membership filter, so a new
+-- builtin 'CallVC' arm is disclosed by adding its name to
+-- 'sealedAxiomBuiltins' and nothing else.
+--
+-- A builtin arm with no assumed post yields no row. None exists today; the
+-- 'Nothing' case is not dead, because 'CallVC' admits it by construction.
+collectBuiltinAxioms :: Name -> BodyVC -> [BuiltinAxiom]
+collectBuiltinAxioms defName = go
+  where
+    go (SimpleVC _ _)     = []
+    go (BranchVC _ _ t e) = go t ++ go e
+    go (CallVC c _ _ mPost rVar _ cont)
+      | Set.member c sealedAxiomBuiltins
+      , Just post <- mPost = row c rVar post : go cont
+      | otherwise          = go cont
+    -- Render the call's result binder as @result@. The emitted name is the
+    -- alpha-renaming counter's (@_bv_call_bytes_zero_0@), which is an artifact
+    -- of emission order and tells a reader nothing. 'AssumedFact' rows already
+    -- render a clean binder, so the two disclosures read alike.
+    row c rVar post = BuiltinAxiom
+      { baDef       = defName
+      , baBuiltin   = c
+      , baPredicate = emitPred (applySubst (Map.singleton rVar (FQVar "result")) post)
+      , baCategory  = factCategoryName FactCodegen
+      , baStamp     = "codegen_semantics_version"
+      }
 
 collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding])]
 collectCallPreObligations = go FQTrue []
