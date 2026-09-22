@@ -463,7 +463,7 @@ $ stack exec llmll -- verify file.llmll --obligation-report --json
 }
 ```
 
-The three channels below are the three top-level keys on each obligation (`type_channel`, `contract_channel`, `trust_channel`) — `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see §4.25); an annotated function reports the real type instead.
+The three channels below are top-level keys on the obligation: `type_channel`, `contract_channel` and `trust_channel`. The report emits a channel key only when it has content for that channel. Today that is the `hole-obligation` kind; the other four kinds carry no channel and empty function lists. `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see §4.25); an annotated function reports the real type instead.
 
 Three obligation channels:
 
