@@ -6,34 +6,40 @@ deleted when TOOL-RFC-003 moved to `tool_state: retired`, so `docclaims.llmll` i
 the only implementation and every cell now checks it against its own declared
 `expect_fail`. TWO CHECKS DIED, not one: the exit-code comparison, and the report
 comparison that caught "same verdict, different report". No cell declares the
-report text it expects, so nothing replaces the second. This is a decision
-battery now.
+full report text it expects, so nothing replaces the second. This is a decision
+battery now, with one partial exception since REPORT-GATE-1 (v0.25.3): the R
+cells also declare a `want` label, a substring the port's report must contain.
 
-WHAT THIS IS FOR. The two implementations are declared `oracle`, meaning either
-answers for the other. A live green run does not establish that: two gates that
+WHAT THIS IS FOR. The two implementations were declared `oracle`, meaning either
+answered for the other. A live green run did not establish that: two gates that
 both pass on a healthy tree agree perfectly and detect nothing. So every cell
-here MUTATES a scratch tree, asserts the mutation is caught by BOTH
-implementations, and only then compares what they said.
+MUTATED a scratch tree, asserted the mutation was caught by BOTH
+implementations, and only then compared what they said. The mutations survive
+retirement: every cell still MUTATES a scratch tree, runs the port alone, and
+asserts that the port's exit decision matches the cell's declared `expect_fail`.
 
 THE NEGATIVE CONTROLS ARE NOT DECORATION. N1-N3 change the input in ways that
-must NOT fail. Without them a cover that reported failure unconditionally would
-score a perfect 16/16, which is exactly the shape of the defect the campaign
+must NOT fail. Without them a gate that reported failure unconditionally would
+pass every mutation cell, which is exactly the shape of the defect the campaign
 exists to catch.
 
-CELLS 10 AND 11 ASSERT AGREEMENT ON SKIPPING, NOT AGREEMENT ON DECIDING, and
-that is a user adjudication (2026-08-08) rather than an accident: the reference
-exits 0 without asserting anything when it finds no compiler and when the
-fixture directory is empty, and the port reproduces both faithfully. The
-silent-success behaviour is filed as its own roadmap row against the reference.
-A cover that quietly "fixed" it here would be the port improving on its
-reference, which retirement cannot survive.
+CELLS 10 AND 11b ASSERT SKIPPING, NOT DECIDING. Before retirement cells 10 and
+11 asserted agreement on skipping, and that was a user adjudication
+(2026-08-08) rather than an accident: the reference exited 0 without asserting
+anything when it found no compiler and when the fixture directory was empty,
+and the port reproduces both faithfully. A cover that quietly "fixed" it then
+would have been the port improving on its reference, which retirement could not
+survive. Cell 11 now asserts that an explicitly named but missing subject
+FAILS; cell 11b is the no-compiler skip. The silent-success behaviour is its own
+open roadmap row, SKIP-SILENT-1, and cells 10 and 11b pin it until someone
+decides that row.
 
 Usage mirrors refute_crux_cover.py, INCLUDING THE ARGUMENT ROLES, which are not
 what their names suggest:
     --gate   the PORT BINARY (docclaims), executed directly
     --llmll  the COMPILER, passed on as the subject
-The shell reference is not an argument at all; it is copied into the scratch
-tree and invoked there.
+There is no reference argument. Before 2026-08-17 the shell reference was
+copied into the scratch tree and invoked there; it no longer exists.
 """
 
 from __future__ import annotations
@@ -51,21 +57,27 @@ REPO = Path(__file__).resolve().parent.parent
 FIXTURES = REPO / "scripts" / "doc-claims"
 
 # The port is a console step machine (MODE-CLI-1), so it is driven by a stdin
-# budget rather than a loop. 16 fixtures cost ~6 steps each; 400 is generous
-# and still an order of magnitude under the refute-crux port's 4000.
+# budget rather than a loop. 32 fixtures cost ~6 steps each, and a `@run`
+# fixture about 4 more (one carries it), so a full corpus run takes about 200;
+# 400 leaves twice that and is still an order of magnitude under the
+# refute-crux port's 4000.
 BUDGET = 400
 
 # Seconds one cell may take before it is reported as a HANG (see CAPTURE-PIPE-1
-# above). The real subject runs a cell in about 3 s locally; the budget is wide
-# so a slow solver on a CI runner cannot trip it, and it is still a bound.
+# under ENV below). The real subject runs a cell in about 3 s locally; the
+# budget is wide so a slow solver on a CI runner cannot trip it, and it is still
+# a bound.
 CELL_TIMEOUT = 300
 
-# THE ENVIRONMENT BOTH SIDES GET, and every entry in it is load-bearing for a
-# reason that cost a red CI run to learn.
+# THE ENVIRONMENT THE PORT GETS (and, before 2026-08-17, the reference too), and
+# every entry in it is there for a reason that cost a red CI run to learn.
 #
-# PATH and HOME are scrubbed so the two implementations are asked the SAME
-# question: an earlier revision let the port inherit the caller's PATH and find
-# an `llmll` the reference could not see.
+# PATH and HOME are scrubbed so the port sees no `llmll` the caller can see; the
+# only compiler it reaches is the one named by --subject, and cell 11b's
+# no-compiler path can be reached at all. The scrub started as a differential
+# fix, so that the two implementations were asked the SAME question: an earlier
+# revision let the port inherit the caller's PATH and find an `llmll` the
+# reference could not see.
 #
 # NO LOCALE IS SET HERE, DELIBERATELY, AND THAT IS THIS COVER'S SECOND JOB.
 #
@@ -86,9 +98,10 @@ CELL_TIMEOUT = 300
 # WHAT THAT EPISODE DEMONSTRATED, kept because it is the argument for the three
 # negative controls. Cells 1-13 all AGREED while every fixture was unreadable:
 # both implementations failed, and failed identically, so every mutation cell
-# went green. Only the controls, which require both sides to PASS an unmutated
-# tree, could tell "the two implementations agree" from "the compiler cannot
-# read a single fixture".
+# went green. Only the controls, which then required both sides to PASS an
+# unmutated tree, could tell "the two implementations agree" from "the compiler
+# cannot read a single fixture". They still require the port to PASS it, which
+# is the same argument with one side.
 #
 # **macOS cannot reproduce any of it**, which is v0.14.86's finding and finding
 # 10's: GHC there resolves UTF-8 under every `LC_ALL`. This cover passed 17/17
@@ -155,12 +168,13 @@ def solver_dir(root: Path) -> Path:
 
 
 def prepare(dst: Path) -> None:
-    """A scratch tree the reference can run in and the port can be pointed at."""
+    """A scratch tree the port can be pointed at with --root."""
     (dst / "scripts" / "doc-claims").mkdir(parents=True, exist_ok=True)
     for f in FIXTURES.glob("*.llmll"):
         shutil.copy2(f, dst / "scripts" / "doc-claims" / f.name)
-    # The reference resolves its subject from $LLMLL_BIN; the compiler symlink
-    # is what lets `stack exec` style invocations still work if anyone uses one.
+    # The port takes its subject from --subject (the deleted reference read
+    # $LLMLL_BIN); the compiler symlink is what lets `stack exec` style
+    # invocations still work if anyone uses one.
     (dst / "compiler").symlink_to(REPO / "compiler")
 
 
@@ -208,14 +222,16 @@ def drop_header(f: Path, field: str) -> None:
 
 
 def normalise(out: str) -> list[str]:
-    """Comparable lines. Blank lines only: the port's console harness emits one
+    """Report lines with blanks dropped: the port's console harness emits one
     per step, which is a property of the entry mode and not of the verdict.
+    Since retirement main() only counts these lines for the `ok` row.
 
-    NOTHING ELSE IS NORMALISED, deliberately. v0.14.90's lesson is that two
-    implementations should have their labels COMPARED rather than reconciled by
-    the cover: the arrow-normalising line in refute_crux_cover.py hid a real
-    encoding defect for a release. The port reproduces the reference's %-30s
-    and %-11s padding so that this comparison can be exact.
+    NOTHING ELSE WAS NORMALISED, deliberately, while the report comparison
+    existed. v0.14.90's lesson is that two implementations should have their
+    labels COMPARED rather than reconciled by the cover: the arrow-normalising
+    line in refute_crux_cover.py hid a real encoding defect for a release. The
+    port reproduces the reference's %-30s and %-11s padding so that the
+    comparison could be exact.
     """
     return [l for l in out.splitlines() if l.strip()]
 
@@ -231,13 +247,13 @@ def run_port(tree: Path, gate: str, subject: str) -> tuple[int | None, list[str]
     argv = [gate, "--root", str(tree), "--work", str(work)]
     if subject:
         argv += ["--subject", subject]
-    # THE SAME RESTRICTED ENVIRONMENT THE REFERENCE GETS, character for
-    # character. Without this the two implementations are asked different
-    # questions: the port inherited the caller's PATH and found an `llmll` the
-    # reference could not see, so the no-compiler cell had one side run the whole
-    # corpus and the other skip. A differential cover that varies the environment
-    # between the two sides is comparing two worlds, not two implementations.
-    # See ENV for why the locale is pinned rather than absent.
+    # THE RESTRICTED ENVIRONMENT, never the caller's. Before retirement this
+    # was the environment the reference got, character for character, because
+    # without it the two implementations were asked different questions: the
+    # port inherited the caller's PATH and found an `llmll` the reference could
+    # not see, so the no-compiler cell had one side run the whole corpus and the
+    # other skip. With one implementation the same leak would make cell 11b run
+    # the corpus instead of skipping. See ENV for why no locale is set.
     try:
         p = subprocess.run(
             argv,
@@ -333,15 +349,16 @@ def _c10(tree):
 
 
 # An EXPLICITLY NAMED but nonexistent subject must FAIL loudly, not skip. The
-# reference uses $LLMLL_BIN as given and never second-guesses it; a port that
+# reference used $LLMLL_BIN as given and never second-guessed it; a port that
 # probed unconditionally skipped here instead, which this cell caught.
-# compare_report=False, and the reason is not laziness. When the named subject
-# does not exist the reference's captured output is BASH's own diagnostic
+# compare_report=False, and the reason was not laziness. When the named subject
+# did not exist the reference's captured output was BASH's own diagnostic
 # ("...: No such file or directory", one per fixture, emitted by the shell that
 # tried to exec it). No port can reproduce another shell's error text, and a
-# cover that demanded it would be asserting something neither implementation
-# controls. What this cell asserts is the DECISION: fail, not skip. That is the
-# property the port got wrong.
+# cover that demanded it would have asserted something neither implementation
+# controlled. Nothing reads compare_report since retirement. What this cell
+# asserts is the DECISION: fail, not skip. That is the property the port got
+# wrong.
 # THIS CELL IS THE ONE THAT FOUND CAPTURE-PIPE-1 (see ENV): with every fixture
 # failing, the port's report exceeded the 16 KiB pipe the step machine captured
 # stdout through, and the cell hung on macOS while Linux passed it. It is the
@@ -353,7 +370,7 @@ def _c11(tree):
 
 
 # The genuine SKIP path: nothing NAMES a compiler and none can be found. The
-# reference reaches it with $LLMLL_BIN empty and no llmll on PATH; the port
+# reference reached it with $LLMLL_BIN empty and no llmll on PATH; the port
 # reaches it by being given no --subject at all.
 # PINS AN OPEN DEFECT RATHER THAN A CORRECT BEHAVIOUR, and that is deliberate.
 # SKIP-SILENT-1 is open: this gate exits 0 having asserted nothing when no
