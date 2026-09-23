@@ -4,6 +4,27 @@
 
 <a id="Latest"></a>
 
+## v0.25.1: the obligation report's schema version under-declared its own shape (2026-09-22)
+
+v0.25.0 stepped the obligation report's `schema_version` from `0.12.2` to `0.12.3` for the id's
+site segment and the contract channel's new placements. The trust-channel work landed **after** that
+step, inside the same release: `trust_channel.assumptions` became populated with kind-tagged rows,
+each builtin axiom gained per-conjunct `reflection` / `lemma` tags, `trust_channel` began appearing
+on `contract-obligation` and `precondition-obligation`, and a `branch-obligation` gained
+`path_condition` and `postcondition_goal`. None of that is reflected in `0.12.3`.
+
+A consumer keying on `schema_version` would therefore have been told the shape it saw at `0.12.3`
+was the shape v0.25.0 shipped, and it was not. The step to **`0.12.4`** declares the rest.
+
+Additive in both directions: no key was removed or renamed between `0.12.3` and `0.12.4`, and the
+two versions differ only in what a reader is promised. `docs/llmll-ast.schema.json` is untouched, no
+published schema covers the obligation report, and `Checkout.hs`'s `briefVersion` is a separate
+surface that also reads `0.12.3` and is deliberately not moved.
+
+**Tests:** 2059 Haskell, 361 Python (310 passed, 51 skipped). Pins moved with the value:
+`compiler/test/Spec.hs` `OCH-5` and `scripts/tests/test_oblig_contract_channel_1.py`.
+
+
 ## v0.25.0: the obligation report named neither its site nor what its evidence assumes (2026-09-22)
 
 Two defects, found by one reading and shipped together.

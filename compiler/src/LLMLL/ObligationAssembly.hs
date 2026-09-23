@@ -1242,7 +1242,13 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         -- OBLIG-D4 / OBLIG-CH: 0.12.2 -> 0.12.3 (additive: a site segment in
         -- the id of a hole and of a per-call-site precondition obligation, and
         -- a contract_channel on contract and precondition obligations).
-        { orSchemaVersion = "0.12.3"
+        -- OBLIG-ASSUME-1 / OBLIG-BRANCH-PC: 0.12.3 -> 0.12.4 (additive: a
+        -- populated trust_channel.assumptions with kind-tagged rows and
+        -- per-conjunct tags, a trust_channel on contract and precondition
+        -- obligations, and path_condition + postcondition_goal on a branch
+        -- obligation). The 0.12.3 step was taken BEFORE these keys landed, so
+        -- it under-declared the shape a consumer sees.
+        { orSchemaVersion = "0.12.4"
         , orSourceFile    = T.pack fp
         , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls

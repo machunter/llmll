@@ -144,7 +144,7 @@ def _of_kind(report: dict, kind: str) -> list[dict]:
 
 def test_schema_version_is_bumped(refuted_report):
     """The channel and the site segment are additive, so the minor moves."""
-    assert refuted_report["schema_version"] == "0.12.3"
+    assert refuted_report["schema_version"] == "0.12.4"
 
 
 def test_a_contract_obligation_carries_its_own_goal_and_its_own_pre(refuted_report):

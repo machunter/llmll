@@ -11821,12 +11821,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       [ () | v <- branchObjs, Just _ <- [objLookup "contract_channel" v] ] `shouldBe` []
       [ () | v <- branchObjs, Nothing <- [objLookup "parent_id" v] ] `shouldBe` []
 
-    it "OCH-5: the obligation report's schema_version reads 0.12.3" $ do
+    it "OCH-5: the obligation report's schema_version reads 0.12.4" $ do
       let stmts = parse bankingWtSrc
       emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
       let reportJson = assembleReport "test.llmll" stmts Map.empty emitR (Just FQSafe)
                          (buildTrustReport Map.empty stmts Map.empty)
-      T.isInfixOf "\"schema_version\":\"0.12.3\"" reportJson `shouldBe` True
+      T.isInfixOf "\"schema_version\":\"0.12.4\"" reportJson `shouldBe` True
 
     -- =====================================================================
     -- TRUST-CH-HOLE-1: the trust channel had a field it never filled, and two
