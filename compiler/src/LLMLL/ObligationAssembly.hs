@@ -35,6 +35,7 @@ module LLMLL.ObligationAssembly
   , classifyContractFragmentTyped
   , classifyBodyFragment
   , normalizeForFingerprint
+  , siteDigest
   , obligationStatus
   , recursiveNames
   , recursiveSCCs
@@ -50,6 +51,7 @@ module LLMLL.ObligationAssembly
   , assembleFunctionLists
   , importedContractedFns   -- XMOD-SCOPE-BRIEF: imported callables under callable names
   , assembleSafePreObligations
+  , assembleConstraintObligations   -- OBLIG-CH: the UNSAFE-path assembler
   , ObligationObj(..)
   ) where
 
@@ -76,6 +78,12 @@ import LLMLL.FixpointIR (FQSort(..))
 import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
+  -- OBLIG-CH: the emitter's own ContractEnv recipe, so a call site the report
+  -- instantiates is a call site the solver saw
+  , cacheAwareContractEnv
+  -- OBLIG-D4: one surface renderer, shared with the emitter, so the call-site
+  -- name minted at emission and matched at assembly cannot drift
+  , exprToSExpr, alphaCanonExpr, renderCallSite
   -- LEVER-A3 / CLASSIFY-MEASURE: the emitter's own guards, so classification
   -- cannot drift (§6.1)
   , contractArrGuardsBlock, contractSigGuardsBlock
@@ -83,7 +91,11 @@ import LLMLL.FixpointEmit
   -- FALLBACK-CENSUS-1: one hole walker, shared with the emitter's FallbackHole
   , hasHole )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
-import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), injectOpenedAliases)
+import LLMLL.TrustReport
+  ( TrustReport(..), TrustEntry(..), injectOpenedAliases
+  -- TRUST-CH-HOLE-1: the entry's own assumption rows, rendered by the same
+  -- functions the trust report's JSON uses
+  , trustAssumptionRows )
 import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
@@ -166,6 +178,12 @@ data ObligationObj = ObligationObj
   , ooBranchIndex     :: Maybe Int
   , ooConstructor     :: Maybe Text
   , ooBindings        :: [Value]
+  -- OBLIG-BRANCH-PC: spec §6.2's other two branch fields. They are TOP-LEVEL
+  -- on the branch object, not a contract channel: a branch obligation carries
+  -- no channel (spec §2.3), and these two are the whole reason it exists — the
+  -- arm's own constructor refinement, and the post it has to reach under it.
+  , ooBranchPath      :: [PathEntry]
+  , ooBranchPostGoal  :: Maybe Text
   } deriving (Show)
 
 -- | Report summary (spec §2.1)
@@ -195,18 +213,10 @@ data ObligationReport = ObligationReport
 -- Helpers
 -- ---------------------------------------------------------------------------
 
--- | Render an Expr as an S-expression (F4: new helper).
-exprToSExpr :: Expr -> Text
-exprToSExpr (EVar v)             = v
-exprToSExpr (ELit (LitInt n))    = T.pack (show n)
-exprToSExpr (ELit (LitFloat f))  = T.pack (show f)
-exprToSExpr (ELit (LitBool b))   = if b then "true" else "false"
-exprToSExpr (ELit (LitString s)) = "\"" <> s <> "\""
-exprToSExpr (EApp op args)       = "(" <> op <> " " <> T.intercalate " " (map exprToSExpr args) <> ")"
-exprToSExpr (EOp op args)        = exprToSExpr (EApp op args)
-exprToSExpr (EHole (HNamed n))   = "?" <> n
-exprToSExpr (EHole _)            = "?_"
-exprToSExpr e                    = T.pack (show e)
+-- 'exprToSExpr' (F4) and 'alphaCanonExpr' now live in LLMLL.FixpointEmit and
+-- are re-exported from here unchanged. OBLIG-D4 made the emitter render a call
+-- site with them, and the emitter sits below this module, so a single
+-- definition has to sit below it too or the two renderings drift.
 
 -- | Derive obligation backing from ConstraintTable (spec §2.4).
 deriveBacking :: ConstraintTable -> Name -> ObligationKind -> Text
@@ -236,6 +246,23 @@ classifyGuard env se guard =
   in case mPred of
        Just _  -> PathEntry (exprToSExpr guard) "qf_lia"
        Nothing -> PathEntry (exprToSExpr guard) "structural"
+
+-- | OBLIG-BRANCH-PC: the ONE renderer of a structural match-arm guard.
+--
+-- Two sites need this guard and they used to format it apart: the hole path
+-- condition ('collectHoleGuards') and the branch obligation's own path
+-- condition. Spec §4.2.4 already records one drift between two renderings of
+-- one guard; this is the same shape of mistake, so both go through here.
+--
+-- The scrutinee is optional because the two sites name different things. A
+-- hole's path prefix is a list of ARMS taken on the way down, where the
+-- scrutinee is implied by position, so it renders @(match-C)@ — the form that
+-- has shipped since v0.10 and is not changed here. A branch obligation is
+-- ABOUT one arm of one match, so it names the term matched as well, per §6.2's
+-- @(match-success _call_g_0)@ sample.
+matchArmGuard :: Text -> Maybe Text -> PathEntry
+matchArmGuard ctor mScrut =
+  PathEntry ("(match-" <> ctor <> maybe "" (" " <>) mScrut <> ")") "structural"
 
 -- | Collect path conditions for holes in an expression (spec §4.2.3).
 -- F5: Uses total pattern match on bindings (no crash on non-PVar).
@@ -267,7 +294,7 @@ collectHoleGuards env0 se0 = go env0 se0 []
               PVar v           -> v
               PWildcard        -> "_"
               PLiteral _       -> "<lit>"
-            entry = PathEntry ("(match-" <> label <> ")") "structural"
+            entry = matchArmGuard label Nothing
         in go env se (acc ++ [entry]) body
       ) (zip [(0::Int)..] arms)
     go env se acc (EApp _ args)    = concatMap (go env se acc) args
@@ -660,22 +687,39 @@ encodeEff (Caps s) = toJSON (sort (map effectLabelText (Set.toList s)))
 
 -- | Obligation ID with alpha-normalization (spec §3).
 -- F7: Uses cryptohash-sha256.
-normalizeForFingerprint :: Name -> [(Name, Type)] -> Maybe Expr -> Text -> Text
-normalizeForFingerprint fnName params mPost channel =
+--
+-- OBLIG-D4: the optional SITE names which of several same-channel obligations
+-- of one function this is — a hole's name, or a call's argument vector. It
+-- enters the hashed fingerprint AND gets its own 12-hex segment, so the id
+-- reads @oblig:<fn>:<channel>:<site>:<fingerprint>@ (spec §3.1's 5-segment
+-- form). A raw site is never spliced into the id: an argument vector can be
+-- long and can contain @:@, which would break the segment structure.
+-- 'Nothing' keeps the original 4-segment id AND the original hash input, so
+-- contract and termination obligation ids are unchanged.
+-- | Render a site discriminator that is not safe to place in an id segment
+-- verbatim (too long, or containing a colon) as a stable 12-hex digest.
+-- Rev 10: used by the call-pre callers, whose site is an argument vector.
+siteDigest :: Text -> Text
+siteDigest s = T.pack . concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
+                      . BS.unpack . BS.take 6 . hash . TE.encodeUtf8 $ s
+
+normalizeForFingerprint :: Name -> [(Name, Type)] -> Maybe Expr -> Text -> Maybe Text -> Text
+normalizeForFingerprint fnName params mPost channel mSite =
   let paramSubst = Map.fromList $ zip (map fst params) ["$p" <> T.pack (show i) | i <- [0::Int ..]]
       normPost = fmap (alphaCanonExpr paramSubst) mPost
-      input = T.intercalate ":" [fnName, channel, maybe "" exprToSExpr normPost]
-      hashBytes = hash (TE.encodeUtf8 input)
-      hexStr = concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
-                         (BS.unpack (BS.take 6 hashBytes))
-  in "oblig:" <> fnName <> ":" <> channel <> ":" <> T.pack hexStr
-
--- | Alpha-canonicalize an expression using a substitution map.
-alphaCanonExpr :: Map Name Name -> Expr -> Expr
-alphaCanonExpr subst (EVar v)       = EVar (Map.findWithDefault v v subst)
-alphaCanonExpr subst (EApp op args) = EApp op (map (alphaCanonExpr subst) args)
-alphaCanonExpr subst (EOp op args)  = EOp op (map (alphaCanonExpr subst) args)
-alphaCanonExpr _     e              = e  -- literals, holes unchanged
+      input = T.intercalate ":" $
+        [fnName, channel] ++ maybe [] (:[]) mSite ++ [maybe "" exprToSExpr normPost]
+      hex n = T.pack . concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
+                      . BS.unpack . BS.take n . hash . TE.encodeUtf8
+  in "oblig:" <> fnName <> ":" <> channel <> ":"
+       -- Rev 10 (spec S3.1): the segment is rendered by the CALLER, because the
+       -- right rendering is per kind. A hole name is short, colon-free and
+       -- readable, so it appears verbatim and spec S2.2's sample shape
+       -- ("oblig:withdraw:body:?h3:<fingerprint>") renders literally. An
+       -- argument vector is long and may contain a colon, which would break the
+       -- segment structure, so a call-pre caller passes 'siteDigest' of it.
+       <> maybe "" (<> ":") mSite
+       <> hex 6 input
 
 -- | Determine obligation status (spec §2.5).
 -- F5: Takes weakness-ok suppression set for "deferred" status.
@@ -789,11 +833,16 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed re
                 in object ["name" .= n, "type" .= (ty :: Text), "source" .= src]) binds
               Nothing -> map (\(n, src) ->
                 object ["name" .= n, "type" .= ("_" :: Text), "source" .= src]) binds
-            pathEntry = PathEntry ("(match-" <> ctorName <> ")") "structural"
+            -- OBLIG-BRANCH-PC: this arm's OWN constructor guard, one entry, and
+            -- never the parent's accumulated guard set — the arm's refinement
+            -- is the thing the branch obligation is about.
+            pathEntry = matchArmGuard ctorName (Just (exprToSExpr scrut))
             status = obligationStatus mFqResult fnName BranchObligation table suppressed refutedSet
             backing = deriveBacking table fnName BranchObligation
+            -- OBLIG-D4: no site — the arm index is already in the channel, so
+            -- sibling arms never collided.
             oblId = normalizeForFingerprint fnName params (contractPost contract)
-                      ("branch-" <> T.pack (show i))
+                      ("branch-" <> T.pack (show i)) Nothing
         in [ObligationObj
               { ooId              = oblId
               , ooOrigin          = ooOrigin parentObl <> "/arms/" <> T.pack (show i)
@@ -813,6 +862,11 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed re
               , ooBranchIndex     = Just i
               , ooConstructor     = Just ctorName
               , ooBindings        = typedBinds
+              , ooBranchPath      = [pathEntry]
+              -- The enclosing function's post, rendered by the same
+              -- 'exprToSExpr' the parent hole obligation's goal uses, so the
+              -- branch and its parent cannot state different goals.
+              , ooBranchPostGoal  = fmap exprToSExpr (contractPost contract)
               }] ++ go armBody
         ) (zip [0..] arms)
     go (EIf _ t e)       = go t ++ go e
@@ -1142,14 +1196,18 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
 
       -- Assemble branch obligations from EMatch (F1: two-pass)
       aliases = buildAliasMap stmts
+      -- OBLIG-CH: the SAME ContractEnv the emitter verified against
+      -- (cacheAwareContractEnv), so a call site the report instantiates is a
+      -- call site the solver actually saw.
+      cenv    = cacheAwareContractEnv aliases stmts cache
       branchObls = assembleBranchObligations holeObls stmts table
                      mFqResult suppressed refutedSet aliases
 
       -- Assemble contract/precondition/termination obligations from UNSAFE
       unsafeObls = case mFqResult of
         Just (FQUnsafe failedIds) ->
-          assembleConstraintObligations stmts table mFqResult trustRpt
-            faithful suppressed failedIds
+          assembleConstraintObligations stmts cenv table mFqResult trustRpt
+            faithful fallback tainted recNames suppressed failedIds
         _ -> []
 
       -- DEMO-COMP (§3.3): surface per-call-site precondition obligations on SAFE
@@ -1159,7 +1217,8 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
       -- the failing call-pre obligations are already surfaced by 'unsafeObls'
       -- (assembleConstraintObligations classifies "call-pre:" → PreconditionObligation).
       safePreObls = case mFqResult of
-        Just FQSafe -> assembleSafePreObligations stmts table mFqResult trustRpt suppressed
+        Just FQSafe -> assembleSafePreObligations stmts cenv table mFqResult trustRpt
+                         faithful fallback tainted recNames suppressed
         _           -> []
 
       allObls = holeObls ++ branchObls ++ unsafeObls ++ safePreObls
@@ -1180,7 +1239,10 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         -- tier,return_type}, SAFE precondition-obligation entries, consumed_guarantees).
         -- REC-DESCENT: 0.12.1 -> 0.12.2 (additive: "measure-not-decreasing"
         -- status value, top-level measure_not_decreasing_fns, summary count).
-        { orSchemaVersion = "0.12.2"
+        -- OBLIG-D4 / OBLIG-CH: 0.12.2 -> 0.12.3 (additive: a site segment in
+        -- the id of a hole and of a per-call-site precondition obligation, and
+        -- a contract_channel on contract and precondition obligations).
+        { orSchemaVersion = "0.12.3"
         , orSourceFile    = T.pack fp
         , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls
@@ -1209,7 +1271,10 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
       contract = fromMaybe emptyContract mContract
       status   = obligationStatus mFqResult fnName HoleObligation table suppressed (trRefutedFns trustRpt)
       backing  = deriveBacking table fnName HoleObligation
+      -- OBLIG-D4: the hole's own name is its site, so two holes in one
+      -- function no longer share an id (spec §2.2's sample id shape).
       oblId    = normalizeForFingerprint fnName params (contractPost contract) "body"
+                   (Just (holeName he))
 
       -- Type channel
       typeCh = TypeChannel
@@ -1247,15 +1312,7 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
         }
 
       -- Trust channel
-      mTrust = findTrustEntry fnName trustRpt
-      trustCh = TrustChannel
-        { trAssumptions     = []
-        -- TRUST-PRE (Position B): the channel's effective tier is the POST-side
-        -- level — a precondition is the caller's obligation, off this axis.
-        , trEffectiveLevel  = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectivePostLevel) mTrust
-        , trBodyFaithful    = fnName `elem` faithful
-        , trOverflowTainted = fnName `elem` tainted
-        }
+      trustCh = mkTrustChannel trustRpt faithful tainted fnName
 
       -- Function lists (§8)
       -- XMOD-SCOPE-BRIEF: bare-alias opened imports so a bare imported
@@ -1292,13 +1349,76 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
     , ooBranchIndex     = Nothing
     , ooConstructor     = Nothing
     , ooBindings        = []
+    , ooBranchPath      = []
+    , ooBranchPostGoal  = Nothing
     }
 
+-- | OBLIG-CH: the contract channel of a NON-hole obligation.
+--
+-- POLARITY. A contract obligation proves the function's OWN post, so the goal
+-- is that post. A precondition obligation proves the CALLEE's pre at one call
+-- site, so the goal is that pre, instantiated with this call's actual
+-- arguments; 'ccPreconditions' stays the CALLER's own pre, which is what the
+-- caller may assume while proving it. Getting these two the wrong way round
+-- would report the caller's post as the thing a call site must establish.
+--
+-- The call site is identified by 'coSite' (the alpha-normalized argument
+-- vector the emitter recorded), never by position. When the site does not pick
+-- out exactly one call — an ANF-hoisted or desugared argument that no longer
+-- renders like the source, a callee outside the ContractEnv ("call-pre:map-get"),
+-- an absent site from an older run — the goal is 'Nothing'. An UNINSTANTIATED
+-- callee pre names the callee's parameters, which do not exist in the caller's
+-- scope, so emitting one would point an agent at variables it cannot bind.
+--
+-- 'ccPathCondition' is empty by decision, not by omission: both of these are
+-- whole-body goals with no guard prefix to report. A termination obligation
+-- gets no channel at all (spec §2.3 scopes it to origin/backing/status).
+constraintContractChannel
+  :: [Statement] -> ContractEnv -> [Text] -> [Text] -> Set Name
+  -> ObligationKind -> Name -> Text -> Maybe Text -> Maybe ContractChannel
+constraintContractChannel stmts cenv faithful fallback recNames kind fnName clause mSite
+  | kind /= ContractObligation && kind /= PreconditionObligation = Nothing
+  | otherwise = Just ContractChannel
+      { ccPreconditions = maybe [] (\e -> [exprToSExpr e]) (contractPre contract)
+      , ccPostGoal      = postGoal
+      , ccPathCondition = []
+      , ccPathTruncated = False
+      , ccContractFrag  = classifyContractFragmentTyped aliases params mRetTy mBody contract
+      , ccBodyFrag      = classifyBodyFragment fnName recNames faithful fallback
+                            (fromMaybe (EHole (HNamed "")) mBody)
+      , ccBodyFaithful  = fnName `elem` faithful
+      }
+  where
+    (mContract, mParams, mBody) = findFunctionInfo fnName stmts
+    params   = fromMaybe [] mParams
+    contract = fromMaybe emptyContract mContract
+    aliases  = buildAliasMap stmts
+    mRetTy   = case [ r | stmt <- stmts
+                        , Just (n, _, r, _, _) <- [normalizeDefStmt stmt]
+                        , n == fnName ] of
+                 (r:_) -> r
+                 []    -> Nothing
+    postGoal
+      | kind == ContractObligation = fmap exprToSExpr (contractPost contract)
+      | otherwise                  = instantiatedCalleePre
+    instantiatedCalleePre = do
+      site <- mSite
+      body <- mBody
+      let callee = T.drop (T.length "call-pre:") clause
+      (cparams, ccontract, _) <- Map.lookup callee cenv
+      pre <- contractPre ccontract
+      case [ args | (c, args) <- collectContractedCalls cenv body
+                  , c == callee
+                  , renderCallSite params args == site ] of
+        [args] -> Just (exprToSExpr
+                          (substExpr (Map.fromList (zip (map fst cparams) args)) pre))
+        _      -> Nothing   -- ambiguous or unmatched: never guess
+
 -- | Assemble contract/precondition/termination obligations from UNSAFE IDs.
-assembleConstraintObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
-                              -> TrustReport -> [Text] -> Set Name -> [Int]
+assembleConstraintObligations :: [Statement] -> ContractEnv -> ConstraintTable -> Maybe FQVerifyResult
+                              -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name -> [Int]
                               -> [ObligationObj]
-assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed failedIds =
+assembleConstraintObligations stmts cenv table mFqResult trustRpt faithful fallback tainted recNames suppressed failedIds =
   mapMaybe mkObl failedIds
   where
     mkObl cid = do
@@ -1322,6 +1442,7 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
           params  = fromMaybe [] mParams
           oblId   = normalizeForFingerprint fnName params
                       (mContract >>= contractPost) (clauseChannel clause)
+                      (fmap siteDigest (coSite origin))
       Just ObligationObj
         { ooId              = oblId
         , ooOrigin          = coJsonPtr origin
@@ -1330,8 +1451,14 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
         , ooStatus          = status
         , ooFunction        = fnName
         , ooTypeChannel     = Nothing
-        , ooContractChannel = Nothing
-        , ooTrustChannel    = Nothing
+        , ooContractChannel = constraintContractChannel stmts cenv faithful fallback
+                                recNames kind fnName clause (coSite origin)
+        -- TRUST-CH-HOLE-1: the same two kinds that carry a contract channel
+        -- carry a trust channel. A termination obligation gets neither (spec
+        -- §2.3 scopes it to origin/backing/status).
+        , ooTrustChannel    = if kind == ContractObligation || kind == PreconditionObligation
+                              then Just (mkTrustChannel trustRpt faithful tainted fnName)
+                              else Nothing
         , ooContractedFns       = []
         , ooAvailableFns        = []
         , ooSuggestions         = []
@@ -1341,6 +1468,8 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
         , ooBranchIndex     = Nothing
         , ooConstructor     = Nothing
         , ooBindings        = []
+        , ooBranchPath      = []
+        , ooBranchPostGoal  = Nothing
         }
 
     classifyClause c
@@ -1361,9 +1490,10 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
 -- 'coJsonPtr' pointer and the callee name. Status is "discharged" (the solver
 -- returned SAFE). No new constraint generation — this re-exports existing
 -- solved constraints.
-assembleSafePreObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
-                           -> TrustReport -> Set Name -> [ObligationObj]
-assembleSafePreObligations stmts table mFqResult trustRpt suppressed =
+assembleSafePreObligations :: [Statement] -> ContractEnv -> ConstraintTable -> Maybe FQVerifyResult
+                           -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
+                           -> [ObligationObj]
+assembleSafePreObligations stmts cenv table mFqResult trustRpt faithful fallback tainted recNames suppressed =
   [ mkPreObl origin
   | origin <- Map.elems table
   , "call-pre:" `T.isPrefixOf` coClause origin
@@ -1379,6 +1509,7 @@ assembleSafePreObligations stmts table mFqResult trustRpt suppressed =
           params  = fromMaybe [] mParams
           oblId   = normalizeForFingerprint fnName params
                       (mContract >>= contractPost) ("call-pre-" <> callee)
+                      (fmap siteDigest (coSite origin))
       in ObligationObj
            { ooId              = oblId
            , ooOrigin          = coJsonPtr origin
@@ -1387,8 +1518,13 @@ assembleSafePreObligations stmts table mFqResult trustRpt suppressed =
            , ooStatus          = status
            , ooFunction        = fnName
            , ooTypeChannel     = Nothing
-           , ooContractChannel = Nothing
-           , ooTrustChannel    = Nothing
+           , ooContractChannel = constraintContractChannel stmts cenv faithful fallback
+                                   recNames PreconditionObligation fnName
+                                   (coClause origin) (coSite origin)
+           -- TRUST-CH-HOLE-1: the CALLER's channel ('coFunction origin'), not
+           -- the callee's. The caller is the function whose evidence the reader
+           -- is judging at this call site.
+           , ooTrustChannel    = Just (mkTrustChannel trustRpt faithful tainted fnName)
            , ooContractedFns       = []
            , ooAvailableFns        = []
            , ooSuggestions         = []
@@ -1398,6 +1534,8 @@ assembleSafePreObligations stmts table mFqResult trustRpt suppressed =
            , ooBranchIndex     = Nothing
            , ooConstructor     = Nothing
            , ooBindings        = []
+           , ooBranchPath      = []
+           , ooBranchPostGoal  = Nothing
            }
 
 -- ---------------------------------------------------------------------------
@@ -1428,6 +1566,31 @@ findTrustEntry :: Name -> TrustReport -> Maybe TrustEntry
 findTrustEntry name tr = case filter (\e -> teName e == name) (trEntries tr) of
   (e:_) -> Just e
   []    -> Nothing
+
+-- | TRUST-CH-HOLE-1: the trust channel of one obligation (spec §4.3).
+--
+-- ONE BUILDER for every kind that carries a channel. A hole, a contract and a
+-- precondition obligation all answer the same question — what does this
+-- function's evidence rest on — so they must answer it the same way. Three
+-- copies of the four fields is how a channel comes to say one thing on one kind
+-- and another on the next.
+--
+-- 'fnName' is ALWAYS the function whose evidence the reader is judging. On a
+-- precondition obligation that is the CALLER ('coFunction' of the origin), not
+-- the callee: the caller is the one whose body has to establish the callee's
+-- pre, and it is the caller's assumptions the reader is being asked to accept.
+--
+-- TRUST-PRE (Position B): the channel's effective tier is the POST-side level —
+-- a precondition is the caller's obligation, off this axis.
+mkTrustChannel :: TrustReport -> [Text] -> [Text] -> Name -> TrustChannel
+mkTrustChannel trustRpt faithful tainted fnName =
+  let mTrust = findTrustEntry fnName trustRpt
+  in TrustChannel
+       { trAssumptions     = maybe [] trustAssumptionRows mTrust
+       , trEffectiveLevel  = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectivePostLevel) mTrust
+       , trBodyFaithful    = fnName `elem` faithful
+       , trOverflowTainted = fnName `elem` tainted
+       }
 
 paramToScope :: (Name, Type) -> Value
 paramToScope (n, ty) = object ["name" .= n, "type" .= typeLabel ty, "source" .= ("param" :: Text)]
@@ -1499,8 +1662,18 @@ encodeObligation o = object $
            , "branch_index" .= ooBranchIndex o
            , "constructor"  .= ooConstructor o
            , "bindings"     .= ooBindings o
+           -- OBLIG-BRANCH-PC: spec §6.2's remaining two fields, top-level on
+           -- the branch object (it carries no channel). 'path_condition' uses
+           -- the same {guard, kind} row shape as the contract channel's.
+           , "path_condition"     .= map encodePathEntry (ooBranchPath o)
+           , "postcondition_goal" .= ooBranchPostGoal o
            ]
          _ -> []
+
+-- | One {guard, kind} path-condition row. Shared by the contract channel and
+-- the branch object so the two cannot shape a path entry differently.
+encodePathEntry :: PathEntry -> Value
+encodePathEntry pe = object ["guard" .= peGuard pe, "kind" .= peKind pe]
 
 encodeTypeCh :: TypeChannel -> Value
 encodeTypeCh tc = object
@@ -1513,8 +1686,7 @@ encodeContractCh :: ContractChannel -> Value
 encodeContractCh cc = object
   [ "preconditions"         .= ccPreconditions cc
   , "postcondition_goal"    .= ccPostGoal cc
-  , "path_condition"        .= map (\pe -> object ["guard" .= peGuard pe, "kind" .= peKind pe])
-                                   (ccPathCondition cc)
+  , "path_condition"        .= map encodePathEntry (ccPathCondition cc)
   , "path_truncated"        .= ccPathTruncated cc
   , "contract_fragment"     .= ccContractFrag cc
   , "body_fragment"         .= ccBodyFrag cc
