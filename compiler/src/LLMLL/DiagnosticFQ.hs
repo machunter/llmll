@@ -56,6 +56,15 @@ data ConstraintOrigin = ConstraintOrigin
   , coClause     :: Text      -- ^ "pre" | "post" | "decreases" | "body-post" | "call-pre:<callee>"
   , coJsonPtr    :: Text      -- ^ JSON Pointer: "/statements/2/pre"
   , coSourceFile :: FilePath  -- ^ original .llmll or .ast.json path
+  , coSite       :: Maybe Text
+    -- ^ OBLIG-D4: site discriminator, non-positional. @Just <rendered arg
+    -- vector>@ for a user-function call-pre constraint, 'Nothing' otherwise.
+    -- Two calls to one callee from one body share 'coFunction', 'coClause' AND
+    -- 'coJsonPtr' (the pointer names the enclosing body, not the call), so the
+    -- obligation id derived from them collided. The arg vector is a NAME for
+    -- the call, not a position: reordering the calls moves the site with the
+    -- call, and renaming a parameter does not move it (the vector is
+    -- alpha-normalized against the enclosing function's parameter list).
   } deriving (Show)
 
 -- | Map from constraint ID to its origin in the LLMLL source.

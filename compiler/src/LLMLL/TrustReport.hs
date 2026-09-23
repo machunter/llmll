@@ -26,6 +26,7 @@ module LLMLL.TrustReport
   , InheritedAxiom(..)          -- TRUST-AXIOM: one inherited row
   , inheritedAxiomJson          -- TRUST-AXIOM: its JSON shape
   , builtinAxiomJson            -- TRUST-AXIOM: its JSON shape
+  , trustAssumptionRows         -- TRUST-CH-HOLE-1: the entry's assumptions, kind-discriminated
   , OpenSpecRow(..)             -- DISCLOSE-ROW-1: open [SPEC] row a program's surface touches
   , openSpecRows                -- DISCLOSE-ROW-1: derive them from live statements
   , openSpecRowJson             -- DISCLOSE-ROW-1: its JSON shape
@@ -67,6 +68,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Graph (stronglyConnComp, SCC(..))
 import Data.Aeson (object, (.=), Value(..))
+import qualified Data.Aeson.KeyMap as KM   -- TRUST-CH-HOLE-1: add a key to an already-rendered row
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Text.Lazy as TL
 
@@ -1639,7 +1641,48 @@ builtinAxiomJson a = object
   , "predicate" .= baPredicate a
   , "category"  .= baCategory a
   , "stamp"     .= baStamp a
+  -- TRUST-AXIOM (professor finding 4): the same post, split into the parts the
+  -- emitting arm built it from. `predicate` stays the merged form — a reader
+  -- of the older key sees no change — and this key is what distinguishes the
+  -- conjunct that DEFINES the builtin's encoding ("reflection") from the one
+  -- that asserts a theorem about it ("lemma"), which is the half that can be
+  -- wrong. `bytes-set` is the case that motivated it: one of each.
+  , "conjuncts" .= [ object ["tag" .= t, "predicate" .= p] | (t, p) <- baConjuncts a ]
   ]
+
+-- | TRUST-CH-HOLE-1: the assumption rows of one trust entry, as an obligation's
+-- trust channel carries them.
+--
+-- A PROJECTION, NOT AN ANALYSIS. Every row here is already on the entry:
+-- 'teBuiltinAxioms' and 'teInheritedAxioms' are what TRUST-AXIOM stamped
+-- post-emit, 'teGroundFacts' is family C. This function only flattens the three
+-- into one array and marks each row with the family it came from, because a
+-- reader that sees them flat cannot otherwise tell a sealed-builtin axiom from
+-- an inherited one from a ground-fact family.
+--
+-- ONE RENDERER PER ROW. The builtin and inherited rows go through
+-- 'builtinAxiomJson' / 'inheritedAxiomJson' — the same functions the trust
+-- report's own JSON calls — with the @kind@ key added on top. A second renderer
+-- here could disagree with the trust report about a row's fields; this one
+-- cannot. In particular the unrecorded case of 'iaBuiltin' (@Nothing@: the
+-- callee's sidecar predates the disclosure, so its assumed set is unknown, not
+-- empty) survives into the channel exactly as LLMLL.md §13.12 requires.
+--
+-- Order: builtin, then inherited, then ground fact; each group keeps the order
+-- the entry carries. An entry with none of the three yields @[]@.
+trustAssumptionRows :: TrustEntry -> [Value]
+trustAssumptionRows e =
+     map (withKind "builtin-axiom" . builtinAxiomJson) (teBuiltinAxioms e)
+  ++ map (withKind "inherited-axiom" . inheritedAxiomJson) (teInheritedAxioms e)
+  ++ map groundFactRow (teGroundFacts e)
+  where
+    withKind :: Text -> Value -> Value
+    withKind k (Object o) = Object (KM.insert "kind" (String k) o)
+    withKind _ v          = v   -- unreachable: both renderers build an object
+    groundFactRow f = object
+      [ "kind"   .= ("ground-fact" :: Text)
+      , "family" .= f
+      ]
 
 -- | RESP-FACT-1: the JSON shape of one assumed-fact row.
 assumedFactJson :: AssumedFact -> Value

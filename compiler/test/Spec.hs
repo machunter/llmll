@@ -23,13 +23,14 @@ import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
+  , ContractChannel(..)
   , trustLabel
   , computeEffectSummary, primEffect, encodeEff, effectLabelText, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
-  , assembleSafePreObligations, ObligationObj(..), assembleReport )
+  , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -52,7 +53,8 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
+import LLMLL.TrustReport (markBuiltinAxioms, markGroundFacts, markInheritedAxioms, trustAssumptionRows,
+                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -3384,7 +3386,7 @@ main = hspec $ do
     -- formatReportJson omits "kind" entirely when diagKind is Nothing.
     it "DF-5: a resolved unsafe id carries diagKind = Just \"lh-unsafe\"" $ do
       let table = Map.fromList
-            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json")]
+            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json" Nothing)]
           r     = fqResultToReport "withdraw.ast.json" table (FQUnsafe [0])
       map diagKind (reportDiagnostics r) `shouldBe` [Just "lh-unsafe"]
       -- the unknown-origin branch of toDiag answers to the same kind
@@ -3411,7 +3413,7 @@ main = hspec $ do
     -- /statements/N/body counterexample pointer.
     it "VR-5: fqResultToReport resolves a body-post id to its /body pointer" $ do
       let table = Map.fromList
-            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json")]
+            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json" Nothing)]
           r = fqResultToReport "withdraw.ast.json" table (FQUnsafe [0])
       reportSuccess r                              `shouldBe` False
       map diagPointer (reportDiagnostics r) `shouldBe` [Just "/statements/1/body"]
@@ -6963,7 +6965,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing [] [])
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
-            [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
+            [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
           report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
@@ -6978,7 +6980,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
                     (EVar "x")]
           table = Map.fromList
-            [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
+            [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
           report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
@@ -6993,7 +6995,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               (Just (EApp ">" [EApp "*" [EVar "x", EVar "x"], ELit (LitInt 0)])) Nothing Nothing [] [])
                     (EVar "x")]
           table = Map.fromList
-            [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
+            [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
           report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
@@ -7007,7 +7009,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
                     (EVar "x")]
           table = Map.fromList
-            [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
+            [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
           report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
@@ -7768,6 +7770,47 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "TA-9 a post-less body discloses nothing (no body VC, so no assumption)" $ do
         er <- emitTA "(def rd [b: bytes[8] i: int] -> int (pre (and (>= i 0) (< i 8))) (bytes-get b i))"
         axiomsFor "rd" er `shouldBe` []
+
+      -- -------------------------------------------------------------------
+      -- Professor finding 4: 'baPredicate' merged two different kinds of
+      -- claim into one string. For `bytes-set` it is the REFLECTION (what the
+      -- write IS, in the array theory) conjoined with a LEMMA (store preserves
+      -- length) that the theory does not give you. A reader of the merged
+      -- string cannot tell the definition from the theorem, and the theorem is
+      -- the half that can be wrong.
+      --
+      -- The tags come off the EMITTING ARM ('cvPostParts'), never off the
+      -- shape of the assembled predicate.
+      -- -------------------------------------------------------------------
+      it "TA-10 (bytes-set) splits its post into a reflection and a lemma" $ do
+        er <- emitTA "(def put [b: bytes[8] i: int v: int] -> bytes[8] (pre (and (and (>= i 0) (< i 8)) (and (>= v 0) (<= v 255)))) (bytes-set b i v))"
+        let axs = [ a | a <- axiomsFor "put" er, baBuiltin a == "bytes-set" ]
+        map baConjuncts axs `shouldBe`
+          [ [ ("reflection", "(result = (Map_store b i v))")
+            , ("lemma",      "((bytesLen result) = (bytesLen b))") ] ]
+        -- the merged field is UNCHANGED: nothing downstream of it breaks
+        map baPredicate axs `shouldBe`
+          [ "(result = (Map_store b i v)) && ((bytesLen result) = (bytesLen b))" ]
+
+      it "TA-11 a reflection-only builtin carries exactly one conjunct" $ do
+        er <- emitTA "(def rd [b: bytes[8] i: int] -> int (pre (and (>= i 0) (< i 8))) (post (and (>= result 0) (<= result 255))) (bytes-get b i))"
+        map baConjuncts [ a | a <- axiomsFor "rd" er, baBuiltin a == "bytes-get" ]
+          `shouldBe` [ [ ("reflection", "(result = (Map_select b i))") ] ]
+        -- and the bytes-zero constructor splits like bytes-set does
+        erz <- emitTA "(def mk32 [] -> bytes[32] (bytes-zero))"
+        map (map fst . baConjuncts) (axiomsFor "mk32" erz) `shouldBe` [["reflection", "lemma"]]
+
+      -- The split must AGREE with the merged predicate it came from. A tag
+      -- table that drifted off the emitted post would still read plausibly;
+      -- this is the cell that would catch it.
+      it "TA-12 the conjuncts reassemble into the predicate they were split from" $ do
+        er <- emitTA "(def put [b: bytes[8] i: int v: int] -> bytes[8] (pre (and (and (>= i 0) (< i 8)) (and (>= v 0) (<= v 255)))) (bytes-set b i v))"
+        let axs = axiomsFor "put" er
+        [ T.intercalate " && " (map snd (baConjuncts a)) | a <- axs ]
+          `shouldBe` map baPredicate axs
+        -- every tag is one of the two the disclosure defines
+        concatMap (map fst . baConjuncts) axs
+          `shouldSatisfy` all (`elem` ["reflection", "lemma"])
 
     describe "ENUM-EQ-FALLBACK (nullary-enum contract atoms stay body-faithful)" $ do
       let emitE src = case parseStatements GrammarCoreInversion "test" src of
@@ -10053,7 +10096,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC callee args mPre _mPost _rVar rSort _cont) -> do
+          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont) -> do
             callee `shouldBe` "g"
             args `shouldBe` [FQLit 42]
             mPre `shouldBe` Just (FQBinPred FQGe (FQLit 42) (FQLit 0))
@@ -10082,29 +10125,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC _ _ mPre mPost _ _ _) -> do
+          Just (CallVC _ _ _ mPre mPost _ _ _ _) -> do
             mPre `shouldBe` Nothing
             mPost `shouldSatisfy` isJust
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
 
     describe "collectCallPreObligations" $ do
       it "extracts obligation from CallVC with pre" $ do
-        let bvc = CallVC "g" [FQLit 42]
+        let bvc = CallVC "g" [FQLit 42] []
                     (Just (FQBinPred FQGe (FQLit 42) (FQLit 0)))
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
+                    []
                     "_r" FQInt
                     (SimpleVC [] (FQVar "_r"))
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
-        let (callee, prePred, guard, ctxCalls, _pathLbs) = head obligs
+        let (callee, prePred, guard, ctxCalls, _pathLbs, _argEs) = head obligs
         callee `shouldBe` "g"
         prePred `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
         guard `shouldBe` FQTrue
         ctxCalls `shouldBe` []   -- F-NIW-4: no prior calls on this single-call path
 
       it "no obligation from CallVC without pre" $ do
-        let bvc = CallVC "g" [FQLit 42] Nothing
+        let bvc = CallVC "g" [FQLit 42] [] Nothing
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
+                    []
                     "_r" FQInt
                     (SimpleVC [] (FQVar "_r"))
         collectCallPreObligations bvc `shouldBe` []
@@ -10114,17 +10159,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- (not a free var). This is the withdraw-twice / banking_ledger fix.
       it "F4-1: a 2-call chain threads the prior call's result + post as context" $ do
         let post1 = FQBinPred FQGe (FQVar "_r1") (FQLit 0)
-            inner = CallVC "g" [FQVar "_r1"]
+            inner = CallVC "g" [FQVar "_r1"] []
                       (Just (FQBinPred FQGe (FQVar "_r1") (FQLit 5)))  -- 2nd pre references _r1
                       (Just (FQBinPred FQGe (FQVar "_r2") (FQLit 0)))
-                      "_r2" FQInt (SimpleVC [] (FQVar "_r2"))
-            outer = CallVC "f" [FQLit 9]
+                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2"))
+            outer = CallVC "f" [FQLit 9] []
                       (Just (FQBinPred FQGe (FQLit 9) (FQLit 0)))
-                      (Just post1) "_r1" FQInt inner
+                      (Just post1) [] "_r1" FQInt inner
             obligs = collectCallPreObligations outer
         length obligs `shouldBe` 2
-        let (_, _, _, ctx0, _) = obligs !! 0
-            (_, pre1, _, ctx1, _) = obligs !! 1
+        let (_, _, _, ctx0, _, _) = obligs !! 0
+            (_, pre1, _, ctx1, _, _) = obligs !! 1
         ctx0 `shouldBe` []                              -- first call: no prior context
         ctx1 `shouldBe` [("_r1", FQInt, post1)]         -- second call: assumes first call's post over _r1
         pre1 `shouldBe` FQBinPred FQGe (FQVar "_r1") (FQLit 5)
@@ -10262,7 +10307,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("x", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se cenv Set.empty body
         case result of
-          Just (CallVC callee _ _ _ _ _ cont) -> do
+          Just (CallVC callee _ _ _ _ _ _ _ cont) -> do
             callee `shouldBe` "g"
             -- Continuation should be a BranchVC (the match)
             case cont of
@@ -11001,7 +11046,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "ObligationAssembly: deriveBacking" $ do
     let mkTable entries = Map.fromList entries
-        co fn cl = ConstraintOrigin fn cl "" ""
+        co fn cl = ConstraintOrigin fn cl "" "" Nothing
 
     it "OA-B1: smt when body-post constraint exists for hole" $ do
       let table = mkTable [(1, co "withdraw" "body-post")]
@@ -11038,11 +11083,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       obligationStatus (Just FQSafe) "f" HoleObligation emptyTable (Set.singleton "f") noRefuted `shouldBe` "deferred"
 
     it "OA-ST4: open when UNSAFE and function failed" $ do
-      let table = Map.fromList [(1, ConstraintOrigin "f" "post" "" "")]
+      let table = Map.fromList [(1, ConstraintOrigin "f" "post" "" "" Nothing)]
       obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed noRefuted `shouldBe` "open"
 
     it "OA-ST5: discharged when UNSAFE but function not in failed set" $ do
-      let table = Map.fromList [(1, ConstraintOrigin "other" "post" "" "")]
+      let table = Map.fromList [(1, ConstraintOrigin "other" "post" "" "" Nothing)]
       obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed noRefuted `shouldBe` "discharged"
 
     -- VERIFY-RPT-1 (Commit 4): "refuted" status takes precedence
@@ -11096,22 +11141,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "ObligationAssembly: normalizeForFingerprint" $ do
     it "OA-NF1: produces oblig: prefixed ID" $ do
       let oblId = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
-                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) "body"
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) "body" (Just "?h3")
       T.isPrefixOf "oblig:withdraw:body:" oblId `shouldBe` True
 
     it "OA-NF2: fingerprint is 12 hex chars" $ do
-      let oblId = normalizeForFingerprint "f" [("x", TInt)] Nothing "body"
+      let oblId = normalizeForFingerprint "f" [("x", TInt)] Nothing "body" Nothing
           parts = T.splitOn ":" oblId
       T.length (last parts) `shouldBe` 12
 
     it "OA-NF3: same inputs produce same ID" $ do
-      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
-          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
+      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body" Nothing
+          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body" Nothing
       oblId1 `shouldBe` oblId2
 
     it "OA-NF4: different post produces different ID" $ do
-      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
-          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "y")) "body"
+      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body" Nothing
+          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "y")) "body" Nothing
       oblId1 `shouldSatisfy` (/= oblId2)
 
   describe "ObligationAssembly: collectHoleGuards" $ do
@@ -11602,8 +11647,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- The SAFE assembler turns each origin into exactly one
       -- PreconditionObligation, preserving the call-site pointer.
       let trustRpt = buildTrustReport Map.empty flatStmts Map.empty
-          preObls  = assembleSafePreObligations flatStmts (erConstraintTable flatR)
-                       (Just FQSafe) trustRpt Set.empty
+          preObls  = assembleSafePreObligations flatStmts
+                       (cacheAwareContractEnv (buildAliasMap flatStmts) flatStmts Map.empty)
+                       (erConstraintTable flatR)
+                       (Just FQSafe) trustRpt (erBodyFaithfulFns flatR) (erBodyFallback flatR)
+                       (erOverflowTaintedFns flatR) (recursiveNames flatStmts) Set.empty
       length preObls `shouldBe` 1
       ooKind (head preObls) `shouldBe` PreconditionObligation
       ooOrigin (head preObls) `shouldBe` "/statements/2/body"
@@ -11636,6 +11684,339 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- countdown is in recursiveNames and its only contracted callee is itself.
       recs `shouldSatisfy` Set.member "countdown"
       guars `shouldBe` []  -- self-edge filtered: no function lists its own post
+
+    -- =====================================================================
+    -- OBLIG-D4 (site in the obligation id) + OBLIG-CH (contract channel on
+    -- the non-hole kinds). The id collision was MEASURED, not inferred: 42
+    -- of 158 precondition obligations shared both `id` and `origin` with a
+    -- sibling, because two calls to one callee from one body hash the same.
+    -- =====================================================================
+    let -- banking_ledger's withdraw-twice, self-contained: two calls to one
+        -- callee from one body, the second through a let-bound result. This
+        -- is the exact shape that collided.
+        bankingWtSrc =
+          [ "(def-shell withdraw [balance: int amount: int]"
+          , "  (pre  (and (>= balance amount) (>= amount 0)))"
+          , "  (post (and (= result (- balance amount)) (>= result 0)))"
+          , "  (- balance amount))"
+          , "(def-shell withdraw-twice [balance: int first: int second: int]"
+          , "  (pre  (and (>= balance (+ first second)) (and (>= first 0) (>= second 0))))"
+          , "  (post (and (= result (- (- balance first) second)) (>= result 0)))"
+          , "  (let [[after-first (withdraw balance first)]]"
+          , "    (withdraw after-first second)))" ]
+        cenvOf ss = cacheAwareContractEnv (buildAliasMap ss) ss Map.empty
+        safePreOf ss emitR =
+          assembleSafePreObligations ss (cenvOf ss) (erConstraintTable emitR)
+            (Just FQSafe) (buildTrustReport Map.empty ss Map.empty)
+            (erBodyFaithfulFns emitR) (erBodyFallback emitR)
+            (erOverflowTaintedFns emitR) (recursiveNames ss) Set.empty
+        unsafeOf ss emitR ids =
+          assembleConstraintObligations ss (cenvOf ss) (erConstraintTable emitR)
+            (Just (FQUnsafe ids)) (buildTrustReport Map.empty ss Map.empty)
+            (erBodyFaithfulFns emitR) (erBodyFallback emitR)
+            (erOverflowTaintedFns emitR) (recursiveNames ss) Set.empty ids
+        clauseIds emitR c = [ i | (i, o) <- Map.toList (erConstraintTable emitR)
+                                , coClause o == c ]
+        decodeVal t = decode (BLC.pack (T.unpack t)) :: Maybe Value
+
+    -- THE POSITIVE WITNESS. Before this change both obligations carried
+    -- id `oblig:withdraw-twice:call-pre-withdraw:af50d734322f` and origin
+    -- `/statements/4/body`; an agent could not tell which call it had to fix.
+    it "OD4-1: withdraw-twice's two call-pre obligations get DISTINCT ids, each instantiated at its OWN call" $ do
+      let stmts = parse bankingWtSrc
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let wt    = [ o | o <- safePreOf stmts emitR, ooFunction o == "withdraw-twice" ]
+          ids   = map ooId wt
+          goals = [ g | o <- wt, Just cc <- [ooContractChannel o], Just g <- [ccPostGoal cc] ]
+      length wt `shouldBe` 2
+      -- the two origins are still the SAME pointer — the id, not the pointer,
+      -- is what had to become distinguishing (spec §3.2).
+      length (Set.fromList (map ooOrigin wt)) `shouldBe` 1
+      Set.size (Set.fromList ids) `shouldBe` 2
+      -- polarity: the goal is the CALLEE's pre, instantiated with the
+      -- arguments of THIS call, not the caller's post.
+      Set.fromList goals `shouldBe` Set.fromList
+        [ "(and (>= balance first) (>= first 0))"
+        , "(and (>= after-first second) (>= second 0))" ]
+      -- and the caller's OWN pre is on the preconditions side.
+      [ ccPreconditions cc | o <- wt, Just cc <- [ooContractChannel o] ]
+        `shouldBe` replicate 2 ["(and (>= balance (+ first second)) (and (>= first 0) (>= second 0)))"]
+
+    it "OCH-1: a contract obligation's goal is the function's OWN post, under its OWN pre" $ do
+      let stmts = parse
+            [ "(def-shell shrink [x: int]"
+            , "  (pre  (>= x 0))"
+            , "  (post (> result x))"
+            , "  (- x 1))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let ids  = clauseIds emitR "body-post"
+          obls = unsafeOf stmts emitR ids
+      null ids `shouldBe` False
+      let o = head obls
+      ooKind o `shouldBe` ContractObligation
+      fmap ccPostGoal      (ooContractChannel o) `shouldBe` Just (Just "(> result x)")
+      fmap ccPreconditions (ooContractChannel o) `shouldBe` Just ["(>= x 0)"]
+      fmap ccBodyFrag      (ooContractChannel o) `shouldBe` Just "qf_lia"
+      fmap ccBodyFaithful  (ooContractChannel o) `shouldBe` Just True
+
+    it "OCH-2: a body-fallback function's contract obligation reads body_faithful_possible false and a non-qf_lia body_fragment" $ do
+      let stmts = parse
+            [ "(def-shell unfilled [x: int]"
+            , "  (pre  (>= x 0))"
+            , "  (post (> result x))"
+            , "  ?body)" ]
+      -- body-VC mode records the REAL fallback verdict ...
+      vcR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      erBodyFaithfulFns vcR `shouldBe` []
+      elem "unfilled" (erBodyFallback vcR) `shouldBe` True
+      -- ... and the standalone-post mode gives the contract obligation to hang
+      -- the channel on (a fallback function emits no body-post constraint).
+      plainR <- emitFixpointWith (EmitOptions False Nothing) "<test>" stmts
+      let ids  = clauseIds plainR "post"
+          obls = assembleConstraintObligations stmts (cenvOf stmts)
+                   (erConstraintTable plainR) (Just (FQUnsafe ids))
+                   (buildTrustReport Map.empty stmts Map.empty)
+                   (erBodyFaithfulFns vcR) (erBodyFallback vcR)
+                   (erOverflowTaintedFns vcR) (recursiveNames stmts) Set.empty ids
+      null ids `shouldBe` False
+      let o = head obls
+      ooKind o `shouldBe` ContractObligation
+      fmap ccBodyFaithful (ooContractChannel o) `shouldBe` Just False
+      (fmap ccBodyFrag (ooContractChannel o) == Just "qf_lia") `shouldBe` False
+
+    -- NEGATIVE CONTROL 1. A termination obligation proves a measure descends;
+    -- it has no contract goal, so it must carry no contract channel at all
+    -- (spec §2.3 scopes it to origin/backing/status).
+    it "OCH-3: a termination obligation carries NO contract_channel" $ do
+      let stmts = parse
+            [ "(def-shell spin [x: int] -> int"
+            , "  (pre  (>= x 0))"
+            , "  (post (= result x))"
+            , "  (decreases x)"
+            , "  (spin x))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let ids  = clauseIds emitR "descent" ++ clauseIds emitR "decreases"
+          obls = unsafeOf stmts emitR ids
+          terms = [ o | o <- obls, ooKind o == TerminationObligation ]
+      null terms `shouldBe` False
+      [ () | o <- terms, Just _ <- [ooContractChannel o] ] `shouldBe` []
+      let reportJson = assembleReport "test.llmll" stmts Map.empty emitR
+                         (Just (FQUnsafe ids)) (buildTrustReport Map.empty stmts Map.empty)
+      T.isInfixOf "\"kind\":\"termination-obligation\"" reportJson `shouldBe` True
+
+    -- NEGATIVE CONTROL 2. A branch obligation is a sub-goal of a hole, not a
+    -- contract goal; it keeps its parent_id and gains no channel.
+    it "OCH-4: a branch obligation carries NO contract_channel and keeps parent_id" $ do
+      let stmts = parse
+            [ "(def-shell pick [r: Result[int, int]] -> int"
+            , "  (post (>= result 0))"
+            , "  (match r ((Success s) ?fill) ((Error e) 0)))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let reportJson = assembleReport "test.llmll" stmts Map.empty emitR Nothing
+                         (buildTrustReport Map.empty stmts Map.empty)
+          branchObjs = [ v | Just (Array os) <- [objLookup "obligations" =<< decodeVal reportJson]
+                           , v <- foldr (:) [] os
+                           , objStr "kind" v == Just "branch-obligation" ]
+      null branchObjs `shouldBe` False
+      [ () | v <- branchObjs, Just _ <- [objLookup "contract_channel" v] ] `shouldBe` []
+      [ () | v <- branchObjs, Nothing <- [objLookup "parent_id" v] ] `shouldBe` []
+
+    it "OCH-5: the obligation report's schema_version reads 0.12.3" $ do
+      let stmts = parse bankingWtSrc
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let reportJson = assembleReport "test.llmll" stmts Map.empty emitR (Just FQSafe)
+                         (buildTrustReport Map.empty stmts Map.empty)
+      T.isInfixOf "\"schema_version\":\"0.12.3\"" reportJson `shouldBe` True
+
+    -- =====================================================================
+    -- TRUST-CH-HOLE-1: the trust channel had a field it never filled, and two
+    -- kinds that carried no channel at all.
+    --
+    -- 'trAssumptions' shipped as a hardcoded [] for sixteen versions while the
+    -- data sat one record away: TRUST-AXIOM fills teBuiltinAxioms /
+    -- teInheritedAxioms / teGroundFacts post-emit, and the assembler read only
+    -- the tier off the same entry. These cells are a POSITIVE WITNESS plus its
+    -- negative control, in that order, because an empty array passes any test
+    -- that only asks for the key.
+    -- =====================================================================
+    let bytesRdSrc =
+          [ "(def rd [b: bytes[8] i: int] -> int"
+          , "  (pre  (and (>= i 0) (< i 8)))"
+          , "  (post (and (>= result 0) (<= result 255)))"
+          , "  (bytes-get b i))" ]
+        -- The marking Main.hs applies post-emit. WITHOUT it the report
+        -- discloses nothing, so a cell that skipped it would pass against the
+        -- unfixed assembler too.
+        markedRpt ss emitR = markGroundFacts (erGroundFactFamilies emitR)
+                               (markBuiltinAxioms (erBuiltinAxioms emitR)
+                                 (buildTrustReport Map.empty ss Map.empty))
+        obligsOf json = [ v | Just (Array os) <- [objLookup "obligations" =<< decodeVal json]
+                            , v <- foldr (:) [] os ]
+        ofKind k json = [ v | v <- obligsOf json, objStr "kind" v == Just k ]
+        assumptionsOf v = case objLookup "trust_channel" v >>= objLookup "assumptions" of
+          Just (Array as) -> foldr (:) [] as
+          _               -> []
+
+    -- THE POSITIVE WITNESS. A bytes-rooted body rests on the bytes-get
+    -- reflection axiom, and the obligation now says so by name. The obligation
+    -- is the call-pre one the `bytes-get` call itself raises, which is the same
+    -- object the CLI surfaces on examples/bytes-bounds/read-at-off-by-one.llmll.
+    it "TCH-1: a sealed-builtin body's obligation DISCLOSES the axiom it rests on" $ do
+      let stmts = parse bytesRdSrc
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json = assembleReport "test.llmll" stmts Map.empty emitR
+                   (Just FQSafe) (markedRpt stmts emitR)
+          obls = ofKind "precondition-obligation" json
+          rows = concatMap assumptionsOf obls
+      null obls `shouldBe` False
+      [ objStr "builtin" r | r <- rows, objStr "kind" r == Just "builtin-axiom" ]
+        `shouldSatisfy` elem (Just "bytes-get")
+      -- the row carries the assumed post itself, not just the builtin's name
+      [ objStr "predicate" r | r <- rows, objStr "kind" r == Just "builtin-axiom" ]
+        `shouldSatisfy` any (maybe False (T.isInfixOf "Map_select"))
+      -- and it splits into the tagged conjuncts (professor finding 4), so the
+      -- report surface and the trust report agree row for row
+      [ objLookup "conjuncts" r | r <- rows, objStr "kind" r == Just "builtin-axiom" ]
+        `shouldSatisfy` all (/= Nothing)
+
+    -- THE NEGATIVE CONTROL. Same assembler, same marking, same OBLIGATION KIND,
+    -- a body with no bytes and no map operation: the array must be EMPTY.
+    -- Without this cell TCH-1 cannot tell a disclosure from a constant.
+    it "TCH-2: a bytes-free, map-free body's obligation carries assumptions []" $ do
+      let stmts = parse bankingWtSrc
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json = assembleReport "test.llmll" stmts Map.empty emitR
+                   (Just FQSafe) (markedRpt stmts emitR)
+          obls = ofKind "precondition-obligation" json
+      null obls `shouldBe` False
+      concatMap assumptionsOf obls `shouldBe` []
+
+    -- 1b: the channel reaches the two kinds that describe a function's own
+    -- evidence. The id of the function is the CALLER on a precondition
+    -- obligation — the one whose body has to establish the callee's pre.
+    it "TCH-3: contract and precondition obligations each carry a trust_channel" $ do
+      let stmts = parse bankingWtSrc
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json = assembleReport "test.llmll" stmts Map.empty emitR
+                   (Just FQSafe) (markedRpt stmts emitR)
+          pre  = ofKind "precondition-obligation" json
+      null pre `shouldBe` False
+      [ () | v <- pre, Nothing <- [objLookup "trust_channel" v] ] `shouldBe` []
+      -- the channel describes the CALLER, not the callee
+      [ objStr "function" v | v <- pre ] `shouldSatisfy` all (== Just "withdraw-twice")
+      -- and the contract-obligation side. A body-faithful function proves its
+      -- post INSIDE the body VC, so the standalone-post mode is what gives a
+      -- "post" clause to hang a contract obligation on (the same dual-emit
+      -- OCH-3 uses); the axioms still come off the body-VC run.
+      let stmts2 = parse [ "(def-shell shrink [x: int] -> int"
+                         , "  (pre  (>= x 0))"
+                         , "  (post (> result x))"
+                         , "  (- x 1))" ]
+      vcR2    <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts2
+      plainR2 <- emitFixpointWith (EmitOptions False Nothing) "<test>" stmts2
+      let ids2  = clauseIds plainR2 "post"
+          json2 = assembleReport "test.llmll" stmts2 Map.empty plainR2
+                    (Just (FQUnsafe ids2)) (markedRpt stmts2 vcR2)
+          con   = ofKind "contract-obligation" json2
+      null ids2 `shouldBe` False
+      null con `shouldBe` False
+      [ () | v <- con, Nothing <- [objLookup "trust_channel" v] ] `shouldBe` []
+
+    -- NEGATIVE CONTROL for 1b. A termination obligation proves a measure
+    -- descends and a branch obligation is a sub-goal of a hole; neither is a
+    -- claim about a function's own evidence, so neither may grow a channel.
+    it "TCH-4: termination and branch obligations carry NO trust_channel" $ do
+      let stmts = parse [ "(def-shell spin [x: int] -> int"
+                        , "  (pre  (>= x 0))"
+                        , "  (post (= result x))"
+                        , "  (decreases x)"
+                        , "  (spin x))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json = assembleReport "test.llmll" stmts Map.empty emitR
+                   (Just (FQUnsafe (clauseIds emitR "decreases" ++ clauseIds emitR "descent")))
+                   (markedRpt stmts emitR)
+          terms = ofKind "termination-obligation" json
+      null terms `shouldBe` False
+      [ () | v <- terms, Just _ <- [objLookup "trust_channel" v] ] `shouldBe` []
+      let bstmts = parse [ "(def-shell pick [r: Result[int, int]] -> int"
+                         , "  (post (>= result 0))"
+                         , "  (match r ((Success s) ?fill) ((Error e) 0)))" ]
+      bemitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" bstmts
+      let bjson   = assembleReport "test.llmll" bstmts Map.empty bemitR Nothing
+                      (markedRpt bstmts bemitR)
+          branches = ofKind "branch-obligation" bjson
+      null branches `shouldBe` False
+      [ () | v <- branches, Just _ <- [objLookup "trust_channel" v] ] `shouldBe` []
+
+    -- 1a: an UNRECORDED inherited axiom must read as unrecorded. A callee
+    -- whose sidecar predates the disclosure has an UNKNOWN assumed set, and
+    -- LLMLL.md §13.12 requires the channel to say so rather than report it
+    -- axiom-free. The contrast against the recorded case is the test.
+    it "TCH-5: an inherited axiom with an unrecorded callee reads unrecorded, not absent" $ do
+      let stmts = parse [ "(def helper [x: int] -> int (post (>= result 0)) (+ x 1))"
+                        , "(def caller [x: int] -> int (post (>= result 0)) (helper x))" ]
+          rptWith m = markInheritedAxioms m (buildTrustReport Map.empty stmts Map.empty)
+          rowsFor m = concat [ trustAssumptionRows e
+                             | e <- trEntries (rptWith m), teName e == "caller" ]
+          unrecorded = rowsFor (Map.fromList [("helper", Nothing)])
+          recorded   = rowsFor (Map.fromList [("helper", Just ["bytes-set"])])
+      -- the unrecorded row is PRESENT, named, and says recorded=false
+      [ objStr "origin" r | r <- unrecorded, objStr "kind" r == Just "inherited-axiom" ]
+        `shouldBe` [Just "helper"]
+      [ objLookup "recorded" r | r <- unrecorded ] `shouldBe` [Just (Bool False)]
+      [ objLookup "builtin" r | r <- unrecorded ] `shouldBe` [Nothing]
+      -- ... and the recorded case names the builtin instead, so the two differ
+      [ objStr "builtin" r | r <- recorded ] `shouldBe` [Just "bytes-set"]
+      [ objLookup "recorded" r | r <- recorded ] `shouldBe` [Nothing]
+
+    -- =====================================================================
+    -- OBLIG-BRANCH-PC: spec §6.2's two missing branch fields. The sample has
+    -- carried them since Rev 1; the emitter emitted four branch keys and
+    -- neither of these, measured against both branch obligations in the
+    -- corpus.
+    -- =====================================================================
+    it "OBP-1: a branch obligation carries its arm's path_condition and the parent's goal" $ do
+      let stmts = parse [ "(def-shell pick [r: Result[int, int]] -> int"
+                        , "  (post (>= result 0))"
+                        , "  (match r ((Success s) ?fill) ((Error e) 0)))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json     = assembleReport "test.llmll" stmts Map.empty emitR Nothing
+                       (buildTrustReport Map.empty stmts Map.empty)
+          branches = ofKind "branch-obligation" json
+          holes    = ofKind "hole-obligation" json
+          pathOf v = case objLookup "path_condition" v of
+            Just (Array es) -> foldr (:) [] es
+            _               -> []
+      length branches `shouldBe` 2
+      -- ONE entry, the arm's OWN constructor guard, and it names the scrutinee
+      map (length . pathOf) branches `shouldBe` [1, 1]
+      [ objStr "guard" e | v <- branches, e <- pathOf v ]
+        `shouldBe` [Just "(match-Success r)", Just "(match-Error r)"]
+      [ objStr "kind" e | v <- branches, e <- pathOf v ]
+        `shouldBe` [Just "structural", Just "structural"]
+      -- the goal is the ENCLOSING function's post — the same string the parent
+      -- hole obligation carries, not a re-derivation of it
+      let parentGoal = [ objStr "postcondition_goal" cc
+                       | v <- holes, Just cc <- [objLookup "contract_channel" v] ]
+      parentGoal `shouldBe` [Just "(>= result 0)"]
+      [ objStr "postcondition_goal" v | v <- branches ]
+        `shouldBe` [Just "(>= result 0)", Just "(>= result 0)"]
+
+    -- The two fields are TOP-LEVEL on the branch object (§6.2's sample), not
+    -- folded into a channel: a branch obligation still carries none.
+    it "OBP-2: the two branch fields are top-level, and the branch grows no channel" $ do
+      let stmts = parse [ "(def-shell pick [r: Result[int, int]] -> int"
+                        , "  (post (>= result 0))"
+                        , "  (match r ((Success s) ?fill) ((Error e) 0)))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
+      let json     = assembleReport "test.llmll" stmts Map.empty emitR Nothing
+                       (buildTrustReport Map.empty stmts Map.empty)
+          branches = ofKind "branch-obligation" json
+      null branches `shouldBe` False
+      [ () | v <- branches, Nothing <- [objLookup "path_condition" v] ] `shouldBe` []
+      [ () | v <- branches, Nothing <- [objLookup "postcondition_goal" v] ] `shouldBe` []
+      [ () | v <- branches, Just _ <- [objLookup "contract_channel" v] ] `shouldBe` []
+      [ () | v <- branches, Just _ <- [objLookup "trust_channel" v] ] `shouldBe` []
 
   -- R1 (bool-ret-synth): buildContractEnv synthesises a TBool return type for an
   -- annotation-less, post-less, syntactically-boolean-bodied function, so the CallVC
@@ -12051,9 +12432,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Phase 4: Integration tests" $ do
     it "INT-1: fingerprint stability" $ do
       let id1 = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
-                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body"
+                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body" Nothing
           id2 = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
-                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body"
+                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body" Nothing
       id1 `shouldBe` id2
 
     it "INT-2: isTypeCompatible TVar enables list-head matching" $

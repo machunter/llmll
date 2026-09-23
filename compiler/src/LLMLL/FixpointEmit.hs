@@ -76,6 +76,10 @@ module LLMLL.FixpointEmit
   , applySubst
   , isConstructorDependent
   , collectCallPreObligations
+    -- * Surface-expression rendering (OBLIG-D4: one definition, two consumers)
+  , exprToSExpr
+  , alphaCanonExpr
+  , renderCallSite
     -- * Body-VC engine (exported for testing)
   , bodyToPredFrom
   , bodyToPredFromR
@@ -298,6 +302,14 @@ data BuiltinAxiom = BuiltinAxiom
   , baPredicate :: Text   -- ^ the rendered assumed post
   , baCategory  :: Text   -- ^ derived from 'factCategoryName', never a literal
   , baStamp     :: Text   -- ^ the stamp the axiom rides
+  , baConjuncts :: [(Text, Text)]
+    -- ^ TRUST-AXIOM (professor finding 4): the assumed post SPLIT, one entry
+    -- per conjunct as @(tag, rendered predicate)@ with tag @"reflection"@ or
+    -- @"lemma"@. 'baPredicate' stays the whole merged post, so no reader of
+    -- the older field breaks; this field is what lets a reader tell the
+    -- conjunct that DEFINES the encoding from the one that asserts a theorem
+    -- about the operation. Carried from the emitting arm through
+    -- 'cvPostParts', never recovered from the rendered string.
   } deriving (Show, Eq)
 
 -- | TRUST-AXIOM: the builtins whose 'cvPostAssumption' is an axiom rather than
@@ -338,8 +350,35 @@ data BodyVC
   | CallVC                               -- ^ v0.9.0: Compositional call site
     { cvCallee         :: Name           -- ^ callee function name
     , cvArgs           :: [FQPred]       -- ^ translated argument predicates
+    , cvArgExprs       :: [Expr]
+      -- ^ OBLIG-D4: the SURFACE argument expressions of this call, kept
+      -- alongside their translation. 'cvArgs' is already lowered (and
+      -- alpha-renamed), so it cannot be rendered back into a form the
+      -- report layer can match against the source body. The obligation id's
+      -- site discriminator is this vector, so it has to survive translation.
+      -- Empty for the builtin arms (bytes-get/set/zero, map-get): those carry
+      -- no user-visible call-pre site.
     , cvPreObligation  :: Maybe FQPred   -- ^ callee pre after substitution (PROVE polarity)
     , cvPostAssumption :: Maybe FQPred   -- ^ callee post after substitution (ASSUME polarity)
+    , cvPostParts      :: [(Text, FQPred)]
+      -- ^ TRUST-AXIOM (professor finding 4): 'cvPostAssumption' SPLIT into the
+      -- parts the emitting arm built it from, each tagged with what it is.
+      -- @"reflection"@ DEFINES the builtin's encoding in the theory
+      -- (@r = Map_store(b,i,v)@); @"lemma"@ is a substantive fact ABOUT the
+      -- operation that the encoding does not give you
+      -- (@bytesLen(r) = bytesLen(b)@). A reader of the merged predicate cannot
+      -- tell the definition from the theorem, and the theorem is the half that
+      -- can be wrong.
+      --
+      -- TAGGED WHERE IT IS BUILT, never recovered from the assembled predicate.
+      -- The four sealed-builtin arms of 'bodyToPredM' know which conjunct is
+      -- which because they write them separately; a later walk over an
+      -- @FQAnd@ would be guessing from shape. Empty for a user-function call:
+      -- its post is the callee's own contract, discharged by the callee's body
+      -- VC, not an axiom (LLMLL.md §5.3.4).
+      --
+      -- INVARIANT the arms keep: @conjoinAll (map snd cvPostParts) == post@
+      -- whenever the list is non-empty.
     , cvResultVar      :: Name           -- ^ fresh result variable (_call_g_N)
     , cvResultSort     :: FQSort         -- ^ sort of the result
     , cvContinuation   :: BodyVC         -- ^ rest of the body after the call
@@ -775,7 +814,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                 rhs   = FQReft "v" FQInt factPred
             addConst (FQConstraint cid (map bindId paramBinds) lhs rhs [d, cpTag])
             addCallPre d
-            addOrigin cid (ConstraintOrigin d cpTag ("/statements/" <> T.pack (show di) <> "/body") srcFile)
+            addOrigin cid (ConstraintOrigin d cpTag ("/statements/" <> T.pack (show di) <> "/body") srcFile Nothing)
   -- RESP-FACT-1: the checker prints these on `check`; verify prints only
   -- checker ERRORS, so the emitter surfaces the same warnings on its own path.
   forM_ (rpWarnings respPlan) (addDiag . mkWarning Nothing)
@@ -1137,7 +1176,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             addConst c
             addEmittedPre name  -- v0.8.0: track that this pre actually emitted
             let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/pre"
-            addOrigin cid (ConstraintOrigin name "pre" ptr srcFile)
+            addOrigin cid (ConstraintOrigin name "pre" ptr srcFile Nothing)
 
     -- Emit standalone post-condition constraint (legacy, non-body-VC mode only)
     -- PAIR-RET-2: a non-sortable pair component would mis-sort the result binder
@@ -1160,7 +1199,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             addConst c
             addEmittedPost name  -- v0.8.0: track that this post actually emitted
             let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/post"
-            addOrigin cid (ConstraintOrigin name "post" ptr srcFile)
+            addOrigin cid (ConstraintOrigin name "post" ptr srcFile Nothing)
 
     -- Emit well-foundedness constraints: pre ⟹ eᵢ ≥ 0, ONE PER measure component.
     -- REC-DESCENT lexicographic: a def-shell's FULL tuple comes from 'measureMap'
@@ -1183,7 +1222,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
               c   = FQConstraint cid envIds lhs rhs [name, "decreases"]
           addConst c
           let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
-          addOrigin cid (ConstraintOrigin name "decreases" ptr srcFile)
+          addOrigin cid (ConstraintOrigin name "decreases" ptr srcFile Nothing)
 
     -- v0.8.0: Emit body-faithful verification conditions
     -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q
@@ -1488,7 +1527,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                  [name, "call-pre:map-get"]
                       addConst oc
                       let optr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                      addOrigin ocid (ConstraintOrigin name "call-pre:map-get" optr srcFile)
+                      addOrigin ocid (ConstraintOrigin name "call-pre:map-get" optr srcFile Nothing)
                     cid <- freshCid
                     -- F-011.3: the else-arm's `result$has = m$has ∧ result$val = m$val`
                     -- for a returned param map is the body-VC aliasing of `result`
@@ -1508,7 +1547,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         c = FQConstraint cid (envIds ++ stepBindIds ++ [rhbid, rvbid]) lhs rhs [name, tag]
                     addConst c
                     let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                    addOrigin cid (ConstraintOrigin name tag ptr srcFile)
+                    addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
                   addBodyFaithful name
               -- FALLBACK-CENSUS-1: a hole body reaches here when its post
               -- translates. It is a scaffold, not a body outside the fragment.
@@ -1675,7 +1714,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                      addOrigin cid (ConstraintOrigin name tag ptr srcFile)
+                      addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
                     -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
                     -- scope check refused the post above.
                     if unboundMapResult
@@ -1699,7 +1738,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let callObligations = collectCallPreObligations bvc
                     unless (null callObligations) $ do
                       addCallPre name
-                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred0, pathGuard, ctxCalls, pathLbs)) ->
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred0, pathGuard, ctxCalls, pathLbs, cpArgEs)) ->
                        -- RESP-FACT-1 (§16 item 7, cell c38; §8 item 21): a callee
                        -- precondition that is CLOSED after argument substitution and
                        -- constructor lowering — `(= p Ran)` at `(h Ran x)` becomes
@@ -1755,8 +1794,25 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             rhs = FQReft "v" FQInt prePred
                             c = FQConstraint cid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, cpTag]
                         addConst c
+                        -- OBLIG-D4: the pointer stays on the enclosing BODY —
+                        -- oblig-0-spec §3.2 treats `origin` as separate mutable
+                        -- metadata, and the id is the key. The call-level
+                        -- discriminator rides 'coSite' instead: the call's
+                        -- alpha-normalized surface argument vector, which names
+                        -- the call without naming a position in the body.
+                        --
+                        -- NO ARGUMENT VECTOR, NO SITE. This walk also yields the
+                        -- BUILTIN call-pre nodes (bytes-get, bytes-set, map-get),
+                        -- which carry no surface arguments, and a nullary callee
+                        -- carries none either. An empty vector is the same token
+                        -- at every call, so it discriminates nothing; emitting it
+                        -- would only lengthen the id. Those obligations keep the
+                        -- original un-sited id and stay indistinguishable from a
+                        -- sibling — a real residual limit, not a silent one.
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                        addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
+                            mSite | null cpArgEs = Nothing
+                                  | otherwise    = Just (renderCallSite params cpArgEs)
+                        addOrigin cid (ConstraintOrigin name cpTag ptr srcFile mSite)
 
                     -- REC-DESCENT (v0.14.25): strict-descent obligations. For each
                     -- intra-SCC call f→g where BOTH f and g declare a k=1 measure,
@@ -1825,7 +1881,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                         dc  = FQConstraint dcid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, "descent"]
                                     addConst dc
                                     let dptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
-                                    addOrigin dcid (ConstraintOrigin name "descent" dptr srcFile)
+                                    addOrigin dcid (ConstraintOrigin name "descent" dptr srcFile Nothing)
 
                     -- COMP-4 (b) intro-side: payload-subtyping obligations. For
                     -- each call passing an arg to a refined-payload Result/ADT
@@ -1870,7 +1926,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                     let sc = FQConstraint scid envIds (FQReft "v" psort pArgFQ) (FQReft "v" psort pParamFQ) [name, subTag]
                                     addConst sc
                                     let sptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                                    addOrigin scid (ConstraintOrigin name subTag sptr srcFile)
+                                    addOrigin scid (ConstraintOrigin name subTag sptr srcFile Nothing)
 
 -- NIW (v0.12): alias-aware so a refinement-aliased param (e.g. `w : Word`)
 -- gets its carrier sort (Str/Lst) rather than the typeToSort default (int).
@@ -3867,8 +3923,13 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             return $ Just $ CallVC
               { cvCallee         = fname
               , cvArgs           = argPreds
+              , cvArgExprs       = args
               , cvPreObligation  = mPrePred
               , cvPostAssumption = mPostSubst
+              -- A user call's post is the callee's CONTRACT, discharged by the
+              -- callee's own body VC. It is not an axiom, so it has no tagged
+              -- parts and never reaches 'collectBuiltinAxioms'.
+              , cvPostParts      = []
               , cvResultVar      = resultVar
               , cvResultSort     = retSort
               , cvContinuation   = SimpleVC [] (FQVar resultVar)
@@ -3958,8 +4019,16 @@ bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
       r <- freshName "call_bytes_get"
       let pre  = FQAnd [ FQBinPred FQLe (FQLit 0) iP
                        , FQBinPred FQLt iP (FQApp "bytesLen" [bP]) ]
-          post = FQBinPred FQEq (FQVar r) (FQApp "Map_select" [bP, iP])
-      return . Just $ CallVC "bytes-get" [bP, iP] (Just pre) (Just post)
+          -- One part, and it is the REFLECTION: the read IS the array select.
+          -- No lemma rides here — the byte-range fact a reader might expect is
+          -- injected per select term by 'injectRangeFacts' (family 2), not
+          -- assumed at this call.
+          parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [bP, iP]))]
+          -- 'conjoinAll' of a one-element list is that element, and of a
+          -- two-element list is the same 'FQAnd' the arms wrote by hand, so
+          -- routing the post through the parts changes no emitted constraint.
+          post = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-get" [bP, iP] [] (Just pre) (Just post) parts
                              r FQInt (SimpleVC [] (FQVar r))
     _ -> return Nothing
 
@@ -3978,9 +4047,14 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
                        , FQBinPred FQLt iP (FQApp "bytesLen" [bP])
                        , FQBinPred FQLe (FQLit 0) vP
                        , FQBinPred FQLe vP (FQLit 255) ]
-          post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_store" [bP, iP, vP])
-                       , FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP]) ]
-      return . Just $ CallVC "bytes-set" [bP, iP, vP] (Just pre) (Just post)
+          -- TWO PARTS, and they are not the same kind of claim. The first
+          -- DEFINES the write in the array theory; the second is a LEMMA about
+          -- it — store preserves length — which the theory does not give you
+          -- and which a reader has to accept on the codegen stamp.
+          parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_store" [bP, iP, vP]))
+                  , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP])) ]
+          post = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-set" [bP, iP, vP] [] (Just pre) (Just post) parts
                              r byteArraySort (SimpleVC [] (FQVar r))
     _ -> return Nothing
 
@@ -4012,9 +4086,12 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
 -- comment used to cite had drifted, resp-fact-proposal.md §16 item 6).
 bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
   r <- freshName "call_bytes_zero"
-  let post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 0])
-                   , FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n) ]
-  return . Just $ CallVC "bytes-zero" [] Nothing (Just post)
+  let -- Same split as `bytes-set`: the constant-zero array is the REFLECTION,
+      -- the length is the LEMMA the annotation and codegen jointly license.
+      parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 0]))
+              , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n)) ]
+      post = conjoinAll (map snd parts)
+  return . Just $ CallVC "bytes-zero" [] [] Nothing (Just post) parts
                          r byteArraySort (SimpleVC [] (FQVar r))
 
 -- Un-reified `(bytes-zero)` → the bare const array (probe p4). Dead on the
@@ -4058,8 +4135,11 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
       -- SortEnv) — so a string-valued map-get is well-sorted, not an FQInt-vs-Str
       -- mismatch against the Str Map_select.
       let pre  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
-          post = FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k])
-      return . Just $ CallVC "map-get" [h, vl, k] (Just pre) (Just post)
+          -- One part, the REFLECTION: the lookup IS the value-array select.
+          -- The presence side is a PROVE-polarity pre, not an assumption.
+          parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k]))]
+          post = conjoinAll (map snd parts)
+      return . Just $ CallVC "map-get" [h, vl, k] [] (Just pre) (Just post) parts
                              r (mapSelValSort se vl) (SimpleVC [] (FQVar r))
     _ -> return Nothing
 
@@ -4109,7 +4189,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- name here left the let var unbound (never equated to rVar) — a free variable
     -- in every constraint that referenced it (the withdraw-twice / banking_ledger
     -- crash, masked pre-F-NIW-3 by liquid-fixpoint's hyphen mis-lex).
-    Just (CallVC cal callArgs mPre mPost rVar rSort _cont) -> do
+    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort _cont) -> do
       -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
       -- cross-call marker) binds its result as a SPLIT component pair — seed
       -- rVar$has/rVar$val so subsequent map ops over the let-bound name root
@@ -4128,7 +4208,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
-        Just bvc -> return $ Just $ CallVC cal callArgs mPre mPost rVar rSort bvc
+        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc
     -- RHS is a branch (EIf in let RHS) — hoist via flattening.
     -- Single-path degenerate branches are handled; multi-path falls back.
     Just bvc@(BranchVC _ _ _ _) -> do
@@ -4170,9 +4250,9 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
                 mt <- graftLeaves t
                 me <- graftLeaves e
                 return (BranchVC g bs <$> mt <*> me)
-              graftLeaves (CallVC cal cargs mPre mPost rVar rSort cont) = do
+              graftLeaves (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont) = do
                 mc <- graftLeaves cont
-                return ((\k -> CallVC cal cargs mPre mPost rVar rSort k) <$> mc)
+                return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k) <$> mc)
           in graftLeaves bvc
     _ -> return Nothing
 
@@ -4486,7 +4566,7 @@ flattenBodyVC (BranchVC guard _ thenVC elseVC) =
 -- result variable as let-binding into the continuation paths.
 -- The precondition obligation is emitted separately during constraint
 -- emission — it is NOT folded into the body-post constraint.
-flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
+flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont) =
   let contPaths = flattenBodyVC cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
@@ -4537,7 +4617,7 @@ pathBranchSides (SimpleVC _ _)             = [Nothing]
 pathBranchSides (BranchVC _ _ thenVC elseVC) =
   [Just True  | _ <- flattenBodyVC thenVC] ++
   [Just False | _ <- flattenBodyVC elseVC]
-pathBranchSides (CallVC _ _ _ _ _ _ cont)  = pathBranchSides cont
+pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont)  = pathBranchSides cont
 
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
@@ -4550,7 +4630,7 @@ countPathsBounded limit = go
       in if tc >= limit then tc
          else let ec = go evc
               in min limit (tc + ec)
-    go (CallVC _ _ _ _ _ _ cont) = go cont  -- v0.9.0: paths determined by continuation
+    go (CallVC _ _ _ _ _ _ _ _ cont) = go cont  -- v0.9.0: paths determined by continuation
 
 -- | v0.9.0: Collect all call-pre obligations from a BodyVC tree.
 -- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
@@ -4570,7 +4650,7 @@ countPathsBounded limit = go
 collectCallSites :: BodyVC -> [(Name, [FQPred])]
 collectCallSites (SimpleVC _ _)               = []
 collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
-collectCallSites (CallVC c args _ _ _ _ cont) = (c, args) : collectCallSites cont
+collectCallSites (CallVC c args _ _ _ _ _ _ cont) = (c, args) : collectCallSites cont
 
 -- | TRUST-AXIOM: the sealed-builtin axioms this body VC assumed.
 --
@@ -4597,36 +4677,45 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
     go (SimpleVC _ _)     = []
     go (BranchVC _ _ t e) = go t ++ go e
-    go (CallVC c _ _ mPost rVar _ cont)
+    go (CallVC c _ _ _ mPost pParts rVar _ cont)
       | Set.member c sealedAxiomBuiltins
-      , Just post <- mPost = row c rVar post : go cont
+      , Just post <- mPost = row c rVar post pParts : go cont
       | otherwise          = go cont
     -- Render the call's result binder as @result@. The emitted name is the
     -- alpha-renaming counter's (@_bv_call_bytes_zero_0@), which is an artifact
     -- of emission order and tells a reader nothing. 'AssumedFact' rows already
     -- render a clean binder, so the two disclosures read alike.
-    row c rVar post = BuiltinAxiom
+    row c rVar post pParts = BuiltinAxiom
       { baDef       = defName
       , baBuiltin   = c
-      , baPredicate = emitPred (applySubst (Map.singleton rVar (FQVar "result")) post)
+      , baPredicate = render post
       , baCategory  = factCategoryName FactCodegen
       , baStamp     = "codegen_semantics_version"
+      -- The SAME binder rewrite and the SAME renderer as 'baPredicate', applied
+      -- per part, so a conjunct reads exactly as it does inside the merged
+      -- predicate. The tags came off the emitting arm ('cvPostParts'); nothing
+      -- here inspects the shape of the assembled post.
+      , baConjuncts = [ (tag, render p) | (tag, p) <- pParts ]
       }
+      where render = emitPred . applySubst (Map.singleton rVar (FQVar "result"))
 
-collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding])]
+-- OBLIG-D4: each obligation also carries the call's SURFACE argument vector,
+-- which names the call site (two calls to one callee from one body are
+-- otherwise indistinguishable in the origin table).
+collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding], [Expr])]
 collectCallPreObligations = go FQTrue []
   where
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee _args mPre mPost rVar rSort cont) =
+    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont) =
       let preObligs = case mPre of
             -- F-NIW-4b: attach the path's let-bindings (which prependLB has pushed
             -- into the leaf of `cont`) so a precondition referencing a let-bound
             -- non-call value (e.g. `(g y)` where `y = x+1`) can be proved under
             -- that value's defining equality. The emission filters them to the
             -- subset in scope at the call.
-            Just prePred -> [(callee, prePred, guard, calls, subtreeLbs cont)]
+            Just prePred -> [(callee, prePred, guard, calls, subtreeLbs cont, argEs)]
             Nothing      -> []
           -- subsequent obligations may assume this call's post over its result var
           calls' = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
@@ -4643,10 +4732,54 @@ collectDescentSites = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee args _mPre mPost rVar rSort cont) =
+    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont) =
       let here    = [(callee, args, guard, calls, subtreeLbs cont)]
           calls'  = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
       in here ++ go guard calls' cont
+
+-- ---------------------------------------------------------------------------
+-- Surface-expression rendering (OBLIG-D4)
+-- ---------------------------------------------------------------------------
+--
+-- 'exprToSExpr' and 'alphaCanonExpr' used to live in LLMLL.ObligationAssembly,
+-- which imports this module. The call-site NAME an obligation id is keyed on is
+-- minted here, at emission, and read back there, at assembly — so both ends must
+-- render the same bytes from the same 'Expr'. One definition, at the lower end
+-- of the import edge, is the only way to keep them from drifting apart.
+-- ObligationAssembly re-exports both.
+
+-- | Render an expression as an s-expression.
+exprToSExpr :: Expr -> Text
+exprToSExpr (EVar v)             = v
+exprToSExpr (ELit (LitInt n))    = T.pack (show n)
+exprToSExpr (ELit (LitFloat f))  = T.pack (show f)
+exprToSExpr (ELit (LitBool b))   = if b then "true" else "false"
+exprToSExpr (ELit (LitString s)) = "\"" <> s <> "\""
+exprToSExpr (EApp op args)       = "(" <> op <> " " <> T.intercalate " " (map exprToSExpr args) <> ")"
+exprToSExpr (EOp op args)        = exprToSExpr (EApp op args)
+exprToSExpr (EHole (HNamed n))   = "?" <> n
+exprToSExpr (EHole _)            = "?_"
+exprToSExpr e                    = T.pack (show e)
+
+-- | Alpha-canonicalize an expression using a substitution map.
+alphaCanonExpr :: Map Name Name -> Expr -> Expr
+alphaCanonExpr subst (EVar v)       = EVar (Map.findWithDefault v v subst)
+alphaCanonExpr subst (EApp op args) = EApp op (map (alphaCanonExpr subst) args)
+alphaCanonExpr subst (EOp op args)  = EOp op (map (alphaCanonExpr subst) args)
+alphaCanonExpr _     e              = e  -- literals, holes unchanged
+
+-- | OBLIG-D4: the site discriminator of a call, as one token.
+--
+-- The enclosing function's parameters are alpha-normalized to @$p0, $p1, ...@
+-- in declaration order — the SAME normalization the obligation fingerprint
+-- applies — so renaming a parameter does not move the site. Everything else
+-- (let-bound names, literals, nested applications) renders as written. The
+-- result is wrapped in parentheses so the whole vector is one token and an
+-- empty argument list still renders as @()@ rather than the empty string.
+renderCallSite :: [(Name, Type)] -> [Expr] -> Text
+renderCallSite params args =
+  let paramSubst = Map.fromList $ zip (map fst params) ["$p" <> T.pack (show i) | i <- [0::Int ..]]
+  in "(" <> T.intercalate " " (map (exprToSExpr . alphaCanonExpr paramSubst) args) <> ")"
 
 -- | F-NIW-4b: all let-bindings reachable in a BodyVC. `prependLB` parks
 -- let-bindings at the leaf SimpleVC of a CallVC continuation, so a call-pre
@@ -4654,7 +4787,7 @@ collectDescentSites = go FQTrue []
 subtreeLbs :: BodyVC -> [LetBinding]
 subtreeLbs (SimpleVC lbs _)          = lbs
 subtreeLbs (BranchVC _ _ t e)        = subtreeLbs t ++ subtreeLbs e
-subtreeLbs (CallVC _ _ _ _ _ _ cont) = subtreeLbs cont
+subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont) = subtreeLbs cont
 
 -- | COMP-3b-general: every match-introduced binder (synthetic guard + arm
 -- payloads) carried in a 'BranchVC' binder field across the whole VC tree, so the
@@ -4668,7 +4801,7 @@ subtreeLbs (CallVC _ _ _ _ _ _ cont) = subtreeLbs cont
 collectBranchBinders :: BodyVC -> [(Name, FQSort, FQPred)]
 collectBranchBinders (SimpleVC _ _)            = []
 collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
-collectBranchBinders (CallVC _ _ _ _ _ _ cont) = collectBranchBinders cont
+collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont) = collectBranchBinders cont
 
 -- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
 -- all already in scope (params ∪ prior-call results ∪ already-included lbs),
@@ -5222,8 +5355,8 @@ collectCallArgCarrierVars am cenv = go
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g bs t e) = BranchVC g bs (prependLB lb t) (prependLB lb e)
-prependLB lb (CallVC cal args mPre mPost rVar rSort cont) =
-  CallVC cal args mPre mPost rVar rSort (prependLB lb cont)  -- v0.9.0
+prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont) =
+  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont)  -- v0.9.0
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
@@ -5236,8 +5369,8 @@ prependLBs lbs bvc = foldr prependLB bvc lbs
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
 -- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.
 setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
-setCallVCContinuation (CallVC cal args mPre mPost rVar rSort _cont) newCont =
-  CallVC cal args mPre mPost rVar rSort newCont
+setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort _cont) newCont =
+  CallVC cal args argEs mPre mPost pParts rVar rSort newCont
 setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | Infer the FQSort of a predicate result.

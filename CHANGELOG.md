@@ -4,6 +4,112 @@
 
 <a id="Latest"></a>
 
+## v0.25.0: the obligation report named neither its site nor what its evidence assumes (2026-09-22)
+
+Two defects, found by one reading and shipped together.
+
+An obligation id was `oblig:<function>:<channel>:<fingerprint>`, hashing the function, the channel
+and the alpha-normalized post. **Two calls to the same callee from one body therefore produced two
+obligations with the same id**, and `origin` did not separate them either, addressing the enclosing
+body rather than the call. Measured over the tracked corpus: **42 of 158 precondition obligations**
+sat in such groups, in groups of two, three and four.
+
+The same reading found `mkHoleObl` was the only site populating any channel, so **229 of 478
+obligations carried none of the three**, and that the one channel it did populate carried nothing:
+all 249 `trust_channel` payloads were the constant `assumptions: []`, `effective_level: "asserted"`,
+`body_faithful: false`.
+
+### The id names its site
+
+- **`<site>` was in the spec's own format all along.** `oblig-0-spec.md` §3.1 documents
+  `oblig:<function>:<channel>:<site>:<fingerprint>` and §2.2's sample fills it with `?h3`. The
+  implementation emitted four segments. §3.3's "Edit-stable: No positional component" looked like a
+  contradiction and is not one: **the site is a name, not a position.**
+- **A hole's site is the hole name, verbatim**, so §2.2's sample shape renders literally:
+  `oblig:opcode-of:body:?impl:8765fbd2b516`. A call-pre site is the call's argument vector,
+  alpha-normalized against the enclosing function's parameters, then hashed, because a vector is
+  long and may contain a colon.
+- **Reordering a call moves its id with the call; renaming a parameter does not.** Two textually
+  identical calls still collapse to one id, which is correct: §3.3 makes the id
+  postcondition-sensitive and identical calls carry identical goals.
+- **Re-measured after the fix: 42 down to 8.** Every residual is a builtin callee (`bytes-get`,
+  `map-get`), which carries no surface argument vector and keeps the four-segment form.
+
+### `assumptions` gets its producer, sixteen minor versions late
+
+- **The content was already there and the channel was discarding it.** TRUST-AXIOM populated
+  `teBuiltinAxioms`, `teInheritedAxioms` and `teGroundFacts` at v0.24.0 on the very `TrustEntry`
+  that `mkHoleObl` was already reading for its tier. `assumptions` now carries kind-tagged rows:
+  `builtin-axiom` (the sealed builtin, its assumed post, category and stamp), `inherited-axiom`
+  (the callee it came from), `ground-fact` (the family). An empty array now means the function
+  assumes none of the three.
+- **The section named a source that was never connected.** `oblig-0-spec.md` §4.3 cited
+  `ContractStatus.csAssumptions`. `AssumptionKind` ships three constructors, a label function, a
+  JSON codec, a `.verified.json` slot and a checkout-token slot, and **not one constructor was ever
+  built anywhere in the compiler.** `Main.hs` carried `-- v0.8.1b: deferred to v0.9`. Neither suite
+  pinned one, which is why nothing failed: an empty list is a valid list.
+- **An unrecorded inherited axiom reports as unrecorded, not as absent**, per `LLMLL.md` §13.12:
+  the absence of a record is not evidence that no axiom was assumed.
+- **Professor finding 4 closes here.** A sealed builtin's assumed post can mix a **reflection**
+  conjunct, which defines the encoding, with a **lemma**, a theorem about the operation; merged into
+  one string a reader cannot tell them apart. Each conjunct is now tagged **at the arm that builds
+  it**, never by matching an assembled predicate. All four arms proved separable, so the plan's stop
+  condition was never reached. `bytes-set` and `bytes-zero` carry both tags; `bytes-get` and
+  `map-get` carry one `reflection` each.
+
+### Channels reach the kinds that have content for them
+
+- **`contract_channel` and `trust_channel`** now reach `contract-obligation` and
+  `precondition-obligation`. On a precondition obligation the trust channel describes the **caller**,
+  whose evidence the reader is judging.
+- **`type_channel` did not widen.** `expected_type` is its primary field and has no referent where
+  there is no hole.
+- **The field polarity is fixed rather than inherited.** `postcondition_goal` is always the goal,
+  `preconditions` always the assumption set. A precondition obligation's goal is the **callee's**
+  precondition instantiated with that call's own arguments; where the site matches no single call it
+  is `null`, never an uninstantiated predicate naming variables absent from the caller's scope.
+- **A `branch-obligation` emits the two fields §6.2 always specified**, `path_condition` (one
+  structural entry, that arm's own constructor guard over the scrutinee) and `postcondition_goal`,
+  as top-level keys. One renderer serves both it and the hole path condition, so the two cannot
+  drift; the hole path condition's wire text is unchanged.
+
+`withdraw-twice` before and after, same program:
+
+```
+before  oblig:withdraw-twice:call-pre-withdraw:af50d734322f   (both siblings)
+        origin /statements/4/body                             (both siblings)
+
+after   oblig:withdraw-twice:call-pre-withdraw:ec494bac20c9:c4c2691056e8
+          goal (and (>= balance first) (>= first 0))
+        oblig:withdraw-twice:call-pre-withdraw:63cc785a51e1:2cb1bbd335cd
+          goal (and (>= after-first second) (>= second 0))
+```
+
+**`.fq` byte-identity is the gate this change can meet exactly**, and it was measured rather than
+argued: the four sealed-builtin arms were rewritten to build their posts from tagged parts, which is
+the one edit here that could have moved a constraint. Against `llmll 0.24.0` built from `4e75995`,
+each compiler sweeping its own copy of the corpus with the copy root and every temp path normalized
+out before hashing: **249 of 249 `.fq` files byte-identical, 253 of 253 verdicts identical.**
+
+Obligation-report `schema_version` `0.12.2` to `0.12.3`, additive.
+[`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) is untouched; no published schema covers
+the obligation report. `.verified.json` sidecars are byte-unaffected: they store builtin names, not
+rendered rows.
+
+### Three spec drifts closed
+
+- **§4.3 named a source that was never connected** (above).
+- **§6.2's branch sample showed two fields the emitter never produced.** The emitter moved.
+- **`docs/getting-started.md` claimed the three channels are the keys on each obligation.** False
+  for 229 of 478 when measured.
+
+The design record is [`docs/design/oblig-0-spec.md`](docs/design/oblig-0-spec.md) at **Rev 10**,
+which gained the §2.3 per-kind matrix, the §4.2.0 polarity rule, the §3.1/§3.3 site reconciliation
+and a §14 Rev 10 record.
+
+**Tests:** 2059 Haskell, 361 Python (310 passed, 51 skipped).
+
+
 ## v0.24.0: a sealed builtin's assumed fact reaches a channel of the trust report (2026-09-22)
 
 `(bytes-zero)` emits the axiom `bytesLen(r) = n` and `(bytes-set b i v)` emits

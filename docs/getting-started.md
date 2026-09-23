@@ -463,7 +463,7 @@ $ stack exec llmll -- verify file.llmll --obligation-report --json
 }
 ```
 
-The three channels below are top-level keys on the obligation: `type_channel`, `contract_channel` and `trust_channel`. The report emits a channel key only when it has content for that channel. Today that is the `hole-obligation` kind; the other four kinds carry no channel and empty function lists. `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see §4.25); an annotated function reports the real type instead.
+The three channels below are top-level keys on the obligation: `type_channel`, `contract_channel` and `trust_channel`. The report emits a channel key only when it has content for that channel. A `hole-obligation` carries all three. A `contract-obligation` and a `precondition-obligation` carry `contract_channel` and `trust_channel`, but not `type_channel`. A `termination-obligation` carries none. A `branch-obligation` carries none either, and instead emits `path_condition` and `postcondition_goal` as top-level keys, reaching its parent's channels through `parent_id`. `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see §4.25); an annotated function reports the real type instead.
 
 Three obligation channels:
 
@@ -477,7 +477,7 @@ Three obligation channels:
 
 **Repair suggestions:** For int-typed holes, the report includes arithmetic candidate expressions synthesized from in-scope variables (O(n²) bounded, cap-8).
 
-**Function lists:** Each obligation includes `contracted_functions` (user-defined — same-module and imported-exported, the latter named as this module calls them — with trust labels) and `available_functions` (builtins). Both are filtered by return-type compatibility **only when the hole's type is known**; an unknown-typed hole receives the full vocabulary (an unannotated function then shows `return_type: "?"`). Both lists are capped at 8 entries with truncation signals.
+**Function lists:** A hole obligation includes `contracted_functions` (user-defined — same-module and imported-exported, the latter named as this module calls them — with trust labels) and `available_functions` (builtins). Both are filtered by return-type compatibility **only when the hole's type is known**; an unknown-typed hole receives the full vocabulary (an unannotated function then shows `return_type: "?"`). Both lists are capped at 8 entries with truncation signals. The other obligation kinds carry both keys as empty arrays.
 
 `verify` is **loud, not silent, when the solver is missing**: if `fixpoint` or `z3` is not on `PATH`, it still writes the `.fq` file, but prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and **exits `3`** (distinct from `1` = refuted) — never a silent pass:
 

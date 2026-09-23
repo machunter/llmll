@@ -1,7 +1,7 @@
 # OBLIG-0 — Design Specification
 
-> **Version:** Rev 9 — reconciled against the shipped compiler 2026-08-18  
-> **Date:** 2026-05-02 (Rev 9 reconciliation 2026-08-18)  
+> **Version:** Rev 10 — per-kind channel scope, the polarity rule, and three drifts closed 2026-09-22  
+> **Date:** 2026-05-02 (Rev 9 reconciliation 2026-08-18; Rev 10 2026-09-22)  
 > **Implements:** compiler-team-roadmap.md § v0.10 (Obligation-Guided Agent Coding)  
 > **Prerequisites:** v0.9.0 (COMP-0) shipped, v0.9.1 (module hardening) shipped  
 > **Reviewed:** Professor — Rev 2 (6), Rev 3 (6), Rev 4 (6), Rev 5 (4), Rev 6 (5), Rev 7 (4), Rev 8 (3)  
@@ -12,6 +12,15 @@
 > ([ObligationAssembly.hs:210](../../compiler/src/LLMLL/ObligationAssembly.hs#L210)) carries the
 > signature and the per-function per-clause-type semantics of §2.4. What was stale was every
 > version-bearing number and both "a future change must" clauses. See §14 Rev 9.
+>
+> **Rev 10 settles what Rev 9 did not ask.** `TRUST-CH-HOLE-1` measured the report over 478
+> obligations and found that `mkHoleObl` is the only site that populates any channel, so 229
+> obligations carry none of the three. Rev 10 states the per-kind scope (§2.3), fixes the field
+> polarity that blocked widening the contract channel (§4.2), resolves this document's own
+> contradiction about the obligation ID (§3.1 against §3.3), and corrects two sections that
+> described an emitter that did not exist (§4.3, §6.2). It also **gives `assumptions` its
+> producer**, which every earlier revision described as owed, and closes the professor's finding 4
+> in the same pass; §4.3 records what it emits.
 
 ---
 
@@ -108,6 +117,21 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 | `termination-obligation` | Verifier UNSAFE on `decreases` constraint |
 | `branch-obligation` | Per-branch sub-goal from `EMatch` |
 
+**Channel scope by kind (Rev 10).** The three channels of §4 are not carried by every kind. A
+channel key is emitted only when the report has content for that channel; `encodeObligation`
+guards each one under `maybe []`, so absence is the normal representation and not an error.
+
+| `kind` | `type_channel` | `contract_channel` | `trust_channel` |
+|---|---|---|---|
+| `hole-obligation` | yes | yes | yes |
+| `contract-obligation` | no | **yes (Rev 10)** | **yes (Rev 10)** |
+| `precondition-obligation` | no | **yes (Rev 10)**, under the §4.2 polarity rule | **yes (Rev 10)**, describing the CALLER |
+| `branch-obligation` | no | no; the parent hole carries it, reached by `parent_id` | no |
+| `termination-obligation` | no | no | no |
+
+The type channel does not widen. `expected_type` is its primary field and has no referent where
+there is no hole, so emitting the channel on a non-hole kind would ship a constant block.
+
 **Termination obligation payload (v0.10):** v0.10 reports only `origin`, `backing`, and `status` for `termination-obligation`. The proof goal is always `decreases_measure >= 0` ([FixpointEmit.hs:402](../../compiler/src/LLMLL/FixpointEmit.hs#L402)). A future extension may add a `"termination_goal"` field carrying the measure expression.
 
 ### 2.4 Obligation Backing (Rev 8 — Finding 1)
@@ -166,6 +190,36 @@ This accurately reflects the emitter's granularity: per-function, per-clause-typ
 oblig:<function>:<channel>:<site>:<fingerprint>
 ```
 
+**`<site>` is a name, not a position (Rev 10).** This resolves an apparent contradiction between
+this section and §3.3's "Edit-stable: No positional component". The two are compatible, because
+the site discriminator is never an index. §2.2's own example shows the form: `?h3` is the hole's
+name. Per kind:
+
+| `kind` | `<site>` |
+|---|---|
+| `hole-obligation` | the hole name, as §2.2 shows |
+| `contract-obligation`, `termination-obligation` | absent; one obligation per function per clause type, so nothing needs discriminating |
+| `precondition-obligation`, user callee | the call's **argument vector**, alpha-normalized by the same `paramSubst` §3.2 applies, then hashed to 12 hex |
+| `precondition-obligation`, **builtin** callee | absent; a builtin call carries no surface argument vector, so no name-based discriminator exists |
+
+A hole name is short and contains no colon, so it is placed in the segment verbatim and §2.2's
+sample renders literally. An argument vector is long and may contain a colon, which would break
+the segment structure, so it is hashed.
+
+**Why the call-pre case needs one.** Without a site, two calls to one callee from one body hash
+identically, and the `origin` pointer does not separate them either because it addresses the
+enclosing body. Measured 2026-09-22 over the corpus: 42 of 158 precondition obligations sat in
+groups sharing both `id` and `origin`, in groups of 2, 3 and 4. `withdraw-twice` in
+`examples/banking_ledger/banking.llmll` is the minimal case; it calls `withdraw` twice, with
+`(withdraw balance first)` and `(withdraw after-first second)`. **Re-measured over the same
+population after the site landed: 42 down to 8.** All 8 are builtin call-pre obligations on
+`bytes-get` and `map-get`, which the table above excludes by construction. They keep the
+four-segment form, which is how a reader tells the two cases apart.
+
+**Two textually identical calls collapse to one id, and that is correct.** §3.3 makes the ID
+postcondition-sensitive: different proof goals produce different IDs. Identical calls carry
+identical goals, so they are one obligation.
+
 ### 3.2 Fingerprint Input — Alpha-Normalization (Rev 6 — Finding 4)
 
 The fingerprint hashes an **alpha-normalized** representation. Binder classes actively normalized in v0.10:
@@ -200,7 +254,10 @@ normalizeForFingerprint fnName params mPost holeStatus =
 
 - **Rename-stable:** Parameter renames don't change ID (parameter binders are canonicalized via `$p` prefix). Let-bound and match-payload renames are **not** currently normalized (`$l`/`$m` are deferred — see §3.2); renaming those binders inside a postcondition expression would change the ID. This is benign under v0.10's restriction that postconditions are first-order over parameters and `result`.
 - **Skolem-stable:** `TVar "a"` and `TVar "b"` produce the same ID after canonical renaming.
-- **Edit-stable:** No positional component.
+- **Edit-stable:** No positional component. The `<site>` of §3.1 does not weaken this: a hole
+  name, a clause channel and an alpha-normalized argument vector are all names. Moving a call
+  within a body does not move its ID; changing its arguments does, which is intended, because
+  the proof goal changed with them.
 - **Postcondition-sensitive:** Different proof goals produce different IDs (desirable).
 
 ---
@@ -228,6 +285,27 @@ Polymorphic holes always get `"backing": "guidance"`.
 | `contract_fragment` | `Text` | Fragment of pre/post expressions only |
 | `body_fragment` | `Text` | Fragment of body translation |
 | `body_faithful_possible` | `Bool` | Whether body VC exists |
+
+#### 4.2.0 Field Polarity Across Kinds (Rev 10)
+
+The contract channel carries one field for what may be **assumed** and one for what must be
+**proved**. Both keep that meaning on every kind. Getting this wrong would invert an agent's
+repair, so the rule is stated rather than left to the reader.
+
+| field | meaning, on every kind | `hole-obligation` | `contract-obligation` | `precondition-obligation` |
+|---|---|---|---|---|
+| `preconditions` | the assumption set | the enclosing function's `pre` | the function's own `pre` | the **caller's** own `pre` |
+| `postcondition_goal` | the goal | the enclosing function's `post` | the function's own unproved `post` | the **callee's** `pre`, instantiated at this call site |
+
+**The callee's precondition is instantiated, never raw.** The substitution is the one
+`assembleConsumedGuarantees` already performs: callee parameters to the actual argument
+expressions. A raw callee `pre` names the callee's parameters, which do not exist in the caller's
+scope, so an agent would try to satisfy a variable it cannot see. **If the call site cannot be
+identified, `postcondition_goal` is `null` and no goal is emitted.** An absent goal is recoverable;
+a goal over invisible names is not.
+
+`path_condition` is `[]` on a `contract-obligation`. That obligation is the whole-body goal and
+has no guard prefix. The empty array means "not applicable here", not "no guards were found".
 
 #### 4.2.1 Path Condition Entries
 
@@ -368,7 +446,46 @@ guardToPredPresentation :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe 
 
 ### 4.3 Trust Channel
 
-Unchanged. Sources `csAssumptions`, `teEffectiveLevel`, `erBodyFaithful`.
+Sources `teEffectiveLevel`, `erBodyFaithful` and, since Rev 10, the TRUST-AXIOM fields on the
+function's `TrustEntry`. The channel is carried by `hole-obligation`, `contract-obligation` and
+`precondition-obligation` (§2.3). On a precondition obligation it describes the **caller**, whose
+evidence the reader is judging.
+
+**What `assumptions` carries.** One array, each row discriminated by `kind`:
+
+| `kind` | source | fields |
+|---|---|---|
+| `builtin-axiom` | `teBuiltinAxioms` | `builtin`, `predicate`, `conjuncts`, `category`, `stamp` |
+| `inherited-axiom` | `teInheritedAxioms` | `origin`, and `builtin` when recorded |
+| `ground-fact` | `teGroundFacts` | `family` |
+
+Rows are ordered builtin, inherited, ground-fact. A function that assumes none of the three emits
+`[]`, and that empty array now means "assumes nothing", not "nobody filled this in".
+
+**`conjuncts` splits the definition from the theorem.** A sealed builtin's assumed post can be a
+conjunction of parts with different characters: the reflection conjunct **defines** the builtin's
+encoding, while a length conjunct is a **substantive lemma** about the operation. Merged into one
+rendered string a reader cannot tell which is which. Each conjunct is therefore tagged
+`reflection` or `lemma` **at the arm that builds it**, never by matching the shape of an assembled
+predicate. `bytes-set` and `bytes-zero` carry both tags; `bytes-get` and `map-get` carry one
+`reflection` each. The unsplit `predicate` field is kept beside them.
+
+**An unrecorded inherited axiom reports as unrecorded, never as absent.** `LLMLL.md` §13.12 fixes
+the rule: a callee whose sidecar predates the axiom disclosure is not evidence that no axiom was
+assumed. `InheritedAxiom.iaBuiltin` is `Maybe Name`, and the `Nothing` case survives into the JSON
+rather than collapsing into an axiom-free row.
+
+**What Rev 10 replaced (the correction this section owed).** Earlier revisions named
+`ContractStatus.csAssumptions` as this channel's source. It never was. `AssumptionKind` ships with
+three constructors, a label function, a JSON codec, a `.verified.json` slot and the checkout
+token's `ctAssumptions`, and **not one constructor was ever built anywhere in the compiler**. Every
+assignment was a literal `[]` and `Main.hs` carried `-- v0.8.1b: deferred to v0.9` for sixteen
+minor versions. Neither suite pinned a constructor, which is why nothing ever failed: an empty list
+is a valid list. The producer emits the TRUST-AXIOM rows instead, because `AssumptionKind` is a
+three-way tag with no predicate and no originating function, and building against the weaker
+vocabulary would have shipped two surfaces that disagree. **A disclosure surface needs a positive
+witness in the test suite, or its silence proves nothing**; the pair of cells that pin a non-empty
+array and an empty one is part of this section's contract now.
 
 ---
 
@@ -462,6 +579,21 @@ A `Result` 2-arm match that falls back (due to untranslatable scrutinee, unsuppo
   "postcondition_goal": "(>= result 0)"
 }
 ```
+
+**Rev 10: the two fields above were specified and not emitted, and the emitter now moves.** Until
+v0.25.0 the `BranchObligation` arm of `encodeObligation` emitted exactly four branch fields
+(`parent_id`, `branch_index`, `constructor`, `bindings`) and neither `path_condition` nor
+`postcondition_goal`. Measured 2026-09-22 against both branch obligations in the corpus; neither
+carried either field. The sample described an emitter that did not exist, and the emitter was the
+side that should move, because a branch's constructor refinement changes the path condition and
+that is the reason the branch obligation exists.
+
+Both are now emitted as **top-level keys on the branch object**, not inside a channel; a branch
+obligation still carries no channel (§2.3). `path_condition` holds **one structural entry, that
+arm's own constructor guard over the scrutinee**, not the parent's full guard set.
+`postcondition_goal` is the enclosing function's post, the same value the parent hole obligation
+states. One renderer builds the guard for both the hole path condition and the branch object, so
+the two cannot drift; that is the hazard §4.2.4 already recorded once.
 
 ---
 
@@ -686,6 +818,31 @@ change must", "MOD-1 must"), and in both cases the implementation answered the c
 route than the mandate named. A design document that states a mandate and is never revisited reads,
 years later, as unmet work. Neither was unmet. Reading either as a to-do would have produced a golden
 test with nothing to compare and a digest the trust report does not need.
+
+---
+
+### Rev 10 (1 design decision, 3 drifts, 1 self-contradiction)
+
+Not a review round. Prompted by `TRUST-CH-HOLE-1`, which asked whether a non-hole obligation should
+carry a trust channel. The measurement answered a wider question than the row asked. Every figure
+below comes from running `verify --obligation-report` over the 253 tracked `.llmll` and `.ast.json`
+files under `examples/`, `tools/` and `scripts/build-smoke` on 2026-09-22; 249 files report and they
+carry 478 obligations.
+
+| # | Claim or gap | Measured | Resolution |
+|---|---|---|---|
+| 1 | The three channels are carried per obligation (§4, and `getting-started.md` stated it outright) | `mkHoleObl` is the only site that populates any channel. 249 obligations carry a `trust_channel` and every one is a `hole-obligation`; 229 carry none of the three | §2.3 gains the per-kind matrix. The contract channel AND the trust channel widen to `contract-obligation` and `precondition-obligation`; the type channel does not widen, because `expected_type` has no referent without a hole |
+| 2 | `preconditions` has one meaning (§4.2) | It would carry the assumption set on a hole and the proof goal on a call-site obligation, opposite polarity under one name | §4.2.0 fixes the polarity: `postcondition_goal` is always the goal and carries the callee's pre **instantiated**; `preconditions` is always the assumption set. An unidentifiable call site emits `null`, never a raw callee pre |
+| 3 | The trust channel "Sources `csAssumptions`" (§4.3) | No `AssumptionKind` constructor is built anywhere in the compiler. Every assignment is a literal `[]`; `Main.hs` still reads `-- v0.8.1b: deferred to v0.9`; neither suite pins a constructor; zero of the tracked sidecars carry the key | §4.3 corrected AND the producer built: `assumptions` now carries kind-tagged rows from `teBuiltinAxioms`, `teInheritedAxioms` and `teGroundFacts`, the fields TRUST-AXIOM had already populated on the very `TrustEntry` the channel was reading for its tier. The professor's finding 4 is closed in the same pass by tagging each builtin axiom's conjuncts `reflection` or `lemma` at the arm that builds them |
+| 4 | The ID format has a `<site>` (§3.1) and "No positional component" (§3.3) | The implementation emits four components and no site, following §3.3. 42 of 158 precondition obligations shared both `id` and `origin` with a sibling | Not a contradiction: **the site is a name, not a position**. §3.1 gains the per-kind table, §3.3 gains the reconciling clause. §2.2's own `?h3` was the evidence all along. Shipped; re-measured 42 down to 8, the residue being builtin callees that have no argument vector |
+| 5 | The branch object carries `path_condition` and `postcondition_goal` (§6.2) | The `BranchObligation` arm of `encodeObligation` emits four fields and neither of those | §6.2 corrected and the **emitter moved**: both fields ship, `path_condition` as that arm's own structural guard over the scrutinee, behind the one renderer the hole path condition already uses |
+
+**The generalizable part is finding 3.** A type, its labels, its JSON codec, its sidecar slot and
+its checkout slot all shipped. The values never existed. Nothing failed, because an empty list is a
+valid list, and no test pinned a constructor that was never constructed. A channel with no producer
+and no pin is indistinguishable from a channel with nothing to say, and it stayed that way for
+sixteen minor versions. The lesson is not "write the producer"; it is that a disclosure surface
+needs a positive witness in the test suite, or its silence proves nothing.
 
 ---
 
