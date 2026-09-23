@@ -5,7 +5,7 @@
     "## 0.1 Semantic Foundation",
     "## 1. Core Philosophy"
   ],
-  "assumed_bound": 8,
+  "assumed_bound": 7,
   "bound_reason": "pilot value at v0.19.1: 35 sentences, of which 8 are assumed; lower freely, raise only with a reason here",
   "claims": [
     {
@@ -126,8 +126,10 @@
       "id": "NC-035",
       "section": "1.2",
       "text": "`build` accepts it, and a hole that execution reaches aborts the program with `hole: <name>` (`emitHole`), so the program does no useful work until the holes are filled.",
-      "disposition": "assumed",
-      "reason": "codegen lowering (emitHole) with no run-level fixture: build and run stay outside the doc-claims fast path, and the run probe at v0.19.1 exited 0 after :init without stepping into the hole"
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/hole-abort-at-run.llmll"
+      ]
     },
     {
       "id": "NC-015",

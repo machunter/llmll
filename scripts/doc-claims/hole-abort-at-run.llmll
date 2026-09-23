@@ -1,0 +1,22 @@
+;; @doc: LLMLL.md §1.2 (Hole-Driven Development: a hole that execution reaches aborts the program)
+;; @run: 3
+;; @expect: output:hole: hp-impl
+;; @norm: NC-035
+;; @claim: `build` accepts a program with a hole, and when execution reaches the hole the built program aborts with `hole: <name>` (`emitHole`). The first step calls hp-compute, whose body is the hole, so three stdin lines are enough; with none the console harness exits 70 before its first step and never reaches it. REPORT-GATE-1, measured v0.25.2.
+(module hole-abort-at-run
+  (import wasi.io (capability stdout :deterministic false))
+
+  (def-shell hp-compute [n: int] -> int ?hp-impl)
+
+  (def-shell hp-init [] (pair 0 (wasi.io.stdout "")))
+
+  (def-shell hp-step [s: int input: string _r: Response]
+    (pair (+ s 1) (wasi.io.stdout (int-to-string (hp-compute s)))))
+
+  (def-shell hp-done? [s: int] -> bool (>= s 2))
+
+  (def-main
+    :mode    console
+    :init    (hp-init)
+    :step    hp-step
+    :done?   hp-done?))

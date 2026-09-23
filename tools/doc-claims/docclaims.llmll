@@ -262,6 +262,12 @@
     (| Probe)
     (| Listing)
     (| ReadFix)
+    (| RunFed)
+    (| RunBuilt)
+    (| RunSir)
+    (| RunSirRead)
+    (| RunBin)
+    (| RunFail string)
     (| Ran)
     (| ReadOut)
     (| Ending int)
@@ -430,6 +436,7 @@
 
   ;; Headers parsed, then the subcommand spawned. `@cmd` defaults to
   ;; "check {file}" and `{file}` is replaced with the fixture's path.
+  ;; A fixture with `@run: N` takes the run path below instead.
   (def-shell readfix-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
     (let [(lines (string-split "\n" (text-of x)))]
       (let [(cmd0 (header-field lines "cmd"))]
@@ -437,14 +444,100 @@
           (let [(r2 (with-s (with-s (with-s r "expect" (header-field lines "expect"))
                                     "claim" (header-field lines "claim"))
                             "docref" (header-field lines "doc")))]
-            (go r2 (Ran)
-                (wasi.proc.run (subject-of r2)
-                               (string-split " " (replace-file cmd (cur-path r2)))
-                               (work-of r2)
-                               (cap-path r2)
-                               (cap-path r2)
-                               120
-                               "/dev/null")))))))
+            (let [(run (header-field lines "run"))]
+              (if (string-empty? run)
+                  (go r2 (Ran)
+                      (wasi.proc.run (subject-of r2)
+                                     (string-split " " (replace-file cmd (cur-path r2)))
+                                     (work-of r2)
+                                     (cap-path r2)
+                                     (cap-path r2)
+                                     120
+                                     "/dev/null"))
+                  (run-start r2 run))))))))
+
+  ;; ---- the run path (REPORT-GATE-1) ----------------------------------------
+  ;;
+  ;; `@run: N` grades what a BUILT program does, not what the compiler says.
+  ;; The fixture is built with the subject, its one binary is run with N lines
+  ;; of stdin, and the fixture's `@expect` is applied to the program's merged
+  ;; stdout and stderr. N is part of the claim: a console program reads one
+  ;; line per step, and with no stdin it exits 70 before its first step, so a
+  ;; claim about what a step does needs N > 0 (measured on the NC-035 probe).
+  ;;
+  ;; The exit status is not graded, the same as for every other fixture. A
+  ;; build that fails, a missing install root and a bin/ that does not hold
+  ;; exactly one file are each a FIXTURE FAILURE with its own observed label,
+  ;; never a skip: a run claim whose program was never built has decided
+  ;; nothing, and grading the empty output of that non-run is the failure
+  ;; mode cover cell R4 exists for.
+
+  (def-shell run-out-of   [r: Rc] -> string (join2 (work-of r) "run-build"))
+  (def-shell run-log-of   [r: Rc] -> string (join2 (work-of r) "run-build.log"))
+  (def-shell run-sir-of   [r: Rc] -> string (join2 (work-of r) "run-sir.txt"))
+  (def-shell run-sirerr-of [r: Rc] -> string (join2 (work-of r) "run-sir.err"))
+  (def-shell run-feed-of  [r: Rc] -> string (join2 (work-of r) "run-stdin.txt"))
+
+  (def-shell feed-text [n: int] -> string
+    (list-fold (range 0 n) "" (fn [acc: string i: int] (string-concat acc "x\n"))))
+
+  (def-shell run-start [r: Rc run: string] -> ((Rc, Ctl), Command)
+    (match (string-to-int run)
+      ((Success n)
+        (if (< n 0)
+            (go r (RunFail "bad-run-header") (wasi.io.stdout ""))
+            (go r (RunFed) (wasi.fs.write (run-feed-of r) (feed-text n)))))
+      ((Error _) (go r (RunFail "bad-run-header") (wasi.io.stdout "")))))
+
+  (def-shell run-fed-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (go r (RunBuilt)
+        (wasi.proc.run (subject-of r)
+                       ["build" (cur-path r) "-o" (run-out-of r)]
+                       (work-of r)
+                       (run-log-of r) (run-log-of r)
+                       900 "/dev/null")))
+
+  ;; `stack path` writes the install root to stdout ALONE. Its stderr goes to a
+  ;; second file because a stack hook can print there and still exit 0: measured
+  ;; under the cover's scrubbed PATH, a ghcup `ghc-install.sh` hook wrote
+  ;; "ghcup: command not found" first, and a merged capture made that line the
+  ;; install root.
+  (def-shell run-built-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (if (= (code-in x) 0)
+        (go r (RunSir)
+            (wasi.proc.run "stack" ["path" "--local-install-root"]
+                           (run-out-of r)
+                           (run-sir-of r) (run-sirerr-of r)
+                           120 "/dev/null"))
+        (go r (RunFail "build-failed") (wasi.fs.read (run-log-of r)))))
+
+  (def-shell run-sir-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (if (= (code-in x) 0)
+        (go r (RunSirRead) (wasi.fs.read (run-sir-of r)))
+        (go r (RunFail "no-install-root") (wasi.fs.read (run-sirerr-of r)))))
+
+  (def-shell run-sir-read-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(sir (string-trim (unwrap-or (list-head (string-split "\n" (text-of x))) "")))]
+      (go (with-s r "sir" sir) (RunBin) (wasi.fs.list (join2 sir "bin")))))
+
+  (def-shell run-bin-step [r: Rc x: Response] -> ((Rc, Ctl), Command)
+    (let [(bins (list-of x))]
+      (if (= (list-length bins) 1)
+          (go r (Ran)
+              (wasi.proc.run (join2 (join2 (jstr (f-of r) "sir") "bin") (nth-str bins 0))
+                             []
+                             (work-of r)
+                             (cap-path r) (cap-path r)
+                             120 (run-feed-of r)))
+          (score r false "no-single-binary"
+                 (string-concat-many
+                   ["bin/ under " (jstr (f-of r) "sir") " holds "
+                    (int-to-string (list-length bins)) " entries, not 1"])))))
+
+  ;; The failure's evidence (the build log, the stack output, or nothing) was
+  ;; read by the step that chose this state; it is the `out` of the block.
+  (def-shell run-fail-step [r: Rc why: string x: Response] -> ((Rc, Ctl), Command)
+    (score r false why (text-of x)))
 
   ;; The reference discards the child's exit status entirely: the verdict comes
   ;; from the OUTPUT. Reproduced, and worth stating because a port that graded
@@ -510,6 +603,12 @@
       ((Probe)    (probe-step   (rc-of s) x))
       ((Listing)  (listing-step (rc-of s) x))
       ((ReadFix)  (readfix-step (rc-of s) x))
+      ((RunFed)     (run-fed-step      (rc-of s) x))
+      ((RunBuilt)   (run-built-step    (rc-of s) x))
+      ((RunSir)     (run-sir-step      (rc-of s) x))
+      ((RunSirRead) (run-sir-read-step (rc-of s) x))
+      ((RunBin)     (run-bin-step      (rc-of s) x))
+      ((RunFail w)  (run-fail-step     (rc-of s) w x))
       ((Ran)      (ran-step     (rc-of s) x))
       ((ReadOut)  (readout-step (rc-of s) x))
       ((Ending c) (go (rc-of s) (Done c) (wasi.io.stdout "")))
@@ -521,6 +620,12 @@
       ((Probe)    false)
       ((Listing)  false)
       ((ReadFix)  false)
+      ((RunFed) false)
+      ((RunBuilt) false)
+      ((RunSir) false)
+      ((RunSirRead) false)
+      ((RunBin) false)
+      ((RunFail _) false)
       ((Ran)      false)
       ((ReadOut)  false)
       ((Ending _) false)
@@ -532,6 +637,12 @@
       ((Probe)    1)
       ((Listing)  1)
       ((ReadFix)  1)
+      ((RunFed) 1)
+      ((RunBuilt) 1)
+      ((RunSir) 1)
+      ((RunSirRead) 1)
+      ((RunBin) 1)
+      ((RunFail _) 1)
       ((Ran)      1)
       ((ReadOut)  1)
       ((Ending _) 1)
