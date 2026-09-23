@@ -26,7 +26,7 @@ docker run --rm ghcr.io/machunter/llmll verify /opt/llmll/examples/payments-core
 docker run --rm -v "$PWD":/work ghcr.io/machunter/llmll verify myfile.llmll
 ```
 
-Because the solver is bundled, the container never hits the `SOLVER NOT FOUND` (exit 3) path. Build from source (below) only if you are developing the compiler.
+Because the solver is bundled, the container never hits the `SOLVER NOT FOUND` (exit 3) path. The image carries no GHC or Stack, so `llmll build` there fails with `stack/ghc not found`; pass `--emit-only` to write the Haskell package and build it where a toolchain is installed. Build from source (below) only if you are developing the compiler.
 
 **Install Stack:** <https://docs.haskellstack.org/en/stable/install_and_upgrade/>
 

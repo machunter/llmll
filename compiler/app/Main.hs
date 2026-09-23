@@ -997,8 +997,15 @@ runGhcCheck json outDir = do
           if json
             then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object ["ghc_check" .= False, "error" .= msg]
-            else TIO.putStrLn $ "WARN: " <> T.pack msg
-          pure True  -- non-fatal; user can build manually
+            else do
+              TIO.putStrLn $ "FAIL: " <> T.pack msg
+              TIO.putStrLn "   (pass --emit-only to write the Haskell package without building it)"
+          -- BUILD-NOSTACK-1: a missing toolchain is a FAILURE. This returned
+          -- True ("non-fatal; user can build manually"), so `build` exited 0
+          -- having compiled nothing, and every caller that grades the exit
+          -- status read that as a build. --emit-only is the flag for writing
+          -- the sources without building them.
+          pure False
         Just ghcBin -> do
           if not json then TIO.putStrLn "   Running ghc --make ..." else pure ()
           (code, _out, stderr_) <- readCreateProcessWithExitCode

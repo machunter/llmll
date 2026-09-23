@@ -4,6 +4,35 @@
 
 <a id="Latest"></a>
 
+## v0.25.5: `llmll build` exited 0 with no toolchain, having built nothing (2026-09-23)
+
+`BUILD-NOSTACK-1`, filed by the v0.25.3 ceremony. `runGhcCheck` validates the generated package
+with `stack build`, then with `ghc --make`. When it found neither on PATH it printed
+`WARN: stack/ghc not found` and returned success ("non-fatal; user can build manually"), so
+`build` printed `OK Generated Haskell package` and exited 0 having compiled nothing. Under `--json`
+it printed the `"ghc_check": false` object and then a `"success": true` object. Every caller that
+grades the exit status read that as a build: `scripts/build_smoke.sh` and its port guard against it
+with their own toolchain check; the doc-claims `@run` path found it only because its next step asks
+`stack` for the install root.
+
+- **A missing toolchain is now a failure.** `build` prints
+  `FAIL: stack/ghc not found -- install from https://haskellstack.org`, then a line naming
+  `--emit-only`, and exits 1. Under `--json` it prints only the `ghc_check` error object. The
+  `.llmll` and `.ast.json` build paths share `runGhcCheck`, so both change.
+- **`--emit-only` is the flag for writing the package without compiling it**, and it is unchanged:
+  it looks for no toolchain and exits 0. This is the one behaviour change a caller can meet: a
+  script that ran `build` with no toolchain and used the written sources must now pass
+  `--emit-only`. The Docker image carries no Stack, so `build` in the image now fails where it
+  reported a false success; the documented Docker commands are `verify` only.
+- **`scripts/tests/test_build_nostack_1.py`**, four cells under a PATH set to an empty directory,
+  run by the spec-roundtrip CI job. `NS-1` to `NS-3` (text, `--json`, `.ast.json` input) each
+  exited 0 on the v0.25.4 binary; `NS-4` pins `--emit-only` and passed on both.
+
+No schema, verification or spec change.
+
+**Tests:** 2068 Haskell (+0), 365 Python (310 passed, 55 skipped; +4 cells that need `LLMLL_BIN`).
+
+
 ## v0.25.4: `llmll build` failed for every program under a POSIX locale on Linux (2026-09-23)
 
 `BUILD-ENCODING-1`, the write-side twin of `TOOL-ENCODING-1`. The compiler wrote every generated

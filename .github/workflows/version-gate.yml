@@ -315,6 +315,17 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_split_empty_1.py -v
 
+      # BUILD-NOSTACK-1's cells. They need the freshly built compiler and NOT
+      # the toolchain: each cell runs `llmll build` with PATH set to an empty
+      # directory, so neither `stack` nor `ghc` can be found. Before the patch
+      # that build exited 0 having compiled nothing; NS-1 to NS-3 failed on the
+      # pre-fix binary and NS-4 (`--emit-only` still succeeds) passed on both.
+      - name: Run BUILD-NOSTACK-1 cells (pytest, needs the built compiler)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_build_nostack_1.py -v
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on
