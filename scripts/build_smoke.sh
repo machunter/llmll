@@ -19,12 +19,13 @@
 #
 # WHY IT IS NOT JUST `llmll build && echo ok`
 #
-# `llmll build`'s internal self-check FAILS OPEN. runGhcCheck (compiler/app/
-# Main.hs:911-940) shells out to `stack build`, falls back to `ghc --make`, and
-# when NEITHER is on PATH it returns True and the build reports success having
-# compiled nothing. A gate that only reads the exit code therefore goes green in
-# any environment without a toolchain, while observing nothing at all. That is
-# the dead-gate failure mode this gate was created to prevent, so:
+# `llmll build`'s internal self-check FAILED OPEN until BUILD-NOSTACK-1. Its
+# runGhcCheck (compiler/app/Main.hs) shells out to `stack build`, falls back to
+# `ghc --make`, and when NEITHER was on PATH it returned True, so the build
+# reported success having compiled nothing. A gate that only read the exit code
+# passed in any environment without a toolchain, while observing nothing at
+# all. The compiler now exits non-zero there, but this gate does not rely on
+# one component to guard itself, so:
 #
 #   1. `stack` (or `ghc`) must be on PATH, or the gate FAILS. It does not skip.
 #      This is a deliberate departure from DRIFT-CT-2's gate, which skips when
@@ -106,8 +107,7 @@ exe_path() {
 
 if ! command -v stack >/dev/null 2>&1 && ! command -v ghc >/dev/null 2>&1; then
   fail "neither 'stack' nor 'ghc' is on PATH. This gate compiles generated
-  Haskell; without a toolchain it would pass while observing nothing
-  (runGhcCheck returns True in that case — compiler/app/Main.hs:940). Install
+  Haskell; without a toolchain it would pass while observing nothing. Install
   Stack from https://haskellstack.org, or set PATH, and re-run."
 fi
 
