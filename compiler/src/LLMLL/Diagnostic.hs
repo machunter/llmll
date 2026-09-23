@@ -55,6 +55,7 @@ module LLMLL.Diagnostic
   , mkMatchWildcardPayloadWarning
   -- * TOOL-ENCODING-1: source decoding pinned to UTF-8
   , decodeSourceUtf8
+  , writeFileUtf8
   , firstInvalidUtf8Offset
   ) where
 
@@ -794,6 +795,17 @@ hexByte w = let s = showHex w "" in T.pack (if length s < 2 then '0' : s else s)
 -- The codec is authoritative for accept/reject; 'firstInvalidUtf8Offset' runs
 -- ONLY on the failure path, to locate what the codec already refused. So the
 -- success path pays nothing for the position arithmetic.
+-- | BUILD-ENCODING-1: the write side of the same rule. `TIO.writeFile`
+-- ENCODES through the ambient locale, so under a POSIX or C locale on Linux
+-- any non-ASCII character in the text fails the write with `withFile: invalid
+-- argument (cannot encode character ...)`. The generated `Lib.hs` preamble
+-- carries em dashes in its comments, so under that locale `llmll build`
+-- failed for EVERY program. Found by the doc-claims cover, which sets no
+-- locale on purpose, on the first CI run of its `@run` path (v0.25.3); macOS
+-- cannot reproduce it, for the reason given above.
+writeFileUtf8 :: FilePath -> Text -> IO ()
+writeFileUtf8 fp = BS.writeFile fp . TE.encodeUtf8
+
 decodeSourceUtf8 :: FilePath -> BS.ByteString -> Either Diagnostic Text
 decodeSourceUtf8 fp bs
   | utf8Bom `BS.isPrefixOf` bs = Left bomDiag

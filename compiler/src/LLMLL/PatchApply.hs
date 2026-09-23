@@ -49,7 +49,7 @@ import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, parsePo
 import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), CheckoutLock(..))
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
-import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
+import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch, writeFileUtf8)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
@@ -587,7 +587,7 @@ reVerify fp stmts bodyTargets
           -- Write .fq to temp file
           let baseName = takeBaseName fp
               fqPath   = "/tmp/llmll-patch-" <> baseName <> ".fq"
-          TIO.writeFile fqPath fqText
+          writeFileUtf8 fqPath fqText
           -- Run solver. VERIFY-RPT-1 (Commit 2): '-q --json' yields resolvable
           -- constraint ids so the PatchVerifyError payload carries source
           -- pointers; fall back to the text scrape if the envelope fails to

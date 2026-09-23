@@ -59,7 +59,7 @@ import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
-  , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
+  , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson, writeFileUtf8
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
   , mkReuseWarning, decodeSourceUtf8)
 -- D4: liquid-fixpoint verification backend
@@ -584,7 +584,7 @@ doHoles json gm fp deps mDepsOut = do
           TIO.putStrLn jsonOut
           -- v0.3.3: optionally write deps to file
           case mDepsOut of
-            Just outFile -> TIO.writeFile outFile jsonOut
+            Just outFile -> writeFileUtf8 outFile jsonOut
             Nothing      -> pure ()
         else do
           TIO.putStrLn $
@@ -742,13 +742,13 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
                                Nothing -> "generated/" <> T.unpack modName
           -- Write Haskell source + optional Main.hs
           createDirectoryIfMissing True (outDir <> "/src")
-          TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
-          TIO.writeFile (outDir <> "/package.yaml")   (cgPackageYaml result)
-          TIO.writeFile (outDir <> "/stack.yaml")     (cgStackYaml result)
+          writeFileUtf8 (outDir <> "/src/Lib.hs")     (cgHsSource result)
+          writeFileUtf8 (outDir <> "/package.yaml")   (cgPackageYaml result)
+          writeFileUtf8 (outDir <> "/stack.yaml")     (cgStackYaml result)
           case cgMainHs result of
             Nothing   -> pure ()
             Just mainSrc -> do
-              TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
+              writeFileUtf8 (outDir <> "/src/Main.hs") mainSrc
               unless json $ TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
 
           -- Write FFI hub module
@@ -756,7 +756,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
             Nothing -> pure ()
             Just ffiModSrc -> do
               createDirectoryIfMissing True (outDir <> "/src/FFI")
-              TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
+              writeFileUtf8 (outDir <> "/src/FFI.hs") ffiModSrc
               unless json $ TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
 
           -- Write per-library FFI stubs (generated ONCE, do not overwrite)
@@ -766,7 +766,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
               if exists
                 then unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
                 else do
-                  TIO.writeFile stubPath stubsSrc
+                  writeFileUtf8 stubPath stubsSrc
                   unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
 
           unless json $ do
@@ -821,16 +821,16 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
       createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/Lib.hs")   (cgHsSource result)
-      TIO.writeFile (outDir <> "/package.yaml")  (cgPackageYaml result)
-      TIO.writeFile (outDir <> "/stack.yaml")    (cgStackYaml result)
+      writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
+      writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)
+      writeFileUtf8 (outDir <> "/stack.yaml")    (cgStackYaml result)
       case cgMainHs result of
         Nothing      -> pure ()
-        Just mainSrc -> TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
+        Just mainSrc -> writeFileUtf8 (outDir <> "/src/Main.hs") mainSrc
       forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
         let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
         exists <- doesFileExist stubPath
-        unless exists $ TIO.writeFile stubPath stubsSrc
+        unless exists $ writeFileUtf8 stubPath stubsSrc
       -- Validate generated Haskell with GHC (skip when --emit-only)
       ghcOk <- if emitOnly
         then do
@@ -880,29 +880,29 @@ doRun json gm fp extraArgs = do
           result   = generateHaskell modNameT instrumentedStmts
           outDir   = tmpDir
       createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/Lib.hs")   (cgHsSource result)
-      TIO.writeFile (outDir <> "/package.yaml")  (cgPackageYaml result)
-      TIO.writeFile (outDir <> "/stack.yaml")   (cgStackYaml result)
+      writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
+      writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)
+      writeFileUtf8 (outDir <> "/stack.yaml")   (cgStackYaml result)
 
       -- Write FFI hub
       case cgFfiModHs result of
         Nothing -> pure ()
         Just ffiModSrc -> do
           createDirectoryIfMissing True (outDir <> "/src/FFI")
-          TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
+          writeFileUtf8 (outDir <> "/src/FFI.hs") ffiModSrc
 
       -- Write per-library FFI stubs
       forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
           let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
           exists <- doesFileExist stubPath
-          unless exists $ TIO.writeFile stubPath stubsSrc
+          unless exists $ writeFileUtf8 stubPath stubsSrc
 
       case cgMainHs result of
         Nothing -> do
           TIO.putStrLn "ERROR: (def-main ...) is required for `llmll run`. Add a def-main to your .llmll file."
           exitFailure
         Just mainSrc -> do
-          TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
+          writeFileUtf8 (outDir <> "/src/Main.hs") mainSrc
           mStack <- findExecutable "stack"
           case mStack of
             Nothing -> do
@@ -1363,7 +1363,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- and repeated runs do not accumulate files. An explicit '--fq-out' is
       -- unchanged: the caller named the path and owns the collision.
       fqPath <- fqPathFor mFqOut <$> makeAbsolute fp
-      TIO.writeFile fqPath fqText
+      writeFileUtf8 fqPath fqText
       unless json $ do
         TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
         unless (null skipped) $
@@ -1991,7 +1991,7 @@ checkCDPCandidate gm lfBin typeDefs wc = do
     else do
       let fqText = erFQText emitR
           fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
-      TIO.writeFile fqPath fqText
+      writeFileUtf8 fqPath fqText
       (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
       case parseFQResult (T.pack out <> T.pack err) of
         FQSafe -> pure (Just True)
@@ -2015,7 +2015,7 @@ checkWeaknessCandidate gm lfBin _json typeDefs wc = do
     else do
       let fqText = erFQText emitR
           fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
-      TIO.writeFile fqPath fqText
+      writeFileUtf8 fqPath fqText
       -- Run the solver
       (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
       let fqResult = parseFQResult (T.pack out <> T.pack err)
@@ -2122,7 +2122,7 @@ runLeanstralPipeline json fp stmts fallbackNames lsOpts = do
                   cert <- if lsLeanstral lsOpts
                             then do
                               let certPath = takeDirectory fp </> (T.unpack name ++ ".verified.lean")
-                              TIO.writeFile certPath proof
+                              writeFileUtf8 certPath proof
                               pure (Just certPath)
                             else pure Nothing
                   unless isJson $ do
@@ -2503,7 +2503,7 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             tmpDir <- getTemporaryDirectory
             (fqPath, fqH) <- openTempFile tmpDir ("llmll-diverge-" <> T.unpack fname <> ".fq")
             hClose fqH
-            TIO.writeFile fqPath fqText
+            writeFileUtf8 fqPath fqText
             (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
             removeFile fqPath
             case parseFQResult (T.pack out <> T.pack err) of
@@ -3004,7 +3004,7 @@ doReplayArtifact _json artFp = do
             Just lfBin -> do
               meta <- captureSolverMeta lfBin
               let tmp = "/tmp/llmll-replay-artifact.fq"
-              TIO.writeFile tmp (paVc art)
+              writeFileUtf8 tmp (paVc art)
               (_c, o, err) <- readProcessWithExitCode lfBin ["-q", "--json", tmp] ""
               let merged = T.pack o <> T.pack err
                   rerun  = fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
