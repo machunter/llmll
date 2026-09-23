@@ -55,7 +55,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Map.Strict as Map
 import           Data.Aeson (ToJSON(..), object, (.=))
 import           System.Directory (getTemporaryDirectory, removeFile)
-import           System.IO (openTempFile, hClose)
+import           System.IO (openTempFile, hClose, hSetEncoding, utf8)
 import           System.Process (readProcessWithExitCode)
 import           Control.Exception (catch, IOException)
 
@@ -206,6 +206,7 @@ solveSubsumptionFQ :: FilePath -> FQFile -> IO FQVerifyResult
 solveSubsumptionFQ lfBin fq = do
   tmpDir     <- getTemporaryDirectory
   (path, h)  <- openTempFile tmpDir "llmll-reuse.fq"
+  hSetEncoding h utf8   -- BUILD-ENCODING-1: not the ambient locale
   TIO.hPutStr h (emitFQFile fq)
   hClose h
   (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", path] ""

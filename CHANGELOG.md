@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.25.4: `llmll build` failed for every program under a POSIX locale on Linux (2026-09-23)
+
+`BUILD-ENCODING-1`, the write-side twin of `TOOL-ENCODING-1`. The compiler wrote every generated
+file with `TIO.writeFile`, which encodes through the locale encoding. The generated `src/Lib.hs`
+preamble carries em dashes (U+2014) in its comments, starting with its `DO NOT EDIT` header, so
+under a POSIX or C locale on Linux every `llmll build` failed before GHC ran:
+
+    llmll: .../src/Lib.hs: withFile: invalid argument (cannot encode character '\8212')
+
+A non-ASCII string literal in a program's source failed the same way, and so did an `.fq` file
+carrying one. macOS GHC ignores `LANG` and `LC_ALL`, CI's other build steps run under the runner's
+UTF-8 locale, and the Docker image sets `LANG=C.UTF-8`, so nothing caught it. **The doc-claims cover
+did, on the first CI run of its `@run` path (v0.25.3)**: it sets no locale on purpose, which is the
+check `TOOL-ENCODING-1` left behind for the read side.
+
+- **`writeFileUtf8`** (`Diagnostic.hs`, beside `decodeSourceUtf8`) encodes explicitly and writes
+  bytes. It replaces all 26 `TIO.writeFile` sites: 24 in `app/Main.hs` (every generated project
+  file, the `.fq` files, `--json` output to a file, the proof certificate, the replayed VC) and one
+  each in `PatchApply.hs` and `MCPClient.hs`. `RefineReuse`'s temporary `.fq` handle is set to
+  `utf8` before it is written.
+- **Tested on macOS through the process locale encoding**, which does reach the write path:
+  `BE-1` writes an em dash under a latin1 locale encoding and reads back `E2 80 94`; `BE-2` is the
+  control, the old `TIO.writeFile` failing on the same text there; `BE-3` pins that no compiler
+  module writes through `TIO.writeFile` or `TIO.appendFile`. The Linux end-to-end check is the
+  doc-claims cover in CI.
+
+No schema, CLI or spec change; nothing changes under a UTF-8 locale.
+
+**Tests:** 2068 Haskell (+3, `BE-1` to `BE-3`), 361 Python (310 passed, 51 skipped).
+
+
 ## v0.25.3: a doc-claims fixture can grade what a built program does (2026-09-23)
 
 `REPORT-GATE-1`. `DRIFT-CT-2` ran each fixture through one `llmll` subcommand, so a spec sentence

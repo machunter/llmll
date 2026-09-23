@@ -34,8 +34,11 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8)
 import qualified Data.ByteString as BSS
+import qualified Control.Exception as CE
+import qualified GHC.IO.Encoding as Enc
+import qualified System.Directory as SD
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
@@ -341,6 +344,51 @@ main = hspec $ do
     it "locates the first invalid byte, not merely that one exists" $ do
       firstInvalidUtf8Offset (bytes [0x61,0x62,0xFF,0x63]) `shouldBe` Just 2
       firstInvalidUtf8Offset (bytes [0x61,0xC2,0xA7,0x62]) `shouldBe` Nothing
+
+  -- -----------------------------------------------------------------------
+  -- BUILD-ENCODING-1: the write side of TOOL-ENCODING-1
+  --
+  -- `TIO.writeFile` encodes through the locale encoding, so under a POSIX or C
+  -- locale on Linux every `llmll build` failed writing `src/Lib.hs`, whose
+  -- preamble carries em dashes. macOS GHC ignores LANG/LC_ALL, so these tests
+  -- set the PROCESS locale encoding to latin1 instead, which does reach the
+  -- write path on every platform. BE-2 is the control: it shows the latin1
+  -- switch really makes the old write fail here, so BE-1 passing is evidence.
+  -- The Linux end-to-end half is scripts/doc_claims_cover.py, which sets no
+  -- locale and builds a `@run` fixture.
+  -- -----------------------------------------------------------------------
+  describe "BUILD-ENCODING-1 generated files are written as UTF-8" $ do
+    let underLatin1 act = CE.bracket Enc.getLocaleEncoding Enc.setLocaleEncoding
+                            (\_ -> Enc.setLocaleEncoding Enc.latin1 >> act)
+        emDash = T.pack "-- DO NOT EDIT \8212 regenerate"
+
+    it "BE-1: writeFileUtf8 writes UTF-8 bytes whatever the locale encoding" $ do
+      tmp <- SD.getTemporaryDirectory
+      let fp = tmp </> "llmll-be1.hs"
+      underLatin1 (writeFileUtf8 fp emDash)
+      bs <- BSS.readFile fp
+      removeFile fp
+      bs `shouldBe` TE.encodeUtf8 emDash
+      BSS.isInfixOf (BSS.pack [0xE2, 0x80, 0x94]) bs `shouldBe` True
+
+    it "BE-2: control: TIO.writeFile fails on the same text under latin1" $ do
+      tmp <- SD.getTemporaryDirectory
+      let fp = tmp </> "llmll-be2.hs"
+      r <- underLatin1 (CE.try (TIO.writeFile fp emDash) :: IO (Either CE.IOException ()))
+      _ <- CE.try (removeFile fp) :: IO (Either CE.IOException ())
+      isLeft r `shouldBe` True
+
+    it "BE-3: no compiler module writes a file through TIO.writeFile or TIO.appendFile" $ do
+      mods <- SD.listDirectory "src/LLMLL"
+      let paths = "app/Main.hs" : [ "src/LLMLL" </> m | m <- mods, ".hs" `isSuffixOf` m ]
+      hits <- fmap concat $ mapM (\p -> do
+                src <- TIO.readFile p
+                pure [ p <> ": " <> T.unpack (T.strip l)
+                     | l <- T.lines src
+                     , not (T.isPrefixOf (T.pack "--") (T.stripStart l))
+                     , any (`T.isInfixOf` l) [T.pack "TIO.writeFile", T.pack "TIO.appendFile"] ])
+              paths
+      hits `shouldBe` []
 
   describe "TypeCheck (where binding scope)" $ do
     it "string where-type binding name preserved in AST" $ do

@@ -53,7 +53,7 @@ import Data.Char (isAlphaNum)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
+import LLMLL.Diagnostic (writeFileUtf8)
 import System.Directory (doesDirectoryExist, doesFileExist, getTemporaryDirectory, removeFile)
 import System.Exit (ExitCode(..))
 import System.FilePath ((</>))
@@ -300,7 +300,7 @@ kernelCheck projectDir _timeoutSecs leanSource = do
   if not projExists
     then pure (LeanstralUnavailable ("--leanstral-lean-project not found: " <> T.pack projectDir))
     else do
-      TIO.writeFile leanFile src
+      writeFileUtf8 leanFile src
       -- FIX D: 'readCreateProcessWithExitCode' THROWS an IOException
       -- (execvp: does not exist) when 'lake' is off PATH — that used to crash
       -- the whole 'verify'. Catch it and fail CLOSED like every other Layer-3
