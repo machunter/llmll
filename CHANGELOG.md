@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.25.2: a string comparison in a function body fell back whatever its contract said (2026-09-23)
+
+`STRLIT-BODY-1`. A `def` whose body compared a string parameter against a string literal was
+refused by the body channel, so the function fell back to `contract-checked` with its post assumed.
+The consequence was a vacuous SAFE: measured on v0.25.1, `(= s "ko")` against
+`(post (= result (= s "ok")))` verified SAFE. `LLMLL.md §5.3.3` lists string-literal `=`/`≠` as
+QF_EUF auto with no position restriction; the contract channel honoured that, and the body channel
+did not.
+
+- **The body channel now seeds the parameter.** `bodyToPredM` reflects a variable only through a
+  body-`SortEnv` entry, and `strParamKeys` seeded one for a map-put value or a map key and not for an
+  `=`/`!=` operand. `strEqOperandVars` now scans the body for both the `FQStr` carrier binder and the
+  body `SortEnv`, the third application of the v0.14.47 pattern. No reflection rule, sort, axiom or
+  schema field is added.
+- **What now verifies.** A bool result `(= s "ok")`, a guard `(if (= s "ok") 1 0)`, a string-returning
+  branch on such a guard, two parameters compared against literals (which rides the existing pairwise
+  distinctness facts), and `string-length` of a parameter under a literal guard (which rides the
+  Stage-2 length pin). Each is body-faithful, and the one-literal-off twin of each is **refuted**.
+- **What still falls back.** An operand the fragment cannot express, such as `(string-concat t "x")`,
+  and a post that contains an `if`, which is refused on the contract side for a separate reason.
+- **The corpus did not move.** `scripts/fallback_census.py --jobs 1` over the 253 tracked files gives
+  identical per-file outcomes and body-faithful counts before and after, ratio 0.984 (696/707). No
+  latent wrong contract surfaced, and no gated function flipped. Nine `tools/*.llmll` files cite this
+  gap, and they had routed around it; `tools/llmll-driver/spine.llmll`'s `stage-e-passes`, for one,
+  takes each lexeme comparison's result as a `bool` parameter.
+
+No schema, CLI or spec change.
+
+**Tests:** 2065 Haskell (+6, `SB-1` to `SB-6`), 361 Python (310 passed, 51 skipped).
+
+
 ## v0.25.1: the obligation report's schema version under-declared its own shape (2026-09-22)
 
 v0.25.0 stepped the obligation report's `schema_version` from `0.12.2` to `0.12.3` for the id's
