@@ -23,6 +23,7 @@ Each fixture is a `.llmll` file with a header:
 ```lisp
 ;; @doc:    <doc file and section the claim lives in>
 ;; @cmd:    <optional; subcommand+args to run, default "check {file}">
+;; @run:    <optional; N, a count of stdin lines. Build the fixture and run the program>
 ;; @expect: check-ok | parse-error | check-error | warn:<substring> | output:<substring>
 ;; @norm:   <optional; NC-NNN identifiers of LLMLL.md sentences this fixture stands under, comma-separated>
 ;; @claim:  <the human-readable claim being guarded>
@@ -33,6 +34,17 @@ Each fixture is a `.llmll` file with a header:
 with the fixture path (e.g. `@cmd: checkout {file}`). For non-`check` subcommands, pair it
 with the `output:<substring>` verdict, which just asserts the cited string appears in the
 command's output (the check-specific verdicts assume `check`'s output shape).
+
+`@run: N` grades what a **built program** does, not what the compiler says
+(REPORT-GATE-1). The gate builds the fixture with the subject, runs its one binary with N
+lines of stdin, and applies `@expect` to the program's merged stdout and stderr. Pair it
+with `output:<substring>`. Use `@cmd` or `@run` in a fixture, not both; with both, `@run` wins.
+N is part of the claim. A console program reads one stdin line for each step, and with no
+stdin it exits 70 before its first step, so a claim about what a step does needs N > 0.
+The exit status is not graded. A build that fails, a missing install root, or a `bin/` that
+does not hold exactly one file is a fixture failure (`build-failed`, `no-install-root`,
+`no-single-binary`), never a skip. A run fixture needs `stack` on PATH; the cover links it
+into its scrubbed environment beside the solver.
 
 ### Verdicts
 
@@ -134,6 +146,7 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `effective-level-post-meet.llmll` | `effective_level` stays `verified` when every `pre` is `asserted`: the meet is over post levels (NC-024); same `--strict-verify` reason | positive behaviour (`@cmd: verify … --strict-verify --trust-report --json`) |
 | `import-non-transitive.llmll` | importing a module that imports `wasi.io` does not import `wasi.io` (NC-030) | genuine restriction (multi-module) |
 | `import-non-transitive-callee.llmll` | support module for the above; declares `wasi.io` itself and checks clean | positive behaviour |
+| `hole-abort-at-run.llmll` | a built program whose first step reaches a hole aborts with `hole: hp-impl` (NC-035, `emitHole`) | run-time behaviour (`@run: 3`) |
 
 The `open-after-def-*` pair is one claim needing two fixtures. The documented behaviour is that
 `typecheck` and `verify` **disagree** on the same program, so neither command alone can guard it:

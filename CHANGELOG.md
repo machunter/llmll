@@ -4,6 +4,47 @@
 
 <a id="Latest"></a>
 
+## v0.25.3: a doc-claims fixture can grade what a built program does (2026-09-23)
+
+`REPORT-GATE-1`. `DRIFT-CT-2` ran each fixture through one `llmll` subcommand, so a spec sentence
+about what a built program does at run time had no fixture it could stand under. `NC-035`, the
+`hole: <name>` abort that `emitHole` lowers a reached hole to, was `assumed` in
+[`scripts/norm-claims/registry.json`](scripts/norm-claims/registry.json) for exactly that reason.
+
+- **`;; @run: N` builds the fixture and runs it.** [`tools/doc-claims/docclaims.llmll`](tools/doc-claims/docclaims.llmll)
+  builds the fixture with the subject compiler, runs its one binary with N lines of stdin, and applies
+  `@expect` to the program's merged stdout and stderr. The exit status is not graded, as for every
+  other fixture. A build that fails, a missing install root, and a `bin/` that does not hold exactly
+  one file each fail the fixture under their own label (`build-failed`, `no-install-root`,
+  `no-single-binary`), never a skip.
+- **N is part of the claim.** A console program reads one stdin line per step and exits 70 before
+  its first step when stdin is empty. The v0.19.1 probe that left `NC-035` assumed exited after
+  `:init` for that reason; the claim held all along. Measured on v0.25.2: fed three lines, the probe
+  prints `hole: hp-impl` and exits 1.
+- **`NC-035` is fixture-backed.** [`scripts/doc-claims/hole-abort-at-run.llmll`](scripts/doc-claims/hole-abort-at-run.llmll)
+  stands under it; `assumed_bound` goes 8 to 7 and `DRIFT-CT-3` reads fixture 17, assumed 7.
+- **The row's other half was already expressible when it was filed.** `@cmd` plus `output:`
+  fixtures have asserted trust-report JSON fields since v0.20.0 (`20efac4`, 2026-09-06), one day
+  before the row. No absence verdict is added: zero spec sentences need one, measured.
+- **Four cover cells, each naming the label it must produce.** [`scripts/doc_claims_cover.py`](scripts/doc_claims_cover.py)
+  goes 17 to 21 cells: a corrupted cited string, no stdin, the hole filled, and a build that fails. A
+  run fixture can fail for a reason unrelated to the mutation, so a decision alone would not tell
+  them apart. The cover's scrubbed environment now links `stack` beside the solver and sets
+  `STACK_ROOT` (and `SDKROOT` when the caller sets it); without it the fixture failed
+  `no-install-root` and 3 of 17 cells diverged.
+- **`stack path` is read from stdout alone.** Under the scrubbed PATH a ghcup `ghc-install.sh` hook
+  wrote to stderr and still exited 0, and a merged capture made its first line the install root.
+
+Filed `BUILD-NOSTACK-1`: `llmll build` exits 0 when neither `stack` nor `ghc` is on PATH, having
+built nothing.
+
+**No compiler change, no `llmll` CLI change, no JSON-AST schema change**; nothing under `compiler/`
+was touched, and `LLMLL.md` moves only its banner.
+
+**Tests:** 2065 Haskell (unchanged; no Haskell touched), 361 Python (310 passed, 51 skipped).
+`DRIFT-CT-2` 32 of 32, its cover 21 of 21; `DRIFT-CT-3` and its cover 16 of 16.
+
+
 ## v0.25.2: a string comparison in a function body fell back whatever its contract said (2026-09-23)
 
 `STRLIT-BODY-1`. A `def` whose body compared a string parameter against a string literal was

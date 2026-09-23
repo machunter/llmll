@@ -39,6 +39,7 @@ tree and invoked there.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -118,6 +119,15 @@ CELL_TIMEOUT = 300
 # a diverged cell that names the row, so a regression of that class is a
 # failure and not a wait. Linux CI never saw the hang because 18 KiB is under
 # its 64 KiB, which is why a green board proved nothing about it.
+#
+# STACK IS PUT BACK FOR THE SAME KIND OF REASON, since REPORT-GATE-1. A fixture
+# with `@run: N` is BUILT, and `llmll build` needs `stack` on PATH and a stack
+# root. main() links `stack` beside the solver and sets STACK_ROOT to the
+# caller's, because HOME stays /nonexistent and stack's default root is under
+# HOME. SDKROOT is passed on only when the caller sets it (the macOS SDK link
+# break; CI does not set it). The scrub still hides every `llmll`, and no locale
+# is added. Measured without it: the run fixture failed `no-install-root` and
+# 3 of 17 cells diverged, and `llmll build` itself exited 0 having built nothing.
 ENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin",
     "HOME": "/nonexistent",
@@ -128,16 +138,18 @@ def solver_dir(root: Path) -> Path:
     """A directory holding ONLY the solver, linked from the caller's PATH."""
     fixpoint = shutil.which("liquid-fixpoint") or shutil.which("fixpoint")
     z3 = shutil.which("z3")
-    missing = [n for n, p in (("fixpoint", fixpoint), ("z3", z3)) if p is None]
+    stack = shutil.which("stack")
+    missing = [n for n, p in (("fixpoint", fixpoint), ("z3", z3), ("stack", stack))
+               if p is None]
     if missing:
         raise SystemExit(
             "FAIL: doc-claims cover: no " + " or ".join(missing)
-            + " on the caller's PATH; three fixtures need a proof, so no cell "
-            + "can be decided (see ENV)"
+            + " on the caller's PATH; three fixtures need a proof and the @run "
+            + "fixtures need a build, so no cell can be decided (see ENV)"
         )
     d = root / "solver-bin"
     d.mkdir()
-    for exe in (fixpoint, z3):
+    for exe in (fixpoint, z3, stack):
         (d / Path(exe).name).symlink_to(exe)
     return d
 
@@ -239,13 +251,17 @@ def run_port(tree: Path, gate: str, subject: str) -> tuple[int | None, list[str]
     return p.returncode, normalise(p.stdout + p.stderr), p.stdout + p.stderr
 
 
-CELLS: list[tuple[str, str, "Callable[[Path], None]", bool, bool]] = []
+CELLS: list[tuple[str, str, "Callable[[Path], None]", bool, bool, str | None]] = []
 
 
+# `want` is a substring the port's report must contain, beyond the exit
+# decision. The R cells set it because a run fixture can fail for a reason
+# that has nothing to do with the mutation (no `stack`, a build the scrubbed
+# environment cannot finish), and a decision-only cell cannot tell those apart.
 def cell(name: str, why: str, *, expect_fail: bool = True,
-         compare_report: bool = True):
+         compare_report: bool = True, want: str | None = None):
     def reg(fn):
-        CELLS.append((name, why, fn, expect_fail, compare_report))
+        CELLS.append((name, why, fn, expect_fail, compare_report, want))
         return fn
     return reg
 
@@ -360,6 +376,52 @@ def _c12(tree):
 def _c13(tree): set_header(fixtures(tree)[-1], "expect", "check-error")
 
 
+# --- the run path (REPORT-GATE-1) ------------------------------------------
+#
+# A fixture with `@run: N` is BUILT and its binary is run with N stdin lines.
+# Each cell names the observed label it must produce, so a fixture that fails
+# for an environmental reason does not satisfy a cell meant for a mutation.
+
+def find_with_run(tree: Path) -> Path:
+    for f in fixtures(tree):
+        if "@run:" in f.read_text():
+            return f
+    raise AssertionError("no fixture carries @run; this cell would test nothing")
+
+
+def replace_body(f: Path, old: str, new: str) -> None:
+    txt = f.read_text()
+    assert old in txt, f"{f.name} has no {old!r}; this cell would test nothing"
+    f.write_text(txt.replace(old, new, 1))
+
+
+@cell("R1", "a run fixture's cited string is corrupted", want="observed: output")
+def _r1(tree):
+    f = find_with_run(tree)
+    for line in f.read_text().splitlines():
+        if "@expect:" in line:
+            set_header(f, "expect", line.split("@expect:", 1)[1].strip() + "-CORRUPTED")
+            return
+
+
+# The v0.19.1 probe: a console program given no stdin exits 70 before its
+# first step, so a claim about what a step does is never reached.
+@cell("R2", "a run fixture gets no stdin, so no step runs", want="observed: output")
+def _r2(tree): set_header(find_with_run(tree), "run", "0")
+
+
+# The gate must read the PROGRAM: the same fixture with the hole filled runs
+# clean, prints numbers, and the claim no longer holds.
+@cell("R3", "the run fixture's hole is filled, so nothing aborts", want="observed: output")
+def _r3(tree): replace_body(find_with_run(tree), "?hp-impl", "0")
+
+
+# A program that never built has no output to grade. The port must fail on the
+# build and say so, not grade an empty capture.
+@cell("R4", "the run fixture does not build", want="observed: build-failed")
+def _r4(tree): replace_body(find_with_run(tree), "?hp-impl", '"not-an-int"')
+
+
 # --- negative controls -----------------------------------------------------
 
 @cell("N1", "header whitespace is reflowed", expect_fail=False)
@@ -395,9 +457,12 @@ def main() -> int:
 
     solver_root = Path(tempfile.mkdtemp(prefix="doc-claims-cover-solver-"))
     ENV["PATH"] = f"{solver_dir(solver_root)}:{ENV['PATH']}"
+    ENV["STACK_ROOT"] = os.environ.get("STACK_ROOT") or str(Path.home() / ".stack")
+    if os.environ.get("SDKROOT"):
+        ENV["SDKROOT"] = os.environ["SDKROOT"]
 
     bad = 0
-    for name, why, mutate, expect_fail, compare_report in CELLS:
+    for name, why, mutate, expect_fail, compare_report, want in CELLS:
         root = Path(tempfile.mkdtemp(prefix="doc-claims-cover-"))
         tree = root / "tree"
         tree.mkdir()
@@ -432,6 +497,12 @@ def main() -> int:
             if port_failed is not expect_fail:
                 verb = "must fail" if expect_fail else "must NOT fail"
                 print(f"  VACUOUS  {name:4s} the mutation {verb} and did not  ({why})")
+                print(praw)
+                bad += 1
+                continue
+
+            if want is not None and want not in praw:
+                print(f"  WRONG    {name:4s} the port failed, but its report lacks {want!r}  ({why})")
                 print(praw)
                 bad += 1
                 continue
