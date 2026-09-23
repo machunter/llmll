@@ -1080,10 +1080,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- an in-scope symbol (intro-side).
         , maybe Set.empty (collectCallArgCarrierVars aliases cenv) mBody
         -- STRLIT: string params compared against a string literal now reflect and
-        -- need an in-scope FQStr carrier binder (contract clauses only — the body
-        -- side already binds via its own VC machinery, per the `pos` witness).
+        -- need an in-scope FQStr carrier binder. STRLIT-BODY-1: the BODY is
+        -- scanned too. The body side did NOT already bind a plain string param:
+        -- 'bodyToPredM' reflects a var only through a body-SortEnv entry, and
+        -- 'strParamKeys' below seeded none for an `=` operand, so `(= s "ok")`
+        -- as the body's own computation fell back whole.
         , maybe Set.empty strEqOperandVars (contractPre contract)
         , maybe Set.empty strEqOperandVars (contractPost contract)
+        , maybe Set.empty strEqOperandVars mBody
         -- A2.2-string (residue lift): string params used as map-put VALUES need
         -- the FQStr carrier binder too — in contracts AND in the body (the body
         -- VC references the param name through the shared param binders).
@@ -1376,12 +1380,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                 -- VALUES join the body-channel SortEnv at FQStr, so strValTerm's
                 -- var leg resolves them. Scoped to actual put-value occurrences
                 -- (byte-inert otherwise, the NIW convention).
+                -- STRLIT-BODY-1: an `=`/`!=` operand joins on the same terms,
+                -- so a string param compared in the body reflects as a Str var
+                -- and the literal's interned constant meets it.
                 strParamKeys =
                   [ (v, FQStr)
                   | (v, t) <- params
                   , isStrLike aliases t
                   , v `Set.member` maybe Set.empty
-                      (\b -> mapPutValVars b `Set.union` mapKeyVars b) mBody ]
+                      (\b -> mapPutValVars b `Set.union` mapKeyVars b
+                               `Set.union` strEqOperandVars b) mBody ]
                 sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys ++ strParamKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed

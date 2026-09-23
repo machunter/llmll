@@ -8542,6 +8542,54 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
+      -- STRLIT-BODY-1: a string PARAM compared against a string literal in the
+      -- BODY reflects. Before, 'strParamKeys' seeded no body-SortEnv entry for an
+      -- `=` operand, so the function fell back whole and a wrong-literal body was
+      -- SAFE with its post assumed. Each pair: the correct body is body-faithful
+      -- and SAFE; the one-literal-off twin is body-faithful and REFUTED.
+      let sbPair name good bad = do
+            erG <- emitA2 good
+            erB <- emitA2 bad
+            erBodyFaithfulFns erG `shouldSatisfy` elem name
+            erBodyFaithfulFns erB `shouldSatisfy` elem name
+            mG <- solveFq erG
+            case mG of
+              Nothing  -> pendingWith "solver not installed"
+              Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+            mB <- solveFq erB
+            case mB of
+              Nothing  -> pendingWith "solver not installed"
+              Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "SB-1 STRLIT-BODY-1 bool result: (= s \"ok\") SAFE; the (= s \"ko\") body REFUTED" $
+        sbPair "is-ok"
+          "(def is-ok [s: string] -> bool (post (= result (= s \"ok\"))) (= s \"ok\"))"
+          "(def is-ok [s: string] -> bool (post (= result (= s \"ok\"))) (= s \"ko\"))"
+
+      it "SB-2 STRLIT-BODY-1 guard: (if (= s \"ok\") 1 0) SAFE; the \"ko\" guard REFUTED" $
+        sbPair "code-of"
+          "(def code-of [s: string] -> int (post (=> (= s \"ok\") (= result 1))) (if (= s \"ok\") 1 0))"
+          "(def code-of [s: string] -> int (post (=> (= s \"ok\") (= result 1))) (if (= s \"ko\") 1 0))"
+
+      it "SB-3 STRLIT-BODY-1 rides literal distinctness: two params at \"a\"/\"a\" SAFE; \"a\"/\"b\" REFUTED" $
+        sbPair "both"
+          "(def both [s: string t: string] -> bool (post (=> result (= s t))) (and (= s \"a\") (= t \"a\")))"
+          "(def both [s: string t: string] -> bool (post (=> result (= s t))) (and (= s \"a\") (= t \"b\")))"
+
+      it "SB-4 STRLIT-BODY-1 composes with the Stage-2 length pin: len 2 SAFE; len 3 REFUTED" $
+        sbPair "lenif"
+          "(def lenif [s: string] -> int (post (=> (= s \"ab\") (= result 2))) (if (= s \"ab\") (string-length s) 0))"
+          "(def lenif [s: string] -> int (post (=> (= s \"ab\") (= result 3))) (if (= s \"ab\") (string-length s) 0))"
+
+      it "SB-5 STRLIT-BODY-1 does not widen past the fragment: an operand built by string-concat still falls back" $ do
+        er <- emitA2 "(def cat-eq [s: string t: string] -> bool (post (=> result true)) (= s (string-concat t \"x\")))"
+        erBodyFallback er `shouldSatisfy` elem "cat-eq"
+
+      it "SB-6 STRLIT-BODY-1 seeds only string operands: an int `=` body declares no Str binder" $ do
+        er <- emitA2 "(def ie [x: int] -> bool (post (= result (= x 3))) (= x 3))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "ie"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "Str"
+
       -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
       -- values + string RMW chains + cross-call string-map assume-guarantee.
       it "A2S-7 string-map return (the A4 revoke shape): put-then-return verifies; wrong-status twin REFUTED" $ do
