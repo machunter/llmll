@@ -85,7 +85,7 @@ import LLMLL.DivergenceCheck
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson
   , verdictLabel, probeSet )
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts, patchTargetFns)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts, patchTargetFns)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -3237,6 +3237,23 @@ main = hspec $ do
           KM.lookup "result" o `shouldBe` Just (String "PatchSuccess")
         _ -> expectationFailure "expected JSON object"
 
+    -- PATCH-FAILOPEN-1: no verdict is its own result tag, never PatchSuccess,
+    -- and it keeps 'reason' free (the schema reserves it for DEMO-COMP's enum).
+    it "PATCH-FAILOPEN-1: PatchVerifyUnavailable JSON names the missing verdict" $ do
+      case decode (encode (PatchVerifyUnavailable SolverNotFound)) of
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchVerifyUnavailable")
+          KM.lookup "verified" o `shouldBe` Just (Bool False)
+          KM.lookup "solver_available" o `shouldBe` Just (Bool False)
+          KM.lookup "reason" o `shouldBe` Nothing
+        _ -> expectationFailure "expected JSON object"
+      case decode (encode (PatchVerifyUnavailable (SolverFailed "boom"))) of
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchVerifyUnavailable")
+          KM.lookup "solver_available" o `shouldBe` Just (Bool True)
+          KM.lookup "solver_error" o `shouldBe` Just (String "boom")
+        _ -> expectationFailure "expected JSON object"
+
   -- =========================================================================
   -- v0.10 BUG-PATCH-VERIFY: parseFQResult round-trip (pure)
   -- =========================================================================
@@ -3528,8 +3545,8 @@ main = hspec $ do
       any (T.isInfixOf "depends-on-refuted") callerDrifts `shouldBe` True
 
     -- VR-7 (Cross-cutting): a wrong patch fill yields PatchVerifyError whose
-    -- diagnostics are non-empty and carry a JSON pointer (or PatchSuccess when
-    -- the solver is not installed — graceful degradation).
+    -- diagnostics are non-empty and carry a JSON pointer. PATCH-FAILOPEN-1:
+    -- with no solver the patch is PatchVerifyUnavailable, never PatchSuccess.
     it "VR-7: patch wrong fill → PatchVerifyError with pointer-bearing diagnostics" $ do
       let tmpDir = "test/_tmp_vr7_patch"
       createDirectoryIfMissing True tmpDir
@@ -3555,8 +3572,8 @@ main = hspec $ do
             PatchVerifyError rpt _ -> do
               length (reportDiagnostics rpt) `shouldSatisfy` (>= 1)
               any (\d -> diagPointer d /= Nothing) (reportDiagnostics rpt) `shouldBe` True
-            PatchSuccess _ -> pure ()  -- solver absent: graceful degradation
-            other -> expectationFailure $ "expected PatchVerifyError or PatchSuccess, got: " ++ show other
+            PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
+            other -> expectationFailure $ "expected PatchVerifyError, got: " ++ show other
       removeDirectoryRecursive tmpDir
 
   -- =========================================================================
@@ -3589,11 +3606,12 @@ main = hspec $ do
           pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
             PatchSuccess _ -> pure ()
+            PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
             other -> expectationFailure $ "expected PatchSuccess, got: " ++ show other
       removeDirectoryRecursive tmpDir
 
     -- PROOF OBLIGATION 2: Wrong body → PatchVerifyError (CRITICAL — the bug case)
-    it "OBLIG-2: patch with (+ balance amount) returns PatchVerifyError or PatchSuccess (graceful)" $ do
+    it "OBLIG-2: patch with (+ balance amount) returns PatchVerifyError" $ do
       let tmpDir = "test/_tmp_patch_verify_2"
       createDirectoryIfMissing True tmpDir
       BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
@@ -3614,13 +3632,14 @@ main = hspec $ do
                                         object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
                 ]
           pResult <- applyPatch GrammarCoreInversion fp patchReq
-          -- PatchVerifyError: fixpoint installed → contract violation caught ✅
-          -- PatchSuccess: fixpoint NOT installed → graceful degradation ✅
-          -- PatchTypeError: INVALID — typecheck should pass
+          -- PatchVerifyError: fixpoint installed → contract violation caught
+          -- PatchVerifyUnavailable: fixpoint NOT installed → not applied
+          --   (PATCH-FAILOPEN-1; it was PatchSuccess, the wrong body merged)
+          -- PatchSuccess / PatchTypeError: INVALID
           case pResult of
             PatchVerifyError _ _ -> pure ()
-            PatchSuccess _       -> pure ()
-            other -> expectationFailure $ "expected PatchVerifyError or PatchSuccess, got: " ++ show other
+            PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
+            other -> expectationFailure $ "expected PatchVerifyError, got: " ++ show other
       removeDirectoryRecursive tmpDir
 
     -- PROOF OBLIGATION 3: No contracts → PatchSuccess regardless
