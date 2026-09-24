@@ -2,11 +2,11 @@
 
 *A short series. We take a real piece of TLS, the layer where two famous security bugs
 actually lived, and build it so that (a) a compiler proves the code meets a specification,
-and (b) AI agents do the authoring. By the end we have a working slice of the protocol
-that structurally cannot ship the bug that broke TLS. This first post is the problem and
+and (b) AI agents do the authoring. By the end we have a verified model of the record
+layer's logic that cannot accept the class of bug that broke TLS. This first post is the problem and
 the goal; the code starts in Post 2.*
 
-## Post 1 — The bugs that looked like correct code
+## Post 1: The bugs that looked like correct code
 
 In February 2014, Apple shipped an emergency patch for CVE-2014-1266. For months, across
 hundreds of millions of devices, a TLS handshake could be reported as *successful* for a
@@ -32,23 +32,23 @@ The second `goto fail;` is unconditional. Control jumps to `fail:`, skips `sslRa
 the one call that checks the signature, and returns the `0` left over from the last
 hash update. Zero means success. The routine certifies a signature it never checked.
 
-Four months earlier, the other half of TLS had its own catastrophe. Heartbleed
+Six weeks later, in April 2014, the other half of TLS had its own catastrophe. Heartbleed
 (CVE-2014-0160) lived in the "heartbeat" responder, the code that answers a keep-alive
 ping by echoing back the payload the peer sent:
 
 ```c
 /* trimmed to the shape that matters */
 /* bp: the reply buffer.  pl: the packet we received.
-   payload_length: the length the sender CLAIMED,
+   payload: the length the sender CLAIMED,
    never checked against the bytes that actually arrived. */
-memcpy(bp, pl, payload_length);
+memcpy(bp, pl, payload);
 ```
 
-`payload_length` is attacker-controlled. Claim 64KB, send one byte, and the reply is that
+`payload` is attacker-controlled. Claim 64KB, send one byte, and the reply is that
 one byte followed by 64KB of whatever sat next to `pl` in the server's memory: private
 keys, session cookies, other users' in-flight requests.
 
-Two bugs, two years, both in the plumbing of the web's encryption. Look at what they have
+Two bugs, weeks apart, both in the plumbing of the web's encryption. Look at what they have
 in common. Neither is exotic. goto-fail is a skipped statement; Heartbleed is a length
 one forgot to compare. Both passed code reviews: humans read them top to bottom and saw
 nothing. Both passed their test suites. Both compiled without error. Every individual line
@@ -74,8 +74,8 @@ notice it.
 
 So here is the question, and we are going to answer it by building the thing:
 
-> Can we write a real piece of TLS, the record layer where goto-fail and Heartbleed
-> actually lived, such that a **compiler proves** each function meets a specification,
+> Can we write a real piece of TLS, the record and handshake plumbing where goto-fail and
+> Heartbleed actually lived, such that a **compiler proves** each function meets a specification,
 > and **AI agents do the authoring**, and the goto-fail class of bug simply *cannot* be
 > written and accepted?
 
@@ -85,15 +85,16 @@ Two words in that question need defining.
 compiler backed by an SMT solver: each function carries a contract (a precondition it may
 assume and a postcondition it must establish), and the compiler proves, over *all* inputs,
 that the body actually establishes the postcondition. Code that does not is rejected, not
-warned about. This is the same technology behind Dafny, F\*, and Liquid Haskell; what is
-new here is pointing it at agent-authored code.
+warned about. This is the same technology behind Dafny, F\*, and Liquid Haskell, and
+pointing those tools at LLM-written code is already an active research area. What this
+series adds is a specific combination: an agent receives only a contract, never the
+answer; the compiler rejects wrong bodies and contracts too weak to mean anything; and
+every function carries a visible record of how strongly it was checked.
 
-**"Agents do the authoring"** is the part that's new here. A verifier on its own is old news.
-The combination is the point: agents are fast and will happily write the plausible-but-
-wrong body (the skipped check, the missing bound), and the verifier is the backstop that
-turns that speed into something you can trust. The agent proposes; the compiler disposes.
-Neither is sufficient alone. Together they are a way to write large, correct systems
-faster than a human team and with a stronger guarantee than a human team gets.
+**"Agents do the authoring"** is what makes the verifier matter more. Agents are fast, and
+an agent can write the plausible-but-wrong body (the skipped check, the missing bound) as
+easily as a human can. The verifier is the backstop that turns that speed into something
+you can trust. The agent proposes; the compiler disposes. Neither is sufficient alone.
 
 ## The one idea to carry into Post 2
 
@@ -107,5 +108,5 @@ implementation to an agent, and watch the compiler reject the version that skips
 check, the goto-fail move, refuted before it can ship. From there the series builds
 outward, through non-trivial multi-stage bodies, agents that decompose the problem into
 their own sub-contracts, and finally the whole record layer assembled and verified as one
-program, ending with a slice of TLS that machines wrote and a compiler proved, standing
-exactly where TLS fell.
+program, ending with a model of the record layer whose bodies agents wrote and a compiler
+proved, standing exactly where TLS fell.

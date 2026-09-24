@@ -1,4 +1,4 @@
-# Post 2 — A compiler that refuses
+# Post 2: A compiler that refuses
 
 *In [Post 1](post-1-the-bugs-that-looked-correct.md) we set the goal: build a slice of
 TLS where a compiler proves the code and agents write it, so goto-fail can't ship. This
@@ -81,7 +81,7 @@ $ llmll verify finalize.llmll
 ✅ finalize.llmll — SAFE (liquid-fixpoint)
 ```
 
-`body-faithful` is the phrase that carries the weight: the solver did not trust the
+`body-faithful` is the phrase to notice: the solver did not trust the
 contract, it proved the *body* establishes it. The one path that returns `Verified` is the
 one where `sig` was `Continue`.
 
@@ -106,9 +106,9 @@ error: body verification of 'finalize' failed
        (else-branch does not satisfy postcondition) (constraint #1)
 ```
 
-**Refused**, and the solver names the branch: the `Abort` arm. It found the exact input
-the real bug shipped on (`sig = Abort`, `result = Verified`) and reported that it violates
-the contract. This is not a lint warning you can turn off or a test case someone forgot to
+**Refused**, and the solver points at the branch: the `else` branch, the one that returns
+`Verified` when `sig` is `Abort`, which is the input the real bug shipped on. That branch
+cannot establish the postcondition, and the compiler says so. This is not a lint warning you can turn off or a test case someone forgot to
 add. The postcondition makes the body that skips the check the one body that does *not*
 pass.
 
