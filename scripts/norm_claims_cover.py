@@ -114,7 +114,7 @@ def success_line(out: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def c1(t):  # untagged sentence (proposal §5 case 1)
-    edit(t, SPEC, "[NC-023]", "")
+    edit(t, SPEC, '<a id="nc-023"></a>', "")
 
 def c2(t):  # row closed (case 2)
     s = read(t, ROADMAP)
@@ -146,7 +146,7 @@ def c9(t):  # falsified-by names no suite
     edit_registry(t, lambda r: row(r, "NC-008").__setitem__("target", "suite:no-such-suite"))
 
 def c10(t):  # duplicate marker in the spec
-    edit(t, SPEC, "[NC-010]", "[NC-009]")
+    edit(t, SPEC, '<a id="nc-010"></a>', '<a id="nc-009"></a>')
 
 def c11(t):  # fixture path not in the index
     edit_registry(t, lambda r: row(r, "NC-012").__setitem__("target", ["scripts/doc-claims/does-not-exist.llmll"]))
@@ -155,8 +155,8 @@ def c12(t):  # row target absent from the Active Items table
     edit_registry(t, lambda r: row(r, "NC-031").__setitem__("target", "NO-SUCH-ROW-1"))
 
 def n1(t):  # an informative sentence with a marker and a row (case 6)
-    edit(t, SPEC, "See §7 for the sandbox implementation and the enforcement gap.[NC-033]",
-         "See §7 for the sandbox implementation and the enforcement gap.[NC-033] This item ends here.[NC-099]")
+    edit(t, SPEC, 'See §7 for the sandbox implementation and the enforcement gap.<a id="nc-033"></a>',
+         'See §7 for the sandbox implementation and the enforcement gap.<a id="nc-033"></a> This item ends here.<a id="nc-099"></a>')
     edit_registry(t, lambda r: r["claims"].append({"id": "NC-099", "section": "1.6", "text": "This item ends here.", "disposition": "informative"}))
 
 def n2(t):  # a marker inside a fenced block in scope (case 7)

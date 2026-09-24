@@ -8,7 +8,7 @@ asserts both implementations catch each mutation. Design: docs/design/norm-claim
 
 WHAT THIS DECIDES. DRIFT-CT-2 checks that a claim which has a fixture still holds. This gate
 checks the other direction: that every sentence in the registry's scope carries a marker
-`[NC-NNN]`, that every marker has a registry row whose pinned `text` matches the sentence, and
+`<a id="nc-NNN"></a>`, that every marker has a registry row whose pinned `text` matches the sentence, and
 that every row's disposition still names something that exists: a doc-claims fixture whose
 header claims the identifier, a refute-crux suite, an OPEN roadmap row, or an explicit
 assumption inside the ratchet bound. It never SKIPs (SKIP-SILENT-1): a missing or malformed
@@ -29,8 +29,8 @@ import re
 import subprocess
 import sys
 
-MARKER_RE = re.compile(r"\[NC-(\d{3})\]")
-TRAILING_MARKER_RE = re.compile(r"\[NC-\d{3}\]$")
+MARKER_RE = re.compile(r'<a id="nc-(\d{3})"></a>')
+TRAILING_MARKER_RE = re.compile(r'<a id="nc-(\d{3})"></a>$')
 LIST_MARKER_RE = re.compile(r"^\s*(?:\d+[a-z]?\.|[-*])\s+")
 BLOCKQUOTE_RE = re.compile(r"^\s*>\s?")
 ABBREVIATIONS = ("e.g", "i.e", "vs", "cf", "etc", "et al")
@@ -122,7 +122,7 @@ def normalize(sentence: str) -> str:
 
 def marker_of(sentence: str) -> str | None:
     m = TRAILING_MARKER_RE.search(sentence)
-    return m.group(0)[1:-1] if m else None
+    return f"NC-{m.group(1)}" if m else None
 
 
 # ---------------------------------------------------------------------------
