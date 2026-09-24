@@ -1,7 +1,7 @@
 # LLMLL Benchmarks Makefile
 # v0.6.1: Frozen benchmark CI gates
 
-.PHONY: benchmark-erc20 benchmark-totp refute-crux-gate benchmark-all
+.PHONY: benchmark-erc20 benchmark-totp refute-crux-gate benchmark-all demo-gifs
 
 # ─────────────────────────────────────────────────────────────────────
 # ERC-20 Token Benchmark (v0.6.0, CI gate v0.6.1)
@@ -85,3 +85,52 @@ fallback-census:
 # ─────────────────────────────────────────────────────────────────────
 
 benchmark-all: benchmark-erc20 benchmark-totp refute-crux-gate
+
+# ─────────────────────────────────────────────────────────────────────
+# README demo GIFs: docs/assets/refute.gif and docs/assets/protocol.gif.
+#
+# Records each demo script headlessly in --auto mode (asciinema 3), then renders
+# the cast with agg. The recording runs under `env -i` with a neutral prompt and
+# only the tool directories on PATH, so no username, hostname or home path can
+# reach the screen. Each demo copies its inputs into a temp dir and runs there,
+# so no tracked example, sidecar or lock file is touched. Casts are written to
+# a temp dir and never enter the repo.
+#
+# Needs asciinema, agg, jq, fixpoint (liquid-fixpoint) and z3 on PATH, and an
+# llmll build. LLMLL_BIN defaults to this checkout's stack install root; from
+# a worktree without its own build, pass it:
+#   make demo-gifs LLMLL_BIN=<dir containing llmll>
+#
+# The leanstral GIF is NOT recorded here: it needs a Leanstral API key and a
+# Lean 4 + Mathlib project. See the header of examples/leanstral-demo/demo.sh.
+# ─────────────────────────────────────────────────────────────────────
+
+LLMLL_BIN      ?= $(shell cd compiler && stack path --local-install-root 2>/dev/null)/bin
+DEMO_SIZE      ?= 100x34
+DEMO_FONT_SIZE ?= 14
+DEMO_IDLE      ?= 2
+DEMO_LAST      ?= 6
+
+demo-gifs:
+	@set -eu; \
+	ROOT="$$PWD"; \
+	test -x "$(LLMLL_BIN)/llmll" || { echo "demo-gifs: no llmll in '$(LLMLL_BIN)'; pass LLMLL_BIN=<dir>"; exit 1; }; \
+	for t in asciinema agg jq fixpoint z3; do command -v $$t >/dev/null || { echo "demo-gifs: $$t not on PATH"; exit 1; }; done; \
+	echo "demo-gifs: recording with $$("$(LLMLL_BIN)/llmll" version)"; \
+	DEMO_PATH="$(LLMLL_BIN)"; \
+	for t in fixpoint z3 jq; do DEMO_PATH="$$DEMO_PATH:$$(dirname "$$(command -v $$t)")"; done; \
+	DEMO_PATH="$$DEMO_PATH:/usr/bin:/bin"; \
+	ASCIINEMA="$$(command -v asciinema)"; \
+	CASTS="$$(mktemp -d)"; \
+	for pair in payments-core:refute withdraw-demo:protocol; do \
+	  ex="$${pair%%:*}"; name="$${pair##*:}"; \
+	  echo "demo-gifs: recording examples/$$ex/demo.sh -> docs/assets/$$name.gif"; \
+	  env -i HOME="$$CASTS" SHELL=/bin/bash PATH="$$DEMO_PATH" TERM=xterm-256color \
+	    LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 PS1='$$ ' \
+	    "$$ASCIINEMA" rec --headless --overwrite -q --window-size $(DEMO_SIZE) \
+	      -c "bash $$ROOT/examples/$$ex/demo.sh --auto" "$$CASTS/$$name.cast"; \
+	  agg -q --font-size $(DEMO_FONT_SIZE) --idle-time-limit $(DEMO_IDLE) \
+	    --last-frame-duration $(DEMO_LAST) "$$CASTS/$$name.cast" "docs/assets/$$name.gif"; \
+	  ls -l "docs/assets/$$name.gif"; \
+	done; \
+	echo "demo-gifs: casts kept in $$CASTS"
