@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny four-function program: surveying holes,
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Requires.** A current `llmll` build, real `liquid-fixpoint` on PATH. The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
+> **Requires.** A current `llmll` build, real `liquid-fixpoint` on PATH, `jq` on PATH. Run the commands in a scratch copy of this directory (the [runbook](./DEMO-RUNBOOK.md) lists the setup). The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
 
 ## The program we're building
 
@@ -162,28 +162,28 @@ This same call also creates a lock file, `demo.llmll-lock.json`. Peeking under t
 }
 ```
 
-(Trimmed to the lock-bookkeeping fields — each entry also carries the full per-hole brief shown above: `in_scope`, `contract_pre`, `postcondition_goal`, `type_definitions`, plus `assumptions` / `path_condition` as `null` where the hole has none.) One lock file holds an **array** of reservations: three agents, three holes, one program. The fields that do the work are `pointer`, `source_hash`, `ttl`, and the `token` we carry across operations.
+(Trimmed to the lock-bookkeeping fields — each entry also carries the full per-hole brief shown above: `in_scope`, `contract_pre`, `postcondition_goal`, `type_definitions`, plus `assumptions` (here `["(> amount 0)"]`, the `PositiveInt` refinement the body may rely on) and `path_condition` (`null` here).) One lock file holds an **array** of reservations: three agents, three holes, one program. The fields that do the work are `pointer`, `source_hash`, `ttl`, and the `token` we carry across operations.
 
 <details><summary>The complete <code>CO_W</code> response (<code>jq . &lt;&lt;&lt;"$CO_W"</code>) — brief and lock bookkeeping in one object</summary>
 
 ```json
 {
-  "assumptions": null,
+  "assumptions": [ "(> amount 0)" ],
   "available_functions": [
     { "name": "withdraw", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }],
       "pre": "(>= balance amount)", "post": "(= result (- balance amount))",
-      "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+      "return_type": "int", "returns": "int", "status": "hole", "tier": "asserted" },
     { "name": "double", "params": [{ "name": "x", "type": "int" }],
       "pre": null, "post": "(= result (+ x x))",
       "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
     { "name": "maxi", "params": [{ "name": "a", "type": "int" }, { "name": "b", "type": "int" }],
       "pre": null, "post": "(and (and (>= result a) (>= result b)) (or (= result a) (= result b)))",
-      "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+      "return_type": "int", "returns": "int", "status": "unfilled", "tier": "asserted" },
     { "name": "withdraw-outcome", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }],
       "pre": null, "post": "(and (or (not (>= balance amount)) (= result (ok (- balance amount)))) (or (>= balance amount) (= result (err Insufficient))))",
-      "return_type": "Result[int,Reason]", "returns": "Result[int,Reason]", "status": "filled", "tier": "asserted" }
+      "return_type": "Result[int,Reason]", "returns": "Result[int,Reason]", "status": "unfilled", "tier": "asserted" }
   ],
-  "brief_version": "0.12.1",
+  "brief_version": "0.12.3",
   "consumed_guarantees": null,
   "contract_pre": "(>= balance amount)",
   "expected_return_type": "int",
@@ -273,7 +273,9 @@ Here's a fill that *does* type-check: `(+ balance amount)`. It's `int + int → 
 }
 ```
 
-The payload carries the lock token and the pointer to the node; the `test` op asserts the slot currently holds the `?body_impl` hole, so the patch is refused if someone got there first. Apply it:
+The payload carries the lock token and the pointer to the node; the `test` op asserts the slot currently holds the `?body_impl` hole, so the patch is refused if someone got there first.
+
+**A note on who wrote these patches.** No agent runs in this walkthrough. This patch and every other one below, right and wrong, is written by hand to stand in for an agent fill, so the walkthrough is repeatable. The checkouts, locks, type checks, solver verdicts and trust report are all real output. To follow along, save each payload under the file name the next command uses, with your real token in place of `<token-A>` (the [runbook](./DEMO-RUNBOOK.md) builds each file with `jq -n`). Apply it:
 
 ```bash
 llmll patch ./demo.ast.json ./patch-wrong.json | jq '{result, message: .diagnostics[0].message}'
@@ -317,6 +319,7 @@ llmll patch ./demo.ast.json ./patch-correct.json | jq .
 ```json
 {
   "result": "PatchSuccess",
+  "reuse_suggestions": [],
   "statements": 6
 }
 ```
@@ -402,8 +405,8 @@ llmll patch ./demo.ast.json ./patch-maxi-bad.json | jq '{result, branches: [.dia
 {
   "result": "PatchVerifyError",
   "branches": [
-    "body verification of 'maxi' failed (then-branch does not satisfy postcondition) (constraint #2)",
-    "body verification of 'maxi' failed (else-branch does not satisfy postcondition) (constraint #3)"
+    "body verification of 'maxi' failed (then-branch does not satisfy postcondition) (constraint #0)",
+    "body verification of 'maxi' failed (else-branch does not satisfy postcondition) (constraint #1)"
   ]
 }
 ```
@@ -425,6 +428,7 @@ llmll patch ./demo.ast.json ./patch-maxi-correct.json | jq .
 ```json
 {
   "result": "PatchSuccess",
+  "reuse_suggestions": [],
   "statements": 6
 }
 ```
@@ -472,7 +476,7 @@ llmll patch ./demo.ast.json ./po-bad.json | jq '{result, message: .diagnostics[0
 ```json
 {
   "result": "PatchVerifyError",
-  "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #2)"
+  "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #0)"
 }
 ```
 
@@ -505,7 +509,7 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --json 2>/dev
 {
   "summary": {
     "asserted": 0, "contract_checked": 0, "drifts": 0,
-    "no_contract": 0, "tested": 0, "verified": 4
+    "no_contract": 0, "tested": 0, "tested_joint": 0, "verified": 4
   },
   "functions": [
     { "name": "withdraw",         "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": ["(>= balance amount)"] },
@@ -520,6 +524,14 @@ The report carries **two orthogonal axes**:
 
 - **The trust axis (`effective`)** — all four are `verified`, `withdraw` included. It proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is verified; a function whose body the solver *couldn't* prove would read `asserted` here instead.
 - **The obligation axis (`requires`) — and the sibling contrast lands here as data.** `withdraw` carries a visible caller-obligation, `balance ≥ amount`: the part a *caller* must establish, surfaced explicitly rather than folded into the tier. `withdraw-outcome` carries **none** — it made that same failure case a *value* (`err Insufficient`) instead of a caller obligation. Same operation, two honest designs, and the obligation axis shows exactly the difference. `double` and `maxi` carry none either.
+
+The human-readable report (the same command without `--json`) shows one more line, under `withdraw-outcome`:
+
+```
+    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
+```
+
+To prove `withdraw-outcome`'s post, the compiler gave the solver one family of facts it asserts rather than proves: `measure-nonneg`, which states that each constructor term in the verification condition (here `(ok …)` and `(err …)`) is `≥ 0`. These facts hold because of how the compiler encodes and generates code, so they are tied to its `codegen_semantics_version` stamp; the report names them so that nothing the proof rests on is left unstated.
 
 *Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: conflating a function's verification status with its caller's obligation would be a category error — see [`precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md) for the design rationale behind keeping them on separate axes.)
 
@@ -537,7 +549,11 @@ The obligation axis is not a label — it is **enforced** when something *compos
 It *discharges* `withdraw`'s precondition (its own `pre` guarantees `balance ≥ amount` at the call site) and proves its post by leaning on `withdraw`'s — so it reaches `verified` too (with `--strict-verified-core`; plain `--trust-report` reports the pre-tier `asserted` for both, per [Verify the trust closure](#verify-the-trust-closure) above). And when an agent checks out a hole in a composer, the brief hands back what it may *assume* without re-proving — `consumed_guarantees: [{ "callee": "withdraw", "guarantee": "(= result (- balance amount))", "instantiated": "(= <call-result> (- balance amount))", "callee_tier": "asserted", "status": "discharged" }]`. `callee_tier` is read from the callee's real trust state, not hardcoded — the channel stays honest even when the callee isn't (yet) `verified`. Trust flows **up** from the callee.
 
 Drop the precondition ([`compose-bad.llmll`](./compose-bad.llmll)) and the verifier refuses the code:
+```bash
+llmll verify ./compose-bad.llmll
 ```
+```
+...
 error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition (constraint #2)
 ```
 
@@ -579,11 +595,15 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 ```
 
 ```
+   ...
+   Running CDP measurement (LT-CDP v0.11) ...
    CDP measured 4 function(s):
-   double:           [spec-too-tight-for-omega] 0/5 reliable candidates
-   maxi:             [spec-too-tight-for-omega] 0/6 reliable candidates
-   withdraw:         [spec-too-tight-for-omega] 0/5 reliable candidates
+   double: [spec-too-tight-for-omega] 0/5 reliable candidates
+   maxi: [spec-too-tight-for-omega] 0/6 reliable candidates
+   withdraw: [spec-too-tight-for-omega] 0/5 reliable candidates
    withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
+Trust Report
+...
 ```
 
 All four functions here score `spec-too-tight-for-omega`: zero of the sampled candidates satisfy the contract, so there's no fraction to report — the spec is tighter than this generic basis can discriminate within, which is itself a strong signal (it's exactly why the type-correct-but-wrong fills above got refuted). A looser contract — one a trivial candidate happens to satisfy — gets a genuine numeric `score` instead, the case worth tightening. `withdraw-outcome` (the `Result`-returning function) gets this same real measurement as its siblings.
