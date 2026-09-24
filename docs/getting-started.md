@@ -260,10 +260,21 @@ $ llmll hub query --signature "list[int] -> int" --json
 
 ```console
 # Verify linear arithmetic pre/post contracts at compile time:
-$ stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
-   .fq written to /tmp/llmll-hangman-55657b40d5d0.fq
+$ stack exec llmll -- verify ../examples/payments-core/conserve.llmll
+   .fq written to /tmp/llmll-conserve-<hash>.fq
    Running liquid-fixpoint ...
-✅ hangman.llmll — SAFE (liquid-fixpoint)
+✅ conserve.llmll — SAFE (liquid-fixpoint)
+
+# ✅ means every function with a postcondition was proved. When some were not
+# (the body fell back from the SMT fragment, or is still a ?hole), the headline
+# says so, names them, and points at the strict mode that fails on them:
+$ stack exec llmll -- verify ../examples/erc20_token/erc20_filled.ast.json
+⚠️  erc20_filled.ast.json — SAFE (liquid-fixpoint), partial: 3 of 5 contracted functions proved; 2 assumed, not proved: transfer, transfer-from
+   (--strict-verified-core fails on assumed functions)
+
+# A program with no postconditions has nothing to prove:
+$ stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
+⚠️  hangman.llmll — SAFE (liquid-fixpoint), nothing proved: no function carries a postcondition
 
 # Emit .fq only, specify output path:
 $ stack exec llmll -- verify file.llmll --fq-out out.fq
@@ -308,7 +319,7 @@ $ stack exec llmll -- verify file.llmll --trust-report --json
 
 # Weakness check — detect specs that admit trivial implementations:
 $ stack exec llmll -- verify file.llmll --weakness-check
-✅ hangman.llmll — SAFE (liquid-fixpoint)
+✅ file.llmll — SAFE (liquid-fixpoint)
 ⚠ Spec weakness detected for `sort-list`:
   Your contract: (post (= (list-length result) (list-length input)))
   Trivial valid implementation: (def sort-list [input: list[int]] input)

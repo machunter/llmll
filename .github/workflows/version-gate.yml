@@ -458,6 +458,17 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_sidecar_admit_1.py -v
 
+      # VERIFY-HEADLINE-1: the SAFE headline names what was proved. Placed after
+      # the toolchain assert for the census reason above: every cell calls
+      # `llmll verify`, and with no fixpoint it exits 3 and prints no headline.
+      # VH-2, VH-3, VH-4 and VH-6 failed on the v0.26.0 binary; VH-1 (the
+      # all-proved line, byte for byte) and VH-5 (exit code) passed on both.
+      - name: Run VERIFY-HEADLINE-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_verify_headline_1.py -v
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail
