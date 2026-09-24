@@ -1,52 +1,56 @@
 #!/usr/bin/env bash
 #
-# LLMLL — "money can't be created, proven" refutation demo (record with asciinema).
-# Shows: a type-correct fill that breaks a conservation invariant is REFUTED by the
-# SMT solver before it can merge; the correct fill is proven SAFE. Pure SMT — no
-# API key, no Lean toolchain.
+# LLMLL: "money can't be created" refutation demo (the README's refute.gif).
+# Shows: a hand-written wrong body that is type-correct but credits one unit too
+# many is REFUTED by the SMT solver; the correct body is proved, and the strict
+# trust report marks it `verified`. Pure SMT: no API key, no Lean toolchain.
 #
-# ── one-time setup (from the repo root) ──────────────────────────────────────
-#   brew install asciinema agg
-#   stack --stack-yaml compiler/stack.yaml install       # puts `llmll` on PATH
+# Usage (from any directory):
+#   bash examples/payments-core/demo.sh           # interactive: tap Enter to run each command
+#   bash examples/payments-core/demo.sh --auto    # unattended (also: DEMO_AUTO=1)
 #
-# ── record (from the repo root) ──────────────────────────────────────────────
-#   asciinema rec --idle-time-limit 2 -t "LLMLL — refuted" refute.cast
-#   bash examples/payments-core/demo.sh      # tap Enter to advance each beat
-#   exit                                     # stop recording
-#   agg --idle-time-limit 2 refute.cast docs/assets/refute.gif   # → README GIF
+# Regenerate the GIF headlessly: `make demo-gifs` (repo root).
 #
-# --idle-time-limit compresses the (short) liquid-fixpoint pauses on playback.
+# The demo copies the two example files into a fresh temp dir and runs there,
+# so `llmll verify` never writes sidecars next to the tracked examples.
+# Requires `llmll`, `fixpoint` (liquid-fixpoint) and `z3` on PATH.
 
-cd "$(dirname "$0")/../.." || { echo "run from inside the llmll repo"; exit 1; }   # repo root
-command -v llmll >/dev/null || { echo "llmll not on PATH — run: stack --stack-yaml compiler/stack.yaml install"; exit 1; }
+set -u
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || exit 1
+command -v llmll >/dev/null || { echo "llmll not on PATH: stack --stack-yaml compiler/stack.yaml install"; exit 1; }
 
-BAD="examples/payments-core/conserve-bad.llmll"
-GOOD="examples/payments-core/conserve.llmll"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+cp "$ROOT/examples/payments-core/conserve-bad.llmll" "$ROOT/examples/payments-core/conserve.llmll" "$WORK/"
+cd "$WORK" || exit 1
 
-# ── minimal demo driver (inlined — no external deps) ─────────────────────────
+# ── minimal demo driver (inlined, no external deps) ──────────────────────────
+AUTO="${DEMO_AUTO:-0}"
+for a in "$@"; do [ "$a" = "--auto" ] && AUTO=1; done
+TYPE_DELAY="${DEMO_TYPE_DELAY:-0.025}"   # seconds per typed character
+PAUSE="${DEMO_PAUSE:-1.6}"               # --auto: reading pause after each beat
 DEMO_PROMPT="\$ "
-p()  { printf '\033[36m%s\033[0m\n' "$*"; }          # narration line (cyan)
-pe() {                                                # prompt, "type" the command, wait Enter, run it
+p()  { printf '\033[36m%s\033[0m\n' "$*"; }           # narration line (cyan)
+pe() {                                                 # prompt, type the command, wait, run it
   printf '%s' "$DEMO_PROMPT"
   local i cmd="$*"
-  for ((i=0; i<${#cmd}; i++)); do printf '%s' "${cmd:i:1}"; sleep 0.02; done
-  read -r _
+  for ((i=0; i<${#cmd}; i++)); do printf '%s' "${cmd:i:1}"; sleep "$TYPE_DELAY"; done
+  if [ "$AUTO" = 1 ]; then sleep 0.4; printf '\n'; else read -r _; fi
   eval "$cmd"
+  [ "$AUTO" = 1 ] && sleep "$PAUSE"
   printf '\n'
 }
 
 clear
-p  "# conserve(from, to, amount) returns BOTH new balances. The contract ties them:"
-p  "#   (first result) + (second result) = from + to   — the total is conserved."
-p  "# An agent's 'helpful' fill credits the destination one extra unit:"
-pe "grep -A2 '(def conserve-bad' $BAD"
-p  ""
-p  "# Type-correct. Passes a happy-path test. Looks harmless. But it creates money —"
-p  "# and the SMT solver refutes it before it can merge:"
-pe "llmll verify $BAD --strict-verified-core"
-p  ""
-p  "# The correct fill adds exactly what it subtracts:"
-pe "grep -F '(pair' $GOOD"
-p  ""
-p  "# Proven — a relational invariant over BOTH return values. The money didn't move."
-pe "llmll verify $GOOD"
+p  "# conserve(from, to, amount) returns BOTH new balances. Its contract:"
+p  "#   (first result) + (second result) = from + to    (no money created or destroyed)"
+p  "# A hand-written wrong body: type-correct, but it credits one unit too many."
+pe "sed -n '/^(def conserve-bad/,\$p' conserve-bad.llmll"
+p  "# The SMT solver refutes it:"
+pe "llmll verify conserve-bad.llmll"
+p  "# The correct body adds exactly what it subtracts:"
+pe "sed -n '/^(def conserve /,\$p' conserve.llmll"
+[ "$AUTO" = 1 ] && sleep 0.6
+clear
+p  "# Proved over BOTH return values; the strict report re-runs the solver:"
+pe "llmll verify conserve.llmll --strict-verify"
