@@ -774,7 +774,7 @@ Supported operations: `replace`, `add`, `remove`, `test`. The `test` op guards a
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot mutate `/statements/0/body`.
 
-**On success:** the updated `.ast.json` is written and the lock is cleared. **On failure:** the original file is unchanged, the lock is preserved for retry, and diagnostics reference the responsible patch operation (e.g., `patch-op/1/body`).
+**On success:** the updated `.ast.json` is written and the lock is cleared. **On failure:** the original file is unchanged, the lock is preserved for retry, and diagnostics reference the responsible patch operation (e.g., `patch-op/1/body`). **No solver, no patch:** when the patched program carries contracts and `liquid-fixpoint` / `z3` is missing or returns no verdict, the result is `PatchVerifyUnavailable` (`"verified": false`, `solver_available`, and `solver_error` when the solver ran), the file is not written, the lock is kept, and `patch` exits 3 with a `SOLVER NOT FOUND -- PATCH NOT APPLIED` banner on stderr. A rejection on the merits exits 1. `refine` behaves the same way.
 
 ### `refine` — fill a hole and spawn contracted sub-holes
 

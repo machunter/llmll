@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.25.5)
+# LLMLL: Large Language Model Logical Language (v0.26.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.25.5.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.26.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2072,9 +2072,9 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 }
 ```
 
-3. **Re-verify.** The compiler applies the patch to the JSON-AST, re-parses, re-typechecks, and — if the function carries contracts — re-verifies via SMT (`emitFixpoint` + `liquid-fixpoint`). If the patch introduces a type error, the result is `PatchTypeError` with diagnostic pointers referencing the patch operation (e.g., `patch-op/1/body` instead of `/statements/2/body`). If the patch violates a contract, the result is `PatchVerifyError` with SMT diagnostics. If `liquid-fixpoint` is not installed, the patch proceeds on typecheck success alone (graceful degradation).
+3. **Re-verify.** The compiler applies the patch to the JSON-AST, re-parses, re-typechecks, and, if the function carries contracts, re-verifies via SMT (`emitFixpoint` + `liquid-fixpoint`). If the patch introduces a type error, the result is `PatchTypeError` with diagnostic pointers referencing the patch operation (e.g., `patch-op/1/body` instead of `/statements/2/body`). If the patch violates a contract, the result is `PatchVerifyError` with SMT diagnostics. If the solver is not installed, or runs and returns no verdict, the result is `PatchVerifyUnavailable` and the patch is not applied: an unproven patch is never reported as a success.
 
-4. **Commit or reject.** On success (`PatchSuccess`) the updated `.ast.json` is written and the lock is cleared. On failure (`PatchTypeError`, `PatchVerifyError`, `PatchApplyError`, `PatchAuthError`) the original file is unchanged and the lock is preserved for retry.
+4. **Commit or reject.** On success (`PatchSuccess`) the updated `.ast.json` is written and the lock is cleared. On failure (`PatchTypeError`, `PatchVerifyError`, `PatchApplyError`, `PatchAuthError`, `PatchVerifyUnavailable`) the original file is unchanged and the lock is preserved for retry. `llmll patch` exits 1 on a rejection and 3 on `PatchVerifyUnavailable`, so a caller can tell "change the patch" from "retry once a solver is available".
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot be used to modify `/statements/0/body` — this prevents lateral hole theft between agents.
 

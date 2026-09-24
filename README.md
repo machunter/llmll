@@ -1,4 +1,4 @@
-# LLMLL — v0.25.5
+# LLMLL — v0.26.0
 
 **AI writes the code; the compiler proves it matches the spec, and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -90,7 +90,7 @@ stack exec llmll -- --help
 
 Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-fixpoint`.
 
-> **`verify` is loud without the solver.** On the from-source path, with `z3`/`liquid-fixpoint` absent it prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (not a silent pass) — install both to see the refutation. (The Docker image bundles both, so it never hits this.) See [`docs/getting-started.md`](docs/getting-started.md).
+> **Nothing passes without the solver.** On the from-source path, with `z3`/`liquid-fixpoint` absent, `verify` prints a `SOLVER NOT FOUND -- NOTHING WAS PROVEN` banner and exits `3`, and `patch` / `refine` refuse to apply a contracted patch (`PatchVerifyUnavailable`, exit `3`). Install both to see the refutation. (The Docker image bundles both, so it never hits this.) See [`docs/getting-started.md`](docs/getting-started.md).
 
 ---
 
@@ -130,7 +130,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll serve [--host H] [--port P] [--token T]` | Expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer> [--multi N]` | Lock a `?hole` for exclusive agent editing. Returns a checkout token with the hole's contract context (`contract_pre`, `postcondition_goal`, `path_condition`) and typing context (`in_scope`, `type_definitions`). Use `--release` to abandon, `--status` to query TTL. With `--multi N`, opens or joins an R5 divergence session: N concurrent scratch-isolated tokens on one pointer. |
 | `llmll diverge-report <file.ast.json> <session>` | R5: collect a divergence session's fills and emit the `divergence_witness` record. The session id is the one returned by `checkout --multi`. |
-| `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-type-checks and re-verifies (SMT) the patched program before writing it. |
+| `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-type-checks and re-verifies (SMT) the patched program before writing it. Exits 1 on a rejection, and 3 (`PatchVerifyUnavailable`, nothing written) when the solver is missing or returns no verdict. |
 | `llmll refine <file.ast.json> <refine.json>` | Fill a checked-out hole **and** spawn new contracted sub-holes its body calls, atomically (cascading decomposition). Spawned sub-contracts pass a feasibility (no-miracle) gate (a sub-contract no body can discharge is rejected with a witnessing input) and a CDP vacuity gate; in-scope defs whose contracts subsume a spawned sub-contract are surfaced as advisory `reuse_suggestions` (non-blocking `W-REUSE` on an exact contract-equivalent). |
 | `llmll hub fetch --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Local tarballs only; there is no registry-by-name fetch. |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
