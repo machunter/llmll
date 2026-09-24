@@ -408,6 +408,24 @@ jobs:
             echo "a PATCH-FAILOPEN-1 cell skipped; fixpoint must be on PATH here"; exit 1
           fi
 
+      # DIVERGE-NOSOLVER-1's cells. Five of the six run `llmll diverge-report`
+      # with PATH set to an empty directory (or a crashing `fixpoint` stub);
+      # before the fix each exited 0 and listed the ungraded fills as type
+      # errors or refuted. DN-4 grades a good and a bad fill WITH the solver,
+      # so this step sits after the toolchain assert; the first grep refuses a
+      # run where DN-4 skipped, the second demands all six passed.
+      - name: Run DIVERGE-NOSOLVER-1 cells (pytest, needs the built compiler and fixpoint)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_diverge_nosolver_1.py -v -rs \
+            | tee "$RUNNER_TEMP/diverge-nosolver.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/diverge-nosolver.log"; then
+            echo "a DIVERGE-NOSOLVER-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+          grep -q ' 6 passed' "$RUNNER_TEMP/diverge-nosolver.log" \
+            || { echo "DIVERGE-NOSOLVER-1: expected 6 passed cells"; exit 1; }
+
       # TOOL-ORACLE-1: every port's proved core, and the refuting case that makes
       # it a proof rather than a green light.
       #

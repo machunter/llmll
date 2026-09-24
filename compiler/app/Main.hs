@@ -73,7 +73,7 @@ import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), par
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
-  , buildDivergenceReport, divergenceReportJson )
+  , DivergenceReport(..), buildDivergenceReport, divergenceReportJson )
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
@@ -2413,7 +2413,8 @@ doDivergeReport json gm fp session = do
               exitFailure
             Just (fname, params, mRet, contract) -> do
               -- The solver is needed to identify which fills are verified (the
-              -- signal-carrying set). Absent → the analysis cannot run.
+              -- signal-carrying set). Absent → every fill that typechecks and
+              -- stays in the fragment is FSUnavailable (DIVERGE-NOSOLVER-1).
               mLF <- do
                 a <- findExecutable "liquid-fixpoint"
                 case a of { Just _ -> pure a; Nothing -> findExecutable "fixpoint" }
@@ -2426,10 +2427,56 @@ doDivergeReport json gm fp session = do
                     , dcParams      = params
                     , dcSpecEntropy = resolveSpecEntropy contract
                     , dcFuncEnv     = buildFuncEnv sharedStmts
+                    , dcSolverAvailable = isJust mLF
                     }
                   report = buildDivergenceReport ctx classified
+                  nUnavail = length (drStatusUnavailable report)
               BLC.putStrLn (encode (divergenceReportJson report))
-              exitSuccess
+              -- DIVERGE-NOSOLVER-1: exit 3 when ANY fill reached no verdict, as
+              -- 'llmll verify' and 'llmll patch' do. The verdict is computed
+              -- over the verified fills only, and an ungraded fill may be one of
+              -- them, so a partial grading cannot stand as the session's result.
+              -- stdout stays one JSON object; the banner goes to stderr outside
+              -- --json.
+              if nUnavail > 0
+                then do
+                  unless json $ mapM_ (hPutStrLn stderr)
+                    (divergeUnavailableBanner (isJust mLF) nUnavail (drNSubmitted report))
+                  exitWith (ExitFailure 3)
+                else exitSuccess
+
+-- | DIVERGE-NOSOLVER-1: the text-mode banner for a session in which some fills
+-- reached no verdict. Mirrors 'patchUnverifiedBanner'.
+divergeUnavailableBanner :: Bool -> Int -> Int -> [String]
+divergeUnavailableBanner solverOnPath nUnavail nSub =
+  [ ""
+  , "  ============================================================"
+  , headline
+  , "  ============================================================"
+  ] ++ body ++
+  [ "  " ++ show nUnavail ++ " of " ++ show nSub
+      ++ " fills are listed under status_partition.unavailable:"
+  , "  they typechecked but were NOT graded, so the verdict covers"
+  , "  only the graded fills. (This is not a type error.)"
+  , "  ============================================================"
+  ]
+  where
+    (headline, body)
+      | solverOnPath =
+          ( "  !!  SOLVER ERROR -- SOME FILLS WERE NOT GRADED"
+          , [ "  liquid-fixpoint ran but returned no SAFE/UNSAFE verdict."
+            , ""
+            ] )
+      | otherwise =
+          ( "  !!  SOLVER NOT FOUND -- FILLS WERE NOT GRADED"
+          , [ "  'llmll diverge-report' grades fills with liquid-fixpoint + z3."
+            , "  Neither was found on PATH (solver_available: false)."
+            , ""
+            , "  Install the backend locally:"
+            , "    stack install liquid-fixpoint   # provides the 'fixpoint' binary"
+            , "    brew install z3                 # (or apt-get install z3)"
+            , ""
+            ] )
 
 -- | Parse the top-level statement index from an RFC 6901 pointer
 -- @/statements/<i>/...@ (the enclosing def's position in the program).
@@ -2509,14 +2556,18 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
       hasErr    = any (\d -> diagSeverity d == SevError) (reportDiagnostics report)
   if hasErr
     then pure FSTypeError
-    else case mLF of
-      Nothing    -> pure FSTypeError  -- no solver: verified status is undetermined
-      Just lfBin -> do
-        let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-        emitR <- emitSynthetic gm emitOpts "<diverge-fill>" program
-        if fname `elem` erBodyFallback emitR
-          then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
-          else do
+    else do
+      -- The fragment check needs no solver, so it runs first: a fill outside
+      -- QF-LIA is refuted with or without one.
+      let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+      emitR <- emitSynthetic gm emitOpts "<diverge-fill>" program
+      if fname `elem` erBodyFallback emitR
+        then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
+        else case mLF of
+          -- DIVERGE-NOSOLVER-1: no solver means no verdict. Before, this fill
+          -- was recorded as a type error, which it is not.
+          Nothing    -> pure FSUnavailable
+          Just lfBin -> do
             let fqText = erFQText emitR
             -- Unique temp path per invocation. A fixed /tmp/llmll-diverge-<fname>.fq
             -- races when concurrent diverge-report processes classify a fill for
@@ -2526,11 +2577,14 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             (fqPath, fqH) <- openTempFile tmpDir ("llmll-diverge-" <> T.unpack fname <> ".fq")
             hClose fqH
             writeFileUtf8 fqPath fqText
-            (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+            (code, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
             removeFile fqPath
-            case parseFQResult (T.pack out <> T.pack err) of
-              FQSafe -> pure FSVerified
-              _      -> pure FSRefuted
+            -- DIVERGE-NOSOLVER-1: only UNSAFE refutes. A solver that ran and
+            -- returned no verdict was recorded as refuted; it is unavailable.
+            case parseFQOutcome code (T.pack out <> T.pack err) of
+              FQSafe     -> pure FSVerified
+              FQUnsafe _ -> pure FSRefuted
+              FQError _  -> pure FSUnavailable
   where
     -- Context for classifying the fill: sibling helper defs (so their calls
     -- resolve) + type-defs. Drop the shared copy of the hole-fn — `synthetic`

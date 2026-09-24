@@ -17927,6 +17927,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , dcParams      = clampParams
           , dcSpecEntropy = se
           , dcFuncEnv     = Map.empty
+          , dcSolverAvailable = True
           }
 
     it "positive witness: two verified fills diverge on Ω → under-constraint-witness" $ do
@@ -17956,7 +17957,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- identical on every probe → one bucket → NO spec-tightness claim, just
       -- 'no divergence observed'.
       let ctx = DivergenceContext "sess-double" "/statements/0/body"
-                  [("x", TInt)] SpecEntropyStrict Map.empty
+                  [("x", TInt)] SpecEntropyStrict Map.empty True
           fa  = Fill "twoX"   (peR5 "(* 2 x)")
           fb  = Fill "xPlusX" (peR5 "(+ x x)")
           rep = buildDivergenceReport ctx
@@ -18014,6 +18015,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               KM.member "distinguishing_witness" dw  `shouldBe` True
               KM.member "spec_entropy_suppressed" dw `shouldBe` True
             _ -> expectationFailure "divergence_witness is not an object"
+        _ -> expectationFailure "top-level record is not an object"
+
+    it "DIVERGE-NOSOLVER-1: unavailable fills are their own partition, not type errors" $ do
+      let ctx = (clampCtx SpecEntropyStrict) { dcSolverAvailable = False }
+          fillD = Fill "fillD" (peR5 "hd")
+          rep = buildDivergenceReport ctx
+                  [ ClassifiedFill fillA FSUnavailable
+                  , ClassifiedFill fillB FSUnavailable
+                  , ClassifiedFill fillD FSTypeError ]
+      drStatusUnavailable rep `shouldBe` ["fillA", "fillB"]
+      drStatusTypeError rep   `shouldBe` ["fillD"]
+      drStatusVerified rep    `shouldBe` []
+      drVerifiedBuckets rep   `shouldBe` []
+      case divergenceReportJson rep of
+        Object o -> case KM.lookup "divergence_witness" o of
+          Just (Object dw) -> do
+            KM.lookup "solver_available" dw `shouldBe` Just (Bool False)
+            case KM.lookup "status_partition" dw of
+              Just (Object sp) -> do
+                (encode <$> KM.lookup "unavailable" sp) `shouldBe` Just (encode ["fillA", "fillB" :: T.Text])
+                (encode <$> KM.lookup "type_error" sp)  `shouldBe` Just (encode ["fillD" :: T.Text])
+              _ -> expectationFailure "status_partition is not an object"
+          _ -> expectationFailure "divergence_witness is not an object"
         _ -> expectationFailure "top-level record is not an object"
 
     it "Ω probe set includes the (x=5, lo=0) point for two int params" $ do
