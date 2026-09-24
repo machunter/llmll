@@ -38,7 +38,6 @@ Trust Report
     source (post): session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED
     ↳ calls step (pre: —, post: verified (liquid-fixpoint))
     ↳ calls debit (pre: asserted, post: verified (liquid-fixpoint))
-    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
   step:
     pre:  —  |  post: verified (liquid-fixpoint)
     source (post): RFC 793 §3.2 — connection state transition table
@@ -51,8 +50,6 @@ Summary:
 ```
 
 All three functions `verified`; `open-and-pay` verified **through** the `step` and `debit` edges — the integration holds at the solver level, not as a floor.
-
-**The `≈ assumes ground facts` line under `open-and-pay`.** To prove the post, the compiler gave the solver one family of facts it asserts rather than proves: `measure-nonneg`, which states that each constructor or measure term in the verification condition (here the `Paid …` / `Rejected …` outcome values) is `≥ 0`. These facts hold because of how the compiler encodes and generates code, so they are tied to the compiler's `codegen_semantics_version` stamp; the report names them so that nothing the proof rests on is left unstated (see `LLMLL.md`, "The sealed-builtin axiom set").
 
 The happy-path property also passes:
 
@@ -96,7 +93,7 @@ Three rules, three twins, three distinct verdicts — a refutation for the state
 
 - **Real enum states/events AND a real outcome sum.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified. The multi-outcome RESULT is now a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively** and discharged by constructor equality / injectivity. No int sentinel: `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)` by Z3's datatype distinctness — not a `-1` posing as a balance.
 - **Single module.** `step`/`debit` are re-authored here, not cross-module-imported, to keep the whole composition in the body-faithful fragment (cross-module verified composition is a tracked gap).
-- **Everything is `verified`; one assumed fact family is disclosed.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — the bodies are additive/comparison QF-LIA plus the outcome's native datatype construction, all in the decidable fragment, so the solver (not a fallback) is the catcher throughout. The one thing the proof assumes rather than proves is the `measure-nonneg` ground-fact family the trust report lists under `open-and-pay` (explained under the climax); it rests on the compiler's `codegen_semantics_version`, not on anything specific to this demo.
+- **Everything is `verified`.** Unlike a crypto-bearing RFC demo, there is no `asserted` core: the bodies are additive/comparison QF-LIA plus the outcome's native datatype construction, all in the decidable fragment, so the solver (not a fallback) is the catcher throughout.
 
 ## Narration
 

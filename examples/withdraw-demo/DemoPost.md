@@ -525,14 +525,6 @@ The report carries **two orthogonal axes**:
 - **The trust axis (`effective`)** — all four are `verified`, `withdraw` included. It proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is verified; a function whose body the solver *couldn't* prove would read `asserted` here instead.
 - **The obligation axis (`requires`) — and the sibling contrast lands here as data.** `withdraw` carries a visible caller-obligation, `balance ≥ amount`: the part a *caller* must establish, surfaced explicitly rather than folded into the tier. `withdraw-outcome` carries **none** — it made that same failure case a *value* (`err Insufficient`) instead of a caller obligation. Same operation, two honest designs, and the obligation axis shows exactly the difference. `double` and `maxi` carry none either.
 
-The human-readable report (the same command without `--json`) shows one more line, under `withdraw-outcome`:
-
-```
-    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
-```
-
-To prove `withdraw-outcome`'s post, the compiler gave the solver one family of facts it asserts rather than proves: `measure-nonneg`, which states that each constructor term in the verification condition (here `(ok …)` and `(err …)`) is `≥ 0`. These facts hold because of how the compiler encodes and generates code, so they are tied to its `codegen_semantics_version` stamp; the report names them so that nothing the proof rests on is left unstated.
-
 *Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: conflating a function's verification status with its caller's obligation would be a category error — see [`precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md) for the design rationale behind keeping them on separate axes.)
 
 ## Composition: the obligation flows down
