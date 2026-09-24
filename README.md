@@ -10,7 +10,7 @@ LLMLL (Large Language Model Logical Language) is a language and verification pip
 
 ## See it: money that can't be created, proven
 
-`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to` — the total is conserved, full stop. A "helpful" fill that credits the destination one unit extra is **type-correct** and looks harmless on inspection — but it breaks conservation, and the SMT solver refutes it:
+`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to`: the total is conserved, full stop. A hand-written wrong body that credits the destination one unit extra is **type-correct** and looks harmless on inspection, but it breaks conservation, and the SMT solver refutes it:
 
 ```text
 # body:  (pair (- from amount) (+ to (+ amount 1)))      ← type-correct, creates money
@@ -26,6 +26,7 @@ $ llmll verify conserve.llmll
 The proof is over **both** return values at once: a relational invariant, not a bound on one number. The wrong body above is written by hand to show the check firing. Dafny, Liquid Haskell or F\* would refute it too; what LLMLL adds is the loop around the proof, [below](#why-not-have-an-agent-write-dafny-liquid-haskell-or-f).
 
 <p align="center"><img src="docs/assets/refute.gif" width="760" alt="LLMLL refutes money creation before merge"></p>
+<p align="center"><sub>The wrong body in this recording is hand-written to show the check firing; no agent produced it. Regenerate with <code>make demo-gifs</code>.</sub></p>
 
 Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) — the composed `transfer`/`debit` call-chain beat and the single-constructor `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
 
@@ -49,8 +50,6 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 
 Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
 
-<p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL verified-lean demo"></p>
-
 ```text
 $ llmll verify examples/leanstral-demo/square.llmll --trust-report
   square:  post: asserted                       # nonlinear: outside the SMT fragment, not proven
@@ -71,6 +70,9 @@ The certificate is a Lean proof term the kernel accepted, checkable by anyone wi
 ## Try it
 
 The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md).
+
+<p align="center"><img src="docs/assets/protocol.gif" width="760" alt="LLMLL agent protocol: holes, checkout, a rejected patch, an accepted patch, verified"></p>
+<p align="center"><sub>The two fills are scripted stand-ins for agents: hand-written, committed patch files. Script: <a href="examples/withdraw-demo/demo.sh"><code>examples/withdraw-demo/demo.sh</code></a>.</sub></p>
 
 **Zero-install (Docker).** No Haskell toolchain — the image bundles `llmll`, `z3`, and `liquid-fixpoint`:
 
