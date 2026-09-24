@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.26.2: `llmll check` no longer warns about `:done?` on correct programs (2026-09-24)
+
+`DONE-TYPE-1`. The `def-main` check compared the type of the whole `:done?` expression against
+`bool`. `:done?` names a function, so its type is `S -> bool`, the comparison failed, and every
+correct console program got `warning: :done? should return bool; found non-bool type (ignored in
+v0.2)`. That included the Quick start's `llmll check examples/hangman_sexp/hangman.llmll`, the
+first command a newcomer runs.
+
+- **The check reads the return position**, as the `:status` check already does. An unannotated
+  `def-shell` (inferred return) stays accepted. The message is now `:done? should return bool;
+  found a non-bool return type`.
+- **Measured over the 59 tracked programs that declare `:done?`:** 58 carried the warning on
+  v0.26.1 and 0 do now. Error counts are identical before and after, so nothing else in the
+  check's output moved. A `:done?` that returns `int` is still warned at.
+
+No schema, verification or CLI change.
+
+**Tests:** 2072 Haskell (+3, `DT-1` to `DT-3`), 377 Python (310 passed, 67 skipped).
+
+
 ## v0.26.1: the `verify` headline says how much was proved (2026-09-24)
 
 `VERIFY-HEADLINE-1`. Default `llmll verify` printed `✅ <file> — SAFE (liquid-fixpoint)` on every
