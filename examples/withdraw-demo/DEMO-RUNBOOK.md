@@ -33,12 +33,15 @@ which jq                 # used to build patches and project JSON output to the 
 
 > **Critical:** confirm `llmll --version` reports a current build before running this demo. A stale binary silently reports `success: true` on the bad fill (defeating step 3) instead of catching it, never renders `verified`, and can leave checkout-brief fields (`contract_pre`, `postcondition_goal`, `in_scope`, `effect_summary`, `cross_module`, `discriminative_axis`) `null` or unpopulated. If in doubt, rebuild: `cd compiler && stack install`. (The version number alone doesn't prove freshness — confirm the brief fields below are actually populated.)
 
-Work from a scratch directory so every command is relative and `patch` can mutate files freely:
+Work from a scratch directory so every command is relative and `patch` can mutate files freely. From the repository root:
 
 ```bash
-mkdir -p /tmp/llmll-demo
+rm -rf /tmp/llmll-demo && mkdir -p /tmp/llmll-demo   # start clean: a leftover lock file would carry stale tokens
 cp examples/withdraw-demo/demo.ast.json  /tmp/llmll-demo/
 cp examples/withdraw-demo/audit.ast.json /tmp/llmll-demo/   # for the authority-axis step (7)
+cp examples/withdraw-demo/compose.llmll examples/withdraw-demo/compose-bad.llmll /tmp/llmll-demo/          # step 6.5 + Capstone
+cp examples/withdraw-demo/return-refine.llmll examples/withdraw-demo/return-refine-bad.llmll /tmp/llmll-demo/  # return-refine beat
+cp examples/withdraw-demo/withdraw-outcome-bad.llmll /tmp/llmll-demo/                                    # Capstone forgery beat
 cd /tmp/llmll-demo
 ```
 
@@ -51,11 +54,13 @@ The demo drives the JSON-AST coordination protocol — how a *swarm* of agents e
 - `checkout` reserves a hole and returns a token.
 - `patch` applies an RFC 6901-pointer JSON-Patch that is **type-checked and verified at submission, and rejected if it fails** — distinct `PatchTypeError` / `PatchVerifyError` / `PatchAuthError` result codes.
 
-> **Gating note.** `llmll patch` returns exit `1` *and* a `result` field on rejection; exit `0` + `PatchSuccess` on success. `llmll verify` exits `1` on any refuted/unproven function, `0` when the run is fully SAFE. Gate scripts on `$?`; the JSON `result`/`success` fields carry the detail.
+> **The fills in this runbook are scripted.** No agent runs here. Every patch below (agent A's, B's and C's, right and wrong) is written by hand with `jq -n` to stand in for an agent fill, so the demo is repeatable. What is real is everything the compiler does with them: the checkouts, the locks, the type check, the solver verdicts and the trust report.
+
+> **Gating note.** `llmll patch` returns exit `1` *and* a `result` field on a rejection on the merits (`PatchTypeError`, `PatchVerifyError`, `PatchAuthError`); exit `0` + `PatchSuccess` on success. It returns exit `3` with `PatchVerifyUnavailable` when the patched program carries contracts and the solver is missing or gives no verdict: nothing is written and the lock is kept, so retry once the solver is available. `llmll verify` exits `1` on any refuted/unproven function, `0` when the run is fully SAFE. Gate scripts on `$?`; the JSON `result`/`success` fields carry the detail.
 
 ### The two inspection probes
 
-The demo is didactic because after every step you *look at the files* and confirm the system did exactly what it claimed. Two probes, used throughout:
+The demo is didactic because after every step you *look at the files* and confirm the system did exactly what it claimed. Two probes, used throughout. P1 works now; P2 reads `demo.llmll-lock.json`, which the first `checkout` (step 2) creates, so before step 2 it fails with `Could not open file demo.llmll-lock.json`.
 
 ```bash
 # (P1) Fingerprint the program — did a patch actually change it?
@@ -183,20 +188,20 @@ jq '{contract_pre, postcondition_goal,
 }
 ```
 
-`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from step 1's report. The checkout `in_scope` is *wider*: where the report's `type_channel` projection listed only the contract's free variables (`balance`, `amount`), checkout hands the agent the full scope — the `PositiveInt` / `Reason` types, the `Insufficient` constructor, and the sibling top-level functions (`double`, `maxi`, `withdraw`, `withdraw-outcome`, each `"source": "let-binding"`) as the callable vocabulary. `expected_return_type` reads `"int"` — `withdraw` declares `-> int`, so the body hole carries its type; `available_functions` carries the callable vocabulary (`double` / `maxi` / `withdraw` / `withdraw-outcome` with `pre` / `post` / `tier` / `return_type` — note `withdraw-outcome`'s `return_type` is `Result[int,Reason]` and its `pre` is `null`). `assumptions`, `path_condition`, and `obligation_id` come back `null` for this hole.
+`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from step 1's report. The checkout `in_scope` is *wider*: where the report's `type_channel` projection listed only the contract's free variables (`balance`, `amount`), checkout hands the agent the full scope — the `PositiveInt` / `Reason` types, the `Insufficient` constructor, and the sibling top-level functions (`double`, `maxi`, `withdraw`, `withdraw-outcome`, each `"source": "let-binding"`) as the callable vocabulary. `expected_return_type` reads `"int"` — `withdraw` declares `-> int`, so the body hole carries its type; `available_functions` carries the callable vocabulary (`double` / `maxi` / `withdraw` / `withdraw-outcome` with `pre` / `post` / `tier` / `return_type` / `status` — note `withdraw-outcome`'s `return_type` is `Result[int,Reason]` and its `pre` is `null`; `status` reads `hole` for the function being filled, `unfilled` for the other two open holes and `filled` for `double`). `assumptions` carries `["(> amount 0)"]`, the `PositiveInt` refinement on `amount` that the body may rely on; `path_condition` and `obligation_id` come back `null` for this hole.
 
 <details><summary>Full <code>CO_W</code> response (<code>jq . &lt;&lt;&lt;"$CO_W"</code>) — token, ttl, and staleness hashes alongside the brief</summary>
 
 ```json
 {
-  "assumptions": null,
+  "assumptions": [ "(> amount 0)" ],
   "available_functions": [
-    { "name": "withdraw", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }], "pre": "(>= balance amount)", "post": "(= result (- balance amount))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" },
-    { "name": "double", "params": [{ "name": "x", "type": "int" }], "pre": null, "post": "(= result (+ x x))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" },
-    { "name": "maxi", "params": [{ "name": "a", "type": "int" }, { "name": "b", "type": "int" }], "pre": null, "post": "(and (and (>= result a) (>= result b)) (or (= result a) (= result b)))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" },
-    { "name": "withdraw-outcome", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }], "pre": null, "post": "(and (or (not (>= balance amount)) (= result (ok (- balance amount)))) (or (>= balance amount) (= result (err Insufficient))))", "returns": "Result[int,Reason]", "return_type": "Result[int,Reason]", "tier": "asserted", "status": "filled" }
+    { "name": "withdraw", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }], "post": "(= result (- balance amount))", "pre": "(>= balance amount)", "return_type": "int", "returns": "int", "status": "hole", "tier": "asserted" },
+    { "name": "double", "params": [{ "name": "x", "type": "int" }], "post": "(= result (+ x x))", "pre": null, "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+    { "name": "maxi", "params": [{ "name": "a", "type": "int" }, { "name": "b", "type": "int" }], "post": "(and (and (>= result a) (>= result b)) (or (= result a) (= result b)))", "pre": null, "return_type": "int", "returns": "int", "status": "unfilled", "tier": "asserted" },
+    { "name": "withdraw-outcome", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }], "post": "(and (or (not (>= balance amount)) (= result (ok (- balance amount)))) (or (>= balance amount) (= result (err Insufficient))))", "pre": null, "return_type": "Result[int,Reason]", "returns": "Result[int,Reason]", "status": "unfilled", "tier": "asserted" }
   ],
-  "brief_version": "0.12.1",
+  "brief_version": "0.12.3",
   "consumed_guarantees": null,
   "contract_pre": "(>= balance amount)",
   "expected_return_type": "int",
@@ -217,8 +222,8 @@ jq '{contract_pre, postcondition_goal,
   "pointer": "/statements/1/body",
   "postcondition_goal": "(= result (- balance amount))",
   "source_hash": "b07cf493843b4ccb2ae95fc359f81f02fa01d06af4779a843594fe7e371ad69f",
-  "timestamp": "2026-07-01T14:05:49.061507Z",
-  "token": "6459ca8cae8b360e1350c81f24aff1e37828a42ed87c925755645f10c65cf93f",
+  "timestamp": "2026-09-24T14:31:28.590118Z",
+  "token": "1105d1c729d8c15c0e6f55b4495537e326c56fcfbbb322b423ce718e7b1085b6",
   "ttl": 3600,
   "type_definitions": [
     { "base_type": "int", "kind": "dependent", "name": "PositiveInt" },
@@ -332,7 +337,7 @@ jq -n --arg t "$TOKEN_O" '{token:$t, patch:[
      {kind:"op",op:"-",args:[{kind:"var",name:"balance"},{kind:"var",name:"amount"}]}]}}]}' > ./po-bad.json
 llmll patch ./demo.ast.json ./po-bad.json | jq '{result, message: .diagnostics[0].message}'
 #  -> { "result": "PatchVerifyError",
-#       "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #2)" }
+#       "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #0)" }
 ```
 
 The repair constructs the honest outcome on each branch — `ok` when legal, `err` when not:
@@ -396,8 +401,8 @@ llmll patch ./demo.ast.json ./patch-maxi-bad.json | jq '{result, branches: [.dia
 {
   "result": "PatchVerifyError",
   "branches": [
-    "body verification of 'maxi' failed (then-branch does not satisfy postcondition) (constraint #2)",
-    "body verification of 'maxi' failed (else-branch does not satisfy postcondition) (constraint #3)"
+    "body verification of 'maxi' failed (then-branch does not satisfy postcondition) (constraint #0)",
+    "body verification of 'maxi' failed (else-branch does not satisfy postcondition) (constraint #1)"
   ]
 }
 ```
@@ -447,6 +452,7 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --json 2>/dev
     "drifts": 0,
     "no_contract": 0,
     "tested": 0,
+    "tested_joint": 0,
     "verified": 4
   },
   "functions": [
@@ -464,6 +470,21 @@ Exit `0` (`jq` reads the same stream that sets it). The report carries **two ort
 - **The obligation axis (`requires` / `caller_obligations`) — and the sibling contrast lands here as data.** `withdraw` carries a *visible caller-obligation*, `balance ≥ amount`: the part a **caller** must honor, surfaced explicitly, not folded into the tier. `withdraw-outcome` carries **none** — it made that same failure case a *value* (`err Insufficient`) instead of a caller obligation. Same operation, two honest designs, and the obligation axis shows exactly the difference: one demands a guarantee, one returns an outcome. `double` and `maxi` are precondition-free too.
 
 *Two questions, answered separately:* **is it correct?** (`verified`) and **what must a caller guarantee?** (the obligation axis). The precondition's "assumed-ness" is real — but it lives where it belongs, on the caller. Step 6.5 shows it *enforced*.
+
+**One more line in the human-readable report.** Drop `--json` and the text trust report shows the same four `verified` rows, plus one line under `withdraw-outcome`:
+
+```bash
+llmll verify ./demo.ast.json --strict-verified-core --trust-report
+```
+```
+...
+  withdraw-outcome:
+    pre:  —  |  post: verified (liquid-fixpoint)
+    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
+...
+```
+
+To prove `withdraw-outcome`'s post, the compiler gave the solver one family of facts it asserts rather than proves: `measure-nonneg`, which states that each constructor term in the verification condition (here `(ok …)` and `(err …)`) is `≥ 0`. These facts hold because of how the compiler encodes and generates code, so they are tied to its `codegen_semantics_version` stamp; the report names them so that nothing the proof rests on is left unstated (`LLMLL.md`, "The sealed-builtin axiom set"). The JSON report carries the same fact as `"ground_fact_families": ["measure-nonneg"]` on that entry.
 
 ### 6.5 — Composition: the obligation flows down
 
@@ -483,7 +504,7 @@ llmll verify ./compose.llmll --strict-verified-core --trust-report --json 2>/dev
   | jq -s '.[1] | {summary, functions: [.entries[] | {name, effective: .effective_level}]}'
 ```
 ```json
-{ "summary": { "asserted": 0, "contract_checked": 0, "drifts": 0, "no_contract": 0, "tested": 0, "verified": 2 },
+{ "summary": { "asserted": 0, "contract_checked": 0, "drifts": 0, "no_contract": 0, "tested": 0, "tested_joint": 0, "verified": 2 },
   "functions": [ { "name": "withdraw", "effective": "verified (liquid-fixpoint)" },
                  { "name": "guarded-withdraw", "effective": "verified (liquid-fixpoint)" } ] }
 ```
@@ -502,6 +523,7 @@ llmll verify ./compose.llmll --strict-verified-core --trust-report --json 2>/dev
 llmll verify ./compose-bad.llmll
 ```
 ```
+...
 error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition (constraint #2)
 ```
 
@@ -541,12 +563,35 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 ```
 
 ```
+   ...
+✅ ./demo.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to ./demo.ast.json.verified.json
+   Running CDP measurement (LT-CDP v0.11) ...
    CDP measured 4 function(s):
    double: [spec-too-tight-for-omega] 0/5 reliable candidates
    maxi: [spec-too-tight-for-omega] 0/6 reliable candidates
    withdraw: [spec-too-tight-for-omega] 0/5 reliable candidates
    withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
+Trust Report
+────────────────────────────────────────────────────────────
+  double:
+    pre:  —  |  post: verified (liquid-fixpoint)
+  maxi:
+    pre:  —  |  post: verified (liquid-fixpoint)
+  withdraw:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+  withdraw-outcome:
+    pre:  —  |  post: verified (liquid-fixpoint)
+    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
+────────────────────────────────────────────────────────────
+Summary:
+  verified:         4
+  tested:           0
+  asserted:         0
+  no contract:      0
 ```
+
+The trust report is the same one step 6 explains, including the `≈ assumes ground facts` line.
 
 `--json` populates this axis too:
 
@@ -584,10 +629,12 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp --json 
 llmll verify ./return-refine.llmll
 ```
 ```
+   ...
    body-faithful: saturate, top-up
    call-pre obligations: top-up
    Running liquid-fixpoint ...
-✅ return-refine.llmll — SAFE (liquid-fixpoint)
+✅ ./return-refine.llmll — SAFE (liquid-fixpoint)
+   ...
 ```
 
 The wrong twin ([`return-refine-bad.llmll`](return-refine-bad.llmll)) drops the ceiling (`(+ tokens added)`, no clamp) — type-correct, passes any in-range test, but the `-> Word` refinement is violated for overflowing inputs:
@@ -596,6 +643,7 @@ The wrong twin ([`return-refine-bad.llmll`](return-refine-bad.llmll)) drops the 
 llmll verify ./return-refine-bad.llmll --strict-verified-core
 ```
 ```
+   ...
    body-faithful: saturate
    Running liquid-fixpoint ...
 error: body verification of 'saturate' failed — implementation does not satisfy postcondition (constraint #0)
@@ -616,9 +664,13 @@ The demo opened by proving you **can't sneak bad *code* past the verifier** — 
 llmll verify ./compose.llmll --strict-verified-core --proof-artifact ./compose.proof.json
 ```
 ```
+   ...
    body-faithful: withdraw, guarded-withdraw
-✅ compose.llmll — SAFE (liquid-fixpoint)
+   call-pre obligations: guarded-withdraw
+   Running liquid-fixpoint ...
    proof-artifact written to ./compose.proof.json
+✅ ./compose.llmll — SAFE (liquid-fixpoint)
+   ...
 ```
 
 **An auditor replays the receipt — they don't take your word.** `replay-artifact` recomputes the source hash and re-runs the recorded VC under the *pinned* solver, and the verdict must reproduce:
@@ -633,24 +685,29 @@ llmll replay-artifact ./compose.proof.json
 Change the source out from under the record and it **fails closed** — a stale receipt is never honored:
 
 ```bash
-printf '\n;; tampered\n' >> ./compose.llmll       # then restore with: git checkout compose.llmll
+cp ./compose.llmll ./compose.llmll.orig           # keep a clean copy to restore
+printf '\n;; tampered\n' >> ./compose.llmll
 llmll replay-artifact ./compose.proof.json
 ```
 ```
 ⛔ replay FAILED CLOSED: source/AST hash mismatch — artifact stale relative to the named source
 ```
 
+Exit `1`. Restore the source with `mv ./compose.llmll.orig ./compose.llmll`, and `replay-artifact` reproduces the verdict again.
+
 **You can't forge the verdict.** The artifact for the refuted `withdraw-outcome-bad` is *honest* — it records the function as `asserted` with `refuted: true`, never a positive tier. Now try to launder it: hand-edit that record to claim `"verified"`. The artifact's kernel refuses it **on parse** — a positive tier is structurally inseparable from its evidence:
 
 ```bash
-llmll verify ./withdraw-outcome-bad.llmll --proof-artifact ./bad.proof.json   # records: evidence_level "asserted", refuted true
-#   ... edit bad.proof.json: functions[0].evidence_level -> "verified" ...
-llmll replay-artifact ./bad.proof.json
+llmll verify ./withdraw-outcome-bad.llmll --proof-artifact ./bad.proof.json   # exits 1: the body is refuted
+jq -c '.functions[0] | {evidence_level, refuted}' ./bad.proof.json           # {"evidence_level":"asserted","refuted":true}
+jq '.functions[0].evidence_level = "verified"' ./bad.proof.json > ./forged.proof.json   # the forgery
+llmll replay-artifact ./forged.proof.json
 ```
 ```
-ERROR: proof-artifact rejected (parse / §4.1 invariant): Error in $.functions[0]: ill-formed artifact:
-       function 'withdraw-outcome-bad' carries a positive tier but is flagged refuted
+ERROR: proof-artifact rejected (parse / §4.1 invariant): Error in $.functions[0]: ill-formed artifact: function 'withdraw-outcome-bad' carries a positive tier but is flagged refuted
 ```
+
+Exit `2`: the forged record is rejected when it is parsed.
 
 **You can't sneak bad code past the verifier; you can't sneak a fake verdict past the artifact. Correctness is structural at both layers.**
 

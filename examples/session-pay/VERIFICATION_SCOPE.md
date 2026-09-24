@@ -9,7 +9,7 @@ What the compiler **proves** versus what is **trusted**, for the connected demo.
 | `open-and-pay` | legal session-pay relation: `result = Paid(balance - amount)` iff an `ESTABLISHED`-reaching transition **and** `balance >= amount`; else `result = Rejected(0)` | **proven, through the `step` and `debit` call edges** | body-faithful VC (outcome constructed natively, discharged by constructor equality / injectivity) + assume-guarantee on `step.post` / `debit.post`; `debit.pre` discharged at the call site (funds guard ⊕ `Word` bound) |
 | `amount: Word` | `0 <= amount <= 65535` | **proven** (refinement-typed parameter) | discharges `debit`'s `amount >= 0` |
 
-**Trusted (TCB):** the LLMLL compiler, liquid-fixpoint, and z3 — same as any LLMLL `verify`. Nothing demo-specific is assumed.
+**Trusted (TCB):** the LLMLL compiler, liquid-fixpoint, and z3 — same as any LLMLL `verify`. Nothing demo-specific is assumed. The trust report does list one assumed fact family under `open-and-pay`: `measure-nonneg` (each outcome constructor term such as `Paid …` / `Rejected …` is `≥ 0` in the solver encoding). It is asserted by the compiler, not proved, and it rides the `codegen_semantics_version` stamp (`LLMLL.md`, "The sealed-builtin axiom set").
 
 **Scope boundaries:**
 - **Real enum states/events AND a real outcome sum.** `ConnState` and `Event` are real nullary-enum sum types, matched and compared as values (verified). The multi-outcome RESULT is a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively**: the post discharges by constructor equality and refutes by injectivity, into Z3's non-recursive datatype theory. No int sentinel remains — `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)`.
