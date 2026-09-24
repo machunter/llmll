@@ -14,9 +14,11 @@
 -- Two-stage pipeline (this module implements stages 1–2 only):
 --
 --   * Stage 1 — status partition. Bucket the submitted fills by verify outcome
---     {verified, refuted, type-error}. ONLY 'FSVerified' fills carry the
---     divergence signal (a refuted or ill-typed fill is not a competing correct
---     implementation, it is simply wrong).
+--     {verified, refuted, type-error, unavailable}. ONLY 'FSVerified' fills
+--     carry the divergence signal (a refuted or ill-typed fill is not a
+--     competing correct implementation, it is simply wrong). An 'FSUnavailable'
+--     fill typechecked but the solver gave no verdict on it (DIVERGE-NOSOLVER-1):
+--     it is not graded, so the verdict covers only the graded fills.
 --
 --   * Stage 2 — observational bucketing. Evaluate each verified fill over a
 --     shared finite probe set Ω (the cartesian product of small per-parameter
@@ -105,13 +107,17 @@ data FillStatus
   = FSVerified    -- ^ type-checked AND solver reported SAFE against the contract
   | FSRefuted     -- ^ type-checked but the solver refuted the contract
   | FSTypeError   -- ^ failed the type-checker (or the hole was never filled)
+  | FSUnavailable -- ^ DIVERGE-NOSOLVER-1: type-checked, but the solver reached
+                  --   no verdict (not on PATH, or it ran and returned neither
+                  --   SAFE nor UNSAFE). Not graded; never a verified competitor.
   deriving (Show, Eq)
 
 -- | Wire-line label for a 'FillStatus'.
 fillStatusLabel :: FillStatus -> Text
-fillStatusLabel FSVerified  = "verified"
-fillStatusLabel FSRefuted   = "refuted"
-fillStatusLabel FSTypeError = "type-error"
+fillStatusLabel FSVerified    = "verified"
+fillStatusLabel FSRefuted     = "refuted"
+fillStatusLabel FSTypeError   = "type-error"
+fillStatusLabel FSUnavailable = "unavailable"
 
 -- | A fill paired with its stage-1 verify status.
 data ClassifiedFill = ClassifiedFill
@@ -205,6 +211,7 @@ data DivergenceContext = DivergenceContext
   , dcParams      :: [(Name, Type)]   -- ^ enclosing function parameters (drives Ω)
   , dcSpecEntropy :: SpecEntropy      -- ^ resolved (spec-entropy ...) annotation
   , dcFuncEnv     :: FuncEnv          -- ^ sibling functions available to fills during eval
+  , dcSolverAvailable :: Bool         -- ^ DIVERGE-NOSOLVER-1: a solver binary was on PATH
   }
 
 -- | The standalone divergence report.
@@ -215,6 +222,8 @@ data DivergenceReport = DivergenceReport
   , drStatusVerified        :: [Text]  -- ^ ids of verified fills
   , drStatusRefuted         :: [Text]  -- ^ ids of refuted fills
   , drStatusTypeError       :: [Text]  -- ^ ids of type-erroring fills
+  , drStatusUnavailable     :: [Text]  -- ^ ids of fills the solver gave no verdict on
+  , drSolverAvailable       :: Bool    -- ^ a solver binary was on PATH
   , drVerifiedBuckets       :: [VerifiedBucket]
   , drVerdict               :: DivergenceVerdict
   , drWitness               :: Maybe DistinguishingWitness
@@ -233,6 +242,7 @@ buildDivergenceReport ctx cfs =
       verifiedF  = [ cfFill cf | cf <- cfs, cfStatus cf == FSVerified ]
       refutedIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSRefuted ]
       typeErrIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSTypeError ]
+      unavailIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSUnavailable ]
 
       -- Stage 2: evaluate each verified fill over the shared Ω.
       probes  = probeSet (dcParams ctx)
@@ -255,6 +265,8 @@ buildDivergenceReport ctx cfs =
        , drStatusVerified        = map fillId verifiedF
        , drStatusRefuted         = refutedIds
        , drStatusTypeError       = typeErrIds
+       , drStatusUnavailable     = unavailIds
+       , drSolverAvailable       = dcSolverAvailable ctx
        , drVerifiedBuckets       = buckets
        , drVerdict               = verdict
        , drWitness               = witness
@@ -302,7 +314,9 @@ divergenceReportJson r = object
           [ "verified"   .= drStatusVerified r
           , "refuted"    .= drStatusRefuted r
           , "type_error" .= drStatusTypeError r
+          , "unavailable" .= drStatusUnavailable r  -- DIVERGE-NOSOLVER-1
           ]
+      , "solver_available" .= drSolverAvailable r      -- DIVERGE-NOSOLVER-1
       , "verified_buckets" .= map bucketJson (drVerifiedBuckets r)
       , "verdict"          .= verdictLabel (drVerdict r)
       , "distinguishing_witness" .= maybe Null witnessJson (drWitness r)
