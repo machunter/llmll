@@ -1,6 +1,6 @@
-# LLMLL — v0.25.5
+# LLMLL — v0.26.0
 
-**AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
+**AI writes the code; the compiler proves it matches the spec, and rejects a type-correct-but-wrong implementation before it merges.**
 
 LLMLL (Large Language Model Logical Language) is a language and verification pipeline whose primary author is an LLM agent, not a human. Agents coordinate through formal contracts the compiler enforces — not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
 
@@ -23,11 +23,25 @@ $ llmll verify conserve.llmll
 ✅ conserve.llmll — SAFE (liquid-fixpoint)
 ```
 
-The proof is over **both** return values at once — a relational invariant, not a bound on one number. Every other tool merges code that type-checks; LLMLL proves the money didn't move.
+The proof is over **both** return values at once: a relational invariant, not a bound on one number. The wrong body above is written by hand to show the check firing. Dafny, Liquid Haskell or F\* would refute it too; what LLMLL adds is the loop around the proof, [below](#why-not-have-an-agent-write-dafny-liquid-haskell-or-f).
 
 <p align="center"><img src="docs/assets/refute.gif" width="760" alt="LLMLL refutes money creation before merge"></p>
 
 Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) — the composed `transfer`/`debit` call-chain beat and the single-constructor `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
+
+---
+
+## Why not have an agent write Dafny, Liquid Haskell or F\*?
+
+Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixpoint over Z3) is the one Liquid Haskell uses. LLMLL does not claim a stronger verifier. It builds the loop around the verifier for the case where an agent writes the code:
+
+- **A hole is a contract.** `llmll checkout` gives an agent a typed `?hole` with its precondition, the postcondition it must meet and the names in scope, and not the answer. `llmll patch` applies the fill only if the program still type-checks and the solver does not refute it.
+- **Weak contracts are flagged.** `--weakness-check` reports a contract so weak that a trivial body satisfies it; `--cdp` scores how sharply a contract rules out wrong bodies.
+- **Every function carries a trust level.** The trust report marks each function `verified`, `asserted` and so on, and a `verified` claim never silently rests on an unproven callee.
+- **Agents edit structure, not text.** Every program also has a JSON-AST form, and patches are RFC 6902 JSON-Patch against it, so there are no text merge conflicts.
+- **Decomposition is checked.** `llmll refine` fills a hole and spawns contracted sub-holes in one step, and rejects a sub-contract that no body can meet or that says nothing.
+
+**What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use hand-written wrong versions to show that the check works; the agents in these experiments did not produce them.
 
 ---
 
@@ -39,7 +53,7 @@ Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` 
 
 ```text
 $ llmll verify examples/leanstral-demo/square.llmll --trust-report
-  square:  post: asserted                       # Z3 gives up on nonlinear arithmetic
+  square:  post: asserted                       # nonlinear: outside the SMT fragment, not proven
 
 $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll \
     --leanstral --leanstral-lean-project ~/proofcheck --trust-report
@@ -47,9 +61,9 @@ $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll 
   square:  post: verified-lean   (certificate: square.verified.lean)
 ```
 
-The certificate is a Lean proof term the kernel accepted — checkable by anyone with Lean, without trusting Leanstral *or* LLMLL's compiler. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
+The certificate is a Lean proof term the kernel accepted, checkable by anyone with Lean without trusting Leanstral. What you still trust is LLMLL's translation of the contract into the Lean theorem statement. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
 
-> **Experimental.** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
+> **Experimental.** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/archive/shipped-design-specs/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
 
 
 ---
@@ -76,7 +90,7 @@ stack exec llmll -- --help
 
 Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-fixpoint`.
 
-> **`verify` is loud without the solver.** On the from-source path, with `z3`/`liquid-fixpoint` absent it prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (not a silent pass) — install both to see the refutation. (The Docker image bundles both, so it never hits this.) See [`docs/getting-started.md`](docs/getting-started.md).
+> **Nothing passes without the solver.** On the from-source path, with `z3`/`liquid-fixpoint` absent, `verify` prints a `SOLVER NOT FOUND -- NOTHING WAS PROVEN` banner and exits `3`, and `patch` / `refine` refuse to apply a contracted patch (`PatchVerifyUnavailable`, exit `3`). Install both to see the refutation. (The Docker image bundles both, so it never hits this.) See [`docs/getting-started.md`](docs/getting-started.md).
 
 ---
 
@@ -92,7 +106,7 @@ LLMLL treats **verification as the coordination protocol**. A lead agent defines
 
 The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. Everything else — string **structure** (concatenation, substring, regex), non-terminating recursion (recursion with a discharging `(decreases e)` measure verifies total), recursive-payload ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)).
 
-An interactive proof path for the rest (Lean 4 via "Leanstral" MCP) is **designed but not shipped** — it runs in mock mode only (`--leanstral-mock`), blocked on external availability.
+Nonlinear obligations have an **experimental** Lean 4 path: the opt-in `--leanstral` flag shown above, which needs a Leanstral API key and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is deferred. `--leanstral-mock` runs the same pipeline against a mock prover, for testing.
 
 [`docs/one-pager.md`](docs/one-pager.md) carries the full **Claim-to-Evidence map** — every claim mapped to a shipped command or an explicit "Planned"/"Not shipped" label. The "Planned"/"Not shipped" labels are deliberate; read it before sharing.
 
@@ -110,13 +124,13 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`) and compile it with `stack build`, or `ghc --make` when Stack is absent. Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. With neither `stack` nor `ghc` on PATH it fails (exit 1); `--emit-only` writes the package without compiling it. |
 | `llmll build-json <file.ast.json> [-o <dir>]` | Compile a JSON-AST source to a Haskell package: the `build` pipeline reading `.ast.json` input. `--emit-only` writes the Haskell sources but skips the internal stack build; `--contracts MODE` sets the runtime assertion mode (`full` default, `unproven`, `none`). |
 | `llmll run <file> [args...]` | Compile the program and run it immediately; requires a `def-main`. The program inherits this process's stdin, stdout and stderr, and `llmll run` exits with the program's own status. Trailing arguments are passed through to the running program, flags included; `--` is needed only before an argument that starts with `-` and must not be read as a flag. |
-| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--obligation-report] [--spec-coverage] [--strict-verified-core] [--cdp] [--strict-verify] [--proof-artifact FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--proof-artifact FILE`, also writes a unified, replayable verification record consolidating the trust/obligation/`.fq`/sidecar surfaces plus the determinism pins. With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions (note: `--trust-report` reloads persisted evidence **instead of running fixpoint**, so a solver-refutable function renders as `asserted`, not `refuted` — use the default `verify` or `--strict-verified-core` to surface `refuted`). With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--obligation-report`, emits structured JSON obligation report for every hole, unproven contract, and failed call-site precondition. With `--spec-coverage`, classifies every function and computes effective specification coverage ratio. With `--strict-verified-core`, hard-errors if any function falls back from body-faithful verification, carries overflow-tainted verified evidence, or is refuted (body-faithful but disproved by the solver), transitively over the call graph. With `--cdp`, computes contract discriminative power per function: emits a paired `discriminative_axis` block in the trust-report JSON alongside the existing diamond-lattice evidence axis. With `--strict-verify`, runs `--trust-report --weakness-check --spec-coverage --cdp` together — the recommended serious-verify path. |
+| `llmll verify <file> [--fq-out FILE] [--leanstral] [--leanstral-lean-project DIR] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--obligation-report] [--spec-coverage] [--strict-verified-core] [--cdp] [--strict-verify] [--proof-artifact FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--proof-artifact FILE`, also writes a unified, replayable verification record consolidating the trust/obligation/`.fq`/sidecar surfaces plus the determinism pins. With `--leanstral` (experimental), sends nonlinear obligations to a live Leanstral prover and checks the returned proof with the Lean kernel (see above); `--leanstral-mock` runs the same pipeline against a mock prover. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions (note: `--trust-report` reloads persisted evidence **instead of running fixpoint**, so a solver-refutable function renders as `asserted`, not `refuted`; use the default `verify` or `--strict-verified-core` to surface `refuted`). With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--obligation-report`, emits structured JSON obligation report for every hole, unproven contract, and failed call-site precondition. With `--spec-coverage`, classifies every function and computes effective specification coverage ratio. With `--strict-verified-core`, hard-errors if any function falls back from body-faithful verification, carries overflow-tainted verified evidence, or is refuted (body-faithful but disproved by the solver), transitively over the call graph. With `--cdp`, computes contract discriminative power per function: emits a paired `discriminative_axis` block in the trust-report JSON alongside the existing evidence axis. With `--strict-verify`, runs `--trust-report --weakness-check --spec-coverage --cdp` together: the recommended serious-verify path. |
 | `llmll replay-artifact <FILE>` | Re-derive and check a recorded proof artifact: recompute the source hash, re-run the stored VC under the pinned solver, and **fail closed** on any source/solver-determinism mismatch or `unknown`/timeout. |
 | `llmll typecheck --sketch <file>` | Partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors and `invariant_suggestions` from the pattern registry. |
 | `llmll serve [--host H] [--port P] [--token T]` | Expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer> [--multi N]` | Lock a `?hole` for exclusive agent editing. Returns a checkout token with the hole's contract context (`contract_pre`, `postcondition_goal`, `path_condition`) and typing context (`in_scope`, `type_definitions`). Use `--release` to abandon, `--status` to query TTL. With `--multi N`, opens or joins an R5 divergence session: N concurrent scratch-isolated tokens on one pointer. |
 | `llmll diverge-report <file.ast.json> <session>` | R5: collect a divergence session's fills and emit the `divergence_witness` record. The session id is the one returned by `checkout --multi`. |
-| `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
+| `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-type-checks and re-verifies (SMT) the patched program before writing it. Exits 1 on a rejection, and 3 (`PatchVerifyUnavailable`, nothing written) when the solver is missing or returns no verdict. |
 | `llmll refine <file.ast.json> <refine.json>` | Fill a checked-out hole **and** spawn new contracted sub-holes its body calls, atomically (cascading decomposition). Spawned sub-contracts pass a feasibility (no-miracle) gate (a sub-contract no body can discharge is rejected with a witnessing input) and a CDP vacuity gate; in-scope defs whose contracts subsume a spawned sub-contract are surfaced as advisory `reuse_suggestions` (non-blocking `W-REUSE` on an exact contract-equivalent). |
 | `llmll hub fetch --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Local tarballs only; there is no registry-by-name fetch. |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
@@ -173,24 +187,24 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ## Verification Boundary
 
-LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer literals, integer-typed variables, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee), `Result` pattern matching, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
+LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer and `bool` values, linear arithmetic and comparisons, let-bindings, conditionals, calls to contracted functions (assume-guarantee, same-file or imported), n-arm matches on non-recursive sums, pairs, non-recursive datatype construction, the array class (`bytes[n]` and `map` operations) and string literals. Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions, each with an explicit trust label.
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
-| `ELit`, `EVar` (int) | ✅ | — |
-| `EOp` (+, -, =, <, <=, >=, >, !=) | ✅ | — |
-| `ELet` (PVar, int RHS) | ✅ | — |
-| `EIf` (≤4096 paths) | ✅ (path-split) | — |
-| `EApp` (contracted callee) | ✅ (assume-guarantee) | — |
+| `ELit`, `EVar` (`int` / `bool`), linear ops (`+ - = < <= >= > !=`) | ✅ | n/a |
+| `ELet` (PVar), `EIf` (≤4096 paths) | ✅ (path-split) | n/a |
+| `EApp` (contracted callee, same-file or imported) | ✅ (assume-guarantee) | n/a |
 | `EApp` (uncontracted callee) | ❌ | contract-only |
-| `EApp` (recursive self / cycle) | ✅ partial; ✅ total with `(decreases e)` | no measure → `termination_unverified`; k=1 measure → total + strict-core admissible |
-| `EMatch` admissible sum (n-arm, `Result`/user ADT, nested + sequential) | ✅ (n-ary int-tag) | — |
-| `EMatch` (recursive-sum payload), `EPair` opaque, `ELambda`, `EDo` | ❌ | runtime |
+| `EApp` (recursive self / cycle) | ✅ partial; ✅ total with `(decreases e)` | no measure: `termination_unverified`; bad measure: `measure-not-decreasing` |
+| `EMatch` on non-recursive sums (`Result` and user ADTs, nested and sequential) | ✅ (n-ary int-tag) | n/a |
+| `EPair` / pair returns (`first`, `second`, `pair`) | ✅ (datatype selectors) | n/a |
+| Non-recursive datatype construction | ✅ | n/a |
+| `bytes[n]` and `map` operations (`bytes-get`/`-set`/`-length`/`-zero`, `map-has`/`-get`/`-put`/`-empty`) | ✅ (array theory; index-in-bounds and key-presence are proof obligations) | non-`{int,string}` keys, direct `(map-empty)` reads, whole-structure `=`: contract-only |
+| String literals in `=` / `!=`, `string-length` of a literal | ✅ | string structure (concat, substring, regex): contract-only |
+| `EMatch` (recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
-| Non-linear ops (*, /, mod) | ❌ | runtime + `?proof-required` |
-| **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
-
-> **Integer overflow model gap:** Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³. Contracts proven in the solver may not hold at overflow boundaries.
+| Non-linear ops (`*`, `/`, `mod`) | ❌ | runtime + `?proof-required` (experimental `--leanstral`) |
+| **Int overflow** | ✅ no gap | `int` is unbounded (`Integer`) in both the verifier and the generated code |
 
 Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 
@@ -265,7 +279,7 @@ compiler/                   ← Haskell compiler (stack project)
     PBT.hs                  ← QuickCheck property runner
     Diagnostic.hs           ← Structured error/warning types
     Module.hs               ← Multi-file module resolver, cycle detection, ModuleCache
-    Hub.hs                  ← llmll-hub registry fetch, scaffold, and local cache
+    Hub.hs                  ← llmll-hub local package cache (tarball install) and scaffold
     Sketch.hs               ← Partial-program type inference (--sketch)
     Serve.hs                ← HTTP endpoint for agent swarms (llmll serve)
     FixpointIR.hs           ← .fq constraint IR + text emitter

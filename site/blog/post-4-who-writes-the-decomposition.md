@@ -1,7 +1,8 @@
-# Post 4 — Who writes the decomposition?
+# Post 4: Who writes the decomposition?
 
 *[Posts 2](post-2-a-compiler-that-refuses.md) and [3](post-3-composition-and-the-missing-bound.md)
-handed agents contracts and asked them to fill and compose them. A record layer has a
+showed a contract that refuses a wrong body, and contracts that compose across calls. A
+record layer has a
 hundred-plus contracts, and someone has to invent them: the sub-problems, and the
 specification of each. This post is about agents inventing that structure themselves,
 top-down, one level at a time, and what keeps an invented contract from being hollow.*
@@ -26,6 +27,12 @@ was received). With a `bool` result and `<=>`, the contract reads as that one se
   ?admit-byte-body)
 ```
 
+The walkthrough below is scripted: each step is a committed request file in
+[`examples/refine-demo/`](https://github.com/machunter/llmll/tree/main/examples/refine-demo),
+so you can replay it exactly. It shows the protocol each agent works under. The version
+where agents did this blind, with no reference solution, is the emergent build linked in
+Post 5.
+
 No agent is handed that whole conjunction. The first agent, given only this hole's contract,
 splits it into *authenticated* and *ordered*, filling `admit-byte`'s body with
 `(and (authenticated …) (ordered …))` and spawning those two as fresh holes, each carrying
@@ -39,7 +46,7 @@ Every step verifies against the current frontier's contracts. Starting from the 
 `admit-byte` hole, the open-hole count fans out as agents decompose, then contracts to zero
 as they fill the leaves, with every intermediate program `SAFE`:
 
-| step | the agent's move | open holes |
+| step | the move | open holes |
 |:---:|---|:---:|
 | 1 | refine `admit-byte`, spawning `authenticated` and `ordered` | 2 |
 | 2 | refine `authenticated`, spawning `mac-matches` and `handshake-up` | 3 |
@@ -49,7 +56,7 @@ as they fill the leaves, with every intermediate program `SAFE`:
 | 6 | patch `seq-fresh` with `(> seq last)` | 1 |
 | 7 | patch `length-sound` with `(<= claimed received)` | 0 |
 
-The tree the agents built, none of it authored in advance:
+The tree, built one step at a time:
 
 ```
 admit-byte                     deliver iff authenticated ∧ ordered

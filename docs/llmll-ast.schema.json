@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmll.dev/schemas/v0.11/ast.schema.json",
   "title": "LLMLL v0.11 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.11.0' (PROC-BOUNDARY-1: optional 'status' on def-main, an exit-status projection from the state type to int; was 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.11.0' (PROC-BOUNDARY-1: optional 'status' on def-main, an exit-status projection from the state type to int; was 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
 
   "$defs": {
 
@@ -1185,17 +1185,21 @@
       "required": ["result"],
       "additionalProperties": true,
       "properties": {
-        "result":            { "type": "string", "enum": ["PatchSuccess", "PatchTypeError", "PatchVerifyError", "PatchApplyError", "PatchAuthError"] },
+        "result":            { "type": "string", "enum": ["PatchSuccess", "PatchTypeError", "PatchVerifyError", "PatchApplyError", "PatchAuthError", "PatchVerifyUnavailable"] },
         "statements":        { "type": "integer", "description": "PatchSuccess: number of statements in the result." },
         "diagnostics":       { "type": "array", "description": "PatchTypeError / PatchVerifyError: rebased diagnostics." },
-        "message":           { "type": "string", "description": "PatchApplyError / PatchAuthError: human-readable error." },
+        "message":           { "type": "string", "description": "PatchApplyError / PatchAuthError / PatchVerifyUnavailable: human-readable error." },
+        "verified":          { "type": "boolean", "description": "PATCH-FAILOPEN-1 (v0.26.0): false on PatchVerifyUnavailable; the patch was not applied." },
+        "solver_available":  { "type": "boolean", "description": "PATCH-FAILOPEN-1: PatchVerifyUnavailable only. false when liquid-fixpoint / z3 is not on PATH; true when the solver ran and returned no verdict." },
+        "solver_error":      { "type": "string", "description": "PATCH-FAILOPEN-1: PatchVerifyUnavailable with solver_available true: the solver's error text." },
         "reason":            { "type": "string", "enum": ["callee-precondition-unmet"], "description": "DEMO-COMP (0.12.1): present on PatchVerifyError only when the failure is a callee precondition unmet (a 'call-pre:' constraint), not a body-post violation." },
         "callee":            { "type": "string", "description": "DEMO-COMP: the callee whose precondition was not discharged." },
         "required_pre":      { "type": "string", "description": "DEMO-COMP: the callee precondition the caller failed to prove (rendered)." },
         "call_site_pointer": { "type": "string", "description": "DEMO-COMP: JSON pointer to the failing call site." }
       },
       "examples": [
-        { "result": "PatchVerifyError", "reason": "callee-precondition-unmet", "callee": "withdraw", "required_pre": "(>= balance amount)", "call_site_pointer": "/statements/4/body" }
+        { "result": "PatchVerifyError", "reason": "callee-precondition-unmet", "callee": "withdraw", "required_pre": "(>= balance amount)", "call_site_pointer": "/statements/4/body" },
+        { "result": "PatchVerifyUnavailable", "verified": false, "solver_available": false, "message": "liquid-fixpoint / z3 not found on PATH -- the proof did NOT run; the patch was NOT applied" }
       ]
     }
 

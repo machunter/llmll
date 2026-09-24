@@ -9,7 +9,8 @@
 --   4. Apply RFC 6902 ops (replace/add/remove/test)
 --   5. Re-parse Value → [Statement] via parseJSONASTValue
 --   6. Re-typecheck
---   6.5 Re-verify via emitFixpoint + liquid-fixpoint (if contracts present)
+--   6.5 Re-verify via emitFixpoint + liquid-fixpoint (if contracts present);
+--       no solver or no verdict → PatchVerifyUnavailable, nothing written
 --   7. On success: write updated .ast.json, clear lock entry
 --
 -- Advisory flock held for the entire read→verify→write cycle (§2.3).
@@ -18,6 +19,7 @@ module LLMLL.PatchApply
   , PatchOp(..)
   , PatchResult(..)
   , CalleePreUnmet(..)   -- DEMO-COMP (§3.3)
+  , VerifyUnavailable(..) -- PATCH-FAILOPEN-1: why step 6.5 reached no verdict
   , applyPatch
   , applyPatchWithMode    -- cascading: refine reuses the patch lifecycle with a relaxed scope
   , PatchScopeMode(..)
@@ -114,7 +116,17 @@ data PatchResult
     -- precondition not discharged, 'Nothing' for a plain body-post violation.
   | PatchApplyError Text           -- structural error, test failure, move/copy rejection
   | PatchAuthError Text            -- invalid/expired/scope-violation
+  | PatchVerifyUnavailable VerifyUnavailable
+    -- ^ PATCH-FAILOPEN-1: the patch has contracts and typechecks, but the SMT
+    -- re-verify reached no verdict (no solver on PATH, or the solver failed).
+    -- The proof did NOT run, so the file is NOT written and the lock is kept.
   deriving (Show)
+
+-- | PATCH-FAILOPEN-1: why the re-verify of step 6.5 produced no verdict.
+data VerifyUnavailable
+  = SolverNotFound        -- ^ neither liquid-fixpoint nor fixpoint on PATH
+  | SolverFailed Text     -- ^ the solver ran but returned no SAFE/UNSAFE verdict
+  deriving (Show, Eq)
 
 instance ToJSON PatchResult where
   toJSON (PatchSuccess n) = object
@@ -147,6 +159,21 @@ instance ToJSON PatchResult where
   toJSON (PatchAuthError msg) = object
     [ "result"  .= ("PatchAuthError" :: Text)
     , "message" .= msg
+    ]
+  -- PATCH-FAILOPEN-1: 'message' and not 'reason', because the schema reserves
+  -- 'reason' for the DEMO-COMP sub-reason enum on PatchVerifyError.
+  toJSON (PatchVerifyUnavailable SolverNotFound) = object
+    [ "result"           .= ("PatchVerifyUnavailable" :: Text)
+    , "verified"         .= False
+    , "solver_available" .= False
+    , "message"          .= ("liquid-fixpoint / z3 not found on PATH -- the proof did NOT run; the patch was NOT applied" :: Text)
+    ]
+  toJSON (PatchVerifyUnavailable (SolverFailed e)) = object
+    [ "result"           .= ("PatchVerifyUnavailable" :: Text)
+    , "verified"         .= False
+    , "solver_available" .= True
+    , "message"          .= ("liquid-fixpoint returned no verdict -- the proof did NOT complete; the patch was NOT applied" :: Text)
+    , "solver_error"     .= e
     ]
 
 -- ---------------------------------------------------------------------------
@@ -432,14 +459,18 @@ applyPatchWithMode scopeMode mode fp pr = do
                               -- change), so re-verifying {F} is sound and complete.
                               verifyResult <- reVerify fp stmts (patchTargetFns (prPatch pr) stmts)
                               case verifyResult of
-                                Just (unsafeReport, mCpu) -> do
+                                -- PATCH-FAILOPEN-1: no verdict is not a pass. Don't
+                                -- write, preserve the lock so the same token can retry
+                                -- once a solver is available.
+                                Left why -> pure $ PatchVerifyUnavailable why
+                                Right (Just (unsafeReport, mCpu)) -> do
                                   -- Verification failed: rebase diagnostics, don't write, preserve lock
                                   let rebased = unsafeReport { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics unsafeReport) }
                                   -- DEMO-COMP (§3.3): 'mCpu' is Just when the failure is a
                                   -- callee precondition unmet (a 'call-pre:' origin among the
                                   -- failed constraints), Nothing for a plain body-post failure.
                                   pure $ PatchVerifyError rebased mCpu
-                                Nothing -> do
+                                Right Nothing -> do
                                   -- 7. Write patched JSON and clear lock entry
                                   BL.writeFile fp (A.encode patchedVal)
                                   let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
@@ -527,8 +558,9 @@ hasContracts = any stmtHasContract
     stmtHasContract _ = False
 
 -- | Re-verify patched statements via emitFixpoint + liquid-fixpoint.
--- Returns Nothing on success (SAFE, solver missing, no contracts, solver error).
--- Returns Just (report, mCpu) on UNSAFE (contract violation detected).
+-- Returns @Right Nothing@ on success (SAFE, or no contracts to check).
+-- Returns @Right (Just (report, mCpu))@ on UNSAFE (contract violation detected).
+-- Returns @Left why@ when the solver produced no verdict (PATCH-FAILOPEN-1).
 --
 -- DEMO-COMP (§3.3): the second element of the tuple is 'Just CalleePreUnmet'
 -- when one of the failed constraints carries a 'call-pre:<callee>' origin (a
@@ -536,8 +568,10 @@ hasContracts = any stmtHasContract
 -- body-post violation. No new constraint generation — this inspects the origins
 -- of constraints already emitted and solved.
 --
--- Graceful degradation: if liquid-fixpoint is not installed, returns Nothing
--- (patch proceeds on typecheck success alone). This matches doVerify behavior.
+-- PATCH-FAILOPEN-1: fail closed, as doVerify does. A missing solver
+-- ('SolverNotFound') or a solver that returns no verdict ('SolverFailed') is
+-- reported as 'PatchVerifyUnavailable'; the patch is never written on
+-- typecheck success alone when the module carries contracts.
 -- | R8: the single function whose body a patch fills, for the incremental
 -- re-verify slice. Every op path is scope-checked descendant-or-self of the
 -- checkout pointer, so a plain patch touches exactly one @/statements/N@ subtree.
@@ -566,9 +600,9 @@ patchTargetFns ops stmts =
 
 -- | R8: @bodyTargets@ slices the re-verify — @Just [F]@ emits only F's body-VC
 -- (the patched function); @Nothing@ re-verifies the whole module (fail-safe).
-reVerify :: FilePath -> [Statement] -> Maybe [Text] -> IO (Maybe (DiagnosticReport, Maybe CalleePreUnmet))
+reVerify :: FilePath -> [Statement] -> Maybe [Text] -> IO (Either VerifyUnavailable (Maybe (DiagnosticReport, Maybe CalleePreUnmet)))
 reVerify fp stmts bodyTargets
-  | not (hasContracts stmts) = pure Nothing  -- no contracts → skip
+  | not (hasContracts stmts) = pure (Right Nothing)  -- no contracts → nothing to prove
   | otherwise = do
       -- Emit .fq constraints with body-faithful VCs (R8: sliced to bodyTargets)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True, emitBodyVCTargets = bodyTargets }
@@ -582,7 +616,7 @@ reVerify fp stmts bodyTargets
           Just _ -> return a
           Nothing -> findExecutable "fixpoint"
       case mLF of
-        Nothing -> pure Nothing  -- graceful degradation: no solver installed
+        Nothing -> pure (Left SolverNotFound)  -- no solver: the proof cannot run
         Just lfBin -> do
           -- Write .fq to temp file
           let baseName = takeBaseName fp
@@ -601,9 +635,9 @@ reVerify fp stmts bodyTargets
               fqResult = parseFQOutcome lfCode merged
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
-            FQSafe          -> pure Nothing       -- SAFE → proceed with write
-            FQUnsafe failed -> pure (Just (fqReport, calleePreUnmet stmts table failed))
-            FQError _       -> pure Nothing       -- solver error → graceful: proceed
+            FQSafe          -> pure (Right Nothing)   -- SAFE → proceed with write
+            FQUnsafe failed -> pure (Right (Just (fqReport, calleePreUnmet stmts table failed)))
+            FQError e       -> pure (Left (SolverFailed e))  -- no verdict: do not write
 
 -- | DEMO-COMP (§3.3): inspect the failed constraint origins for a 'call-pre:'
 -- tag. Returns the first such origin as a 'CalleePreUnmet' payload (callee name

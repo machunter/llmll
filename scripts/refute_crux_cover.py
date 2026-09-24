@@ -25,10 +25,10 @@ control must produce graded rows, and the count is asserted rather than assumed.
 That is a weaker instrument than a second implementation and it is not offered as
 an equal replacement.
 
-WHAT DOES NOT CHANGE. The 80-verdict freeze is not here and never was. It is the
+WHAT DOES NOT CHANGE. The 96-verdict freeze is not here and never was. It is the
 live corpus run, in `.github/workflows/version-gate.yml`, job `spec-roundtrip`,
 step "Run refute-crux verdict gate (LLMLL port, TOOL-RFC-002)", which grades all
-80 frozen verdicts against `EXPECTED_VERDICTS.json` with the compiler that job
+96 frozen verdicts against `EXPECTED_VERDICTS.json` with the compiler that job
 just built. The retirement removed the reference's step beside it and left that
 one untouched.
 
@@ -37,9 +37,9 @@ negative controls that must PASS; every other cell is a mutant that must FAIL. A
 port that always answered "everything diverged" is caught by the controls; a port
 that always answered "fine" is caught by the mutants.
 
-WHY A TRIMMED SCRATCH TREE. The live corpus is 80 cases and one full run is about
+WHY A TRIMMED SCRATCH TREE. The live corpus is 96 cases and one full run is about
 seventy seconds, and keeping one case per expectation across all twelve suites
-still left sixteen cells at half an hour. `prepare()` copies all twelve suite
+still left sixteen cells at half an hour. `prepare()` copies every suite
 directories, then keeps ONE CASE PER EXPECTATION from each manifest. Not the
 first case: every suite's first case is `safe`, so a first-case trim leaves a
 corpus with no `refuted` and no `capability` in it and half the cells have
@@ -96,10 +96,13 @@ FAMILIES = [
     "examples/niw-measure",
     "examples/banking_ledger",
     "tools/llmll-driver",
+    "examples/heartbleed",
+    "examples/heartbleed/secure-channel/agent-fill/adversarial",
+    "examples/payments-core",
 ]
 
 # One stdin line per step. The port needs roughly (4 + files-in-suite) steps per
-# case plus two per suite; twelve trimmed suites stay far under this. Generous
+# case plus two per suite; fifteen trimmed suites stay far under this. Generous
 # because a starved console run exits 70, which is a budget error and not a
 # decision (MODE-CLI-1).
 BUDGET = 4000
@@ -116,7 +119,7 @@ MANIFEST = "EXPECTED_VERDICTS.json"
 # These two between them carry all three expectations, and `capability` exists
 # in exactly one suite in the whole corpus. Five cases per run instead of
 # twenty-five: the cells test the CRITERIA, and the criteria do not care which
-# suite a case came from. Corpus coverage is what the live 80-case run in CI is
+# suite a case came from. Corpus coverage is what the live 96-case run in CI is
 # for, and it runs beside this.
 CASE_SUITES = ["examples/gotofail", "tools/llmll-driver"]
 
@@ -142,7 +145,7 @@ def trimmed(cases: list[dict], fam: str) -> list[dict]:
 
 
 def prepare(dst: Path, *, trim: bool = True) -> None:
-    """Copy the twelve suites into `dst`, trimmed to one case per expectation."""
+    """Copy the fifteen suites into `dst`, trimmed to one case per expectation."""
     for fam in FAMILIES:
         src = REPO / fam
         out = dst / fam
@@ -160,7 +163,7 @@ def prepare(dst: Path, *, trim: bool = True) -> None:
     # the script under scripts/ and a `compiler` symlink beside it. The port
     # needs neither: --subject names the binary directly, which is TOOL-RFC-002
     # §8 decision 2 paying for itself a second time. A scratch tree is now the
-    # twelve suites and nothing else.
+    # fifteen suites and nothing else.
 
 
 def manifest(tree: Path, fam: str) -> dict:

@@ -393,6 +393,21 @@ jobs:
           test -x "$HOME/.local/bin/fixpoint" \
             || { echo "fixpoint missing at $HOME/.local/bin/fixpoint"; exit 1; }
 
+      # PATCH-FAILOPEN-1's cells. Five of the six run `llmll patch` / `refine`
+      # with PATH set to an empty directory, so no solver is found; before the
+      # patch each answered PatchSuccess, exited 0 and wrote an unproven body.
+      # PF-5 retries the same token WITH the solver, so this step sits after
+      # the toolchain assert, and the grep refuses a run where PF-5 skipped.
+      - name: Run PATCH-FAILOPEN-1 cells (pytest, needs the built compiler and fixpoint)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_patch_failopen_1.py -v -rs \
+            | tee "$RUNNER_TEMP/patch-failopen.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/patch-failopen.log"; then
+            echo "a PATCH-FAILOPEN-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+
       # TOOL-ORACLE-1: every port's proved core, and the refuting case that makes
       # it a proof rather than a green light.
       #
@@ -667,8 +682,8 @@ jobs:
         working-directory: compiler
         run: stack test --test-arguments="--fail-on=pending"
 
-      # The refute-crux verdict gate: 80 frozen `llmll verify` verdicts across
-      # twelve suites. Until now it was a `make` target only and no workflow ran
+      # The refute-crux verdict gate: 96 frozen `llmll verify` verdicts across
+      # fifteen suites. Until now it was a `make` target only and no workflow ran
       # it. So the regression class it exists to catch (refutation silently
       # lost, as in ENUM-EQ-FALLBACK across v0.14.12 to v0.14.31) was uncaught
       # in CI for the same reason it was uncaught then.
@@ -770,7 +785,7 @@ jobs:
           # pointed at different binaries.
           REFUTE_CRUX_BIN="$GATE" LLMLL_SUBJECT="$SUBJECT" \
             python3 -m pytest scripts/tests/test_refute_crux_solver_preflight.py -v
-          # Then the live corpus, which is the port deciding: all 80 frozen
+          # Then the live corpus, which is the port deciding: all 96 frozen
           # verdicts against the compiler this job just built.
           ( cd "$RUNNER_TEMP/rc-run" \
               && python3 -c "import sys; sys.stdout.write('x\n' * 4000)" \

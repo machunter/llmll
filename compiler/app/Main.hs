@@ -69,7 +69,7 @@ import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, assembleAssumptions, buildCheckoutFuncs, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
-import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
+import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), VerifyUnavailable(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
@@ -2542,7 +2542,7 @@ doRefine :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
 doRefine = doPatchWith ScopeRefine
 
 doPatchWith :: PatchScopeMode -> Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
-doPatchWith scopeMode _json gm fp patchFp = do
+doPatchWith scopeMode json gm fp patchFp = do
   ok <- guardJsonFile fp
   unless ok exitFailure
   -- Read and parse patch request
@@ -2582,7 +2582,49 @@ doPatchWith scopeMode _json gm fp patchFp = do
               BLC.putStrLn (encode out)
               case result of
                 PatchSuccess _ -> exitSuccess
+                PatchVerifyUnavailable why -> do
+                  -- PATCH-FAILOPEN-1: the proof did not run, so the patch was
+                  -- not applied. Exit 3 as 'llmll verify' does for a missing
+                  -- solver: 1 means "rejected on its merits, change the patch";
+                  -- 3 means "no verdict, fix the environment and retry the same
+                  -- patch". A solver error is the second kind too. stdout stays
+                  -- one JSON object; the banner goes to stderr outside --json.
+                  unless json $ mapM_ (hPutStrLn stderr) (patchUnverifiedBanner why)
+                  exitWith (ExitFailure 3)
                 _              -> exitFailure
+
+-- | PATCH-FAILOPEN-1: the text-mode banner for a patch whose re-verify reached
+-- no verdict. Mirrors doVerify's SOLVER NOT FOUND banner.
+patchUnverifiedBanner :: VerifyUnavailable -> [String]
+patchUnverifiedBanner why =
+  [ ""
+  , "  ============================================================"
+  , headline
+  , "  ============================================================"
+  ] ++ body ++
+  [ "  The patched file was NOT written and the checkout lock is kept,"
+  , "  so the same patch can be retried once the solver runs."
+  , "  (This is not a pass -- no proof ran.)"
+  , "  ============================================================"
+  ]
+  where
+    (headline, body) = case why of
+      SolverNotFound ->
+        ( "  !!  SOLVER NOT FOUND -- PATCH NOT APPLIED, NOTHING WAS PROVEN"
+        , [ "  'llmll patch' re-verifies contracts with liquid-fixpoint + z3."
+          , "  Neither was found on PATH, so the contract was NOT checked."
+          , ""
+          , "  Install the backend locally:"
+          , "    stack install liquid-fixpoint   # provides the 'fixpoint' binary"
+          , "    brew install z3                 # (or apt-get install z3)"
+          , ""
+          ] )
+      SolverFailed _ ->
+        ( "  !!  SOLVER ERROR -- PATCH NOT APPLIED, NOTHING WAS PROVEN"
+        , [ "  liquid-fixpoint ran but returned no SAFE/UNSAFE verdict"
+          , "  (the 'solver_error' field of the JSON result has its output)."
+          , ""
+          ] )
 
 -- | REFINE-REUSE: inject the advisory @reuse_suggestions@ (always present on a
 -- ScopeRefine success, possibly empty) and, when any suggestion is an exact
@@ -2631,8 +2673,10 @@ reuseRetrievalPass gm fp pr = do
 -- Rejects a refine whose spawned sub-contract is vacuous — a contract most generic
 -- candidates satisfy discriminates nothing, so the invented decomposition would be
 -- hollow. CDP is contract-based (it scores a CONTRACT by synthesizing candidate
--- bodies), so it runs on an unfilled `?body` G. Graceful skip when no solver is
--- installed, matching 'reVerify'.
+-- bodies), so it runs on an unfilled `?body` G. Skips when no solver is
+-- installed; that skip no longer lets the refine through, because the spawned
+-- sub-holes carry contracts and 'reVerify' then fails closed with
+-- PatchVerifyUnavailable (PATCH-FAILOPEN-1).
 refineGate :: GrammarMode -> FilePath -> PatchRequest -> IO (Either T.Text ())
 refineGate gm fp pr = do
   raw <- BL.readFile fp

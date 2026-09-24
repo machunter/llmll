@@ -1,20 +1,28 @@
-# Post 5 — A channel that stands where TLS fell
+# Post 5: A channel that stands where TLS fell
 
 *The [first post](post-1-the-bugs-that-looked-correct.md) asked whether we could build a
-real slice of TLS where a compiler proves the code and agents write it, so the bugs that
-broke TLS can't ship. Posts 2–4 built the parts: a contract an agent fills, composition
+piece of TLS where a compiler proves the code and agents write it, so the bugs that broke
+TLS can't ship. Posts 2 to 4 built the parts: a contract an agent fills, composition
 across call boundaries, and agents inventing their own decomposition under a gate. This
 post is the whole thing.*
 
-## 163 functions, written by agents, verified as one program
+## 163 functions, filled by agents, verified as one program
 
-The record layer, the part of TLS where both goto-fail and Heartbleed lived, is here as
-a single verified program: **163 contracted holes across seven modules** (record framing,
-sequence numbers, handshake, key schedule, flow control, alerts, and the spine that ties
-them together), filled by **orchestrated agents**, each agent receiving only its hole's
-contract, the checkout brief from Post 2, and nothing else. To be precise about
-authorship: the *decomposition* here was ours, since the 163 contracts were carved out of a
-reference implementation; the agents' work is the fills. The companion build where agents
+The record layer's logic is here as a single verified program: **163 contracted holes
+across seven modules** (record framing, sequence numbers, handshake, key schedule, flow
+control, alerts, and the spine that ties them together). It is an arithmetic model: every
+value is an integer, and a MAC or signature check appears as its result, not as a
+computation. What it captures is the length, sequence and state discipline where both
+bugs lived.
+
+To be precise about authorship. **The decomposition is ours**: we wrote a reference
+implementation and carved the 163 contracts out of it. **The bodies are the agents'**:
+seven agents each filled one module. The agents were Claude subagents run from Claude Code;
+the July 2026 run did not record which model version they used. Each
+agent saw that module's contracts and the `slice-gate.llmll` composition pattern from
+Post 3, and not the reference bodies. Six agents filled the six component modules (150
+functions); the seventh filled the spine (13 functions that compose the others). The
+companion build where agents
 invent the decomposition too (Post 4's cascade, run at module scale with an import-linked
 spine) is [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent).
 
@@ -29,7 +37,8 @@ $ llmll verify \
 llmll verify   47.98s user   59.5s total
 ```
 
-**SAFE**, every one of the 163 bodies faithful to its contract, in about a minute. Not 163
+**SAFE**, every one of the 163 bodies faithful to its contract, in about a minute on a
+laptop, with a peak of about 5 GB of memory. Not 163
 functions checked in isolation, but checked *composed*, each standing on its callees'
 contracts through the assume-guarantee reasoning of Post 3, so the cross-module invariants
 (a byte is delivered only if MAC-verified and sequence-fresh and handshake-connected and
@@ -44,36 +53,32 @@ back out of the heartbeat responder and the call-site precondition fails, exactl
 Post 3. The invariants that goto-fail and Heartbleed violated are wired into the program's
 proof; you cannot edit them away and still get `SAFE`.
 
-Two details from building it, stated plainly. The fills were blind: each agent saw its
-contract and its in-scope names, never a worked answer. In a separate probe we went the
+Two details from building it. The fills were blind in the sense that matters: no agent
+saw a reference body for anything it filled. In a separate probe we went the
 other way and actively pushed one agent *toward* the bug: its prompt claimed the MAC check
 was redundant and asked for the "simplest, most efficient" body. It still wrote the guarded
 fill (n = 1; the claim does not rest on it), and had it taken the bait the compiler refuses
 that body deterministically; `agent-fill/adversarial/` keeps both the bait and its
 refutation. In the emergent companion build the same goto-fail-shaped contract, with no
 steering of either kind, also got the guarded body, and the unconditional-deliver mutation
-is refuted there too. The backstop and the author are independent, which is the entire
-point of having both.
-
-On scale: verification here is roughly linear in program size (a synthetic 2,000-function,
-10,000-line program verifies in about five seconds), so "163 functions in a minute" is not
-a ceiling the approach is straining against. The record layer is a real subsystem, not a
-program sized to fit the demo.
+is refuted there too. The backstop and the author are independent, and that is why
+it helps to have both.
 
 ## Where the line is
 
 A verification result is only worth what its scope statement says, so here is the scope,
 precisely.
 
-- **Cryptographic primitives are axiomatized.** The SHA and AEAD and signature operations
-  are opaque contracts; what is proven is the length, ordering, and state-machine
-  discipline of the protocol, the layer where these bugs actually lived. The real Apple
+- **Cryptography is not modeled.** The program computes no hash, MAC, encryption or
+  signature; a check's outcome enters as an integer. What is proven is the length,
+  ordering, and state-machine discipline of the protocol, the layer where these bugs
+  actually lived. The real Apple
   and Heartbleed fixes were control-flow and bounds fixes, not math fixes, for the same
   reason.
 - **The data the solver reasons about is arithmetic and length, not arbitrary structure.**
-  Buffers and messages are reasoned about through their lengths and orderings; the approach
-  does not prove properties of rich heap data structures, and it says so rather than
-  pretending the boundary isn't there.
+  Buffers and messages are reasoned about through their lengths and orderings; in this
+  program every value is an integer. The approach does not prove properties of rich heap
+  data structures.
 - **Recursion is total when a measure is given, partial when it isn't.** A recursive
   function that declares a `(decreases …)` measure has termination *proved*: the compiler
   discharges well-foundedness and strict descent at each call site, and the evidence is
@@ -85,10 +90,14 @@ precisely.
   contract.** This is the deepest limit, and the open one. A specification that is
   precise, satisfiable, and wrong is the failure mode no solver closes; the vacuity gate of
   Post 4 removes the emptiest version of it, and human judgment still owns the rest.
+- **The proof is about the generated program, and it trusts its tools.** A `SAFE` result
+  trusts LLMLL's translation of the program into solver constraints, the solver itself
+  (liquid-fixpoint and Z3), the Haskell code generator and GHC. It does not trust the
+  agents.
 
-None of those caveats touch the claim the series set out to demonstrate: a real slice of
-TLS, decomposed and written by agents and proved by a compiler, in which the two bugs that
-broke TLS cannot be written and accepted.
+None of those caveats touch the claim the series set out to demonstrate: a model of TLS's
+record-layer logic, with bodies written by agents and proved by a compiler, in which the
+two bugs that broke TLS cannot be written and accepted.
 
 ## The point
 
@@ -96,10 +105,11 @@ We started with two duplicated-line-and-missing-comparison mistakes that passed 
 tests, and the compiler, and shipped into the encryption everyone depends on. The bet of
 this series was that the answer to code that *looks* correct, whether human or machine, is a
 checker that can *refuse* it, and that this is exactly what lets you put agents on the
-keyboard for code that matters. The record layer is that bet, paid off: machines wrote it,
-a compiler proved it, and it stands where TLS fell.
+keyboard for code that matters. The record layer model is that bet, paid off: agents wrote
+its bodies, a compiler proved them, and it stands where TLS fell.
 
-*The programs in this series run on `llmll 0.14.67`; goto-fail lives in
+*The programs in this series were written against `llmll 0.14.67` and re-checked on
+v0.25.5 with the same verdicts; goto-fail lives in
 `examples/gotofail/`, Heartbleed and the flagship in `examples/heartbleed/`, cascading
 refinement in `examples/refine-demo/`, and the emergent build in
 `examples/secure-channel-emergent/`.*

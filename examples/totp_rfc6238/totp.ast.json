@@ -29,7 +29,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "primitive",
         "name": "int"
       },
@@ -107,7 +107,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "primitive",
         "name": "int"
       },
@@ -300,7 +300,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "bytes",
         "length": 20
       },
@@ -346,7 +346,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "primitive",
         "name": "int"
       },
@@ -444,7 +444,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "primitive",
         "name": "bool"
       },
@@ -508,7 +508,7 @@
           }
         }
       ],
-      "returns": {
+      "return_type": {
         "kind": "primitive",
         "name": "string"
       },

@@ -4,6 +4,70 @@
 
 <a id="Latest"></a>
 
+## v0.26.0: `llmll patch` no longer reports success when nothing was proven (2026-09-23)
+
+A launch-readiness release. It closes the one place the compiler reported success on an unproven
+change, puts the public headline examples under the verdict gate, and corrects public claims a
+repository-wide audit found overstated.
+
+### `PATCH-FAILOPEN-1`: `patch` and `refine` fail closed
+
+`reVerify` answered a missing solver with `pure Nothing -- graceful degradation: no solver installed`
+and a solver error with `pure Nothing -- solver error → graceful: proceed`. A contracted patch was
+then written and reported `PatchSuccess` with exit 0, although no proof ran. The README's own
+headline, "rejects a type-correct-but-wrong implementation before it merges", did not hold without a
+solver.
+
+- **`PatchVerifyUnavailable`** is the new result when re-verification reaches no verdict: the file is
+  not written, the lock is kept, and `llmll patch` exits 3. JSON carries `"verified": false`,
+  `solver_available` (false: not on PATH; true: it ran and returned no verdict), `message`, and
+  `solver_error` when the solver ran. Outside `--json`, a `SOLVER NOT FOUND -- PATCH NOT APPLIED`
+  banner goes to stderr and stdout stays one JSON object.
+- **Exit 3 for a solver error too**, where `verify` exits 1: for `patch`, 1 means "change the
+  patch", and a solver with no verdict means "retry the same patch". `refine` and HTTP
+  `POST /patch` share the path. A module with no contracts still patches without a solver.
+- **`PatchResult`** in `docs/llmll-ast.schema.json` gains the result and its three fields
+  (additive). `LLMLL.md` §11.2 (Hole Resolution via JSON-Patch) no longer describes the old
+  graceful degradation.
+- **Tests:** `scripts/tests/test_patch_failopen_1.py`, `PF-1` to `PF-6`, run by the spec-roundtrip
+  job with a check that no cell skipped; five failed on the v0.25.5 binary. In `Spec.hs`, VR-7 and
+  OBLIG-2 no longer accept `PatchSuccess` as the no-solver outcome, and VR-7, OBLIG-1 and OBLIG-2 go
+  pending without a solver, which CI's `--fail-on=pending` turns into a failure.
+- **Filed:** `DIVERGE-NOSOLVER-1`. `diverge-report` with no solver labels every fill a type error
+  and exits 0; it never claims a fill verified.
+
+### The headline examples are under the verdict gate
+
+The examples the README and the blog lead with had no frozen verdicts. The refute-crux gate now
+carries `examples/heartbleed` (5 cases), the flagship's goto-fail pair in
+`examples/heartbleed/secure-channel/agent-fill/adversarial` (2) and `examples/payments-core` (7),
+14 new frozen cases; the gate reports `96 passed, 0 failed`, and a flipped expected verdict fails it. Not frozen: the 163-function program
+(about a minute and 5 GB, and the gate has no per-case timeout) and `.ast.json` twins, which the
+gate does not grade.
+
+`examples/totp_rfc6238` failed `llmll check`: both of its JSON-AST files spelled the return type
+`"returns"`, which the parser ignores (`AST-RETURNS-KEY-1`), and SAFE-ARG then rejected an
+unannotated result at a `bytes[20]` parameter. The key is now `"return_type"`; 12 of the 24
+ignored keys remain, all in `examples/erc20_token`. `hmac-sha1-wrap`'s declared `bytes[20]` return
+now carries a length postcondition, so `EXPECTED_RESULTS.json` moves one function from
+`no_contract` to `asserted`. `make benchmark-totp` passes 14 of 14.
+
+### Public claims corrected
+
+- **README:** "Every other tool merges code that type-checks" is gone; a new section, "Why not have
+  an agent write Dafny, Liquid Haskell or F\*?", names what LLMLL adds around the proof and cites
+  the minimal-agent result (30 of 30 verified-correct, 0 wrong fills in 54). The demos are marked
+  as using hand-written wrong versions. The Lean path is described as experimental and live, not
+  mock-only; the boundary table now lists pairs, `bool`, datatype construction, bytes and maps and
+  string literals, and no longer claims an `Int64` overflow gap.
+- **`LLMLL.md` `NC-004`:** no overflow gap on `int`, matching §5.3.5.
+- **Blog:** Post 1's dates and goto-fail's location; Post 5 now says the contracts are ours and the
+  bodies the agents', what each agent saw, and that the program is an arithmetic model. The landing
+  page gains a Docker "Try it" command.
+
+**Tests:** 2069 Haskell (+1), 371 Python (310 passed, 61 skipped; +6 cells that need `LLMLL_BIN`).
+
+
 ## v0.25.5: `llmll build` exited 0 with no toolchain, having built nothing (2026-09-23)
 
 `BUILD-NOSTACK-1`, filed by the v0.25.3 ceremony. `runGhcCheck` validates the generated package
