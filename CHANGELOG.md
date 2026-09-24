@@ -4,6 +4,64 @@
 
 <a id="Latest"></a>
 
+## v0.26.3: `llmll verify` could prove a false postcondition about a pair component (2026-09-24)
+
+### `MEASURE-NONNEG-1`: a soundness fix
+
+The emitter added an assumed ground fact, `t >= 0`, to every function application in a
+verification condition outside a short exclusion list. `LLMLL.md` documents that fact
+(`measure-nonneg`) for length measures only. On an int-valued pair selector it is false, and a
+false hypothesis proves any goal. On v0.26.2 this verified SAFE, at the `verified` tier:
+
+```
+(def negpair [x: int] -> (int, int)
+  (post (= (first result) 7))
+  (pair (- 0 1) 0))
+```
+
+The first component is -1; the injected `(pair2_0 result) >= 0` made the hypothesis
+unsatisfiable. The same constraint file without the two facts is `Unsafe`.
+
+- **The fact now covers the length measures only** (`strLen`, `listLen`, `bytesLen`). `negpair`
+  is refuted.
+- **No published result depended on it.** Over 384 tracked programs, in three `verify` modes,
+  with the v0.26.2 and v0.26.3 binaries, no verdict changed. 319 facts are no longer emitted:
+  14 false ones on pair selectors and 305 vacuous ones on constructor values. Four very large
+  programs timed out on both binaries and were not compared. Calls to contracted functions and
+  matches on user-datatype payloads were checked and are not affected.
+- **The `≈ assumes ground facts [measure-nonneg; …]` line leaves 36 trust reports**, including
+  session-pay's `open-and-pay` and withdraw-demo's `withdraw-outcome`, where it disclosed facts
+  that did no work. Their runbooks no longer explain it.
+- **Tests:** `NN-1` to `NN-4` in `Spec.hs` (`NN-1` is `negpair`).
+
+### `DIVERGE-NOSOLVER-1`: `diverge-report` says when it could not grade a fill
+
+With no solver, `llmll diverge-report` recorded every fill that type-checked as a type error and
+exited 0; a solver that ran and returned no verdict was recorded as `refuted`. Such fills are now
+listed under `status_partition.unavailable`, the record carries `solver_available`, and the
+command exits 3 with a `SOLVER NOT FOUND` / `SOLVER ERROR` banner on stderr outside `--json`.
+With the solver present, grading is unchanged. The record change is additive. Tests `DN-1` to
+`DN-6` (`scripts/tests/test_diverge_nosolver_1.py`), all failing on v0.26.2. Filed
+`DIVERGE-FRAGMENT-LABEL-1`: a fill outside the SMT fragment is still labelled `refuted`.
+
+### Also in this release
+
+- **erc20:** the last 12 ignored `"returns"` keys are `"return_type"` (`AST-RETURNS-KEY-1`); no
+  tracked JSON-AST file carries one. Trust counts are unchanged. The declared `int` returns let
+  the weakness check flag `allowance` (post `result >= 0`, body `0`), and
+  `scripts/benchmark-erc20.sh` now counts weak functions rather than warning lines.
+- **`LLMLL.md` reads as a reference:** internal roadmap tags outside §0.1/§1 go from 52 to 5 and
+  version-history mentions from 38 to 0; a new §0, "What Is Proved and What Is Not", states the
+  verification boundary first. The `[NC-0xx]` markers on §0.1/§1 sentences are now empty anchors
+  (`<a id="nc-0xx"></a>`), invisible when rendered and linkable; the norm-claim gate reads them.
+- **Docker:** the image workflow builds amd64 and arm64 on native runners and runs the acceptance
+  check on each image before pushing; this is the first release it runs on.
+- **Demos:** `refute.gif` and `protocol.gif` re-recorded on this binary.
+
+**Tests:** 2077 Haskell (+5), 383 Python (310 passed, 73 skipped; +6 cells that need
+`LLMLL_BIN`).
+
+
 ## v0.26.2: `llmll check` no longer warns about `:done?` on correct programs (2026-09-24)
 
 `DONE-TYPE-1`. The `def-main` check compared the type of the whole `:done?` expression against

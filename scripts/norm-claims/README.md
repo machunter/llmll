@@ -6,12 +6,14 @@ governed sections of `LLMLL.md` names what stands under it. Design and pilot fin
 [`docs/design/norm-claim-proposal.md`](../../docs/design/norm-claim-proposal.md) (Rev 1,
 settled 2026-09-06). It is the reverse of `LLMLL.md` §4.6: a contract clause names the standard
 it came from with `:source`; a spec sentence names the repository artifact that grounds it with
-`[NC-NNN]`.
+an `NC-NNN` identifier.
 
 ## The two halves
 
-**Markers in the spec.** Every sentence in a governed section ends with `[NC-NNN]` immediately
-after its terminal punctuation. The identifier is assigned once and is never renumbered or
+**Markers in the spec.** Every sentence in a governed section ends with an empty anchor,
+`<a id="nc-NNN"></a>`, immediately after its terminal punctuation. It renders as nothing and
+makes the sentence linkable as `#nc-NNN`. (The marker was the visible `[NC-NNN]` until
+2026-09-24.) The identifier is assigned once and is never renumbered or
 reused (the `Q-NNN` precedent in `docs/design/theory-questions.md`). Governed sections are the
 `scope` list in the registry; today that is §0.1 and §1 of `LLMLL.md`.
 
@@ -79,7 +81,7 @@ until the sentence is re-dispositioned in that pull request.
 
 ## Adding or changing a sentence
 
-1. Write the sentence and end it with the next unused identifier: `…text.[NC-036]`.
+1. Write the sentence and end it with the next unused identifier: `…text.<a id="nc-036"></a>`.
 2. Add its row to the registry with the exact text and one disposition.
 3. For `fixture`, add `;; @norm: NC-036` to the fixture's header (a fixture may name several ids,
    and a sentence may name several fixtures).

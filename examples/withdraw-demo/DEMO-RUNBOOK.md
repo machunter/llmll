@@ -471,21 +471,6 @@ Exit `0` (`jq` reads the same stream that sets it). The report carries **two ort
 
 *Two questions, answered separately:* **is it correct?** (`verified`) and **what must a caller guarantee?** (the obligation axis). The precondition's "assumed-ness" is real — but it lives where it belongs, on the caller. Step 6.5 shows it *enforced*.
 
-**One more line in the human-readable report.** Drop `--json` and the text trust report shows the same four `verified` rows, plus one line under `withdraw-outcome`:
-
-```bash
-llmll verify ./demo.ast.json --strict-verified-core --trust-report
-```
-```
-...
-  withdraw-outcome:
-    pre:  —  |  post: verified (liquid-fixpoint)
-    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
-...
-```
-
-To prove `withdraw-outcome`'s post, the compiler gave the solver one family of facts it asserts rather than proves: `measure-nonneg`, which states that each constructor term in the verification condition (here `(ok …)` and `(err …)`) is `≥ 0`. These facts hold because of how the compiler encodes and generates code, so they are tied to its `codegen_semantics_version` stamp; the report names them so that nothing the proof rests on is left unstated (`LLMLL.md`, "The sealed-builtin axiom set"). The JSON report carries the same fact as `"ground_fact_families": ["measure-nonneg"]` on that entry.
-
 ### 6.5 — Composition: the obligation flows down
 
 The obligation axis is not a label — it is **enforced** the moment something *composes* with `withdraw`. [`compose.llmll`](compose.llmll) is a same-module composer that calls the verified `withdraw`:
@@ -582,7 +567,6 @@ Trust Report
     pre:  asserted  |  post: verified (liquid-fixpoint)
   withdraw-outcome:
     pre:  —  |  post: verified (liquid-fixpoint)
-    ≈ assumes ground facts [measure-nonneg; codegen-determined; stamp: codegen_semantics_version] (ASSUMED, not proved: it rides codegen_semantics_version)
 ────────────────────────────────────────────────────────────
 Summary:
   verified:         4
@@ -591,7 +575,7 @@ Summary:
   no contract:      0
 ```
 
-The trust report is the same one step 6 explains, including the `≈ assumes ground facts` line.
+The trust report is the same one step 6 shows.
 
 `--json` populates this axis too:
 

@@ -5012,23 +5012,27 @@ injectRangeFactsLabeled c =
       -- must get NO range fact (a phantom 0..255 on a map value would be an
       -- unsound assumption). Missing a fact only loses completeness; adding a
       -- wrong one breaks refutation exactness (§6.1) — the discriminator errs
-      -- toward no-facts. Every other FQApp keeps the pre-existing `t >= 0`
-      -- measure fact exactly as before (byte-identical for the existing
-      -- corpus).
+      -- toward no-facts.
+      --
+      -- MEASURE-NONNEG-1: the `t >= 0` fact goes ONLY on a genuine length
+      -- measure ('nonNegMeasures'). It used to go on every other FQApp, which
+      -- put `(pair2_0 result) >= 0` on a datatype SELECTOR: a pair whose first
+      -- field is -1 then had a false hypothesis, and a false post verified
+      -- vacuously. On a constructor term (`ok …`, a user ctor) the fact was
+      -- datatype-sorted, so it asserted nothing, but it was still disclosed.
+      -- The allowlist is closed on purpose: a new head gets no fact until
+      -- someone shows the fact holds for it.
       factsFor a@(FQApp f args)
-        -- STRLIT: an interned string-literal constant is a NULLARY Str constant,
-        -- not an int measure — `strlit_… >= 0` is ill-sorted (Str vs int) and
-        -- crashes liquid-fixpoint. Exclude it (the range-fact catch-all below
-        -- assumes an int-sorted measure application). Surfaces once a string
-        -- literal meets `string-length` or a string-valued map value.
-        | "strlit_" `T.isPrefixOf` f = []
-        | f `elem` ["Map_store", "Map_default"] = []
+        | f `elem` nonNegMeasures = [ ("measure-nonneg", FQBinPred FQGe a (FQLit 0)) ]
         | f == "Map_select" = case args of
             (arr : _) | bytesRootedArr arr ->
               [ ("byte-range", FQBinPred FQGe a (FQLit 0))
               , ("byte-range", FQBinPred FQLe a (FQLit 255)) ]
             _ -> []
-      factsFor a = [ ("measure-nonneg", FQBinPred FQGe a (FQLit 0)) ]
+      -- Every other head gets no fact: `strlit_…` (a nullary Str constant),
+      -- `Map_store` / `Map_default` (array-sorted), datatype constructors and
+      -- selectors, and anything not yet named.
+      factsFor _ = []
       bytesRootedArr (FQVar n) = not ("$has" `T.isSuffixOf` n || "$val" `T.isSuffixOf` n)
       bytesRootedArr (FQApp "Map_store" (arr : _)) = bytesRootedArr arr
       bytesRootedArr _ = False
@@ -5036,6 +5040,12 @@ injectRangeFactsLabeled c =
          then c
          else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
      , nub (map fst labeled) )
+
+-- | MEASURE-NONNEG-1: the length measures that 'exprToPred' / 'bodyToPredM'
+-- emit and 'measureConstant' declares. Each one is a length, so `m(t) >= 0`
+-- holds at runtime; these are the only heads the `measure-nonneg` family covers.
+nonNegMeasures :: [Text]
+nonNegMeasures = ["strLen", "listLen", "bytesLen"]
 
 -- | LEVER-A2.2: conjoin the ground value-range fact @0 ≤ v ≤ 1@ for each
 -- occurring bool-map VALUE read — a @Map_select@ whose array roots (through any
