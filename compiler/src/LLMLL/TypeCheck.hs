@@ -2117,10 +2117,19 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
   case doneE of
     Nothing -> pure ()
     Just de -> do
+      -- DONE-TYPE-1: :done? names a FUNCTION, so compare its RETURN position
+      -- against bool, as 'checkStatusField' does for :status. Comparing the
+      -- whole expression's type (TFn [S] bool) against TBool warned on 58 of
+      -- the 59 tracked programs that declare :done?, every one of them correct.
+      -- A TVar return (an unannotated def-shell) stays compatible.
       doneType <- inferExpr de
-      doneOk <- compatibleExpanded doneType TBool
+      resolved <- expandAlias doneType
+      retTy    <- case resolved of
+                    TFn _ r -> expandAlias r
+                    other   -> pure other
+      doneOk   <- compatibleExpanded retTy TBool
       unless doneOk $
-        tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
+        tcWarn ":done? should return bool; found a non-bool return type"
   checkStatusField mode doneE statusE
 
 -- | PROC-BOUNDARY-1 §4: the @:status@ field's check-time surface.
@@ -2138,9 +2147,8 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
 -- "1 warning ... :done? should return bool". The warning fires on every console
 -- program in the corpus that declares @:done?@ by name, so it carries no
 -- information. This function reads the RETURN POSITION instead, which is what
--- the sibling meant to do. The sibling is left alone rather than fixed here:
--- changing it is a behaviour change to an unrelated diagnostic and belongs to
--- its own row.
+-- the sibling meant to do. The sibling was left alone here and fixed in its own
+-- row, DONE-TYPE-1, the same way.
 --
 -- 'TVar' in return position (an unannotated @def-shell@) is compatible with
 -- anything by 'compatibleWith':2777, so an inferred-return program is not

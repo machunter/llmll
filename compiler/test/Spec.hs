@@ -17599,6 +17599,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       [ holeContext e | e <- hs, T.isInfixOf "status" (holeContext e) ]
         `shouldBe` ["def-main [status]"]
 
+    -- DONE-TYPE-1: the :done? check now reads the RETURN position, as the
+    -- :status check does. Before the fix it compared TFn [S] bool against bool
+    -- and warned on 58 of the 59 tracked programs that declare :done?.
+    let doneWarns src =
+          [ d | d <- reportDiagnostics
+                       (typeCheck GrammarCoreInversion emptyEnv (stmtsOf src))
+              , T.isInfixOf ":done? should return bool" (diagMessage d) ]
+
+    it "DT-1: a correctly-typed named :done? produces no warning" $
+      doneWarns withoutStatus `shouldBe` []
+
+    -- The positive witness: the check must still fire when it should.
+    it "DT-2: a :done? that returns int is warned at" $ do
+      let src = T.unlines (prelude ++
+                  [ "(def not-done [s: int] -> int s)"
+                  , "(def-main :mode console :step drive :done? not-done)" ])
+      length (doneWarns src) `shouldBe` 1
+
+    -- An unannotated def-shell returns a TVar, which stays compatible.
+    it "DT-3: an unannotated def-shell :done? is not warned at" $ do
+      let src = T.unlines (prelude ++
+                  [ "(def-shell loose-done [s: int] (>= s 3))"
+                  , "(def-main :mode console :step drive :done? loose-done)" ])
+      doneWarns src `shouldBe` []
+
   describe "EFFECT-RESP: the console harness (RC-1..RC-4)" $ do
 
     let harnessOf src = case parseStatements GrammarCoreInversion "<test>" src of
