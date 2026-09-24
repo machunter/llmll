@@ -10,7 +10,7 @@ LLMLL (Large Language Model Logical Language) is a language and verification pip
 
 ## See it: money that can't be created, proven
 
-`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to` — the total is conserved, full stop. A "helpful" fill that credits the destination one unit extra is **type-correct** and looks harmless on inspection — but it breaks conservation, and the SMT solver refutes it:
+`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to`: the total is conserved, full stop. A hand-written wrong body that credits the destination one unit extra is **type-correct** and looks harmless on inspection, but it breaks conservation, and the SMT solver refutes it:
 
 ```text
 # body:  (pair (- from amount) (+ to (+ amount 1)))      ← type-correct, creates money
