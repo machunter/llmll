@@ -1,5 +1,5 @@
 ---
-Status: SHIPPED-PENDING Rev 1 (2026-09-24, user-approved direction; witnesses re-measured on the implementation)
+Status: SHIPPED v0.26.1, Rev 1 (2026-09-24; witnesses re-measured on the implementation)
 Tag: VERIFY-HEADLINE-1
 Owner: language-team
 ---

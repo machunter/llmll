@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.26.0)
+# LLMLL: Large Language Model Logical Language (v0.26.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.26.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.26.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -865,6 +865,8 @@ A `gen` declaration applies to all `for-all` blocks in the same module that use 
 stack exec llmll -- verify ../examples/withdraw.llmll
 # ✅ ../examples/withdraw.llmll — SAFE (liquid-fixpoint)
 ```
+
+**Reading the headline.** `SAFE (liquid-fixpoint)` is the solver's verdict on the emitted constraint set, and a function that fell back from body-faithful verification contributes its postcondition as an assumption. The mark says how much was proved. `✅` means every function carrying a postcondition was proved body-faithfully. Otherwise the line starts `⚠️` and reports `partial: k of n contracted functions proved; m assumed, not proved: <names>` (a fallback body, a non-linear skip, or a `?hole` under a postcondition), or `nothing proved: no function carries a postcondition`. The exit code is 0 in all three cases; `--strict-verified-core` is the mode that fails on assumed functions. With `--json`, a SAFE result carries `all_proved`, `proved_count`, `contracted_count` and `assumed_fns`.
 
 
 #### 5.3.1 Spec Weakness Detection

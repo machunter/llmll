@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.26.1: the `verify` headline says how much was proved (2026-09-24)
+
+`VERIFY-HEADLINE-1`. Default `llmll verify` printed `✅ <file> — SAFE (liquid-fixpoint)` on every
+solver pass. `SAFE` is the solver's verdict on the emitted constraints, and a function that falls
+back from body-faithful verification contributes its postcondition as an assumption, so the check
+mark appeared on programs whose contracts were mostly assumed. Of the 72 example files that pass
+the solver, 23 had contracted functions that were not proved and 9 had no postcondition at all;
+all 32 printed `✅`.
+
+- **`✅` now means every function carrying a postcondition was proved.** That line is unchanged
+  byte for byte, so every README and blog transcript still holds.
+- **Partial:** `⚠️  erc20_filled.ast.json — SAFE (liquid-fixpoint), partial: 3 of 5 contracted
+  functions proved; 2 assumed, not proved: transfer, transfer-from`, then a hint that
+  `--strict-verified-core` fails on assumed functions. A function counts as contracted when it has
+  a postcondition after return-refinement folding; it is assumed when its body fell back, was
+  skipped as non-linear, or is a `?hole`.
+- **Nothing to prove:** `⚠️  hangman.llmll — SAFE (liquid-fixpoint), nothing proved: no function
+  carries a postcondition`.
+- **Unchanged:** the literal `SAFE (liquid-fixpoint)`, the exit code (0), the refuted and
+  solver-error output, and the `--trust-report` path. No consumer of `verify` output keys on the
+  mark.
+- **`--json`:** a SAFE result gains `all_proved`, `proved_count`, `contracted_count` and
+  `assumed_fns` (additive).
+- **Docs:** `LLMLL.md` §5.3 describes how to read the headline; getting-started's `verify`
+  transcripts now show all three forms. Design: `docs/design/verify-headline-proposal.md`.
+
+**Tests:** 2069 Haskell (+0), 377 Python (310 passed, 67 skipped; +6 cells `VH-1` to `VH-6` that
+need `LLMLL_BIN`, four of which fail on v0.26.0).
+
+
 ## v0.26.0: `llmll patch` no longer reports success when nothing was proven (2026-09-23)
 
 A launch-readiness release. It closes the one place the compiler reported success on an unproven
