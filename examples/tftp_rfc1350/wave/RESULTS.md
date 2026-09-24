@@ -46,8 +46,13 @@ demonstrates is auditability of a swarm-built artifact, not verification catchin
 ## Kill matrix, against the agents' own bodies
 
 Satisfiability is consistent with decorative contracts, so each core obligation was mutated in
-the **agent-authored** code and re-verified. Frozen in
+the **agent-authored** code and re-verified. The verdicts are recorded in
 [`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json).
+
+**The mutant files are not committed**, so this matrix cannot be re-run from this tree.
+[`mutants.json`](mutants.json) names each mutant file and the rows it targets, and the table
+below gives each mutation in one line; neither is enough to regenerate the files exactly. This
+suite is not part of the `make refute-crux-gate` CI gate.
 
 | Mutant | Rows | Verdict |
 |---|---|---|

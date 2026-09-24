@@ -72,7 +72,9 @@ and nothing about fidelity to the RFC.
 ### Kill matrix
 
 Satisfiability alone would be consistent with a decorative contract set, so each core
-obligation was mutated and re-verified. **9 of 9 refuted, no survivors:**
+obligation was mutated and re-verified. **9 of 9 refuted, no survivors.** These mutants were
+cut from the uncommitted twin, so neither they nor the twin are in this tree and the matrix
+cannot be re-run from it:
 
 | Mutant | Rows it targets | Verdict |
 |---|---|---|

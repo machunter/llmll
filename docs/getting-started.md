@@ -13,11 +13,11 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
-| `fixpoint` + `z3` | any stable | **Optional** (`verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
+| `fixpoint` (liquid-fixpoint) + `z3` | `liquid-fixpoint-0.9.6.3.1`, any stable `z3` | Needed by `llmll verify` only (without them it exits 3, `SOLVER NOT FOUND`); `check`, `build` and `run` work without them. See [Install the solver](#install-the-solver-verify-only) |
 
 ### Run without a toolchain (Docker)
 
-If you only want to *run* `llmll` (not develop the compiler), the published image bundles `llmll` + `z3` + `liquid-fixpoint` — no GHC/Stack required:
+This is the zero-install route. If you only want to *run* `llmll` (not develop the compiler), the published image bundles `llmll` + `z3` + `liquid-fixpoint`, with no GHC or Stack required:
 
 ```bash
 # headline demo — the SMT refutation, no local files needed:
@@ -31,7 +31,7 @@ Because the solver is bundled, the container never hits the `SOLVER NOT FOUND` (
 **Install Stack:** <https://docs.haskellstack.org/en/stable/install_and_upgrade/>
 
 ```bash
-git clone <repo-url> llmll && cd llmll/compiler
+git clone https://github.com/machunter/llmll.git llmll && cd llmll/compiler
 stack build
 stack exec llmll -- --help
 ```
@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.31)
+  LLMLL — Large Language Model Logical Language Compiler (v0.26.1)
 
 Available options:
   -h,--help                Show this help text
@@ -85,6 +85,25 @@ Available commands:
   spec                     Emit agent specification from compiler builtins
   version                  Print compiler version and exit
 ```
+
+### Install the solver (`verify` only)
+
+`llmll verify` needs `fixpoint` (liquid-fixpoint) and `z3` on `PATH`; `fixpoint` calls `z3`. A plain `stack install liquid-fixpoint` fails on the pinned snapshot, because `lts-22.43` does not ship `smtlib-backends` or `smtlib-backends-process`. The supported recipe supplies those two as pinned extra-deps. It mirrors the build step of the published Docker image (see the root `Dockerfile`):
+
+```bash
+mkdir -p ~/.llmll-fixpoint
+cat > ~/.llmll-fixpoint/stack.yaml <<'YAML'
+snapshot: lts-22.43
+packages: []
+extra-deps:
+  - smtlib-backends-0.4@sha256:a7ae228f4464727a8c725341cf9b6690577f5289c80a33e8960264e296fb9a47,1258
+  - smtlib-backends-process-0.3@sha256:bb730a55c5974eeb24112b560d30c49d518d6de45148723435219baa269f8b5e,1676
+YAML
+stack --stack-yaml ~/.llmll-fixpoint/stack.yaml install liquid-fixpoint-0.9.6.3.1
+brew install z3        # Debian/Ubuntu: apt-get install z3
+```
+
+`stack install` copies `fixpoint` into `~/.local/bin`; put that directory on your `PATH`. Check with `command -v fixpoint` and `z3 --version`. If you would rather not build it, use the Docker image above.
 
 ---
 
