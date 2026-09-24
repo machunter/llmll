@@ -1,4 +1,4 @@
-# Post 3 — Composition, and the bound that wasn't there
+# Post 3: Composition, and the bound that wasn't there
 
 *[Post 2](post-2-a-compiler-that-refuses.md) verified one function against its contract. A
 record layer is a hundred-plus functions calling each other, and the second famous bug,
@@ -102,12 +102,13 @@ error: body verification of 'deliver-plaintext' failed   # composition refused
 ```
 
 The instructive line is the second one: a version where each *leaf* still verifies on its
-own, but one is wired into the delivery decision wrong, so the *composition* fails. A
+own, but one leaf's contract was weakened, so it no longer promises what the delivery
+decision relies on, and the *composition* fails. A
 system can be built entirely from individually-correct parts and still be wrong at the
 seam. Assume-guarantee is what puts the compiler at every seam.
 
-That is the mechanism that makes scale possible: no function is re-verified when another
-changes, each stands on its callees' contracts, and the guarantee holds across the whole
+That is the mechanism that makes scale possible: a change to one function need not re-verify
+the others, each stands on its callees' contracts, and the guarantee holds across the whole
 call graph. [Post 4](post-4-who-writes-the-decomposition.md) asks the question that scale
 forces: when there are hundreds of these contracts, *who writes them?* And what stops an
 agent from inventing a contract that looks like a specification but demands nothing?

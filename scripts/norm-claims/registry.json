@@ -31,7 +31,7 @@
     {
       "id": "NC-004",
       "section": "0.1",
-      "text": "Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics — a verified contract holds for all well-typed inputs of the generated Haskell code, modulo the `Int64` overflow gap documented in §5.3.5.",
+      "text": "Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics: a verified contract holds for all well-typed inputs of the generated Haskell code, and there is no overflow gap on `int`, because `int` is unbounded on both sides (§5.3.5).",
       "disposition": "falsified-by",
       "target": "gate:refute-crux"
     },
