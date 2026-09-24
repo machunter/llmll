@@ -1629,11 +1629,15 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               when (fqExitCode fqResult == ExitSuccess) (contradictionExit json paContra)
 
           -- 6. Report
+          -- VERIFY-HEADLINE-1: the proved set behind the SAFE headline and the
+          -- '--json' counts. Pure over this run's emit result and the source.
+          let headline = headlineCounts (cacheAwareAliasMap stmts _cache) retTypes
+                                        stmts (erBodyFaithfulFns emitR)
           if json
             then do
               -- v0.8.0: augment JSON with body-faithful metadata
               let reportJson = formatReportJson report
-                  bodyMeta = TL.toStrict . encodeToLazyText $ object
+                  bodyMeta = TL.toStrict . encodeToLazyText $ object $
                     [ "body_faithful" .= erBodyFaithfulFns emitR
                     , "body_fallback" .= erBodyFallback emitR
                       -- FALLBACK-REASON-CONST-1: the per-function cause, the histogram source
@@ -1653,6 +1657,17 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                         FQUnsafe _ -> "refuted"
                         FQError _  -> "error")
                     ]
+                    -- VERIFY-HEADLINE-1: what the SAFE verdict proved. Emitted on
+                    -- SAFE only: the proved set is defined over a solver pass, and
+                    -- a refuted or crashed run proved nothing it could name.
+                    ++ (case fqResult of
+                          FQSafe ->
+                            [ "all_proved"       .= headlineAllProved headline
+                            , "proved_count"     .= length (hcProved headline)
+                            , "contracted_count" .= length (hcContracted headline)
+                            , "assumed_fns"      .= hcAssumed headline
+                            ]
+                          _ -> [])
               -- Merge by stripping closing } from report and appending body_meta fields
               let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of
                     (Just base, Just extra) -> base <> "," <> extra
@@ -1660,7 +1675,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               TIO.putStrLn augmented
             else case fqResult of
               FQSafe ->
-                TIO.putStrLn $ "\x2705 " <> T.pack fp <> " \8212 SAFE (liquid-fixpoint)"
+                mapM_ TIO.putStrLn (safeHeadlineLines fp headline)
               FQUnsafe _ -> do
                 mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
                 -- v0.4: --obligations mode
@@ -2755,6 +2770,75 @@ firstInfeasibleSpawn z3 am ((n, ps, mr, c) : rest) = do
       <> renderWitness w <> " (satisfying pre) no result satisfies the "
       <> "postcondition; tighten the precondition"
     _            -> firstInfeasibleSpawn z3 am rest
+
+-- ---------------------------------------------------------------------------
+-- VERIFY-HEADLINE-1: the SAFE headline says what was proved
+-- ---------------------------------------------------------------------------
+
+-- | The proved set behind a SAFE verdict (docs/design/verify-headline-proposal.md).
+-- A function is CONTRACTED when it carries a postcondition after DEF-RET
+-- return-refinement folding, the same effective post the '.verified.json'
+-- sidecar credits. A contracted function is PROVED when it is body-faithful,
+-- and ASSUMED otherwise: a body fallback, a hole body, a non-linear skip, or a
+-- 'letrec' (which emits no body VC). All three lists keep source order.
+data HeadlineCounts = HeadlineCounts
+  { hcContracted :: [Name]
+  , hcProved     :: [Name]
+  , hcAssumed    :: [Name]
+  }
+
+-- | 'erBodyFallback' is not the assumed set: it also lists functions with no
+-- post ('FallbackNoPost'), which have nothing to prove. So the contracted set
+-- is read from the source, with the EMITTER's inputs: the cache-aware alias
+-- map and the checker-inferred return type when none is written (the
+-- emitter's 'effRet'). An inferred refinement-aliased return is a post the
+-- emitter tries to prove, so it counts; hangman's 'state-max-wrong' is one.
+-- The body-faithful list then decides proved.
+headlineCounts :: AliasMap -> Map.Map Name Type -> [Statement] -> [Name] -> HeadlineCounts
+headlineCounts aliases retTypes stmts faithful = HeadlineCounts contracted proved assumed
+  where
+    faithfulS  = Set.fromList faithful
+    contracted = dedupe Set.empty
+      [ n
+      | s <- stmts
+      , Just (n, mRet, c) <- [postCarrier s]
+      , let effRet = maybe (Map.lookup n retTypes) Just mRet
+      , isJust (contractPost (augmentContractPost aliases effRet c)) ]
+    proved     = filter (`Set.member` faithfulS) contracted
+    assumed    = filter (`Set.notMember` faithfulS) contracted
+    postCarrier s = case normalizeDefStmt s of
+      Just (n, _, mRet, c, _) -> Just (n, mRet, c)
+      Nothing -> case s of
+        SLetrec n _ mRet c _ _ -> Just (n, mRet, c)
+        _                      -> Nothing
+    dedupe _ [] = []
+    dedupe seen (n : ns)
+      | Set.member n seen = dedupe seen ns
+      | otherwise         = n : dedupe (Set.insert n seen) ns
+
+-- | True only when there is something proved and nothing assumed. A program
+-- with no contracted function is NOT all-proved: vacuous truth here is the
+-- defect this row removes.
+headlineAllProved :: HeadlineCounts -> Bool
+headlineAllProved h = not (null (hcContracted h)) && null (hcAssumed h)
+
+-- | The text-mode headline on 'FQSafe'. The all-proved line is byte-identical
+-- to the pre-VERIFY-HEADLINE-1 line, and every line keeps the literal
+-- 'SAFE (liquid-fixpoint)' that consumers key on.
+safeHeadlineLines :: FilePath -> HeadlineCounts -> [T.Text]
+safeHeadlineLines fp h
+  | headlineAllProved h = [ "\x2705 " <> verdict ]
+  | null (hcContracted h) =
+      [ warn <> verdict <> ", nothing proved: no function carries a postcondition" ]
+  | otherwise =
+      [ warn <> verdict <> ", partial: " <> tshow (length (hcProved h)) <> " of "
+          <> tshow (length (hcContracted h)) <> " contracted functions proved; "
+          <> tshow (length (hcAssumed h)) <> " assumed, not proved: "
+          <> T.intercalate ", " (hcAssumed h)
+      , "   (--strict-verified-core fails on assumed functions)" ]
+  where
+    verdict = T.pack fp <> " \8212 SAFE (liquid-fixpoint)"
+    warn    = "\x26A0\xFE0F  "
 
 -- ---------------------------------------------------------------------------
 -- v0.3: contract extraction helper (used by doVerify)
