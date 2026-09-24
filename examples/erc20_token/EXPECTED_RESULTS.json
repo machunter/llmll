@@ -94,8 +94,9 @@
     "effective_coverage": 1.0
   },
   "expected_weakness_check": {
-    "weak_functions": ["total-supply", "balance-of"],
-    "note": "total-supply and balance-of carry a trivially-satisfiable post (result >= 0, satisfied by the identity body) — recorded as confirmed weaknesses. The other candidates report as unknown (body translation outside the checkable QF-LIA fragment), not confirmed weak. Strengthening these two posts is deferred with the erc20 richer-benchmark; recording them here gives benchmark-erc20.sh teeth against a NEW weakness."
+    "weak_functions": ["total-supply", "balance-of", "allowance"],
+    "rebaseline_note": "Re-frozen against llmll 0.26.2. The AST had spelled every return type as 'returns', a key the parser ignores, so no function had a declared return type and weakness-check proposed no return-typed candidate. With 'return_type', each declared int return adds the constant candidate (lambda [...] 0). allowance (body 0, post result >= 0, no pre) is confirmed weak by it, and total-supply and balance-of are now confirmed by two candidates each. Trust and spec-coverage counts are unchanged.",
+    "note": "total-supply and balance-of carry a trivially-satisfiable post (result >= 0, satisfied by the identity body) — recorded as confirmed weaknesses. The other candidates report as unknown (body translation outside the checkable QF-LIA fragment), not confirmed weak. Strengthening these posts is deferred with the erc20 richer-benchmark; recording them here gives benchmark-erc20.sh teeth against a NEW weakness."
   },
   "expected_trust_report": {
     "verified": 3,
