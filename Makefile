@@ -1,7 +1,46 @@
-# LLMLL Benchmarks Makefile
-# v0.6.1: Frozen benchmark CI gates
+# LLMLL Makefile: build, test and install the compiler, plus the benchmark and
+# verdict gates. Run `make` or `make help` for the list of targets.
 
-.PHONY: benchmark-erc20 benchmark-totp refute-crux-gate benchmark-all demo-gifs
+.DEFAULT_GOAL := help
+
+.PHONY: help build test install benchmark-erc20 benchmark-totp refute-crux-gate \
+        fallback-census benchmark-all demo-gifs
+
+# ─────────────────────────────────────────────────────────────────────
+# Build, test, install
+#
+# `build` and `install` use the resolver pinned in compiler/stack.yaml.
+# `test` runs the Haskell suite (compiler/test) and the Python suite
+# (scripts/tests). Python tests that call the compiler skip unless LLMLL_BIN
+# names a binary, so `test` builds first and points LLMLL_BIN at that build.
+# `install` copies llmll into BINDIR (default ~/.local/bin).
+# ─────────────────────────────────────────────────────────────────────
+
+BINDIR ?= $(HOME)/.local/bin
+
+help:
+	@echo "Targets:"
+	@echo "  build             build the llmll compiler (stack build in compiler/)"
+	@echo "  test              Haskell tests (stack test) and Python tests (scripts/tests)"
+	@echo "  install           install llmll into BINDIR (default: ~/.local/bin)"
+	@echo "  refute-crux-gate  CI verdict gate: frozen verify verdicts for the example suites"
+	@echo "  fallback-census   body-faithful ratio over the tracked tree (CI ratchet)"
+	@echo "  benchmark-erc20   ERC-20 benchmark"
+	@echo "  benchmark-totp    TOTP (RFC 6238) benchmark"
+	@echo "  benchmark-all     both benchmarks and refute-crux-gate"
+	@echo "  demo-gifs         re-record the README demo GIFs (needs asciinema, agg)"
+	@echo "llmll verify needs fixpoint and z3 on PATH: see docs/getting-started.md."
+
+build:
+	cd compiler && stack build
+
+test: build
+	cd compiler && stack test
+	LLMLL_BIN="$$(cd compiler && stack path --local-install-root)/bin/llmll" \
+	  python3 -m pytest scripts/tests/ -q
+
+install:
+	cd compiler && stack install --local-bin-path "$(BINDIR)"
 
 # ─────────────────────────────────────────────────────────────────────
 # ERC-20 Token Benchmark (v0.6.0, CI gate v0.6.1)
