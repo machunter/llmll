@@ -6,6 +6,8 @@ LLMLL (Large Language Model Logical Language) is a language and verification pip
 
 > **Current version:** see [`CHANGELOG.md § Latest`](CHANGELOG.md#Latest). Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
+> **Learn more:** [`docs/README.md`](docs/README.md) is the reading guide to the documentation · [`ROADMAP.md`](ROADMAP.md) says what has shipped and what is next · [`experiments/README.md`](experiments/README.md) indexes the experiments and their results.
+
 ---
 
 ## See it: money that can't be created, proven
@@ -42,7 +44,7 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 - **Agents edit structure, not text.** Every program also has a JSON-AST form, and patches are RFC 6902 JSON-Patch against it, so there are no text merge conflicts.
 - **Decomposition is checked.** `llmll refine` fills a hole and spawns contracted sub-holes in one step, and rejects a sub-contract that no body can meet or that says nothing.
 
-**What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use hand-written wrong versions to show that the check works; the agents in these experiments did not produce them.
+**What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use hand-written wrong versions to show that the check works; the agents in these experiments did not produce them. Every experiment, with its result: [`experiments/README.md`](experiments/README.md).
 
 ---
 
@@ -111,6 +113,14 @@ The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive 
 Nonlinear obligations have an **experimental** Lean 4 path: the opt-in `--leanstral` flag shown above, which needs a Leanstral API key and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is deferred. `--leanstral-mock` runs the same pipeline against a mock prover, for testing.
 
 [`docs/one-pager.md`](docs/one-pager.md) carries the full **Claim-to-Evidence map** — every claim mapped to a shipped command or an explicit "Planned"/"Not shipped" label. The "Planned"/"Not shipped" labels are deliberate; read it before sharing.
+
+---
+
+## The repository runs on LLMLL
+
+Six of this repository's CI gates are LLMLL programs, in `tools/`: `version-gate` (version banners and schema versions agree), `doc-archive` (each archived design document sits where its status says), `doc-claims` (what the docs say the compiler rejects, checked against the compiler), `doc-path-lint` (path citations in prose; advisory), `refute-crux` (96 frozen `verify` verdicts, so a lost refutation fails CI) and `build-smoke` (builds and runs the other five gates end to end). The [CI workflow](.github/workflows/version-gate.yml) builds and runs them on every push to `main` and every pull request against it. In the same run, each gate's decision core (`adjudicate.llmll`) must pass `llmll verify`, and a deliberately broken copy of that core (`crux-*.llmll`) must be refuted, or the run fails. Only the decision core is proved; the file and process handling around it is built and run, not proved.
+
+The largest LLMLL program in the tree is not a CI gate. [`tools/llmll-driver/`](tools/llmll-driver/README.md) is the RFC-SWARM pipeline driver: 8522 lines across 39 modules, with 55 proved functions and 581 effectful `def-shell` functions that carry no proof by construction ([`docs/design/driver-ll-campaign-close.md`](docs/design/driver-ll-campaign-close.md)). Its README separates what is proved from what is only asserted.
 
 ---
 
@@ -361,6 +371,9 @@ tools/
 | Document | Purpose |
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
+| [`docs/README.md`](docs/README.md) | Reading guide to `docs/`: what to read first, and what is working material |
+| [`ROADMAP.md`](ROADMAP.md) | Public roadmap: what has shipped, what is next, deliberate boundaries |
+| [`experiments/README.md`](experiments/README.md) | Index of the experiments and their headline results |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
 | [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog and shipped-releases history (current version in [CHANGELOG § Latest](CHANGELOG.md#Latest)) |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
