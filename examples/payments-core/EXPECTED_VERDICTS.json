@@ -1,0 +1,19 @@
+{
+  "family": "payments-core",
+  "frozen_at": "v0.25.5",
+  "frozen_date": "2026-09-23",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY, the good/bad twins DEMO-RUNBOOK.md names, with the runbook's flags. The .llmll forms only: the gate grades .llmll files, and the .ast.json twins were measured to give the same verdicts at freeze time but are not frozen.",
+  "cases": [
+    { "file": "transfer.llmll",        "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "transfer-bad.llmll",    "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "transfer",
+      "why": "credits the destination on the insufficient-funds branch" },
+    { "file": "transfer-unsafe.llmll", "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "transfer",
+      "why": "guard dropped: debit's precondition not proven at the call site" },
+    { "file": "settle.llmll",          "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "settle-bad.llmll",      "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "settle",
+      "why": "dishonest Success: the payload passes through unchecked and can be negative" },
+    { "file": "conserve.llmll",        "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "conserve-bad.llmll",    "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "conserve-bad",
+      "why": "credits one unit more than it debits: money creation" }
+  ]
+}

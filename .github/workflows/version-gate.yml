@@ -667,8 +667,8 @@ jobs:
         working-directory: compiler
         run: stack test --test-arguments="--fail-on=pending"
 
-      # The refute-crux verdict gate: 80 frozen `llmll verify` verdicts across
-      # twelve suites. Until now it was a `make` target only and no workflow ran
+      # The refute-crux verdict gate: 96 frozen `llmll verify` verdicts across
+      # fifteen suites. Until now it was a `make` target only and no workflow ran
       # it. So the regression class it exists to catch (refutation silently
       # lost, as in ENUM-EQ-FALLBACK across v0.14.12 to v0.14.31) was uncaught
       # in CI for the same reason it was uncaught then.
@@ -770,7 +770,7 @@ jobs:
           # pointed at different binaries.
           REFUTE_CRUX_BIN="$GATE" LLMLL_SUBJECT="$SUBJECT" \
             python3 -m pytest scripts/tests/test_refute_crux_solver_preflight.py -v
-          # Then the live corpus, which is the port deciding: all 80 frozen
+          # Then the live corpus, which is the port deciding: all 96 frozen
           # verdicts against the compiler this job just built.
           ( cd "$RUNNER_TEMP/rc-run" \
               && python3 -c "import sys; sys.stdout.write('x\n' * 4000)" \

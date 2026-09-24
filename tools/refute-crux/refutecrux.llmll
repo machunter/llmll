@@ -13,7 +13,7 @@
 ;; Nothing compares two answers here any more, so a message reworded in this file
 ;; is now correct by definition rather than by agreement.
 ;;
-;; WHAT THIS GATE DOES. It runs `llmll verify` on 80 frozen cases across twelve
+;; WHAT THIS GATE DOES. It runs `llmll verify` on 96 frozen cases across fifteen
 ;; suites and compares verdict, exit code and localization against each suite's
 ;; EXPECTED_VERDICTS.json. It exists because refutation of the tcp_rfc793 and
 ;; session-pay wrong twins was silently lost for twenty versions (v0.14.12 to
@@ -104,7 +104,7 @@
   (def-shell of-strs [xs: list[string]] -> list[Json]
     (list-map xs (fn [s: string] (sets json-object "v" s))))
 
-  ;; ---- the twelve suites ---------------------------------------------------
+  ;; ---- the fifteen suites --------------------------------------------------
   ;;
   ;; Repo-relative paths and not bare names under examples/: the driver suite
   ;; lives under tools/, so a suite is addressed by its path. Same list and same
@@ -123,7 +123,10 @@
      "examples/nested-result"
      "examples/niw-measure"
      "examples/banking_ledger"
-     "tools/llmll-driver"])
+     "tools/llmll-driver"
+     "examples/heartbleed"
+     "examples/heartbleed/secure-channel/agent-fill/adversarial"
+     "examples/payments-core"])
 
   (def-shell nth-str [xs: list[string] i: int] -> string
     (unwrap-or (list-nth xs i) ""))

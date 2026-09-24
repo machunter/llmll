@@ -1,0 +1,11 @@
+{
+  "family": "heartbleed-adversarial",
+  "frozen_at": "v0.25.5",
+  "frozen_date": "2026-09-23",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY. The goto-fail twin of the flagship's delivery invariant: deliver.llmll proves deliver => MAC verified; deliver-gotofail.llmll delivers unconditionally (CVE-2014-1266) and is refuted.",
+  "cases": [
+    { "file": "deliver.llmll",          "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "deliver-gotofail.llmll", "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "deliver-len",
+      "why": "unconditional delivery: the MAC-verified guard is skipped, the goto-fail move" }
+  ]
+}
