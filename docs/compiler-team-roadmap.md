@@ -1,5 +1,7 @@
 # LLMLL Compiler Team Implementation Roadmap
 
+> **This is the team's internal work log**, written for the people doing the work. For a one-screen summary of what has shipped, what is next and what is out of scope, read the public roadmap: [`../ROADMAP.md`](../ROADMAP.md).
+
 > **Status:** Active — see [`../CHANGELOG.md § Latest`](../CHANGELOG.md#Latest) for the shipped version (this header does not version-stamp).
 >
 > **Governing criterion:** every deliverable is measured against *progress toward one-shot correctness* — does it reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an agent writing LLMLL? The terminal state: an agent writes a program once, the compiler accepts it, contracts verify.

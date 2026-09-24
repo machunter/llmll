@@ -1,8 +1,8 @@
 # Heartbleed & the secure-channel record layer
 
-**Protocol logic, honestly scoped:** cryptographic primitives are axiomatized as opaque
-contracts; LLMLL verifies the *length / ordering / monotonicity discipline* — the layer where
-these famous bugs actually lived. Design & plan of record:
+**Protocol logic, scoped:** the model is arithmetic. No hash, MAC or cipher is computed; a
+check's outcome enters as an integer. LLMLL verifies the *length / ordering / monotonicity
+discipline*, the layer where these famous bugs actually lived. Design & plan of record:
 [`docs/design/flagship-secure-channel-proposal.md`](../../docs/archive/shipped-design-specs/flagship-secure-channel-proposal.md).
 
 ## ▶ The flagship: [`secure-channel/`](secure-channel/) — a 163-function verified channel

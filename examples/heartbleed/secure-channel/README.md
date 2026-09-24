@@ -9,8 +9,9 @@ that reintroduces them.
 Design & plan of record:
 [`docs/design/flagship-secure-channel-proposal.md`](../../../docs/archive/shipped-design-specs/flagship-secure-channel-proposal.md).
 
-**Scope limits.** Cryptographic primitives are axiomatized as opaque contracts. LLMLL verifies
-the *length / ordering / monotonicity discipline* — the integer-relational layer (QF-LIA) where
+**Scope limits.** Cryptography is not modeled: no hash, MAC or cipher is computed, and a check's
+outcome enters as an integer. LLMLL verifies the *length / ordering / monotonicity discipline*,
+the integer-relational layer (QF-LIA) where
 Heartbleed, goto-fail, KRACK, Ping-of-Death, and downgrade actually lived. Lengths, offsets,
 sequence numbers, state ordinals, credits, byte-budgets, epochs — nothing here needs bitvectors
 or recursive data, and that is the point: the real ceiling is the *data* axis, not size.
