@@ -17,7 +17,8 @@ bugs lived.
 
 To be precise about authorship. **The decomposition is ours**: we wrote a reference
 implementation and carved the 163 contracts out of it. **The bodies are the agents'**:
-seven agents, [MODEL: name the model before publishing], each filled one module. Each
+seven agents each filled one module. The agents were Claude subagents run from Claude Code;
+the July 2026 run did not record which model version they used. Each
 agent saw that module's contracts and the `slice-gate.llmll` composition pattern from
 Post 3, and not the reference bodies. Six agents filled the six component modules (150
 functions); the seventh filled the spine (13 functions that compose the others). The
