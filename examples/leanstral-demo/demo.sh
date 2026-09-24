@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# LLMLL: verified-lean demo (EXPERIMENTAL; records docs/assets/leanstral.gif, not currently embedded in the README).
+# LLMLL: verified-lean demo (EXPERIMENTAL; records docs/assets/leanstral.gif, embedded in the README).
 # Shows: a nonlinear postcondition that the SMT path can only ASSUME (the
 # W-BODY-FALLBACK warning and the "partial" headline) becomes `verified-lean`
 # under --leanstral: Leanstral writes a proof, and the Lean kernel + Mathlib

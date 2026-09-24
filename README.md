@@ -52,6 +52,9 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 
 Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
 
+<p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL experimental verified-lean demo"></p>
+<p align="center"><sub>Experimental. Recorded live on v0.26.3 against the Leanstral API; regenerate with <code>examples/leanstral-demo/demo.sh</code> (needs an API key and a Lean 4 + Mathlib project).</sub></p>
+
 ```text
 $ llmll verify examples/leanstral-demo/square.llmll --trust-report
   square:  post: asserted                       # nonlinear: outside the SMT fragment, not proven
