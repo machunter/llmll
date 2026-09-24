@@ -18,8 +18,8 @@ benchmark-totp:
 	@./scripts/benchmark-totp.sh
 
 # ─────────────────────────────────────────────────────────────────────
-# Refute-crux verdict gate: 80 frozen verify verdicts across twelve suites,
-# eleven under examples/ and one under tools/llmll-driver/. Freezes verdict +
+# Refute-crux verdict gate: 96 frozen verify verdicts across fifteen suites,
+# fourteen under examples/ and one under tools/llmll-driver/. Freezes verdict +
 # exit code ONLY (not report/classification shapes).
 #
 # This comment named four families (tcp_rfc793, session-pay, gotofail,

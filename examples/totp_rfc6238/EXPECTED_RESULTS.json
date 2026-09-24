@@ -12,8 +12,9 @@
   },
   "expected_trust_report": {
     "verified": 0,
-    "asserted": 4,
-    "no_contract": 2,
+    "asserted": 5,
+    "no_contract": 1,
+    "note": "Re-frozen at v0.25.5. The AST had spelled every return type as 'returns', a key the parser ignores, so all six functions were unannotated and SAFE-ARG rejected the bytes[20] wildcard at dynamic-truncate. With 'return_type', hmac-sha1-wrap's declared bytes[20] return carries a length post (FACT-AG-LEN), so it moves from no_contract to asserted.",
     "drifts": 0,
     "suppressions": [
       {
