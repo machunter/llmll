@@ -2,22 +2,35 @@
 #
 # Off-roadmap adoption work (packaging the compiler for distribution). Ships a
 # slim, verify-capable image: llmll + liquid-fixpoint (`fixpoint`) + z3 + the
-# baked demo examples.
+# baked demo examples, as a multi-arch image (linux/amd64 + linux/arm64).
 #
-# Two jobs:
-#   build-test  — on PRs / main pushes that touch the image inputs. Builds the
-#                 image (amd64, no push) and runs the container acceptance gate
-#                 (scripts/tests/docker-acceptance.sh): conserve-bad must refute
-#                 (exit 1, NOT 3), conserve must verify (exit 0). A broken image
-#                 (missing z3/fixpoint, wrong lib set) fails the PR here.
-#   publish     — on a vX.Y.Z tag push. Enforces scripts/version_gate.sh, asserts
-#                 the git tag == the LLMLL.md banner (image tag == banner
-#                 version, composing with DRIFT-CI-1), then builds + pushes
-#                 ghcr.io/<owner>/llmll:vX.Y.Z and :latest.
+# Three jobs:
+#   gate   — tag pushes only. Enforces scripts/version_gate.sh and asserts the
+#            git tag == the LLMLL.md banner (image tag == banner version,
+#            composing with DRIFT-CI-1). Outputs the version for `merge`.
+#   build  — every trigger. A matrix with one leg per architecture, each on a
+#            NATIVE runner (ubuntu-24.04 for amd64, ubuntu-24.04-arm for
+#            arm64; no QEMU, a GHC build under emulation takes hours). Each leg
+#            builds the image for its platform, loads it, and runs the
+#            container acceptance gate (scripts/tests/docker-acceptance.sh):
+#            conserve-bad must refute (exit 1, NOT 3), conserve must verify
+#            (exit 0). On a tag push the leg then pushes the SAME build by
+#            digest (untagged; the rebuild is served from the leg's local
+#            BuildKit cache), checks that the pushed layers equal the tested
+#            layers, and uploads the digest as an artifact. On PRs and main
+#            pushes nothing is pushed.
+#   merge  — tag pushes only, after `gate` and every `build` leg succeed.
+#            Creates the multi-arch manifest list from the per-arch digests
+#            and tags it ghcr.io/<owner>/llmll:vX.Y.Z and :latest. An image
+#            that failed acceptance on either architecture is never tagged.
+#
+# Pattern: "Distribute build across multiple runners" in the
+# docker/build-push-action multi-platform docs.
 #
 # Security posture: no run: block interpolates attacker-controllable ${{ }}
-# context into a shell command. github.ref_name is passed via env and compared
-# quoted; the banner is extracted from the checked-in LLMLL.md only.
+# context into a shell command. github.ref_name, the image name and the digest
+# are passed via env and used quoted; the banner is extracted from the
+# checked-in LLMLL.md only.
 
 name: docker-publish
 
@@ -43,38 +56,19 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/llmll
+
 jobs:
-  build-test:
-    name: build + container acceptance
-    # Skip on tag pushes; the publish job covers those.
-    if: startsWith(github.ref, 'refs/tags/') == false
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (amd64, load into local daemon)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          load: true
-          tags: llmll:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Container acceptance gate
-        run: bash scripts/tests/docker-acceptance.sh llmll:ci
-
-  publish:
-    name: publish to ghcr.io on tag
+  gate:
+    name: version gate (tag)
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.banner.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -89,6 +83,7 @@ jobs:
         run: bash scripts/version_gate.sh
 
       - name: Derive version from banner and assert tag == banner
+        id: banner
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -98,7 +93,128 @@ jobs:
             echo "git tag ($REF_NAME) != LLMLL.md banner ($banner) — refusing to publish a mislabelled image"
             exit 1
           fi
-          echo "VERSION=$banner" >> "$GITHUB_ENV"
+          echo "version=$banner" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build + container acceptance (${{ matrix.arch }})
+    needs: gate
+    # `gate` is skipped on PRs and main pushes; run then too. On a tag push,
+    # run only after the gate passed.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      # Used only by the tag-push steps below (login + push by digest).
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (native ${{ matrix.arch }}, load into local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: llmll:ci
+          cache-from: type=gha,scope=llmll-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=llmll-${{ matrix.arch }}
+
+      - name: Container acceptance gate
+        run: bash scripts/tests/docker-acceptance.sh llmll:ci
+
+      # ---- tag push only: publish the tested build by digest ----
+
+      - name: Log in to ghcr.io
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same inputs as the tested build; every layer is a hit in this leg's
+      # local BuildKit cache, so this exports the tested layers rather than
+      # rebuilding them. The next step checks that.
+      - name: Push by digest (${{ matrix.arch }}, untagged)
+        id: push
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=llmll-${{ matrix.arch }}
+
+      - name: Assert pushed layers == tested layers
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          [ -n "$DIGEST" ] || { echo "push step reported no digest"; exit 1; }
+          docker image inspect llmll:ci --format '{{json .RootFS.Layers}}' > tested.json
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" --format '{{json .Image}}' > pushed.json
+          python3 - "$ARCH" <<'PY'
+          import json, sys
+          arch = sys.argv[1]
+          tested = json.load(open("tested.json"))
+          img = json.load(open("pushed.json"))
+          # A single-platform manifest renders as one config; an index (the
+          # default when provenance attestations are attached) as a map keyed
+          # by platform.
+          if "rootfs" not in img:
+              img = img.get(f"linux/{arch}") or sys.exit(f"no linux/{arch} image in pushed digest: {sorted(img)}")
+          pushed = img["rootfs"]["diff_ids"]
+          if pushed != tested:
+              print("tested:", tested)
+              print("pushed:", pushed)
+              sys.exit("pushed image layers differ from the image that passed acceptance")
+          print(f"OK: {len(pushed)} layers identical (linux/{arch})")
+          PY
+
+      - name: Export digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: publish multi-arch manifest to ghcr.io
+    needs: [gate, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,14 +226,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push (amd64)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/llmll:${{ env.VERSION }}
-            ghcr.io/${{ github.repository_owner }}/llmll:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create manifest list (:vX.Y.Z and :latest)
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          [ -n "$VERSION" ] || { echo "gate produced no version"; exit 1; }
+          n=$(ls | wc -l)
+          [ "$n" -eq 2 ] || { echo "expected 2 per-arch digests, found $n"; ls; exit 1; }
+          refs=()
+          for d in *; do refs+=("$IMAGE@sha256:$d"); done
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:latest" \
+            "${refs[@]}"
+
+      - name: Inspect published image
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          docker buildx imagetools inspect "$IMAGE:$VERSION" --raw > index.json
+          python3 - <<'PY'
+          import json, sys
+          idx = json.load(open("index.json"))
+          plats = sorted({f'{m["platform"]["os"]}/{m["platform"]["architecture"]}'
+                          for m in idx.get("manifests", []) if m.get("platform")} - {"unknown/unknown"})
+          print("platforms:", plats)
+          if plats != ["linux/amd64", "linux/arm64"]:
+              sys.exit("published manifest list is not exactly linux/amd64 + linux/arm64")
+          PY
