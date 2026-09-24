@@ -124,8 +124,10 @@ if command -v fixpoint &> /dev/null || command -v liquid-fixpoint &> /dev/null; 
   # `SAFE` banner — the old cascade tested `SAFE` before `spec weakness`, so the
   # weakness branch was unreachable and the gate dead-passed regardless. Now the
   # gate has teeth: a NEW confirmed weakness, or a dropped one, fails the check.
+  # Count distinct FUNCTIONS, not detections: one function can be confirmed
+  # weak by several candidates (e.g. the identity and the constant-0 body).
   EXPECTED_WEAK=$(jq '.expected_weakness_check.weak_functions | length' "$EXPECTED")
-  ACTUAL_WEAK=$(echo "$WEAK_OUTPUT" | grep -c "Spec weakness detected for")
+  ACTUAL_WEAK=$(echo "$WEAK_OUTPUT" | grep -o 'Spec weakness detected for `[^`]*`' | sort -u | wc -l | tr -d ' ')
   check_result "confirmed weak functions" "$EXPECTED_WEAK" "$ACTUAL_WEAK"
 else
   echo "  ⚠ liquid-fixpoint not installed — weakness check skipped"
