@@ -28,7 +28,7 @@ $ llmll verify conserve.llmll
 The proof is over **both** return values at once: a relational invariant, not a bound on one number. The wrong body above is written by hand to show the check firing. Dafny, Liquid Haskell or F\* would refute it too; what LLMLL adds is the loop around the proof, [below](#why-not-have-an-agent-write-dafny-liquid-haskell-or-f).
 
 <p align="center"><img src="docs/assets/refute.gif" width="760" alt="LLMLL refutes money creation before merge"></p>
-<p align="center"><sub>The wrong body in this recording is hand-written to show the check firing; no agent produced it. Regenerate with <code>make demo-gifs</code>.</sub></p>
+<p align="center"><sub>The wrong body in this recording is hand-written to show the check firing; no agent produced it. Regenerate with <code>make demo-gifs</code>. If an animation on this page shows a still frame, your browser or GitHub's Accessibility setting for animated images may be pausing it; click the image to open the GIF directly.</sub></p>
 
 Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) — the composed `transfer`/`debit` call-chain beat and the single-constructor `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
 

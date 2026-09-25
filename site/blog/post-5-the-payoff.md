@@ -109,7 +109,9 @@ keyboard for code that matters. The record layer model is that bet, paid off: ag
 its bodies, a compiler proved them, and it stands where TLS fell.
 
 *The programs in this series were written against `llmll 0.14.67` and re-checked on
-v0.25.5 with the same verdicts; goto-fail lives in
+v0.26.4 with the same verdicts. The "about a minute" above was measured in July 2026; on
+v0.26.4, on a laptop busy with other work, the 163-function run took about three minutes and
+2.8 GB. goto-fail lives in
 `examples/gotofail/`, Heartbleed and the flagship in `examples/heartbleed/`, cascading
 refinement in `examples/refine-demo/`, and the emergent build in
 `examples/secure-channel-emergent/`.*
