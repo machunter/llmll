@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## v0.26.4: `diverge-report` no longer calls an unchecked fill `refuted` (2026-09-24)
+
+`DIVERGE-FRAGMENT-LABEL-1`, filed by v0.26.3. `llmll diverge-report` listed a fill whose body falls
+outside the decidable fragment (for example `(* n n)`) under `status_partition.refuted`, with or
+without a solver. The solver never disproved such a fill; it could not check it.
+
+- **Such fills are now listed under `status_partition.outside_fragment`**, so `refuted` means only
+  that the solver returned UNSAFE. A session with a verified, a refuted, a nonlinear and an
+  ill-typed fill now reads `"outside_fragment": ["nonlin"], "refuted": ["bad"]` where v0.26.3 read
+  `"refuted": ["bad", "nonlin"]`.
+- **Verdict and exit code are unchanged.** These fills never enter the verified buckets, and they do
+  not trigger exit 3, since no solver would change their grade. The record change is additive.
+- **`LLMLL.md` §1:** the Core Philosophy list numbered two items `4a.` and `4b.`, which Markdown does
+  not read as list markers, so both rendered inside item 3 (Typed Logic). The list is now 1 to 7.
+
+**Tests:** 2078 Haskell (+1), 387 Python (310 passed, 77 skipped; `DN-6` updated and `DN-7` to `DN-10`
+added, cells that need `LLMLL_BIN`).
+
+
 ## v0.26.3: `llmll verify` could prove a false postcondition about a pair component (2026-09-24)
 
 ### `MEASURE-NONNEG-1`: a soundness fix

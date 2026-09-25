@@ -14,11 +14,14 @@
 -- Two-stage pipeline (this module implements stages 1–2 only):
 --
 --   * Stage 1 — status partition. Bucket the submitted fills by verify outcome
---     {verified, refuted, type-error, unavailable}. ONLY 'FSVerified' fills
---     carry the divergence signal (a refuted or ill-typed fill is not a
---     competing correct implementation, it is simply wrong). An 'FSUnavailable'
---     fill typechecked but the solver gave no verdict on it (DIVERGE-NOSOLVER-1):
---     it is not graded, so the verdict covers only the graded fills.
+--     {verified, refuted, type-error, unavailable, outside-fragment}. ONLY
+--     'FSVerified' fills carry the divergence signal (a refuted or ill-typed
+--     fill is not a competing correct implementation, it is simply wrong). An
+--     'FSUnavailable' fill typechecked but the solver gave no verdict on it
+--     (DIVERGE-NOSOLVER-1): it is not graded, so the verdict covers only the
+--     graded fills. An 'FSOutsideFragment' fill typechecked but its emission
+--     fell back from the decidable fragment, so no solver can check it
+--     (DIVERGE-FRAGMENT-LABEL-1): it is not verified and not refuted.
 --
 --   * Stage 2 — observational bucketing. Evaluate each verified fill over a
 --     shared finite probe set Ω (the cartesian product of small per-parameter
@@ -110,6 +113,11 @@ data FillStatus
   | FSUnavailable -- ^ DIVERGE-NOSOLVER-1: type-checked, but the solver reached
                   --   no verdict (not on PATH, or it ran and returned neither
                   --   SAFE nor UNSAFE). Not graded; never a verified competitor.
+  | FSOutsideFragment
+                  -- ^ DIVERGE-FRAGMENT-LABEL-1: type-checked, but the body-faithful
+                  --   emission fell back from the decidable fragment (for example
+                  --   a nonlinear @(* n n)@), so the solver cannot check it. The
+                  --   solver never disproved it. Never a verified competitor.
   deriving (Show, Eq)
 
 -- | Wire-line label for a 'FillStatus'.
@@ -118,6 +126,7 @@ fillStatusLabel FSVerified    = "verified"
 fillStatusLabel FSRefuted     = "refuted"
 fillStatusLabel FSTypeError   = "type-error"
 fillStatusLabel FSUnavailable = "unavailable"
+fillStatusLabel FSOutsideFragment = "outside-fragment"
 
 -- | A fill paired with its stage-1 verify status.
 data ClassifiedFill = ClassifiedFill
@@ -223,6 +232,7 @@ data DivergenceReport = DivergenceReport
   , drStatusRefuted         :: [Text]  -- ^ ids of refuted fills
   , drStatusTypeError       :: [Text]  -- ^ ids of type-erroring fills
   , drStatusUnavailable     :: [Text]  -- ^ ids of fills the solver gave no verdict on
+  , drStatusOutsideFragment :: [Text]  -- ^ ids of fills outside the decidable fragment
   , drSolverAvailable       :: Bool    -- ^ a solver binary was on PATH
   , drVerifiedBuckets       :: [VerifiedBucket]
   , drVerdict               :: DivergenceVerdict
@@ -243,6 +253,7 @@ buildDivergenceReport ctx cfs =
       refutedIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSRefuted ]
       typeErrIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSTypeError ]
       unavailIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSUnavailable ]
+      outFragIds = [ fillId (cfFill cf) | cf <- cfs, cfStatus cf == FSOutsideFragment ]
 
       -- Stage 2: evaluate each verified fill over the shared Ω.
       probes  = probeSet (dcParams ctx)
@@ -266,6 +277,7 @@ buildDivergenceReport ctx cfs =
        , drStatusRefuted         = refutedIds
        , drStatusTypeError       = typeErrIds
        , drStatusUnavailable     = unavailIds
+       , drStatusOutsideFragment = outFragIds
        , drSolverAvailable       = dcSolverAvailable ctx
        , drVerifiedBuckets       = buckets
        , drVerdict               = verdict
@@ -315,6 +327,7 @@ divergenceReportJson r = object
           , "refuted"    .= drStatusRefuted r
           , "type_error" .= drStatusTypeError r
           , "unavailable" .= drStatusUnavailable r  -- DIVERGE-NOSOLVER-1
+          , "outside_fragment" .= drStatusOutsideFragment r  -- DIVERGE-FRAGMENT-LABEL-1
           ]
       , "solver_available" .= drSolverAvailable r      -- DIVERGE-NOSOLVER-1
       , "verified_buckets" .= map bucketJson (drVerifiedBuckets r)
