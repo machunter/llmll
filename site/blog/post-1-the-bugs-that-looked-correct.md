@@ -1,10 +1,16 @@
 # Writing a verified slice of TLS, with AI agents doing the typing
 
-*A short series. We take a real piece of TLS, the layer where two famous security bugs
-actually lived, and build it so that (a) a compiler proves the code meets a specification,
-and (b) AI agents do the authoring. By the end we have a verified model of the record
-layer's logic that cannot accept the class of bug that broke TLS. This first post is the problem and
-the goal; the code starts in Post 2.*
+*A short series. We take the part of TLS where two famous security bugs lived, model it,
+and build the model so that (a) a compiler proves the code meets a specification, and
+(b) AI agents do the authoring. By the end we have a verified model of the record layer's
+logic in which a body that breaks the invariants those bugs broke does not verify. This
+first post is the problem and the goal; the code starts in Post 2.*
+
+> **Scope, up front.** What this series builds and proves is an *arithmetic model* of the
+> record layer's control, length and state discipline: every value is an integer, and no hash,
+> MAC or cipher is computed. For that model, agent-written bodies are accepted only when they
+> satisfy explicit contracts, and the changes that correspond to goto-fail and Heartbleed are
+> rejected by the verifier. [Post 5](post-5-the-payoff.md) states the limits in full.
 
 ## Post 1: The bugs that looked like correct code
 
@@ -74,10 +80,10 @@ notice it.
 
 So here is the question, and we are going to answer it by building the thing:
 
-> Can we write a real piece of TLS, the record and handshake plumbing where goto-fail and
-> Heartbleed actually lived, such that a **compiler proves** each function meets a specification,
-> and **AI agents do the authoring**, and the goto-fail class of bug simply *cannot* be
-> written and accepted?
+> Can we model the part of TLS where goto-fail and Heartbleed actually lived, the record and
+> handshake plumbing, such that a **compiler proves** each function meets a specification,
+> **AI agents do the authoring**, and a body that commits the goto-fail class of bug does not
+> verify?
 
 Two words in that question need defining.
 
@@ -101,7 +107,8 @@ you can trust. The agent proposes; the compiler disposes. Neither is sufficient 
 The invariant goto-fail violated is not mysterious. It is a sentence: *report success only
 if the signature check actually ran and passed.* You can write that down. It is a
 **specification**, and the moment it exists as something a compiler enforces, the bug
-stops being a bug you might catch and becomes a bug that cannot exist in accepted code.
+stops being a bug you might catch: a body that violates the stated invariant does not
+verify.
 
 That is where Post 2 starts: what it looks like to state that invariant, hand the
 implementation to an agent, and watch the compiler reject the version that skips the

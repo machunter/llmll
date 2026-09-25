@@ -11,8 +11,9 @@ wrote down.
 
 This series takes the TLS logic where both bugs lived and builds it so that a compiler
 **proves** each function meets a specification and **AI agents** do the authoring. It ends with
-a verified model of the record layer's logic, 163 functions, in which those two bug classes
-cannot be written and accepted.
+a verified model of the record layer's logic, 163 functions, in which a body that breaks the
+invariants those bugs broke does not verify. The model is arithmetic: every value is an
+integer, and no hash, MAC or cipher is computed.
 
 The series is five posts and reads in order.
 

@@ -2,7 +2,7 @@
 
 *[Post 2](post-2-a-compiler-that-refuses.md) verified one function against its contract. A
 record layer is a hundred-plus functions calling each other, and the second famous bug,
-Heartbleed, lived precisely in the gap *between* two of them. This post is about what the
+Heartbleed, lived precisely in the gap between two of them. This post is about what the
 guarantee does at a call boundary.*
 
 ## Proving functions one at a time

@@ -90,7 +90,9 @@ the refine gate rejects the spawn:
 Rejected at the spawn. The gate asks whether a trivial identity, constant, or projection
 body would already pass the proposed contract; if so, the sub-goal discriminates nothing
 and the decomposition is refused. An agent cannot make progress by breaking a hard problem
-into an easy one that means nothing.
+into an easy one that means nothing. The gate is a check over a fixed set of trivial
+candidate bodies, not a proof that the contract means what you intended: a contract can
+pass it and still say the wrong thing.
 
 **Scope.** Suppose an agent tries to add a function the fill body never calls. The gate
 rejects that too:

@@ -1,9 +1,10 @@
 # Post 5: A channel that stands where TLS fell
 
 *The [first post](post-1-the-bugs-that-looked-correct.md) asked whether we could build a
-piece of TLS where a compiler proves the code and agents write it, so the bugs that broke
-TLS can't ship. Posts 2 to 4 built the parts: a contract an agent fills, composition
-across call boundaries, and agents inventing their own decomposition under a gate. This
+model of TLS's record-layer logic where a compiler proves the code and agents write it, so
+a body that reintroduces the bugs that broke TLS does not verify. Posts 2 to 4 built the
+parts: a contract an agent fills, composition across call boundaries, and a decomposition
+grown one contracted step at a time under a gate. This
 post is the whole thing.*
 
 ## 163 functions, filled by agents, verified as one program
@@ -26,6 +27,17 @@ companion build where agents
 invent the decomposition too (Post 4's cascade, run at module scale with an import-linked
 spine) is [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent).
 
+| | 163-function flagship (this post) | 25-function emergent build |
+|---|---|---|
+| Root contracts, where the invariants live | us | us |
+| Decomposition into sub-contracts | us, carved from our reference implementation | agents, through `refine`, with no reference solution |
+| Function bodies | agents, one per module | agents, one fresh agent per hole |
+| Checking each body against its contract | compiler and solver | compiler and solver |
+| Whether the contracts say the right thing | us | us |
+
+The emergent build is the cleaner evidence that agents can invent a decomposition; this
+one shows the verification holding at 163 functions.
+
 Then the whole program is verified at once:
 
 ```
@@ -44,7 +56,7 @@ contracts through the assume-guarantee reasoning of Post 3, so the cross-module 
 (a byte is delivered only if MAC-verified and sequence-fresh and handshake-connected and
 length-sound) hold across the whole graph.
 
-## The bugs cannot come back
+## Reintroducing the bugs fails verification
 
 The guarantee is not a badge the program wears; it is a property the compiler re-checks on
 every run. Reintroduce goto-fail, making a finalize-style step report success on a path that
@@ -96,8 +108,8 @@ precisely.
   agents.
 
 None of those caveats touch the claim the series set out to demonstrate: a model of TLS's
-record-layer logic, with bodies written by agents and proved by a compiler, in which the
-two bugs that broke TLS cannot be written and accepted.
+record-layer logic, with bodies written by agents and proved by a compiler, in which a body
+that reintroduces either of the two bugs that broke TLS does not verify.
 
 ## The point
 
