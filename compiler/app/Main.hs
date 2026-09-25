@@ -2558,11 +2558,15 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
     then pure FSTypeError
     else do
       -- The fragment check needs no solver, so it runs first: a fill outside
-      -- QF-LIA is refuted with or without one.
+      -- QF-LIA is outside-fragment with or without one.
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
       emitR <- emitSynthetic gm emitOpts "<diverge-fill>" program
       if fname `elem` erBodyFallback emitR
-        then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
+        -- DIVERGE-FRAGMENT-LABEL-1: the solver cannot check this fill, so it
+        -- is not refuted (which means the solver disproved it). It is final,
+        -- not ungraded: no solver would change it, so it does not trigger the
+        -- exit-3 rule, and it never enters the verified buckets.
+        then pure FSOutsideFragment
         else case mLF of
           -- DIVERGE-NOSOLVER-1: no solver means no verdict. Before, this fill
           -- was recorded as a type error, which it is not.

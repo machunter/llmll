@@ -414,6 +414,8 @@ jobs:
       # errors or refuted. DN-4 grades a good and a bad fill WITH the solver,
       # so this step sits after the toolchain assert; the first grep refuses a
       # run where DN-4 skipped, the second demands all six passed.
+      # DIVERGE-FRAGMENT-LABEL-1 added DN-7..DN-10 to the same file (DN-7, DN-8
+      # and DN-9 need the solver too), so the count is now ten.
       - name: Run DIVERGE-NOSOLVER-1 cells (pytest, needs the built compiler and fixpoint)
         run: |
           set -euo pipefail
@@ -423,8 +425,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/diverge-nosolver.log"; then
             echo "a DIVERGE-NOSOLVER-1 cell skipped; fixpoint must be on PATH here"; exit 1
           fi
-          grep -q ' 6 passed' "$RUNNER_TEMP/diverge-nosolver.log" \
-            || { echo "DIVERGE-NOSOLVER-1: expected 6 passed cells"; exit 1; }
+          grep -q ' 10 passed' "$RUNNER_TEMP/diverge-nosolver.log" \
+            || { echo "DIVERGE-NOSOLVER-1: expected 10 passed cells"; exit 1; }
 
       # TOOL-ORACLE-1: every port's proved core, and the refuting case that makes
       # it a proof rather than a green light.

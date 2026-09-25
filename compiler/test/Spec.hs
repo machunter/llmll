@@ -83,7 +83,7 @@ import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLoc
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
-  , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson
+  , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts, patchTargetFns)
 import System.FilePath ((</>))
@@ -18102,6 +18102,36 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (encode <$> KM.lookup "unavailable" sp) `shouldBe` Just (encode ["fillA", "fillB" :: T.Text])
                 (encode <$> KM.lookup "type_error" sp)  `shouldBe` Just (encode ["fillD" :: T.Text])
               _ -> expectationFailure "status_partition is not an object"
+          _ -> expectationFailure "divergence_witness is not an object"
+        _ -> expectationFailure "top-level record is not an object"
+
+    it "DIVERGE-FRAGMENT-LABEL-1: outside-fragment fills are their own partition, not refuted" $ do
+      -- fillB diverges from fillA on Ω, so were it verified the verdict would
+      -- be under-constraint-witness. Outside the fragment it is not verified:
+      -- it stays out of the buckets and the verdict sees fillA alone.
+      let fillC = Fill "fillC" (peR5 "(+ x lo)")
+          rep = buildDivergenceReport (clampCtx SpecEntropyStrict)
+                  [ ClassifiedFill fillA FSVerified
+                  , ClassifiedFill fillB FSOutsideFragment
+                  , ClassifiedFill fillC FSRefuted ]
+      drNSubmitted rep            `shouldBe` 3
+      drStatusVerified rep        `shouldBe` ["fillA"]
+      drStatusOutsideFragment rep `shouldBe` ["fillB"]
+      drStatusRefuted rep         `shouldBe` ["fillC"]
+      drStatusUnavailable rep     `shouldBe` []
+      concatMap vbFills (drVerifiedBuckets rep) `shouldBe` ["fillA"]
+      drVerdict rep `shouldBe` VNoDivergenceObserved
+      fillStatusLabel FSOutsideFragment `shouldBe` "outside-fragment"
+      case divergenceReportJson rep of
+        Object o -> case KM.lookup "divergence_witness" o of
+          Just (Object dw) -> case KM.lookup "status_partition" dw of
+            Just (Object sp) -> do
+              (encode <$> KM.lookup "outside_fragment" sp) `shouldBe` Just (encode ["fillB" :: T.Text])
+              (encode <$> KM.lookup "refuted" sp)          `shouldBe` Just (encode ["fillC" :: T.Text])
+              -- Additive: every earlier key is still present.
+              map (`KM.member` sp) ["verified", "refuted", "type_error", "unavailable"]
+                `shouldBe` [True, True, True, True]
+            _ -> expectationFailure "status_partition is not an object"
           _ -> expectationFailure "divergence_witness is not an object"
         _ -> expectationFailure "top-level record is not an object"
 
