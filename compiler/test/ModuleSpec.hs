@@ -37,6 +37,8 @@ import LLMLL.PBT
   , canonicalDefEvidenceHash
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
+import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
+import qualified Data.Set as Set
 import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause, arrayTheorySyms)
 import LLMLL.FixpointIR (fqFreeSymbols, FQFile(..), emptyFQFile, FQConstraint(..), FQBind(..), FQReft(..), FQPred(..), FQBinOp(..), FQSort(..), FQConstant(..), FQDataDecl(..))
 import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames, importedContractedFns)
@@ -749,6 +751,65 @@ moduleSpec = describe "Module System" $ do
   -- 'in_scope' (seeded sketch env) carries imported names. Sibling of
   -- XMOD-CG-BRIEF (which fixed consumed_guarantees).
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- HEADLINE-TERM-1 + STRICT-XMOD-1: the qualified whole-program call graph and
+  -- the caller closures behind the verify headline and the strict-core gate.
+  -- -----------------------------------------------------------------------
+  describe "HEADLINE-TERM-1: qualified program graph and caller closures" $ do
+    let parseSrc src = case parseTopLevel GrammarCoreInversion "<headline-term>" src of
+          Left e      -> error ("parse failed: " ++ show e)
+          Right stmts -> stmts
+        modEnv path src = buildModuleEnv path (parseSrc src) Map.empty emptyEnv
+        -- 'loop.spin' never returns; 'modb.spin' has the same name and returns 42.
+        cache = Map.fromList
+          [ (["loop"], modEnv ["loop"] "(def-shell spin [x: int] -> int (post (= result 42)) (spin x))")
+          , (["modb"], modEnv ["modb"] "(def-shell spin [x: int] -> int (post (= result 42)) 42)") ]
+
+    it "HT-G1: an opened bare call resolves to the qualified import" $ do
+      let g = qualifiedCallGraph cache (parseSrc "(import loop)\n(open loop)\n(def-shell use [s: int] -> int (spin s))")
+      Map.lookup "use" g `shouldBe` Just ["loop.spin"]
+      Map.lookup "loop.spin" g `shouldBe` Just ["loop.spin"]
+
+    it "HT-G2: a qualified call resolves without an open" $ do
+      let g = qualifiedCallGraph cache (parseSrc "(import loop)\n(def-shell use [s: int] -> int (loop.spin s))")
+      Map.lookup "use" g `shouldBe` Just ["loop.spin"]
+
+    it "HT-G3: a local definition shadows an opened import of the same name" $ do
+      let g = qualifiedCallGraph cache (parseSrc (T.unlines
+                [ "(import loop)", "(open loop)"
+                , "(def-shell spin [x: int] -> int 42)"
+                , "(def-shell use [s: int] -> int (spin s))" ]))
+      Map.lookup "use" g `shouldBe` Just ["spin"]
+
+    it "HT-G4: a builtin call adds no edge" $ do
+      let g = qualifiedCallGraph cache (parseSrc "(def-shell use [s: string] -> int (string-length s))")
+      Map.lookup "use" g `shouldBe` Just []
+
+    it "HT-G5: the same bare name in two modules stays two nodes" $ do
+      let g = qualifiedCallGraph cache (parseSrc "(import loop)\n(import modb)\n(open modb)\n(def-shell use [s: int] -> int (spin s))")
+          u = undischargedCycleMembers g Set.empty
+      u `shouldBe` Set.fromList ["loop.spin"]
+      Map.member "use" (callerClosure g u) `shouldBe` False
+
+    it "HT-G6: an import with no sidecar is unproved and not discharged" $ do
+      importUnprovedFns cache `shouldBe` Set.fromList ["loop.spin", "modb.spin"]
+      cachedDischargedFns cache `shouldBe` Set.empty
+
+    it "HT-C1: callerClosure is reflexive and follows chains and diamonds" $ do
+      let g = Map.fromList [("a", ["b"]), ("b", ["c"]), ("c", []), ("d", ["b", "e"]), ("e", [])]
+      callerClosure g (Set.fromList ["c"]) `shouldBe`
+        Map.fromList [("a", "c"), ("b", "c"), ("c", "c"), ("d", "c")]
+
+    it "HT-C2: the nearest target is the via" $ do
+      let g = Map.fromList [("a", ["b", "t2"]), ("b", ["t1"]), ("t1", []), ("t2", [])]
+      callerClosure g (Set.fromList ["t1", "t2"]) `shouldBe`
+        Map.fromList [("a", "t2"), ("b", "t1"), ("t1", "t1"), ("t2", "t2")]
+
+    it "HT-C3: a discharged cycle leaves the undischarged set" $ do
+      let g = Map.fromList [("f", ["g"]), ("g", ["f"]), ("h", ["f"]), ("k", [])]
+      undischargedCycleMembers g Set.empty `shouldBe` Set.fromList ["f", "g"]
+      undischargedCycleMembers g (Set.fromList ["f", "g"]) `shouldBe` Set.empty
+
   describe "XMOD-SCOPE-BRIEF: brief scope/function channels see imported names" $ do
     let parseSrc src = case parseTopLevel GrammarCoreInversion "<xmod-scope>" src of
           Left e      -> error ("parse failed: " ++ show e)

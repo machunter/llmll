@@ -99,6 +99,8 @@ library:
     - LLMLL.ProofCache
     # v0.3.2: trust report
     - LLMLL.TrustReport
+    # HEADLINE-TERM-1 + STRICT-XMOD-1: qualified whole-program call graph + caller closures
+    - LLMLL.ProgramGraph
     # PROOF-ARTIFACT: unified reproducible verification record
     - LLMLL.ProofArtifact
     # v0.3.4: agent spec generator

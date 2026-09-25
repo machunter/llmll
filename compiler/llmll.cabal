@@ -47,6 +47,7 @@ library
       LLMLL.MCPClient
       LLMLL.ProofCache
       LLMLL.TrustReport
+      LLMLL.ProgramGraph
       LLMLL.ProofArtifact
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck

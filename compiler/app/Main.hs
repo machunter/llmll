@@ -80,7 +80,8 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
+import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1309,7 +1310,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- (and the sidecar itself) say total. 'measure-not-decreasing' stays
         -- solver-path-only, exactly like 'refuted' (the by-design note above):
         -- it is a same-run solver verdict and is never persisted.
-        let report = markDescentDischarged (sidecarDischargedSet entrySidecar)
+        let report = markTerminationAssumed (termClosureOf _cache stmts (sidecarDischargedSet entrySidecar))
+                   $ markDescentDischarged (sidecarDischargedSet entrySidecar)
                        (buildTrustReport _cache stmts (upgradeLeanstralPosts leanCache entrySidecar))
         if json
           then TIO.putStrLn (formatTrustReportJson report)
@@ -1399,6 +1401,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         let fallbacks = erBodyFallback emitR
             causes    = erBodyFallbackCauses emitR  -- FALLBACK-REASON-CONST-1
             tainted   = erOverflowTaintedFns emitR
+            -- STRICT-XMOD-1: LLMLL.md §5.3 conjunct (d) across modules. A
+            -- body-faithful function whose proof uses an imported contract that
+            -- is not proved (asserted, tested, stale, or no sidecar) rests on an
+            -- assumption. The fallback check above sees this run's entry emit
+            -- only, so before this an imported fallback passed the gate.
+            importDeps = importAssumedOf _cache stmts (erBodyFaithfulFns emitR)
             errs :: [(T.Text, [T.Text], T.Text)]
             errs = [ ("fallback", fallbacks
                     , T.pack (show (length fallbacks))
@@ -1412,6 +1420,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                       <> "(unbounded-Int arithmetic; clear via ?proof-required + Leanstral or wait for INT-2 unbounded `int`): "
                       <> T.intercalate ", " tainted)
                    | not (null tainted)
+                   ]
+                ++ [ ("import_assumed", map fst importDeps
+                    , T.pack (show (length importDeps))
+                      <> " function(s) depend on unproved imported contracts: "
+                      <> renderVia importDeps)
+                   | not (null importDeps)
                    ]
         unless (null errs) $ do
           if json
@@ -1532,6 +1546,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               descentDischargedSet =
                 descentDischargedFns stmts (erMeasuredFns emitR) bodyFaithfulSet
                   (case fqResult of { FQSafe -> True; _ -> False })
+              -- HEADLINE-TERM-1: functions whose proof holds only if a function
+              -- they reach terminates, over the whole program (entry + imports).
+              termClosure = termClosureOf _cache stmts descentDischargedSet
               -- TRUST-CC-1: the per-function 'body_fallback' marker, from THIS
               -- run's emit result. Suppress 'no-post' and 'unfilled-hole': both
               -- mean no proof goal was lost, so the marker would misdescribe the
@@ -1570,7 +1587,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
-            let trustRpt = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
+            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1608,7 +1625,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               (paSidecar, _stale, paContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
+              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 -- SIDECAR-ADMIT-1: the kernel is now the LAST defence, not the
                 -- only one. 'loadCheckedSidecar' has already demoted a tier this
@@ -1633,6 +1650,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- '--json' counts. Pure over this run's emit result and the source.
           let headline = headlineCounts (cacheAwareAliasMap stmts _cache) retTypes
                                         stmts (erBodyFaithfulFns emitR)
+                                        termClosure
+                                        (Map.fromList (importAssumedOf _cache stmts (erBodyFaithfulFns emitR)))
           if json
             then do
               -- v0.8.0: augment JSON with body-faithful metadata
@@ -1666,6 +1685,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                             , "proved_count"     .= length (hcProved headline)
                             , "contracted_count" .= length (hcContracted headline)
                             , "assumed_fns"      .= hcAssumed headline
+                              -- HEADLINE-TERM-1 / STRICT-XMOD-1: proved, but only if
+                              -- a reached function terminates / an import holds.
+                            , "termination_assumed_fns" .= viaJson (hcTermAssumed headline)
+                            , "import_assumed_fns"      .= viaJson (hcImportAssumed headline)
                             ]
                           _ -> [])
               -- Merge by stripping closing } from report and appending body_meta fields
@@ -1874,7 +1897,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
-            let report = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
+            let report = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
                            (markDescentDischarged descentDischargedSet
                              (markMeasureNotDecreasing measureNotDecreasingSet
                                (markRefuted refutedSet
@@ -1906,7 +1929,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (cdpFlag && not strictCore) already threads
             -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
+            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json
@@ -2843,6 +2866,12 @@ data HeadlineCounts = HeadlineCounts
   { hcContracted :: [Name]
   , hcProved     :: [Name]
   , hcAssumed    :: [Name]
+    -- HEADLINE-TERM-1: proved functions whose proof holds only if a function
+    -- they reach terminates, each with that function (the "via").
+  , hcTermAssumed   :: [(Name, Name)]
+    -- STRICT-XMOD-1: proved functions (not already in 'hcTermAssumed') whose
+    -- proof uses an unproved imported contract, each with that import.
+  , hcImportAssumed :: [(Name, Name)]
   }
 
 -- | 'erBodyFallback' is not the assumed set: it also lists functions with no
@@ -2852,9 +2881,14 @@ data HeadlineCounts = HeadlineCounts
 -- emitter's 'effRet'). An inferred refinement-aliased return is a post the
 -- emitter tries to prove, so it counts; hangman's 'state-max-wrong' is one.
 -- The body-faithful list then decides proved.
-headlineCounts :: AliasMap -> Map.Map Name Type -> [Statement] -> [Name] -> HeadlineCounts
-headlineCounts aliases retTypes stmts faithful = HeadlineCounts contracted proved assumed
+headlineCounts :: AliasMap -> Map.Map Name Type -> [Statement] -> [Name]
+               -> Map.Map Name Name -> Map.Map Name Name -> HeadlineCounts
+headlineCounts aliases retTypes stmts faithful termCl importCl =
+  HeadlineCounts contracted proved assumed termAssumed importAssumed
   where
+    termAssumed   = [ (n, v) | n <- proved, Just v <- [Map.lookup n termCl] ]
+    importAssumed = [ (n, v) | n <- proved, Map.notMember n termCl
+                             , Just v <- [Map.lookup n importCl] ]
     faithfulS  = Set.fromList faithful
     contracted = dedupe Set.empty
       [ n
@@ -2879,6 +2913,7 @@ headlineCounts aliases retTypes stmts faithful = HeadlineCounts contracted prove
 -- defect this row removes.
 headlineAllProved :: HeadlineCounts -> Bool
 headlineAllProved h = not (null (hcContracted h)) && null (hcAssumed h)
+                    && null (hcTermAssumed h) && null (hcImportAssumed h)
 
 -- | The text-mode headline on 'FQSafe'. The all-proved line is byte-identical
 -- to the pre-VERIFY-HEADLINE-1 line, and every line keeps the literal
@@ -2888,15 +2923,62 @@ safeHeadlineLines fp h
   | headlineAllProved h = [ "\x2705 " <> verdict ]
   | null (hcContracted h) =
       [ warn <> verdict <> ", nothing proved: no function carries a postcondition" ]
-  | otherwise =
-      [ warn <> verdict <> ", partial: " <> tshow (length (hcProved h)) <> " of "
-          <> tshow (length (hcContracted h)) <> " contracted functions proved; "
+  | otherwise = (warn <> verdict <> ", " <> T.intercalate "; " clauses) : hints
+  where
+    counts = tshow (length (hcProved h)) <> " of "
+               <> tshow (length (hcContracted h)) <> " contracted functions proved"
+    -- The v0.26.1 'partial:' text stays byte-identical when something is assumed.
+    base
+      | null (hcAssumed h) = counts
+      | otherwise = "partial: " <> counts <> "; "
           <> tshow (length (hcAssumed h)) <> " assumed, not proved: "
           <> T.intercalate ", " (hcAssumed h)
-      , "   (--strict-verified-core fails on assumed functions)" ]
-  where
+    termN   = length (hcTermAssumed h)
+    clauses = [ base ]
+      ++ [ tshow termN <> " proved only if "
+             <> (if termN == 1 then "it terminates" else "they terminate")
+             <> ": " <> renderVia (hcTermAssumed h)
+         | termN > 0 ]
+      ++ [ tshow (length (hcImportAssumed h)) <> " proved on unproved imported contracts: "
+             <> renderVia (hcImportAssumed h)
+         | not (null (hcImportAssumed h)) ]
+    -- Each hint appears only when it is true of this program: strict-core
+    -- refuses assumed functions and callers of unproved imports, and admits a
+    -- function proved at partial correctness.
+    hints =
+      [ if null (hcImportAssumed h)
+          then "   (--strict-verified-core fails on assumed functions)"
+          else "   (--strict-verified-core fails on assumed functions and their callers)"
+      | not (null (hcAssumed h) && null (hcImportAssumed h)) ]
+      ++ [ "   (termination: add a (decreases \x2026) measure to the recursive function; see --trust-report)"
+         | termN > 0 ]
     verdict = T.pack fp <> " \8212 SAFE (liquid-fixpoint)"
     warn    = "\x26A0\xFE0F  "
+
+-- | HEADLINE-TERM-1: every function whose proof holds only if a function it
+-- reaches terminates, mapped to that function. The undischarged cycles are
+-- computed over the whole program; the entry's discharge comes from the
+-- caller (this run's solver, or the sidecar on a render-only path) and each
+-- import's from its staleness-gated sidecar.
+termClosureOf :: ModuleCache -> [Statement] -> Set.Set Name -> Map.Map Name Name
+termClosureOf cache stmts entryDischarged =
+  let g = qualifiedCallGraph cache stmts
+  in callerClosure g (undischargedCycleMembers g
+                        (Set.union entryDischarged (cachedDischargedFns cache)))
+
+-- | STRICT-XMOD-1: the given entry functions whose proof uses an unproved
+-- imported contract, each with the import it reaches, in the given order.
+importAssumedOf :: ModuleCache -> [Statement] -> [Name] -> [(Name, Name)]
+importAssumedOf cache stmts fns =
+  let cl = callerClosure (qualifiedCallGraph cache stmts) (importUnprovedFns cache)
+  in [ (n, v) | n <- fns, Just v <- [Map.lookup n cl] ]
+
+-- | @use (via loop.spin)@; a function that is its own via prints bare.
+renderVia :: [(Name, Name)] -> T.Text
+renderVia = T.intercalate ", " . map (\(n, v) -> if n == v then n else n <> " (via " <> v <> ")")
+
+viaJson :: [(Name, Name)] -> [Value]
+viaJson = map (\(n, v) -> object ["name" .= n, "via" .= v])
 
 -- ---------------------------------------------------------------------------
 -- v0.3: contract extraction helper (used by doVerify)

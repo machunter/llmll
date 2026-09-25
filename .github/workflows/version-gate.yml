@@ -489,6 +489,23 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_verify_headline_1.py -v
 
+      # HEADLINE-TERM-1 + STRICT-XMOD-1: a proof that rests on termination or on
+      # an unproved import is not shown as proved, and strict-core refuses the
+      # second. Same placement reason as above. HT-1..5, 7, 9, 10 failed on the
+      # v0.26.4 binary; HT-6 and HT-8 (negative controls) passed on both. The
+      # first grep refuses a run where a cell skipped; the second demands all ten.
+      - name: Run HEADLINE-TERM-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_headline_term_1.py -v -rs \
+            | tee "$RUNNER_TEMP/headline-term.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/headline-term.log"; then
+            echo "a HEADLINE-TERM-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+          grep -q ' 10 passed' "$RUNNER_TEMP/headline-term.log" \
+            || { echo "HEADLINE-TERM-1: expected 10 passed cells"; exit 1; }
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail
