@@ -284,9 +284,12 @@ $ stack exec llmll -- verify ../examples/payments-core/conserve.llmll
    Running liquid-fixpoint ...
 ✅ conserve.llmll — SAFE (liquid-fixpoint)
 
-# ✅ means every function with a postcondition was proved. When some were not
-# (the body fell back from the SMT fragment, or is still a ?hole), the headline
-# says so, names them, and points at the strict mode that fails on them:
+# ✅ means every function with a postcondition was proved, and no proof rests on
+# an unproved import or on a recursion with no (decreases …) measure (those are
+# named as "proved on unproved imported contracts" / "proved only if it
+# terminates"). When some were not proved (the body fell back from the SMT
+# fragment, or is still a ?hole), the headline says so, names them, and points
+# at the strict mode that fails on them:
 $ stack exec llmll -- verify ../examples/erc20_token/erc20_filled.ast.json
 ⚠️  erc20_filled.ast.json — SAFE (liquid-fixpoint), partial: 3 of 5 contracted functions proved; 2 assumed, not proved: transfer, transfer-from
    (--strict-verified-core fails on assumed functions)

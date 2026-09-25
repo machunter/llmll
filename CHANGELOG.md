@@ -4,6 +4,54 @@
 
 <a id="Latest"></a>
 
+## v0.26.5: the `verify` headline and `--strict-verified-core` see termination and unproved imports (2026-09-25)
+
+### `HEADLINE-TERM-1`: a proof that assumes termination is not shown as proved
+
+`llmll verify` printed `✅` when every function with a postcondition was body-faithful. A function in a
+recursive cycle with no discharging `(decreases …)` measure is proved at partial correctness only: a
+body that never returns meets any postcondition. So is every function that calls such a cycle, in any
+module. `spin` with body `(spin x)` and post `(= result 42)`, called from a non-recursive `use` in
+another file, printed `✅ main.llmll — SAFE (liquid-fixpoint)`.
+
+- **The headline now names these functions and drops the check mark:**
+  `⚠️  main.llmll — SAFE (liquid-fixpoint), 1 of 1 contracted functions proved; 1 proved only if it terminates: use (via loop.spin)`,
+  with a hint to add a `(decreases …)` measure. The set is computed over one call graph of the whole
+  program (entry plus imported modules, names module-qualified), so a caller through an uncontracted
+  helper or in another module is included, and two modules that each define `go` stay two functions.
+- **`--json`** gains `termination_assumed_fns` (a list of `{name, via}`); `all_proved` is false when it
+  is non-empty.
+- **`--trust-report`** gains a top-level `termination_assumed_fns` and a per-entry
+  `termination_assumed: true`, and the text report lists the callers under "Proved only if a called
+  function terminates". `trust_report_version` is now `1.7.0`; `partial_fns` is unchanged.
+- **`--strict-verified-core` still admits these functions:** partial correctness is what its soundness
+  statement covers. The spec now says so in place of "fully verified" (`LLMLL.md` §5.3).
+
+### `STRICT-XMOD-1`: `--strict-verified-core` passed a proof resting on an unproved import
+
+A proved function that calls an imported contract which is not proved (the import fell back from the SMT
+fragment, was never verified, or changed since its sidecar was written) printed `✅` and passed
+`--strict-verified-core`. `LLMLL.md` §5.3 conjunct (d) says strict-core refuses an `asserted`-tier
+dependency; the gate read only the entry module's own emit result. An import `sq` whose body is `(* x x)`
+and whose post claims `(= result 42)` made its caller "proved".
+
+- **The headline names such a caller:** `1 proved on unproved imported contracts: use (via lib.sq)`.
+  `--json` gains `import_assumed_fns`.
+- **`--strict-verified-core` refuses it:**
+  `ERROR: --strict-verified-core: 1 function(s) depend on unproved imported contracts: use (via lib.sq)`,
+  exit 1. The import's level is read after the sidecar staleness gate, so an edited import counts.
+- **A `def` calling a `def-shell` in the same file** now gets a diagnostic that states the rule (move the
+  callee to its own module, verify it, import it). The old text said the callee "is not body-faithful",
+  which was false for a verified callee. The diagnostic kind `core-membership-violation` is unchanged.
+
+**No example changes.** `verify` and `--strict-verified-core` over all 242 files in `examples/` and
+`tools/` give the same exit code and headline as v0.26.4. The 163-function secure-channel program
+verifies in the same CPU time.
+
+**Tests:** 2087 Haskell (+9), 397 Python (310 passed, 87 skipped; `HT-1` to `HT-10` added, cells that
+need `LLMLL_BIN`, run as their own CI step).
+
+
 ## v0.26.4: `diverge-report` no longer calls an unchecked fill `refuted` (2026-09-24)
 
 `DIVERGE-FRAGMENT-LABEL-1`, filed by v0.26.3. `llmll diverge-report` listed a fill whose body falls

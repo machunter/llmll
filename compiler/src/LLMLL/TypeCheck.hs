@@ -1221,8 +1221,10 @@ checkCalleeAdmissibility func = do
       enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
       -- CORE-EXCL gets its OWN diagnostic: the membership message's remedy
       -- ("verify it first") is unreachable for a sealed builtin.
-      let d = if excluded then mkCoreExcludedBuiltin enclosing func
-                          else mkCoreMembershipViolation enclosing func
+      let localDefs = Set.fromList [ n | st <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt st] ]
+          d | excluded                     = mkCoreExcludedBuiltin enclosing func
+            | Set.member func localDefs    = mkCoreMembershipViolationLocal enclosing func isRec
+            | otherwise                    = mkCoreMembershipViolation enclosing func
       modify $ \s -> s { tcErrors = tcErrors s ++ [d] }
 
 -- | JSON-NOEQ (JSON-1): equality is denied at the sealed @Json@ carrier.

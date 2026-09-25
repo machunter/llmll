@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.26.4
+version:             0.26.5
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             GPL-3
@@ -99,6 +99,8 @@ library:
     - LLMLL.ProofCache
     # v0.3.2: trust report
     - LLMLL.TrustReport
+    # HEADLINE-TERM-1 + STRICT-XMOD-1: qualified whole-program call graph + caller closures
+    - LLMLL.ProgramGraph
     # PROOF-ARTIFACT: unified reproducible verification record
     - LLMLL.ProofArtifact
     # v0.3.4: agent spec generator

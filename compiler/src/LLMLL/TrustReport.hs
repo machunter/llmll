@@ -50,6 +50,7 @@ module LLMLL.TrustReport
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
   , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
   , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
+  , markTerminationAssumed -- HEADLINE-TERM-1: the caller closure of the undischarged cycles
   , sidecarDischargedSet   -- TERM-REPORT-PLAIN: persisted discharge for the render-only path
   , entryHeadlineLevel  -- COVERAGE-TIER: the one per-function tier notion (post-side, met + joint-demoted)
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
@@ -243,6 +244,14 @@ data TrustReport = TrustReport
   -- it does NOT feed the trust meet, 'DisplayLevel', or admission. Descent
   -- discharge (REC-BODY-VC (c), REC-DESCENT) will later clear a member.
   , trPartialFns       :: Set Name
+  -- HEADLINE-TERM-1 (1.7.0): every contracted function whose proof holds only
+  -- if a function it reaches terminates, mapped to that function (its "via").
+  -- The reflexive caller closure of the undischarged cycle members over the
+  -- qualified whole-program graph ('LLMLL.ProgramGraph'), so it covers a
+  -- non-recursive caller and a caller in another module, which 'trPartialFns'
+  -- does not. Set by 'markTerminationAssumed'; empty until then. Informational
+  -- like 'trPartialFns': it does not feed the meet, the level or admission.
+  , trTermAssumed      :: Map Name Name
   -- Cascade Refinement L3(d) (Rev 8, docs/design/cascading-refinement-proposal.md
   -- §194-204): per-function decomposition-trust meet over the function's
   -- UNVOUCHED (:source-absent) transitive-callee subtree. Report-only, like
@@ -388,6 +397,10 @@ data TierProfile = TierProfile
 -- REC-PARTIAL-MARK (1.5.0): additive top-level 'partial_fns' list + per-entry
 -- 'termination_unverified' flag (only-on-true). Derived from the call-graph SCC,
 -- never persisted; existing 1.4.0 consumers ignore the new keys.
+-- HEADLINE-TERM-1 (1.7.0): additive top-level 'termination_assumed_fns' (a list
+-- of {name, via}) and per-entry 'termination_assumed' (only-on-true): the
+-- caller closure of the undischarged cycles, which 'partial_fns' (cycle members
+-- only) does not cover. Existing 1.6.0 consumers ignore the new keys.
 -- OBLIG-PBT-5b (1.6.0): additive 'tested_joint' count in the summary and each
 -- tier profile, and the 'tested-joint' value of 'post_level'/'pre_level' /
 -- 'effective_level' labels for a jointly-tested clause (a real 'DLTestedJoint'
@@ -395,7 +408,7 @@ data TierProfile = TierProfile
 -- ignore 'tested_joint' still see a coherent shape; a joint clause that they
 -- previously read as 'asserted' now reads as the distinct 'tested-joint' label.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.6.0"
+trustReportEmitVersion = "1.7.0"
 
 -- | EFFECT-RESP: the harness-level residue a console program carries.
 --
@@ -613,6 +626,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trCDP             = cdpMap
        , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
        , trPartialFns      = partialFns  -- REC-PARTIAL-MARK: derived, present on every path
+       , trTermAssumed     = Map.empty   -- HEADLINE-TERM-1: populated by markTerminationAssumed
        , trDecompMeet      = decompMeetMap  -- Cascade L3(d) (Rev 8): decomposition-trust meet
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
@@ -692,6 +706,15 @@ markMeasureNotDecreasing mnd report =
 -- strict/CDP paths. Subtracts from 'trPartialFns'; the per-entry
 -- 'termination_unverified' flag and the top-level 'partial_fns' list are both
 -- projected from that set, so both clear.
+-- | HEADLINE-TERM-1: stamp the termination-assumed closure (function -> via),
+-- restricted to the report's own entries (contracted functions). The caller
+-- computes the closure with 'LLMLL.ProgramGraph'; this module cannot import it
+-- (ProgramGraph imports TrustReport).
+markTerminationAssumed :: Map Name Name -> TrustReport -> TrustReport
+markTerminationAssumed closure report =
+  let names = Set.fromList (map teName (trEntries report))
+  in report { trTermAssumed = Map.restrictKeys closure names }
+
 markDescentDischarged :: Set Name -> TrustReport -> TrustReport
 markDescentDischarged discharged report =
   report { trPartialFns = trPartialFns report `Set.difference` discharged }
@@ -1842,6 +1865,12 @@ formatTrustReport report =
                        []  -> []
                        fns -> "" : "Termination-unverified (recursive, partial correctness):" :
                               map ("  ↻ " <>) (sortOn id fns)
+      -- HEADLINE-TERM-1: callers that are not cycle members themselves but
+      -- whose proof still assumes a cycle terminates.
+      termCallerLines = case [ (n, v) | (n, v) <- Map.toList (trTermAssumed report), n /= v ] of
+                          []  -> []
+                          nvs -> "" : "Proved only if a called function terminates:" :
+                                 map (\(n, v) -> "  ↳ " <> n <> " (via " <> v <> ")") nvs
       -- DISCLOSE-ROW-1: name the open '[SPEC]' rows this program's surface
       -- touches. Section style matches 'partialLines'; the reader learns the
       -- gap here instead of from the roadmap table.
@@ -1850,7 +1879,7 @@ formatTrustReport report =
                        rows -> "" : "Specified but not enforced (open roadmap rows this program touches):" :
                                map (\r -> "  ⚑ " <> osrTag r <> " — " <> osrSurface r
                                         <> ": " <> osrDisclosure r) rows
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ openRowLines ++ [separator] ++ summaryLines)
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ termCallerLines ++ openRowLines ++ [separator] ++ summaryLines)
 
 -- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
 -- hash remains in the JSON emit.
@@ -1997,6 +2026,10 @@ formatTrustReportJson report =
     -- correctness (termination unverified). Derived from the call-graph SCC, so
     -- unlike 'refuted_fns' it is populated even on a solver-less render.
     , "partial_fns" .= Set.toList (trPartialFns report)
+    -- HEADLINE-TERM-1 (1.7.0): the reflexive caller closure of the undischarged
+    -- cycles, each with the function it reaches.
+    , "termination_assumed_fns" .= [ object ["name" .= n, "via" .= v]
+                                   | (n, v) <- Map.toList (trTermAssumed report) ]
     -- DISCLOSE-ROW-1: open '[SPEC]' roadmap rows this program's surface touches.
     -- Derived from the live statements, so it is present on every report path.
     -- Additive key, no 'trust_report_version' change (the 'partial_fns'
@@ -2070,6 +2103,8 @@ formatTrustReportJson report =
       -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
       -- both. Informational; does not touch 'effective_level'.
       [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
+      -- HEADLINE-TERM-1 (1.7.0): only-on-true, the same shape.
+      [ "termination_assumed" .= True | Map.member (teName e) (trTermAssumed report) ] ++
       -- TRUST-CC-1: per-entry body-fallback marker, only-when-present so an
       -- entry without one stays byte-identical. Orthogonal to the tier: it
       -- never touches 'effective_level'. Absent on a report path that did not

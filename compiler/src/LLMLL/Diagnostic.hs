@@ -46,6 +46,7 @@ module LLMLL.Diagnostic
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
+  , mkCoreMembershipViolationLocal
   , mkCoreExcludedBuiltin
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
@@ -554,6 +555,28 @@ mkCoreMembershipViolation defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
+       }
+
+-- | HEADLINE-TERM-1 item (4): the same violation when the callee is defined in
+-- the SAME file. Admission reads persisted evidence only, and verification
+-- runs after this check, so "verify it first" cannot help here: the file does
+-- not type-check while the call is present. The remedy is module placement.
+-- A recursive callee additionally needs a discharging measure (REC-DESCENT
+-- Phase 3 (b1)). Same 'diagKind' as 'mkCoreMembershipViolation', so every
+-- consumer keyed on the kind is unaffected.
+mkCoreMembershipViolationLocal :: Text -> Text -> Bool -> Diagnostic
+mkCoreMembershipViolationLocal defName callee isRec =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is defined in this file and has no recorded verification; "
+            <> "a def may call only trusted builtins and functions verified in an earlier run"
+            <> (if isRec
+                  then " (a recursive callee must also be descent-discharged by a (decreases \x2026) measure)"
+                  else "")
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("Move '" <> callee <> "' to its own module"
+                                <> (if isRec then " with a (decreases \x2026) measure" else "")
+                                <> ", verify it, then import it")
        }
 
 -- | CORE-EXCL (JSON-1): emitted when a strict-core body calls a builtin that is
