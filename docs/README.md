@@ -19,7 +19,7 @@ Most files under `docs/` are the team's working material. If you are new, read t
 - [`llmll-trust-report.schema.json`](llmll-trust-report.schema.json): the `verify --trust-report --json` output.
 - [`proof-artifact.schema.json`](proof-artifact.schema.json): the record written by `verify --proof-artifact`.
 
-Known gap: the AST schema rejects every tracked `.ast.json` file, and the trust-report schema rejects every report the compiler emits. Both are open items in the internal log (SCHEMA-TRUTH-1, SCHEMA-DRIFT-1).
+Known gap: the AST schema rejects every tracked `.ast.json` file, an open item in the internal log (SCHEMA-TRUTH-1). The trust-report schema accepts every report the compiler emits, and a test fails when the two disagree.
 
 ## Working material
 

@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.26.5)
+# LLMLL: Large Language Model Logical Language (v0.26.6)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.26.5.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.26.6.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
