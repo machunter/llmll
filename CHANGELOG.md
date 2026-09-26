@@ -4,6 +4,52 @@
 
 <a id="Latest"></a>
 
+## v0.26.7: the JSON-AST schema accepts what the compiler emits, and a gate checks it (2026-09-26)
+
+### `SCHEMA-TRUTH-1`: no document validated against `docs/llmll-ast.schema.json`
+
+Zero of the 96 tracked `.ast.json` documents validated against the published schema, and no script
+read it. This release ships parts 2 and 3 of `docs/design/schema-truth-proposal.md`; part 4 stays
+deferred.
+
+- **`schemaVersion` is an enum of the versions the reader accepts** (`0.11.0` back to `0.6.0`, which is
+  `ParserJSON.acceptedSchemaVersions`), not `const "0.11.0"`. The const had rejected 77 of the 96
+  documents on its own. The enum states what is readable; it does not check that an older document
+  omits fields added after its version.
+- **The statement, type, expression, pattern and hole unions dispatch on `kind`** (`if`/`then`) instead
+  of an undiscriminated `oneOf`. A 10 KB document had not finished validating in 120 s; the 1.3 MB
+  driver document now takes about 3 s. Over 210 documents and 1,254 mutants the two forms gave the same
+  verdict on every case `oneOf` finished.
+- **Three rules that rejected the compiler's own output are corrected.** With the two changes above,
+  81 of the 384 documents `llmll build --emit` writes from tracked sources still failed:
+  - identifier names may contain `?` and start with `_`, as the lexer and the schema's own qualified-name
+    pattern already allow (`done?`, `_r`);
+  - `ExportDecl.names` may be empty, since `(export)` exports nothing (`LLMLL.md` §8);
+  - a `fn-type` parameter's name is any string (new `FnTypeParam`); the reader ignores it and the emitter
+    writes `""`.
+- **A gate validates emitted documents.** `scripts/tests/test_schema_valid_1.py` emits every tracked
+  `.llmll` and validates each result, in the spec-roundtrip job. A source that does not emit must
+  declare `@expect: parse-error` or be listed with a reason. A document the schema rejects must be
+  listed with its roadmap row, and must keep failing that way. One is listed:
+  `unicode-alias-token.llmll`, which emits an operator the compiler does not know (`ALIAS-LOWER-1`).
+  The cell for `MODE-HTTP-1` builds `:mode http 9000`, whose emitted `"http:9000"` the schema rejects.
+  The gate checks what the compiler writes, not JSON-AST written by hand.
+- **`version_gate.sh` C3 now checks membership:** `expectedSchemaVersion` must be in the enum, and C4
+  derives the `$id` segment from `expectedSchemaVersion`. The LLMLL port
+  (`tools/version-gate/versiongate.llmll`) and its cover change with it; the cover gains V14 (no enum)
+  and passes 15 of 15. Two hspec cases pin the enum to `acceptedSchemaVersions`.
+
+Now 383 of 384 emitted documents validate, and 76 of 96 committed ones do. The committed failures are
+the five `compiler/examples/sketch/` files at `0.2.0`, root `module`/`types` (4), `_fixture_note` (3),
+a run artifact with no `schemaVersion`, and seven files the reader accepts but the schema does not:
+four write `"type"` for `"param_type"`, which leaves those parameters untyped, and three put a dotted
+name in an `app` node.
+
+No file under `compiler/src/` changed; `schemaVersion` stays `0.11.0`.
+
+Tests: 2093 examples, 0 failures (+2); Python 312 passed, 91 skipped; the 4 gate cells pass with a
+built compiler.
+
 ## v0.26.6: the published trust-report schema accepts what `verify` emits (2026-09-26)
 
 ### `SCHEMA-DRIFT-1`: every emitted trust report failed `docs/llmll-trust-report.schema.json`

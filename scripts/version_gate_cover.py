@@ -6,7 +6,7 @@ IDENTICALLY: same exit code, same message, byte for byte. The shell script is
 the reference, so any divergence is the port's defect until argued otherwise.
 
 AGREEMENT ON A PASSING TREE IS NOT EVIDENCE, which is why the clean tree is one
-cell out of fourteen and the other thirteen are mutants. Each names the
+cell out of fifteen and the other fourteen are mutants. Each names the
 criterion it breaks, and each is asserted to FAIL: a battery where both
 implementations pass everything agrees perfectly and detects nothing. The
 suite fails if a mutant is not caught, separately from failing if the two
@@ -246,10 +246,10 @@ def v8(tree):
     edit_re(tree, "compiler/llmll.cabal", VERSION_LINE, rf"\g<1>{DISAGREE}")
 
 
-@cell("V9", "C3 the schema const disagrees with ParserJSON")
+@cell("V9", "C3 the schema enum does not list ParserJSON's version")
 def v9(tree):
-    edit(tree, "docs/llmll-ast.schema.json", '"const": "0.11.0"',
-         '"const": "0.12.0"')
+    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.11.0", ',
+         '"enum": [')
 
 
 @cell("V10", "C3 ParserJSON's expectedSchemaVersion disagrees with the schema")
@@ -268,6 +268,14 @@ def v11(tree):
 @cell("V12", "C3+C4 the schema is not readable as JSON")
 def v12(tree):
     (tree / "docs/llmll-ast.schema.json").write_text("{ this is not json")
+
+
+@cell("V14", "C3 the schema has no schemaVersion enum")
+def v14(tree):
+    # SCHEMA-TRUTH-1 replaced the const with an enum; a schema that loses the
+    # enum must fail as an extraction error, not pass for want of a list.
+    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.11.0", ',
+         '"enum_removed": ["0.11.0", ')
 
 
 @cell("V13", "the whole banner moves together, and that is NOT a failure",

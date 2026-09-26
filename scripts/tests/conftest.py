@@ -55,7 +55,7 @@ def synth_repo(tmp_path):
         '  "$defs": {\n'
         '    "Program": {\n'
         '      "properties": {\n'
-        '        "schemaVersion": { "const": "0.5.0" }\n'
+        '        "schemaVersion": { "enum": ["0.5.0", "0.4.0"] }\n'
         '      }\n'
         '    }\n'
         '  }\n'
