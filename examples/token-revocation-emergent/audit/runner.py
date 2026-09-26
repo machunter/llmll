@@ -14,7 +14,8 @@ Env:   LLMLL_BIN (path to the llmll binary)
 import json, os, re, shutil, subprocess, sys
 
 MODULE = sys.argv[1]
-BASE = "/Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent"
+# The example directory: this file is <example>/audit/runner.py.
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = f"{BASE}/work"
 AST = f"{WORK}/{MODULE}.ast.json"
 AUDIT = f"{BASE}/audit/{MODULE}"

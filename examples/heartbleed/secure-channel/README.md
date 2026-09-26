@@ -2,7 +2,8 @@
 
 A full secure-channel record layer, decomposed into **163 contracted holes across seven
 modules**, filled by **orchestrated agents**, and verified **as one whole program** — `SAFE`,
-every function body-faithful, in ~60 s. This is the "convincing large example": not a snippet, a
+every function body-faithful, in about a minute on a quiet laptop (July 2026; about three minutes
+and 4.5 GB of memory on a busy one at v0.26.5). This is the "convincing large example": not a snippet, a
 real subsystem, where famous-bug invariants are wired into the proof and the compiler refuses any fill
 that reintroduces them.
 
@@ -37,7 +38,7 @@ llmll holes  examples/heartbleed/secure-channel/sc-channel-scaffold.llmll
 
 # the fully AGENT-FILLED channel verifies as one whole program
 llmll verify examples/heartbleed/secure-channel/agent-fill/sc-channel-agentfilled.llmll
-#   ✅ SAFE (liquid-fixpoint)   —   163 functions, all body-faithful, ~60s
+#   ✅ SAFE (liquid-fixpoint)   —   163 functions, all body-faithful, 1 to 3 min, up to 4.5 GB
 
 # the reference solution verifies too
 llmll verify examples/heartbleed/secure-channel/sc-channel.llmll

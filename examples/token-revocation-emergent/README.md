@@ -112,9 +112,9 @@ body-faithful. Every prompt, reply, and verdict is under `audit/`.
 ```bash
 # re-verify the filled service (any module):
 llmll verify work/spine.ast.json --trust-report
-# the frozen refute layer:
-make refute-crux-gate
-# re-run a module's cascade from its roots (destructive to work/):
+# the frozen refute layer (from the repository root):
+(cd ../.. && make refute-crux-gate)
+# re-run a module's cascade from its roots (destructive to work/; needs `claude` on PATH):
 llmll build roots/introspection.llmll --emit -o work
-LLMLL_BIN=$(cd compiler && cabal list-bin llmll) python3 audit/runner.py introspection
+LLMLL_BIN="$(cd ../../compiler && stack path --local-install-root)/bin/llmll" python3 audit/runner.py introspection
 ```
