@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# benchmark-totp.sh — CI gate for the frozen TOTP RFC 6238 benchmark (BM2-4)
+# benchmark-totp.sh: local gate for the frozen TOTP RFC 6238 benchmark (BM2-4)
 #
 # Runs --spec-coverage and --trust-report against the frozen TOTP benchmark
 # and compares against EXPECTED_RESULTS.json.

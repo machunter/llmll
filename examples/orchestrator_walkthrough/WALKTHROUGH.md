@@ -5,7 +5,9 @@ start as `?delegate` holes and are filled by out-of-process agents.
 
 1. **`auth_module.ast.json`** — the *unfilled* module. `hash-password-impl` and
    `verify-token-impl` are `hole-delegate` bodies (`@crypto-agent`); `login-handler`
-   (a `def-shell`) composes them and delegates session-building to `@session-agent`.
+   (a `def-shell`) composes them and delegates session-building to `@session-agent`;
+   `authenticate-request` (a second `def-shell`) delegates to `@gateway-agent`.
+   `llmll holes auth_module.ast.json` lists all four: `4 holes (0 blocking)`.
    Every delegated function carries an `on_failure` fallback, so the module still
    type-checks (`llmll check auth_module.ast.json` → OK).
 2. **`auth_module_filled.ast.json`** — the *resolved* module after the agents

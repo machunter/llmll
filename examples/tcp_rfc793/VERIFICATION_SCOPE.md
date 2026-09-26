@@ -17,7 +17,7 @@ rejects every non-legal pair.
 
 Contrast `examples/totp_rfc6238` (Proven: 0, Asserted: 5): TOTP's core is an opaque
 `hmac-sha1` builtin outside the decidable fragment — RFC *traceability* with every
-clause `asserted`. Here the load-bearing invariant is integer/ordering- and
+clause `asserted`. Here the invariant the proof depends on is integer/ordering- and
 constructor-shaped, so it lands in the auto-discharge fragment and is `verified`.
 Nothing cryptographic or opaque is in scope.
 
@@ -46,9 +46,9 @@ Nothing cryptographic or opaque is in scope.
   specific `Next(tag)`, and every other pair maps to `Rejected`. The outcome is a
   **real constructor value** (`Rejected(0)`), distinct from any `Next(s)` by
   Z3's datatype distinctness — **no `5 = REJECTED` int sentinel**.
-- **Verify-time, not run-time (yet):** constructor values are discharged by the
-  verifier; the runtime / property-test path does not evaluate the constructed
-  outcome yet, so `llmll test` *skips* constructor-valued vectors. The demo's beat is
+- **Verify-time, not run-time:** constructor values are discharged by the
+  verifier. `step.llmll` declares no `check` properties, so `llmll test` reports
+  `0 properties` (nothing run, nothing skipped). The demo's beat is
   **typecheck → verify**.
 
 ## Files

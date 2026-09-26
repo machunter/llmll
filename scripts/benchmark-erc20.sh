@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# benchmark-erc20.sh — CI gate for the frozen ERC-20 benchmark (BM-4)
+# benchmark-erc20.sh: local gate for the frozen ERC-20 benchmark (BM-4)
 #
 # Runs --spec-coverage, --trust-report, and --weakness-check against the
 # frozen ERC-20 benchmark and compares against EXPECTED_RESULTS.json.

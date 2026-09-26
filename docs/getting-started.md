@@ -610,13 +610,16 @@ needs up to 6.8 GB of memory to verify and the runner killed the step. See the r
 ```console
 # Run a console program — produces .event-log.jsonl automatically:
 $ stack exec llmll -- build ../examples/replay-demo/replay-demo.llmll
-$ cd replay-demo && stack exec replay-demo
-# (interact with program — .event-log.jsonl written on exit)
+$ cd generated/replay-demo && printf 'a\nb\nc\n' | stack exec replay-demo
+# (each input line is echoed; replay-demo.event-log.jsonl is written in this directory)
 
 # Replay: rebuild from source, feed logged inputs, compare outputs:
-$ stack exec llmll -- replay ../examples/replay-demo/replay-demo.llmll replay-demo.event-log.jsonl
-Replay: 5/5 events matched
+$ stack exec llmll -- replay ../../../examples/replay-demo/replay-demo.llmll replay-demo.event-log.jsonl
+3/3 events matched
 ```
+
+`build` writes the package to `generated/<name>` under the current directory,
+and `replay` rebuilds into `./generated/` under wherever you run it.
 
 The replay command:
 1. Parses the `.event-log.jsonl` file (JSONL — one JSON object per line)
@@ -1498,9 +1501,9 @@ Top-level `def`, `def-shell`, and `letrec` (legacy) functions are let-generalize
 
 ---
 
-### §4.19 Benchmark CI Gates
+### §4.19 Benchmark Gates
 
-Two frozen benchmarks have CI gate scripts that verify compiler output against expected results. Use these to guard against regressions.
+Two frozen benchmarks have gate scripts that verify compiler output against expected results. They are local make targets; CI does not run them. Run them before a change that touches trust, coverage or weakness output.
 
 ```bash
 # Run the ERC-20 benchmark gate (11 assertions):

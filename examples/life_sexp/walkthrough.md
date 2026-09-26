@@ -35,8 +35,8 @@ Grid: 20×10. Seed: Classic 5-cell Glider at rows 1–3.
 ```bash
 cd compiler
 stack exec llmll -- check ../examples/life_sexp/core.llmll   # ✅ OK (5 statements)
-stack exec llmll -- check ../examples/life_sexp/world.llmll  # ✅ OK (17 statements)
-stack exec llmll -- check ../examples/life_sexp/main.llmll   # ✅ OK (6 statements)
+stack exec llmll -- check ../examples/life_sexp/world.llmll  # ✅ OK (18 statements)
+stack exec llmll -- check ../examples/life_sexp/main.llmll   # ✅ OK (7 statements)
 
 stack exec llmll -- build ../examples/life_sexp/main.llmll \
   -o ../generated/life_sexp --emit-only   # ✅ Haskell package generated

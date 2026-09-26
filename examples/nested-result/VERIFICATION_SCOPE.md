@@ -16,7 +16,8 @@ by the solver, through the `let`.
 - The scrutinee `attempt` is a **`Result`-typed variable**; the match is **nested
   inside the `let` body**, not at the top level, and still verifies body-faithfully
   at any nesting depth (under `let`/`if`, param- or let-bound).
-- The let-bound `guard = (if (>= floor 0) floor 0)` is provably `>= 0`, so each arm
+- The let-bound `guard` is `floor`, and the precondition `(pre (>= floor 0))` makes
+  it `>= 0`, so each arm
   establishes `b >= 0`: the `Success` arm returns `n` when `n >= guard` (hence
   `>= guard >= 0`) else `guard`; the `Error` arm returns `guard`.
 - The obligation is integer/ordering-shaped — pure **QF-LIA** (`>=`, `if`) — so it

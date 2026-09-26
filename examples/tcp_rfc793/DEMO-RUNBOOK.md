@@ -14,7 +14,7 @@ The `post` is the **full transition-table totality** authored *from* the RFC (`:
 
 > **Scope (state it).**
 > - **Co-evolution is human-in-the-loop, not auto-signaled.** `step-weak` (below) shows a too-weak contract letting a bug survive; the fix is real, but `--weakness-check`/`--cdp` does **not** auto-flag it — you *notice* the survival and tighten the spec yourself. The RFC and the verifier together harden the contract.
-> - **Verify-time, not run-time (yet).** Constructor values are discharged by the *verifier* (native datatype reflection); the runtime / property-test evaluator does not yet evaluate the constructed outcome, so `llmll test` on this demo *skips* constructor-valued vectors rather than running them. The demo's beat is **typecheck → verify** — the proof is the point, not a test pass.
+> - **Verify-time, not run-time.** Constructor values are discharged by the *verifier* (native datatype reflection). `step.llmll` declares no `check` properties, so `llmll test` on this demo reports `0 properties`: nothing is run and nothing is skipped. The demo's beat is **typecheck → verify**: the proof is the point, not a test pass.
 
 ## Beats — real-typed state machine, real outcome sum
 

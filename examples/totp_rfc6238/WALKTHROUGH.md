@@ -1,7 +1,7 @@
 # TOTP RFC 6238 Benchmark — Walkthrough
 
 > **RFC:** [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238) — TOTP: Time-Based One-Time Password Algorithm  
-> **Status:** Frozen benchmark with CI gate
+> **Status:** Frozen benchmark with a local regression gate (`make benchmark-totp`; not run in CI)
 
 ## Overview
 
@@ -10,7 +10,7 @@ This benchmark **specifies** the TOTP algorithm from RFC 6238 with placeholder, 
 1. **Specify cryptographic algorithms** with formal contracts and RFC `:source` provenance
 2. **Handle opaque primitives** (HMAC-SHA1) with `weakness-ok` suppression governance
 3. **Achieve 100% spec coverage** through a combination of contracted and intentionally underspecified functions
-4. **Freeze benchmark results** for CI regression testing
+4. **Freeze benchmark results** for local regression testing
 
 ## Functions
 
@@ -32,7 +32,6 @@ Spec Coverage Report
 ────────────────────────────────────────────
   Functions with contracts:     5 / 6   (83%)
     Verified:                   0
-    Contract-checked:           0
     Tested:                     0
     Asserted:                   5
   Intentional Underspecification:
@@ -41,7 +40,7 @@ Spec Coverage Report
   Effective coverage: 100% (6/6)
 ```
 
-> **Note:** the trust report (as opposed to spec coverage above) splits these 6 differently: `hmac-sha1-wrap` has no `pre`/`post` at all (its contract lives entirely in the `weakness-ok` suppression + `:source` citations, not in a checkable pre/post), so it lands in the trust report's `no_contract` bucket alongside `validate-totp` (which has a `pre` but no `post` — no effective post-level) — `verified: 0, asserted: 4, no_contract: 2`. See `EXPECTED_RESULTS.json`'s `expected_trust_report`.
+> **Note:** the trust report (`llmll verify totp_filled.ast.json --trust-report`) counts `verified: 0, asserted: 5, no contract: 1`. `hmac-sha1-wrap` has no written `pre`/`post`, but its RFC 2104 `:source` post counts as an asserted post, so it lands in `asserted`. The one `no contract` function is `validate-totp`, which has a `pre` but no `post` (no effective post-level). See `EXPECTED_RESULTS.json`'s `expected_trust_report`.
 
 ## Check Blocks (Test Vectors)
 
@@ -66,9 +65,9 @@ The filled implementation includes 4 check blocks from RFC 6238 §A.1:
 
 `hmac-sha1-wrap` uses `weakness-ok` to suppress the spec weakness alert. This is the intended governance pattern: the function's cryptographic correctness is outside the decidable fragment, but the **structural** correctness (types, argument count, delegation chain) is fully verified.
 
-## CI Gate
+## Regression Gate
 
-Run the benchmark gate:
+The gate is a local make target; no workflow under `.github/` runs it. Run it by hand:
 
 ```bash
 make benchmark-totp
@@ -92,4 +91,4 @@ The gate checks 14 assertions against `EXPECTED_RESULTS.json`:
 | `totp_filled.ast.json` | Complete implementation |
 | `EXPECTED_RESULTS.json` | Frozen expected results |
 | `WALKTHROUGH.md` | This document |
-| `scripts/benchmark-totp.sh` | CI gate script |
+| `scripts/benchmark-totp.sh` | Local gate script (`make benchmark-totp`) |

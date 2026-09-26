@@ -37,7 +37,7 @@ Grid: 20×10. Seed: Classic 5-cell Glider at rows 1–3.
 cd compiler
 stack exec llmll -- check ../examples/life_json/core.ast.json   # ✅ OK (5 statements)
 stack exec llmll -- check ../examples/life_json/world.ast.json  # ✅ OK (18 statements)
-stack exec llmll -- check ../examples/life_json/main.ast.json   # ✅ OK (7 statements, 1 warning)
+stack exec llmll -- check ../examples/life_json/main.ast.json   # ✅ OK (7 statements)
 
 stack exec llmll -- build ../examples/life_json/main.ast.json \
   -o ../generated/life_json --emit-only    # ✅ Haskell package generated
@@ -58,14 +58,14 @@ without it, bare calls to imported functions (`glider-grid`, `make-world`,
 Conway's Game of Life — LLMLL v0.2 (press Ctrl-C to quit)
 
 ....................   ← Gen 0 (Glider)
-....................
-....................
-..#.#...............
-...##...............
+..#.................
 ...#................
+.###................
+...
 ```
 
-Subsequent generations show correct Glider movement confirmed against reference.
+Each later generation is printed after an ANSI clear-screen (`ESC[2J ESC[H`),
+and the glider moves one cell diagonally every four generations.
 
 ---
 

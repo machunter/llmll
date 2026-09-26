@@ -8,8 +8,8 @@
 ;;
 ;; `safe-withdraw` returns a Balance — a refinement type {b : int | b >= 0} — and
 ;; there is NO hand-written post: the return refinement is the ENTIRE spec,
-;; discharged PER ARM by the solver. The let-bound `guard` is provably non-negative
-;; (it is `(if (>= floor 0) floor 0)`), so both arms establish `b >= 0`.
+;; discharged PER ARM by the solver. The let-bound `guard` is `floor`, which the
+;; precondition `(>= floor 0)` makes non-negative, so both arms establish `b >= 0`.
 ;;
 ;;   llmll verify ./safe-withdraw.llmll   ->  body-faithful: safe-withdraw, SAFE
 ;;

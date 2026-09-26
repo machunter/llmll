@@ -32,12 +32,12 @@
 
 | Constraint class | Functions | Level | Why |
 |---|---|---|---|
-| Array index bounds (QF-LIA) | `board-get`, `cell-empty?`, `set-cell`, `render-row` | Asserted → Provable | `0 <= idx < 9` is linear arithmetic |
+| Array index bounds (QF-LIA) | `board-get`, `cell-empty?`, `set-cell`, `render-row` | Asserted | `0 <= idx < 9` is linear arithmetic, but the board is a `list`: every one of these bodies falls back from body-faithful verification, so no index check is discharged |
 | Board structure | `make-board` | Asserted | Size postcondition (linear) |
 | Game logic (conditional) | `check-triple`, `has-won?`, `compute-status` | Not contracted | Conditional logic — testable via QuickCheck |
 | String rendering | `render-board`, `render-row` | Partial | Outside decidable fragment |
 
 ## Notes
 
-- Index bounds contracts are the strongest candidates for **Proven** upgrade — all are simple `0 <= i < 9` checks within QF-LIA.
+- The index bounds are simple `0 <= i < 9` checks within QF-LIA, but they do not reach **Proven**: the board is a `list`, outside the body-faithful fragment. `make-board` is refused by `app:list-prepend` and `set-cell` by `let`, so `llmll verify` reports `partial: 0 of 2`. Reaching Proven would need a board representation inside the fragment.
 - `check-triple` and `has-won?` contain conditional logic that would benefit from QuickCheck-level (**Tested**) contracts.

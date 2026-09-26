@@ -91,8 +91,8 @@ solver-proven contract, and `verify` says so.
 | [`hangman_sexp/`](hangman_sexp/) · [`hangman_json/`](hangman_json/) | Full Hangman in each surface format; `hangman_json` is `docs/getting-started.md`'s worked example | nothing proved |
 | [`tictactoe_sexp/`](tictactoe_sexp/) | Two-player Tic-Tac-Toe (`:done?` + `:on-done`) | nothing proved |
 | [`life_sexp/`](life_sexp/) · [`life_json/`](life_json/) | Conway's Life, multi-module, in each surface format | nothing proved |
-| [`hangman_json_verifier/`](hangman_json_verifier/) · [`tictactoe_json_verifier/`](tictactoe_json_verifier/) | Games with contracts; the board is a `list`, outside the decidable fragment, so the contracts are assumed | partial (0 of 2 each) |
-| [`conways_life_json_verifier/`](conways_life_json_verifier/) | Conway's Life with contracts; `next-cell` and `count-neighbors` reach body-faithful `verified` (the one game verifier that does) | partial (3 of 5) |
+| [`hangman_json_verifier/`](hangman_json_verifier/) · [`tictactoe_json_verifier/`](tictactoe_json_verifier/) | Games with contracts; the contracted bodies fall outside the decidable fragment (Tic-Tac-Toe's board is a `list`; Hangman's state is built with `pair` and read with `second`), so the contracts are assumed | partial (0 of 2 each) |
+| [`conways_life_json_verifier/`](conways_life_json_verifier/) | Conway's Life with contracts; `next-cell`, `count-neighbors` and `neighbor-alive` reach body-faithful `verified` (the one game verifier that does) | partial (3 of 5) |
 | [`replay-demo/`](replay-demo/) | `llmll replay`: build a console program, capture its event log, then rebuild and replay to check deterministic outputs (`docs/getting-started.md`'s replay example) | nothing proved |
 
 ## Test inputs, not demos
