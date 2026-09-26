@@ -14,7 +14,7 @@
             "params": [
               {
                 "name": "raw-pw",
-                "type": {
+                "param_type": {
                   "kind": "primitive",
                   "name": "string"
                 }
@@ -33,7 +33,7 @@
             "params": [
               {
                 "name": "token",
-                "type": {
+                "param_type": {
                   "kind": "primitive",
                   "name": "string"
                 }
@@ -53,7 +53,7 @@
       "params": [
         {
           "name": "raw-pw",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
@@ -128,7 +128,7 @@
       "params": [
         {
           "name": "token",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
@@ -178,14 +178,14 @@
       "params": [
         {
           "name": "username",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
         },
         {
           "name": "password",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
@@ -299,21 +299,21 @@
       "params": [
         {
           "name": "username",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
         },
         {
           "name": "password",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
         },
         {
           "name": "existing-token",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }

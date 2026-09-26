@@ -7,21 +7,21 @@
       "params": [
         {
           "name": "state",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "int"
           }
         },
         {
           "name": "a",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "int"
           }
         },
         {
           "name": "b",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "int"
           }
@@ -55,14 +55,14 @@
       "params": [
         {
           "name": "state",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "int"
           }
         },
         {
           "name": "x",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "int"
           }

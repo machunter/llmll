@@ -51,10 +51,7 @@ REPO = Path(__file__).resolve().parents[2]
 SCHEMA = REPO / "docs" / "llmll-ast.schema.json"
 
 # Tracked sources that do not emit, and do not say so in an @expect header.
-NO_EMIT = {
-    "experiments/repair-loop/scripts/fixtures/health-probe.llmll":
-        "uses def-logic, removed in v0.12.1; the repair-loop health probe itself is out of date",
-}
+NO_EMIT: dict[str, str] = {}
 
 # Emitted documents the schema rejects because the COMPILER is wrong, each with
 # its open roadmap row and a fragment of the message it must keep failing with.

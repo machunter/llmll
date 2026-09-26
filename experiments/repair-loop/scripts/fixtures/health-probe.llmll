@@ -12,6 +12,6 @@
 ;; clause that type-checks but does not exercise SMT verification
 ;; (discipline C calls `llmll check`, not `llmll verify`).
 
-(def-logic identity-int [n: int]
+(def identity-int [n: int]
   (post (= result n))
   n)

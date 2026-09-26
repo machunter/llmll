@@ -14,7 +14,7 @@
             "params": [
               {
                 "name": "raw-pw",
-                "type": {
+                "param_type": {
                   "kind": "primitive",
                   "name": "string"
                 }
@@ -33,7 +33,7 @@
             "params": [
               {
                 "name": "token",
-                "type": {
+                "param_type": {
                   "kind": "primitive",
                   "name": "string"
                 }
@@ -53,14 +53,14 @@
       "params": [
         {
           "name": "username",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
         },
         {
           "name": "password",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
@@ -115,7 +115,7 @@
       "params": [
         {
           "name": "session-token",
-          "type": {
+          "param_type": {
             "kind": "primitive",
             "name": "string"
           }
