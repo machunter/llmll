@@ -18824,6 +18824,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- was repointed rather than the missing document written -- a second
   -- versioning document would be a second source of truth to drift against.
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- SCHEMA-TRUTH-1: the schema's schemaVersion is an enum of the versions the
+  -- reader accepts. It was a const "0.11.0" whose description named all six,
+  -- so 77 of 96 tracked documents failed on the const alone. The enum is
+  -- derived from acceptedSchemaVersions; these pin the derivation, so adding a
+  -- version to the reader without the schema (or the reverse) fails here.
+  -- -----------------------------------------------------------------------
+  describe "JSON-AST schema: schemaVersion enum is the reader's list (SCHEMA-TRUTH-1)" $ do
+    let schemaEnum = do
+          raw <- BL.readFile (".." </> "docs" </> "llmll-ast.schema.json")
+          let path = [ "$defs", "Program", "properties", "schemaVersion", "enum" ]
+              step (Just (Object m)) k = KM.lookup (K.fromString k) m
+              step _ _                 = Nothing
+          case foldl step (decode raw :: Maybe Value) path of
+            Just (Array a) -> pure [ t | String t <- foldr (:) [] a ]
+            _ -> fail "docs/llmll-ast.schema.json has no $defs/Program/properties/schemaVersion/enum array"
+
+    it "ST-1 the enum equals ParserJSON.acceptedSchemaVersions" $ do
+      e <- schemaEnum
+      e `shouldBe` acceptedSchemaVersions
+
+    it "ST-2 the enum contains the emitted expectedSchemaVersion" $ do
+      e <- schemaEnum
+      e `shouldContain` [expectedSchemaVersion]
+
   describe "ParserJSON: version-mismatch citation resolves (JSON-VER-CITE)" $ do
 
     let badDoc = BLC.pack "{\"schemaVersion\":\"0.1.3\",\"statements\":[]}"

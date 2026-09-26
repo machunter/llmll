@@ -2,10 +2,10 @@
 
 `scripts/version_gate_cover.py` is the acceptance cover and it needs a
 toolchain: it compares a compiled LLMLL binary against the shell script over
-fourteen trees, and runs from `scripts/build_smoke.sh` stage 10. That is the
+fifteen trees, and runs from `scripts/build_smoke.sh` stage 10. That is the
 right home for every decision the gate makes, because only a run settles them.
 It is the wrong home for everything below, each of which is a way the two
-implementations drift apart with all fourteen cells still green.
+implementations drift apart with all fifteen cells still green.
 
 WHAT A DIFFERENTIAL COVER CANNOT SEE. It compares the two gates on trees this
 file's author thought to mutate. If a criterion is dropped from BOTH, or from

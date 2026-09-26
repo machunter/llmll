@@ -326,6 +326,24 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_build_nostack_1.py -v
 
+      # SCHEMA-TRUTH-1: every document `llmll build --emit` writes from a tracked
+      # .llmll source satisfies docs/llmll-ast.schema.json. Needs the built
+      # compiler and jsonschema, and no solver. On the v0.26.6 schema SV-1 failed
+      # with 81 rejected documents. jsonschema is installed here because the
+      # cells skip without it; the grep refuses a run where any cell skipped.
+      - name: Run SCHEMA-TRUTH-1 emitted-document cells (pytest, needs the built compiler)
+        run: |
+          set -euo pipefail
+          pip install jsonschema
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_schema_valid_1.py -v -rs \
+            | tee "$RUNNER_TEMP/schema-valid.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/schema-valid.log"; then
+            echo "a SCHEMA-TRUTH-1 cell skipped; LLMLL_BIN and jsonschema must be present"; exit 1
+          fi
+          grep -q ' 4 passed' "$RUNNER_TEMP/schema-valid.log" \
+            || { echo "SCHEMA-TRUTH-1: expected 4 passed cells"; exit 1; }
+
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on

@@ -217,11 +217,21 @@
   (def-shell jstr [v: Json k: string] -> string
     (unwrap-or (json-get-string v k) ""))
 
-  ;; ."$defs".Program.properties.schemaVersion.const
-  (def-shell schema-const [doc: Json] -> string
-    (jstr (jget (jget (jget (jget doc "$defs") "Program") "properties")
-                "schemaVersion")
-          "const"))
+  ;; ."$defs".Program.properties.schemaVersion.enum, serialized, or "" when
+  ;; absent or not an array (the shell's `jq -e '... | arrays'`). Membership
+  ;; is then a search for the quoted version in that text, which is exact for
+  ;; an array of strings: a quoted "0.1.0" does not occur inside "0.11.0".
+  (def-shell schema-enum [doc: Json] -> string
+    (match (json-get (jget (jget (jget doc "$defs") "Program") "properties")
+                     "schemaVersion")
+      ((Success sv) (match (json-get sv "enum")
+                      ((Success e) (let [(t (json-serialize e))]
+                                     (if (= (string-char-at t 0) "[") t "")))
+                      ((Error _) "")))
+      ((Error _) "")))
+
+  (def-shell in-enum? [enum-text: string v: string] -> bool
+    (string-contains enum-text (string-concat-many ["\"" v "\""])))
 
   (def-shell schema-id [doc: Json] -> string
     (jstr doc "$id"))
@@ -334,7 +344,7 @@
         (let [(chg (fact v "changelog"))]
           (let [(pkg (fact v "package"))]
             (let [(cab (fact v "cabal"))]
-              (let [(ssv (fact v "schema_sv"))]
+              (let [(sen (fact v "schema_enum"))]
                 (let [(psv (fact v "parser_sv"))]
                   (let [(sid (fact v "schema_id"))]
                     (if (string-empty? readme)
@@ -355,28 +365,30 @@
                         (mismatch "C1" "LLMLL.md banner" spec "compiler/package.yaml version" pkg)
                     (if (not (= spec cab))
                         (mismatch "C1" "LLMLL.md banner" spec "compiler/llmll.cabal version" cab)
-                    (if (string-empty? ssv)
-                        "C3 could not read schemaVersion const from docs/llmll-ast.schema.json"
+                    (if (string-empty? sen)
+                        "C3 could not read schemaVersion enum from docs/llmll-ast.schema.json"
                     (if (string-empty? psv)
                         "C3 could not read expectedSchemaVersion from compiler/src/LLMLL/ParserJSON.hs"
-                    (if (not (= ssv psv))
-                        (mismatch "C3" "schema schemaVersion" ssv "ParserJSON.expectedSchemaVersion" psv)
+                    (if (not (in-enum? sen psv))
+                        (string-concat-many
+                          ["C3 ParserJSON.expectedSchemaVersion (" psv
+                           ") is not in the schema schemaVersion enum"])
                     (if (string-empty? sid)
                         "C4 could not read $id from docs/llmll-ast.schema.json"
-                    (if (not (string-contains sid (id-segment ssv)))
+                    (if (not (string-contains sid (id-segment psv)))
                         (string-concat-many
-                          ["C4 schema $id URL (" sid ") lacks " (id-segment ssv)
-                           " (derived from schemaVersion " ssv ")"])
+                          ["C4 schema $id URL (" sid ") lacks " (id-segment psv)
+                           " (derived from schemaVersion " psv ")"])
                         "")))))))))))))))))))))))
 
   (def-shell pass-report [v: Vg] -> string
     (string-concat-many
       ["DRIFT-CI-1 PASS:\n  banner       " (fact v "spec")
        "   (README, LLMLL.md, CHANGELOG, package.yaml, llmll.cabal)\n"
-       "  schemaVer    " (fact v "schema_sv")
-       " (schema.const == ParserJSON.expectedSchemaVersion)\n"
+       "  schemaVer    " (fact v "parser_sv")
+       " (ParserJSON.expectedSchemaVersion in schema enum)\n"
        "  $id          " (fact v "schema_id")
-       " (URL contains " (id-segment (fact v "schema_sv")) ")"]))
+       " (URL contains " (id-segment (fact v "parser_sv")) ")"]))
 
   ;; ---- the machine ---------------------------------------------------------
 
@@ -418,7 +430,7 @@
 
   (def-shell schema-step [v: Vg r: Response] -> ((Vg, VCtl), Command)
     (let [(doc (parse-json (text-of r)))]
-      (let [(v2 (with-fact (with-fact v "schema_sv" (schema-const doc))
+      (let [(v2 (with-fact (with-fact v "schema_enum" (schema-enum doc))
                            "schema_id" (schema-id doc)))]
         (go v2 (Parser) (read-at v2 "compiler/src/LLMLL/ParserJSON.hs")))))
 

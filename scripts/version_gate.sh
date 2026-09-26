@@ -5,10 +5,11 @@
 #   C1  README.md banner == LLMLL.md banner
 #       (extended to: package.yaml + llmll.cabal also equal)
 #   C2  LLMLL.md banner == CHANGELOG.md top "## vX.Y.Z" heading
-#   C3  docs/llmll-ast.schema.json schemaVersion const
-#         == compiler/src/LLMLL/ParserJSON.hs::expectedSchemaVersion
+#   C3  compiler/src/LLMLL/ParserJSON.hs::expectedSchemaVersion is a member
+#         of the docs/llmll-ast.schema.json schemaVersion enum
+#         (SCHEMA-TRUTH-1: the enum lists every version the reader accepts)
 #   C4  docs/llmll-ast.schema.json $id URL contains
-#         "/schemas/v<MAJOR>.<MINOR>/" derived from schemaVersion
+#         "/schemas/v<MAJOR>.<MINOR>/" derived from expectedSchemaVersion
 #
 # Exits 0 on all-pass; exits 1 on first failure with a single-line message.
 # Runs without Stack/GHC. Requires bash, grep, awk, jq.
@@ -58,9 +59,9 @@ cabal_v="v${cabal_v}"
 [ "$llmll_v" = "$cabal_v" ] \
     || fail "C1 LLMLL.md banner ($llmll_v) != compiler/llmll.cabal version ($cabal_v)"
 
-schema_sv=$(jq -er '."$defs".Program.properties.schemaVersion.const' \
+schema_enum=$(jq -ec '."$defs".Program.properties.schemaVersion.enum | arrays' \
                 docs/llmll-ast.schema.json) \
-    || fail "C3 could not read schemaVersion const from docs/llmll-ast.schema.json"
+    || fail "C3 could not read schemaVersion enum from docs/llmll-ast.schema.json"
 
 parser_sv=$(grep -E 'expectedSchemaVersion[[:space:]]*=' \
                 compiler/src/LLMLL/ParserJSON.hs \
@@ -70,8 +71,11 @@ parser_sv=$(grep -E 'expectedSchemaVersion[[:space:]]*=' \
 [ -n "$parser_sv" ] \
     || fail "C3 could not read expectedSchemaVersion from compiler/src/LLMLL/ParserJSON.hs"
 
-[ "$schema_sv" = "$parser_sv" ] \
-    || fail "C3 schema schemaVersion ($schema_sv) != ParserJSON.expectedSchemaVersion ($parser_sv)"
+case "$schema_enum" in
+    *"\"$parser_sv\""*) ;;
+    *) fail "C3 ParserJSON.expectedSchemaVersion ($parser_sv) is not in the schema schemaVersion enum" ;;
+esac
+schema_sv="$parser_sv"
 
 schema_id=$(jq -er '."$id"' docs/llmll-ast.schema.json) \
     || fail "C4 could not read \$id from docs/llmll-ast.schema.json"
@@ -85,5 +89,5 @@ esac
 
 echo "DRIFT-CI-1 PASS:"
 echo "  banner       $llmll_v   (README, LLMLL.md, CHANGELOG, package.yaml, llmll.cabal)"
-echo "  schemaVer    $schema_sv (schema.const == ParserJSON.expectedSchemaVersion)"
+echo "  schemaVer    $schema_sv (ParserJSON.expectedSchemaVersion in schema enum)"
 echo "  \$id          $schema_id (URL contains /schemas/${schema_mm}/)"

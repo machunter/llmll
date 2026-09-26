@@ -78,9 +78,11 @@ def test_fails_when_cabal_mutated(version_gate_script, synth_repo):
 
 
 def test_fails_when_schema_version_mismatched(version_gate_script, synth_repo):
+    # SCHEMA-TRUTH-1: C3 is enum membership; an enum without the emitted
+    # version fails, even when it lists other versions the reader accepts.
     schema_path = synth_repo / "docs" / "llmll-ast.schema.json"
     schema = json.loads(schema_path.read_text())
-    schema["$defs"]["Program"]["properties"]["schemaVersion"]["const"] = "0.6.0"
+    schema["$defs"]["Program"]["properties"]["schemaVersion"]["enum"] = ["0.6.0", "0.4.0"]
     schema_path.write_text(json.dumps(schema, indent=2))
     result = _run(version_gate_script, synth_repo, env={"REPO_ROOT": str(synth_repo)})
     assert result.returncode == 1
@@ -120,3 +122,24 @@ def test_extracts_semver_not_substring(version_gate_script, synth_repo):
         "head -1 + first-match grep should pick v9.9.9, not v1.0.0:\n"
         f"stderr: {result.stderr}"
     )
+
+
+def test_passes_when_parser_version_is_any_enum_member(version_gate_script, synth_repo):
+    """SCHEMA-TRUTH-1: the enum lists older readable versions too; C3 needs membership, not equality."""
+    schema_path = synth_repo / "docs" / "llmll-ast.schema.json"
+    schema = json.loads(schema_path.read_text())
+    schema["$defs"]["Program"]["properties"]["schemaVersion"]["enum"] = ["0.4.0", "0.5.0"]
+    schema_path.write_text(json.dumps(schema, indent=2))
+    result = _run(version_gate_script, synth_repo, env={"REPO_ROOT": str(synth_repo)})
+    assert result.returncode == 0, result.stderr
+
+
+def test_fails_when_schema_version_enum_absent(version_gate_script, synth_repo):
+    """SCHEMA-TRUTH-1: a schema that states no enum fails C3 rather than passing vacuously."""
+    schema_path = synth_repo / "docs" / "llmll-ast.schema.json"
+    schema = json.loads(schema_path.read_text())
+    schema["$defs"]["Program"]["properties"]["schemaVersion"] = {"const": "0.5.0"}
+    schema_path.write_text(json.dumps(schema, indent=2))
+    result = _run(version_gate_script, synth_repo, env={"REPO_ROOT": str(synth_repo)})
+    assert result.returncode == 1
+    assert "C3 could not read schemaVersion enum" in result.stderr
