@@ -275,7 +275,7 @@ Here's a fill that *does* type-check: `(+ balance amount)`. It's `int + int → 
 
 The payload carries the lock token and the pointer to the node; the `test` op asserts the slot currently holds the `?body_impl` hole, so the patch is refused if someone got there first.
 
-**A note on who wrote these patches.** No agent runs in this walkthrough. This patch and every other one below, right and wrong, is written by hand to stand in for an agent fill, so the walkthrough is repeatable. The checkouts, locks, type checks, solver verdicts and trust report are all real output. To follow along, save each payload under the file name the next command uses, with your real token in place of `<token-A>` (the [runbook](./DEMO-RUNBOOK.md) builds each file with `jq -n`). Apply it:
+**A note on who wrote these patches.** No agent runs in this walkthrough. This patch and every other one below, right and wrong, is a fixed, scripted patch that stands in for an agent fill, so the walkthrough is repeatable. The checkouts, locks, type checks, solver verdicts and trust report are all real output. To follow along, save each payload under the file name the next command uses, with your real token in place of `<token-A>` (the [runbook](./DEMO-RUNBOOK.md) builds each file with `jq -n`). Apply it:
 
 ```bash
 llmll patch ./demo.ast.json ./patch-wrong.json | jq '{result, message: .diagnostics[0].message}'

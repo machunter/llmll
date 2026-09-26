@@ -1,7 +1,7 @@
 # nested-result: a Result match verified inside a let
 
 `safe-withdraw [attempt: Result[int, string], floor: int] -> Balance` returns a
-refinement type, `Balance = {b : int | b >= 0}`, and has no hand-written post:
+refinement type, `Balance = {b : int | b >= 0}`, and has no explicit post:
 the return refinement is the whole spec. The body is a `let`, and the two-arm
 match on `attempt` sits inside it, one level below the top. The solver
 discharges the refinement for each arm through the `let`.

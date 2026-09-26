@@ -16,9 +16,10 @@ value is an integer, and a MAC or signature check appears as its result, not as 
 computation. What it captures is the length, sequence and state discipline where both
 bugs lived.
 
-To be precise about authorship. **The decomposition is ours**: we wrote a reference
-implementation and carved the 163 contracts out of it. **The bodies are the agents'**:
-seven agents each filled one module. The agents were Claude subagents run from Claude Code;
+To be precise about authorship: no person wrote any of the LLMLL in this series. **The
+decomposition was fixed in advance**: an authoring agent, working at our direction, wrote a
+reference implementation, and the 163 contracts were carved out of it. **The bodies are the
+fill agents'**: seven agents each filled one module. The agents were Claude subagents run from Claude Code;
 the July 2026 run did not record which model version they used. Each
 agent saw that module's contracts and the `slice-gate.llmll` composition pattern from
 Post 3, and not the reference bodies. Six agents filled the six component modules (150
@@ -29,11 +30,11 @@ spine) is [`examples/secure-channel-emergent/`](https://github.com/machunter/llm
 
 | | 163-function flagship (this post) | 25-function emergent build |
 |---|---|---|
-| Root contracts, where the invariants live | us | us |
-| Decomposition into sub-contracts | us, carved from our reference implementation | agents, through `refine`, with no reference solution |
+| Root contracts, where the invariants live | an authoring agent, at our direction | an authoring agent, at our direction |
+| Decomposition into sub-contracts | the authoring agent, carved from its reference implementation | agents, through `refine`, with no reference solution |
 | Function bodies | agents, one per module | agents, one fresh agent per hole |
 | Checking each body against its contract | compiler and solver | compiler and solver |
-| Whether the contracts say the right thing | us | us |
+| Whether the contracts say the right thing | a human reviewer; the compiler cannot check it | a human reviewer; the compiler cannot check it |
 
 The emergent build is the cleaner evidence that agents can invent a decomposition; this
 one shows the verification holding at 163 functions.

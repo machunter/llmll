@@ -7,7 +7,7 @@
 # hole count falls to 0; the strict trust report marks the function `verified`.
 #
 # The two fills are the committed patch files withdraw-patch-wrong.json and
-# withdraw-patch-correct.json: hand-written, scripted stand-ins for agents.
+# withdraw-patch-correct.json: fixed, scripted stand-ins for agents.
 #
 # Usage (from any directory):
 #   bash examples/withdraw-demo/demo.sh           # interactive: tap Enter to run each command
@@ -66,7 +66,7 @@ cp withdraw.ast.json before.ast.json
 
 beat
 p  "# The fills are scripted stand-ins for agents: committed patch files, stamped"
-p  "# with the checkout token. Fill 1 is hand-written and wrong (balance + amount):"
+p  "# with the checkout token. Fill 1 is scripted and wrong (balance + amount):"
 pe "jq -c '.patch[1].value' wrong.json"
 pe "llmll patch withdraw.ast.json wrong.json | jq ."
 p  "# Rejected at submission. The program was not touched:"

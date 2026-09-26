@@ -182,7 +182,7 @@ Every exclusion cites exactly one barrier below. An exclusion that fits none of 
 > **Also recorded: the per-barrier tallies above exist only as this prose.** The committed ledger
 > at [`experiments/rfc-swarm/data/inventory-dispositioned.json`](../../experiments/rfc-swarm/data/inventory-dispositioned.json)
 > carries no `barrier` field on any of its 53 exclusions, because the closed list postdates this
-> run. So "zero exclusions outside the closed barrier list" was tallied by hand and is not
+> run. So "zero exclusions outside the closed barrier list" was counted without a script and is not
 > checkable from the artifact, and replaying that ledger through the shipped driver would fail its
 > disposition schema check and STOP at gate J. `--self-test` asserts the zero and prints the gap
 > rather than passing over it.

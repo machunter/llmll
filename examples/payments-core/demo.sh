@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # LLMLL: "money can't be created" refutation demo (the README's refute.gif).
-# Shows: a hand-written wrong body that is type-correct but credits one unit too
+# Shows: a deliberately wrong body that is type-correct but credits one unit too
 # many is REFUTED by the SMT solver; the correct body is proved, and the strict
 # trust report marks it `verified`. Pure SMT: no API key, no Lean toolchain.
 #
@@ -44,7 +44,7 @@ pe() {                                                 # prompt, type the comman
 clear
 p  "# conserve(from, to, amount) returns BOTH new balances. Its contract:"
 p  "#   (first result) + (second result) = from + to    (no money created or destroyed)"
-p  "# A hand-written wrong body: type-correct, but it credits one unit too many."
+p  "# A deliberately wrong body: type-correct, but it credits one unit too many."
 pe "sed -n '/^(def conserve-bad/,\$p' conserve-bad.llmll"
 p  "# The SMT solver refutes it:"
 pe "llmll verify conserve-bad.llmll"

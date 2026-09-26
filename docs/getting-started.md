@@ -433,7 +433,7 @@ The annotation is pure metadata — no effect on type checking, verification, or
 
 JSON-AST equivalent: `"pre_source"` / `"post_source"` optional string fields on the contract object (single-clause shape), or `"pre_clauses"` / `"post_clauses"` arrays of `{"expr", "source"?}` objects for 2+ clauses (mutually exclusive with the scalar shape; `schemaVersion` 0.9.0).
 
-Multiple `(pre ...)` or `(post ...)` clauses each keep their own `:source` (SRC-CONJ-1): the effective predicate is the left `and`-fold in author order, and `--trust-report --json` surfaces the citations as `pre_sources` / `post_sources` arrays. Write one clause per cited standard clause; there is no need to combine them by hand.
+Multiple `(pre ...)` or `(post ...)` clauses each keep their own `:source` (SRC-CONJ-1): the effective predicate is the left `and`-fold in source order, and `--trust-report --json` surfaces the citations as `pre_sources` / `post_sources` arrays. Write one clause per cited standard clause; there is no need to combine them by hand.
 
 #### Downstream obligation mining
 

@@ -10,7 +10,7 @@ Run from this directory.
 ## What it proves
 
 `safe-withdraw [attempt: Result[int, string], floor: int] -> Balance` returns a
-`Balance` — a refinement type `{b : int | b >= 0}`. There is **no hand-written
+`Balance` — a refinement type `{b : int | b >= 0}`. There is **no explicit
 post**: the return refinement is the entire spec, discharged **per arm** by the
 solver. The body is a `let`, and the two-arm match on the `Result`-typed `attempt`
 lives **inside the `let` body** — the *nested* form. The let-bound `guard` is

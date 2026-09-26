@@ -45,6 +45,5 @@ $ llmll verify ./step-weak.llmll --strict-verified-core
 `step-bad` shows the contract catching a skipped handshake. `step-weak` shows the
 limit: a proof is only as strong as the contract. With the totality clause
 missing, a wrong edge verifies. The fix is to add the clause from the RFC, which
-gives `step.llmll`'s post, and that post refutes the edge. Noticing the weak
-contract is a human step; `--weakness-check` and `--cdp` do not flag it for this
+gives `step.llmll`'s post, and that post refutes the edge. Noticing the weakcontract takes a reviewer; `--weakness-check` and `--cdp` do not flag it for this
 function shape.

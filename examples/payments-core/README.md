@@ -2,7 +2,7 @@
 
 A small payments core in three parts. `transfer` proves its contract through a
 verified `debit` call edge; `settle` returns a refined `Balance` from a
-two-arm `Result` match with no hand-written post; `conserve` returns both
+two-arm `Result` match with no explicit post; `conserve` returns both
 post-transfer balances as a pair and proves `(first result) + (second result) =
 from + to`, the "money can't be created" property. Each good file has a wrong
 twin that type-checks and passes a happy-path test, and the solver refutes it.

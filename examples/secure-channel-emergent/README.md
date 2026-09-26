@@ -1,15 +1,19 @@
 # secure-channel-emergent — the decomposition the agents invented
 
 The companion artifact to [`../heartbleed/secure-channel/`](../heartbleed/secure-channel/),
-built to remove that flagship's one authored shortcut. There, the decomposition was
-**front-loaded**: a reference solution was written first and holed out into a 163-contract
-scaffold; agents filled a structure a human had already solved. Here, **no reference
-solution and no full decomposition ever existed**: the only human-authored layer is the
-root contracts below, and everything under them — the sub-problems, their contracts, and
-their bodies — was invented by agents through cascading `refine`, gated and verified at
-every step.
+built to remove that flagship's one front-loaded shortcut. There, the decomposition was
+**front-loaded**: an authoring agent wrote a complete reference solution first, which was
+holed out into a 163-contract scaffold; the fill agents filled a structure that was already
+solved. Here, **no reference solution and no full decomposition ever existed**: the only
+layer fixed in advance is the root contracts below, and everything under them (the
+sub-problems, their contracts, and their bodies) was invented by agents through cascading
+`refine`, gated and verified at every step.
 
-## What is human-authored (the entire spec surface)
+**Provenance.** No human wrote any LLMLL in this example. An agent wrote the root
+contracts at the project author's direction; the human input is the choice of problem and
+the public descriptions of the bug classes it targets.
+
+## What was fixed in advance (the entire spec surface)
 
 `roots/*.llmll` — seven modules, each a small set of root `def-shell` contracts with
 `?impl` bodies. The famous-bug invariants live here, stated once at the root:
@@ -24,7 +28,7 @@ every step.
 | `alert` | `alert-admit`, `alert-worst` | fatal-alert latch: nothing delivers after fatal |
 | `spine` | `channel-admit`, `channel-deliver-len` | the whole-channel delivery predicate (imports all six) |
 
-No bodies were ever written by the author — not as references, not as drafts. The spine's
+No bodies were written in advance, either as references or as drafts. The spine's
 `channel-deliver-len` contract deliberately has the goto-fail shape (deliver `claimed`
 exactly when every gate passes, else 0); no agent was steered toward or away from the
 unconditional-deliver shortcut.

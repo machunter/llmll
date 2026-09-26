@@ -1,9 +1,9 @@
 ;; LLMLL Repair-Loop Demo — complex return types (DEF-RET Unit 2, v0.13.2).
-;; Companion to demo.llmll's `maxi`. There the contract was a hand-written `post`.
+;; Companion to demo.llmll's `maxi`. There the contract was an explicit `post`.
 ;; Here the contract IS the return type: a refinement-aliased return `-> Word`
 ;; folds its predicate into the function's effective postcondition
 ;; (augmentContractPost, §3.4.1 / §3.4.6). The body-VC must PROVE the result lands
-;; in [0, 65535] — with NO `post` written by hand. Two functions, the two halves
+;; in [0, 65535] — with NO explicit `post`. Two functions, the two halves
 ;; of the feature:
 ;;
 ;;   saturate — INTRODUCTION: the body proves the return refinement. A 16-bit

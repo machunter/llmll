@@ -70,6 +70,14 @@ whole.
 
 ## How it was built (orchestration)
 
+**Provenance.** No human wrote any LLMLL in this example. An authoring agent, working at the
+project author's direction, wrote the seven-module decomposition, the 163 contracts and the
+reference solution `sc-channel.llmll`. The human input is the choice of problem and the public
+descriptions of the bug classes it targets. The fill agents below did not design anything: the
+contracts they filled against were fixed before they started. For the version where agents
+also invent the decomposition, see
+[`secure-channel-emergent/`](../../secure-channel-emergent/).
+
 1. **Scaffold.** `scaffold_holeout.py` holes out the verified reference into
    `sc-channel-scaffold.llmll` — 163 `?impl` bodies, contracts intact. It verifies at the
    *contract* level (call-pre obligations discharged) before a single body exists.

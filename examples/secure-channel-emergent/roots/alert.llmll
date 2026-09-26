@@ -1,5 +1,5 @@
 ;; secure-channel-emergent, module: alert.
-;; ROOT CONTRACTS ONLY — no bodies were ever written by the author; every body
+;; ROOT CONTRACTS ONLY: no bodies were written in advance; every body
 ;; below the roots is agent-authored via cascading refine (see ../README.md).
 ;;
 ;; Domain: TLS-style alert handling, int/bool-modeled.

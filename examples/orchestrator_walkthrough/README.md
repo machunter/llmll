@@ -7,7 +7,7 @@ delegated function carries an `on_failure` fallback, so the unfilled module alre
 type-checks.
 
 The example is about resolution mechanics, not proof. Only `login-handler` has a
-contract (a hand-written `pre`), so the filled module proves nothing, and spec
+contract (an explicit `pre`), so the filled module proves nothing, and spec
 coverage shows the split between the one contracted function and the three
 unspecified ones. The trust discussion is in [`WALKTHROUGH.md`](WALKTHROUGH.md).
 

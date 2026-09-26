@@ -54,7 +54,7 @@ The demo drives the JSON-AST coordination protocol — how a *swarm* of agents e
 - `checkout` reserves a hole and returns a token.
 - `patch` applies an RFC 6901-pointer JSON-Patch that is **type-checked and verified at submission, and rejected if it fails** — distinct `PatchTypeError` / `PatchVerifyError` / `PatchAuthError` result codes.
 
-> **The fills in this runbook are scripted.** No agent runs here. Every patch below (agent A's, B's and C's, right and wrong) is written by hand with `jq -n` to stand in for an agent fill, so the demo is repeatable. What is real is everything the compiler does with them: the checkouts, the locks, the type check, the solver verdicts and the trust report.
+> **The fills in this runbook are scripted.** No agent runs here. Every patch below (agent A's, B's and C's, right and wrong) is a fixed patch built with `jq -n` to stand in for an agent fill, so the demo is repeatable. What is real is everything the compiler does with them: the checkouts, the locks, the type check, the solver verdicts and the trust report.
 
 > **Gating note.** `llmll patch` returns exit `1` *and* a `result` field on a rejection on the merits (`PatchTypeError`, `PatchVerifyError`, `PatchAuthError`); exit `0` + `PatchSuccess` on success. It returns exit `3` with `PatchVerifyUnavailable` when the patched program carries contracts and the solver is missing or gives no verdict: nothing is written and the lock is kept, so retry once the solver is available. `llmll verify` exits `1` on any refuted/unproven function, `0` when the run is fully SAFE. Gate scripts on `$?`; the JSON `result`/`success` fields carry the detail.
 
@@ -605,7 +605,7 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp --json 
 
 ## Companion beat — `return-refine`: the type *is* the contract
 
-[`return-refine.llmll`](return-refine.llmll) is a standalone sibling to the protocol flow above — run it directly, no checkout/patch. It shows what a refined return type buys you: when a function's **return type carries a refinement**, it needs *no hand-written `post`* — the type **is** the contract.
+[`return-refine.llmll`](return-refine.llmll) is a standalone sibling to the protocol flow above — run it directly, no checkout/patch. It shows what a refined return type buys you: when a function's **return type carries a refinement**, it needs *no explicit `post`* — the type **is** the contract.
 
 `saturate [tokens added: int] -> Word` is a 16-bit saturating add, where `Word ≜ {v:int | 0 ≤ v ≤ 65535}`; `top-up` composes over it. The clean fill verifies — the `-> Word` refinement is discharged on every path, with no `post` written:
 

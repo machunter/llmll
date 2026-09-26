@@ -7,7 +7,7 @@ by the solver, through the `let`.
 
 | # | Function | Types | Spec | Body | Verdict | Basis |
 |---|----------|-------|------|------|---------|-------|
-| 1 | `safe-withdraw` | `Result[int, string]` scrutinee; `Balance = {b:int \| b>=0}` return | return refinement (no hand-written post) | `let` whose body is a two-arm `match` on the `Result`-typed `attempt` | **verified** (body-faithful, liquid-fixpoint) | per-arm VC, QF-LIA |
+| 1 | `safe-withdraw` | `Result[int, string]` scrutinee; `Balance = {b:int \| b>=0}` return | return refinement (no explicit post) | `let` whose body is a two-arm `match` on the `Result`-typed `attempt` | **verified** (body-faithful, liquid-fixpoint) | per-arm VC, QF-LIA |
 
 **Proven: 1 · Asserted: 0.**
 

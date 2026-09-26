@@ -77,7 +77,7 @@ error: call-site precondition of 'debit' not satisfied in 'transfer' — caller 
 
 ## Beat B — `settle`: the type is the contract
 
-`settle [attempt: Result[int, Reason]] -> Balance` returns a refined sum-type result (`Balance ≜ {b:int | b ≥ 0}`); its body *is* the two-arm `Result` match, with no hand-written `post` — the return refinement is discharged **per arm**:
+`settle [attempt: Result[int, Reason]] -> Balance` returns a refined sum-type result (`Balance ≜ {b:int | b ≥ 0}`); its body *is* the two-arm `Result` match, with no explicit `post` — the return refinement is discharged **per arm**:
 
 ```bash
 llmll verify ./settle.llmll

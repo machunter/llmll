@@ -67,7 +67,7 @@ The filled implementation includes 4 check blocks from RFC 6238 §A.1:
 
 ## Regression Gate
 
-The gate is a local make target; no workflow under `.github/` runs it. Run it by hand:
+The gate is a local make target; no workflow under `.github/` runs it. Run it directly:
 
 ```bash
 make benchmark-totp

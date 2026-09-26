@@ -18,7 +18,7 @@ start as `?delegate` holes and are filled by out-of-process agents.
    out-of-process carve-out (LLMLL.md §4.4 / §11.2) is real, but this fixture
    doesn't exercise it, since there's no stated contract to be asserted-not-
    proven in the first place. `login-handler` (a `def-shell`) is the one
-   function that shows `asserted`, from its own hand-written `pre` — unrelated
+   function that shows `asserted`, from its own explicit `pre` — unrelated
    to the delegate-filled bodies it composes. Verifying the filled module
    (`llmll verify auth_module_filled.ast.json --spec-coverage`) shows this
    1-contracted-of-4 split directly (`Functions with contracts: 1 / 4 (25%)`);

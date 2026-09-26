@@ -12,7 +12,7 @@ LLMLL (Large Language Model Logical Language) is a language and verification pip
 
 ## See it: money that can't be created, proven
 
-`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to`: the total is conserved, full stop. A hand-written wrong body that credits the destination one unit extra is **type-correct** and looks harmless on inspection, but it breaks conservation, and the SMT solver refutes it:
+`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to`: the total is conserved, full stop. A deliberately wrong body that credits the destination one unit extra is **type-correct** and looks harmless on inspection, but it breaks conservation, and the SMT solver refutes it:
 
 ```text
 # body:  (pair (- from amount) (+ to (+ amount 1)))      ← type-correct, creates money
@@ -25,10 +25,10 @@ $ llmll verify conserve.llmll
 ✅ conserve.llmll — SAFE (liquid-fixpoint)
 ```
 
-The proof is over **both** return values at once: a relational invariant, not a bound on one number. The wrong body above is written by hand to show the check firing. Dafny, Liquid Haskell or F\* would refute it too; what LLMLL adds is the loop around the proof, [below](#why-not-have-an-agent-write-dafny-liquid-haskell-or-f).
+The proof is over **both** return values at once: a relational invariant, not a bound on one number. The wrong body above is scripted to show the check firing; no agent produced it. Dafny, Liquid Haskell or F\* would refute it too; what LLMLL adds is the loop around the proof, [below](#why-not-have-an-agent-write-dafny-liquid-haskell-or-f).
 
 <p align="center"><img src="docs/assets/refute.gif" width="760" alt="LLMLL refutes money creation before merge"></p>
-<p align="center"><sub>The wrong body in this recording is hand-written to show the check firing; no agent produced it. Regenerate with <code>make demo-gifs</code>. If an animation on this page shows a still frame, your browser or GitHub's Accessibility setting for animated images may be pausing it; click the image to open the GIF directly.</sub></p>
+<p align="center"><sub>The wrong body in this recording is scripted to show the check firing; no agent produced it. Regenerate with <code>make demo-gifs</code>. If an animation on this page shows a still frame, your browser or GitHub's Accessibility setting for animated images may be pausing it; click the image to open the GIF directly.</sub></p>
 
 Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) — the composed `transfer`/`debit` call-chain beat and the single-constructor `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
 
@@ -44,7 +44,7 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 - **Agents edit structure, not text.** Every program also has a JSON-AST form, and patches are RFC 6902 JSON-Patch against it, so there are no text merge conflicts.
 - **Decomposition is checked.** `llmll refine` fills a hole and spawns contracted sub-holes in one step, and rejects a sub-contract that no body can meet or that says nothing.
 
-**What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use hand-written wrong versions to show that the check works; the agents in these experiments did not produce them. Every experiment, with its result: [`experiments/README.md`](experiments/README.md).
+**What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use scripted wrong versions to show that the check works; the agents in these experiments did not produce them. Every experiment, with its result: [`experiments/README.md`](experiments/README.md).
 
 ---
 
@@ -77,7 +77,7 @@ The certificate is a Lean proof term the kernel accepted, checkable by anyone wi
 The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md).
 
 <p align="center"><img src="docs/assets/protocol.gif" width="760" alt="LLMLL agent protocol: holes, checkout, a rejected patch, an accepted patch, verified"></p>
-<p align="center"><sub>The two fills are scripted stand-ins for agents: hand-written, committed patch files. Script: <a href="examples/withdraw-demo/demo.sh"><code>examples/withdraw-demo/demo.sh</code></a>.</sub></p>
+<p align="center"><sub>The two fills are scripted stand-ins for agents: fixed patch files committed to the repo, not produced by an agent run. Script: <a href="examples/withdraw-demo/demo.sh"><code>examples/withdraw-demo/demo.sh</code></a>.</sub></p>
 
 **Zero-install (Docker).** No Haskell toolchain — the image bundles `llmll`, `z3`, and `liquid-fixpoint`:
 

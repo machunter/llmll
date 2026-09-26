@@ -47,7 +47,7 @@ REFINE
 7662 §4) from `introspect`'s postcondition **across the module boundary**: the
 assume-guarantee obligation, proven, not assumed.
 
-## The refute layer (author-injected, CI-frozen)
+## The refute layer (injected after the wave, CI-frozen)
 
 After the wave verified, each accepted fill was mutated into a famous-bug twin;
 all are frozen in [`EXPECTED_VERDICTS.json`](EXPECTED_VERDICTS.json) and gated by
