@@ -4,6 +4,38 @@
 
 <a id="Latest"></a>
 
+## v0.26.6: the published trust-report schema accepts what `verify` emits (2026-09-26)
+
+### `SCHEMA-DRIFT-1`: every emitted trust report failed `docs/llmll-trust-report.schema.json`
+
+The schema closes its top level (`additionalProperties: false`) and pins `trust_report_version` with a
+`const`. Validated with `jsonschema` against the `--trust-report --json` emit of every `.llmll` and
+`.ast.json` file in `examples/` and `tools/` on v0.26.5, **239 of 239 reports failed**. The roadmap row
+named one cause; there were three:
+
+- `harness_assumptions` (added by `EFFECT-RESP`) was not listed.
+- `termination_assumed_fns` (added by `HEADLINE-TERM-1` in v0.26.5) was not listed.
+- The schema pinned `"1.6.0"`; the compiler has emitted `"1.7.0"` since `HEADLINE-TERM-1`.
+
+- **The schema now pins `1.7.0` and lists both keys** with their shapes. It also documents twelve
+  per-entry keys the compiler already emitted and the schema never described (`pre_sources`,
+  `post_sources`, `refuted`, `termination_unverified`, `termination_assumed`, `measure_not_decreasing`,
+  `carries_caller_obligations`, `caller_obligations`, `assumed_facts`, `builtin_axioms`,
+  `inherited_axioms`, `ground_fact_families`). Entry objects stay open to additional keys, so these never
+  caused a failure. After the change, 239 of 239 reports validate, and so do they with entry objects
+  closed. `--cdp` emits over three example directories validate too.
+- **A test now fails when the emit and the schema disagree.** Four hspec cases (`SD-1` to `SD-4`) read
+  the schema file and compare it with `formatTrustReportJson`: the version `const`, every emitted
+  top-level key listed, every required key emitted, every emitted entry key listed. Against the v0.26.5
+  schema three of the four fail, naming the three causes above. The check is key sets and the version,
+  not full JSON Schema validation, and the entry-key case sees only the keys its fixture emits. The
+  shapes of `body_fallback`, `refuted` and the axiom keys come from the emitter source; no tracked report
+  emits them without a solver run.
+
+No file under `compiler/src/` changed.
+
+Tests: 2091 examples, 0 failures (+4); Python 310 passed, 87 skipped.
+
 ## v0.26.5: the `verify` headline and `--strict-verified-core` see termination and unproved imports (2026-09-25)
 
 ### `HEADLINE-TERM-1`: a proof that assumes termination is not shown as proved

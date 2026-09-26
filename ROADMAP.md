@@ -25,7 +25,7 @@ Open work is grouped by where the fix lands, in priority order. Tags in parenthe
 5. **Capability enforcement.** The `capability` clause is declarative today; decide how the compiler enforces it (CAP-1-REAL). (G5)
 6. **The module system.** Enforce `def-interface` conformance, which the spec already describes (IFACE-CONFORM), and decide on qualified imported constructors. (G6)
 7. **Builtins and system interface.** Byte-level file reads and writes, path normalization, case-insensitive and capturing regular expressions, setting a child process's environment, and reporting the host platform. Each has a measured workaround, and each ships when a second program needs it or when the workaround weakens trust or correctness. (G7)
-8. **Instruments over the repository.** The published JSON schemas reject what the compiler emits today (SCHEMA-TRUTH-1, SCHEMA-DRIFT-1); no CI job runs `check` over the shipped examples, so one that stops type-checking would go unnoticed (TOTP-CHECK-1); some gates report success when they cannot decide. (G8)
+8. **Instruments over the repository.** The published JSON-AST schema rejects every tracked `.ast.json` file (SCHEMA-TRUTH-1); no CI job runs `check` over the shipped examples, so one that stops type-checking would go unnoticed (TOTP-CHECK-1); some gates report success when they cannot decide. (G8)
 
 Unscheduled directions with their own sections in the internal log: per-module code generation, a WASM sandbox target, a wider data fragment, and cascading refinement. Production Lean verification (LEAN-GA) and an MCP interface wait on a trigger.
 

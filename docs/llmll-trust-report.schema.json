@@ -10,9 +10,9 @@
   "properties": {
 
     "trust_report_version": {
-      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy.",
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy.",
       "type": "string",
-      "const": "1.6.0"
+      "const": "1.7.0"
     },
 
     "entries": {
@@ -107,6 +107,26 @@
         "threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
         "warning":   { "type": "boolean" }
       }
+    },
+
+    "termination_assumed_fns": {
+      "description": "1.7.0 (HEADLINE-TERM-1): every contracted function whose proof holds only if an undischarged recursive cycle terminates: the cycle members and their reflexive caller closure, across modules. `via` names the cycle member the function reaches. Present on every report path.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "via"],
+        "properties": {
+          "name": { "type": "string" },
+          "via":  { "type": "string" }
+        }
+      }
+    },
+
+    "harness_assumptions": {
+      "description": "EFFECT-RESP: module-level assumptions about the harness that runs a console `def-main`. Empty for a module without one. Additive; no `trust_report_version` change.",
+      "type": "array",
+      "items": { "type": "string" }
     }
   },
 
@@ -125,6 +145,73 @@
         "dependencies": { "type": "array", "items": { "$ref": "#/$defs/TrustDependency" } },
         "drifts":       { "type": "array", "items": { "type": "string" } },
         "effective_level": { "$ref": "#/$defs/LevelLabel" },
+        "pre_sources":  { "type": "array", "items": { "type": ["string", "null"] }, "description": "SRC-CONJ-1: per-conjunct provenance in author order (null for an unsourced conjunct). Present only when the pre side was authored as multiple clauses; `pre_source` keeps the scalar form otherwise." },
+        "post_sources": { "type": "array", "items": { "type": ["string", "null"] }, "description": "SRC-CONJ-1: the post-side counterpart of `pre_sources`." },
+        "refuted": { "type": "boolean", "const": true, "description": "VERIFY-RPT-1: present and `true` iff the function is in `refuted_fns`. Omitted when false." },
+        "termination_unverified": { "type": "boolean", "const": true, "description": "REC-PARTIAL-MARK: present and `true` iff the function is in `partial_fns`. Informational; it does not change `effective_level`. Omitted when false." },
+        "termination_assumed": { "type": "boolean", "const": true, "description": "HEADLINE-TERM-1: present and `true` iff the function is in `termination_assumed_fns`. Omitted when false." },
+        "measure_not_decreasing": { "type": "boolean", "const": true, "description": "REC-DESCENT: present and `true` iff the function is in `measure_not_decreasing_fns`. Omitted when false." },
+        "carries_caller_obligations": { "type": "boolean", "description": "TRUST-PRE: `true` iff `caller_obligations` is non-empty. Present on every entry and every report path." },
+        "caller_obligations": {
+          "type": "array",
+          "description": "TRUST-PRE: preconditions a caller must establish, as rendered `requires` predicates. Present only when non-empty.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fn", "requires"],
+            "properties": { "fn": { "type": "string" }, "requires": { "type": "string" } }
+          }
+        },
+        "assumed_facts": {
+          "type": "array",
+          "description": "RESP-FACT-1: declared facts about a builtin's response that this function assumes. Present only when non-empty.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tag", "builtin", "arm", "predicate", "category", "premise"],
+            "properties": {
+              "tag": { "type": "string" }, "builtin": { "type": "string" }, "arm": { "type": "string" },
+              "predicate": { "type": "string" }, "category": { "type": "string" }, "premise": { "type": "string" }
+            }
+          }
+        },
+        "builtin_axioms": {
+          "type": "array",
+          "description": "TRUST-AXIOM: sealed-builtin axioms this function's proof assumes. `predicate` is the merged post; `conjuncts` splits it into `reflection` and `lemma` parts. Present only when non-empty.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["builtin", "predicate", "category", "stamp", "conjuncts"],
+            "properties": {
+              "builtin": { "type": "string" }, "predicate": { "type": "string" },
+              "category": { "type": "string" }, "stamp": { "type": "string" },
+              "conjuncts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["tag", "predicate"],
+                  "properties": { "tag": { "type": "string" }, "predicate": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "inherited_axioms": {
+          "type": "array",
+          "description": "TRUST-AXIOM: sealed-builtin axioms inherited through callees. A row with `recorded: false` means the callee sidecar predates the disclosure, so its assumed set is unknown, not empty. Present only when non-empty.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["origin"],
+            "properties": {
+              "origin": { "type": "string" }, "builtin": { "type": "string" },
+              "category": { "type": "string" }, "stamp": { "type": "string" },
+              "recorded": { "type": "boolean", "const": false }, "note": { "type": "string" }
+            }
+          }
+        },
+        "ground_fact_families": { "type": "array", "items": { "type": "string" }, "description": "TRUST-AXIOM family C: ground-fact families this function's proof uses. Present only when non-empty." },
         "body_fallback": {
           "type": "object",
           "required": ["cause", "constructs"],

@@ -5052,6 +5052,67 @@ main = hspec $ do
         _ -> expectationFailure "trust-report JSON did not decode as an object"
 
   -- =========================================================================
+  -- SCHEMA-DRIFT-1: the emit and docs/llmll-trust-report.schema.json agree.
+  -- The schema pins 'trust_report_version' with a const and closes the top
+  -- level with additionalProperties:false, so one unlisted additive key or one
+  -- version change makes every emitted report fail it. Two such changes
+  -- (EFFECT-RESP's harness_assumptions, HEADLINE-TERM-1's 1.7.0 and
+  -- termination_assumed_fns) reached main with no test noticing. These read
+  -- the schema file itself, so the next change fails here instead.
+  -- =========================================================================
+  describe "Trust-report emit matches its published schema (SCHEMA-DRIFT-1)" $ do
+    let stmts =
+          [ SDefLogic "fn1" [("x", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing [] [])
+              (EVar "x")
+          ]
+        emitted = decode (BLC.pack (T.unpack (formatTrustReportJson (buildTrustReport DM.empty stmts Map.empty)))) :: Maybe Value
+        loadSchema = do
+          raw <- BL.readFile (".." </> "docs" </> "llmll-trust-report.schema.json")
+          case decode raw :: Maybe Value of
+            Just (Object s) -> pure s
+            _ -> fail "docs/llmll-trust-report.schema.json did not decode as a JSON object"
+        objKeys (Just (Object m)) = sort (map K.toString (KM.keys m))
+        objKeys _                 = []
+        at k (Just (Object m)) = KM.lookup (K.fromString k) m
+        at _ _                 = Nothing
+        emittedObj = case emitted of
+          Just (Object o) -> o
+          _ -> error "trust-report JSON did not decode as an object"
+
+    it "SD-1 emitted trust_report_version equals the schema's const" $ do
+      s <- loadSchema
+      let schemaConst = at "const" (at "trust_report_version" (KM.lookup "properties" s))
+      schemaConst `shouldSatisfy` (/= Nothing)
+      KM.lookup "trust_report_version" emittedObj `shouldBe` schemaConst
+
+    it "SD-2 every emitted top-level key is listed in the schema's properties" $ do
+      s <- loadSchema
+      let listed = objKeys (KM.lookup "properties" s)
+          extra  = [ k | k <- sort (map K.toString (KM.keys emittedObj)), k `notElem` listed ]
+      KM.lookup "additionalProperties" s `shouldBe` Just (Bool False)
+      extra `shouldBe` []
+
+    it "SD-3 every top-level key the schema requires is emitted" $ do
+      s <- loadSchema
+      let required = case KM.lookup "required" s of
+            Just (Array a) -> [ T.unpack t | String t <- foldr (:) [] a ]
+            _              -> []
+          missing = [ k | k <- required, not (KM.member (K.fromString k) emittedObj) ]
+      required `shouldSatisfy` (not . null)
+      missing `shouldBe` []
+
+    it "SD-4 every emitted entry key is listed in $defs/TrustEntry" $ do
+      s <- loadSchema
+      let listed = objKeys (at "properties" (at "TrustEntry" (KM.lookup "$defs" s)))
+          entryKeys = case KM.lookup "entries" emittedObj of
+            Just (Array es) -> nub (concatMap (objKeys . Just) (foldr (:) [] es))
+            _               -> []
+      listed `shouldSatisfy` (not . null)
+      entryKeys `shouldSatisfy` (not . null)
+      [ k | k <- entryKeys, k `notElem` listed ] `shouldBe` []
+
+  -- =========================================================================
   -- v0.3 #14: Async/Await codegen test coverage (10 tests)
   -- =========================================================================
 
