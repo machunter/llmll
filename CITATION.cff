@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use LLMLL in your work, please cite it as below."
+type: software
+title: "LLMLL: Large Language Model Logical Language"
+abstract: >-
+  A language and verification pipeline for AI-written code: agents fill
+  typed holes, and an SMT solver proves each body against its contract.
+authors:
+  - family-names: Sahinoglu
+    given-names: Burc
+repository-code: "https://github.com/machunter/llmll"
+url: "https://machunter.github.io/llmll/"
+keywords:
+  - formal verification
+  - refinement types
+  - SMT
+  - program synthesis
+  - large language models
