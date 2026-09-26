@@ -839,7 +839,7 @@ The compiler rejects files with an unrecognised `schemaVersion` immediately; it 
 | `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. `kind:"def"` / `kind:"def-shell"` are the canonical forms under the default `GrammarCoreInversion` mode. |
 | `llmll_version` | Version of the LLMLL compiler that emitted this file. Informational only — the compiler does not validate this field. Decoupled from `schemaVersion` (the schema bumps independently of the language version). |
 
-**Upgrade path:** bump `schemaVersion` in `docs/llmll-ast.schema.json`, update `expectedSchemaVersion` in `ParserJSON.hs`, re-emit fixtures.
+**Upgrade path:** add the new version to the `schemaVersion` enum in `docs/llmll-ast.schema.json` and to `acceptedSchemaVersions` in `ParserJSON.hs` (a test fails when the two lists differ), update `expectedSchemaVersion`, re-emit fixtures.
 
 **Round-trip guarantee:** `llmll build file.llmll --emit` (`-o DIR` optional; defaults to `generated/<name>/`) then `llmll build file.ast.json` produces semantically identical output. Any divergence is a bug.
 
