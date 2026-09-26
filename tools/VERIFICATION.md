@@ -50,9 +50,21 @@ not import it.
   `sequencer` 357, `buildsmoke` 179, `wave` 109, `refutecrux` 90, `docclaims` 90, `pathlint` 62,
   `docarchive` 56, `spine` 54, `versiongate` 50, `registry` 32, `manifest` 13, `common` 10,
   `shell` 6.
+- **The cores' preconditions at the tools' call sites.** A core is proved assuming its `pre`
+  holds. The programs that call the cores are `def-shell` code outside the fragment, so their
+  calls produce no call-site obligation, and nothing proves the arguments meet the `pre`.
+  Measured on a copy: changing `pathlint.llmll` to call `tally` with -5 (its `pre` is
+  `seen >= 0`) still verifies SAFE with exit 0. The `pre` survives as a runtime assertion: a
+  two-module program that makes the same kind of call builds, and at run time stops with
+  `pre-condition failed` and exit 1. A violated precondition therefore stops the tool; it is
+  not ruled out in advance.
 - **`drv-status` in `sequencer.llmll`** is asserted, not proved. It carries a contract (the
-  exit status is in 0 to 255), but its body matches on a tuple component and falls outside the
-  decidable fragment (`body-outside-fragment`).
+  exit status is in 0 to 255), but its body matches on `(second s)`, a pair component of
+  datatype sort, and that falls outside the fragment (`body-outside-fragment`, refused by
+  `match`). Measured on minimal files: a `match` on a `Ctl` variable is proved, and `second` of
+  an `(int, int)` pair is proved; only the combination falls back. The tool cannot work around
+  it: `:status` receives the whole `(Run, Ctl)` state, and a `def` cannot call a helper defined
+  in the same file. Proving it needs compiler support for datatype-sorted pair components.
 - **`fixtures/wave-roots.llmll`** is a holed fixture; its 2 contracts are assumed by design.
 
 A `SAFE` headline on a program with no contracts means only that no contradiction was found.
