@@ -54,7 +54,7 @@ Every expression node is a JSON object with a "kind" field. Valid kinds:
 - `let`:        {"kind": "let", "bindings": [{"name": "x", "expr": <expr>}], "body": <expr>}
 - `match`:      {"kind": "match", "scrutinee": <expr>, "arms": [{"pattern": <pat>, "body": <expr>}]}
 - `pair`:       {"kind": "pair", "fst": <expr>, "snd": <expr>}
-- `lambda`:     {"kind": "lambda", "params": [{"name": "x", "type": <type>}], "body": <expr>}
+- `lambda`:     {"kind": "lambda", "params": [{"name": "x", "param_type": <type>}], "body": <expr>}
 """
 
 _SYSTEM_PROMPT_FOOTER = """\
@@ -81,8 +81,8 @@ Return a JSON array with exactly one RFC 6902 "replace" operation:
 - Construct: {"kind": "pair", "fst": <expr>, "snd": <expr>}
 - Project first:  {"kind": "app", "fn": "first", "args": [<pair-expr>]}
 - Project second: {"kind": "app", "fn": "second", "args": [<pair-expr>]}
-- Type node: {"kind": "pair-type", "first_type": <type>, "second_type": <type>}
-- Function type node: {"kind": "fn-type", "param_types": [<type>, ...], "return_type": <type>}
+- Type node: {"kind": "pair-type", "fst": <type>, "snd": <type>}
+- Function type node: {"kind": "fn-type", "params": [{"name": "", "param_type": <type>}, ...], "return_type": <type>}
 
 ## Result Construction vs Pattern Matching
 
@@ -91,9 +91,9 @@ Return a JSON array with exactly one RFC 6902 "replace" operation:
 - To MATCH on a Result: use constructors `Success` and `Error` in patterns:
   `{"pattern": {"kind": "constructor", "constructor": "Success", "sub_patterns": [{"kind": "bind", "name": "v"}]}}`
 
-## letrec (recursive functions)
+## Recursion
 
-Recursive functions use `letrec` with a `:decreases` annotation. The agent should not emit letrec nodes — use `def-logic` with standard recursion instead.
+Do not emit `letrec` or `def-logic` nodes: neither is a JSON-AST kind. To recurse, call the enclosing function by name with an `app` node.
 """
 
 # Legacy prompt: used when the compiler doesn't support `llmll spec` (pre-v0.3.4)
