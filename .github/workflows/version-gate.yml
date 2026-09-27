@@ -344,20 +344,6 @@ jobs:
           grep -q ' 5 passed' "$RUNNER_TEMP/schema-valid.log" \
             || { echo "SCHEMA-TRUTH-1: expected 5 passed cells"; exit 1; }
 
-      # llmll-orchestra: the multi-agent hole-filling tool. Its suite had never
-      # run in CI, and its skeleton builder had drifted until its output did not
-      # parse. The compiler-backed cells need LLMLL_BIN and the prompt cells need
-      # jsonschema (installed by the step above); the grep refuses a skip.
-      - name: Run llmll-orchestra tests (pytest, needs the built compiler)
-        run: |
-          set -euo pipefail
-          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
-          (cd tools/llmll-orchestra && LLMLL_BIN="$SUBJECT" python3 -m pytest tests -v -rs) \
-            | tee "$RUNNER_TEMP/orchestra.log"
-          if grep -q SKIPPED "$RUNNER_TEMP/orchestra.log"; then
-            echo "an llmll-orchestra test skipped; LLMLL_BIN and jsonschema must be present"; exit 1
-          fi
-
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
       # missing-jq message reads "brew install jq", which is the wrong advice on
@@ -459,6 +445,23 @@ jobs:
           fi
           grep -q ' 10 passed' "$RUNNER_TEMP/diverge-nosolver.log" \
             || { echo "DIVERGE-NOSOLVER-1: expected 10 passed cells"; exit 1; }
+
+      # llmll-orchestra: the multi-agent hole-filling tool. Its suite had never
+      # run in CI, and its skeleton builder had drifted until its output did not
+      # parse. The compiler-backed cells need LLMLL_BIN, the prompt cells need
+      # jsonschema (installed by the SCHEMA-TRUTH-1 step), and the PATCH-PROOF-1
+      # cell calls `llmll patch`, which needs the solver. It sat above the solver
+      # install at v0.26.9 and that cell failed on "fixpoint not found"; it now
+      # sits after it, with the other solver-backed cells. The grep refuses a skip.
+      - name: Run llmll-orchestra tests (pytest, needs the built compiler and fixpoint)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          (cd tools/llmll-orchestra && LLMLL_BIN="$SUBJECT" python3 -m pytest tests -v -rs) \
+            | tee "$RUNNER_TEMP/orchestra.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/orchestra.log"; then
+            echo "an llmll-orchestra test skipped; LLMLL_BIN and jsonschema must be present"; exit 1
+          fi
 
       # TOOL-ORACLE-1: every port's proved core, and the refuting case that makes
       # it a proof rather than a green light.
