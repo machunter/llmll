@@ -2704,12 +2704,22 @@ inferHole (HScaffold spec) = do
 
 inferHole (HDelegate spec) = do
   let retTy = delegateReturnType spec
+  -- DELEGATE-BRIEF: a delegate hole is the unit multi-agent filling works on,
+  -- so it is recorded like a named hole, typed by its declared return type.
+  -- Without this the checkout brief found no sketch hole at the pointer and
+  -- sent the agent no in_scope and no expected_return_type: a live fill wrote
+  -- `password` for a parameter named `raw-pw`. Recorded before the fallback is
+  -- checked, so the snapshot is the hole's own scope and pointer.
+  recordHole ("delegate " <> delegateAgent spec) (HoleTyped retTy)
   case delegateOnFailure spec of
     Nothing -> pure ()
     Just fb -> checkExpr fb retTy
   pure retTy
 
-inferHole (HDelegateAsync spec) =
+inferHole (HDelegateAsync spec) = do
+  -- DELEGATE-BRIEF: the agent fills the inner type T; the hole's value is
+  -- Promise[T] (see below).
+  recordHole ("delegate-async " <> delegateAgent spec) (HoleTyped (delegateReturnType spec))
   case delegateReturnType spec of
     TPromise _ -> do
       -- Defensive backstop for ASTs constructed outside the parsers.

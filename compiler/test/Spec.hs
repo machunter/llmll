@@ -1698,6 +1698,44 @@ main = hspec $ do
   -- -----------------------------------------------------------------------
   -- Phase 2c --sketch D2 output contract (HoleStatus, SketchHole, pointers)
   -- -----------------------------------------------------------------------
+  -- DELEGATE-BRIEF: a ?delegate hole is recorded in sketch mode like a named
+  -- hole, so the checkout brief (Main.assembleCheckoutContext, which looks the
+  -- hole up by pointer in sketchHoles) carries its in_scope and
+  -- expected_return_type. Before this, a delegate hole was never recorded, and
+  -- a live multi-agent fill got a brief with neither.
+  -- -----------------------------------------------------------------------
+  describe "sketch records ?delegate holes (DELEGATE-BRIEF)" $ do
+
+    let sketchOf src = case parseStatements GrammarCoreInversion "<test>" (T.pack (unlines src)) of
+          Left err    -> error (show err)
+          Right stmts -> runSketch GrammarCoreInversion emptyEnv stmts []
+        delegateHoles = filter (T.isPrefixOf "?delegate" . shName) . sketchHoles
+
+    it "DB-1 a delegate body is recorded at the body pointer, typed, with its params in scope" $ do
+      let r = sketchOf
+            [ "(def-shell hash-password-impl [raw-pw: string] -> string"
+            , "  (?delegate @crypto-agent \"Hash it\" -> string))" ]
+      case delegateHoles r of
+        [h] -> do
+          shName h `shouldBe` "?delegate @crypto-agent"
+          shStatus h `shouldBe` HoleTyped TString
+          shPointer h `shouldBe` "/statements/0/body"
+          Map.member "raw-pw" (shEnv h) `shouldBe` True
+        hs -> expectationFailure ("expected one delegate hole, got " ++ show (map shName hs))
+
+    it "DB-2 an on-failure fallback does not move the hole or add a second one" $ do
+      let r = sketchOf
+            [ "(def-shell f [x: int] -> int"
+            , "  (?delegate @a \"d\" -> int (on-failure x)))" ]
+      map shPointer (delegateHoles r) `shouldBe` ["/statements/0/body"]
+
+    it "DB-3 an async delegate is recorded with the inner type the agent fills" $ do
+      let r = sketchOf
+            [ "(def-shell g [x: int] -> Promise[int]"
+            , "  (?delegate-async @a \"d\" -> int))" ]
+      map shStatus (delegateHoles r) `shouldBe` [HoleTyped TInt]
+
+  -- -----------------------------------------------------------------------
   describe "Phase 2c --sketch D2 output contract" $ do
 
     let findHole name result =
