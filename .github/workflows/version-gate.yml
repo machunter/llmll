@@ -38,8 +38,8 @@
 # repository, because it executes the compiler. DRIFT-DOC-4 (prose path
 # citations) is ADVISORY and never fails; the reason lived in the Python
 # reference's module docstring until TOOL-RFC-005 retirement deleted it, and it
-# is now in docs/UPDATE-PROTOCOL.md. It does not run the Python harness suites at
-# tools/llmll-orchestra/ and experiments/.
+# is now in docs/UPDATE-PROTOCOL.md. It runs the tools/llmll-orchestra/ suite
+# (in the spec-roundtrip job) and not the experiments/ harness suites.
 #
 # It DOES run `stack test`, as of CI-BUILD-TEST-1 (v0.14.94). This paragraph
 # called build/test CI "a separate ticket" from the day the file was written,
@@ -341,8 +341,22 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/schema-valid.log"; then
             echo "a SCHEMA-TRUTH-1 cell skipped; LLMLL_BIN and jsonschema must be present"; exit 1
           fi
-          grep -q ' 4 passed' "$RUNNER_TEMP/schema-valid.log" \
-            || { echo "SCHEMA-TRUTH-1: expected 4 passed cells"; exit 1; }
+          grep -q ' 5 passed' "$RUNNER_TEMP/schema-valid.log" \
+            || { echo "SCHEMA-TRUTH-1: expected 5 passed cells"; exit 1; }
+
+      # llmll-orchestra: the multi-agent hole-filling tool. Its suite had never
+      # run in CI, and its skeleton builder had drifted until its output did not
+      # parse. The compiler-backed cells need LLMLL_BIN and the prompt cells need
+      # jsonschema (installed by the step above); the grep refuses a skip.
+      - name: Run llmll-orchestra tests (pytest, needs the built compiler)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          (cd tools/llmll-orchestra && LLMLL_BIN="$SUBJECT" python3 -m pytest tests -v -rs) \
+            | tee "$RUNNER_TEMP/orchestra.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/orchestra.log"; then
+            echo "an llmll-orchestra test skipped; LLMLL_BIN and jsonschema must be present"; exit 1
+          fi
 
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own

@@ -619,7 +619,7 @@
       "description": "Any expression. Corresponds to EBNF 'expr'.",
       "type": "object",
       "required": ["kind"],
-      "properties": { "kind": { "type": "string", "enum": ["lit-int", "lit-float", "lit-string", "lit-bool", "var", "let", "if", "match", "app", "qual-app", "op", "pair", "lambda", "await", "do", "hole-named", "hole-choose", "hole-request-cap", "hole-scaffold", "hole-delegate", "hole-delegate-async", "hole-proof-required", "lit-list"] } },
+      "properties": { "kind": { "type": "string", "enum": ["lit-int", "lit-float", "lit-string", "lit-bool", "lit-unit", "var", "let", "if", "match", "app", "qual-app", "op", "pair", "lambda", "await", "do", "hole-named", "hole-choose", "hole-request-cap", "hole-scaffold", "hole-delegate", "hole-delegate-async", "hole-proof-required", "lit-list"] } },
       "allOf": [
         {
           "if": { "properties": { "kind": { "const": "lit-int" } } },
@@ -636,6 +636,10 @@
         {
           "if": { "properties": { "kind": { "const": "lit-bool" } } },
           "then": { "$ref": "#/$defs/ExprLitBool" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "lit-unit" } } },
+          "then": { "$ref": "#/$defs/ExprLitUnit" }
         },
         {
           "if": { "properties": { "kind": { "const": "var" } } },
@@ -756,6 +760,16 @@
       "properties": {
         "kind":  { "type": "string", "const": "lit-bool" },
         "value": { "type": "boolean" }
+      }
+    },
+
+    "ExprLitUnit": {
+      "description": "The unit value, written () in S-expression source. The reader and the emitter both use this kind.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "lit-unit" }
       }
     },
 

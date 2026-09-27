@@ -11,7 +11,7 @@ import pytest
 
 from llmll_orchestra.quality import check_plan_quality, QualityResult
 from llmll_orchestra.lead_agent import (
-    LeadAgent, _plan_to_ast, _type_to_ast, _parse_json_response,
+    LeadAgent, _plan_to_source, _sexpr_string, _parse_json_response,
 )
 from llmll_orchestra.agent import DryRunAgent
 from llmll_orchestra.compiler import Compiler
@@ -140,84 +140,56 @@ class TestQualityHeuristics:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Type conversion
+# Plan -> LLMLL source
+#
+# The skeleton used to be a hand-built JSON-AST dict, and these tests pinned
+# its shape: `{"kind": "int"}`, `def-logic`, a `type` key on params. None of
+# that was the shape the reader takes, and the document did not parse. The
+# skeleton is now S-expression source that the compiler emits; the tests below
+# pin the source, and TestSkeletonAgainstCompiler runs the compiler on it.
 # ─────────────────────────────────────────────────────────────────────
 
-class TestTypeConversion:
-
-    def test_basic_types(self):
-        assert _type_to_ast("int") == {"kind": "int"}
-        assert _type_to_ast("string") == {"kind": "string"}
-        assert _type_to_ast("bool") == {"kind": "bool"}
-
-    def test_list_type(self):
-        result = _type_to_ast("list[int]")
-        assert result == {"kind": "list", "element_type": {"kind": "int"}}
-
-    def test_result_type(self):
-        result = _type_to_ast("Result[string, string]")
-        assert result["kind"] == "result"
-        assert result["ok_type"] == {"kind": "string"}
-        assert result["err_type"] == {"kind": "string"}
-
-    def test_pair_type(self):
-        result = _type_to_ast("(int, string)")
-        assert result["kind"] == "pair-type"
-        assert result["first_type"] == {"kind": "int"}
-        assert result["second_type"] == {"kind": "string"}
-
-    def test_custom_type(self):
-        result = _type_to_ast("UserInfo")
-        assert result == {"kind": "custom", "name": "UserInfo"}
+_MATH_PLAN = {
+    "modules": [{
+        "name": "math",
+        "functions": [
+            {
+                "name": "add",
+                "params": [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}],
+                "returns": "int",
+                "agent": "@filler",
+                "description": "Add two numbers",
+            }
+        ],
+        "imports": [],
+        "exports": ["add"],
+    }]
+}
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Plan -> AST conversion
-# ─────────────────────────────────────────────────────────────────────
-
-class TestPlanToAst:
+class TestPlanToSource:
 
     def test_simple_plan(self):
-        plan = {
-            "modules": [{
-                "name": "math",
-                "functions": [
-                    {
-                        "name": "add",
-                        "params": [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}],
-                        "returns": "int",
-                        "agent": "@filler",
-                        "description": "Add two numbers",
-                    }
-                ],
-                "imports": [],
-                "exports": ["add"],
-            }]
-        }
-        ast = _plan_to_ast(plan)
-        stmts = ast["statements"]
-        # Should have: export, def-logic
-        assert any(s["kind"] == "export" for s in stmts)
-        assert any(s["kind"] == "def-logic" for s in stmts)
+        src = _plan_to_source(_MATH_PLAN)
+        assert "(export add)" in src
+        assert "(def-shell add [a: int b: int] -> int" in src
+        assert '(?delegate @filler "Add two numbers" -> int))' in src
+        assert "def-logic" not in src
 
-        defn = [s for s in stmts if s["kind"] == "def-logic"][0]
-        assert defn["name"] == "add"
-        assert defn["body"]["kind"] == "hole"
-        assert defn["body"]["agent"] == "@filler"
+    def test_types_pass_through_verbatim(self):
+        plan = {"modules": [{"name": "m", "functions": [{
+            "name": "f", "params": [{"name": "xs", "type": "list[int]"}],
+            "returns": "Result[(int, bool), string]", "agent": "@a"}]}]}
+        src = _plan_to_source(plan)
+        assert "[xs: list[int]] -> Result[(int, bool), string]" in src
+        assert "-> Result[(int, bool), string]))" in src
 
     def test_plan_with_wasi_import(self):
-        plan = {
-            "modules": [{
-                "name": "io",
-                "functions": [],
-                "imports": ["wasi.io"],
-            }]
-        }
-        ast = _plan_to_ast(plan)
-        imports = [s for s in ast["statements"] if s["kind"] == "import"]
-        assert len(imports) == 1
-        assert imports[0]["path"] == "wasi.io"
-        assert "capability" in imports[0]
+        plan = {"modules": [{"name": "io", "functions": [], "imports": ["wasi.io"]}]}
+        assert "(import wasi.io (capability stdout :deterministic false))" in _plan_to_source(plan)
+
+    def test_description_is_one_quoted_line(self):
+        assert _sexpr_string('say "hi"\nthen \\ stop') == '"say \\"hi\\" then \\\\ stop"'
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -270,8 +242,8 @@ class TestLeadAgentDryRun:
         blocking = [q for q in check_plan_quality(result) if q.blocking]
         assert len(blocking) == 0, f"Stub plan has blocking issues: {blocking}"
 
-    def test_plan_to_ast_with_contracts(self):
-        """Plan with contracts generates AST with contract field."""
+    def test_plan_to_source_with_contracts(self):
+        """Plan contracts become pre/post clauses, verbatim."""
         plan = {
             "modules": [{
                 "name": "validated",
@@ -287,26 +259,20 @@ class TestLeadAgentDryRun:
                 "exports": [],
             }],
         }
-        ast = _plan_to_ast(plan)
-        defn = [s for s in ast["statements"] if s["kind"] == "def-logic"][0]
-        assert "contract" in defn
-        assert defn["contract"]["pre"] == "(> x 0)"
-        assert defn["contract"]["post"] == "(> result 0)"
+        src = _plan_to_source(plan)
+        assert "  (pre (> x 0))" in src
+        assert "  (post (> result 0))" in src
 
     def test_wasi_io_capability_is_stdout(self):
         """wasi.io import gets 'stdout' capability, not a generic name."""
         plan = {"modules": [{"name": "io", "functions": [], "imports": ["wasi.io"]}]}
-        ast = _plan_to_ast(plan)
-        imp = [s for s in ast["statements"] if s["kind"] == "import"][0]
-        assert imp["capability"]["name"] == "stdout"
+        assert "(capability stdout " in _plan_to_source(plan)
 
     def test_wasi_fs_capability_is_filesystem(self):
         """wasi.fs import gets 'filesystem' capability, not 'stdout'.
         Fixes Issue #3 from Language Team review."""
         plan = {"modules": [{"name": "fs", "functions": [], "imports": ["wasi.fs"]}]}
-        ast = _plan_to_ast(plan)
-        imp = [s for s in ast["statements"] if s["kind"] == "import"][0]
-        assert imp["capability"]["name"] == "filesystem"
+        assert "(capability filesystem " in _plan_to_source(plan)
 
     def test_generate_plan_dry_run(self):
         """DryRunAgent + LeadAgent.generate_plan succeeds (E2E dry-run)."""
@@ -318,3 +284,80 @@ class TestLeadAgentDryRun:
         plan = lead.generate_plan("Build a calculator")
         assert isinstance(plan, dict)
         assert "modules" in plan
+
+
+# ─────────────────────────────────────────────────────────────────────
+# The skeleton against the real compiler
+#
+# Skips without LLMLL_BIN; the spec-roundtrip CI job sets it. These are the
+# cells that would have caught the old builder: its output failed to parse
+# ("key \"schemaVersion\" not found") and generate_skeleton logged that as
+# "expected type warnings" and returned the path anyway.
+# ─────────────────────────────────────────────────────────────────────
+
+import os
+from pathlib import Path
+
+_needs_llmll = pytest.mark.skipif(
+    not os.environ.get("LLMLL_BIN"), reason="set LLMLL_BIN to a built llmll")
+
+_SCHEMA = Path(__file__).resolve().parents[3] / "docs" / "llmll-ast.schema.json"
+
+_AUTH_PLAN = {
+    "modules": [{
+        "name": "auth",
+        "imports": ["wasi.io"],
+        "exports": ["clamp", "login", "pairup"],
+        "functions": [
+            {"name": "clamp", "params": [{"name": "x", "type": "int"}, {"name": "hi", "type": "int"}],
+             "returns": "int", "agent": "@math",
+             "contracts": {"pre": "(>= hi 0)", "post": "(<= result hi)"},
+             "description": 'Clamp x to at most "hi"'},
+            {"name": "login", "params": [{"name": "u", "type": "string"}, {"name": "p", "type": "string"}],
+             "returns": "Result[string, string]", "agent": "@verifier",
+             "contracts": {"pre": None, "post": None}, "description": "Log in"},
+            {"name": "pairup", "params": [{"name": "xs", "type": "list[int]"}],
+             "returns": "(int, bool)", "agent": "@math", "description": "Pair"},
+        ],
+    }],
+}
+
+
+def _lead():
+    from unittest.mock import MagicMock
+    return LeadAgent(agent=MagicMock(), compiler=Compiler(binary=os.environ["LLMLL_BIN"]))
+
+
+@_needs_llmll
+class TestSkeletonAgainstCompiler:
+
+    def test_skeleton_emits_checks_and_has_one_hole_per_function(self):
+        lead = _lead()
+        path = lead.generate_skeleton(_AUTH_PLAN)
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        assert "schemaVersion" in doc
+        holes = lead.compiler.holes(path)
+        assert sorted(h.agent for h in holes) == ["@math", "@math", "@verifier"]
+
+    def test_skeleton_validates_against_the_published_schema(self):
+        jsonschema = pytest.importorskip("jsonschema")
+        path = _lead().generate_skeleton(_AUTH_PLAN)
+        v = jsonschema.Draft202012Validator(json.loads(_SCHEMA.read_text(encoding="utf-8")))
+        errors = [e.message for e in v.iter_errors(json.loads(Path(path).read_text(encoding="utf-8")))]
+        assert errors == []
+
+    def test_params_are_typed_in_the_emitted_document(self):
+        path = _lead().generate_skeleton(_AUTH_PLAN)
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        params = [p for st in doc["statements"] for p in st.get("params", [])]
+        assert params and all("param_type" in p for p in params)
+
+    def test_a_plan_the_compiler_rejects_raises_instead_of_returning(self):
+        # An unbalanced contract, the likeliest malformed LLM plan. (An unbound
+        # name in a post is only a warning at check, so it cannot serve here.)
+        bad = {"modules": [{"name": "m", "functions": [{
+            "name": "f", "params": [{"name": "x", "type": "int"}],
+            "returns": "int", "agent": "@a",
+            "contracts": {"post": "(> result x"}}]}]}
+        with pytest.raises(ValueError):
+            _lead().generate_skeleton(bad)

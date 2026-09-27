@@ -73,6 +73,14 @@ HTTP_WITNESS = """\
 """
 
 
+# Constructs the compiler emits that no tracked source happens to use, so SV-1
+# never sees them. The unit literal `()` emits `"lit-unit"`, which the schema
+# did not list until the orchestra repair found it through the fill prompt.
+WITNESSES = {
+    "unit literal": "(def-shell nothing [x: int] -> unit ())\n",
+}
+
+
 def _validator():
     jsonschema = pytest.importorskip("jsonschema")
     return jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
@@ -188,3 +196,14 @@ def test_sv4_negative_control_the_validator_rejects_a_broken_document(tmp_path):
     del stmt["body"]
     err = _first_error(v, missing_field)
     assert err is not None and "'body' is a required property" in err, err
+
+
+@pytest.mark.parametrize("label", sorted(WITNESSES))
+def test_sv5_witness_programs_emit_valid_documents(tmp_path, label):
+    v = _validator()
+    src = tmp_path / "witness.llmll"
+    src.write_text(WITNESSES[label])
+    doc_path, why = _emit(src, tmp_path / "out")
+    assert doc_path is not None, f"the {label} witness no longer emits: {why}"
+    err = _first_error(v, json.loads(doc_path.read_text(encoding="utf-8")))
+    assert err is None, f"the schema rejects the {label} witness: {err}"

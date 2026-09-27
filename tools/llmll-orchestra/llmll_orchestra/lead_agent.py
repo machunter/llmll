@@ -160,167 +160,98 @@ class LeadAgent:
     def generate_skeleton(self, plan: dict) -> str:
         """Plan -> JSON-AST skeleton file path.
 
-        Converts the architecture plan into a JSON-AST file with ?delegate holes
-        for each function body. Validates with `llmll check`.
+        Writes the plan as LLMLL S-expression source with a ?delegate hole for
+        each function body, then has the compiler emit the JSON-AST
+        (`llmll build --emit`). The compiler owns the document shape, so the
+        skeleton cannot drift from the schema the way a hand-built dict did:
+        this module used to write `def-logic`, `{"kind": "int"}` and a `type`
+        key the reader ignores, and the result did not even parse.
 
-        Returns the path to the generated skeleton file.
-        Raises ValueError if the skeleton fails type-checking.
+        Returns the path to the emitted `.ast.json`.
+        Raises ValueError, with the compiler's output, if the source does not
+        emit or the emitted document does not pass `llmll check`. Delegate
+        holes type-check, so a failure here is a real defect in the plan.
         """
         self._log("Generating skeleton from plan")
-        ast = _plan_to_ast(plan)
+        source = _plan_to_source(plan)
 
-        # Write to temp file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ast.json", delete=False, prefix="llmll-skeleton-"
-        ) as f:
-            json.dump(ast, f, indent=2)
-            skeleton_path = f.name
+        workdir = Path(tempfile.mkdtemp(prefix="llmll-skeleton-"))
+        src_path = workdir / "skeleton.llmll"
+        src_path.write_text(source, encoding="utf-8")
+        out_dir = workdir / "out"
+
+        emit = self.compiler._run(
+            ["build", str(src_path), "--emit", "-o", str(out_dir)], check=False
+        )
+        skeleton_path = out_dir / "skeleton.ast.json"
+        if emit.returncode != 0 or not skeleton_path.exists():
+            raise ValueError(
+                f"Skeleton source did not emit ({src_path}):\n"
+                f"{emit.stdout}{emit.stderr}"
+            )
+
+        check = self.compiler._run(
+            ["--json", "check", str(skeleton_path)], check=False
+        )
+        if check.returncode != 0:
+            raise ValueError(
+                f"Skeleton does not type-check ({skeleton_path}):\n"
+                f"{check.stdout}{check.stderr}"
+            )
 
         self._log(f"Skeleton written to {skeleton_path}")
-
-        # Validate with compiler (best-effort; don't fail on type errors
-        # since the skeleton has holes that will be filled later)
-        try:
-            # We use check=False because skeletons have holes
-            result = self.compiler._run(
-                ["--json", "check", skeleton_path], check=False
-            )
-            if result.returncode == 0:
-                self._log("Skeleton passes type-check")
-            else:
-                self._log(f"Skeleton has expected type warnings (holes present)")
-        except Exception as e:
-            self._log(f"Skeleton validation skipped: {e}")
-
-        return skeleton_path
+        return str(skeleton_path)
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Plan -> JSON-AST conversion
+# Plan -> LLMLL source
 # ─────────────────────────────────────────────────────────────────────
 
-def _plan_to_ast(plan: dict) -> dict:
-    """Convert a plan dict to a JSON-AST dict (for llmll check)."""
-    statements = []
+# Capability named by each WASI import path.
+_WASI_CAPABILITY = {"wasi.io": "stdout", "wasi.fs": "filesystem", "wasi.http": "http"}
 
+
+def _plan_to_source(plan: dict) -> str:
+    """Convert a plan dict to LLMLL S-expression source.
+
+    Plan types and contract expressions are LLMLL surface syntax already, so
+    they pass through verbatim and the compiler's parser judges them. Every
+    function is a `def-shell` whose body is `?delegate`: a filled body may call
+    its siblings, which a strict `def` may not.
+    """
+    lines: list[str] = []
     for module in plan.get("modules", []):
-        # Add imports
         for imp in module.get("imports", []):
-            stmt: dict[str, Any] = {"kind": "import", "path": imp}
             if imp.startswith("wasi."):
-                # Derive capability name from import path: wasi.io → stdout, wasi.fs → filesystem
-                cap_map = {"wasi.io": "stdout", "wasi.fs": "filesystem", "wasi.http": "http"}
-                cap_name = cap_map.get(imp, imp.split(".")[-1])
-                stmt["capability"] = {"name": cap_name, "deterministic": False}
-            statements.append(stmt)
+                cap = _WASI_CAPABILITY.get(imp, imp.split(".")[-1])
+                lines.append(f"(import {imp} (capability {cap} :deterministic false))")
+            else:
+                lines.append(f"(import {imp})")
 
-        # Add exports
         exports = module.get("exports", [])
         if exports:
-            statements.append({"kind": "export", "names": exports})
+            lines.append(f"(export {' '.join(exports)})")
 
-        # Add function definitions with ?delegate holes
         for fn in module.get("functions", []):
-            params = [
-                {"name": p["name"], "type": _type_to_ast(p["type"])}
-                for p in fn.get("params", [])
-            ]
-
-            ret_type = _type_to_ast(fn["returns"]) if "returns" in fn else None
-
-            # Build contract
-            contract: dict[str, Any] = {}
-            contracts = fn.get("contracts", {})
-            if contracts.get("pre"):
-                contract["pre"] = contracts["pre"]
-            if contracts.get("post"):
-                contract["post"] = contracts["post"]
-
-            # Body is a ?delegate hole with agent assignment
+            params = " ".join(f"{p['name']}: {p['type']}" for p in fn.get("params", []))
+            ret = fn.get("returns")
+            head = f"(def-shell {fn['name']} [{params}]" + (f" -> {ret}" if ret else "")
+            lines.append(head)
+            contracts = fn.get("contracts") or {}
+            for side in ("pre", "post"):
+                if contracts.get(side):
+                    lines.append(f"  ({side} {contracts[side]})")
             agent = fn.get("agent", "@agent")
-            body = {
-                "kind": "hole",
-                "hole_kind": "delegate",
-                "agent": agent,
-                "message": fn.get("description", f"Implement {fn['name']}"),
-            }
-
-            stmt = {
-                "kind": "def-logic",
-                "name": fn["name"],
-                "params": params,
-                "body": body,
-            }
-            if ret_type:
-                stmt["return_type"] = ret_type
-            if contract:
-                stmt["contract"] = contract
-
-            statements.append(stmt)
-
-    return {"statements": statements}
+            desc = _sexpr_string(fn.get("description", f"Implement {fn['name']}"))
+            hole = f"?delegate {agent} {desc}" + (f" -> {ret}" if ret else "")
+            lines.append(f"  ({hole}))")
+    return "\n".join(lines) + "\n"
 
 
-def _type_to_ast(type_str: str) -> dict:
-    """Convert a type string like 'list[int]' to a JSON-AST type node."""
-    t = type_str.strip()
-
-    if t == "int":
-        return {"kind": "int"}
-    elif t == "bool":
-        return {"kind": "bool"}
-    elif t == "string":
-        return {"kind": "string"}
-    elif t == "unit":
-        return {"kind": "unit"}
-    elif t.startswith("list[") and t.endswith("]"):
-        inner = t[5:-1]
-        return {"kind": "list", "element_type": _type_to_ast(inner)}
-    elif t.startswith("Result["):
-        # Result[T, E]
-        inner = t[7:-1]
-        parts = _split_type_args(inner)
-        if len(parts) == 2:
-            return {
-                "kind": "result",
-                "ok_type": _type_to_ast(parts[0]),
-                "err_type": _type_to_ast(parts[1]),
-            }
-    elif "," in t and t.startswith("(") and t.endswith(")"):
-        # Pair type (T1, T2)
-        inner = t[1:-1]
-        parts = _split_type_args(inner)
-        if len(parts) == 2:
-            return {
-                "kind": "pair-type",
-                "first_type": _type_to_ast(parts[0]),
-                "second_type": _type_to_ast(parts[1]),
-            }
-
-    # Fallback: custom type
-    return {"kind": "custom", "name": t}
-
-
-def _split_type_args(s: str) -> list[str]:
-    """Split type arguments respecting bracket nesting."""
-    parts = []
-    depth = 0
-    current = ""
-    for c in s:
-        if c in "([":
-            depth += 1
-            current += c
-        elif c in ")]":
-            depth -= 1
-            current += c
-        elif c == "," and depth == 0:
-            parts.append(current.strip())
-            current = ""
-        else:
-            current += c
-    if current.strip():
-        parts.append(current.strip())
-    return parts
+def _sexpr_string(text: str) -> str:
+    """Quote text as an LLMLL string literal on one line."""
+    one_line = " ".join(str(text).split())
+    return '"' + one_line.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 # ─────────────────────────────────────────────────────────────────────
