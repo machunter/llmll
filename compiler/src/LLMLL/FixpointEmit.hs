@@ -125,7 +125,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
-import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes)
+import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes, listToMaybe)
 import Data.List (nub, nubBy, partition)
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
@@ -1108,7 +1108,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         , Set.filter isStrParam $ Set.unions
             [ maybe Set.empty ctorArgVars (contractPre contract)
             , maybe Set.empty ctorArgVars (contractPost contract)
-            , maybe Set.empty ctorArgVars mBody ] ]
+            , maybe Set.empty ctorArgVars mBody
+            -- TAIL-VAR-1: a string param returned as a result leaf, `s` or
+            -- `(if c s "x")`, needs the carrier too, for the same reason.
+            , maybe Set.empty tailVars mBody ] ]
       isStrParam n = any (\(p, t) -> p == n && isStrLike aliases t) params
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
@@ -1134,6 +1137,20 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                    , TPair a b <- [resolveAliasTy aliases t]
                    , sortableComponent aliases a
                    , sortableComponent aliases b ]
+      -- SUM-VALUE-1: a payload-sum param with an admissible native datatype
+      -- sort, named by a contract clause or returned as a body leaf. Only
+      -- these get a value binder, so a function that only matches on the
+      -- param keeps its .fq byte-identical. A param passed to a callee whose
+      -- contract names that argument needs one too ('sumCallArgVars').
+      -- CALLEE-DATA-SORT-1: the datatype return sort of each contracted callee.
+      calleeSorts = Map.fromList [ (f, s) | (f, (_, _, Just rt)) <- Map.toList cenv
+                                          , Just s <- [sumValueSort aliases rt] ]
+      sumValParams = [ (n, s) | (n, t) <- params
+                     , Just s <- [sumValueSort aliases t]
+                     , any (maybe False (exprMentionsVar n))
+                           [contractPre contract, contractPost contract]
+                       || n `Set.member` maybe Set.empty
+                            (\b -> tailVars b `Set.union` sumCallArgVars cenv b) mBody ]
   -- v0.8.0: Fix dead early-exit — check condition and exit early if nothing to verify.
   let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
       hasIntParams = not (null intParams)
@@ -1160,7 +1177,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         let b = FQBind bid (n <> sfx) (FQReft "v" srt FQTrue)
         addBind b
         return b
-    let envIds = map bindId paramBinds ++ map bindId mapCompBinds
+    -- SUM-VALUE-1: a payload-sum param a clause names as a value, or the body
+    -- returns as a leaf, binds at its native datatype sort. Unconstrained: the
+    -- opaque-sum match elimination links it to each arm (tag = k ⇒ v = Cₖ pₖ).
+    sumValBinds <- forM sumValParams $ \(n, s) -> do
+      bid <- freshBid
+      let b = FQBind bid n (FQReft "v" s FQTrue)
+      addBind b
+      return b
+    let envIds = map bindId paramBinds ++ map bindId mapCompBinds ++ map bindId sumValBinds
 
     -- Emit qualifiers extracted from pre/post
     -- BOOL-FRAG (v0.14.15): qualifier params must carry their REAL sort. A bool
@@ -1403,8 +1428,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   , v `Set.member` maybe Set.empty
                       (\b -> mapPutValVars b `Set.union` mapKeyVars b
                                `Set.union` strEqOperandVars b
-                               `Set.union` ctorArgVars b) mBody ]
-                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys ++ strParamKeys)
+                               `Set.union` ctorArgVars b
+                               `Set.union` tailVars b) mBody ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys ++ strParamKeys ++ sumValParams)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
                 -- identically to the sort keys. Unrefined payloads contribute
@@ -1484,7 +1510,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let (newSeed, mBodyVC) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet
+                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts cenv sccSet
                            (reifyBytesZeroLen mRet body')
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
@@ -1567,9 +1593,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                 Just True  -> "body-post-then"
                                 Just False -> "body-post-else"
                         c = FQConstraint cid (envIds ++ stepBindIds ++ [rhbid, rvbid]) lhs rhs [name, tag]
-                    addConst c
-                    let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                    addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                    -- POST-TRUE-1: see the generic path below.
+                    unless (evalClosedFQ postPred == Just True) $ do
+                      addConst c
+                      let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                      addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
                   addBodyFaithful name
               -- FALLBACK-CENSUS-1: a hole body reaches here when its post
               -- translates. It is a scaffold, not a body outside the fragment.
@@ -1734,9 +1762,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       cid <- freshCid
                       let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ resultBindIds
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
-                      addConst c
-                      let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                      addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                      -- POST-TRUE-1: a post that is closed and true, `(post true)`
+                      -- or `(post (>= 0 0))`, has nothing to prove, and
+                      -- liquid-fixpoint's sanitizer rejects a `true` RHS ("RHS
+                      -- without single conjunct"). The call-pre obligations above
+                      -- are still emitted. Same rule as RESP-FACT-1's call-pre case.
+                      unless (evalClosedFQ postPred == Just True) $ do
+                        addConst c
+                        let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                        addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
                     -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
                     -- scope check refused the post above.
                     if unboundMapResult
@@ -2011,8 +2045,13 @@ emitParamBind aliases freshBid addBind (n, t) = do
 clauseOverOpaqueSumParam :: AliasMap -> [(Name, Type)] -> Maybe Expr -> Bool
 clauseOverOpaqueSumParam _  _      Nothing       = False
 clauseOverOpaqueSumParam am params (Just clause) =
-  any (\(v, t) -> isSumTy (resolveAliasTy am t) && exprMentionsVar v clause) params
+  any (\(v, t) -> isSumTy (resolveAliasTy am t)
+                  && isNothing (sumValueSort am t)
+                  && exprMentionsVar v clause) params
   where
+    -- SUM-VALUE-1: a param with a native datatype sort is not opaque any more.
+    -- It gets a value binder ('sumValParams'), so a clause naming it is
+    -- well-sorted. A non-admissible (recursive) payload sum stays blocked.
     -- ENUM-EQ-FALLBACK: an all-nullary enum param is NOT opaque — it is
     -- int-tag-desugared (isIntLike/desugarCtorValues, COMP-3b-general) and lives
     -- in the sort env as FQInt, so a clause naming it is well-sorted. Firing on
@@ -2020,6 +2059,17 @@ clauseOverOpaqueSumParam am params (Just clause) =
     -- (v0.14.12–v0.14.31). Only a payload-bearing sum is value-opaque.
     isSumTy (TSumType ctors) = any (isJust . snd) ctors
     isSumTy _                = False
+
+-- | SUM-VALUE-1: the value sort of a payload-sum param, when it has one: a
+-- user sum whose alias-aware sort is its native datatype (admissible, with a
+-- real payload), or a Result whose payloads are admissible ('resultReturnUnsafe'
+-- is the same test the Result return already passes). The Result datatype is
+-- declared with the `ok`/`err` constructors and `ok_0`/`err_0` selectors.
+sumValueSort :: AliasMap -> Type -> Maybe FQSort
+sumValueSort am t = case typeToSortA am t of
+  s@(FQData _)                                             -> Just s
+  s@(FQDataApp "Result" _) | not (resultReturnUnsafe am (Just t)) -> Just s
+  _                                                        -> Nothing
 
 -- | Local free-mention check (TypeCheck.exprContainsVar is not imported here).
 exprMentionsVar :: Name -> Expr -> Bool
@@ -2181,6 +2231,30 @@ contractSigGuardsBlock am params mRet c =
   || resultReturnUnsafe am mRet
   || clauseOverOpaqueSumParam am params (contractPost c)
   || clauseOverOpaqueSumParam am params (contractPre c)
+  || clauseMatchUnsafe am params mRet (contractPost c)
+  || clauseMatchUnsafe am params mRet (contractPre c)
+
+-- | MATCH-POST-1: a clause `match` reflects only when every scrutinee is
+-- `result` or a param whose value binder has a native datatype sort
+-- ('sumValueSort'). Any other scrutinee (an int-tag enum, a Result, a nested
+-- payload variable, a non-variable) would give the constructor-equality test a
+-- wrong or missing sort, so the contract falls back whole.
+clauseMatchUnsafe :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Bool
+clauseMatchUnsafe _  _      _    Nothing       = False
+clauseMatchUnsafe am params mRet (Just clause) = any (not . okScrut) (scruts clause)
+  where
+    okScrut (EVar "result") = maybe False (isJust . sumValueSort am) mRet
+    okScrut (EVar v)        = maybe False (isJust . sumValueSort am) (lookup v params)
+    okScrut _               = False
+    scruts e = case e of
+      EMatch s arms -> s : scruts s ++ concatMap (scruts . snd) arms
+      EApp "is-ok" as -> as ++ concatMap scruts as
+      EApp _ as     -> concatMap scruts as
+      EOp _ as      -> concatMap scruts as
+      EIf a b d     -> concatMap scruts [a, b, d]
+      ELet bs b     -> scruts b ++ concat [ scruts r | (_, _, r) <- bs ]
+      EPair a b     -> scruts a ++ scruts b
+      _             -> []
 
 -- | The §5 activation gate. On when the function's own contract or body
 -- mentions an array-class op (bytes or, since A2, map), or its body calls a
@@ -2902,11 +2976,38 @@ moduleConstructsResult am = any stmtConstructs
   where
     stmtConstructs s = case sigOf s of
       Nothing -> False
-      Just (_params, mRet, contract, mBody) ->
+      Just (params, mRet, contract, mBody) ->
            maybe False isResult mRet
-        || any exprConstructs ([ p | Just p <- [contractPre contract] ]
-                            ++ [ p | Just p <- [contractPost contract] ])
+        || any exprConstructs clauses
         || maybe False exprConstructs mBody
+        -- SUM-VALUE-1 / MATCH-POST-1: a Result VALUE is sorted too when a Result
+        -- param gets a value binder (named by a clause, returned as a leaf, or
+        -- passed straight to a call) or a clause tests one (`is-ok`, a
+        -- Success/Error match). An eliminate-only module still emits nothing.
+        || any (\(n, t) -> isResult t && valued n mBody) params
+        || any resultTest clauses
+        where
+          clauses = [ p | Just p <- [contractPre contract, contractPost contract] ]
+          valued n mb = any (exprMentionsVar n) clauses
+                     || n `Set.member` maybe Set.empty (\b -> tailVars b `Set.union` directArgVars b) mb
+    directArgVars e = case e of
+      EApp _ as     -> Set.fromList [ v | EVar v <- as ] `Set.union` Set.unions (map directArgVars as)
+      EOp _ as      -> Set.unions (map directArgVars as)
+      EIf a b c     -> Set.unions (map directArgVars [a, b, c])
+      ELet bs b     -> Set.unions (directArgVars b : [ directArgVars r | (_, _, r) <- bs ])
+      EMatch x arms -> Set.unions (directArgVars x : map (directArgVars . snd) arms)
+      EPair a b     -> Set.union (directArgVars a) (directArgVars b)
+      _             -> Set.empty
+    resultTest e = case e of
+      EApp "is-ok" _ -> True
+      EApp _ as      -> any resultTest as
+      EOp _ as       -> any resultTest as
+      EIf a b c      -> any resultTest [a, b, c]
+      EMatch x arms  -> resultTest x || any (resultTest . snd) arms
+                        || any (\(pat, _) -> case pat of
+                                 PConstructor c _ -> c `elem` ["Success", "Error"]
+                                 _                -> False) arms
+      _              -> False
     sigOf s = case s of
       SDefLogic _ p r c b     -> Just (p, r, c, Just b)
       SDef _ p r c b          -> Just (p, r, c, Just b)
@@ -3400,7 +3501,54 @@ exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
 -- discharges by constructor equality.
 exprToPred (EApp ctor args)
   | isUpperCtorHead ctor = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
-exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
+-- MATCH-POST-1: `(is-ok x)` is the Success test of the match encoding below,
+-- `x = ok (ok_0 x)`. The argument must be a Result-sorted variable;
+-- 'clauseMatchUnsafe' refuses the clause otherwise.
+exprToPred (EApp "is-ok" [EVar x]) =
+  Just (FQBinPred FQEq (FQVar x) (FQApp "ok" [FQApp "ok_0" [FQVar x]]))
+-- MATCH-POST-1: a `match` on a variable in a contract clause reflects as a
+-- conjunction of first-match implications, one per arm. The arm test is
+-- constructor equality over the datatype's own selectors,
+-- `x = Cₖ (Cₖ_0 x) …`, so no tester symbol is needed; a payload variable
+-- becomes its selector term. A wildcard or variable arm takes what the earlier
+-- arms leave.
+--
+-- This function has no types, and a callee post reaches it at every call site,
+-- so it refuses the shapes whose scrutinee cannot be a native datatype: a match
+-- with no payload pattern (an all-nullary enum is int-tag encoded, and `x = ctor`
+-- would be ill-sorted). The Result patterns `Success`/`Error` name the declared
+-- `ok`/`err` constructors. A constructor with no data declaration, such as a
+-- recursive sum's, stays an unbound symbol that FQ-FREEVAR-GUARD-1 withdraws.
+exprToPred (EMatch (EVar x) arms@(_:_))
+  | any payloadPat (map fst arms)
+  = FQAnd <$> go [] arms
+  where
+    payloadPat (PConstructor _ (_:_)) = True
+    payloadPat _                      = False
+    ctorSym "Success" = "ok"
+    ctorSym "Error"   = "err"
+    ctorSym c         = fqCtorSym c
+    go _ [] = Just []
+    go prior ((pat, body) : rest) = case pat of
+      PConstructor c ps | all isBinderPat ps -> do
+        let sym  = ctorSym c
+            sels = [ FQApp (sym <> "_" <> T.pack (show i)) [FQVar x]
+                   | i <- [0 .. length ps - 1] ]
+            test = FQBinPred FQEq (FQVar x) (FQApp sym sels)
+            sub  = Map.fromList [ (v, s) | (PVar v, s) <- zip ps sels ]
+        p <- applySubst sub <$> exprToPred body
+        (FQOr (FQNot test : prior ++ [p]) :) <$> go (prior ++ [test]) rest
+      PWildcard -> do
+        p <- exprToPred body
+        Just [FQOr (prior ++ [p])]
+      PVar v -> do
+        p <- applySubst (Map.singleton v (FQVar x)) <$> exprToPred body
+        Just [FQOr (prior ++ [p])]
+      _ -> Nothing
+    isBinderPat (PVar _)  = True
+    isBinderPat PWildcard = True
+    isBinderPat _         = False
+exprToPred _ = Nothing  -- lambda, let, etc. → not in QF linear arith
 
 -- ---------------------------------------------------------------------------
 -- FALLBACK-CENSUS-1: what refused a clause, and whether a body is a scaffold
@@ -3630,6 +3778,17 @@ type RefEnv = Map Name (Name, Expr)
 -- match that reorders its arms false-refutes a scrutinee-constructor post.
 type ScrutTags = Map Name (Map Name Int)
 
+-- | CALLEE-DATA-SORT-1: callee name → the alias-aware sort of its return, for a
+-- callee returning an admissible user sum (FQData) or an admissible Result.
+-- 'bodyToPredM' has no AliasMap, and the alias-unaware 'typeToSort' sorts both
+-- as int, so a caller bound the call result at int and a callee post naming a
+-- constructor, `result = (Big n)`, crashed liquid-fixpoint ("The sort T is not
+-- numeric"). The driver computes the map once from the AliasMap.
+type CalleeSorts = Map Name FQSort
+
+-- | The read-only context of the body translator.
+type BodyCtx = (RefEnv, ScrutTags, CalleeSorts)
+
 bodyToPredFrom :: Int -> SortEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFrom seed sortEnv cenv sccSet expr =
   bodyToPredFromR seed sortEnv Map.empty Map.empty cenv sccSet expr
@@ -3638,7 +3797,12 @@ bodyToPredFrom seed sortEnv cenv sccSet expr =
 -- STRETCH, a ScrutTags map). The driver seeds RefEnv from refined-payload params and
 -- ScrutTags from two-arm payload sums; existing callers use 'bodyToPredFrom' (both empty).
 bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ScrutTags -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
-bodyToPredFromR seed sortEnv refEnv scrutTags cenv sccSet expr =
+bodyToPredFromR seed sortEnv refEnv scrutTags =
+  bodyToPredFromRS seed sortEnv refEnv scrutTags Map.empty
+
+-- | CALLEE-DATA-SORT-1: 'bodyToPredFromR' with the callee return-sort map.
+bodyToPredFromRS :: Int -> SortEnv -> RefEnv -> ScrutTags -> CalleeSorts -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts cenv sccSet expr =
   -- LEVER-A1: bytes-get/bytes-set join the ANF hoist set so a nested occurrence
   -- (argument/operator position) lifts into a let and threads its CallVC
   -- (pre obligation + exact-pinning post). Hoisting only fires on occurrence —
@@ -3651,7 +3815,7 @@ bodyToPredFromR seed sortEnv refEnv scrutTags cenv sccSet expr =
   let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames (expandMapLets (Map.keysSet cenv) expr)
-        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags)
+        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags, calleeSorts)
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -3750,7 +3914,7 @@ bodyToPredM :: Map Name Name  -- ^ renaming env
             -> ContractEnv    -- ^ v0.9.0: contract lookup
             -> Set.Set Name   -- ^ v0.9.0: recursive SCC set (for own-body exclusion)
             -> Expr
-            -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
+            -> ReaderT BodyCtx (State Int) (Maybe BodyVC)
 
 -- Literals
 bodyToPredM _ _ _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
@@ -3783,6 +3947,10 @@ bodyToPredM env sortEnv _ _ (EVar v) =
        -- appear in meets another Str-sorted term (strlit constant, Str var, or
        -- Str Map_select).
        Just FQStr  -> return (Just (SimpleVC [] (FQVar renamed)))
+       -- SUM-VALUE-1: a payload-sum param seeded at its datatype sort
+       -- ('sumValParams') is a declared value, so returning it reflects.
+       Just (FQData _) -> return (Just (SimpleVC [] (FQVar renamed)))
+       Just (FQDataApp "Result" _) -> return (Just (SimpleVC [] (FQVar renamed)))
        _           -> return Nothing  -- non-scalar or unknown sort → fallback
 
 -- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)
@@ -3814,6 +3982,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
       Just argPreds -> do
+        (_, _, calleeSorts) <- ask
         let (params, contract, mRetType) = cenv Map.! fname
             paramNames = map fst params
             -- LEVER-A1: a callee returning bytes[n] whose contract mentions a
@@ -3848,6 +4017,10 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             calleeRetSort = case mRetType of
               Just (TBytes _) | contractMentionsBytesOp contract -> byteArraySort
               Just t | syntEncodableMapTy t, contractMentionsMapOp contract -> syntMapRetSort t
+              -- CALLEE-DATA-SORT-1: an admissible sum or Result return takes
+              -- its datatype sort, so a constructor term in the callee post is
+              -- well-sorted against the call result.
+              _ | Just s <- Map.lookup fname calleeSorts -> s
               _ -> maybe FQInt typeToSort mRetType
         -- Build substitution: callee params → translated args.
         -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
@@ -3916,6 +4089,15 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                           -- the post (sound weakening; the call still proves its pre).
                           | bytesOpOnResult (contractPost contract)
                             && calleeRetSort /= byteArraySort = Nothing
+                          -- CALLEE-DATA-SORT-1: a post whose reflection applies a
+                          -- datatype constructor or selector, when the call result
+                          -- did not get a datatype sort (an imported sum the local
+                          -- AliasMap cannot resolve, or a non-admissible Result):
+                          -- equating it with an int binder crashes the solver, so
+                          -- the post is not assumed (sound weakening).
+                          | not (isDataSort calleeRetSort)
+                          , Just pp <- contractPost contract >>= exprToPred
+                          , predHasDataTerm pp              = Nothing
                           | otherwise                       = contractPost contract >>= exprToPred
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
@@ -4306,7 +4488,7 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (sV, sB, eV, eB) <- classifyResultArms arms
   , Just okSort  <- Map.lookup (r <> "$ok")  se
   , Just errSort <- Map.lookup (r <> "$err") se
-  = do (refEnv, _) <- ask
+  = do (refEnv, _, _) <- ask
        -- Result: arm1 = Success = tag 0 (Result posts are not tag-desugared, so arm order suffices).
        buildOpaqueSumBranch env se cenv sccSet r 0
          (Just (sV, okSort,  Map.lookup (r <> "$ok")  refEnv), sB)
@@ -4333,7 +4515,7 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (ctorArms, mWild) <- classifyNArmAdtArms arms
   , not (null ctorArms)
   , all (\(c, mv, _) -> armOk c mv) ctorArms
-  = do (refEnv, stm) <- ask
+  = do (refEnv, stm, _) <- ask
        -- The scrutinee's declaration-order tag map (from ScrutTags) gives each arm's
        -- tag and the constructor count n (for the tag range fact `tag ∈ {0..n-1}`).
        let tagOf c   = fromMaybe 0 (Map.lookup r stm >>= Map.lookup c)
@@ -4365,7 +4547,13 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
                 in case mRetType of
                      Just (TResult okT errT) -> (typeToSort okT, typeToSort errT)
                      _                       -> (FQInt, FQInt)
+              -- SUM-VALUE-1: a variable with the Result datatype sort (a
+              -- hoisted call result) carries its payload sorts.
+              _ | Just (FQDataApp "Result" [a, b]) <- scrutResultSort -> (a, b)
               _ -> (FQInt, FQInt)  -- fallback: assume int payloads
+            scrutResultSort = case scrutVC of
+              SimpleVC [] (FQVar rv) -> Map.lookup rv se
+              _                      -> Nothing
 
         -- Generate fresh names for payload variables and match guard
         successRenamed <- freshName successVar
@@ -4386,7 +4574,20 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
           (Just svc, Just evc) -> do
             -- For CallVC scrutinee: thread as let-binding + branch
             -- For SimpleVC scrutinee: just branch with synthetic guard
-            let matchBinders = [(guardVar, FQBool, FQTrue), (successRenamed, okSort, FQTrue), (errorRenamed, errSort, FQTrue)]
+            -- SUM-VALUE-1: when the scrutinee is a call whose result has the
+            -- Result datatype sort (CALLEE-DATA-SORT-1), link the free guard to
+            -- it: guard ⇒ r = ok s, ¬guard ⇒ r = err e. The callee's assumed
+            -- post then decides the arm. Otherwise the binders stay FQTrue.
+            let linkTo rv =
+                    ( FQOr [ FQNot (FQVar guardVar)
+                           , FQBinPred FQEq (FQVar rv) (FQApp "ok" [FQVar successRenamed]) ]
+                    , FQOr [ FQVar guardVar
+                           , FQBinPred FQEq (FQVar rv) (FQApp "err" [FQVar errorRenamed]) ] )
+                armLinks = case scrutVC of
+                  CallVC { cvResultVar = rv, cvResultSort = FQDataApp "Result" _ } -> linkTo rv
+                  SimpleVC [] (FQVar rv) | Just (FQDataApp "Result" _) <- scrutResultSort -> linkTo rv
+                  _ -> (FQTrue, FQTrue)
+                matchBinders = [(guardVar, FQBool, FQTrue), (successRenamed, okSort, fst armLinks), (errorRenamed, errSort, snd armLinks)]
             case scrutVC of
               SimpleVC [] _scrutPred ->
                 return (Just (BranchVC (FQVar guardVar) matchBinders svc evc))
@@ -4457,7 +4658,7 @@ buildOpaqueSumBranch
   -> Int                                                -- ^ arm-1 constructor's declaration-order tag
   -> (Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)   -- ^ arm 1: optional (payload var, sort, refinement), body
   -> (Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)   -- ^ arm 2
-  -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
+  -> ReaderT BodyCtx (State Int) (Maybe BodyVC)
 -- MATCH-WIDEN (v0.14.12): each arm's payload is OPTIONAL. A nullary arm of a mixed
 -- sum (Nothing) binds no payload and contributes no skolem binder; a single-payload
 -- arm (Just …) is the d-elim behavior unchanged. First-match is the boolean guard
@@ -4474,9 +4675,23 @@ buildOpaqueSumBranch env se cenv sccSet scrutVar tag1 (mp1, b1) (mp2, b2) = do
       guardP = FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger tag1))
       rangeF = FQOr [ FQBinPred FQEq (FQVar tagVar) (FQLit 0)
                     , FQBinPred FQEq (FQVar tagVar) (FQLit 1) ]
-  (env1, se1, binders1) <- bindArm mp1
+      -- SUM-VALUE-1: the Result arm link, as in 'buildOpaqueSumBranchN'. The
+      -- only caller is the Result clause, whose arm 1 is Success (`ok`, tag 0)
+      -- and arm 2 is Error (`err`, tag 1). Only when the scrutinee has a
+      -- declared Result value binder; otherwise the .fq is unchanged.
+      linked = case Map.lookup scrutVar se of
+        Just (FQDataApp "Result" _) -> Map.notMember scrutVar env && tag1 == 0
+        _                           -> False
+      link k ctor bs = [ (r, s, if not linked then p else
+                           let l = FQOr [ FQNot (FQBinPred FQEq (FQVar tagVar) (FQLit k))
+                                        , FQBinPred FQEq (FQVar scrutVar) (FQApp ctor [FQVar r]) ]
+                           in if p == FQTrue then l else FQAnd [p, l])
+                       | (r, s, p) <- bs ]
+  (env1, se1, binders1a) <- bindArm mp1
+  let binders1 = link 0 "ok" binders1a
   mvc1 <- bodyToPredM env1 se1 cenv sccSet b1
-  (env2, se2, binders2) <- bindArm mp2
+  (env2, se2, binders2a) <- bindArm mp2
+  let binders2 = link 1 "err" binders2a
   mvc2 <- bodyToPredM env2 se2 cenv sccSet b2
   return $ case (mvc1, mvc2) of
     (Just vc1, Just vc2) ->
@@ -4513,15 +4728,37 @@ buildOpaqueSumBranchN
   -> Int                                                     -- ^ constructor count n (tag range fact)
   -> [(Int, Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)] -- ^ constructor arms: (tag, optional payload, body)
   -> Maybe Expr                                              -- ^ optional wildcard-tail body (terminal else)
-  -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
+  -> ReaderT BodyCtx (State Int) (Maybe BodyVC)
 buildOpaqueSumBranchN env se cenv sccSet scrutVar nCtors arms mWild = do
   let tagVar  = scrutVar <> "$tag"
       rangeF  = FQOr [ FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger i)) | i <- [0 .. nCtors - 1] ]
       tagEq t = FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger t))
+  -- SUM-VALUE-1: when the scrutinee also has a declared value binder (its
+  -- datatype sort is in the SortEnv), link each arm to it: `tag = k ⇒ v = Cₖ p`.
+  -- The link is true of every run, so it is sound as a hypothesis, and it is
+  -- guarded by the tag, so two arms never assert contradictory values. A
+  -- payload arm carries it on its payload binder; a nullary arm on the tag
+  -- binder. Without a value binder nothing changes (byte-identical .fq).
+  (_, stm, _) <- ask
+  let linked = case Map.lookup scrutVar se of
+        Just (FQData _) -> Map.notMember scrutVar env
+        _               -> False
+      ctorOf t = listToMaybe [ c | Just m <- [Map.lookup scrutVar stm]
+                                 , (c, k) <- Map.toList m, k == t ]
+      armLink t args = case ctorOf t of
+        Just c | linked -> Just (FQOr [ FQNot (tagEq t)
+                                      , FQBinPred FQEq (FQVar scrutVar)
+                                                       (FQApp (fqCtorSym c) args) ])
+        _               -> Nothing
+      nullaryLinks = [ l | (t, Nothing, _) <- arms, Just l <- [armLink t []] ]
+      tagFact = if null nullaryLinks then rangeF else FQAnd (rangeF : nullaryLinks)
   -- Bind then translate each arm in source order (preserves the freshName counter
   -- order, so n=2 output is byte-identical to the binary builder).
   armVCs <- forM arms $ \(tag, mp, b) -> do
-    (env', se', binders) <- bindArm mp
+    (env', se', binders0) <- bindArm mp
+    let binders = [ (r, s, maybe p (\l -> if p == FQTrue then l else FQAnd [p, l])
+                                 (armLink tag [FQVar r]))
+                  | (r, s, p) <- binders0 ]
     mvc <- bodyToPredM env' se' cenv sccSet b
     return (tag, binders, mvc)
   mWildVC <- traverse (bodyToPredM env se cenv sccSet) mWild
@@ -4548,7 +4785,7 @@ buildOpaqueSumBranchN env se cenv sccSet scrutVar nCtors arms mWild = do
            ((tag1, _, vc1) : rest) ->
              let inner = foldr (\(tag, _, vc) acc -> BranchVC (tagEq tag) [] vc acc) terminalVC rest
              in return (Just (BranchVC (tagEq tag1)
-                                       ((tagVar, FQInt, rangeF) : allBinders)
+                                       ((tagVar, FQInt, tagFact) : allBinders)
                                        vc1 inner))
     _ -> return Nothing
   where
@@ -4983,6 +5220,38 @@ ctorArgVars e = case e of
   EDo steps     -> Set.unions [ctorArgVars x | DoStep _ x _ <- steps]
   _             -> Set.empty
 
+-- | CALLEE-DATA-SORT-1: a datatype sort (user sum or polymorphic datatype).
+isDataSort :: FQSort -> Bool
+isDataSort (FQData _)      = True
+isDataSort (FQDataApp _ _) = True
+isDataSort _               = False
+
+-- | CALLEE-DATA-SORT-1: does a reflected clause apply a user-sum or Result
+-- constructor or selector? Those terms need a datatype-sorted operand.
+predHasDataTerm :: FQPred -> Bool
+predHasDataTerm p = case p of
+  FQApp f as        -> dataSym f || any predHasDataTerm as
+  FQBinPred _ a b   -> predHasDataTerm a || predHasDataTerm b
+  FQBinArith _ a b  -> predHasDataTerm a || predHasDataTerm b
+  FQAnd ps          -> any predHasDataTerm ps
+  FQOr ps           -> any predHasDataTerm ps
+  FQNot q           -> predHasDataTerm q
+  _                 -> False
+  where
+    dataSym f = "ctor_" `T.isPrefixOf` f || f `elem` ["ok", "err", "ok_0", "err_0"]
+
+-- | TAIL-VAR-1: variables that are a result leaf of the body: the whole body,
+-- an `if` branch, a `let` body or a `match` arm. `s` in `(if c s "x")` is one;
+-- `s` in `(string-length s)` is not. The caller filters by sort, so an int or
+-- bool leaf, which the base SortEnv already holds, adds nothing.
+tailVars :: Expr -> Set.Set Name
+tailVars e = case e of
+  EVar v        -> Set.singleton v
+  EIf _ t f     -> Set.union (tailVars t) (tailVars f)
+  ELet _ body   -> tailVars body
+  EMatch _ arms -> Set.unions (map (tailVars . snd) arms)
+  _             -> Set.empty
+
 strEqOperandVars :: Expr -> Set.Set Name
 strEqOperandVars e = case e of
   EApp op [l, r] | op `elem` (["=", "==", "/=", "!=", "≠"] :: [Text]) ->
@@ -5389,6 +5658,34 @@ augmentContractPost am mRet c =
 -- intro-side call-pre obligation (the callee's refinement, substituted) refers
 -- to an in-scope symbol. Gated on the callee param being refinement-typed AND
 -- carrier-sorted, so measure-free callees contribute nothing (byte-identity).
+-- | SUM-VALUE-1: variables passed directly as the argument of a contracted
+-- callee whose pre or post names that formal. A payload-sum param passed there
+-- needs a value binder in the caller: the callee clause is instantiated with the
+-- argument, and without a binder FQ-FREEVAR-GUARD-1 would withdraw the caller's
+-- VC, so the callee's pre would go unchecked at this call.
+sumCallArgVars :: ContractEnv -> Expr -> Set.Set Name
+sumCallArgVars cenv = go
+  where
+    go e = case e of
+      EApp f args ->
+        let here = case Map.lookup f cenv of
+              Just (ps, c, _) ->
+                Set.fromList
+                  [ v
+                  | (EVar v, (p, _)) <- zip args ps
+                  , any (maybe False (exprMentionsVar p)) [contractPre c, contractPost c] ]
+              Nothing -> Set.empty
+        in Set.union here (Set.unions (map go args))
+      EOp _ args    -> Set.unions (map go args)
+      EIf a b c     -> Set.unions (map go [a, b, c])
+      ELet bs body  -> Set.unions (go body : [go r | (_, _, r) <- bs])
+      EMatch s arms -> Set.unions (go s : map (go . snd) arms)
+      EPair a b     -> Set.union (go a) (go b)
+      ELambda _ b   -> go b
+      EAwait a      -> go a
+      EDo steps     -> Set.unions [go x | DoStep _ x _ <- steps]
+      _             -> Set.empty
+
 collectCallArgCarrierVars :: AliasMap -> ContractEnv -> Expr -> Set.Set Name
 collectCallArgCarrierVars am cenv = go
   where
