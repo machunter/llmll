@@ -34,6 +34,9 @@ class HoleResult:
     patch_ops: list[dict[str, Any]] = field(default_factory=list)
     # The agent hit an error that retrying cannot fix; the run stopped here.
     fatal: bool = False
+    # PATCH-PROOF-1: per patched function, whether the fill was proved
+    # (body_faithful) or its postcondition assumed; from `llmll patch`.
+    verification: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -61,6 +64,7 @@ class OrchestratorReport:
                     "success": r.success,
                     "error": r.error,
                     "fatal": r.fatal,
+                    "verification": r.verification,
                 }
                 for r in self.results
             ],
@@ -101,11 +105,14 @@ class Orchestrator:
         agent: AgentProtocol,
         max_retries: int = 3,
         verbose: bool = False,
+        require_proof: bool = False,
     ):
         self.compiler = compiler
         self.agent = agent
         self.max_retries = max_retries
         self.verbose = verbose
+        # Refuse fills whose postcondition passed only as an assumption.
+        self.require_proof = require_proof
 
     def _log(self, msg: str) -> None:
         if self.verbose:
@@ -241,7 +248,7 @@ class Orchestrator:
                 last_error = response.error or "agent returned no patch"
                 self._log(f"  Agent failed: {last_error}")
                 if response.fatal:
-                    self.compiler.release(source, hole.pointer)
+                    self.compiler.release(source, token.token)
                     return HoleResult(
                         pointer=hole.pointer,
                         agent=hole.agent,
@@ -267,7 +274,8 @@ class Orchestrator:
                     json.dump(patch_request, f)
                     patch_path = f.name
 
-                result = self.compiler.patch(source, patch_path)
+                result = self.compiler.patch(
+                    source, patch_path, require_proof=self.require_proof)
 
                 if result["success"]:
                     self._log(f"  ✅ Filled {hole.pointer}")
@@ -277,6 +285,7 @@ class Orchestrator:
                         attempts=attempt,
                         success=True,
                         patch_ops=response.patch_ops,
+                        verification=result.get("verification", []),
                     )
                 else:
                     diagnostics = result.get("diagnostics", [])
@@ -299,7 +308,7 @@ class Orchestrator:
 
         # All retries exhausted — release the checkout
         self._log(f"  ❌ Failed after {self.max_retries} attempts")
-        self.compiler.release(source, hole.pointer)
+        self.compiler.release(source, token.token)
 
         return HoleResult(
             pointer=hole.pointer,

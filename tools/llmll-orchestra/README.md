@@ -31,8 +31,22 @@ llmll-orchestra fixtures/auth_module/auth_module.ast.json --dry-run -v
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-llmll-orchestra fixtures/auth_module/auth_module.ast.json -v
+llmll-orchestra fixtures/auth_module/auth_module.ast.json --provider anthropic -v
 ```
+
+### Proof-checked run
+
+`fixtures/ledger/` gives every delegated body a postcondition inside the decidable fragment.
+With `--require-proof`, a fill is accepted only when the solver proves it: a correct body written
+with a construct outside the fragment (such as `min`) is refused, and the refused construct is fed
+back to the agent.
+
+```bash
+llmll-orchestra fixtures/ledger/ledger.ast.json --provider anthropic --require-proof -v
+llmll verify fixtures/ledger/ledger.ast.json --strict-verified-core
+```
+
+Both commands edit the file in place (the second writes a `.verified.json` sidecar), so run them on a copy.
 
 ### JSON output
 
@@ -55,7 +69,9 @@ orchestrator.py  Main loop: scan → sort → checkout → fill → patch → re
 | Flag | Description |
 |------|-------------|
 | `--llmll PATH` | Path to llmll binary |
-| `--model MODEL` | Anthropic model (default: claude-opus-5) |
+| `--provider {anthropic,openai}` | LLM provider (default: openai) |
+| `--model MODEL` | Model (default: claude-opus-5 for anthropic, gpt-4o for openai) |
+| `--require-proof` | Accept a fill only if the solver proves its postcondition (`llmll patch --require-proof`) |
 | `--max-retries N` | Retry attempts per hole (default: 3) |
 | `--dry-run` | Use stub agent, no API calls |
 | `--scan-only` | Show dependency graph only |

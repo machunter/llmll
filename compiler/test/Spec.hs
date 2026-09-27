@@ -73,7 +73,7 @@ import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
-import Data.Aeson (encode, decode, Value(..), object, (.=))
+import Data.Aeson (encode, decode, Value(..), object, (.=), toJSON)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
@@ -85,7 +85,7 @@ import LLMLL.DivergenceCheck
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts, patchTargetFns)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -3267,7 +3267,7 @@ main = hspec $ do
         _ -> expectationFailure "expected JSON object"
 
     it "PatchSuccess JSON is unchanged (regression)" $ do
-      let result = PatchSuccess 5
+      let result = PatchSuccess 5 []
           json = encode result
       case decode json of
         Nothing -> expectationFailure "failed to decode PatchSuccess JSON"
@@ -3618,6 +3618,89 @@ main = hspec $ do
   -- v0.10 BUG-PATCH-VERIFY: full lifecycle IO tests
   -- =========================================================================
 
+  -- =========================================================================
+  -- PATCH-PROOF-1: a SAFE patch says whether the patched function was proved.
+  -- A body outside the fragment falls back, its post is assumed, and the
+  -- verdict is still SAFE; before this, PatchSuccess carried no way to tell.
+  -- A live multi-agent fill merged `(min balance amount)` into
+  -- clamp-withdrawal that way. Fixture: tools/llmll-orchestra/fixtures/ledger.
+  -- =========================================================================
+  describe "PATCH-PROOF-1: PatchSuccess reports each patched function's outcome" $ do
+
+    let ledgerPatch tag body = do
+          let tmpDir = "test/_tmp_patch_proof_" ++ tag
+          createDirectoryIfMissing True tmpDir
+          BL.readFile "../tools/llmll-orchestra/fixtures/ledger/ledger.ast.json"
+            >>= BL.writeFile (tmpDir </> "ledger.ast.json")
+          let fp = tmpDir </> "ledger.ast.json"
+          raw <- BL.readFile fp
+          let Just astVal = decode raw
+          Right ct <- checkoutHole fp astVal "/statements/0/body"
+          r <- applyPatch GrammarCoreInversion fp
+                 (PatchRequest (ctToken ct) [PatchReplace "/statements/0/body" body])
+          removeDirectoryRecursive tmpDir
+          pure r
+        var n = object ["kind" .= ("var" :: T.Text), "name" .= (n :: T.Text)]
+
+    it "PP-1 a body inside the fragment is reported body_faithful" $ do
+      r <- ledgerPatch "1" (object
+             [ "kind" .= ("if" :: T.Text)
+             , "cond" .= object ["kind" .= ("op" :: T.Text), "op" .= ("<=" :: T.Text),
+                                 "args" .= [var "amount", var "balance"]]
+             , "then_branch" .= var "amount", "else_branch" .= var "balance" ])
+      case r of
+        PatchSuccess _ fns -> fns `shouldBe` [PatchedFn "clamp-withdrawal" True Nothing []]
+        PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
+        other -> expectationFailure ("expected PatchSuccess, got: " ++ show other)
+
+    it "PP-2 a correct body outside the fragment is merged but reported as a fallback" $ do
+      r <- ledgerPatch "2" (object ["kind" .= ("app" :: T.Text), "fn" .= ("min" :: T.Text),
+                                    "args" .= [var "balance", var "amount"]])
+      case r of
+        PatchSuccess _ fns -> fns `shouldBe`
+          [PatchedFn "clamp-withdrawal" False (Just "body-outside-fragment") ["app:min"]]
+        PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
+        other -> expectationFailure ("expected PatchSuccess, got: " ++ show other)
+
+    it "PP-4 --require-proof refuses an assumed fill, writes nothing, and keeps the lock for a provable retry" $ do
+      let tmpDir = "test/_tmp_patch_proof_4"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../tools/llmll-orchestra/fixtures/ledger/ledger.ast.json"
+        >>= BL.writeFile (tmpDir </> "ledger.ast.json")
+      let fp = tmpDir </> "ledger.ast.json"
+      before <- BL.readFile fp
+      let Just astVal = decode before
+      Right ct <- checkoutHole fp astVal "/statements/0/body"
+      let patchWith body = applyPatchWithMode ScopeNormal True GrammarCoreInversion fp
+                             (PatchRequest (ctToken ct) [PatchReplace "/statements/0/body" body])
+      r1 <- patchWith (object ["kind" .= ("app" :: T.Text), "fn" .= ("min" :: T.Text),
+                               "args" .= [var "balance", var "amount"]])
+      case r1 of
+        PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
+        PatchNotProved fns -> do
+          map pfBodyFaithful fns `shouldBe` [False]
+          after <- BL.readFile fp
+          after `shouldBe` before
+          r2 <- patchWith (object
+                  [ "kind" .= ("if" :: T.Text)
+                  , "cond" .= object ["kind" .= ("op" :: T.Text), "op" .= ("<=" :: T.Text),
+                                      "args" .= [var "amount", var "balance"]]
+                  , "then_branch" .= var "amount", "else_branch" .= var "balance" ])
+          case r2 of
+            PatchSuccess _ fns2 -> map pfBodyFaithful fns2 `shouldBe` [True]
+            other -> expectationFailure ("retry with the same token: " ++ show other)
+        other -> expectationFailure ("expected PatchNotProved, got: " ++ show other)
+      removeDirectoryRecursive tmpDir
+
+    it "PP-3 the JSON carries the outcome under 'verification'" $ do
+      let v = toJSON (PatchSuccess 4 [PatchedFn "f" False (Just "body-outside-fragment") ["app:min"]])
+      case v of
+        Object o -> KM.lookup "verification" o `shouldBe` Just (toJSON
+          [object [ "fn" .= ("f" :: T.Text), "body_faithful" .= False
+                  , "fallback_cause" .= ("body-outside-fragment" :: T.Text)
+                  , "fallback_constructs" .= (["app:min"] :: [T.Text]) ]])
+        _ -> expectationFailure "PatchSuccess JSON is not an object"
+
   describe "BUG-PATCH-VERIFY: patch re-verification lifecycle" $ do
 
     -- PROOF OBLIGATION 1: Correct body → PatchSuccess
@@ -3643,7 +3726,7 @@ main = hspec $ do
                 ]
           pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
-            PatchSuccess _ -> pure ()
+            PatchSuccess _ _ -> pure ()
             PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
             other -> expectationFailure $ "expected PatchSuccess, got: " ++ show other
       removeDirectoryRecursive tmpDir
@@ -3715,7 +3798,7 @@ main = hspec $ do
                 ]
           pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
-            PatchSuccess _ -> pure ()
+            PatchSuccess _ _ -> pure ()
             other -> expectationFailure $ "expected PatchSuccess (no contracts), got: " ++ show other
       removeDirectoryRecursive tmpDir
 

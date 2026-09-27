@@ -76,6 +76,7 @@ class MockCompiler:
         self.checkout_calls: list[tuple] = []
         self.patch_calls: list[tuple] = []
         self.release_calls: list[tuple] = []
+        self.require_proof_calls: list[bool] = []
         self.status_calls: list[tuple] = []
 
     def holes(self, source):
@@ -85,14 +86,15 @@ class MockCompiler:
         self.checkout_calls.append((source, pointer))
         return self.checkout_result
 
-    def patch(self, source, patch_file):
+    def patch(self, source, patch_file, require_proof=False):
         self.patch_calls.append((source, patch_file))
+        self.require_proof_calls.append(require_proof)
         idx = min(self._patch_call_idx, len(self.patch_results) - 1)
         self._patch_call_idx += 1
         return self.patch_results[idx]
 
-    def release(self, source, pointer):
-        self.release_calls.append((source, pointer))
+    def release(self, source, token):
+        self.release_calls.append((source, token))
 
     def checkout_status(self, source, token):
         self.status_calls.append((source, token))
@@ -252,7 +254,7 @@ def test_ec6_token_update_after_recheckout():
     written_patches = []
     original_patch = compiler.patch
 
-    def capture_patch(source, patch_file):
+    def capture_patch(source, patch_file, require_proof=False):
         import json as j
         with open(patch_file, 'r') as f:
             written_patches.append(j.load(f))
@@ -637,3 +639,29 @@ def test_a_refusal_is_an_agent_error_not_empty_text():
     agent, _ = _anthropic_agent("claude-sonnet-5", _message(stop_reason="refusal"))
     response = agent.fill_hole(HOLE_VALIDATE, {})
     assert response.success is False and "refusal" in response.error
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PATCH-PROOF-1: --require-proof reaches `llmll patch`
+# ─────────────────────────────────────────────────────────────────────
+
+def test_require_proof_is_passed_to_every_patch():
+    compiler = MockCompiler()
+    Orchestrator(compiler=compiler, agent=MockAgent(), require_proof=True).run("m.ast.json")
+    assert compiler.require_proof_calls == [True]
+
+
+def test_a_not_proved_rejection_is_fed_back_and_retried():
+    compiler = MockCompiler()
+    compiler.patch_results = [
+        {"success": False, "diagnostics": [{"message":
+            "'f' passed the solver but was not proved: body-outside-fragment "
+            "(outside the decidable fragment: app:min)"}]},
+        {"success": True, "diagnostics": [],
+         "verification": [{"fn": "f", "body_faithful": True}]},
+    ]
+    agent = MockAgent()
+    report = Orchestrator(compiler=compiler, agent=agent, require_proof=True).run("m.ast.json")
+    assert report.filled == 1 and report.results[0].attempts == 2
+    assert "app:min" in agent.fill_calls[1][1]["prior_diagnostics"]
+    assert report.results[0].verification == [{"fn": "f", "body_faithful": True}]

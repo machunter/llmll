@@ -50,6 +50,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Max retry attempts per hole (default: 3)",
     )
     parser.add_argument(
+        "--require-proof",
+        action="store_true",
+        help="Accept a fill only if the solver proves its postcondition; a fill that "
+             "passes only because its body falls outside the decidable fragment is "
+             "rejected and the reason is fed back to the agent",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Use stub agent (no API calls) — for CI and testing",
@@ -102,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         agent=agent,
         max_retries=args.max_retries,
         verbose=args.verbose,
+        require_proof=args.require_proof,
     )
 
     # Scan-only mode: just show the dependency graph and scheduling

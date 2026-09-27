@@ -146,11 +146,25 @@ class Compiler:
     # patch
     # -----------------------------------------------------------------
 
-    def patch(self, source: str | Path, patch_file: str | Path) -> dict[str, Any]:
-        """Run `llmll patch <file> <patch.json>` and return diagnostics."""
-        result = self._run(["--json", "patch", str(source), str(patch_file)], check=False)
+    def patch(self, source: str | Path, patch_file: str | Path,
+              require_proof: bool = False) -> dict[str, Any]:
+        """Run `llmll patch <file> <patch.json>` and return diagnostics.
+
+        With require_proof, the compiler refuses a fill whose postcondition
+        passed only as an assumption (result PatchNotProved, exit 1, with a
+        diagnostic naming the refused constructs), so it arrives here as an
+        ordinary rejection and its message is fed back to the agent.
+        """
+        args = ["--json", "patch", str(source), str(patch_file)]
+        if require_proof:
+            args.append("--require-proof")
+        result = self._run(args, check=False)
         if result.returncode == 0:
-            return {"success": True, "diagnostics": []}
+            try:
+                verification = json.loads(result.stdout).get("verification", [])
+            except (json.JSONDecodeError, AttributeError):
+                verification = []
+            return {"success": True, "diagnostics": [], "verification": verification}
         try:
             parsed = json.loads(result.stdout)
         except json.JSONDecodeError:
@@ -198,9 +212,14 @@ class Compiler:
     # release (abandon checkout)
     # -----------------------------------------------------------------
 
-    def release(self, source: str | Path, pointer: str) -> None:
-        """Run `llmll checkout --release <file> <pointer>`."""
-        self._run(["checkout", "--release", str(source), pointer], check=False)
+    def release(self, source: str | Path, token: str) -> None:
+        """Run `llmll checkout <file> --release <token>`.
+
+        The CLI releases by token. This used to pass the hole's pointer, which
+        the CLI read as the file argument and rejected; with check=False the
+        failure was silent and no lock was ever released.
+        """
+        self._run(["checkout", str(source), "--release", token], check=False)
 
     # -----------------------------------------------------------------
     # spec --agent (v0.3.4)

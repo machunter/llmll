@@ -1,0 +1,29 @@
+;; A ledger whose four bodies are delegated to three agents. Every body has a
+;; postcondition inside the decidable fragment, and `llmll patch` re-verifies
+;; each fill with the solver. A wrong body is rejected. A correct body written
+;; with a construct outside the fragment (`min`, say) is accepted with its
+;; postcondition assumed, unless the run uses `--require-proof`, which refuses
+;; it and feeds the refused construct back to the agent.
+
+(def clamp-withdrawal [balance: int amount: int] -> int
+  (pre (and (>= balance 0) (>= amount 0)))
+  (post (and (and (>= result 0) (<= result balance))
+             (and (<= result amount)
+                  (or (= result amount) (= result balance)))))
+  (?delegate @limits-agent "Return how much of amount can be taken from balance: amount if the balance covers it, otherwise the whole balance" -> int))
+
+(def apply-withdrawal [balance: int taken: int] -> int
+  (pre (and (>= taken 0) (<= taken balance)))
+  (post (= result (- balance taken)))
+  (?delegate @ledger-agent "Return the balance after taking the given amount out of it" -> int))
+
+(def deposit [balance: int amount: int] -> int
+  (pre (>= amount 0))
+  (post (= result (+ balance amount)))
+  (?delegate @ledger-agent "Return the balance after adding the deposited amount" -> int))
+
+(def-shell withdraw [balance: int amount: int] -> int
+  (pre (and (>= balance 0) (>= amount 0)))
+  (post (and (>= result 0) (<= result balance)))
+  (let [(taken (clamp-withdrawal balance amount))]
+    (?delegate @gateway-agent "Return the new balance after withdrawing taken, the amount clamp-withdrawal allowed" -> int)))
