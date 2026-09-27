@@ -35,13 +35,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--provider",
         choices=["anthropic", "openai"],
-        default="openai",
-        help="LLM provider (default: openai)",
+        default="anthropic",
+        help="LLM provider (default: anthropic)",
     )
     parser.add_argument(
         "--model",
         default=None,
-        help="Model name (default: gpt-4o for openai, claude-opus-5 for anthropic)",
+        help="Model name (default: claude-opus-5 for anthropic; required for openai)",
     )
     parser.add_argument(
         "--max-retries",
@@ -98,8 +98,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         agent = DryRunAgent()
     elif args.provider == "openai":
-        model = args.model or "gpt-4o"
-        agent = OpenAIAgent(model=model)
+        if not args.model:
+            print("Error: --provider openai needs --model", file=sys.stderr)
+            return 1
+        agent = OpenAIAgent(model=args.model)
     else:
         model = args.model or "claude-opus-5"
         agent = Agent(model=model)

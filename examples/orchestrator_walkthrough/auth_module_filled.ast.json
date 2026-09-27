@@ -1,19 +1,16 @@
 {
-  "schemaVersion": "0.6.0",
-  "llmll_version": "0.3.0",
-  "source_file": "auth_module.llmll",
+  "llmll_version": "0.26.9",
+  "schemaVersion": "0.11.0",
   "statements": [
     {
       "kind": "def-interface",
-      "name": "AuthSystem",
       "methods": [
         {
-          "name": "hash-password",
           "fn_type": {
             "kind": "fn-type",
             "params": [
               {
-                "name": "raw-pw",
+                "name": "",
                 "param_type": {
                   "kind": "primitive",
                   "name": "string"
@@ -24,15 +21,15 @@
               "kind": "primitive",
               "name": "string"
             }
-          }
+          },
+          "name": "hash-password"
         },
         {
-          "name": "verify-token",
           "fn_type": {
             "kind": "fn-type",
             "params": [
               {
-                "name": "token",
+                "name": "",
                 "param_type": {
                   "kind": "primitive",
                   "name": "string"
@@ -43,11 +40,93 @@
               "kind": "primitive",
               "name": "bool"
             }
-          }
+          },
+          "name": "token-valid"
         }
-      ]
+      ],
+      "name": "AuthSystem"
     },
     {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Reuse"
+          },
+          {
+            "constructor": "Fresh"
+          },
+          {
+            "constructor": "Deny"
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Decision"
+    },
+    {
+      "body": {
+        "bindings": [
+          {
+            "expr": {
+              "kind": "lit-string",
+              "value": "llmll-v1-salt"
+            },
+            "name": "salt"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "salt"
+                },
+                {
+                  "kind": "var",
+                  "name": "raw-pw"
+                }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "salted"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "salted"
+                    }
+                  ],
+                  "fn": "string-length",
+                  "kind": "app"
+                }
+              ],
+              "fn": "int-to-string",
+              "kind": "app"
+            },
+            "name": "digest"
+          }
+        ],
+        "body": {
+          "args": [
+            {
+              "kind": "lit-string",
+              "value": "hashed:"
+            },
+            {
+              "kind": "var",
+              "name": "digest"
+            }
+          ],
+          "fn": "string-concat",
+          "kind": "app"
+        },
+        "kind": "let"
+      },
       "kind": "def",
       "name": "hash-password-impl",
       "params": [
@@ -59,72 +138,34 @@
           }
         }
       ],
-      "body": {
-        "kind": "let",
-        "bindings": [
-          {
-            "name": "salt",
-            "expr": {
-              "kind": "lit-string",
-              "value": "llmll-v1-salt"
-            }
-          },
-          {
-            "name": "salted",
-            "expr": {
-              "kind": "app",
-              "fn": "string-concat",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "salt"
-                },
-                {
-                  "kind": "var",
-                  "name": "raw-pw"
-                }
-              ]
-            }
-          },
-          {
-            "name": "digest",
-            "expr": {
-              "kind": "app",
-              "fn": "int-to-string",
-              "args": [
-                {
-                  "kind": "app",
-                  "fn": "string-length",
-                  "args": [
-                    {
-                      "kind": "var",
-                      "name": "salted"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        ],
-        "body": {
-          "kind": "app",
-          "fn": "string-concat",
-          "args": [
-            {
-              "kind": "lit-string",
-              "value": "hashed:"
-            },
-            {
-              "kind": "var",
-              "name": "digest"
-            }
-          ]
-        }
+      "return_type": {
+        "kind": "primitive",
+        "name": "string"
       }
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "token"
+              }
+            ],
+            "fn": "string-length",
+            "kind": "app"
+          },
+          {
+            "kind": "lit-int",
+            "value": 8
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
       "kind": "def",
-      "name": "verify-token-impl",
+      "name": "token-valid?",
       "params": [
         {
           "name": "token",
@@ -134,45 +175,362 @@
           }
         }
       ],
-      "body": {
-        "kind": "if",
-        "cond": {
-          "kind": "app",
-          "fn": "string-empty?",
-          "args": [
-            {
-              "kind": "var",
-              "name": "token"
-            }
-          ]
-        },
-        "then_branch": {
-          "kind": "lit-bool",
-          "value": false
-        },
-        "else_branch": {
-          "kind": "op",
-          "op": ">=",
-          "args": [
-            {
-              "kind": "app",
-              "fn": "string-length",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "token"
-                }
-              ]
-            },
-            {
-              "kind": "lit-int",
-              "value": 8
-            }
-          ]
-        }
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "token"
+                  }
+                ],
+                "fn": "string-length",
+                "kind": "app"
+              },
+              {
+                "kind": "lit-int",
+                "value": 8
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
       }
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "hashed"
+              },
+              {
+                "kind": "lit-string",
+                "value": "hash-unavailable"
+              }
+            ],
+            "kind": "op",
+            "op": "="
+          }
+        ],
+        "kind": "op",
+        "op": "not"
+      },
+      "kind": "def",
+      "name": "hash-ok?",
+      "params": [
+        {
+          "name": "hashed",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "hashed"
+                  },
+                  {
+                    "kind": "lit-string",
+                    "value": "hash-unavailable"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "not"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    },
+    {
+      "body": {
+        "cond": {
+          "kind": "var",
+          "name": "token-ok"
+        },
+        "else_branch": {
+          "cond": {
+            "kind": "var",
+            "name": "hash-ok"
+          },
+          "else_branch": {
+            "kind": "var",
+            "name": "Deny"
+          },
+          "kind": "if",
+          "then_branch": {
+            "kind": "var",
+            "name": "Fresh"
+          }
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "var",
+          "name": "Reuse"
+        }
+      },
+      "kind": "def",
+      "name": "decide",
+      "params": [
+        {
+          "name": "token-ok",
+          "param_type": {
+            "kind": "primitive",
+            "name": "bool"
+          }
+        },
+        {
+          "name": "hash-ok",
+          "param_type": {
+            "kind": "primitive",
+            "name": "bool"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "token-ok"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "Reuse"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "=>"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "token-ok"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "not"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "hash-ok"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "Fresh"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "token-ok"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "not"
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "hash-ok"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "not"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "Deny"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "named",
+        "name": "Decision"
+      }
+    },
+    {
+      "body": {
+        "bindings": [
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "password"
+                }
+              ],
+              "fn": "hash-password-impl",
+              "kind": "app"
+            },
+            "name": "hashed"
+          }
+        ],
+        "body": {
+          "cond": {
+            "args": [
+              {
+                "kind": "var",
+                "name": "hashed"
+              }
+            ],
+            "fn": "hash-ok?",
+            "kind": "app"
+          },
+          "else_branch": {
+            "args": [
+              {
+                "kind": "lit-string",
+                "value": "crypto agent failed to hash password"
+              }
+            ],
+            "fn": "err",
+            "kind": "app"
+          },
+          "kind": "if",
+          "then_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "lit-string",
+                    "value": "session:"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "username"
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "lit-string",
+                            "value": ":"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "hashed"
+                          }
+                        ],
+                        "fn": "string-concat",
+                        "kind": "app"
+                      }
+                    ],
+                    "fn": "string-concat",
+                    "kind": "app"
+                  }
+                ],
+                "fn": "string-concat",
+                "kind": "app"
+              }
+            ],
+            "fn": "ok",
+            "kind": "app"
+          }
+        },
+        "kind": "let"
+      },
       "kind": "def-shell",
       "name": "login-handler",
       "params": [
@@ -192,108 +550,141 @@
         }
       ],
       "pre": {
-        "kind": "op",
-        "op": "not",
         "args": [
           {
-            "kind": "app",
-            "fn": "string-empty?",
             "args": [
               {
                 "kind": "var",
                 "name": "password"
               }
-            ]
+            ],
+            "fn": "string-empty?",
+            "kind": "app"
           }
-        ]
-      },
+        ],
+        "kind": "op",
+        "op": "not"
+      }
+    },
+    {
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "hashed",
             "expr": {
-              "kind": "app",
-              "fn": "hash-password-impl",
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "existing-token"
+                }
+              ],
+              "fn": "token-valid?",
+              "kind": "app"
+            },
+            "name": "token-ok"
+          },
+          {
+            "expr": {
               "args": [
                 {
                   "kind": "var",
                   "name": "password"
                 }
-              ]
-            }
+              ],
+              "fn": "hash-password-impl",
+              "kind": "app"
+            },
+            "name": "hashed"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "token-ok"
+                },
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "hashed"
+                    }
+                  ],
+                  "fn": "hash-ok?",
+                  "kind": "app"
+                }
+              ],
+              "fn": "decide",
+              "kind": "app"
+            },
+            "name": "outcome"
           }
         ],
         "body": {
-          "kind": "if",
-          "cond": {
-            "kind": "op",
-            "op": "=",
-            "args": [
-              {
-                "kind": "var",
-                "name": "hashed"
+          "arms": [
+            {
+              "body": {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "existing-token"
+                  }
+                ],
+                "fn": "ok",
+                "kind": "app"
               },
-              {
-                "kind": "lit-string",
-                "value": "hash-unavailable"
+              "pattern": {
+                "constructor": "Reuse",
+                "kind": "constructor",
+                "sub_patterns": []
               }
-            ]
-          },
-          "then_branch": {
-            "kind": "app",
-            "fn": "err",
-            "args": [
-              {
-                "kind": "lit-string",
-                "value": "crypto agent failed to hash password"
+            },
+            {
+              "body": {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "username"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "password"
+                  }
+                ],
+                "fn": "login-handler",
+                "kind": "app"
+              },
+              "pattern": {
+                "constructor": "Fresh",
+                "kind": "constructor",
+                "sub_patterns": []
               }
-            ]
-          },
-          "else_branch": {
-            "kind": "app",
-            "fn": "ok",
-            "args": [
-              {
-                "kind": "app",
-                "fn": "string-concat",
+            },
+            {
+              "body": {
                 "args": [
                   {
                     "kind": "lit-string",
-                    "value": "session:"
-                  },
-                  {
-                    "kind": "app",
-                    "fn": "string-concat",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "username"
-                      },
-                      {
-                        "kind": "app",
-                        "fn": "string-concat",
-                        "args": [
-                          {
-                            "kind": "lit-string",
-                            "value": ":"
-                          },
-                          {
-                            "kind": "var",
-                            "name": "hashed"
-                          }
-                        ]
-                      }
-                    ]
+                    "value": "authentication denied"
                   }
-                ]
+                ],
+                "fn": "err",
+                "kind": "app"
+              },
+              "pattern": {
+                "constructor": "Deny",
+                "kind": "constructor",
+                "sub_patterns": []
               }
-            ]
+            }
+          ],
+          "kind": "match",
+          "scrutinee": {
+            "kind": "var",
+            "name": "outcome"
           }
-        }
-      }
-    },
-    {
+        },
+        "kind": "let"
+      },
       "kind": "def-shell",
       "name": "authenticate-request",
       "params": [
@@ -318,142 +709,7 @@
             "name": "string"
           }
         }
-      ],
-      "body": {
-        "kind": "let",
-        "bindings": [
-          {
-            "name": "token-valid",
-            "expr": {
-              "kind": "app",
-              "fn": "verify-token-impl",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "existing-token"
-                }
-              ]
-            }
-          },
-          {
-            "name": "session",
-            "expr": {
-              "kind": "app",
-              "fn": "login-handler",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "username"
-                },
-                {
-                  "kind": "var",
-                  "name": "password"
-                }
-              ]
-            }
-          }
-        ],
-        "body": {
-          "kind": "if",
-          "cond": {
-            "kind": "var",
-            "name": "token-valid"
-          },
-          "then_branch": {
-            "kind": "app",
-            "fn": "ok",
-            "args": [
-              {
-                "kind": "app",
-                "fn": "string-concat",
-                "args": [
-                  {
-                    "kind": "lit-string",
-                    "value": "token-reuse:"
-                  },
-                  {
-                    "kind": "var",
-                    "name": "existing-token"
-                  }
-                ]
-              }
-            ]
-          },
-          "else_branch": {
-            "kind": "match",
-            "scrutinee": {
-              "kind": "var",
-              "name": "session"
-            },
-            "arms": [
-              {
-                "pattern": {
-                  "kind": "constructor",
-                  "constructor": "Success",
-                  "sub_patterns": [
-                    {
-                      "kind": "bind",
-                      "name": "s"
-                    }
-                  ]
-                },
-                "body": {
-                  "kind": "app",
-                  "fn": "ok",
-                  "args": [
-                    {
-                      "kind": "app",
-                      "fn": "string-concat",
-                      "args": [
-                        {
-                          "kind": "lit-string",
-                          "value": "new-session:"
-                        },
-                        {
-                          "kind": "var",
-                          "name": "s"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "pattern": {
-                  "kind": "constructor",
-                  "constructor": "Error",
-                  "sub_patterns": [
-                    {
-                      "kind": "bind",
-                      "name": "e"
-                    }
-                  ]
-                },
-                "body": {
-                  "kind": "app",
-                  "fn": "err",
-                  "args": [
-                    {
-                      "kind": "app",
-                      "fn": "string-concat",
-                      "args": [
-                        {
-                          "kind": "lit-string",
-                          "value": "login-failed:"
-                        },
-                        {
-                          "kind": "var",
-                          "name": "e"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        }
-      }
+      ]
     }
   ]
 }

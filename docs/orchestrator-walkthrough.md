@@ -1,73 +1,60 @@
 # Compiler-Mediated LLM Orchestration: From Typed Skeletons to Verified Programs
 
-### How LLM Agents Fill Code Holes — An End-to-End Walkthrough
+### How LLM agents fill code holes, and which fills the solver proves
 
-> **The orchestrator is a compile-time, dependency-driven scheduler:** it asks the compiler to extract typed holes and their dependencies from a partial program, dispatches each synthesis obligation to the assigned agent, and only commits patches that re-type-check.
+> **The orchestrator is a compile-time, dependency-driven scheduler:** it asks the compiler to extract typed holes and their dependencies from a partial program, dispatches each hole to the assigned agent, and commits only patches that re-type-check and, where the hole has a postcondition, re-verify.
 
-> You write the skeleton. The agents write the code. The compiler keeps everyone honest.
+This walkthrough fills a six-hole authentication module with three agents. Three
+holes are authentication *decisions* with postconditions, and the solver proves
+every fill of them. The other three are string and `Result` plumbing with no
+postcondition, and nothing checks what their fills do beyond the types. The
+walkthrough shows both halves, because the second half is where an accepted fill
+can still be wrong.
+
+Every command output below was produced by `llmll 0.26.9` run from `docs/`
+against a copy of [`examples/orchestrator_walkthrough/`](../examples/orchestrator_walkthrough/)
+(`verify` writes a `.verified.json` sidecar next to its input, and `checkout`
+writes a lock file). The live-fill output in Step 6 comes from one
+`--provider anthropic --require-proof` run on the same skeleton.
 
 ---
 
 ## Why This Matters
 
-LLM-generated code is unreliable. Current approaches handle this in one of two
-ways — neither satisfactory:
+Multi-agent code generation usually coordinates at the task level: one agent
+writes the database layer, another the API, and incompatibilities surface at
+integration time. A language with *typed holes* gives three things instead:
 
-1. **Generate and pray.** Line-level code assistants (Copilot, Cursor) operate
-   at the function level with no global typing constraints. The programmer
-   inspects each suggestion manually. There is no structural guarantee that
-   generated code composes correctly across function boundaries.
-
-2. **Test and retry.** Multi-agent frameworks (AutoGen, CrewAI, ChatDev)
-   coordinate at the task level — "you write the database layer, I'll write the
-   API." But they have no mechanism for type-safe composition. If Agent A's
-   output is incompatible with Agent B's expectations, the error surfaces at
-   integration time, not at generation time.
-
-**The insight.** If you design a programming language with *typed holes*, you get
-three things for free:
-
-1. **A specification for each agent.** Every hole carries a type signature that
-   the fill must satisfy. The agent knows exactly what to produce.
+1. **A specification for each agent.** Every hole carries the type its fill must
+   have and, when the function has one, the postcondition its fill must meet.
 2. **A dependency ordering for scheduling.** The compiler's call-graph analysis
-   derives a DAG of synthesis obligations. Holes that don't depend on each other
-   can be filled in parallel; holes that do are ordered automatically.
-3. **A soundness check for every fill.** The compiler re-type-checks the entire
-   program after each patch. A bad fill is rejected with structured diagnostics,
-   not discovered at runtime.
+   derives a DAG of holes. Holes that do not depend on each other can be filled
+   in parallel.
+3. **A check on every fill.** The compiler re-type-checks the whole program after
+   each patch and, for a function with a postcondition, re-runs the solver on the
+   patched body. A bad fill is rejected with a structured diagnostic.
 
-This is what `llmll-orchestra` does. This document walks through the entire
-pipeline, from a program with four empty holes to a running Haskell application,
-using OpenAI's `gpt-4o` as the agent brain.
+The third point has a limit this walkthrough makes concrete: the solver can only
+check a function that has a postcondition, and only when its body is inside the
+decidable fragment. Outside that, a fill is accepted on its type alone.
 
-This is not a runtime orchestrator in the usual LangChain / agent-router sense.
-It does not decide, step by step, which tool or agent should act next in an
-open-ended conversation. Instead, orchestration happens *before* execution: the
-compiler extracts a dependency graph from typed holes, and that graph fixes the
-fill order ahead of time. In that sense, the system is closer to a build planner
-plus patch executor than to a conversational router.
+Orchestration happens *before* execution. The compiler extracts the dependency
+graph from typed holes, and that graph fixes the fill order ahead of time. The
+system is closer to a build planner plus patch executor than to a conversational
+agent router.
 
 ---
 
 ## Conceptual Model
 
-The orchestration system instantiates well-known PL concepts in a multi-agent
-code generation setting. Understanding these connections clarifies the formal
-properties and makes it easier to reason about correctness.
-
 | Engineering term | Formal analogue |
 |---|---|
-| `?delegate` hole | **Metavariable** in a partial proof term — a placeholder with a known type that must be filled with a term of that type |
-| Hole dependency graph | **Obligation ordering** — the same structure that proof assistants use to determine which goals must be solved before others |
-| `checkout` + `patch` | **Exclusive term-refinement step** — only one agent may refine a given metavariable at a time, preventing conflicting substitutions |
-| Compiler re-type-check | **Typing judgment verification** — each fill must satisfy a local typing judgment Γ ⊢ e : τ where Γ includes all in-scope bindings and τ is the hole's expected type |
-| Retry with diagnostics | **Counterexample-guided synthesis (CEGIS)** — the compiler acts as a verifier that rejects ill-typed terms and provides counterexample diagnostics, guiding the next synthesis attempt |
-
-These are not analogies — they are the same constructions. The dependency graph
-*is* a topological ordering over synthesis obligations. The retry loop *is*
-CEGIS with the type checker as the verifier. The compiler-in-the-loop
-architecture transforms LLM code generation from an open-loop guess into a
-closed-loop synthesis process.
+| `?delegate` hole | **Metavariable** in a partial proof term: a placeholder with a known type that must be filled with a term of that type |
+| Hole dependency graph | **Obligation ordering**: which goals must be solved before others |
+| `checkout` + `patch` | **Exclusive term-refinement step**: one agent refines a given metavariable at a time |
+| Re-type-check on patch | **Typing judgment** Γ ⊢ e : τ, where Γ is the in-scope bindings and τ the hole's expected type |
+| Re-verify on patch | **Refinement check**: the patched body must entail the function's postcondition |
+| Retry with diagnostics | **Counterexample-guided synthesis (CEGIS)**: the compiler rejects a candidate and its diagnostic guides the next attempt |
 
 ---
 
@@ -75,1159 +62,577 @@ closed-loop synthesis process.
 
 A multi-agent authentication system with three specialist agents:
 
-| Agent | Responsibility |
-|-------|---------------|
-| `@crypto-agent` | Password hashing, token verification |
-| `@session-agent` | Session creation from hashed credentials |
-| `@gateway-agent` | Authentication decision-making |
+| Agent | Holes |
+|---|---|
+| `@crypto-agent` | `hash-password-impl`, `token-valid?`, `hash-ok?` |
+| `@gateway-agent` | `decide`, `authenticate-request` |
+| `@session-agent` | `login-handler` |
 
-The key insight is that these holes have **dependencies**. You can't create a
-session until the password is hashed. You can't make an authentication decision
-until you have both a session and a token verification. The orchestrator figures
-out this ordering automatically.
+The module splits into two kinds of function:
+
+| Function | Contract | What `verify` says about the filled body |
+|---|---|---|
+| `token-valid?` | `post`: true exactly when the token has at least 8 characters | proved |
+| `hash-ok?` | `post`: true exactly when the hash is not the fallback `"hash-unavailable"` | proved |
+| `decide` | `post`: fixes `Reuse` / `Fresh` / `Deny` for every input | proved |
+| `hash-password-impl` | none | unspecified |
+| `login-handler` | `pre` only (non-empty password) | pre asserted, no post |
+| `authenticate-request` | none | unspecified |
+
+The decisions carry the security logic, so they are the functions with
+postconditions. The plumbing builds strings and `Result` values, which the
+solver cannot reason about today (see [Why the plumbing has no postcondition](#why-the-plumbing-has-no-postcondition)).
+
+The holes fall into two scheduling tiers:
 
 ```
-Tier 0 (run in parallel):  hash-password-impl ──┐
-                            verify-token-impl ───┼─┐
-                                                 │ │
-Tier 1 (waits for Tier 0):  login-handler ───────┘ │
-                                                   │
-Tier 2 (waits for Tier 1):  authenticate-request ──┘
+Tier 0 (parallel):  hash-password-impl  token-valid?  hash-ok?  decide
+Tier 1 (parallel):  login-handler         (calls hash-password-impl)
+                    authenticate-request  (calls token-valid?, hash-password-impl, decide, hash-ok?)
 ```
 
 ---
 
 ## Before We Start
 
-You'll need:
-
 ```bash
-# Build the compiler (GHC ≥ 9.4, Stack ≥ 2.9)
+# Build the compiler (GHC >= 9.4, Stack >= 2.9)
 cd compiler && stack build
 
 # Install the orchestrator
 cd tools/llmll-orchestra && pip install -e .
 
 # Set your API key
-export OPENAI_API_KEY=sk-proj-...
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---
 
 ## Step 1: Write the Skeleton
 
-The lead agent (that's you, for now) writes the program structure. Every
-function body that needs an agent's help is marked with `?delegate`.
-
-Here's the full program in S-expression form. Don't worry about the JSON-AST
-yet — we'll show both formats for each piece as we go.
+The lead agent writes the program structure. Every body an agent should write is
+a `?delegate` hole. The full program in S-expression form:
 
 ```lisp
-;;; ── The contract boundary: what methods exist ────────────────────
 (def-interface AuthSystem
   [hash-password (fn [raw-pw: string] -> string)]
-  [verify-token  (fn [token: string]  -> bool)])
-```
+  [token-valid   (fn [token: string] -> bool)])
 
-> **Why the interface?** `AuthSystem` declares the API shape — it specifies
-> what methods must exist and their type signatures. In the current system, the
-> relationship between an interface and its implementing functions is
-> *structural*, not nominal: the compiler checks that implementations match the
-> declared types, but there is no explicit `impl AuthSystem` construct. The
-> interface serves as a contract boundary that agents and humans can inspect
-> without reading implementations.
+(type Decision
+  (| Reuse)
+  (| Fresh)
+  (| Deny))
 
-```lisp
-;;; ── Two independent low-level implementations ───────────────────
-
-(def hash-password-impl [raw-pw: string]
-  (?delegate @crypto-agent
-    "Hash the raw password using a salt-based scheme.
-     Concatenate a fixed salt with the password, compute a digest
-     representation, and return the hashed string prefixed with 'hashed:'."
-    -> string
+(def hash-password-impl [raw-pw: string] -> string
+  (?delegate @crypto-agent "Hash the raw password using a salt-based scheme. Concatenate a fixed salt with the password, compute a digest representation, and return the hashed string prefixed with 'hashed:'." -> string
     (on-failure "hash-unavailable")))
 
-(def verify-token-impl [token: string]
-  (?delegate @crypto-agent
-    "Verify the session token is well-formed and not expired.
-     Reject empty tokens. Valid tokens must be at least 8 characters.
-     Return true if valid, false otherwise."
-    -> bool
+(def token-valid? [token: string] -> bool
+  (post (= result (>= (string-length token) 8)))
+  (?delegate @crypto-agent "Decide whether the session token is well-formed: true exactly when it is at least 8 characters long." -> bool
     (on-failure false)))
 
-;;; ── A higher-level function that DEPENDS on hash-password-impl ──
+(def hash-ok? [hashed: string] -> bool
+  (post (= result (not (= hashed "hash-unavailable"))))
+  (?delegate @crypto-agent "Decide whether hashing succeeded: true exactly when hashed is not the fallback value 'hash-unavailable'." -> bool
+    (on-failure false)))
 
-;; The `let` binding below (hashed = ...) is what creates the dependency on
-;; hash-password-impl: the compiler sees this call and knows this hole can't
-;; be filled until that one is.
+(def decide [token-ok: bool hash-ok: bool] -> Decision
+  (post (and (=> token-ok (= result Reuse))
+             (and (=> (and (not token-ok) hash-ok) (= result Fresh))
+                  (=> (and (not token-ok) (not hash-ok)) (= result Deny)))))
+  (?delegate @gateway-agent "Decide the authentication outcome: Reuse when the existing token is valid, otherwise Fresh when the password hashed, otherwise Deny." -> Decision
+    (on-failure Deny)))
+
 (def-shell login-handler [username: string password: string]
   (pre (not (string-empty? password)))
-  (let [(hashed (hash-password-impl password))]
-    (?delegate @session-agent
-      "Using the hashed password and the username, build a session token.
-       If the hash failed, return an error. Otherwise concatenate
-       username:hashed into a session ID. Return Result[string, string]."
-      -> Result[string, string]
+  (let [[hashed (hash-password-impl password)]]
+    (?delegate @session-agent "Using the hashed password (bound as 'hashed') and the username, build a session token string. If (hash-ok? hashed) is false, return an error. Otherwise concatenate username, ':', and hashed into a session ID and return it wrapped in ok. Return Result[string, string]." -> Result[string, string]
       (on-failure (err "session-agent unavailable")))))
 
-;;; ── The top-level entry point: depends on EVERYTHING above ──────
-
-;; token-valid depends on Tier 0 (verify-token-impl); session depends on
-;; Tier 1 (login-handler) — this hole waits on both.
-(def-shell authenticate-request
-    [username: string password: string existing-token: string]
-  (let [(token-valid (verify-token-impl existing-token))
-        (session     (login-handler username password))]
-    (?delegate @gateway-agent
-      "If token-valid is true, return ok with existing-token (reuse).
-       Otherwise, pattern-match on session: on Success return ok with
-       the new session ID, on Error propagate. Return Result[string, string]."
-      -> Result[string, string]
+(def-shell authenticate-request [username: string password: string existing-token: string]
+  (let [[token-ok (token-valid? existing-token)]
+        [hashed (hash-password-impl password)]
+        [outcome (decide token-ok (hash-ok? hashed))]]
+    (?delegate @gateway-agent "Route on outcome (a Decision from decide). Reuse: return ok with existing-token. Fresh: return the result of (login-handler username password). Deny: return err. Return Result[string, string]." -> Result[string, string]
       (on-failure (err "gateway-agent unavailable")))))
 ```
 
-A few things to notice:
+Things to notice:
 
-- **`?delegate`** is a typed hole. It tells the compiler "an agent will fill
-  this" and declares the expected return type. If the agent's patch doesn't
-  match, the compiler rejects it.
+- **`?delegate`** is a typed hole: it names the agent, gives an instruction, and
+  declares the return type the fill must have.
+- **`post`** on `token-valid?`, `hash-ok?` and `decide` is what the solver checks.
+  The instruction string is prose for the agent; the `post` is the part the
+  compiler enforces. Each instruction restates its `post` so the agent aims at it.
+- **`Decision`** is a sum of three nullary constructors. Equality with a nullary
+  constructor is inside the decidable fragment, so `decide`'s postcondition can
+  name every outcome.
+- **`on-failure`** is the runtime fallback if an agent is unavailable at run time.
+  It has nothing to do with orchestration-time filling.
+- **Dependencies come from calls outside a hole.** `authenticate-request`'s `let`
+  calls four functions whose bodies are holes, so its hole waits for them.
 
-- **`on-failure`** is the runtime fallback. If `@crypto-agent` crashes at
-  runtime, `hash-password-impl` returns `"hash-unavailable"` instead of
-  exploding. It has nothing to do with orchestration-time filling.
-
-- **Dependencies come from `let` bindings.** When `login-handler`'s body is a
-  `let` that calls `hash-password-impl` (which has a hole), the compiler
-  detects that `login-handler`'s hole *depends on* `hash-password-impl`'s hole.
-
-The full JSON-AST for this program is at
-[`examples/orchestrator_walkthrough/auth_module.ast.json`](../examples/orchestrator_walkthrough/auth_module.ast.json).
-
-Let's verify it type-checks:
+The JSON-AST is [`examples/orchestrator_walkthrough/auth_module.ast.json`](../examples/orchestrator_walkthrough/auth_module.ast.json).
 
 ```bash
-$ stack exec llmll -- check ../examples/orchestrator_walkthrough/auth_module.ast.json
-✅ ../examples/orchestrator_walkthrough/auth_module.ast.json — OK (5 statements)
+$ llmll check ../examples/orchestrator_walkthrough/auth_module.ast.json
+✅ ../examples/orchestrator_walkthrough/auth_module.ast.json — OK (8 statements)
 ```
 
-Five statements: one interface, four functions. Four of those functions have
-holes. Let's see what the compiler knows about them.
+Eight statements: one interface, one type, six functions. The skeleton already
+type-checks because every hole declares its type and fallback. Verifying it shows
+the decision contracts are present but not yet proved:
+
+```bash
+$ llmll verify ../examples/orchestrator_walkthrough/auth_module.ast.json
+   body-fallback: token-valid?, hash-ok?, decide, login-handler
+   Running liquid-fixpoint ...
+⚠️  ../examples/orchestrator_walkthrough/auth_module.ast.json — SAFE (liquid-fixpoint), partial: 0 of 3 contracted functions proved; 3 assumed, not proved: token-valid?, hash-ok?, decide
+   (--strict-verified-core fails on assumed functions)
+```
+
+(The `.fq written to` and `.verified.json written to` lines are omitted here and below.)
+
+### Why the plumbing has no postcondition
+
+On v0.26.9 the solver falls back, and assumes rather than proves a postcondition,
+for each of these body and contract shapes:
+
+- any body that calls `string-concat`;
+- an `if` whose branches return a `Result`;
+- a postcondition that compares `result` with a constructor carrying a string
+  payload, such as `(= result (ok s))` (tracked as `STR-PAYLOAD-CTOR-1`).
+
+Every plumbing function builds a string or returns a `Result`, so a postcondition
+on it would be assumed, not proved. The skeleton leaves them without one and says
+so, instead of carrying a contract that reads as checked.
 
 ---
 
 ## Step 2: Scan the Holes
 
-The compiler's `holes` command catalogs every hole in the program. With `--deps`,
-it also computes a dependency graph showing which holes block which others:
+```bash
+$ llmll holes ../examples/orchestrator_walkthrough/auth_module.ast.json
+../examples/orchestrator_walkthrough/auth_module.ast.json — 6 holes (0 blocking)
+  [AGENT] ?delegate @crypto-agent in def hash-password-impl
+  [AGENT] ?delegate @crypto-agent in def token-valid?
+  [AGENT] ?delegate @crypto-agent in def hash-ok?
+  [AGENT] ?delegate @gateway-agent in def decide
+  [AGENT] ?delegate @session-agent in def-shell login-handler
+  [AGENT] ?delegate @gateway-agent in def-shell authenticate-request
+```
+
+With `--json --deps` the compiler also reports each hole's dependencies. Selected
+fields per hole:
 
 ```bash
-$ stack exec llmll -- --json holes --deps ../examples/orchestrator_walkthrough/auth_module.ast.json
+$ llmll --json holes --deps ../examples/orchestrator_walkthrough/auth_module.ast.json
 ```
-
-Here's the output, annotated:
 
 ```json
-[
-  {
-    "pointer":      "/statements/1/body",          // ← RFC 6901 path into the AST
-    "kind":         "delegate",
-    "status":       "agent-task",
-    "agent":        "crypto-agent",
-    "message":      "hole: ?delegate @crypto-agent",
-    "inferred-type": null,
-    "module-path":  "def hash-password-impl",
-    "depends_on":   [],                            // ← no dependencies: leaf node
-    "cycle_warning": false
-  },
-  {
-    "pointer":      "/statements/2/body",
-    "kind":         "delegate",
-    "status":       "agent-task",
-    "agent":        "crypto-agent",
-    "message":      "hole: ?delegate @crypto-agent",
-    "inferred-type": null,
-    "module-path":  "def verify-token-impl",
-    "depends_on":   [],                            // ← another leaf node
-    "cycle_warning": false
-  },
-  {
-    "pointer":      "/statements/3/body/body",     // ← note: body/body (inside the let)
-    "kind":         "delegate",
-    "status":       "agent-task",
-    "agent":        "session-agent",
-    "message":      "hole: ?delegate @session-agent",
-    "inferred-type": null,
-    "module-path":  "def-shell login-handler",
-    "depends_on": [
-      {
-        "pointer": "/statements/1/body",           // ← depends on hash-password-impl
-        "via":     "hash-password-impl",
-        "reason":  "calls-hole-body"
-      }
-    ],
-    "cycle_warning": false
-  },
-  {
-    "pointer":      "/statements/4/body/body",
-    "kind":         "delegate",
-    "status":       "agent-task",
-    "agent":        "gateway-agent",
-    "message":      "hole: ?delegate @gateway-agent",
-    "inferred-type": null,
-    "module-path":  "def-shell authenticate-request",
-    "depends_on": [
-      {
-        "pointer": "/statements/2/body",           // ← depends on verify-token-impl
-        "via":     "verify-token-impl",
-        "reason":  "calls-hole-body"
-      },
-      {
-        "pointer": "/statements/3/body/body",      // ← AND depends on login-handler
-        "via":     "login-handler",
-        "reason":  "calls-hole-body"
-      }
-    ],
-    "cycle_warning": false
-  }
-]
+{"pointer": "/statements/2/body", "agent": "@crypto-agent", "module-path": "def hash-password-impl", "depends_on": [], "cycle_warning": false}
+{"pointer": "/statements/3/body", "agent": "@crypto-agent", "module-path": "def token-valid?", "depends_on": [], "cycle_warning": false}
+{"pointer": "/statements/4/body", "agent": "@crypto-agent", "module-path": "def hash-ok?", "depends_on": [], "cycle_warning": false}
+{"pointer": "/statements/5/body", "agent": "@gateway-agent", "module-path": "def decide", "depends_on": [], "cycle_warning": false}
+{"pointer": "/statements/6/body/body", "agent": "@session-agent", "module-path": "def-shell login-handler", "depends_on": [{"pointer": "/statements/2/body", "reason": "calls-hole-body", "via": "hash-password-impl"}], "cycle_warning": false}
+{"pointer": "/statements/7/body/body", "agent": "@gateway-agent", "module-path": "def-shell authenticate-request", "depends_on": [{"pointer": "/statements/3/body", "reason": "calls-hole-body", "via": "token-valid?"}, {"pointer": "/statements/2/body", "reason": "calls-hole-body", "via": "hash-password-impl"}, {"pointer": "/statements/5/body", "reason": "calls-hole-body", "via": "decide"}, {"pointer": "/statements/4/body", "reason": "calls-hole-body", "via": "hash-ok?"}], "cycle_warning": false}
 ```
 
-The `pointer` field is important. It's an RFC 6901 JSON Pointer that tells you
-exactly where in the AST the hole lives. Notice that `login-handler`'s hole is
-at `/statements/3/body/body` — not `/statements/3/body`. That's because the
-function body is a `let` expression, and the hole is the `let`'s inner body.
-The outer `let` structure (with the `hashed` binding) stays in place.
+The `pointer` is an RFC 6901 JSON Pointer into the AST. The two `def-shell` holes
+sit at `.../body/body` because each function body is a `let` and the hole is the
+`let`'s inner body; the bindings stay in place and are in scope for the fill.
 
-The dependency graph reads naturally:
-- `hash-password-impl` and `verify-token-impl` → no deps → **Tier 0**
-- `login-handler` → depends on `hash-password-impl` → **Tier 1**
-- `authenticate-request` → depends on both `verify-token-impl` and `login-handler` → **Tier 2**
+`authenticate-request` does not depend on `login-handler`: its skeleton never
+calls `login-handler` outside the hole (the instruction asks the fill to call it),
+so no edge exists. Both `def-shell` holes land in Tier 1.
 
-### How Does the Compiler Know About Dependencies?
+### How does the compiler know about dependencies?
 
-The dependency computation involves two algorithms in two stages:
+**Stage 1, cycle detection (compiler, Haskell).** [`HoleAnalysis.hs`](../compiler/src/LLMLL/HoleAnalysis.hs)
+walks the call graph and adds an edge when a function's code outside its hole
+calls a function whose body is a hole. Transitive calls through non-hole functions
+create transitive edges. Tarjan's SCC algorithm detects cycles; a cycle is broken
+deterministically and marked `cycle_warning: true`.
 
-**Stage 1: Cycle detection (Tarjan's SCC — compiler, Haskell).** The compiler's
-[`HoleAnalysis.hs`](../compiler/src/LLMLL/HoleAnalysis.hs)
-walks the call graph and builds edges between holes. A dependency edge exists
-when a function's body *calls* another function whose body is a hole. Transitive
-calls through intermediate non-hole functions create transitive edges. Tarjan's
-Strongly Connected Components algorithm detects mutual recursion: if two holes
-depend on each other cyclically, the compiler breaks the cycle deterministically
-(by assigning one to a lower tier) and sets `cycle_warning: true`.
+**Stage 2, topological sort (orchestrator, Python).** `graph.py` runs Kahn's
+algorithm over the edges to produce scheduling tiers.
 
-**Stage 2: Topological sorting (Kahn's algorithm — orchestrator, Python).** The
-DAG produced by Stage 1 feeds into `graph.py`, which runs Kahn's BFS-based
-topological sort to produce scheduling tiers. Each tier contains holes that can
-be filled independently once all prior tiers are complete.
-
-**Soundness of parallel filling.** Holes in the same tier have *disjoint
-dependency cones* — filling one cannot affect the typing judgment of the other.
-This is because: (a) each hole's typing context Γ is determined by its position
-in the AST, not by the bodies of sibling holes; and (b) `checkout` enforces
-exclusive access, so no two patches can modify overlapping subtrees. This
-invariant justifies filling Tier 0 holes in parallel without risk of
-interference.
-
-> **What just happened:** The compiler scanned the AST, found four holes, computed their dependencies via call-graph analysis, and produced a three-tier scheduling DAG. No agents were invoked — this is all compile-time analysis.
+**Parallel filling is sound** because a hole's typing context Γ comes from its
+position in the AST, not from sibling hole bodies, and `checkout` gives each agent
+exclusive access to one subtree.
 
 ---
 
 ## Step 3: Schedule and Sort
 
-The orchestrator's `graph.py` module takes the hole report and produces
-scheduling tiers using Kahn's algorithm (topological sort via BFS):
-
-```
-Tier 0 (parallel):  /statements/1/body       [@crypto-agent]
-                    /statements/2/body       [@crypto-agent]
-
-Tier 1:            /statements/3/body/body  [@session-agent]
-
-Tier 2:            /statements/4/body/body  [@gateway-agent]
-```
-
-You can see this yourself without making any API calls:
+You can see the plan without any API call:
 
 ```bash
 $ llmll-orchestra ../examples/orchestrator_walkthrough/auth_module.ast.json --scan-only
-auth_module.ast.json — 4 holes (4 fillable)
+../examples/orchestrator_walkthrough/auth_module.ast.json — 6 holes (6 fillable)
 
   Tier 0 (parallel):
-    /statements/1/body [@crypto-agent]
     /statements/2/body [@crypto-agent]
+    /statements/3/body [@crypto-agent]
+    /statements/4/body [@crypto-agent]
+    /statements/5/body [@gateway-agent]
   Tier 1 (parallel):
-    /statements/3/body/body [@session-agent] ← depends on: hash-password-impl
-  Tier 2 (parallel):
-    /statements/4/body/body [@gateway-agent] ← depends on: verify-token-impl, login-handler
+    /statements/6/body/body [@session-agent] ← depends on: hash-password-impl
+    /statements/7/body/body [@gateway-agent] ← depends on: token-valid?, hash-password-impl, decide, hash-ok?
 ```
-
-The tiers tell the orchestrator: "fill Tier 0 first (both in parallel if you
-want), then Tier 1, then Tier 2." This ordering guarantees that by the time we
-fill `login-handler`, the function it calls (`hash-password-impl`) already has
-a concrete body. The agent filling Tier 1 can reason about what `hash-password-impl`
-actually does, not just its type signature.
 
 ```mermaid
 graph TD
-    A["/statements/1/body<br/>hash-password-impl<br/>@crypto-agent"]
-    B["/statements/2/body<br/>verify-token-impl<br/>@crypto-agent"]
-    C["/statements/3/body/body<br/>login-handler<br/>@session-agent"]
-    D["/statements/4/body/body<br/>authenticate-request<br/>@gateway-agent"]
+    A["/statements/2/body<br/>hash-password-impl<br/>@crypto-agent"]
+    B["/statements/3/body<br/>token-valid? (post)<br/>@crypto-agent"]
+    C["/statements/4/body<br/>hash-ok? (post)<br/>@crypto-agent"]
+    D["/statements/5/body<br/>decide (post)<br/>@gateway-agent"]
+    E["/statements/6/body/body<br/>login-handler<br/>@session-agent"]
+    F["/statements/7/body/body<br/>authenticate-request<br/>@gateway-agent"]
 
-    A --> C
-    B --> D
-    C --> D
-
-    style A fill:#4CAF50,color:#fff
-    style B fill:#4CAF50,color:#fff
-    style C fill:#2196F3,color:#fff
-    style D fill:#FF9800,color:#fff
+    A --> E
+    A --> F
+    B --> F
+    C --> F
+    D --> F
 ```
-
-> **What just happened:** The orchestrator consumed the compiler's dependency graph and produced a concrete execution plan — three tiers with four holes. The plan is deterministic: given the same program, the same tiers appear in the same order.
 
 ---
 
-## Step 4: Fill the Holes
+## Step 4: What the Agent Sees
 
-Now the real work begins. For each hole, the orchestrator runs a tight loop:
+For each hole the orchestrator runs one loop: **checkout** (lock the hole and get
+its brief), **prompt** the agent, **patch** (the compiler re-type-checks and
+re-verifies), and **retry** with the compiler's diagnostic if the patch is rejected.
 
-1. **Checkout** — lock the hole so nobody else touches it
-2. **Prompt** — tell the agent what to fill and give it context
-3. **Call OpenAI** — get a JSON-Patch response
-4. **Apply** — feed the patch to the compiler, which re-type-checks everything
-5. **Retry** — if the compiler rejects, send the diagnostics back to the agent
-
-Let's walk through each hole.
-
----
-
-### Hole A: `hash-password-impl` (Tier 0, @crypto-agent)
-
-**The hole sits at:** `/statements/1/body`
-
-**What the agent sees** (user prompt built by `agent.py:build_prompt()`):
-
-```
-## Hole to fill
-
-- **Pointer:** `/statements/1/body`
-- **Kind:** `delegate`
-- **Context:** `def hash-password-impl`
-- **Description:** hole: ?delegate @crypto-agent
-- **Target agent:** `@crypto-agent`
-
-Return a JSON array of RFC 6902 patch operations to fill this hole.
-```
-
-The system prompt tells the agent which AST node kinds are valid (`lit-int`,
-`var`, `app`, `let`, `if`, `match`, etc.) and instructs it to return *only* a
-JSON array — no commentary, no markdown fences.
-
-> **Note:** The system prompt is not hardcoded. At startup, the
-> orchestrator calls `llmll spec` to fetch the complete list of built-in
-> functions, operators, constructors, and type nodes directly from the compiler's
-> `builtinEnv`. This means adding a new builtin to the compiler automatically
-> makes it available to agents — no manual prompt editing required.
-
-**What the agent returns:**
-
-```json
-[{
-  "op": "replace",
-  "path": "/statements/1/body",
-  "value": {
-    "kind": "let",
-    "bindings": [
-      {"name": "salt",   "expr": {"kind": "lit-string", "value": "llmll-v1-salt"}},
-      {"name": "salted", "expr": {"kind": "app", "fn": "string-concat",
-                                   "args": [{"kind": "var", "name": "salt"},
-                                            {"kind": "var", "name": "raw-pw"}]}},
-      {"name": "digest", "expr": {"kind": "app", "fn": "int-to-string",
-                                   "args": [{"kind": "app", "fn": "string-length",
-                                             "args": [{"kind": "var", "name": "salted"}]}]}}
-    ],
-    "body": {"kind": "app", "fn": "string-concat",
-             "args": [{"kind": "lit-string", "value": "hashed:"},
-                      {"kind": "var", "name": "digest"}]}
-  }
-}]
-```
-
-In S-expression, that reads:
-
-```lisp
-(let [(salt   "llmll-v1-salt")
-      (salted (string-concat salt raw-pw))
-      (digest (int-to-string (string-length salted)))]
-  (string-concat "hashed:" digest))
-```
-
-The agent prepends a fixed salt, concatenates it with the raw password, and uses
-the combined string's *length* as a "digest." The result is something like
-`"hashed:19"`. This is a **structural stand-in** for a real hash function — the
-type system guarantees that the return type is `string` (structural correctness),
-but it makes no claim about cryptographic soundness (semantic correctness). This
-distinction is precisely the gap that contracts and the verification pipeline
-(`llmll verify`) are designed to close: a `post` condition on `hash-password-impl`
-could specify that the output is non-reversible, and the verifier would check it.
-
-**What happens under the hood:**
-
-```python
-# orchestrator.py — _fill_one()
-
-# 1. Lock the hole
-token = compiler.checkout(source, "/statements/1/body")
-
-# 2. Ask the agent
-response = agent.fill_hole(hole, token.context)
-
-# 3. Wrap in a PatchRequest and apply
-patch_request = {"token": token.token, "patch": response.patch_ops}
-result = compiler.patch(source, patch_file)
-
-# 4. Compiler re-type-checks automatically
-# result = {"success": True}  ← the fill matched the expected type (string)
-```
-
-**What did the compiler actually check?** When `llmll patch` succeeds, it has
-verified the *entire program* — not just the patched subtree. The type checker
-runs bidirectionally: it checks that the patched expression has the expected
-return type (`string`), and it also verifies that all sub-expressions within the
-fill are well-typed (e.g., that `string-concat` receives two `string` arguments).
-Runtime contracts like the `pre` condition on `login-handler` are compiled as
-runtime assertions — they are syntactically valid after patching but not
-statically re-verified at this stage. Static contract verification happens via
-`llmll verify` on the completed program.
-
-✅ Compiler says yes. The hole is filled. The lock is released.
-
----
-
-### Hole B: `verify-token-impl` (Tier 0, @crypto-agent)
-
-Since Holes A and B are both in Tier 0, they could technically run in parallel.
-The current orchestrator fills them sequentially, but the *ordering* between A
-and B doesn't matter — neither depends on the other.
-
-**The agent returns:**
-
-```json
-[{
-  "op": "replace",
-  "path": "/statements/2/body",
-  "value": {
-    "kind": "if",
-    "cond": {"kind": "app", "fn": "string-empty?",
-             "args": [{"kind": "var", "name": "token"}]},
-    "then_branch": {"kind": "lit-bool", "value": false},
-    "else_branch": {"kind": "op", "op": ">=",
-                    "args": [{"kind": "app", "fn": "string-length",
-                              "args": [{"kind": "var", "name": "token"}]},
-                             {"kind": "lit-int", "value": 8}]}
-  }
-}]
-```
-
-In S-expression:
-
-```lisp
-(if (string-empty? token)
-    false
-    (>= (string-length token) 8))
-```
-
-Empty token? Rejected. Otherwise, valid if length ≥ 8. This is fail-closed:
-the `on_failure` fallback in the original skeleton also returns `false`, so
-whether the agent crashes at runtime or the token is bad, the answer is always
-"no."
-
-✅ Both Tier 0 holes are done.
-
----
-
-### Hole C: `login-handler` (Tier 1, @session-agent)
-
-This is where dependencies get interesting.
-
-The hole is at `/statements/3/body/body` — the inner body of a `let`. The outer
-`let` binding `hashed = (hash-password-impl password)` is already in the program
-and will stay in place. The agent only fills the body that *uses* `hashed`.
-
-In scope when the agent writes its fill:
-- `username` (from the function params)
-- `password` (from the function params)
-- `hashed` (from the `let` binding — result of calling `hash-password-impl`)
-
-**The agent returns:**
-
-```json
-[{
-  "op": "replace",
-  "path": "/statements/3/body/body",
-  "value": {
-    "kind": "if",
-    "cond": {"kind": "op", "op": "=",
-             "args": [{"kind": "var", "name": "hashed"},
-                      {"kind": "lit-string", "value": "hash-unavailable"}]},
-    "then_branch": {"kind": "app", "fn": "err",
-                    "args": [{"kind": "lit-string",
-                              "value": "crypto agent failed to hash password"}]},
-    "else_branch": {"kind": "app", "fn": "ok",
-                    "args": [{"kind": "app", "fn": "string-concat",
-                              "args": [{"kind": "lit-string", "value": "session:"},
-                                       {"kind": "app", "fn": "string-concat",
-                                        "args": [{"kind": "var", "name": "username"},
-                                                 {"kind": "app", "fn": "string-concat",
-                                                  "args": [{"kind": "lit-string", "value": ":"},
-                                                           {"kind": "var", "name": "hashed"}]}]}]}]}
-  }
-}]
-```
-
-In S-expression:
-
-```lisp
-;; In scope: username, password, hashed
-(if (= hashed "hash-unavailable")
-    (err "crypto agent failed to hash password")
-    (ok (string-concat "session:"
-          (string-concat username
-            (string-concat ":" hashed)))))
-```
-
-The agent checks if the hash call fell back to `"hash-unavailable"`
-(the `on_failure` sentinel from `hash-password-impl`). If the hash worked, it
-builds a session ID like `"session:alice:hashed:19"` and wraps it in `ok`.
-
-> **Sentinel-value protocol.** This pattern creates an implicit runtime contract
-> between agents: the session agent must know the exact sentinel value that the
-> crypto agent's `on_failure` produces. If `hash-password-impl` could
-> *legitimately* return `"hash-unavailable"` as a hashed value (pathological,
-> but the types permit it), the session agent would silently misroute. This is
-> a semantic gap that the type system alone cannot close — a `post` contract on
-> `hash-password-impl` (e.g., "output always starts with 'hashed:'") would make
-> the invariant explicit and verifiable.
-
-The return type is `Result[string, string]`, matching the delegate declaration.
-The compiler verifies this during patching.
-
----
-
-### Hole D: `authenticate-request` (Tier 2, @gateway-agent)
-
-The deepest hole. Its `let` bindings call both `verify-token-impl` (Tier 0) and
-`login-handler` (Tier 1), giving this agent two variables to work with:
-
-- `token-valid` — a `bool` from verifying the existing token
-- `session` — a `Result[string, string]` from attempting a fresh login
-
-**The agent returns:**
-
-```json
-[{
-  "op": "replace",
-  "path": "/statements/4/body/body",
-  "value": {
-    "kind": "if",
-    "cond": {"kind": "var", "name": "token-valid"},
-    "then_branch": {"kind": "app", "fn": "ok",
-                    "args": [{"kind": "app", "fn": "string-concat",
-                              "args": [{"kind": "lit-string", "value": "token-reuse:"},
-                                       {"kind": "var", "name": "existing-token"}]}]},
-    "else_branch": {
-      "kind": "match",
-      "scrutinee": {"kind": "var", "name": "session"},
-      "arms": [
-        {"pattern": {"kind": "constructor", "constructor": "Success",
-                     "sub_patterns": [{"kind": "bind", "name": "s"}]},
-         "body": {"kind": "app", "fn": "ok",
-                  "args": [{"kind": "app", "fn": "string-concat",
-                            "args": [{"kind": "lit-string", "value": "new-session:"},
-                                     {"kind": "var", "name": "s"}]}]}},
-        {"pattern": {"kind": "constructor", "constructor": "Error",
-                     "sub_patterns": [{"kind": "bind", "name": "e"}]},
-         "body": {"kind": "app", "fn": "err",
-                  "args": [{"kind": "app", "fn": "string-concat",
-                            "args": [{"kind": "lit-string", "value": "login-failed:"},
-                                     {"kind": "var", "name": "e"}]}]}}
-      ]
-    }
-  }
-}]
-```
-
-In S-expression:
-
-```lisp
-;; In scope: username, password, existing-token, token-valid, session
-(if token-valid
-    (ok (string-concat "token-reuse:" existing-token))
-    (match session
-      ((Success s) (ok (string-concat "new-session:" s)))
-      ((Error e)   (err (string-concat "login-failed:" e)))))
-```
-
-Two paths:
-1. **Existing token is valid?** Reuse it. No password hashing needed.
-2. **Not valid?** Fall through to the fresh login result and pattern-match.
-   On `Success`, wrap the new session. On `Error`, propagate with a prefix.
-
-✅ All four holes are filled.
-
-> **What just happened:** Four agents filled four holes across three tiers. Each fill was type-checked by the compiler before being committed. The dependency ordering ensured that later agents could reason about the concrete implementations of earlier fills, not just their type signatures.
-
----
-
-## What If the Agent Gets It Wrong?
-
-Here's the flow when things go sideways — say the agent returns an expression
-that doesn't type-check:
-
-```
-Agent returns:  {"kind": "lit-int", "value": 42}
-                                    ↓
-Compiler:       "type mismatch: expected string, got int"
-                                    ↓
-Orchestrator:   Feeds diagnostics back to the agent via prior_diagnostics
-                                    ↓
-Agent (retry):  Gets the error in its next prompt, corrects the fill
-                                    ↓
-Compiler:       ✅ PatchSuccess
-```
-
-In code:
-
-```python
-# orchestrator.py — retry loop
-for attempt in range(1, max_retries + 1):
-    aug_context = dict(context)
-    if diagnostics:
-        aug_context["prior_diagnostics"] = diagnostics   # ← agent sees the error
-
-    response = agent.fill_hole(hole, aug_context)
-    result = compiler.patch(source, patch_file)
-
-    if result["success"]:
-        return HoleResult(success=True, ...)
-    else:
-        diagnostics = result["diagnostics"]              # ← try again
-
-# All retries exhausted
-compiler.release(source, hole.pointer)                   # ← release the lock
-return HoleResult(success=False, error=last_error)
-```
-
-The compiler returns structured diagnostics with JSON Pointers into the patch,
-so the agent knows *which part* of its fill is wrong. Up to 3 retries are
-attempted by default (`--max-retries`).
-
-**What happens when all retries fail?** The AST is left with the original hole
-intact — the `patch` command is atomic, so a failed fill never commits. The
-orchestrator marks the hole as failed and continues to the next tier. Subsequent
-holes that *depend* on the failed hole are **skipped** (their dependency is
-unresolved), while independent holes in the same or later tiers proceed
-normally. The final report shows which holes succeeded, which failed, and which
-were skipped due to unresolved dependencies.
-
----
-
-## Step 5: See the Result
-
-After all four holes are filled, let's verify the program is complete:
+The checkout brief is the agent's specification. Selected fields for `decide`:
 
 ```bash
-$ stack exec llmll -- check ../examples/orchestrator_walkthrough/auth_module_filled.ast.json
-✅ auth_module_filled.ast.json — OK (5 statements)
-
-$ stack exec llmll -- holes ../examples/orchestrator_walkthrough/auth_module_filled.ast.json
-auth_module_filled.ast.json — 0 holes (0 blocking)
+$ llmll --json checkout ../examples/orchestrator_walkthrough/auth_module.ast.json /statements/5/body
 ```
 
-Zero holes. The program is whole.
+```
+pointer               "/statements/5/body"
+hole_kind             "hole-delegate"
+expected_return_type  "Decision"
+postcondition_goal    "(and (=> token-ok (= result Reuse)) (and (=> (and (not token-ok) hash-ok) (= result Fresh)) (=> (and (not token-ok) (not hash-ok)) (= result Deny))))"
+type_definitions      [{"constructors": [{"name": "Reuse"}, {"name": "Fresh"}, {"name": "Deny"}], "kind": "sum", "name": "Decision"}]
+```
 
-Here's the complete filled program in S-expression:
+The brief also lists `in_scope` (the parameters `token-ok` and `hash-ok`, the
+constructors, and the module's functions with their types) and
+`available_functions` (each function's signature, `pre`, `post` and fill status).
+The system prompt around the brief is not hardcoded: at startup the orchestrator
+calls `llmll spec` for the compiler's list of builtins, operators and AST node
+kinds.
+
+---
+
+## Step 5: The Patch Gate
+
+`llmll patch` applies the agent's RFC 6902 patch and checks the whole program.
+For a function with a postcondition it also runs the solver on the patched body.
+Run with `--require-proof`, the orchestrator passes that flag to `patch`, which
+adds one more refusal. Three patches to checked-out holes show the three outcomes.
+
+**A wrong body is refuted.** A `decide` that answers `Fresh` whenever the token is
+invalid, without looking at `hash-ok` (a fail-open bug):
 
 ```lisp
-(def-interface AuthSystem
-  [hash-password (fn [raw-pw: string] -> string)]
-  [verify-token  (fn [token: string]  -> bool)])
-
-(def hash-password-impl [raw-pw: string]
-  (let [(salt   "llmll-v1-salt")
-        (salted (string-concat salt raw-pw))
-        (digest (int-to-string (string-length salted)))]
-    (string-concat "hashed:" digest)))
-
-(def verify-token-impl [token: string]
-  (if (string-empty? token)
-      false
-      (>= (string-length token) 8)))
-
-(def-shell login-handler [username: string password: string]
-  (pre (not (string-empty? password)))
-  (let [(hashed (hash-password-impl password))]
-    (if (= hashed "hash-unavailable")
-        (err "crypto agent failed to hash password")
-        (ok (string-concat "session:"
-              (string-concat username
-                (string-concat ":" hashed)))))))
-
-(def-shell authenticate-request
-    [username: string password: string existing-token: string]
-  (let [(token-valid (verify-token-impl existing-token))
-        (session     (login-handler username password))]
-    (if token-valid
-        (ok (string-concat "token-reuse:" existing-token))
-        (match session
-          ((Success s) (ok (string-concat "new-session:" s)))
-          ((Error e)   (err (string-concat "login-failed:" e)))))))
+(if token-ok Reuse Fresh)
 ```
+
+```
+{"diagnostics":[{"holeSensitive":false,"kind":"lh-unsafe","message":"body verification of 'decide' failed (else-branch does not satisfy postcondition) (constraint #1)","pointer":"patch-op/0","severity":"error"}],"result":"PatchVerifyError"}
+```
+
+Exit 1, nothing written, lock kept. The orchestrator feeds the diagnostic to the
+agent as `prior_diagnostics` and retries (up to `--max-retries`, default 3).
+
+**A correct body is proved.** The same token, a correct `decide`:
+
+```lisp
+(if token-ok Reuse (if hash-ok Fresh Deny))
+```
+
+```
+{"result":"PatchSuccess","reuse_suggestions":[],"statements":8,"verification":[{"body_faithful":true,"fn":"decide"}]}
+```
+
+`body_faithful: true` means the solver checked the body itself against the
+postcondition.
+
+**A correct body outside the fragment is refused under `--require-proof`.** This
+`token-valid?` returns the right answer for every input, but its `if` tests
+`string-empty?`, which the solver cannot model:
+
+```lisp
+(if (string-empty? token) false (>= (string-length token) 8))
+```
+
+```
+{"diagnostics":[{"message":"'token-valid?' passed the solver but was not proved: body-outside-fragment (outside the decidable fragment: if), so its postcondition was assumed. Rewrite the body without those constructs."}],"result":"PatchNotProved","verification":[{"body_faithful":false,"fallback_cause":"body-outside-fragment","fallback_constructs":["if"],"fn":"token-valid?"}]}
+```
+
+Without `--require-proof` this patch succeeds and the function's postcondition is
+recorded as assumed. With it, the agent is told to rewrite, and
+`(>= (string-length token) 8)` is proved.
+
+A hole whose function has no postcondition (the three plumbing holes) passes the
+gate on types alone. That is the subject of the next step.
 
 ---
 
-## Step 6: Compile and Run
+## Step 6: The Live Run
 
-The llmll compiler generates a standalone Haskell package:
-
-```bash
-$ stack exec llmll -- build auth_module_filled.ast.json \
-    -o ../generated/orchestrator_walkthrough --emit-only
-OK Generated Haskell package from JSON-AST: ../generated/orchestrator_walkthrough
-```
-
-> **`Result[ok, err]` → `Either err ok` — constructor order flips.** This is
-> a critical detail for agents generating `match` arms. LLMLL's `Result[ok, err]`
-> compiles to Haskell's `Either err ok`. `Success` → `Right`, `Error` → `Left`.
-> The `ok`/`err` helper functions are just aliases for `Right`/`Left`. If an agent
-> emits pattern arms in the wrong order, the generated Haskell will still
-> compile (both arms have the same wrapping structure) but will silently swap
-> success and error paths.
-
-The generated Haskell (with comments added for clarity):
-
-```haskell
--- ─── Interface ──────────────────────────────────────────────────────
-class AuthSystem t where
-  hash_password :: t -> String -> String
-  verify_token  :: t -> String -> Bool
-
--- ─── Tier 0: @crypto-agent filled these ─────────────────────────────
-
-hash_password_impl raw_pw =
-  let salt   = "llmll-v1-salt"
-      salted = string_concat salt raw_pw
-      digest = int_to_string (string_length salted)
-  in  string_concat "hashed:" digest
-
-verify_token_impl token =
-  if string_empty' token
-    then False
-    else string_length token >= 8
-
--- ─── Tier 1: @session-agent filled this ─────────────────────────────
--- pre: password is non-empty (runtime assertion — see caveat below)
-
-login_handler username password =
-  let _pre_check = if not (string_empty' password)
-               then () else error "Precondition violated in login-handler"
-  in  let hashed = hash_password_impl password
-      in  if hashed == "hash-unavailable"
-            then err "crypto agent failed to hash password"
-            else ok (string_concat "session:"
-                      (string_concat username
-                        (string_concat ":" hashed)))
-
--- ─── Tier 2: @gateway-agent filled this ─────────────────────────────
-
-authenticate_request username password existing_token =
-  let token_valid = verify_token_impl existing_token
-      session     = login_handler username password
-  in  if token_valid
-        then ok (string_concat "token-reuse:" existing_token)
-        else case session of
-               Right s -> ok  (string_concat "new-session:" s)
-               Left  e -> err (string_concat "login-failed:" e)
-```
-
-> **Known issue: the `pre` check above does not currently fire at runtime.**
-> `_pre_check` is bound but never forced anywhere in `login_handler`'s body — under
-> Haskell's laziness, an unforced `let` binding is simply never evaluated, so
-> `error "Precondition violated..."` never runs even when `password` is empty.
-> (Earlier compiler versions forced it explicitly via `` _pre_ `seq` ...``; current
-> codegen dropped that.) The GHCi transcript below shows the real, current
-> behavior — an empty password is silently accepted — not the intended one.
-> This is a live compiler bug, tracked separately from the doc fixes here.
-
-Load it in GHCi and try it out:
+One run with Claude filling every hole:
 
 ```bash
-$ cd generated/orchestrator_walkthrough
-$ stack ghci src/Lib.hs
+$ llmll-orchestra ../examples/orchestrator_walkthrough/auth_module.ast.json \
+    --provider anthropic --require-proof -v
 ```
 
-```haskell
--- Hash a password
-λ> hash_password_impl "s3cret"
-"hashed:19"
-
--- Verify tokens
-λ> verify_token_impl ""
-False
-λ> verify_token_impl "short"
-False
-λ> verify_token_impl "session:alice:hashed:19"
-True
-
--- Login
-λ> login_handler "alice" "s3cret"
-Right "session:alice:hashed:19"
-λ> login_handler "alice" ""              -- pre-condition is NOT enforced (see caveat above)
-Right "session:alice:hashed:13"
-
--- Full authentication — existing token is valid, reuse it
-λ> authenticate_request "alice" "s3cret" "session:alice:hashed:19"
-Right "token-reuse:session:alice:hashed:19"
-
--- Full authentication — no existing token, fresh login
-λ> authenticate_request "bob" "p4ss" ""
-Right "new-session:session:bob:hashed:17"
-
--- Full authentication — existing token too short, fall through to login
-λ> authenticate_request "carol" "pw123" "short"
-Right "new-session:session:carol:hashed:18"
 ```
-
-It runs. Three agents collaborated on a single program, the compiler
-type-checked every fill, and the result is a working Haskell application.
-
----
-
-## Step 7: Read the Report
-
-> **Known issue: this exact "4/4 filled, 1 attempt each" outcome does not currently
-> reproduce.** The orchestrator's checkout-TTL renewal reads a JSON key
-> (`remaining_seconds`) the compiler doesn't emit (it emits `remaining_ttl`), so
-> every hole is treated as already-expired and immediately re-checked-out,
-> colliding with its own lock on attempt 1. A separate, related bug means the
-> "in-scope variables" / "available functions" context described under Hole A/B/C/D
-> above is never actually delivered to the agent (a `"context"` JSON wrapper the
-> orchestrator expects doesn't exist in the compiler's response). Both are tracked
-> compiler/orchestrator bugs, not documentation issues — this walkthrough describes
-> the intended behavior once they're fixed.
-
-The orchestrator produces a summary when it's done:
-
-```
-════════════════════════════════════════════════════════
-  llmll-orchestra report: auth_module.ast.json
-════════════════════════════════════════════════════════
-  Total holes:  4
-  Filled:       4
+════════════════════════════════════════════════════════════
+  llmll-orchestra report: .../auth_module.ast.json
+════════════════════════════════════════════════════════════
+  Total holes:  6
+  Filled:       6
   Failed:       0
   Skipped:      0
-──────────────────────────────────────────────────────────
-  ✅ /statements/1/body       [@crypto-agent]   (1 attempts)
-  ✅ /statements/2/body       [@crypto-agent]   (1 attempts)
-  ✅ /statements/3/body/body  [@session-agent]  (1 attempts)
-  ✅ /statements/4/body/body  [@gateway-agent]  (1 attempts)
-════════════════════════════════════════════════════════
+────────────────────────────────────────────────────────────
+  ✅ /statements/2/body [@crypto-agent]  (2 attempts)
+  ✅ /statements/3/body [@crypto-agent]  (1 attempts)
+  ✅ /statements/4/body [@crypto-agent]  (1 attempts)
+  ✅ /statements/5/body [@gateway-agent]  (1 attempts)
+  ✅ /statements/6/body/body [@session-agent]  (1 attempts)
+  ✅ /statements/7/body/body [@gateway-agent]  (1 attempts)
+════════════════════════════════════════════════════════════
 ```
 
-Or as JSON (`--json`):
+The first attempt at `hash-password-impl` was rejected with
+`body contains non-core syntax — lambda, do, await, non-linear arithmetic, or unrestricted match; use def-shell for permissive bodies`,
+and the second attempt was accepted.
 
-```json
-{
-  "source_file": "auth_module.ast.json",
-  "total_holes": 4,
-  "filled": 4,
-  "failed": 0,
-  "skipped": 0,
-  "results": [
-    {"pointer": "/statements/1/body",      "agent": "@crypto-agent",  "attempts": 1, "success": true},
-    {"pointer": "/statements/2/body",      "agent": "@crypto-agent",  "attempts": 1, "success": true},
-    {"pointer": "/statements/3/body/body", "agent": "@session-agent", "attempts": 1, "success": true},
-    {"pointer": "/statements/4/body/body", "agent": "@gateway-agent", "attempts": 1, "success": true}
-  ]
-}
+**The three decisions are proved.** The agent's fills:
+
+```lisp
+token-valid?:  (>= (string-length token) 8)
+hash-ok?:      (not (= hashed "hash-unavailable"))
+decide:        (if token-ok Reuse (if hash-ok Fresh Deny))
 ```
+
+Verifying the filled copy recorded `body_faithful: true` and level `verified`
+for all three.
+
+**The plumbing is accepted on types alone, and it is wrong.** The accepted
+`hash-password-impl`:
+
+```lisp
+(if (string-empty? raw-pw) "hash-unavailable" (string-concat "sha1$" raw-pw))
+```
+
+This is not a hash. It returns the password with a `sha1$` prefix. The type is
+`string`, as declared, and the function has no postcondition, so the patch gate
+had nothing else to check. The other two plumbing fills show the same gap:
+
+- `login-handler` calls `(token-valid? username)`, so a username of 8 or more
+  characters routes to `Reuse` and gets a session without the password being used.
+- `authenticate-request` answers `Fresh` with `(ok (string-concat "token-" hashed))`
+  instead of calling `login-handler`, so the returned token contains the raw
+  password.
+
+Every one of these fills type-checks, and each passed the same gate that proved
+the decisions. That is what "unproved" means in practice: the compiler accepted
+the fill, and nothing checked its behavior. A proof covers exactly the functions
+with a postcondition whose body is inside the fragment.
 
 ---
 
-## Under the Hood: How It All Connects
+## Step 7: Verify the Result
 
-Here's the full sequence, compressed into one diagram:
+[`auth_module_filled.ast.json`](../examples/orchestrator_walkthrough/auth_module_filled.ast.json)
+is the module with reviewed fills (its plumbing follows the instructions; it is
+not the live run's output).
+
+```bash
+$ llmll check ../examples/orchestrator_walkthrough/auth_module_filled.ast.json
+✅ ../examples/orchestrator_walkthrough/auth_module_filled.ast.json — OK (8 statements)
+
+$ llmll holes ../examples/orchestrator_walkthrough/auth_module_filled.ast.json
+../examples/orchestrator_walkthrough/auth_module_filled.ast.json — 0 holes (0 blocking)
+
+$ llmll verify ../examples/orchestrator_walkthrough/auth_module_filled.ast.json
+   body-faithful: token-valid?, hash-ok?, decide
+   body-fallback: login-handler
+   Running liquid-fixpoint ...
+✅ ../examples/orchestrator_walkthrough/auth_module_filled.ast.json — SAFE (liquid-fixpoint)
+```
+
+`body-fallback: login-handler` is its `pre` with no `post` (fallback cause
+`no-post`). Spec coverage shows the split:
+
+```bash
+$ llmll verify ../examples/orchestrator_walkthrough/auth_module_filled.ast.json --spec-coverage
+Spec Coverage Report
+────────────────────────────────────────────
+  Functions with contracts:     4 / 6   (67%)
+    Verified:                   3
+    Tested:                     0
+    Asserted:                   1
+  Unspecified:                  2
+    hash-password-impl, authenticate-request
+────────────────────────────────────────────
+  Effective coverage: 67% (4/6)
+```
+
+`--trust-report` shows what each caller relies on:
+
+```
+  authenticate-request:
+    pre:  —  |  post: —
+    ↳ calls token-valid? (pre: —, post: verified (liquid-fixpoint))
+    ↳ calls decide (pre: —, post: verified (liquid-fixpoint))
+    ↳ calls hash-ok? (pre: —, post: verified (liquid-fixpoint))
+    ↳ calls login-handler (pre: asserted, post: —)
+  ...
+Summary:
+  verified:         3
+  tested:           0
+  asserted:         0
+  no contract:      3
+```
+
+Its summary counts `login-handler` under `no contract` because it has no `post`,
+while spec coverage counts its `pre` as `Asserted`.
+
+**Wrong decision bodies are refuted.** Each row is a one-line edit to the filled
+file, then `llmll verify` (exit 1 each):
+
+| Edit | Result |
+|---|---|
+| `token-valid?`: `>=` becomes `>` | `error: body verification of 'token-valid?' failed — implementation does not satisfy postcondition (constraint #0)` |
+| `hash-ok?`: drop the `not` | `error: body verification of 'hash-ok?' failed — implementation does not satisfy postcondition (constraint #1)` |
+| `decide`: `(if hash-ok Fresh (if token-ok Reuse Deny))` | `error: body verification of 'decide' failed (then-branch does not satisfy postcondition) (constraint #2)` |
+| `decide`: `(if token-ok Reuse Fresh)` | `error: body verification of 'decide' failed (else-branch does not satisfy postcondition) (constraint #3)` |
+
+No equivalent edit to a plumbing function is refuted, for the reason Step 6 shows.
+
+---
+
+## Under the Hood
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
     participant C as llmll compiler
     participant G as graph.py
-    participant A as OpenAI (gpt-4o)
+    participant A as Agent (LLM)
 
     O->>C: llmll spec
-    C-->>O: 38 builtins + 14 operators
-    Note over O: build_system_prompt(spec)
-
+    C-->>O: builtins, operators, node kinds
     O->>C: llmll holes --json --deps
-    C-->>O: 4 holes + dependency graph
-
+    C-->>O: 6 holes + dependency edges
     O->>G: scheduling_tiers(holes)
-    G-->>O: Tier 0: [A,B] · Tier 1: [C] · Tier 2: [D]
+    G-->>O: Tier 0: 4 holes · Tier 1: 2 holes
 
-    Note over O: ── Tier 0 ──
-
-    loop For each hole in Tier 0
-        O->>C: checkout (lock hole)
-        C-->>O: token + context
-        O->>A: fill_hole(hole, context)
+    loop each hole, tier by tier
+        O->>C: checkout (lock + brief)
+        C-->>O: token, expected type, postcondition goal, scope
+        O->>A: fill_hole(brief)
         A-->>O: JSON-Patch
-        O->>C: patch (apply + re-typecheck)
-        C-->>O: PatchSuccess ✅
+        O->>C: patch --require-proof
+        C-->>O: PatchSuccess, or diagnostics for a retry
     end
 
-    Note over O: ── Tier 1 ──
-
-    O->>C: checkout /statements/3/body/body
-    O->>A: fill_hole(hole_C, context)
-    A-->>O: JSON-Patch
-    O->>C: patch → PatchSuccess ✅
-
-    Note over O: ── Tier 2 ──
-
-    O->>C: checkout /statements/4/body/body
-    O->>A: fill_hole(hole_D, context)
-    A-->>O: JSON-Patch
-    O->>C: patch → PatchSuccess ✅
-
-    O-->>O: Report: 4/4 filled
+    O-->>O: report
 ```
 
-And the compiler-orchestrator feedback loop:
+The compiler is never bypassed: every patch goes through the same type checker
+and solver as the rest of the program, and an agent cannot modify nodes outside
+its checked-out subtree.
 
-```mermaid
-graph LR
-    subgraph Compiler ["llmll compiler (Haskell)"]
-        AS["AgentSpec.hs<br/>builtinEnv → spec"]
-        H["HoleAnalysis.hs<br/>Tarjan SCC + RFC 6901 pointers"]
-        TC["TypeCheck.hs<br/>Bidirectional type checker"]
-        P["Patch engine<br/>RFC 6902 + scope containment"]
-    end
+If every retry fails, the hole keeps its original body (`patch` is atomic), the
+orchestrator releases the lock, and holes that depend on the failed one are
+skipped. Independent holes proceed.
 
-    subgraph Orchestrator ["llmll-orchestra (Python)"]
-        G["graph.py<br/>Kahn's BFS topo-sort"]
-        AG["agent.py<br/>build_system_prompt + SDK"]
-        OL["orchestrator.py<br/>spec → scan → fill → patch loop"]
-    end
+### The module map
 
-    AS -->|"spec"| OL
-    H -->|"holes --json --deps"| G
-    G -->|"sorted holes"| OL
-    OL -->|"checkout"| P
-    OL -->|"build_prompt"| AG
-    AG -->|"JSON-Patch"| OL
-    OL -->|"patch request"| P
-    P -->|"re-typecheck"| TC
-    TC -->|"diagnostics"| OL
-    OL -->|"prior_diagnostics"| AG
-
-    style H fill:#4CAF50,color:#fff
-    style TC fill:#4CAF50,color:#fff
-    style P fill:#4CAF50,color:#fff
-    style G fill:#2196F3,color:#fff
-    style AG fill:#2196F3,color:#fff
-    style OL fill:#2196F3,color:#fff
 ```
+tools/llmll-orchestra/llmll_orchestra/
+  __main__.py       CLI entry: argparse, provider selection, scan-only, --mode plan|lead|auto
+  compiler.py       Subprocess wrapper: spec(), holes(), checkout(), patch(), release()
+  graph.py          topo_sort() via Kahn's algorithm, scheduling_tiers()
+  agent.py          build_system_prompt(), build_prompt(), provider agents, DryRunAgent
+  orchestrator.py   The main loop: spec → scan → sort → (checkout → fill → patch → retry)*
+  lead_agent.py     Lead Agent: architecture plan from --intent, converted to a skeleton
+  quality.py        Quality heuristics for a Lead Agent plan
 
-The critical invariant: **the compiler is never bypassed**. Every
-agent-generated patch goes through the same type-checker that checks
-human-written code. An agent can't insert a `lit-int` where a `string` was
-expected. It can't modify nodes outside its checked-out subtree. And if it gets
-something wrong, the diagnostics tell it exactly what to fix.
+compiler/src/LLMLL/
+  AgentSpec.hs      Reads builtinEnv, emits the spec
+  HoleAnalysis.hs   Hole scan, RFC 6901 pointers, dependency edges
+```
 
 ---
 
 ## Related Work
 
-The orchestration architecture draws on — and differs from — three lines of
-prior work.
+**Typed holes.** Agda and Idris use typed holes for incremental proof
+construction; GHC has typed holes (`_`); Hazel is a live environment built around
+them. `?delegate` adds an agent assignment and a runtime fallback, and its
+dependency graph is used for scheduling, not only for goal display.
 
-### Typed Holes in Programming Languages
+**Synthesis from types.** Synquid and Myth synthesize programs from refinement
+types by enumerative search. The orchestrator's retry loop is a degenerate CEGIS
+with an LLM as the synthesizer and the type checker plus solver as the verifier.
+The trade-off is completeness: an LLM may never find a valid fill, where a
+solver-based synthesizer finds one or proves none exists.
 
-**Agda** and **Idris** pioneered typed holes in dependently-typed proof
-assistants: the programmer writes `?` and the system infers the required type,
-enabling incremental (interactive) proof construction. **GHC's**
-`-fdefer-type-errors` and typed holes (`_`) offer a similar workflow for
-Haskell. **Hazel** is a live programming environment designed around typed holes
-with structured editing.
+**Multi-agent code generation.** ChatDev, MetaGPT and SWE-agent coordinate agents
+through natural-language task protocols. Here coordination is derived from the
+program's call graph, each task has a type and possibly a postcondition, and the
+compiler is the arbiter.
 
-LLMLL's `?delegate` differs in two ways: (1) it carries an *agent assignment*
-(`@crypto-agent`) and a *runtime fallback* (`on_failure`), neither of which
-exists in proof assistants; and (2) the hole's dependency graph is used for
-*scheduling*, not just interactive goal display. The hole is both a synthesis
-obligation and a coordination primitive.
-
-### Program Synthesis from Types
-
-**Synquid** and **Myth** synthesize programs from refinement types using
-enumerative search. **λ²** generates recursive programs from input-output
-examples constrained by types. The orchestrator's retry loop is a degenerate
-form of counterexample-guided inductive synthesis (CEGIS): the LLM generates a
-candidate, the type checker rejects it, the diagnostics guide the next attempt.
-
-What LLMLL adds: the synthesizer is an LLM (not a solver), the specification
-language is a general-purpose PL with contracts (not a refinement-type DSL),
-and the approach handles programs with dozens of inter-dependent synthesis
-obligations. The trade-off is completeness — an LLM may never find a valid fill,
-whereas a solver-based synthesizer either finds one or proves none exists.
-
-### Multi-Agent Code Generation
-
-**ChatDev** and **MetaGPT** coordinate LLM agents via procedural chat protocols
-("CEO tells CTO, CTO tells programmer"). **SWE-agent** uses a task-level loop
-(edit → test → edit). These frameworks coordinate at the task level — agents
-exchange natural-language instructions and untyped code.
-
-The orchestrator's coordination is *structural*: it is derived from the
-program's call graph, not from a procedural script. The dependency ordering is
-automatic (computed by the compiler), the task specification is typed (each hole
-has a required type), and the verification is formal (the type checker, not a
-test suite, is the arbiter). This eliminates the integration-time failures that
-plague procedural multi-agent coordination.
-
-### DAG Schedulers and Build Systems
-
-LLMLL also has an affinity with DAG schedulers and build systems such as
-**Airflow** and **Bazel**. Like those systems, it executes work in dependency
-order rather than in a handwritten procedural sequence. The difference is where
-the graph comes from and what validity means. In Airflow or Bazel, the graph is
-declared explicitly by the author and correctness is primarily operational
-("can this task run now?" / "does this target depend on that one?"). In LLMLL,
-the graph is *inferred* from typed holes and call structure, and each step is
-revalidated by the compiler before it is committed. The result is a scheduler
-whose ordering is compile-time and whose acceptance criterion is typing, not
-just successful task execution.
+**DAG schedulers.** Airflow and Bazel execute work in dependency order from a
+graph the author declares. Here the graph is inferred from typed holes, and each
+step is revalidated by the compiler before it is committed.
 
 ---
 
-## Evaluation and Open Questions
+## Open Questions
 
-This walkthrough demonstrates the system on a single four-hole program. A
-complete evaluation would need to answer:
-
-### Quantitative Questions
-
-- **First-attempt success rate:** What fraction of holes are filled correctly
-  on the first try, without retries? On the auth module, it was 4/4. How does
-  this hold for larger programs or harder specifications?
-- **Retry efficiency:** When the first attempt fails, how many retries does it
-  take? What fraction of holes exhaust all retries?
-- **Comparison baseline:** How does first-attempt accuracy compare to
-  unconstrained LLM generation (no type checking, no dependency ordering)?
-  The hypothesis is that typed holes reduce retry rate by giving the agent a
-  precise specification, and that dependency ordering reduces integration
-  failures by ensuring agents work with concrete, not abstract, dependencies.
-
-### Qualitative Questions
-
-- **What does the type system catch?** Type mismatches (returning `int` where
-  `string` is expected), arity errors (calling a binary operator with three
-  arguments), missing pattern arms (matching on `Result` with only a `Success`
-  case), scope violations (referencing a variable not in the `let` bindings).
-  These are all errors that would silently compile in an untyped multi-agent
-  system and surface only at runtime.
-- **What does it miss?** Semantic errors (a "hash" function that returns string
-  length), logical errors (checking the wrong sentinel value), performance
-  issues (O(n²) string concatenation). Closing this gap requires contracts and
-  verification, which the `llmll verify` pipeline provides.
-
-### Scaling Questions
-
-- **How many holes?** The current orchestrator fills holes sequentially within
-  each tier. For programs with 50+ holes and many tiers, the sequential
-  bottleneck and API latency dominate. Intra-tier parallelism would help.
-- **Where does the dependency graph become a bottleneck?** For a flat program
-  (many independent functions), the graph is trivial. For a deeply nested
-  call chain, the graph is a long chain and parallelism is limited.
-- **Cross-module orchestration:** The current system operates on a single
-  file. Multi-module programs require cross-file dependency tracking and
-  potentially distributed agent coordination.
+- **First-attempt success.** On this module one live run filled 5 of 6 holes on
+  the first attempt. One run is not a rate; larger programs and harder
+  postconditions are untested here.
+- **What the checks miss.** Types and postconditions catch what they state. The
+  live run's plumbing fills are wrong in ways no contract in this module states.
+  Moving more of that logic into provable functions, or widening the fragment to
+  cover string construction, would close part of the gap.
+- **Scale.** The orchestrator fills holes sequentially within a tier and works on
+  one file. Programs with many holes need intra-tier parallelism and cross-file
+  dependency tracking.
 
 ---
 
-## The Module Map
-
-If you want to read or modify the orchestrator source:
-
-```
-tools/llmll-orchestra/llmll_orchestra/
-  __main__.py       CLI entry — argparse, provider selection, scan-only mode, --mode plan|lead|auto
-  compiler.py       Subprocess wrapper — spec(), holes(), checkout(), patch(), release()
-  graph.py          topo_sort() via Kahn's BFS, scheduling_tiers()
-  agent.py          build_system_prompt(), build_prompt(), OpenAIAgent, Agent, DryRunAgent
-  orchestrator.py   The main loop: spec → scan → sort → (checkout → fill → patch → retry)*
-  lead_agent.py     Lead Agent — generates an architecture plan from an --intent and converts it to a type-checked skeleton
-  quality.py        Quality heuristics that validate a Lead Agent plan before skeleton generation
-```
-
-```
-compiler/src/LLMLL/
-  AgentSpec.hs      Reads builtinEnv, emits structured spec (text or JSON)
-  TypeCheck.hs      Exports builtinEnv (operator + function types)
-```
-
----
-
-## What Comes Next
-
-### Try it now
+## Try It
 
 ```bash
 # Scan only (no API calls)
 llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json --scan-only
 
-# Dry run (stub patches, no API calls, tests the checkout/patch plumbing)
+# Dry run (stub patches, no API calls; tests the checkout/patch plumbing).
+# A stub is not written to meet a postcondition, so expect the three
+# decision holes to fail here.
 llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json --dry-run -v
 
-# Full run with OpenAI
-export OPENAI_API_KEY=sk-proj-...
-llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json -v
-
-# Full run with Anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
+# Live run; refuse any fill of a contracted function that is not proved
 llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json \
-  --provider anthropic --model claude-sonnet-5 -v
+  --provider anthropic --require-proof -v
+
+# Then check what was proved
+llmll verify examples/orchestrator_walkthrough/auth_module.ast.json --spec-coverage
 ```
 
-The filled source files for this tutorial are in
-[`examples/orchestrator_walkthrough/`](../examples/orchestrator_walkthrough/).
-
-### Where the architecture goes from here
-
-Three extensions follow naturally from the foundations described in this
-document:
-
-1. **Agent tool-use with the type checker.** The `POST /sketch` endpoint
-   (already implemented in `llmll serve`) gives agents access to the type
-   checker as an oracle. Instead of guessing and retrying, an agent could
-   query: "Is this sub-expression well-typed in this context?" This transforms
-   the architecture from open-loop synthesis (guess → check → retry) to
-   closed-loop, type-directed search — the analogue of proof search in a
-   tactic-based proof assistant.
-
-2. **Contract verification on filled code.** Once all holes are filled,
-   `llmll verify` can check `pre`/`post` contracts via liquid-fixpoint and Z3.
-   The orchestrator could invoke verification as a final pass, producing a
-   trust report that classifies each function as `verified`, `contract-checked`,
-   `tested`, or `asserted`. This closes the gap between *structural* correctness
-   (types match) and *semantic* correctness (behavior meets specification).
-
-3. **Distributed multi-module orchestration.** The current system operates on
-   a single file. For a real application with dozens of modules and hundreds
-   of holes, the orchestrator would need cross-file dependency tracking,
-   distributed agent scheduling, and merge coordination. The formal
-   foundations — typed holes, dependency DAGs, scope-contained patches — extend
-   naturally to this setting.
+Run these on a copy: the orchestrator patches the file in place. The skeleton and
+the reviewed filled module are in [`examples/orchestrator_walkthrough/`](../examples/orchestrator_walkthrough/).
