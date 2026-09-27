@@ -772,7 +772,7 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
 |-------|---------|
 | `contract_pre` / `postcondition_goal` | The hole's precondition (assumable) and postcondition (must prove). `null` when the enclosing function has no contract. |
 | `in_scope` | Bindings visible at the hole site, with source provenance (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by priority; truncated at 50 entries if scope is large (`scope_truncated: true`). |
-| `expected_return_type` | The expected type at the hole site (τ). Populated for a function-body hole when the enclosing function declares a return type (`-> RetType`), and for a sub-expression hole whose type is fixed by local inference; absent otherwise. |
+| `expected_return_type` | The expected type at the hole site (τ). Populated for a function-body hole when the enclosing function declares a return type (`-> RetType`), for a sub-expression hole whose type is fixed by local inference, and for a `?delegate` hole (its declared `-> T`); absent otherwise. |
 | `available_functions` | Contracted user functions — same-module (`status: "filled"`; the hole's own function reads `"hole"`) and imported-exported (`status: "imported"`, bare-named when `(open ...)`-ed, qualified otherwise) — with `params`/`pre`/`post`/`return_type`/`tier`/`status`. |
 | `type_definitions` | User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection. |
 | `consumed_guarantees` | A verified callee's post the body may assume without re-proving (composition only); `null` otherwise. |

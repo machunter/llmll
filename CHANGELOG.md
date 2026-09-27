@@ -4,6 +4,74 @@
 
 <a id="Latest"></a>
 
+## v0.26.9: a multi-agent fill whose every accepted body is proved (2026-09-27)
+
+### `DELEGATE-BRIEF`: the brief for a `?delegate` hole carried no `in_scope` and no `expected_return_type`
+
+`llmll checkout` builds the typing context from the sketch pass's record of the hole at the pointer.
+The sketch pass recorded named holes only: `inferHole (HDelegate …)` returned the declared type and
+recorded nothing. So a delegate hole, the unit multi-agent filling works on, went out with no
+parameters and no expected type. A live `llmll-orchestra` fill of the auth-module walkthrough with
+`claude-opus-5` wrote `password` for a parameter named `raw-pw` and failed that hole three times.
+
+- **A delegate hole is now recorded like a named hole**, at its own pointer and typed by its declared
+  `-> T`, before an `on-failure` fallback is checked. `?delegate-async` records the inner `T`. The
+  brief for `hash-password-impl` now lists `raw-pw: string` with `expected_return_type: string`.
+  `typecheck --sketch` lists delegate holes, and the obligation report's hole types come from the
+  same sketch.
+- **Tests:** hspec `DB-1` to `DB-3` (recorded at the body pointer with params in scope; a fallback does
+  not move it or add a second hole; async records the inner type), all three failing on the previous
+  type checker; an orchestra test checks out a generated skeleton's hole and requires its params and
+  return type, failing on the previous binary.
+
+### `PATCH-PROOF-1`: `patch` said SAFE for a fill whose postcondition was only assumed
+
+`llmll patch` re-verifies a fill and writes it on a SAFE verdict. A body outside the decidable fragment
+falls back, its postcondition is assumed, and the verdict is still SAFE, so a correct but unprovable fill
+and a proved one produced the same `{"result": "PatchSuccess"}`. A live fill merged
+`(min balance amount)` into a `def` whose postcondition was therefore never proved.
+
+- **`PatchSuccess` reports each patched function's outcome** under `verification`: `body_faithful`, and
+  when false, `fallback_cause` and `fallback_constructs` (here `body-outside-fragment`, `app:min`).
+  Additive; `refine` and the HTTP endpoint are unchanged apart from the new key.
+- **`llmll patch --require-proof`** refuses such a fill: result `PatchNotProved`, exit 1, nothing
+  written, lock kept for a retry, and a diagnostic naming the refused constructs. A function with no
+  postcondition has nothing to prove and does not count.
+- **Tests:** hspec `PP-1` to `PP-4` (proved body; `min` body merged but reported as a fallback; JSON
+  shape; `--require-proof` refuses, leaves the file byte-identical, and the same token then accepts the
+  provable body).
+- **Spec correction:** the §9 checkout CLI table showed `llmll checkout --release <file> <token>` and
+  `--status <file> <token>`. The parser reads the flag's argument as the token, so both failed; the
+  table now reads `llmll checkout <file> --release <token>`.
+
+### `llmll-orchestra`: the first live runs
+
+- **A fatal API error stops the run.** A 400, 401, 403 or 404 fails the same way on retry. The first
+  live attempts (a bad key, then an empty credit balance) retried each three times on each of four
+  holes. Now the hole stops after one attempt and later holes are reported as not attempted; 429,
+  5xx and connection errors still retry.
+- **The reply text is read from its text blocks.** Thinking is on by default, so `content[0]` can be a
+  thinking block; the run crashed on it. `max_tokens` is 16000, since thinking tokens count against it.
+- **The default Anthropic model is `claude-opus-5`** (was `claude-sonnet-4-20250514`), with server-side
+  refusal fallbacks (`fallbacks: "default"`). A refusal is an agent error, not empty text.
+- **Locks are released.** `Compiler.release` passed the hole's pointer where the CLI takes the token and
+  ignored the error, so no checkout lock was ever released. It now passes the token.
+- **`--require-proof`** passes through to `llmll patch`; a `PatchNotProved` arrives as an ordinary
+  rejection, so its message is fed back to the agent. Each hole's result records `verification`.
+- **New fixture `fixtures/ledger/`:** four delegated functions, three agents, two tiers, every body with a
+  postcondition inside the fragment. `patch` rejects the plausible wrong fill `amount` for
+  `clamp-withdrawal`.
+
+**Live results**, `claude-opus-5`:
+
+| Module | Before | After |
+|---|---|---|
+| Auth walkthrough (no postconditions) | 3 of 4 holes, 8 attempts (before `DELEGATE-BRIEF`) | 4 of 4, 5 attempts; proves nothing, since the module has no postcondition and the "hash" is an unchecked salted concatenation |
+| Ledger fixture | 4 of 4 filled, 3 of 4 proved: `clamp-withdrawal` merged as `(min balance amount)`, assumed | with `--require-proof`, 4 of 4 proved in 17 s: `min` refused once with the construct named, rewritten as `(if (<= amount balance) amount balance)`; `verify` prints `✅ SAFE` and `--strict-verified-core` passes |
+
+Tests: 2100 examples, 0 failures (+7); Python 312 passed, 92 skipped; the orchestra's 90 tests pass
+with a built compiler.
+
 ## v0.26.8: `llmll-orchestra` builds skeletons the compiler reads, and CI runs its tests (2026-09-26)
 
 ### `llmll-orchestra`: the lead agent's skeletons did not parse

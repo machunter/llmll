@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.26.8)
+# LLMLL: Large Language Model Logical Language (v0.26.9)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.26.8.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.26.9.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2086,7 +2086,7 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 
 3. **Re-verify.** The compiler applies the patch to the JSON-AST, re-parses, re-typechecks, and, if the function carries contracts, re-verifies via SMT (`emitFixpoint` + `liquid-fixpoint`). If the patch introduces a type error, the result is `PatchTypeError` with diagnostic pointers referencing the patch operation (e.g., `patch-op/1/body` instead of `/statements/2/body`). If the patch violates a contract, the result is `PatchVerifyError` with SMT diagnostics. If the solver is not installed, or runs and returns no verdict, the result is `PatchVerifyUnavailable` and the patch is not applied: an unproven patch is never reported as a success.
 
-4. **Commit or reject.** On success (`PatchSuccess`) the updated `.ast.json` is written and the lock is cleared. On failure (`PatchTypeError`, `PatchVerifyError`, `PatchApplyError`, `PatchAuthError`, `PatchVerifyUnavailable`) the original file is unchanged and the lock is preserved for retry. `llmll patch` exits 1 on a rejection and 3 on `PatchVerifyUnavailable`, so a caller can tell "change the patch" from "retry once a solver is available".
+4. **Commit or reject.** On success (`PatchSuccess`) the updated `.ast.json` is written and the lock is cleared. A SAFE re-verify does not by itself mean the fill was proved: a body outside the decidable fragment falls back and its postcondition is assumed (§5.3.3). `PatchSuccess` therefore carries `verification`, one entry per patched function with `body_faithful` and, when false, `fallback_cause` and `fallback_constructs`. Under `llmll patch --require-proof`, a patched function whose postcondition was assumed makes the result `PatchNotProved`, with a diagnostic naming the refused constructs; a function with no postcondition has nothing to prove and does not count. On failure (`PatchTypeError`, `PatchVerifyError`, `PatchNotProved`, `PatchApplyError`, `PatchAuthError`, `PatchVerifyUnavailable`) the original file is unchanged and the lock is preserved for retry. `llmll patch` exits 1 on a rejection and 3 on `PatchVerifyUnavailable`, so a caller can tell "change the patch" from "retry once a solver is available".
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot be used to modify `/statements/0/body` — this prevents lateral hole theft between agents.
 
@@ -2097,9 +2097,9 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 | Command | Purpose |
 |---------|---------|
 | `llmll checkout <file.ast.json> <pointer>` | Lock a hole, get token |
-| `llmll checkout --release <file> <token>` | Explicitly abandon a checkout |
-| `llmll checkout --status <file> <token>` | Query remaining TTL |
-| `llmll patch <file.ast.json> <patch.json>` | Apply patch + re-verify |
+| `llmll checkout <file> --release <token>` | Explicitly abandon a checkout |
+| `llmll checkout <file> --status <token>` | Query remaining TTL |
+| `llmll patch <file.ast.json> <patch.json> [--require-proof]` | Apply patch + re-verify; `--require-proof` refuses a fill whose postcondition was only assumed |
 | `llmll refine <file.ast.json> <refine.json>` | Fill a hole + spawn contracted sub-holes, atomically |
 
 **HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
@@ -2117,7 +2117,7 @@ The checkout response includes four optional fields (present when the compiler h
 | Field | Type | Content |
 |-------|------|---------|
 | `in_scope` | `[ScopeEntry]` | Bindings visible at the hole site (Γ delta: `tcEnv \ builtinEnv`). Each entry has `name`, `type` (LLMLL notation), and `source` (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by source priority; truncated at 50 entries with `scope_truncated: true`. |
-| `expected_return_type` | `string` | The expected type at the hole site (τ as a type label). **Populated** for a function-body hole when the enclosing function declares a return type (`-> RetType`, §4.1) — the body hole records `HoleTyped RetType` — and for a sub-expression hole whose type is fixed by local inference (siblings / surrounding context). Absent when neither applies (e.g. a body hole with no declared return and no inferable context). |
+| `expected_return_type` | `string` | The expected type at the hole site (τ as a type label). **Populated** for a function-body hole when the enclosing function declares a return type (`-> RetType`, §4.1) — the body hole records `HoleTyped RetType` — for a sub-expression hole whose type is fixed by local inference (siblings / surrounding context), and for a `?delegate` hole, where it is the delegate's declared `-> T` (the inner `T` for `?delegate-async`). Absent when none applies (e.g. a body hole with no declared return and no inferable context). |
 | `available_functions` | `[FuncEntry]` | **Populated** with the contracted-user vocabulary — every same-module `def`/`def-shell` carrying a `pre` or `post`, plus every **imported** exported contracted function under the name this module calls it by (bare when `(open ...)`-ed, qualified otherwise; `status: "imported"`) — and the function whose hole is being checked out marked `status: "hole"` (never `"filled"`) — as `name`, `params` (with types), `returns` / `return_type`, `pre` / `post` / `tier`, and `status`. (The broader vision — the full non-`wasi.*` Σ including builtins, monomorphized against concrete scope types so e.g. `list-head` reads `list[int] → Result[int, string]` when `xs : list[int]` is in scope — is only partly realized: builtins are not yet included.) |
 | `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
 | `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
