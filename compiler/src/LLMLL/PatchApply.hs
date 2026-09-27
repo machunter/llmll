@@ -18,6 +18,7 @@ module LLMLL.PatchApply
   ( PatchRequest(..)
   , PatchOp(..)
   , PatchResult(..)
+  , PatchedFn(..)        -- PATCH-PROOF-1
   , CalleePreUnmet(..)   -- DEMO-COMP (§3.3)
   , VerifyUnavailable(..) -- PATCH-FAILOPEN-1: why step 6.5 reached no verdict
   , applyPatch
@@ -54,7 +55,7 @@ import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch, writeFileUtf8)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
-import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
+import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..), renderFallbackCause)
 import LLMLL.DiagnosticFQ (parseFQOutcome, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -107,8 +108,28 @@ instance ToJSON CalleePreUnmet where
     , "call_site_pointer" .= cpuCallSitePointer c
     ]
 
+-- | PATCH-PROOF-1: how the solver treated one patched function on a SAFE
+-- re-verify. A SAFE verdict alone does not say the fill was proved: a body
+-- outside the decidable fragment falls back, its postcondition is assumed, and
+-- the verdict is still SAFE. A live multi-agent fill merged `(min balance
+-- amount)` that way and nothing downstream could tell.
+data PatchedFn = PatchedFn
+  { pfName        :: Text
+  , pfBodyFaithful :: Bool     -- ^ the body VC was emitted and discharged
+  , pfCause       :: Maybe Text -- ^ the fallback cause, when not body-faithful
+  , pfConstructs  :: [Text]     -- ^ the constructs that refused the body, if any
+  } deriving (Show, Eq)
+
+instance ToJSON PatchedFn where
+  toJSON f = object $
+    [ "fn"            .= pfName f
+    , "body_faithful" .= pfBodyFaithful f
+    ] ++
+    [ "fallback_cause" .= c | Just c <- [pfCause f] ] ++
+    [ "fallback_constructs" .= pfConstructs f | not (null (pfConstructs f)) ]
+
 data PatchResult
-  = PatchSuccess Int               -- number of statements in result
+  = PatchSuccess Int [PatchedFn]   -- number of statements in result; PATCH-PROOF-1 per-function outcome
   | PatchTypeError DiagnosticReport -- type errors from re-typecheck
   | PatchVerifyError DiagnosticReport (Maybe CalleePreUnmet)
     -- ^ SMT verification failed (contracts violated). DEMO-COMP: the optional
@@ -116,6 +137,10 @@ data PatchResult
     -- precondition not discharged, 'Nothing' for a plain body-post violation.
   | PatchApplyError Text           -- structural error, test failure, move/copy rejection
   | PatchAuthError Text            -- invalid/expired/scope-violation
+  | PatchNotProved [PatchedFn]
+    -- ^ PATCH-PROOF-1, only under `patch --require-proof`: the re-verify was
+    -- SAFE but a patched function with a postcondition fell back, so that post
+    -- was assumed rather than proved. Not written; the lock is kept for a retry.
   | PatchVerifyUnavailable VerifyUnavailable
     -- ^ PATCH-FAILOPEN-1: the patch has contracts and typechecks, but the SMT
     -- re-verify reached no verdict (no solver on PATH, or the solver failed).
@@ -129,9 +154,19 @@ data VerifyUnavailable
   deriving (Show, Eq)
 
 instance ToJSON PatchResult where
-  toJSON (PatchSuccess n) = object
-    [ "result"     .= ("PatchSuccess" :: Text)
-    , "statements" .= n
+  toJSON (PatchSuccess n fns) = object
+    [ "result"       .= ("PatchSuccess" :: Text)
+    , "statements"   .= n
+    -- PATCH-PROOF-1: the patched functions the re-verify covered. Empty when
+    -- the module has no contracts, since then nothing was verified.
+    , "verification" .= fns
+    ]
+  toJSON (PatchNotProved fns) = object
+    [ "result"       .= ("PatchNotProved" :: Text)
+    , "verification" .= fns
+    -- The same key a rejection's feedback is read from, so an agent loop that
+    -- retries on 'diagnostics' needs nothing new to learn why.
+    , "diagnostics"  .= [ object ["message" .= notProvedMessage f] | f <- fns, notProved f ]
     ]
   toJSON (PatchTypeError report) = object
     [ "result"      .= ("PatchTypeError" :: Text)
@@ -395,15 +430,15 @@ applyOps (o:os) val = case applyOp o val of
 -- 4. Re-parse and re-typecheck
 -- 5. On success: write file, clear lock
 applyPatch :: GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
-applyPatch = applyPatchWithMode ScopeNormal
+applyPatch = applyPatchWithMode ScopeNormal False
 
 -- | The patch lifecycle, parameterized by scope discipline. 'ScopeNormal' is
 -- `patch` (descendant-or-self containment). 'ScopeRefine' is `refine` — the
 -- bounded additive relaxation of 'validateRefineScope' that lets a fill spawn
 -- fresh contracted sub-holes. Everything else (staleness resync, apply,
 -- re-typecheck, assume-guarantee re-verify, write) is shared verbatim.
-applyPatchWithMode :: PatchScopeMode -> GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
-applyPatchWithMode scopeMode mode fp pr = do
+applyPatchWithMode :: PatchScopeMode -> Bool -> GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
+applyPatchWithMode scopeMode requireProof mode fp pr = do
   now <- getCurrentTime
 
   -- 1. Load and validate lock
@@ -463,20 +498,25 @@ applyPatchWithMode scopeMode mode fp pr = do
                                 -- write, preserve the lock so the same token can retry
                                 -- once a solver is available.
                                 Left why -> pure $ PatchVerifyUnavailable why
-                                Right (Just (unsafeReport, mCpu)) -> do
+                                Right (Left (unsafeReport, mCpu)) -> do
                                   -- Verification failed: rebase diagnostics, don't write, preserve lock
                                   let rebased = unsafeReport { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics unsafeReport) }
                                   -- DEMO-COMP (§3.3): 'mCpu' is Just when the failure is a
                                   -- callee precondition unmet (a 'call-pre:' origin among the
                                   -- failed constraints), Nothing for a plain body-post failure.
                                   pure $ PatchVerifyError rebased mCpu
-                                Right Nothing -> do
+                                Right (Right verified)
+                                  -- PATCH-PROOF-1: under --require-proof an assumed
+                                  -- post is a refusal. Don't write, keep the lock.
+                                  | requireProof && any notProved verified ->
+                                      pure $ PatchNotProved verified
+                                  | otherwise -> do
                                   -- 7. Write patched JSON and clear lock entry
                                   BL.writeFile fp (A.encode patchedVal)
                                   let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
                                       newLock = cleanLock { lockTokens = remaining }
                                   saveLock fp newLock
-                                  pure $ PatchSuccess (length stmts)
+                                  pure $ PatchSuccess (length stmts) verified
                             else do
                               -- Type errors: rebase pointers, don't write, preserve lock for retry
                               let rebased = report { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics report) }
@@ -600,9 +640,10 @@ patchTargetFns ops stmts =
 
 -- | R8: @bodyTargets@ slices the re-verify — @Just [F]@ emits only F's body-VC
 -- (the patched function); @Nothing@ re-verifies the whole module (fail-safe).
-reVerify :: FilePath -> [Statement] -> Maybe [Text] -> IO (Either VerifyUnavailable (Maybe (DiagnosticReport, Maybe CalleePreUnmet)))
+reVerify :: FilePath -> [Statement] -> Maybe [Text]
+         -> IO (Either VerifyUnavailable (Either (DiagnosticReport, Maybe CalleePreUnmet) [PatchedFn]))
 reVerify fp stmts bodyTargets
-  | not (hasContracts stmts) = pure (Right Nothing)  -- no contracts → nothing to prove
+  | not (hasContracts stmts) = pure (Right (Right []))  -- no contracts → nothing to prove
   | otherwise = do
       -- Emit .fq constraints with body-faithful VCs (R8: sliced to bodyTargets)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True, emitBodyVCTargets = bodyTargets }
@@ -635,9 +676,33 @@ reVerify fp stmts bodyTargets
               fqResult = parseFQOutcome lfCode merged
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
-            FQSafe          -> pure (Right Nothing)   -- SAFE → proceed with write
-            FQUnsafe failed -> pure (Right (Just (fqReport, calleePreUnmet stmts table failed)))
+            FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets emitR)))  -- SAFE → proceed with write
+            FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table failed)))
             FQError e       -> pure (Left (SolverFailed e))  -- no verdict: do not write
+
+-- | PATCH-PROOF-1: a patched function whose postcondition was assumed, not
+-- proved. A function with no postcondition has nothing to prove.
+notProved :: PatchedFn -> Bool
+notProved f = not (pfBodyFaithful f) && pfCause f /= Just "no-post"
+
+notProvedMessage :: PatchedFn -> Text
+notProvedMessage f =
+  "'" <> pfName f <> "' passed the solver but was not proved: "
+    <> fromMaybe "fallback" (pfCause f)
+    <> (if null (pfConstructs f) then ""
+        else " (outside the decidable fragment: " <> T.intercalate ", " (pfConstructs f) <> ")")
+    <> ", so its postcondition was assumed. Rewrite the body without those constructs."
+
+-- | PATCH-PROOF-1: the per-function outcome of a SAFE re-verify, restricted to
+-- the patched functions when the verify was sliced to them.
+patchedOutcomes :: Maybe [Text] -> EmitResult -> [PatchedFn]
+patchedOutcomes targets emitR =
+  [ PatchedFn n True Nothing [] | n <- erBodyFaithfulFns emitR, wanted n ] ++
+  [ PatchedFn n False (Just (renderFallbackCause c))
+      (fromMaybe [] (lookup n (erFallbackConstructs emitR)))
+  | (n, c) <- erBodyFallbackCauses emitR, wanted n ]
+  where
+    wanted n = maybe True (n `elem`) targets
 
 -- | DEMO-COMP (§3.3): inspect the failed constraint origins for a 'call-pre:'
 -- tag. Returns the first such origin as a 'CalleePreUnmet' payload (callee name

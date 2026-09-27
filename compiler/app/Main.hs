@@ -130,7 +130,7 @@ data Command
   | CmdCheckoutRelease FilePath String                      -- v0.3: checkout --release <file> <token>
   | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
   | CmdDivergeReport  FilePath String                       -- R5: diverge-report <file> <session-id>
-  | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
+  | CmdPatch    FilePath FilePath Bool                       -- v0.3: patch <source.ast.json> <patch-request.json>; PATCH-PROOF-1 --require-proof
   | CmdRefine   FilePath FilePath                            -- cascading: refine <source.ast.json> <refine-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   | CmdSpec     Bool                                         -- v0.3.4: spec [--json]
@@ -377,6 +377,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
     patchCmd = CmdPatch
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
       <*> strArgument (metavar "PATCH" <> help "Path to patch-request.json")
+      <*> switch (long "require-proof"
+                  <> help "Refuse a patch whose patched function passes the solver only because its body fell back and its postcondition was assumed (result PatchNotProved; nothing written, lock kept)")
 
     refineCmd = CmdRefine
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
@@ -428,7 +430,7 @@ main = do
     CmdCheckoutRelease fp tok     -> doCheckoutRelease json fp (T.pack tok)
     CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
     CmdDivergeReport fp session   -> doDivergeReport json gm fp (T.pack session)
-    CmdPatch fp patchFp           -> doPatch json gm fp patchFp
+    CmdPatch fp patchFp reqProof  -> doPatch reqProof json gm fp patchFp
     CmdRefine fp patchFp          -> doRefine json gm fp patchFp
     CmdReplay fp logFp            -> doReplay json gm fp logFp
     CmdSpec jsonOut               -> doSpec jsonOut
@@ -2629,16 +2631,16 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
 -- v0.3: Patch handler
 -- ---------------------------------------------------------------------------
 
-doPatch :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doPatch :: Bool -> Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
 doPatch = doPatchWith ScopeNormal
 
 -- | cascading: `refine` runs the patch lifecycle under the relaxed refine scope
 -- (fill H + spawn fresh contracted sub-holes the fill references).
 doRefine :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
-doRefine = doPatchWith ScopeRefine
+doRefine = doPatchWith ScopeRefine False
 
-doPatchWith :: PatchScopeMode -> Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
-doPatchWith scopeMode json gm fp patchFp = do
+doPatchWith :: PatchScopeMode -> Bool -> Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doPatchWith scopeMode requireProof json gm fp patchFp = do
   ok <- guardJsonFile fp
   unless ok exitFailure
   -- Read and parse patch request
@@ -2671,13 +2673,13 @@ doPatchWith scopeMode json gm fp patchFp = do
               sugg <- case scopeMode of
                         ScopeRefine -> reuseRetrievalPass gm fp pr
                         ScopeNormal -> pure []
-              result <- applyPatchWithMode scopeMode gm fp pr
+              result <- applyPatchWithMode scopeMode requireProof gm fp pr
               let out = case result of
-                          PatchSuccess _ -> injectReuse sugg (toJSON result)
+                          PatchSuccess _ _ -> injectReuse sugg (toJSON result)
                           _              -> toJSON result
               BLC.putStrLn (encode out)
               case result of
-                PatchSuccess _ -> exitSuccess
+                PatchSuccess _ _ -> exitSuccess
                 PatchVerifyUnavailable why -> do
                   -- PATCH-FAILOPEN-1: the proof did not run, so the patch was
                   -- not applied. Exit 3 as 'llmll verify' does for a missing
