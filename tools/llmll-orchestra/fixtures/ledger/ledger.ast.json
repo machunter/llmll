@@ -1,0 +1,452 @@
+{
+  "llmll_version": "0.26.9",
+  "schemaVersion": "0.11.0",
+  "statements": [
+    {
+      "body": {
+        "agent": "@limits-agent",
+        "description": "Return how much of amount can be taken from balance: amount if the balance covers it, otherwise the whole balance",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "kind": "def",
+      "name": "clamp-withdrawal",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "balance"
+                  }
+                ],
+                "kind": "op",
+                "op": "<="
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "amount"
+                  }
+                ],
+                "kind": "op",
+                "op": "<="
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "amount"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "balance"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "or"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    {
+      "body": {
+        "agent": "@ledger-agent",
+        "description": "Return the balance after taking the given amount out of it",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "kind": "def",
+      "name": "apply-withdrawal",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "taken",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "taken"
+              }
+            ],
+            "kind": "op",
+            "op": "-"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "taken"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "taken"
+              },
+              {
+                "kind": "var",
+                "name": "balance"
+              }
+            ],
+            "kind": "op",
+            "op": "<="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    {
+      "body": {
+        "agent": "@ledger-agent",
+        "description": "Return the balance after adding the deposited amount",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "kind": "def",
+      "name": "deposit",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": "+"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "amount"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    {
+      "body": {
+        "bindings": [
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "balance"
+                },
+                {
+                  "kind": "var",
+                  "name": "amount"
+                }
+              ],
+              "fn": "clamp-withdrawal",
+              "kind": "app"
+            },
+            "name": "taken"
+          }
+        ],
+        "body": {
+          "agent": "@gateway-agent",
+          "description": "Return the new balance after withdrawing taken, the amount clamp-withdrawal allowed",
+          "kind": "hole-delegate",
+          "return_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        "kind": "let"
+      },
+      "kind": "def-shell",
+      "name": "withdraw",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "var",
+                "name": "balance"
+              }
+            ],
+            "kind": "op",
+            "op": "<="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

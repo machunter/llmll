@@ -377,4 +377,37 @@ class TestSkeletonAgainstCompiler:
             assert {"x", "hi"} <= names
             assert token.context.get("expected_return_type") == "int"
         finally:
-            lead.compiler.release(path, clamp.pointer)
+            lead.compiler.release(path, token.token)
+
+    def test_release_frees_the_lock_so_the_hole_can_be_checked_out_again(self):
+        """Compiler.release passed the pointer where the CLI takes the token;
+        the lock stayed held and a second checkout reported it taken."""
+        lead = _lead()
+        path = lead.generate_skeleton(_AUTH_PLAN)
+        ptr = "/statements/2/body"
+        first = lead.compiler.checkout(path, ptr)
+        lead.compiler.release(path, first.token)
+        second = lead.compiler.checkout(path, ptr)
+        lead.compiler.release(path, second.token)
+        assert second.token
+
+    def test_require_proof_refuses_an_assumed_fill_through_the_real_compiler(self):
+        """PATCH-PROOF-1 end to end: `min` is correct but outside the fragment,
+        so `patch --require-proof` refuses it and names the construct."""
+        import tempfile, shutil
+        fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ledger" / "ledger.ast.json"
+        work = Path(tempfile.mkdtemp()) / "ledger.ast.json"
+        shutil.copy(fixture, work)
+        compiler = Compiler(binary=os.environ["LLMLL_BIN"])
+        token = compiler.checkout(work, "/statements/0/body")
+        req = work.with_name("req.json")
+        req.write_text(json.dumps({"token": token.token, "patch": [{
+            "op": "replace", "path": "/statements/0/body",
+            "value": {"kind": "app", "fn": "min", "args": [
+                {"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}}]}))
+        refused = compiler.patch(work, req, require_proof=True)
+        assert refused["success"] is False
+        assert "app:min" in refused["diagnostics"][0]["message"]
+        accepted = compiler.patch(work, req)
+        assert accepted["success"] is True
+        assert accepted["verification"][0]["body_faithful"] is False
