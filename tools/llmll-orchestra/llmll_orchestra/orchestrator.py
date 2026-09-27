@@ -32,6 +32,8 @@ class HoleResult:
     success: bool
     error: str | None = None
     patch_ops: list[dict[str, Any]] = field(default_factory=list)
+    # The agent hit an error that retrying cannot fix; the run stopped here.
+    fatal: bool = False
 
 
 @dataclass
@@ -58,6 +60,7 @@ class OrchestratorReport:
                     "attempts": r.attempts,
                     "success": r.success,
                     "error": r.error,
+                    "fatal": r.fatal,
                 }
                 for r in self.results
             ],
@@ -158,13 +161,27 @@ class Orchestrator:
         filled_count = 0
         failed_count = 0
 
-        for hole in sorted_holes:
+        for i, hole in enumerate(sorted_holes):
             result = self._fill_one(source, hole)
             results.append(result)
             if result.success:
                 filled_count += 1
             else:
                 failed_count += 1
+            if result.fatal:
+                # Every later hole would hit the same refusal (a bad key or an
+                # empty credit balance), so they are reported, not attempted.
+                for rest in sorted_holes[i + 1:]:
+                    results.append(HoleResult(
+                        pointer=rest.pointer,
+                        agent=rest.agent,
+                        attempts=0,
+                        success=False,
+                        error=f"not attempted: the run stopped on {hole.pointer}",
+                    ))
+                    failed_count += 1
+                self._log(f"Stopped: fatal agent error on {hole.pointer}")
+                break
 
         return OrchestratorReport(
             source_file=source,
@@ -223,6 +240,16 @@ class Orchestrator:
             if not response.success:
                 last_error = response.error or "agent returned no patch"
                 self._log(f"  Agent failed: {last_error}")
+                if response.fatal:
+                    self.compiler.release(source, hole.pointer)
+                    return HoleResult(
+                        pointer=hole.pointer,
+                        agent=hole.agent,
+                        attempts=attempt,
+                        success=False,
+                        error=last_error,
+                        fatal=True,
+                    )
                 continue
 
             # Write patch to temp file and apply

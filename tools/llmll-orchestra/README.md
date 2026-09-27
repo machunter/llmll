@@ -55,7 +55,7 @@ orchestrator.py  Main loop: scan → sort → checkout → fill → patch → re
 | Flag | Description |
 |------|-------------|
 | `--llmll PATH` | Path to llmll binary |
-| `--model MODEL` | Anthropic model (default: claude-sonnet-4-20250514) |
+| `--model MODEL` | Anthropic model (default: claude-opus-5) |
 | `--max-retries N` | Retry attempts per hole (default: 3) |
 | `--dry-run` | Use stub agent, no API calls |
 | `--scan-only` | Show dependency graph only |

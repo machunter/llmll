@@ -22,11 +22,34 @@ class AgentResponse:
     patch_ops: list[dict[str, Any]] = field(default_factory=list)
     raw_response: str = ""
     error: str | None = None
+    # True when retrying cannot help: the API refused the request itself
+    # (bad key, no credit, unknown model). The orchestrator stops the run.
+    fatal: bool = False
 
 
 class AgentError(Exception):
     """Raised when the agent fails to produce a valid patch."""
-    pass
+
+    def __init__(self, message: str, fatal: bool = False):
+        super().__init__(message)
+        self.fatal = fatal
+
+
+# HTTP statuses on which the same request fails the same way again: a bad
+# request, a rejected or unauthorised key, an unknown model. Both SDKs put the
+# status on the exception as `status_code`. Rate limits (429), overload and
+# server errors (5xx) and connection errors (no status) stay retryable.
+# Anthropic reports an empty credit balance as 400, so it lands here too.
+_FATAL_STATUSES = frozenset({400, 401, 403, 404})
+
+# Models whose safety classifiers can decline a request, and which accept the
+# server-side `fallbacks: "default"` parameter.
+_SERVER_FALLBACK_MODELS = frozenset({"claude-opus-5", "claude-fable-5-1"})
+
+
+def _api_error(e: Exception) -> AgentError:
+    status = getattr(e, "status_code", None)
+    return AgentError(f"API error: {e}", fatal=status in _FATAL_STATUSES)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -298,9 +321,11 @@ class Agent:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-opus-5",
         api_key: str | None = None,
-        max_tokens: int = 4096,
+        # Thinking is on by default on current models and its tokens count
+        # against max_tokens, so 4096 could cut the answer off.
+        max_tokens: int = 16000,
         system_prompt: str | None = None,
     ):
         self.model = model
@@ -326,16 +351,31 @@ class Agent:
         Public API used by both fill_hole() and LeadAgent.generate_plan().
         """
         client = self._get_client()
+        request = dict(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
         try:
-            message = client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
+            if self.model in _SERVER_FALLBACK_MODELS:
+                # A declined request is re-run server-side on the model
+                # Anthropic routes that refusal category to. The installed SDK
+                # has no typed `fallbacks` parameter, hence extra_body.
+                message = client.beta.messages.create(
+                    **request,
+                    betas=["server-side-fallback-2026-07-01"],
+                    extra_body={"fallbacks": "default"},
+                )
+            else:
+                message = client.messages.create(**request)
         except Exception as e:
-            raise AgentError(f"API error: {e}")
-        return message.content[0].text if message.content else ""
+            raise _api_error(e)
+        if message.stop_reason == "refusal":
+            raise AgentError("API error: the model declined the request (stop_reason refusal)")
+        # content can start with thinking blocks (thinking is on by default),
+        # so read the text blocks rather than content[0].
+        return "".join(b.text for b in message.content if b.type == "text")
 
     def fill_hole(
         self,
@@ -347,7 +387,8 @@ class Agent:
         try:
             raw = self.call_llm(self.system_prompt, prompt)
         except AgentError as e:
-            return AgentResponse(success=False, raw_response="", error=str(e))
+            return AgentResponse(success=False, raw_response="", error=str(e),
+                                 fatal=e.fatal)
         return _parse_patch_response(raw)
 
 
@@ -398,7 +439,7 @@ class OpenAIAgent:
                 ],
             )
         except Exception as e:
-            raise AgentError(f"API error: {e}")
+            raise _api_error(e)
         return response.choices[0].message.content or "" if response.choices else ""
 
     def fill_hole(
@@ -411,7 +452,8 @@ class OpenAIAgent:
         try:
             raw = self.call_llm(self.system_prompt, prompt)
         except AgentError as e:
-            return AgentResponse(success=False, raw_response="", error=str(e))
+            return AgentResponse(success=False, raw_response="", error=str(e),
+                                 fatal=e.fatal)
         return _parse_patch_response(raw)
 
 

@@ -518,3 +518,122 @@ def test_o5_prompt_fallback_unknown_keys():
     prompt = build_prompt(HOLE_VALIDATE, context)
     assert "### Additional context" in prompt
     assert '"custom_field"' in prompt
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Fatal API errors stop the run
+#
+# A live run on 2026-09-26 retried a 401 (bad key) and then a 400 ("credit
+# balance is too low") three times on each of four holes: twelve requests that
+# could not succeed. An error the API gives for the request itself is now fatal:
+# one attempt on that hole, and the later holes are reported, not attempted.
+# ─────────────────────────────────────────────────────────────────────
+
+from llmll_orchestra.agent import Agent, OpenAIAgent, _api_error
+
+
+class _StatusError(Exception):
+    """Stands in for an SDK APIStatusError: both SDKs carry `status_code`."""
+
+    def __init__(self, status_code):
+        super().__init__(f"Error code: {status_code}")
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404])
+def test_request_level_statuses_are_fatal(status):
+    assert _api_error(_StatusError(status)).fatal is True
+
+
+@pytest.mark.parametrize("status", [429, 500, 529, None])
+def test_transient_statuses_stay_retryable(status):
+    err = _StatusError(status) if status else ConnectionError("reset")
+    assert _api_error(err).fatal is False
+
+
+@pytest.mark.parametrize("agent_cls", [Agent, OpenAIAgent])
+def test_provider_agents_carry_fatal_into_the_response(agent_cls):
+    agent = agent_cls(api_key="unused")
+    client = MagicMock()
+    client.messages.create.side_effect = _StatusError(400)
+    client.beta.messages.create.side_effect = _StatusError(400)
+    client.chat.completions.create.side_effect = _StatusError(400)
+    agent._client = client
+    response = agent.fill_hole(HOLE_VALIDATE, {})
+    assert response.success is False and response.fatal is True
+
+
+def test_fatal_agent_error_stops_the_run():
+    compiler = MockCompiler()
+    compiler.holes_result = [HOLE_VALIDATE, HOLE_HASH]
+    agent = MockAgent()
+    agent.responses = [AgentResponse(success=False, error="API error: Error code: 400", fatal=True)]
+
+    report = Orchestrator(compiler=compiler, agent=agent, max_retries=3).run("auth_module.ast.json")
+
+    assert len(agent.fill_calls) == 1, "a fatal error must not be retried or repeated per hole"
+    assert report.filled == 0 and report.failed == 2
+    first, second = report.results
+    assert first.fatal is True and first.attempts == 1
+    assert second.attempts == 0 and second.error.startswith("not attempted")
+    assert compiler.release_calls, "the checkout taken for the failed hole must be released"
+    assert report.to_dict()["results"][0]["fatal"] is True
+
+
+def test_non_fatal_agent_error_still_retries():
+    compiler = MockCompiler()
+    agent = MockAgent()
+    agent.responses = [
+        AgentResponse(success=False, error="API error: Error code: 529"),
+        AgentResponse(success=True, patch_ops=VALID_PATCH_OPS),
+    ]
+    report = Orchestrator(compiler=compiler, agent=agent, max_retries=3).run("auth_module.ast.json")
+    assert report.filled == 1 and report.results[0].attempts == 2
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Reading an Anthropic reply
+#
+# The live run on 2026-09-26 crashed with "'ThinkingBlock' object has no
+# attribute 'text'": thinking is on by default, so content[0] can be a thinking
+# block. The text is the concatenation of the text blocks.
+# ─────────────────────────────────────────────────────────────────────
+
+from types import SimpleNamespace
+
+
+def _message(*blocks, stop_reason="end_turn"):
+    return SimpleNamespace(content=list(blocks), stop_reason=stop_reason)
+
+
+def _anthropic_agent(model, reply):
+    agent = Agent(model=model, api_key="unused")
+    client = MagicMock()
+    client.messages.create.return_value = reply
+    client.beta.messages.create.return_value = reply
+    agent._client = client
+    return agent, client
+
+
+def test_text_is_read_past_a_leading_thinking_block():
+    reply = _message(SimpleNamespace(type="thinking", thinking=""),
+                     SimpleNamespace(type="text", text='[{"op": '),
+                     SimpleNamespace(type="text", text='"replace"}]'))
+    agent, _ = _anthropic_agent("claude-sonnet-5", reply)
+    assert agent.call_llm("sys", "user") == '[{"op": "replace"}]'
+
+
+def test_opus_5_requests_server_side_fallbacks():
+    reply = _message(SimpleNamespace(type="text", text="ok"))
+    agent, client = _anthropic_agent("claude-opus-5", reply)
+    agent.call_llm("sys", "user")
+    kwargs = client.beta.messages.create.call_args.kwargs
+    assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert kwargs["extra_body"] == {"fallbacks": "default"}
+    assert not client.messages.create.called
+
+
+def test_a_refusal_is_an_agent_error_not_empty_text():
+    agent, _ = _anthropic_agent("claude-sonnet-5", _message(stop_reason="refusal"))
+    response = agent.fill_hole(HOLE_VALIDATE, {})
+    assert response.success is False and "refusal" in response.error

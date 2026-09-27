@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--model",
         default=None,
-        help="Model name (default: gpt-4o for openai, claude-sonnet-4-20250514 for anthropic)",
+        help="Model name (default: gpt-4o for openai, claude-opus-5 for anthropic)",
     )
     parser.add_argument(
         "--max-retries",
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         model = args.model or "gpt-4o"
         agent = OpenAIAgent(model=model)
     else:
-        model = args.model or "claude-sonnet-4-20250514"
+        model = args.model or "claude-opus-5"
         agent = Agent(model=model)
 
     orchestrator = Orchestrator(

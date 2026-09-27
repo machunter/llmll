@@ -361,3 +361,20 @@ class TestSkeletonAgainstCompiler:
             "contracts": {"post": "(> result x"}}]}]}
         with pytest.raises(ValueError):
             _lead().generate_skeleton(bad)
+
+    def test_checkout_brief_for_a_delegate_hole_names_params_and_return_type(self):
+        """DELEGATE-BRIEF: the fill agent learns the parameter names and the type
+        it must produce. Before the compiler fix a ?delegate hole's brief had no
+        in_scope and no expected_return_type, and a live fill wrote `password`
+        for a parameter named `raw-pw`."""
+        lead = _lead()
+        path = lead.generate_skeleton(_AUTH_PLAN)
+        # clamp is the first function; import and export precede it.
+        clamp = next(h for h in lead.compiler.holes(path) if h.pointer == "/statements/2/body")
+        token = lead.compiler.checkout(path, clamp.pointer)
+        try:
+            names = {e["name"] for e in token.context.get("scope", [])}
+            assert {"x", "hi"} <= names
+            assert token.context.get("expected_return_type") == "int"
+        finally:
+            lead.compiler.release(path, clamp.pointer)
