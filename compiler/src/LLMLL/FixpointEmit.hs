@@ -1097,7 +1097,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- A2.2-string (keys): string params used as map KEYS need the carrier too.
         , maybe Set.empty mapKeyVars (contractPre contract)
         , maybe Set.empty mapKeyVars (contractPost contract)
-        , maybe Set.empty mapKeyVars mBody ]
+        , maybe Set.empty mapKeyVars mBody
+        -- STR-PAYLOAD-CTOR-1: string params used as a constructor argument,
+        -- `(Named s)` or `(ok s)`, need the carrier too. Without it the reflected
+        -- constructor term names an undeclared `s` and FQ-FREEVAR-GUARD-1
+        -- withdraws the body VC. STRING params only: a `list` param is a
+        -- measure sort too, and seeding it would open construction through a
+        -- recursive list carrier (ACR-4, `build-list.llmll`), a §5.3.3 decision
+        -- this row does not make.
+        , Set.filter isStrParam $ Set.unions
+            [ maybe Set.empty ctorArgVars (contractPre contract)
+            , maybe Set.empty ctorArgVars (contractPost contract)
+            , maybe Set.empty ctorArgVars mBody ] ]
+      isStrParam n = any (\(p, t) -> p == n && isStrLike aliases t) params
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
                       , isMeasureSort aliases t
@@ -1383,13 +1395,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                 -- STRLIT-BODY-1: an `=`/`!=` operand joins on the same terms,
                 -- so a string param compared in the body reflects as a Str var
                 -- and the literal's interned constant meets it.
+                -- STR-PAYLOAD-CTOR-1: a constructor argument joins too.
                 strParamKeys =
                   [ (v, FQStr)
                   | (v, t) <- params
                   , isStrLike aliases t
                   , v `Set.member` maybe Set.empty
                       (\b -> mapPutValVars b `Set.union` mapKeyVars b
-                               `Set.union` strEqOperandVars b) mBody ]
+                               `Set.union` strEqOperandVars b
+                               `Set.union` ctorArgVars b) mBody ]
                 sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys ++ strParamKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
@@ -3385,7 +3399,7 @@ exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
 -- into the native FQData constructor term — so a post `result = Rejected reason`
 -- discharges by constructor equality.
 exprToPred (EApp ctor args)
-  | not (T.null ctor), isUpper (T.head ctor) = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
+  | isUpperCtorHead ctor = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 
 -- ---------------------------------------------------------------------------
@@ -4393,7 +4407,7 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
 -- (typeSorts real arities); the field name is the selector. The ctor symbol is
 -- routed through `fqCtorSym` to agree with emitCtor's declaration symbol.
 bodyToPredM env se cenv sccSet (EApp ctor args)
-  | not (T.null ctor), isUpper (T.head ctor) = do
+  | isUpperCtorHead ctor = do
       let tr (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
           tr a        = do mv <- bodyToPredM env se cenv sccSet a
                            return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
@@ -4938,6 +4952,36 @@ mapPutValVars e = case e of
   where
     valVar (EVar v) = Set.singleton v
     valVar _        = Set.empty
+
+-- | The head rule 'exprToPred' and 'bodyToPredM' use for a user constructor
+-- application: an uppercase head. Shared so the STR-PAYLOAD-CTOR-1 walker
+-- below declares exactly the binders the reflection names.
+isUpperCtorHead :: Text -> Bool
+isUpperCtorHead h = not (T.null h) && isUpper (T.head h)
+
+-- | A reflected constructor head: a user constructor or the lowercase Result
+-- builtins `ok`/`err`, which 'exprToPred' reflects by their own clauses.
+isReflectedCtorHead :: Text -> Bool
+isReflectedCtorHead h = h == "ok" || h == "err" || isUpperCtorHead h
+
+-- | STR-PAYLOAD-CTOR-1: variables that occur as a direct argument of a
+-- constructor application, at any depth. `(Named s)` and `(ok (Named s))`
+-- both name `s`. The caller filters by sort, so an int payload such as
+-- `(Anon n)` adds no binder and its .fq stays byte-identical.
+ctorArgVars :: Expr -> Set.Set Name
+ctorArgVars e = case e of
+  EApp h args | isReflectedCtorHead h ->
+    Set.unions (Set.fromList [v | EVar v <- args] : map ctorArgVars args)
+  EApp _ args   -> Set.unions (map ctorArgVars args)
+  EOp op args   -> ctorArgVars (EApp op args)
+  EIf a b c     -> Set.unions (map ctorArgVars [a, b, c])
+  ELet bs body  -> Set.unions (ctorArgVars body : [ctorArgVars r | (_, _, r) <- bs])
+  EMatch s arms -> Set.unions (ctorArgVars s : map (ctorArgVars . snd) arms)
+  EPair a b     -> Set.union (ctorArgVars a) (ctorArgVars b)
+  ELambda _ b   -> ctorArgVars b
+  EAwait a      -> ctorArgVars a
+  EDo steps     -> Set.unions [ctorArgVars x | DoStep _ x _ <- steps]
+  _             -> Set.empty
 
 strEqOperandVars :: Expr -> Set.Set Name
 strEqOperandVars e = case e of
