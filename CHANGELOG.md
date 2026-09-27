@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.26.11: a string payload built from a parameter is proved (2026-09-27)
+
+### `STR-PAYLOAD-CTOR-1`: `(Named s)` from a string parameter withdrew its own body VC
+
+`LLMLL.md` §5.3.3 admits `string` payloads in the datatype class, and a string literal payload such as
+`(Named "x")` verified. A string *parameter* in the same position did not: the reflected constructor
+term named `s`, nothing declared `s`, and `FQ-FREEVAR-GUARD-1` withdrew the body VC with cause
+`constraint-symbols-unbound`. The post was assumed, so a body returning the wrong payload was SAFE.
+The body sort environment (`strParamKeys`) and the carrier-binder list (`measureVars`) declared a
+string parameter only as a `map-put` value, a map key or an `=` operand.
+
+- **A string parameter used as a constructor argument is now declared.** The new `ctorArgVars` walker
+  covers user constructors and `ok`/`err`, at any depth, in the pre, the post and the body.
+  `(Named s)`, `(ok s)`, `(err s)` and `(ok (Named s))` verify body-faithful; `(Named t)` against a
+  post naming `s`, `(Named "zz")`, and a post-only `(Named s)` are refuted.
+- **String parameters only.** `isMeasureSort` admits `list` too, and an unfiltered seed made
+  `build-list.llmll` (a recursive arm constructed through a `list` carrier) verify; `ModuleSpec` ACR-4
+  caught it. Opening that path is a §5.3.3 decision this row does not make.
+- **One constructor-head rule.** `isUpperCtorHead` is shared by `exprToPred`, `bodyToPredM` and the
+  walker, so the walker declares exactly the binders the reflection names.
+- **Unchanged:** a `let`-bound payload, a whole-body string variable, and a `string-concat` argument
+  still fall back. The `.fq` output is byte-identical on 224 example and tool files, and the census is
+  unchanged (257 files; none carried the cause).
+- **Spec correction:** §5.3.3 credited `admissiblePayload` with keeping construction through a `list`
+  carrier out of the body-faithful tier. `admissiblePayload` gates match elimination only; construction
+  is kept out by `FQ-FREEVAR-GUARD-1`, which ACR-4 and ACR-7 pin.
+- **Tests:** hspec `SPC-1` to `SPC-8`.
+
+Tests: 2108 examples, 0 failures (+8); Python 312 passed, 92 skipped.
+
 ## v0.26.10: the auth walkthrough proves its decisions (2026-09-27)
 
 No compiler change. The v0.26.9 live runs showed the auth walkthrough filled every hole and proved
