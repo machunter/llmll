@@ -4,6 +4,47 @@
 
 <a id="Latest"></a>
 
+## v0.26.8: `llmll-orchestra` builds skeletons the compiler reads, and CI runs its tests (2026-09-26)
+
+### `llmll-orchestra`: the lead agent's skeletons did not parse
+
+`tools/llmll-orchestra` is the multi-agent hole-filling tool. Its fill loop (holes, dependency tiers,
+`checkout`, `patch`) worked: a dry run on the auth-module fixture filled both holes and the result
+type-checked and validated against the schema. Two other parts had drifted from the language, and
+CI never ran the orchestra's tests.
+
+- **Lead-mode skeletons now come from the compiler.** `lead_agent.py` built a JSON-AST dict by hand:
+  `def-logic` (removed in v0.12.1), `{"kind": "int"}` types, a `type` key on params, an old hole shape,
+  contracts as raw strings and no `schemaVersion`. The document failed to parse, and
+  `generate_skeleton` logged that as "expected type warnings" and returned it anyway. The plan is now
+  written as S-expression source (one `def-shell` per function, a `?delegate` body, types and
+  contracts verbatim) and `llmll build --emit` produces the JSON-AST. A plan that does not emit or does
+  not type-check raises `ValueError` with the compiler's output.
+- **The fill-agent prompt's examples match the schema.** It taught `lambda` params with `type` (the
+  reader ignores the key, so the parameter goes untyped), `pair-type` with `first_type`/`second_type`,
+  `fn-type` with `param_types`, and `def-logic` for recursion. A new test validates every node the
+  prompt shows (22) against `docs/llmll-ast.schema.json`.
+- **CI runs the orchestra suite** in the spec-roundtrip job with a built compiler, and fails on a
+  skipped test. Four lead-agent tests now run the compiler on a generated skeleton: it emits,
+  type-checks, has one hole per function, validates against the schema, types its params, and a plan
+  with an unbalanced contract raises.
+
+### JSON-AST schema: `lit-unit`
+
+The compiler emits `{"kind": "lit-unit"}` for `()`, and the reader accepts it, but the schema did not
+list the kind. The v0.26.7 gate missed it because no tracked source writes `()`. The schema gains
+`ExprLitUnit`, and the gate gains cell SV-5: witness programs for constructs the tracked sources do
+not use, each of which must emit a valid document. `schemaVersion` stays `0.11.0`.
+
+Not changed: the orchestra's default models (`claude-sonnet-4-20250514`, `gpt-4o`), and the dry-run
+stub, which writes a string literal and so is rejected on any hole whose type is not `string`. No
+live LLM run was made.
+
+No file under `compiler/src/` changed.
+
+Tests: 2093 examples, 0 failures; Python 312 passed, 92 skipped; the schema gate's 5 cells and the
+orchestra's 70 tests pass with a built compiler.
+
 ## v0.26.7: the JSON-AST schema accepts what the compiler emits, and a gate checks it (2026-09-26)
 
 ### `SCHEMA-TRUTH-1`: no document validated against `docs/llmll-ast.schema.json`
