@@ -8839,6 +8839,60 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "ie"
         erFQText er `shouldNotSatisfy` T.isInfixOf "Str"
 
+      -- STR-PAYLOAD-CTOR-1: a string PARAM used as a constructor argument,
+      -- `(Named s)` or `(ok s)`, now gets the FQStr carrier binder and the body
+      -- SortEnv entry. Before, the reflected constructor term named an
+      -- undeclared `s`, FQ-FREEVAR-GUARD-1 withdrew the body VC, and a wrong
+      -- body was SAFE with its post assumed.
+      let tagT = "(type Tag (| Named string) (| Anon int)) "
+      it "SPC-1 STR-PAYLOAD-CTOR-1 user ctor: (Named s) SAFE; (Named \"zz\") REFUTED" $
+        sbPair "mk-named"
+          (tagT ++ "(def mk-named [s: string] -> Tag (post (= result (Named s))) (Named s))")
+          (tagT ++ "(def mk-named [s: string] -> Tag (post (= result (Named s))) (Named \"zz\"))")
+
+      it "SPC-2 STR-PAYLOAD-CTOR-1 Result builtins: (ok s) and (err s) SAFE; literal twins REFUTED" $ do
+        sbPair "mk-ok"
+          "(def mk-ok [s: string] -> Result[string, string] (post (= result (ok s))) (ok s))"
+          "(def mk-ok [s: string] -> Result[string, string] (post (= result (ok s))) (ok \"zz\"))"
+        sbPair "err-s"
+          "(def err-s [s: string] -> Result[int, string] (post (= result (err s))) (err s))"
+          "(def err-s [s: string] -> Result[int, string] (post (= result (err s))) (err \"zz\"))"
+
+      it "SPC-3 STR-PAYLOAD-CTOR-1 wrong param: post (Named s), body (Named t) is body-faithful and REFUTED" $ do
+        er <- emitA2 (tagT ++ "(def pick [s: string t: string] -> Tag (post (= result (Named s))) (Named t))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "pick"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "SPC-4 STR-PAYLOAD-CTOR-1 post-only occurrence: body (Named \"x\") is REFUTED, not fallback" $ do
+        er <- emitA2 (tagT ++ "(def post-only [s: string] -> Tag (post (= result (Named s))) (Named \"x\"))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "post-only"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "SPC-5 STR-PAYLOAD-CTOR-1 nested: (ok (Named s)) SAFE; an (err s) else-branch REFUTED" $
+        sbPair "nested"
+          (tagT ++ "(def nested [s: string] -> Result[Tag, string] (post (= result (ok (Named s)))) (ok (Named s)))")
+          (tagT ++ "(def nested [s: string] -> Result[Tag, string] (post (= result (ok (Named s)))) (if (= s \"\") (ok (Named s)) (err s)))")
+
+      it "SPC-6 STR-PAYLOAD-CTOR-1 does not widen past let: a let-bound payload still falls back" $ do
+        er <- emitA2 (tagT ++ "(def mk-let [s: string] -> Tag (post (= result (Named s))) (let [[u s]] (Named u)))")
+        erBodyFallback er `shouldSatisfy` elem "mk-let"
+
+      it "SPC-7 STR-PAYLOAD-CTOR-1 seeds only string payloads: an int payload declares no Str binder" $ do
+        er <- emitA2 (tagT ++ "(def mk-anon [n: int] -> Tag (post (= result (Anon n))) (Anon n))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "mk-anon"
+        -- The Tag data declaration names Str for the Named field; no BINDER may.
+        erFQText er `shouldNotSatisfy` T.isInfixOf "{ v : Str"
+
+      it "SPC-8 STR-PAYLOAD-CTOR-1 seeds direct ctor arguments only: (Named (string-concat s \"x\")) still falls back" $ do
+        er <- emitA2 (tagT ++ "(def cat-named [s: string] -> Tag (post (= result (Named s))) (Named (string-concat s \"x\")))")
+        erBodyFallback er `shouldSatisfy` elem "cat-named"
+
       -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
       -- values + string RMW chains + cross-call string-map assume-guarantee.
       it "A2S-7 string-map return (the A4 revoke shape): put-then-return verifies; wrong-status twin REFUTED" $ do

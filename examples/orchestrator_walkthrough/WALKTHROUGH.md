@@ -29,8 +29,8 @@ step-by-step guide, with a live run, is
    `--trust-report` counts `verified: 3` and `no contract: 3`.
 
    The plumbing has no postcondition because the solver cannot prove one for it
-   on v0.26.9: `string-concat` bodies, `Result`-returning `if` bodies, and
-   equality with a string-payload constructor such as `(ok s)` all fall back.
+   on v0.26.9: `string-concat` bodies and `Result`-returning `if` bodies both
+   fall back.
    An accepted plumbing fill is checked for its type only. In the live run the
    guide describes, the accepted `hash-password-impl` returned `"sha1$"` plus the
    raw password, which is not a hash, and nothing flagged it.

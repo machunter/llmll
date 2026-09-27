@@ -200,9 +200,7 @@ On v0.26.9 the solver falls back, and assumes rather than proves a postcondition
 for each of these body and contract shapes:
 
 - any body that calls `string-concat`;
-- an `if` whose branches return a `Result`;
-- a postcondition that compares `result` with a constructor carrying a string
-  payload, such as `(= result (ok s))` (tracked as `STR-PAYLOAD-CTOR-1`).
+- an `if` whose branches return a `Result`.
 
 Every plumbing function builds a string or returns a `Result`, so a postcondition
 on it would be assumed, not proved. The skeleton leaves them without one and says
