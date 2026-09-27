@@ -555,7 +555,7 @@ def test_transient_statuses_stay_retryable(status):
 
 @pytest.mark.parametrize("agent_cls", [Agent, OpenAIAgent])
 def test_provider_agents_carry_fatal_into_the_response(agent_cls):
-    agent = agent_cls(api_key="unused")
+    agent = agent_cls(model="test-model", api_key="unused")
     client = MagicMock()
     client.messages.create.side_effect = _StatusError(400)
     client.beta.messages.create.side_effect = _StatusError(400)

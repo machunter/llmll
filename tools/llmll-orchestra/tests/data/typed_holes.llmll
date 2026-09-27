@@ -1,0 +1,25 @@
+;; One delegated hole per return type the dry-run stub builds a placeholder
+;; for. The stub run must patch every one of them without a type error.
+(type Decision (| Reuse) (| Fresh) (| Deny))
+(type Wrap (| Wrap int))
+
+(def f-bool [x: int] -> bool
+  (?delegate @a "bool" -> bool))
+
+(def f-decision [x: int] -> Decision
+  (?delegate @a "decision" -> Decision))
+
+(def f-wrap [x: int] -> Wrap
+  (?delegate @a "wrap" -> Wrap))
+
+(def f-result [x: int] -> Result[int, string]
+  (?delegate @a "result" -> Result[int, string]))
+
+(def f-list [x: int] -> list[int]
+  (?delegate @a "list" -> list[int]))
+
+(def f-pair [x: int] -> (int, bool)
+  (?delegate @a "pair" -> (int, bool)))
+
+(def f-string [x: int] -> string
+  (?delegate @a "string" -> string))

@@ -47,9 +47,12 @@ _FATAL_STATUSES = frozenset({400, 401, 403, 404})
 _SERVER_FALLBACK_MODELS = frozenset({"claude-opus-5", "claude-fable-5-1"})
 
 
-def _api_error(e: Exception) -> AgentError:
+def _api_error(e: Exception, key_var: str | None = None) -> AgentError:
     status = getattr(e, "status_code", None)
-    return AgentError(f"API error: {e}", fatal=status in _FATAL_STATUSES)
+    msg = f"API error: {e}"
+    if status == 401 and key_var:
+        msg += f" (the API key was rejected: check {key_var})"
+    return AgentError(msg, fatal=status in _FATAL_STATUSES)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -370,7 +373,7 @@ class Agent:
             else:
                 message = client.messages.create(**request)
         except Exception as e:
-            raise _api_error(e)
+            raise _api_error(e, "ANTHROPIC_API_KEY")
         if message.stop_reason == "refusal":
             raise AgentError("API error: the model declined the request (stop_reason refusal)")
         # content can start with thinking blocks (thinking is on by default),
@@ -401,7 +404,7 @@ class OpenAIAgent:
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str | None = None,
         api_key: str | None = None,
         max_tokens: int = 4096,
         system_prompt: str | None = None,
@@ -428,6 +431,8 @@ class OpenAIAgent:
 
         Public API used by both fill_hole() and LeadAgent.generate_plan().
         """
+        if not self.model:
+            raise AgentError("no OpenAI model given: pass --model", fatal=True)
         client = self._get_client()
         try:
             response = client.chat.completions.create(
@@ -439,7 +444,7 @@ class OpenAIAgent:
                 ],
             )
         except Exception as e:
-            raise _api_error(e)
+            raise _api_error(e, "OPENAI_API_KEY")
         return response.choices[0].message.content or "" if response.choices else ""
 
     def fill_hole(
@@ -460,6 +465,91 @@ class OpenAIAgent:
 # ─────────────────────────────────────────────────────────────────────
 # Dry-run agent (for testing without API keys)
 # ─────────────────────────────────────────────────────────────────────
+
+def _split_top(s: str) -> list[str]:
+    """Split on commas that are not nested inside brackets or parentheses."""
+    parts, depth, cur = [], 0, []
+    for ch in s:
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur).strip())
+    return parts
+
+
+def stub_value(
+    type_str: str | None,
+    type_defs: list[dict[str, Any]],
+    fallback: str = "<stub>",
+    _seen: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Build a type-correct placeholder expression for a type label.
+
+    Reads the compiler's type labels (`typeLabel` / `renderType`): `int`,
+    `list[int]`, `Result[int,string]`, `(int, bool)`, `map[int,string]`, a
+    user type name, and so on. A user type resolves through the brief's
+    `type_definitions`: a sum picks a nullary constructor when it has one,
+    else the first constructor applied to a stub payload; an alias or a
+    dependent type stubs its base type. Anything else becomes a string
+    literal carrying `fallback`.
+    """
+    lit_string = {"kind": "lit-string", "value": fallback}
+    if not type_str:
+        return lit_string
+    t = type_str.strip().removesuffix("(constrained)").strip()
+
+    scalars = {
+        "int": {"kind": "lit-int", "value": 0},
+        "float": {"kind": "lit-float", "value": 0.0},
+        "bool": {"kind": "lit-bool", "value": False},
+        "unit": {"kind": "lit-unit"},
+        "string": lit_string,
+    }
+    if t in scalars:
+        return scalars[t]
+
+    def sub(inner: str) -> dict[str, Any]:
+        return stub_value(inner, type_defs, fallback, _seen)
+
+    if t.startswith("list[") and t.endswith("]"):
+        return {"kind": "lit-list", "items": []}
+    if t.startswith("map[") and t.endswith("]"):
+        return {"kind": "app", "fn": "map-empty", "args": []}
+    if t.startswith("bytes[") and t.endswith("]"):
+        return {"kind": "app", "fn": "bytes-zero", "args": []}
+    if t.startswith("Result[") and t.endswith("]"):
+        args = _split_top(t[len("Result["):-1])
+        return {"kind": "app", "fn": "ok", "args": [sub(args[0])]}
+    if t.startswith("(") and t.endswith(")") and "→" not in t and "->" not in t:
+        args = _split_top(t[1:-1])
+        if len(args) == 2:
+            return {"kind": "pair", "fst": sub(args[0]), "snd": sub(args[1])}
+        return lit_string
+
+    if t in _seen:
+        return lit_string
+    td = next((d for d in type_defs if d.get("name") == t), None)
+    if td is None:
+        return lit_string
+    seen = _seen | {t}
+    ctors = td.get("constructors")
+    if ctors:
+        nullary = next((c for c in ctors if c.get("payload") is None), None)
+        if nullary is not None:
+            return {"kind": "var", "name": nullary["name"]}
+        c = ctors[0]
+        return {"kind": "app", "fn": c["name"],
+                "args": [stub_value(c["payload"], type_defs, fallback, seen)]}
+    if td.get("base_type"):
+        return stub_value(td["base_type"], type_defs, fallback, seen)
+    return lit_string
+
 
 class DryRunAgent:
     """Mock agent that returns a placeholder patch without calling any API."""
@@ -503,14 +593,22 @@ class DryRunAgent:
         hole: HoleEntry,
         context: dict[str, Any] | None = None,
     ) -> AgentResponse:
-        """Return a stub replace operation for the hole."""
+        """Return a stub replace operation for the hole.
+
+        The value is a placeholder of the hole's type: the checkout brief's
+        `expected_return_type`, else the hole's `inferred_type`. A type the
+        stub cannot build falls back to a string literal.
+        """
+        context = context or {}
+        type_str = context.get("expected_return_type") or hole.inferred_type
         stub_patch = [{
             "op": "replace",
             "path": hole.pointer,
-            "value": {
-                "kind": "lit-string",
-                "value": f"<stub: {hole.message}>",
-            },
+            "value": stub_value(
+                type_str,
+                context.get("type_definitions") or [],
+                f"<stub: {hole.message}>",
+            ),
         }]
         return AgentResponse(
             success=True,

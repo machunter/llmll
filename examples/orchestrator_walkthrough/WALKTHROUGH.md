@@ -1,36 +1,46 @@
-# Orchestrator Walkthrough — delegate-hole resolution
+# Orchestrator Walkthrough: delegate-hole resolution and what gets proved
 
-Shows the hole-resolution flow: an `AuthSystem` interface whose implementations
-start as `?delegate` holes and are filled by out-of-process agents.
+Shows the hole-resolution flow on an authentication module whose function bodies
+start as `?delegate` holes and are filled by out-of-process agents. The full
+step-by-step guide, with a live run, is
+[`docs/orchestrator-walkthrough.md`](../../docs/orchestrator-walkthrough.md).
 
-1. **`auth_module.ast.json`** — the *unfilled* module. `hash-password-impl` and
-   `verify-token-impl` are `hole-delegate` bodies (`@crypto-agent`); `login-handler`
-   (a `def-shell`) composes them and delegates session-building to `@session-agent`;
-   `authenticate-request` (a second `def-shell`) delegates to `@gateway-agent`.
-   `llmll holes auth_module.ast.json` lists all four: `4 holes (0 blocking)`.
-   Every delegated function carries an `on_failure` fallback, so the module still
-   type-checks (`llmll check auth_module.ast.json` → OK).
-2. **`auth_module_filled.ast.json`** — the *resolved* module after the agents
-   return implementations and the loop merges them back.
-3. **Trust:** none of `hash-password-impl`, `verify-token-impl`, or
-   `authenticate-request` carry a `pre`/`post` at all in this fixture, so they
-   land in `--spec-coverage`'s **Unspecified** bucket, not `asserted` — the
-   out-of-process carve-out (LLMLL.md §4.4 / §11.2) is real, but this fixture
-   doesn't exercise it, since there's no stated contract to be asserted-not-
-   proven in the first place. `login-handler` (a `def-shell`) is the one
-   function that shows `asserted`, from its own explicit `pre` — unrelated
-   to the delegate-filled bodies it composes. Verifying the filled module
-   (`llmll verify auth_module_filled.ast.json --spec-coverage`) shows this
-   1-contracted-of-4 split directly (`Functions with contracts: 1 / 4 (25%)`);
-   `--trust-report`'s summary counts the same functions differently (it buckets
-   the three contract-less delegates as `no contract`, so `asserted: 0`).
+1. **`auth_module.ast.json`** is the *unfilled* module: a `Decision` type
+   (`Reuse`, `Fresh`, `Deny`) and six holes. `llmll holes auth_module.ast.json`
+   lists them: `6 holes (0 blocking)`.
+   - Decisions, each with a `post`: `token-valid?` and `hash-ok?`
+     (`@crypto-agent`), `decide` (`@gateway-agent`).
+   - Plumbing, no `post`: `hash-password-impl` (`@crypto-agent`),
+     `login-handler` (`def-shell`, `@session-agent`, with a `pre`),
+     `authenticate-request` (`def-shell`, `@gateway-agent`, routes on `decide`).
 
-> Distinct from `tools/llmll-orchestra/fixtures/auth_module/` — despite the name,
+   Every delegated function carries an `on_failure` fallback, so the module
+   type-checks (`llmll check auth_module.ast.json` gives OK, 8 statements).
+   `llmll holes --deps` puts the four `def` holes in Tier 0 and the two
+   `def-shell` holes in Tier 1.
+2. **`auth_module_filled.ast.json`** is the module with reviewed fills.
+3. **Trust.** `llmll verify auth_module_filled.ast.json` reports
+   `body-faithful: token-valid?, hash-ok?, decide`: the solver proves each
+   decision body against its postcondition. The plumbing is not proved.
+   `hash-password-impl` and `authenticate-request` have no contract and land in
+   `--spec-coverage`'s **Unspecified** bucket. `login-handler` shows `asserted`
+   from its own `pre` and falls back as `no-post`. The spec-coverage line is
+   `Functions with contracts: 4 / 6 (67%)` with `Verified: 3`.
+   `--trust-report` counts `verified: 3` and `no contract: 3`.
+
+   The plumbing has no postcondition because the solver cannot prove one for it
+   on v0.26.9: `string-concat` bodies, `Result`-returning `if` bodies, and
+   equality with a string-payload constructor such as `(ok s)` all fall back.
+   An accepted plumbing fill is checked for its type only. In the live run the
+   guide describes, the accepted `hash-password-impl` returned `"sha1$"` plus the
+   raw password, which is not a hash, and nothing flagged it.
+
+> Distinct from `tools/llmll-orchestra/fixtures/auth_module/`. Despite the name,
 > that fixture is *not* concrete: `llmll holes
 > tools/llmll-orchestra/fixtures/auth_module/auth_module.ast.json`
 > shows 2 unfilled `?delegate` holes (`login-handler`, `validate-session`),
 > deliberately left as-is since `tools/llmll-orchestra`'s own scan/dry-run/
-> full-run examples use it in that state (it lives with the orchestrator now). The distinction from this
-> walkthrough's fixtures is which *story* each tells (delegation/orchestration
-> mechanics here vs. the orchestrator's own CLI examples there), not
+> full-run examples use it in that state. The distinction from this
+> walkthrough's fixtures is which *story* each tells (delegation, orchestration
+> and proof here vs. the orchestrator's own CLI examples there), not
 > holes-vs-no-holes. Do not merge.

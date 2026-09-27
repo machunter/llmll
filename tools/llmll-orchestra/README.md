@@ -23,6 +23,8 @@ llmll-orchestra fixtures/auth_module/auth_module.ast.json --scan-only
 
 ### Dry run (stub patches, no API calls)
 
+Each stub is a placeholder of the hole's type (`0`, `false`, `[]`, `(ok ...)`, a nullary constructor, and so on), so a dry run exercises the checkout, patch and type-check path without a model.
+
 ```bash
 llmll-orchestra fixtures/auth_module/auth_module.ast.json --dry-run -v
 ```
@@ -69,8 +71,8 @@ orchestrator.py  Main loop: scan → sort → checkout → fill → patch → re
 | Flag | Description |
 |------|-------------|
 | `--llmll PATH` | Path to llmll binary |
-| `--provider {anthropic,openai}` | LLM provider (default: openai) |
-| `--model MODEL` | Model (default: claude-opus-5 for anthropic, gpt-4o for openai) |
+| `--provider {anthropic,openai}` | LLM provider (default: anthropic) |
+| `--model MODEL` | Model (default: claude-opus-5 for anthropic; required for openai) |
 | `--require-proof` | Accept a fill only if the solver proves its postcondition (`llmll patch --require-proof`) |
 | `--max-retries N` | Retry attempts per hole (default: 3) |
 | `--dry-run` | Use stub agent, no API calls |

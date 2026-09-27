@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.26.1)
+  LLMLL — Large Language Model Logical Language Compiler (v0.26.10)
 
 Available options:
   -h,--help                Show this help text
@@ -118,14 +118,14 @@ $ stack exec llmll -- check ../examples/withdraw.llmll
 ✅ ../examples/withdraw.llmll — OK (4 statements)
 
 $ stack exec llmll -- --json check ../examples/withdraw.llmll
-{"diagnostics":[...],"phase":"typecheck","success":true}
+{"diagnostics":[],"phase":"typecheck","success":true}
 ```
 
 ### `holes` — inspect holes
 
 ```console
 $ stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
-examples/hangman_json/hangman.ast.json — 0 holes (0 blocking)
+../examples/hangman_json/hangman.ast.json — 0 holes (0 blocking)
 ```
 
 | Label | Meaning |
@@ -281,8 +281,10 @@ $ llmll hub query --signature "list[int] -> int" --json
 # Verify linear arithmetic pre/post contracts at compile time:
 $ stack exec llmll -- verify ../examples/payments-core/conserve.llmll
    .fq written to /tmp/llmll-conserve-<hash>.fq
+   body-faithful: conserve
    Running liquid-fixpoint ...
-✅ conserve.llmll — SAFE (liquid-fixpoint)
+✅ ../examples/payments-core/conserve.llmll — SAFE (liquid-fixpoint)
+   .verified.json written to ../examples/payments-core/conserve.llmll.verified.json
 
 # ✅ means every function with a postcondition was proved, and no proof rests on
 # an unproved import or on a recursion with no (decreases …) measure (those are
@@ -291,12 +293,12 @@ $ stack exec llmll -- verify ../examples/payments-core/conserve.llmll
 # fragment, or is still a ?hole), the headline says so, names them, and points
 # at the strict mode that fails on them:
 $ stack exec llmll -- verify ../examples/erc20_token/erc20_filled.ast.json
-⚠️  erc20_filled.ast.json — SAFE (liquid-fixpoint), partial: 3 of 5 contracted functions proved; 2 assumed, not proved: transfer, transfer-from
+⚠️  ../examples/erc20_token/erc20_filled.ast.json — SAFE (liquid-fixpoint), partial: 3 of 5 contracted functions proved; 2 assumed, not proved: transfer, transfer-from
    (--strict-verified-core fails on assumed functions)
 
 # A program with no postconditions has nothing to prove:
 $ stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
-⚠️  hangman.llmll — SAFE (liquid-fixpoint), nothing proved: no function carries a postcondition
+⚠️  ../examples/hangman_sexp/hangman.llmll — SAFE (liquid-fixpoint), nothing proved: no function carries a postcondition
 
 # Emit .fq only, specify output path:
 $ stack exec llmll -- verify file.llmll --fq-out out.fq
@@ -709,7 +711,7 @@ Every `POST /sketch` is **stateless** — a fresh type-check context per request
 
 ### `checkout` — lock a hole for exclusive editing
 
-`examples/delegate_demo/program.ast.json` has 2 statements today; its hole (`compute-value`'s `?delegate` body) is at `/statements/1/body`, and — because `compute-value` carries no `pre`/`post` — this particular checkout doesn't populate the contract/typing fields (see "Context-aware fields" below for a hole that does):
+`examples/delegate_demo/program.ast.json` has 2 statements today; its hole (`compute-value`'s `?delegate` body) is at `/statements/1/body`. Because `compute-value` carries no `pre`/`post`, this checkout leaves the contract fields `null`. It still carries the typing fields: the parameters in `in_scope` and the declared `-> T` as `expected_return_type` (see "Context-aware fields" below for a hole with a contract):
 
 ```console
 $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/1/body --json
@@ -718,9 +720,16 @@ $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /state
   "hole_kind": "hole-delegate",
   "token": "35b582cfbe3a97f8...",
   "ttl": 3600,
-  "brief_version": "0.12.2",
-  "source_hash": "efab8d7013749661e...",
-  "timestamp": "2026-07-01T19:22:35.87Z",
+  "brief_version": "0.12.3",
+  "source_hash": "22a7d9054e95cda6d...",
+  "timestamp": "2026-09-27T14:52:23.015373Z",
+  "expected_return_type": "(int, int)",
+  "in_scope": [
+    { "name": "add-numbers", "source": "let-binding", "type": "fn[3 args] -> ?" },
+    { "name": "compute-value", "source": "let-binding", "type": "fn[2 args] -> ?" },
+    { "name": "state", "source": "param", "type": "int" },
+    { "name": "x", "source": "param", "type": "int" }
+  ],
   "contract_pre": null, "postcondition_goal": null, "path_condition": null,
   "obligation_id": null, "assumptions": null, "consumed_guarantees": null,
   "verified_hash": null
@@ -728,11 +737,11 @@ $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /state
 
 # Check remaining TTL
 $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --status 35b582cfbe3a97f8...
-{ "remaining_ttl": 3600 }
+{"remaining_ttl":3600}
 
 # Explicitly release a lock (don't wait for TTL expiry)
 $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --release 35b582cfbe3a97f8...
-{ "released": true }
+{"released":true}
 ```
 
 > [!IMPORTANT]
@@ -760,7 +769,7 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
   "available_functions": [
     { "name": "withdraw", "params": [...], "pre": "(>= balance amount)",
       "post": "(= result (- balance amount))", "return_type": "int",
-      "tier": "asserted", "status": "filled" }, ...
+      "tier": "asserted", "status": "hole" }, ...
   ],
   "type_definitions": [
     { "name": "PositiveInt", "kind": "dependent", "base_type": "int" }, ...
@@ -787,12 +796,14 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
 ### `patch` — apply an RFC 6902 JSON-Patch to a checked-out hole
 
 > [!NOTE]
-> The `int-mul`/`int-add` builtin names in the repo's `examples/delegate_demo/patch-request.json` fixture don't exist (LLMLL uses the `*`/`+` operators, not those names) — the example below uses a fresh, working patch instead.
+> The token in `examples/delegate_demo/patch-request.json` comes from an earlier checkout and is rejected (`PatchAuthError`). Run `llmll checkout program.ast.json /statements/1/body` first and put the returned `token` into the request.
 
 ```console
 $ stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
-{ "result": "PatchSuccess", "statements": 2 }
+{"result":"PatchSuccess","reuse_suggestions":[],"statements":2,"verification":[]}
 ```
+
+`verification` gives each patched function's outcome: `body_faithful`, and when it is false, `fallback_cause` and `fallback_constructs`. It is empty here because `compute-value` has no contract. `--require-proof` refuses a fill whose postcondition was only assumed: the result is `PatchNotProved`, exit 1, nothing is written, and the lock is kept for a retry.
 
 The patch request is a JSON envelope containing the checkout token and RFC 6902 operations:
 

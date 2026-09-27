@@ -1,0 +1,256 @@
+{
+  "llmll_version": "0.26.9",
+  "schemaVersion": "0.11.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Reuse"
+          },
+          {
+            "constructor": "Fresh"
+          },
+          {
+            "constructor": "Deny"
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Decision"
+    },
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Wrap",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Wrap"
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "bool",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      },
+      "kind": "def",
+      "name": "f-bool",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "decision",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "named",
+          "name": "Decision"
+        }
+      },
+      "kind": "def",
+      "name": "f-decision",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "named",
+        "name": "Decision"
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "wrap",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "named",
+          "name": "Wrap"
+        }
+      },
+      "kind": "def",
+      "name": "f-wrap",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "named",
+        "name": "Wrap"
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "result",
+        "kind": "hole-delegate",
+        "return_type": {
+          "err_type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "kind": "result",
+          "ok_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      },
+      "kind": "def",
+      "name": "f-result",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "err_type": {
+          "kind": "primitive",
+          "name": "string"
+        },
+        "kind": "result",
+        "ok_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "list",
+        "kind": "hole-delegate",
+        "return_type": {
+          "elem_type": {
+            "kind": "primitive",
+            "name": "int"
+          },
+          "kind": "list"
+        }
+      },
+      "kind": "def",
+      "name": "f-list",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "elem_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "kind": "list"
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "pair",
+        "kind": "hole-delegate",
+        "return_type": {
+          "fst": {
+            "kind": "primitive",
+            "name": "int"
+          },
+          "kind": "pair-type",
+          "snd": {
+            "kind": "primitive",
+            "name": "bool"
+          }
+        }
+      },
+      "kind": "def",
+      "name": "f-pair",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "fst": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "kind": "pair-type",
+        "snd": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      }
+    },
+    {
+      "body": {
+        "agent": "@a",
+        "description": "string",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "string"
+        }
+      },
+      "kind": "def",
+      "name": "f-string",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "primitive",
+        "name": "string"
+      }
+    }
+  ]
+}

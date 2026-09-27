@@ -4,6 +4,65 @@
 
 <a id="Latest"></a>
 
+## v0.26.10: the auth walkthrough proves its decisions (2026-09-27)
+
+No compiler change. The v0.26.9 live runs showed the auth walkthrough filled every hole and proved
+nothing, because no function in it carried a postcondition. This release rebuilds the example around
+functions the solver can prove, refreshes stale command output in the docs, and fixes the
+`llmll-orchestra` dry run.
+
+### The auth walkthrough: three proved decisions, three disclosed plumbing holes
+
+`examples/orchestrator_walkthrough/auth_module.ast.json` (and `_filled`) now has six holes in two tiers.
+
+- **Proved:** `token-valid?` (post `(= result (>= (string-length token) 8))`), `hash-ok?` (post
+  `(= result (not (= hashed "hash-unavailable")))`) and `decide`, which returns
+  `(type Decision (| Reuse) (| Fresh) (| Deny))` with a post that fixes the outcome for every input.
+  `llmll verify` on the filled module prints `body-faithful: token-valid?, hash-ok?, decide` and SAFE,
+  3 of 3 contracted functions proved.
+- **Unproved, and the docs say so:** `hash-password-impl`, `login-handler` and `authenticate-request`
+  build strings and `Result` values. A `string-concat` body and a constructor with a string payload are
+  outside the decidable fragment (`STR-PAYLOAD-CTOR-1`). `authenticate-request` routes on `decide`.
+- **Wrong bodies are refuted:** `>` for `>=` in `token-valid?`, an inverted `hash-ok?`, a `decide` with
+  its checks reordered, and a `decide` that never returns `Deny` each fail `verify`, naming the function.
+- **Live fill:** `llmll-orchestra --provider anthropic --require-proof` with `claude-opus-5` filled
+  6 of 6 holes and proved all three decisions. The accepted `hash-password-impl` fill returns
+  `"sha1$"` followed by the raw password, which is not a hash. Nothing caught it because that function
+  has no contract. `docs/orchestrator-walkthrough.md` (1233 to 638 lines) uses this as the worked
+  example of what "unproved" means.
+
+### `docs/getting-started.md`: command output regenerated on the current compiler
+
+Eight snippets had drifted and were re-run, among them the `--help` banner, `check --json`,
+`holes`, `verify` (now with the `body-faithful:` line), the `delegate_demo` checkout (now with
+`in_scope` and `expected_return_type`), and the `patch` output (now with `verification`). The `patch`
+example's saved token no longer matches the fixture, so running it verbatim returns `PatchAuthError`;
+the text now says to run `checkout` first. An incorrect note about `int-mul` is removed.
+
+### `llmll-orchestra`: the dry run fills every hole type
+
+- **The dry-run stub builds a value of the hole's type** from the brief's `expected_return_type`, else
+  the hole's `inferred_type`: `0`, `false`, `[]`, `(ok …)`, a pair, the first nullary constructor of a
+  user sum, and so on. It filled string holes only; a new fixture with seven typed holes filled 1 of 7
+  before and 7 of 7 now.
+- **The default provider is now `anthropic`** (was `openai`, whose default model `gpt-4o` was stale).
+  `--provider openai` now needs `--model`; no OpenAI model name is guessed.
+- **A 401 names the key to check** (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
+
+### Roadmap
+
+- Filed **`MINMAX-FRAG-1`**: a `min` or `max` body falls back as `app:min`/`app:max`, although each is one
+  `if` in QF-LIA.
+- Filed **`STR-PAYLOAD-CTOR-1`**: `(ok s)` or a user constructor with a string payload falls back as
+  `constraint-symbols-unbound`. `LLMLL.md` §5.3.3 says string payloads are admissible, so the spec and
+  the verifier disagree.
+- `DELEGATE-BRIEF` and `PATCH-PROOF-1` shipped in v0.26.9 with no row; both are filed and closed.
+- The `MODE-HTTP-1` row said nothing validates a document against the schema; since v0.26.7 a gate
+  does, and the row now says what it covers.
+
+Tests: no `compiler/` change, so the hspec count is unchanged (2100); Python 399 passed, 5 skipped;
+the orchestra's 115 tests pass (+25).
+
 ## v0.26.9: a multi-agent fill whose every accepted body is proved (2026-09-27)
 
 ### `DELEGATE-BRIEF`: the brief for a `?delegate` hole carried no `in_scope` and no `expected_return_type`
