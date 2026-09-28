@@ -101,6 +101,8 @@ library:
     - LLMLL.TrustReport
     # HEADLINE-TERM-1 + STRICT-XMOD-1: qualified whole-program call graph + caller closures
     - LLMLL.ProgramGraph
+    # PARTIAL-FNS-GRAPH-1: the qualified call graph, importable by TrustReport
+    - LLMLL.CallGraph
     # PROOF-ARTIFACT: unified reproducible verification record
     - LLMLL.ProofArtifact
     # v0.3.4: agent spec generator

@@ -48,6 +48,7 @@ library
       LLMLL.ProofCache
       LLMLL.TrustReport
       LLMLL.ProgramGraph
+      LLMLL.CallGraph
       LLMLL.ProofArtifact
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck
