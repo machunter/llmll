@@ -52,6 +52,7 @@ module LLMLL.TrustReport
   , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
   , markTerminationAssumed -- HEADLINE-TERM-1: the caller closure of the undischarged cycles
   , sidecarDischargedSet   -- TERM-REPORT-PLAIN: persisted discharge for the render-only path
+  , uncheckedCallPres      -- SHELL-CALL-PRE-1 Part 1: calls whose callee pre nothing proved
   , entryHeadlineLevel  -- COVERAGE-TIER: the one per-function tier notion (post-side, met + joint-demoted)
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
@@ -570,6 +571,9 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- report path, independent of the sidecar). Keyed identically to the
       -- entry names ('buildModuleEntries' prefixing).
       declaredReqs = collectDeclaredRequires cache entryStmts
+      -- PARTIAL-FNS-GRAPH-1 + SHELL-CALL-PRE-1: one module-qualified graph for
+      -- 'partial_fns' and the caller-obligation lookup.
+      progGraph    = qualifiedCallGraph cache entryStmts
       jointMarked  = map (markJointPostWitness jointHashes) enrichedEntries
       -- RESP-FACT-1 (§12): per-function assumed-fact rows, entry module only
       -- (the entry-module rule confines every requesting def there). The
@@ -577,7 +581,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- as "no rows"; entry names are bare, matching 'buildModuleEntries ""'.
       assumedRows  = rpDisclosures (respFactPlanOrEmpty
                        (analyzeRespFacts (cacheAwareAliasMap entryStmts cache) entryStmts))
-      markedEntries = markAssumedFacts assumedRows (markCallerObligations declaredReqs jointMarked)
+      markedEntries = markAssumedFacts assumedRows (markCallerObligations progGraph declaredReqs jointMarked)
       -- Compute summary
       summary = computeSummary markedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
@@ -601,7 +605,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- nodes and a cached member is named @m.go@, matching its trust entry;
       -- and a function used as a value (@(list-fold xs acc g)@) is an edge.
       -- Nothing is discharged here: 'markDescentDischarged' subtracts later.
-      partialFns = undischargedCycleMembers (qualifiedCallGraph cache entryStmts) Set.empty
+      partialFns = undischargedCycleMembers progGraph Set.empty
       -- Cascade L3(d) (Rev 8): vouched (:source-anchored) function names over the
       -- whole program, and the per-function decomposition-trust meet over each
       -- function's unvouched transitive-callee subtree. Pure fold over 'cdpMap';
@@ -1104,6 +1108,28 @@ injectOpenedAliases entryStmts allCS =
       in Map.foldlWithKey' (\m k cs -> Map.insertWith (\_new old -> old) k cs m)
                            acc filtered
 
+-- | SHELL-CALL-PRE-1 Part 1: the (caller, callee) pairs where an entry-module
+-- function WITHOUT a body VC calls, or passes as a value, a callee that
+-- declares a pre. Call-site pre obligations come only from a built body VC
+-- ('FixpointEmit.collectCallPreObligations'), so nothing proved the callee's
+-- pre at these sites; the runtime assertion is the only check. 'faithful' is
+-- the emitter's body-faithful list. A self-call is left out, as in
+-- 'markCallerObligations'. Order: statement order, then graph order.
+uncheckedCallPres :: ModuleCache -> [Statement] -> [Name] -> [(Name, Name)]
+uncheckedCallPres cache entryStmts faithful =
+  [ (f, c)
+  | f <- entryFns
+  , f `notElem` faithful
+  , c <- Map.findWithDefault [] f graph
+  , c /= f
+  , Map.member c reqs ]
+  where
+    graph    = qualifiedCallGraph cache entryStmts
+    reqs     = collectDeclaredRequires cache entryStmts
+    entryFns = nub (mapMaybe fnName entryStmts)
+    fnName (SLetrec n _ _ _ _ _) = Just n
+    fnName s = (\(n, _, _, _, _) -> n) <$> normalizeDefStmt s
+
 -- | TRUST-PRE (Part 2): rendered 'requires' predicate per (qualified) function
 -- name, from the live source contracts. Same key convention as
 -- 'collectAllContractStatus' / 'buildModuleEntries' so it joins against the
@@ -1554,8 +1580,15 @@ callerObligationJson o = object
 -- for a function whose own post is body-faithful 'verified' — the gate for the
 -- (transitive) disjunct: a verified F discharged its callee pres, so it carries
 -- no escaped obligation (the strict-core backstop, see the note above).
-markCallerObligations :: Map Name Text -> [TrustEntry] -> [TrustEntry]
-markCallerObligations declaredReqs entries = map mark entries
+--
+-- SHELL-CALL-PRE-1 Part 1: 'graph' is the module-qualified call graph
+-- ('LLMLL.CallGraph.qualifiedCallGraph'). A dependency row names an opened
+-- callee bare (@tally@), and 'declaredReqs' keys it qualified
+-- (@adjudicate.tally@), so the dependency names alone found no obligation for
+-- any callee reached through @open@. The graph's resolved callees are added
+-- after the dependency names, so a same-module result keeps its order.
+markCallerObligations :: Map Name [Name] -> Map Name Text -> [TrustEntry] -> [TrustEntry]
+markCallerObligations graph declaredReqs entries = map mark entries
   where
     -- The gate is F's OWN body-faithful verified post — NOT 'teEffectivePostLevel'
     -- (which meets in transitive callees and would drag a verified F down to
@@ -1581,10 +1614,11 @@ markCallerObligations declaredReqs entries = map mark entries
           transitive
             | isVerified e = []          -- strict-core / verified: no escaped obligation
             | otherwise =
-                [ CallerObligation (tdName d) req
-                | d <- teDeps e
-                , Just req <- [Map.lookup (tdName d) declaredReqs]
-                , tdName d /= teName e
+                [ CallerObligation c req
+                | c <- nub (map tdName (teDeps e)
+                            ++ Map.findWithDefault [] (teName e) graph)
+                , Just req <- [Map.lookup c declaredReqs]
+                , c /= teName e
                 ]
           combined = own ++ [ o | o <- transitive, coObFn o `notElem` map coObFn own ]
       in e { teCallerObligations = combined }

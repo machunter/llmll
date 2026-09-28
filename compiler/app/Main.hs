@@ -81,7 +81,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1389,6 +1389,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- v0.9.0: report call-pre obligations
         unless (null (erCallPreFns emitR)) $
           TIO.putStrLn $ "   call-pre obligations: " <> T.intercalate ", " (erCallPreFns emitR)
+        -- SHELL-CALL-PRE-1 Part 1: calls from a body with no body VC into a
+        -- callee that declares a pre. No call-site obligation exists for them.
+        let unchecked = uncheckedCallPres _cache stmts (erBodyFaithfulFns emitR)
+        unless (null unchecked) $
+          TIO.putStrLn $ "   call-pre unchecked: "
+            <> T.intercalate ", " [ f <> " -> " <> c | (f, c) <- unchecked ]
         -- INT-1 (v0.10.8): report overflow-tainted body-faithful functions.
         unless (null (erOverflowTaintedFns emitR)) $
           TIO.putStrLn $ "   overflow-tainted: " <> T.intercalate ", " (erOverflowTaintedFns emitR)
