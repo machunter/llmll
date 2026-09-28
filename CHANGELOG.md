@@ -4,6 +4,44 @@
 
 <a id="Latest"></a>
 
+## v0.26.15: a `def` may not rest on a function proved only if a recursion terminates (2026-09-28)
+
+### `DEF-ADMIT-XMOD-1`: the `def` admissibility check reads the whole-program graph
+
+A `def` is a total-correctness claim (`LLMLL.md` §4.2): a recursive callee is admissible only when a
+`(decreases …)` measure discharges its termination. The check tested recursion in the current
+module only, with the call graph that has no value edges. Measured on v0.26.14, three shapes passed
+`check`, `verify` and `--strict-verified-core`:
+
+- a `def` calling an imported recursive `spin`;
+- a `def` calling an imported `mid` that does not recurse but calls `spin`, which the roadmap row's
+  own wording (the callee's cycle membership) would also have missed;
+- a `def` passing `spin` as a value, as in `(list-map xs spin)`.
+
+- **The rule.** The type checker builds the set the `verify` headline names as "proved only if it
+  terminates": the callers of the undischarged cycles over `LLMLL.CallGraph`'s module-qualified
+  graph, minus the functions whose termination a measure discharged. The discharge is read from the
+  staleness-gated contract status, so an edited body loses it. A callee in the set counts as
+  recursive, so it needs its own termination evidence, and a function a `def` passes as a value
+  meets the same test as a called one.
+- **The message names the recursion reached.** `def 'use2': callee 'mid' is proved only if
+  'loop.spin' terminates (a recursion with no discharging (decreases …) measure); a def may call only
+  functions whose termination is proved`, with the suggestion to add a measure to `loop.spin` or
+  declare the caller a `def-shell`. It keeps `diagKind` `core-membership-violation`. A callee in the
+  same file keeps its existing message.
+- **Strict core.** No new conjunct: `check` refuses every `def` one would catch, so none can reach
+  `termination_assumed_fns`. Strict core still admits a `def-shell` there, at partial correctness.
+- **Unchanged on the tree.** `llmll check` gives the same result on all 253 programs under `tools/`,
+  `examples/` and `compiler/test/fixtures/`, and the refute-crux gate passes 96 of 96. No `def` in
+  the tree passes a function as a value.
+- **`LLMLL.CallGraph.resolveIn`** is exported, so the check and the graph resolve a name the same way.
+- **Tests:** hspec `DAX-R1` to `DAX-R3`; pytest `test_def_admit_xmod_1.py` (6 cells, wired into
+  `version-gate`). `DAX-1`, `DAX-2` and `DAX-4` fail on the v0.26.14 binary; `DAX-3`, `DAX-5` and
+  `DAX-6` are negative controls. `DAX-3` fails when the discharge subtraction is removed, and
+  `DAX-6` when the shadowing test is.
+
+Tests: 2148 examples, 0 failures (+3); Python 312 passed, 105 skipped.
+
 ## v0.26.14: the trust report reads one module-qualified call graph; `verify` names unchecked call-site preconditions (2026-09-28)
 
 ### `PARTIAL-FNS-GRAPH-1`: `partial_fns` from the qualified graph, with function-value edges

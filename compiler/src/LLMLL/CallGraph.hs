@@ -26,6 +26,7 @@
 -- termination disclosure, never removes one.
 module LLMLL.CallGraph
   ( qualifiedCallGraph
+  , resolveIn
   , extractRefs
   , undischargedCycleMembers
   , callerClosure
@@ -52,33 +53,47 @@ qualifiedCallGraph cache entryStmts =
   Map.unions (graphFor "" entryStmts
                : [ graphFor (prefixOf p) (meStatements m) | (p, m) <- Map.toList cache ])
   where
-    modDefs :: Map Text (Set Name)
-    modDefs = Map.fromList
-      [ (prefixOf p, Set.fromList [ n | (n, _, _) <- defsOf (meStatements m) ])
-      | (p, m) <- Map.toList cache ]
-
     graphFor :: Text -> [Statement] -> Map Name [Name]
     graphFor prefix stmts =
-      let defs   = defsOf stmts
-          locals = Set.fromList [ n | (n, _, _) <- defs ]
-          opens  = [ (prefixOf op, mNames) | SOpen op mNames <- stmts ]
-          resolve n
-            | Set.member n locals = [prefix <> n]
-            | otherwise           = qualified n ++ opened n
-          qualified n = case T.breakOnEnd "." n of
-            ("", _)     -> []
-            (pre, base) -> [ pre <> base
-                           | Just ds <- [Map.lookup pre modDefs]
-                           , Set.member base ds ]
-          opened n =
-            [ op <> n
-            | (op, mNames) <- opens
-            , maybe True (n `elem`) mNames
-            , Just ds <- [Map.lookup op modDefs]
-            , Set.member n ds ]
+      let resolve = resolveWith cache prefix stmts
       in Map.fromList
            [ (prefix <> f, nub (concatMap resolve (extractCalls body ++ extractRefs ps body)))
-           | (f, ps, body) <- defs ]
+           | (f, ps, body) <- defsOf stmts ]
+
+-- | DEF-ADMIT-XMOD-1: resolve a name written in the ENTRY module to the graph
+-- nodes it may denote, by the rule in the module header. The type checker's
+-- 'def' admissibility check uses this, so the check and the graph cannot
+-- disagree about which function a name means. Empty for a builtin or a
+-- constructor. It does not see local binders: a caller removes those first
+-- ('extractRefs' does).
+resolveIn :: ModuleCache -> [Statement] -> Name -> [Name]
+resolveIn cache = resolveWith cache ""
+
+-- | Build the resolver once per module: the definition tables do not depend
+-- on the name, so a caller that resolves many names shares them.
+resolveWith :: ModuleCache -> Text -> [Statement] -> Name -> [Name]
+resolveWith cache prefix stmts = resolve
+  where
+    modDefs :: Map Text (Set Name)
+    modDefs = Map.fromList
+      [ (prefixOf p, Set.fromList [ d | (d, _, _) <- defsOf (meStatements m) ])
+      | (p, m) <- Map.toList cache ]
+    locals = Set.fromList [ d | (d, _, _) <- defsOf stmts ]
+    opens  = [ (prefixOf op, mNames) | SOpen op mNames <- stmts ]
+    resolve n
+      | Set.member n locals = [prefix <> n]
+      | otherwise           = qualified n ++ opened n
+    qualified n = case T.breakOnEnd "." n of
+      ("", _)     -> []
+      (pre, base) -> [ pre <> base
+                     | Just ds <- [Map.lookup pre modDefs]
+                     , Set.member base ds ]
+    opened n =
+      [ op <> n
+      | (op, mNames) <- opens
+      , maybe True (n `elem`) mNames
+      , Just ds <- [Map.lookup op modDefs]
+      , Set.member n ds ]
 
 -- | The function definitions of a module: name, parameter names, body. The
 -- same statement forms 'HoleAnalysis.buildCallGraph' keys.

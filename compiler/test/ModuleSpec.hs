@@ -38,6 +38,7 @@ import LLMLL.PBT
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
+import LLMLL.CallGraph (resolveIn)
 import qualified Data.Set as Set
 import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause, arrayTheorySyms)
 import LLMLL.FixpointIR (fqFreeSymbols, FQFile(..), emptyFQFile, FQConstraint(..), FQBind(..), FQReft(..), FQPred(..), FQBinOp(..), FQSort(..), FQConstant(..), FQDataDecl(..))
@@ -843,6 +844,20 @@ moduleSpec = describe "Module System" $ do
       let g = qualifiedCallGraph cache (parseSrc
                 "(import loop)\n(def-shell use [xs: list[int]] -> list[int] (list-map xs loop.spin))")
       Map.lookup "use" g `shouldBe` Just ["loop.spin"]
+
+    -- DEF-ADMIT-XMOD-1: the type checker resolves names with the graph's rule.
+    it "DAX-R1: resolveIn keeps a local definition bare" $ do
+      let stmts = parseSrc "(import loop)\n(open loop)\n(def-shell spin [x: int] -> int 42)"
+      resolveIn cache stmts "spin" `shouldBe` ["spin"]
+
+    it "DAX-R2: resolveIn resolves an opened name to the import" $ do
+      let stmts = parseSrc "(import loop)\n(open loop)\n(def-shell use [s: int] -> int (spin s))"
+      resolveIn cache stmts "spin" `shouldBe` ["loop.spin"]
+
+    it "DAX-R3: resolveIn resolves a qualified name, and a builtin resolves to nothing" $ do
+      let stmts = parseSrc "(import loop)\n(def-shell use [s: int] -> int (loop.spin s))"
+      resolveIn cache stmts "loop.spin" `shouldBe` ["loop.spin"]
+      resolveIn cache stmts "string-length" `shouldBe` []
 
   describe "XMOD-SCOPE-BRIEF: brief scope/function channels see imported names" $ do
     let parseSrc src = case parseTopLevel GrammarCoreInversion "<xmod-scope>" src of
