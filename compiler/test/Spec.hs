@@ -19392,6 +19392,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erFQText matched `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
 
   -- -----------------------------------------------------------------------
+  -- MATCH-TERM-EQ-1 residue (1): the body-post LHS bounds `result` to the tag
+  -- domain when the return type is a pure nullary enum. A body that returns a
+  -- call result does not pin `result` to a tag, so a post naming every
+  -- constructor was refuted on a correct body. The fact sits in the LHS, not on
+  -- the `result` env binder, because the LHS value variable is also named
+  -- `result` and shadows that binder. Fixtures: test/fixtures/match-term-eq/
+  -- result-call{,-wrong}.llmll.
+  -- -----------------------------------------------------------------------
+  describe "MATCH-TERM-EQ-1 residue: nullary-enum tag domain on the result" $ do
+    let fixture name = TIO.readFile ("test/fixtures/match-term-eq/" ++ name ++ ".llmll")
+        emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        solve tag er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/match-term-eq-" <> tag <> ".fq"
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              pure (Just (T.pack out))
+        solverSays tag er want = do
+          m <- solve tag er
+          case m of
+            Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf want
+
+    it "MTE-R1: an enum-returning body-post LHS carries result's domain 0..2" $ do
+      er <- emitSrc =<< fixture "result-call"
+      erBodyFaithfulFns er `shouldSatisfy` elem "use-tot"
+      erFQText er `shouldSatisfy` T.isInfixOf "((result >= 0) && (result <= 2))"
+
+    it "MTE-R2: an int-returning body-post LHS carries no result domain" $ do
+      er <- emitSrc "(def-shell g [x: int] -> int (post (>= result 0)) x)"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(result >= 0) && (result <="
+
+    it "MTE-R3: a payload-bearing sum return gets no result domain" $ do
+      er <- emitSrc "(type Outcome (| Accepted int) (| Rejected int))\n(def-shell h [x: int] -> Outcome (post true) (Accepted x))"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(result >= 0) && (result <="
+
+    it "MTE-R4: the subject (a call result, post names every constructor) is SAFE" $ do
+      er <- emitSrc =<< fixture "result-call"
+      solverSays "result-call" er "Safe"
+
+    it "MTE-R5: the refuting sibling (post contradicts the callee's post) stays Unsafe" $ do
+      er <- emitSrc =<< fixture "result-call-wrong"
+      erBodyFaithfulFns er `shouldSatisfy` elem "use-wrong"
+      solverSays "result-call-wrong" er "Unsafe"
+
+  -- -----------------------------------------------------------------------
   -- RESP-FACT-1: a Command result carries a proved property to its caller,
   -- keyed on the program's own control tag. Design: docs/design/
   -- resp-fact-proposal.md Rev 6 (§5.1 to §5.4, §8, §9, §12); plan:

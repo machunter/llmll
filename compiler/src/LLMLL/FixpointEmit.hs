@@ -1747,9 +1747,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                               [ FQBinPred FQEq (FQVar "result$has") (FQVar (v <> "$has"))
                               , FQBinPred FQEq (FQVar "result$val") (FQVar (v <> "$val")) ]
                             _ -> [FQBinPred FQEq (FQVar "result") resultPred]
+                          resultDom = case mRet of
+                            Just rt | not mapRetMode
+                                    , d@(FQAnd _) <- enumTagDomain aliases "result" rt -> [d]
+                            _ -> []
                           lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
                                                 ++ maybe [] (:[]) mPre
                                                 ++ resultEqs
+                                                ++ resultDom
                           lhs = FQReft "result" retSort lhsPred
                           rhs = FQReft "result" retSort postPred
                       -- Determine tag from structural branch provenance (the
@@ -2013,9 +2018,7 @@ emitParamBind aliases freshBid addBind (n, t) = do
   -- bytes[n] length that SAFE-ARG moved out of this reft. It enters as an
   -- environment ANTECEDENT, so it can only weaken an obligation, never
   -- strengthen one.
-  let tagDomain n = FQAnd [ FQBinPred FQGe (FQVar "v") (FQLit 0)
-                          , FQBinPred FQLe (FQVar "v") (FQLit (fromIntegral n - 1)) ]
-      -- PAIR-PROJ-LET-1: a pair takes the ALIAS-AWARE sort, and every other
+  let -- PAIR-PROJ-LET-1: a pair takes the ALIAS-AWARE sort, and every other
       -- type keeps 'typeToSort'. 'typeToSort' collapses an admissible
       -- payload-sum component to int, so an `(int, Box)` param would bind at
       -- `(Pair2 int int)` while the RESULT binder ('sortA1') and 'qualSortMap'
@@ -2030,10 +2033,25 @@ emitParamBind aliases freshBid addBind (n, t) = do
       reft = case bytesLenOf aliases t of
         Just _   -> FQReft "v" byteArraySort FQTrue
         Nothing  -> FQReft "v" (paramSort (resolveAliasTy aliases t))
-                      (maybe FQTrue tagDomain (nullaryEnumArity aliases t))
+                      (enumTagDomain aliases "v" t)
       b = FQBind bid n reft
   addBind b
   return b
+
+-- MATCH-TERM-EQ-1: the tag domain @0 <= x <= n-1@ of a pure nullary enum over
+-- the variable @x@, and @true@ for every other type. Shared by the param binder
+-- ('emitParamBind') and the body-post constraint's LHS. @result@ needs it when
+-- the body does not pin it to a constructor tag: a call to a verified function
+-- binds @result@ to a call-site variable that carries only the callee's post, so
+-- a post naming every constructor was refuted on a correct body. The fact goes
+-- in the LHS and not on the @result@ env binder, because the LHS value variable
+-- is also named @result@ and shadows that binder (measured: a domain on the
+-- binder alone left the refutation in place).
+enumTagDomain :: AliasMap -> T.Text -> Type -> FQPred
+enumTagDomain aliases x t = case nullaryEnumArity aliases t of
+  Nothing -> FQTrue
+  Just n  -> FQAnd [ FQBinPred FQGe (FQVar x) (FQLit 0)
+                   , FQBinPred FQLe (FQVar x) (FQLit (fromIntegral n - 1)) ]
 
 -- MATCH-WIDEN (v0.14.12): does a contract clause reference a sum-typed PARAMETER by
 -- its bare name? An opaque sum has no value sort in the current encoding (only its arm

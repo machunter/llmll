@@ -1,0 +1,14 @@
+;; MATCH-TERM-EQ-1 residue fixture 1 of 2: THE SUBJECT.
+;; use-tot returns the result of a call, so no match arm pins `result` to a
+;; constructor tag. The call-site variable carries only rot's post. The post
+;; names every Level constructor, so it holds for any Level value. REFUTED
+;; before the fix, because nothing bounded `result` to the tags 0..2. Must be SAFE.
+(type Level (| Lo) (| Mid) (| Hi))
+
+(def rot [a: Level] -> Level
+  (post (not (= result a)))
+  (match a ((Lo) Mid) ((Mid) Hi) ((Hi) Lo)))
+
+(def-shell use-tot [a: Level] -> Level
+  (post (or (= result Lo) (or (= result Mid) (= result Hi))))
+  (rot a))

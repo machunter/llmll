@@ -1,0 +1,13 @@
+;; MATCH-TERM-EQ-1 residue fixture 2 of 2: THE REFUTING SIBLING.
+;; Same call as result-call.llmll. The post claims rot returns its argument,
+;; which rot's own post contradicts. Must be REFUTED after the fix: the tag
+;; domain may only weaken an obligation, never make a false post provable.
+(type Level (| Lo) (| Mid) (| Hi))
+
+(def rot [a: Level] -> Level
+  (post (not (= result a)))
+  (match a ((Lo) Mid) ((Mid) Hi) ((Hi) Lo)))
+
+(def-shell use-wrong [a: Level] -> Level
+  (post (= result a))
+  (rot a))
