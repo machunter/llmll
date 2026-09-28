@@ -4,6 +4,42 @@
 
 <a id="Latest"></a>
 
+## v0.26.16: a correct post over an enum returned through a call is no longer refuted (2026-09-28)
+
+### `MATCH-TERM-EQ-1` residue (1): the body-post constraint bounds `result` to the constructor tags
+
+A pure nullary enum is int-tag encoded to `0..n-1`. v0.16.2 put that domain on the parameter
+binder; the `result` of the body-post constraint still carried none. A match arm pins `result` to one
+tag, so a body built from arms never needed it. A body that returns a call result does: the
+call-site variable carries only the callee's post. Measured on v0.26.15, a correct function was
+**refuted**, which is worse than a fallback:
+
+```lisp
+(def-shell use-tot [a: Level] -> Level
+  (post (or (= result Lo) (or (= result Mid) (= result Hi))))
+  (rot a))
+```
+
+- **The fix.** The body-post constraint's LHS conjoins `(result >= 0) && (result <= n-1)` when the
+  return type is a pure nullary enum. The fact goes in the LHS and not on the `result` env binder:
+  the LHS value variable is also named `result` and shadows that binder, and a binder-only domain was
+  measured to leave the refutation in place. `enumTagDomain` is shared with `emitParamBind`, so the
+  parameter and the result read one predicate.
+- **Sound in one direction.** The domain is a type fact the checker guarantees, and it enters as an
+  antecedent, so it can only weaken an obligation. The refuting sibling, a post claiming `rot`
+  returns its argument, is still refuted.
+- **The row's payload-sum wording.** The row also described a post naming a payload-sum parameter
+  as a disclosed fallback. That shape is body-faithful and SAFE on v0.26.15 (`SUM-VALUE-1`, v0.26.12),
+  so nothing of the row stays owed.
+- **Unchanged on the tree.** `llmll verify` gives the same verdict on all 253 programs under
+  `tools/`, `examples/` and `compiler/test/fixtures/` (163 SAFE with both binaries). No evidence hash
+  moves: the preimage folds the source, not the emitted `.fq`.
+- **Tests:** hspec `MTE-R1` to `MTE-R5`, fixtures `match-term-eq/result-call.llmll` (refuted on
+  v0.26.15, SAFE now) and `result-call-wrong.llmll` (refuted on both). With the LHS conjunct removed,
+  `MTE-R1` and `MTE-R4` fail.
+
+Tests: 2153 examples, 0 failures (+5); Python 312 passed, 105 skipped.
+
 ## v0.26.15: a `def` may not rest on a function proved only if a recursion terminates (2026-09-28)
 
 ### `DEF-ADMIT-XMOD-1`: the `def` admissibility check reads the whole-program graph
