@@ -70,10 +70,10 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing)
+import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
 import Data.List (nub, (\\))
 import qualified Data.Set as Set
-import Control.Monad (forM_, forM, foldM, when, unless, void)
+import Control.Monad (forM_, forM, foldM, when, unless, void, join)
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
 
@@ -85,7 +85,9 @@ import LLMLL.Diagnostic
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
 import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson)
-import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
+import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
+-- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
+import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -622,6 +624,12 @@ data TCState = TCState
   -- untouched for every caller that is not this pass.
   , tcRetSeed        :: Map Name Type
   , tcRetSCCs        :: Map Name (Set.Set Name)
+  -- DEF-ADMIT-XMOD-1: each function name this module writes (called or used
+  -- as a value) that resolves to a function, mapped to 'Just via' when that
+  -- function is proved only if a recursion terminates ('via' is the recursion
+  -- it reaches, qualified), else 'Nothing'. Filled only by the cache-aware
+  -- entry point; empty elsewhere, which checks nothing extra.
+  , tcFnResolve      :: Map Name (Maybe Name)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -975,7 +983,7 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
           (_, st) = runState (checkStatements stmts)
                       (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
-                               Map.empty [] Map.empty seeded sccs)
+                               Map.empty [] Map.empty seeded sccs Map.empty)
       in Map.mapWithKey (keep (tcRetTypes st)) m
     -- SC1 again, on the read side: a round may only replace a wildcard, and only
     -- with something that is not itself a wildcard. A freshened wildcard
@@ -1198,8 +1206,12 @@ checkCalleeAdmissibility func = do
     -- delivers the lift: a discharged recursive callee (carrying the bit in its
     -- sidecar) is admitted. Non-recursive callees are unaffected.
     stmts <- gets tcModuleStmts
+    -- DEF-ADMIT-XMOD-1: a callee proved only if a recursion terminates counts
+    -- as recursive here, wherever the recursion is: in another module, one
+    -- call further on ('mid' calling 'spin'), or through a function value.
+    viaTA <- gets (join . Map.lookup func . tcFnResolve)
     let recSet = cyclicMembers stmts
-        isRec  = func `Set.member` recSet
+        isRec  = func `Set.member` recSet || isJust viaTA
         recTotal mer = erFullyVerifiedAdmissible mer
                        && maybe False erTerminationVerified mer
         persistedVerified = case Map.lookup func csMap of
@@ -1224,6 +1236,7 @@ checkCalleeAdmissibility func = do
       let localDefs = Set.fromList [ n | st <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt st] ]
           d | excluded                     = mkCoreExcludedBuiltin enclosing func
             | Set.member func localDefs    = mkCoreMembershipViolationLocal enclosing func isRec
+            | Just via <- viaTA            = mkCoreTerminationAssumed enclosing func via
             | otherwise                    = mkCoreMembershipViolation enclosing func
       modify $ \s -> s { tcErrors = tcErrors s ++ [d] }
 
@@ -1301,6 +1314,25 @@ erFullyVerifiedAdmissible (Just er) =
   && not (erOverflowTainted er)
   && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
 
+-- | DEF-ADMIT-XMOD-1: 'tcFnResolve' for one module. The termination-assumed
+-- set is the caller closure of the undischarged cycles over the qualified
+-- graph, the set the verify headline names; "discharged" reads the
+-- staleness-gated evidence already seeded into the contract status (imports
+-- qualified, the entry file bare), so an edited body loses its discharge.
+fnResolveMap :: ModuleCache -> Map Name ContractStatus -> [Statement] -> Map Name (Maybe Name)
+fnResolveMap cache cs stmts =
+  Map.fromList
+    [ (n, listToMaybe [ v | r <- rs, Just v <- [Map.lookup r closure] ])
+    | n <- written, let rs = resolve n, not (null rs) ]
+  where
+    g        = qualifiedCallGraph cache stmts
+    closure  = callerClosure g (undischargedCycleMembers g discharged)
+    discharged = Map.keysSet (Map.filter (maybe False total . csPost) cs)
+    total er = isVerifiedLevel (erDisplayLevel er) && erTerminationVerified er
+    resolve  = resolveIn cache stmts
+    written  = nub (concat [ extractCalls b ++ extractRefs (map fst ps) b
+                           | s <- stmts, Just (_, ps, _, _, b) <- [normalizeDefStmt s] ])
+
 -- | REC-DESCENT Phase 3: cyclic call-graph SCC members (the recursive
 -- functions). Local mirror of 'ObligationAssembly.recursiveNames', kept here to
 -- avoid the TypeCheck→ObligationAssembly import cycle (the same pattern
@@ -1333,7 +1365,7 @@ tcEmitNonExhaustive typeName missing covered = do
 initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
-          strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
+          strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty Map.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1539,7 +1571,8 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- route through 'initialTCState', so it needs its own union.
       seededAliases = Map.union (Map.foldl seedAliases Map.empty cache) builtinAliases
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
+                 (fnResolveMap cache seededCS stmts))
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
       -- RET-RESOLVE: the pass runs AFTER the report is taken, and every
@@ -1883,6 +1916,11 @@ checkStatement (SDef name params mRet contract body) = do
       { tcErrors = tcErrors s ++
           [mkCoreGrammarViolation name "lambda, do, await, non-linear arithmetic, or unrestricted match"] }
   withFunctionContext name False $ withCoreMode $ do
+    -- DEF-ADMIT-XMOD-1: a function passed as a value, as in (list-map xs f),
+    -- meets the same admissibility test as a called one.
+    fns <- gets tcFnResolve
+    mapM_ checkCalleeAdmissibility
+          (nub [ n | n <- extractRefs (map fst params) body, Map.member n fns ])
     withTaggedEnv SrcParam params $ do
       -- REF-META-5 Check-Hole at the return position (§3.4.6): a bare named-hole
       -- body records HoleTyped retTy instead of HoleUnknown. Every other body

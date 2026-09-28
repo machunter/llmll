@@ -47,6 +47,7 @@ module LLMLL.Diagnostic
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
   , mkCoreMembershipViolationLocal
+  , mkCoreTerminationAssumed
   , mkCoreExcludedBuiltin
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
@@ -577,6 +578,24 @@ mkCoreMembershipViolationLocal defName callee isRec =
        , diagSuggestion = Just ("Move '" <> callee <> "' to its own module"
                                 <> (if isRec then " with a (decreases \x2026) measure" else "")
                                 <> ", verify it, then import it")
+       }
+
+-- | DEF-ADMIT-XMOD-1: the violation when an imported callee is proved only if
+-- a recursion terminates: it is recursive with no discharging measure, or it
+-- reaches such a recursion ('via', module-qualified). A 'def' is a
+-- total-correctness claim (LLMLL.md §4.2), so it may not rest on that. Same
+-- 'diagKind' as 'mkCoreMembershipViolation', so every consumer keyed on the
+-- kind still sees the refusal.
+mkCoreTerminationAssumed :: Text -> Text -> Text -> Diagnostic
+mkCoreTerminationAssumed defName callee via =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is proved only if '" <> via <> "' terminates"
+            <> " (a recursion with no discharging (decreases \x2026) measure); "
+            <> "a def may call only functions whose termination is proved"
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("Add a (decreases \x2026) measure to '" <> via
+                                <> "' and verify it, or declare '" <> defName <> "' as a def-shell")
        }
 
 -- | CORE-EXCL (JSON-1): emitted when a strict-core body calls a builtin that is

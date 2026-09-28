@@ -558,6 +558,22 @@ jobs:
           grep -q ' 7 passed' "$RUNNER_TEMP/partial-fns-graph.log" \
             || { echo "PARTIAL-FNS-GRAPH-1: expected 7 passed cells"; exit 1; }
 
+      # DEF-ADMIT-XMOD-1: a def may not call, or pass as a value, a function
+      # proved only if a recursion terminates. DAX-1, DAX-2 and DAX-4 failed on
+      # the v0.26.14 binary; DAX-3, DAX-5 and DAX-6 (negative controls) passed
+      # on both. Same skip and count guards as above.
+      - name: Run DEF-ADMIT-XMOD-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_def_admit_xmod_1.py -v -rs \
+            | tee "$RUNNER_TEMP/def-admit-xmod.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/def-admit-xmod.log"; then
+            echo "a DEF-ADMIT-XMOD-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+          grep -q ' 6 passed' "$RUNNER_TEMP/def-admit-xmod.log" \
+            || { echo "DEF-ADMIT-XMOD-1: expected 6 passed cells"; exit 1; }
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail
