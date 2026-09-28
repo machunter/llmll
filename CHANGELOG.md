@@ -4,6 +4,61 @@
 
 <a id="Latest"></a>
 
+## v0.26.14: the trust report reads one module-qualified call graph; `verify` names unchecked call-site preconditions (2026-09-28)
+
+### `PARTIAL-FNS-GRAPH-1`: `partial_fns` from the qualified graph, with function-value edges
+
+`partial_fns` came from a call graph keyed by bare name across modules, and a function used as a
+value added no edge. `termination_assumed_fns` already read the module-qualified graph in
+`LLMLL.ProgramGraph`, so the two lists could disagree about the same program.
+
+- **Same-named functions in two modules are two nodes.** With a recursive `a.go` and a
+  non-recursive entry `go`, the report flagged the entry `go` `termination_unverified` and left
+  `a.go` unflagged. `partial_fns` now reads `["a.go"]` and the flag sits on `a.go`. A cached member
+  is named module-qualified, matching its trust entry.
+- **A function used as a value is an edge.** `(def-shell g [acc: int y: int] -> int (post (= result 42)) (list-fold (list-prepend y (list-empty)) acc g))`
+  gave `partial_fns: []`, and a caller `h` of `g` was headlined as proved with no termination note.
+  The roadmap row said no headline depended on the defect; this one did. `g` is now partial, and the
+  headline reads `1 proved only if it terminates: h (via g)`. A parameter, `let`, lambda, `match` or
+  `do` binder that shadows the name adds no edge.
+- **One graph module.** The qualified graph moved from `LLMLL.ProgramGraph` into a new
+  `LLMLL.CallGraph`, because `ProgramGraph` imports `TrustReport` and the trust report now needs the
+  graph. `ProgramGraph` re-exports the moved names. `HoleAnalysis.buildCallGraph` and its other
+  consumers are unchanged.
+- **`trust_report_version` 1.7.0 → 1.8.0.** No key is added; `partial_fns` and the per-entry
+  `termination_unverified` flag change value. `docs/llmll-trust-report.schema.json` moves its
+  `const` with it.
+- **Recorded, not fixed:** a `def` that recurses through a function value still passes `check`, since
+  the type checker's admissibility test reads `buildCallGraph`. It changes no verdict today: such a
+  body calls a higher-order builtin, falls back, and `--strict-verified-core` refuses it.
+- **Unchanged on the tree:** `partial_fns`, `termination_assumed_fns` and the flag are identical
+  before and after across the 169 programs under `tools/` and `examples/`. Only one of them recurses at
+  all, so the witnesses above carry the evidence.
+
+### `SHELL-CALL-PRE-1` Part 1: callees reached through `open`, and the unchecked call-site line
+
+A call-site precondition obligation comes only from a built body VC. A caller whose body falls back,
+or that has no post, gets none, and nothing said so.
+
+- **`caller_obligations` finds a callee reached through `open`.** The lookup used the bare dependency
+  name (`tally`) against a table keyed qualified (`adjudicate.tally`), so it missed every opened
+  callee: `pathlint.llmll`'s `scan-file` and `pl-status` reported `carries_caller_obligations: false`.
+  The lookup now adds the qualified graph's resolved callees after the dependency names, so a
+  same-module result keeps its order; the five tracked `.verified.json` sidecars are unchanged.
+- **`verify` names the unchecked calls.** For each call from an entry-module function with no body
+  VC into a callee that declares a `pre`, `verify` prints
+  `call-pre unchecked: <caller> -> <callee>, ...` beside `call-pre obligations:`. The runtime
+  assertion is still the only check at those sites. The exit status does not change.
+- **Still open:** Part 2 proves these call-site preconditions in a side query and depends on
+  `EVAL-STRICT-1`. Designs: [`docs/design/shell-call-pre-1-proposal.md`](docs/design/shell-call-pre-1-proposal.md)
+  (Rev 2) and [`docs/design/eval-strict-1-proposal.md`](docs/design/eval-strict-1-proposal.md)
+  (Rev 1), each with its professor review.
+- **Tests:** hspec `PFG-G1` to `PFG-G6`; pytest `test_partial_fns_graph_1.py` (7 cells, wired into
+  `version-gate`). `PFG-1`, `PFG-2`, `SCP-1` and `SCP-2` fail on the v0.26.13 binary; `PFG-3`, `PFG-4`
+  and `SCP-3` are negative controls. `PFG-4` fails when the shadowing test is removed.
+
+Tests: 2145 examples, 0 failures (+6); Python 312 passed, 99 skipped.
+
 ## v0.26.13: a user-sum `match` on a projection, alias or call result is proved (2026-09-27)
 
 ### `MATCH-SCRUT-PARAM-1`: two limits on user-sum match elimination, lifted together
