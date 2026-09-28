@@ -4,6 +4,39 @@
 
 <a id="Latest"></a>
 
+## v0.26.13: a user-sum `match` on a projection, alias or call result is proved (2026-09-27)
+
+### `MATCH-SCRUT-PARAM-1`: two limits on user-sum match elimination, lifted together
+
+A `match` on a user sum reached a body-faithful VC only when its scrutinee was a parameter and every
+payload arm had an `int`, `bool` or `string` payload. Anything else fell back and the post was
+assumed. The census found one function in the tree blocked by it, `drv-status` in
+`tools/llmll-driver/sequencer.llmll`, and it needed both limits lifted.
+
+- **`MATCH-DEAD-PAYLOAD`: an arm that ignores its payload needs no admissible payload sort.** An
+  unused payload binds nothing. When the scrutinee has a datatype value, the arm keeps its link
+  `tag = k ⇒ v = Cₖ p` through a skolem at the declared field sort, so the link stays well-formed
+  and the constructor equality is not lost. A payload the arm reads still needs an admissible
+  scalar sort. A sum that reaches a recursive type by any path, a `list` or pair carrier included,
+  keeps the §5.3.3 firewall (`reachesRecursion`); the sealed `Json` carrier is a leaf.
+- **`MATCH-SCRUT-BIND`: a scrutinee that is not a parameter.** Three shapes now reach the match
+  elimination: a `let` alias of a sum parameter, which reads the parameter's own tag; a `first` or
+  `second` projection of a declared pair parameter, bound to its `pair2_k` term; and a `let`-bound
+  call result at a datatype sort, linked to the callee's post. Any other scrutinee falls back as
+  before. A projection is never given a free tag: a pair parameter the driver does not declare
+  fails `sortableComponent`, and the signature guard sends the function to fallback first.
+- **`drv-status` is proved.** Its post `0 <= result <= 255` was assumed; the clamp is now checked
+  over all 36 arms, and a body without the clamp is refuted on the `Done` arm. Census: 701/717 to
+  702/717 body-faithful, refuted unchanged at 2; per file over the 58 files with a `match`, only
+  `sequencer.llmll` changes.
+- **Unchanged:** a match that already proved emits the same `.fq`; the new clause runs only after
+  the parameter clause declines.
+- **Tests:** hspec `MSB-1` to `MSB-11`. `DELIM-2`, `MW2A-5` and `SFS-3` pinned the refusal of an
+  unused sum payload; each now pins both halves (a used payload falls back, an unused one proves).
+  `ACR-3`, `ACR-8`, `ACR-9` and `SFS-2` pin the recursive firewall, unchanged.
+
+Tests: 2139 examples, 0 failures (+11); Python 312 passed, 92 skipped.
+
 ## v0.26.12: sum values, contract `match` and `is-ok` are proved; two solver crashes fixed (2026-09-27)
 
 ### Five body-VC fallbacks from the v0.26.11 probes, and two liquid-fixpoint crashes

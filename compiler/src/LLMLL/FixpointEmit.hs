@@ -130,7 +130,8 @@ import Data.List (nub, nubBy, partition)
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
-import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
+import Control.Monad.Reader (ReaderT, runReaderT, ask, local, lift)
+import Control.Applicative ((<|>))
 import Data.Char (isUpper, ord)
 import Numeric (showHex)
 import Data.Graph (stronglyConnComp, SCC(..))
@@ -1510,7 +1511,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let (newSeed, mBodyVC) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts cenv sccSet
+                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, Map.fromList [ (n, typeToSortA aliases t) | (n, t) <- pairParams ]) cenv sccSet
                            (reifyBytesZeroLen mRet body')
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
@@ -3224,6 +3225,50 @@ buildCtorTagMap am =
       grouped = Map.fromListWith (++) [ (c, [i]) | (c, i) <- perEnum ]
   in Map.fromList [ (c, i) | (c, [i]) <- Map.toList grouped ]  -- unambiguous only
 
+-- | MATCH-DEAD-PAYLOAD: does a type reach a named type that reaches itself,
+-- through ANY constructor (pairs, lists, maps, Result and function types
+-- included)? 'admissibleDatatype' treats a carrier as a leaf, so a `Tree`
+-- recursive only through `list[Tree]` passes it; this check does not. A
+-- sealed opaque type (`Json`) has no body and holds no user type, so it is a
+-- leaf. Any other unknown named type counts as recursive, which keeps the
+-- firewall closed.
+reachesRecursion :: AliasMap -> Type -> Bool
+reachesRecursion am = go Set.empty
+  where
+    go path t = case t of
+      TCustom n
+        | n `elem` opaqueSealedNames -> False
+        | n `Set.member` path -> True
+        | otherwise -> maybe True (go (Set.insert n path)) (Map.lookup n am)
+      TSumType cs       -> any (go path) [ pt | (_, Just pt) <- cs ]
+      TList a           -> go path a
+      TMap a b          -> go path a || go path b
+      TResult a b       -> go path a || go path b
+      TPair a b         -> go path a || go path b
+      TFn as r          -> any (go path) (r : as)
+      TPromise a        -> go path a
+      TDependent _ a _  -> go path a
+      _                 -> False
+
+-- | MATCH-SCRUT-BIND: the 'CtorSums' map. Every sum with at least two
+-- constructors and at least one payload (all-nullary enums are lowered to int
+-- tags by 'desugarCtorValues' first). A payload sort is recorded only when
+-- 'admissiblePayload' holds, the same test the driver's 'adtKeys' applies. A
+-- constructor declared by two distinct sums is left out.
+buildCtorSums :: AliasMap -> CtorSums
+buildCtorSums am =
+  let sums    = nub [ ctors | TSumType ctors <- Map.elems am
+                            , length ctors >= 2, any (isJust . snd) ctors ]
+      shapeOf ctors =
+        ( Map.fromList (zip (map fst ctors) [0 ..])
+        , Map.fromList [ (c, typeToSort pt) | (c, Just pt) <- ctors, admissiblePayload am pt ]
+        , if admissibleDatatype am (TSumType ctors) && not (reachesRecursion am (TSumType ctors))
+            then Just (Map.fromList [ (c, typeToSort pt) | (c, Just pt) <- ctors
+                                                         , resolveAliasTy am pt /= TUnit ])
+            else Nothing )
+      grouped = Map.fromListWith (++) [ (c, [shapeOf ctors]) | ctors <- sums, (c, _) <- ctors ]
+  in Map.fromList [ (c, sh) | (c, [sh]) <- Map.toList grouped ]
+
 -- | Scope-aware desugar that lowers nullary-constructor VALUES and nullary-enum
 -- matches to the int-tag QF-LIA form the existing VC machinery already verifies:
 --   (a) a value-position @EVar n@ that resolves to a nullary constructor (n in
@@ -3786,8 +3831,25 @@ type ScrutTags = Map Name (Map Name Int)
 -- numeric"). The driver computes the map once from the AliasMap.
 type CalleeSorts = Map Name FQSort
 
+-- | MATCH-SCRUT-BIND: constructor → its sum's shape: the declaration-order
+-- tags, the payload sort of each constructor whose payload is admissible, and
+-- each constructor's declared datatype FIELD sort (as 'typeSorts' emits it).
+-- The field map is EMPTY for a sum that reaches a recursive type by any path,
+-- carriers included ('reachesRecursion'): an unused payload there keeps the
+-- §5.3.3 firewall (ACR-3, ACR-8, ACR-9). A match whose scrutinee is not a
+-- parameter has no driver-seeded keys; the translator reads the sum's shape
+-- from its arm constructors instead. Unambiguous names only.
+type CtorSums = Map Name (Map Name Int, Map Name FQSort, Maybe (Map Name FQSort))
+
+-- | MATCH-SCRUT-BIND: what a match on a non-parameter scrutinee reads. The
+-- constructor shapes, and the applied sort of each pair parameter the driver
+-- DECLARES ('pairParams'). A declared pair can carry contract facts, so a
+-- projection of it is bound to its term. The pair sorts are kept out of the
+-- body SortEnv so no existing VC changes.
+type MatchCtx = (CtorSums, SortEnv)
+
 -- | The read-only context of the body translator.
-type BodyCtx = (RefEnv, ScrutTags, CalleeSorts)
+type BodyCtx = (RefEnv, ScrutTags, CalleeSorts, MatchCtx)
 
 bodyToPredFrom :: Int -> SortEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFrom seed sortEnv cenv sccSet expr =
@@ -3798,11 +3860,11 @@ bodyToPredFrom seed sortEnv cenv sccSet expr =
 -- ScrutTags from two-arm payload sums; existing callers use 'bodyToPredFrom' (both empty).
 bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ScrutTags -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFromR seed sortEnv refEnv scrutTags =
-  bodyToPredFromRS seed sortEnv refEnv scrutTags Map.empty
+  bodyToPredFromRS seed sortEnv refEnv scrutTags Map.empty (Map.empty, Map.empty)
 
 -- | CALLEE-DATA-SORT-1: 'bodyToPredFromR' with the callee return-sort map.
-bodyToPredFromRS :: Int -> SortEnv -> RefEnv -> ScrutTags -> CalleeSorts -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
-bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts cenv sccSet expr =
+bodyToPredFromRS :: Int -> SortEnv -> RefEnv -> ScrutTags -> CalleeSorts -> MatchCtx -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts matchCtx cenv sccSet expr =
   -- LEVER-A1: bytes-get/bytes-set join the ANF hoist set so a nested occurrence
   -- (argument/operator position) lifts into a let and threads its CallVC
   -- (pre obligation + exact-pinning post). Hoisting only fires on occurrence —
@@ -3815,7 +3877,7 @@ bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts cenv sccSet expr =
   let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames (expandMapLets (Map.keysSet cenv) expr)
-        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags, calleeSorts)
+        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags, calleeSorts, matchCtx)
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -3982,7 +4044,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
       Just argPreds -> do
-        (_, _, calleeSorts) <- ask
+        (_, _, calleeSorts, _) <- ask
         let (params, contract, mRetType) = cenv Map.! fname
             paramNames = map fst params
             -- LEVER-A1: a callee returning bytes[n] whose contract mentions a
@@ -4362,6 +4424,17 @@ bodyToPredM env se cenv sccSet (EIf guard thenE elseE) = do
         (Just tvc, Just evc) -> return (Just (BranchVC gp [] tvc evc))
         _                    -> return Nothing
 
+-- MATCH-SCRUT-BIND (L1): `(let [(k c)] … (match k …))` where `c` is a sum
+-- parameter with a seeded tag and no value binder. `k` becomes an alias of `c`,
+-- so a match on `k` reads the parameter's own tag and payload keys. Only when
+-- the body matches on `k`; any other let keeps its LetBinding.
+bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, EVar c)] body)
+  | let c' = fromMaybe c (Map.lookup c env)
+  , Map.member (c' <> "$tag") se
+  , Map.notMember c' se
+  , v `Set.member` matchedScrutVars body
+  = bodyToPredM (Map.insert v c' env) se cenv sccSet body
+
 -- ELet with single PVar binding: alpha-rename, emit LetBinding, recurse
 bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
   -- Translate the RHS
@@ -4488,7 +4561,7 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (sV, sB, eV, eB) <- classifyResultArms arms
   , Just okSort  <- Map.lookup (r <> "$ok")  se
   , Just errSort <- Map.lookup (r <> "$err") se
-  = do (refEnv, _, _) <- ask
+  = do (refEnv, _, _, _) <- ask
        -- Result: arm1 = Success = tag 0 (Result posts are not tag-desugared, so arm order suffices).
        buildOpaqueSumBranch env se cenv sccSet r 0
          (Just (sV, okSort,  Map.lookup (r <> "$ok")  refEnv), sB)
@@ -4515,7 +4588,7 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (ctorArms, mWild) <- classifyNArmAdtArms arms
   , not (null ctorArms)
   , all (\(c, mv, _) -> armOk c mv) ctorArms
-  = do (refEnv, stm, _) <- ask
+  = do (refEnv, stm, _, _) <- ask
        -- The scrutinee's declaration-order tag map (from ScrutTags) gives each arm's
        -- tag and the constructor count n (for the tag range fact `tag ∈ {0..n-1}`).
        let tagOf c   = fromMaybe 0 (Map.lookup r stm >>= Map.lookup c)
@@ -4528,6 +4601,86 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
     armPayload _      _ Nothing  = Nothing
     armPayload refEnv c (Just v) =
       (\s -> (v, s, Map.lookup (r <> "$" <> c) refEnv)) <$> Map.lookup (r <> "$" <> c) se
+
+-- MATCH-SCRUT-BIND / MATCH-DEAD-PAYLOAD: a user-sum match the clause above does
+-- not take. (a) A variable scrutinee whose keys are not under its source name
+-- (a `let` alias of a sum parameter, a let-bound call result at a datatype
+-- sort), or a parameter with an arm whose payload is not admissible. (b) A pair
+-- projection `(first v)` / `(second v)` of a DECLARED pair, which gets a fresh
+-- binder equal to its term. A projection is never left free: a pair param the
+-- driver does not declare fails 'sortableComponent', and the signature guard
+-- then sends the whole function to fallback, so no free-tag case is reachable
+-- (measured: `[s: (R, Ctl)]` with a recursive R). The sum's
+-- shape comes from the arm constructors ('CtorSums'). A payload arm whose
+-- variable the arm does not use needs no admissible sort key (MATCH-DEAD-PAYLOAD).
+-- A linked match still links that arm, through a skolem at the field sort:
+-- dropping the link would lose the arm's constructor equality and could refute
+-- a correct body.
+bodyToPredM env se cenv sccSet (EMatch scr arms)
+  | isNothing (classifyResultArms arms)
+  , Just (ctorArms@((c0, _, _) : _), mWild) <- classifyNArmAdtArms arms
+  , Just target <- scrutTarget scr
+  = do (_, stm, _, (csums, pairSorts)) <- ask
+       case Map.lookup c0 csums of
+         Just (tags, pays, fields) | all (\(c, _, _) -> Map.member c tags) ctorArms ->
+           case target of
+             Left r'
+               | Map.member r' stm || Map.member (r' <> "$tag") se || isDataSort (Map.lookup r' se)
+               -> sumArms r' (Map.union se (payKeys r' pays)) tags fields ctorArms mWild
+               | otherwise -> return Nothing
+             Right (v', sel) ->
+               let pick s0 s1 = if sel == (0 :: Int) then s0 else s1
+               in case Map.lookup v' pairSorts <|> Map.lookup v' se of
+                 Just (FQDataApp "Pair2" [s0, s1])
+                   | s@(FQData _) <- pick s0 s1 -> do
+                   sHat <- freshName "_scrut"
+                   let lb  = LetBinding sHat s (FQApp (pick "pair2_0" "pair2_1") [FQVar v'])
+                       se' = Map.insert sHat s (Map.union se (payKeys sHat pays))
+                   fmap (prependLB lb) <$> sumArms sHat se' tags fields ctorArms mWild
+                 _ -> return Nothing
+         _ -> return Nothing
+  where
+    resolve n = fromMaybe n (Map.lookup n env)
+    scrutTarget (EVar r)                 = Just (Left (resolve r))
+    scrutTarget (EApp "first"  [EVar v]) = Just (Right (resolve v, 0))
+    scrutTarget (EApp "second" [EVar v]) = Just (Right (resolve v, 1))
+    scrutTarget _                        = Nothing
+    isDataSort (Just (FQData _)) = True
+    isDataSort _                 = False
+    payKeys r pays = Map.fromList [ (r <> "$" <> c, s) | (c, s) <- Map.toList pays ]
+    -- An unused payload binds nothing when the scrutinee is unlinked. When it is
+    -- linked, the arm's link `tag = k ⇒ r = Cₖ p` needs `p`, so the payload
+    -- binds as an unconstrained skolem at the datatype's own field sort. A sum
+    -- that reaches recursion (fields = Nothing) takes neither path.
+    sumArms r se' tags fields ctorArms mWild = do
+      (refEnv, _, _, _) <- ask
+      let linked = isDataSort (Map.lookup r se') && Map.notMember r env
+          key c  = r <> "$" <> c
+          dead v b = not (payloadUsed v b)
+          armOk (_, Nothing, _) = True
+          armOk (c, Just v, b)  = Map.member (key c) se'
+                                  || (dead v b && maybe False (\fs -> not linked || Map.member c fs) fields)
+          payload c (Just v) b
+            | Just s <- Map.lookup (key c) se' = Just (v, s, Map.lookup (key c) refEnv)
+            | linked, dead v b, Just s <- fields >>= Map.lookup c = Just (v, s, Nothing)
+          payload _ _ _ = Nothing
+      if all armOk ctorArms
+        then local (\(a, m, b, d) -> (a, Map.insert r tags m, b, d)) $
+               buildOpaqueSumBranchN env se' cenv sccSet r (Map.size tags)
+                 [ (Map.findWithDefault 0 c tags, payload c mv b, b) | (c, mv, b) <- ctorArms ] mWild
+        else return Nothing
+    -- Conservative: an await or a do block counts as a use.
+    payloadUsed v b = exprMentionsVar v b || opaque b
+    opaque (EAwait _)     = True
+    opaque (EDo _)        = True
+    opaque (EApp _ as)    = any opaque as
+    opaque (EOp _ as)     = any opaque as
+    opaque (EIf c t e)    = any opaque [c, t, e]
+    opaque (ELet bs b)    = any (\(_, _, e) -> opaque e) bs || opaque b
+    opaque (EMatch e cs)  = opaque e || any (opaque . snd) cs
+    opaque (EPair a b)    = opaque a || opaque b
+    opaque (ELambda _ b)  = opaque b
+    opaque _              = False
 
 bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
   -- Must be exactly 2 arms with Success and Error constructors
@@ -4739,7 +4892,7 @@ buildOpaqueSumBranchN env se cenv sccSet scrutVar nCtors arms mWild = do
   -- guarded by the tag, so two arms never assert contradictory values. A
   -- payload arm carries it on its payload binder; a nullary arm on the tag
   -- binder. Without a value binder nothing changes (byte-identical .fq).
-  (_, stm, _) <- ask
+  (_, stm, _, _) <- ask
   let linked = case Map.lookup scrutVar se of
         Just (FQData _) -> Map.notMember scrutVar env
         _               -> False

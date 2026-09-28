@@ -9083,6 +9083,83 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "settle"
         erFQText er `shouldNotSatisfy` T.isInfixOf "data Result"
 
+      -- MATCH-SCRUT-BIND / MATCH-DEAD-PAYLOAD (MATCH-SCRUT-PARAM-1): a user-sum
+      -- match proves when its scrutinee is a `let` alias, a pair projection or a
+      -- datatype-sorted call result, and when an arm ignores a payload that is not
+      -- an admissible scalar. Before, each shape fell back with its post assumed.
+      let ctlT  = "(type Ctl (| Boot int) (| Done int)) "
+          ctlTT = "(type Ctl (| Boot (int, int)) (| Done int)) "
+          clamp = "((Done x) (if (< x 0) 1 (if (> x 255) 255 x)))"
+          raw   = "((Done x) x)"
+          rng   = "(post (and (>= result 0) (<= result 255)))"
+      it "MSB-1 MATCH-DEAD-PAYLOAD an unused tuple payload on a param: clamp SAFE; raw arm REFUTED" $
+        sbPair "st"
+          (ctlTT ++ "(def st [c: Ctl] -> int " ++ rng ++ " (match c ((Boot b) 1) " ++ clamp ++ "))")
+          (ctlTT ++ "(def st [c: Ctl] -> int " ++ rng ++ " (match c ((Boot b) 1) " ++ raw ++ "))")
+
+      it "MSB-2 MATCH-SCRUT-BIND a projection of a declared pair (L2): clamp SAFE; raw arm REFUTED" $
+        sbPair "st"
+          (ctlT ++ "(def st [s: (int, Ctl)] -> int " ++ rng ++ " (match (second s) ((Boot b) 1) " ++ clamp ++ "))")
+          (ctlT ++ "(def st [s: (int, Ctl)] -> int " ++ rng ++ " (match (second s) ((Boot b) 1) " ++ raw ++ "))")
+
+      it "MSB-3 MATCH-SCRUT-BIND a let alias of a sum param (L1): clamp SAFE; raw arm REFUTED" $
+        sbPair "st"
+          (ctlT ++ "(def st [c: Ctl] -> int " ++ rng ++ " (let [[k c]] (match k ((Boot b) 1) " ++ clamp ++ ")))")
+          (ctlT ++ "(def st [c: Ctl] -> int " ++ rng ++ " (let [[k c]] (match k ((Boot b) 1) " ++ raw ++ ")))")
+
+      it "MSB-4 both parts: a projection with an unused tuple payload (the drv-status shape)" $
+        sbPair "st"
+          (ctlTT ++ "(def st [s: (int, Ctl)] -> int " ++ rng ++ " (match (second s) ((Boot b) 1) " ++ clamp ++ "))")
+          (ctlTT ++ "(def st [s: (int, Ctl)] -> int " ++ rng ++ " (match (second s) ((Boot b) 1) " ++ raw ++ "))")
+
+      it "MSB-5 a projection of an undeclared pair is never given a free tag: the function falls back" $ do
+        -- A recursive component is not sortable: the driver declares no `s` and
+        -- the signature guard sends the function to fallback before the match.
+        er <- emitA2 ("(type R (| Stop) (| Wrap R)) " ++ ctlT ++ "(def st [s: (R, Ctl)] -> int " ++ rng ++ " (match (second s) ((Boot b) 1) " ++ raw ++ "))")
+        erBodyFallback er `shouldSatisfy` elem "st"
+
+      it "MSB-6 a pre on the projection decides the arm: the linked unused-payload arm is not REFUTED" $ do
+        er <- emitA2 (ctlTT ++ "(def st [s: (int, Ctl)] -> int (pre (= (second s) (Done 3))) (post (= result 1)) (match (second s) ((Boot b) 0) ((Done x) 1)))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "st"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "MSB-7 an unused payload on a linked param binds a field-sort skolem: SAFE; wrong arm REFUTED" $
+        sbPair "st"
+          (ctlTT ++ "(def st [c: Ctl] -> int (post (and (>= result 0) (= c c))) (match c ((Boot b) 1) " ++ clamp ++ "))")
+          (ctlTT ++ "(def st [c: Ctl] -> int (post (and (>= result 0) (= c c))) (match c ((Boot b) (- 0 1)) " ++ clamp ++ "))")
+
+      it "MSB-8 a match on a datatype-sorted call result uses the callee post: B arm SAFE; A arm REFUTED" $ do
+        let src arm = ctlT ++ "(def g [x: int] -> Ctl (post (= result (Done 5))) (Done 5)) (def-shell use [x: int] -> int (post (= result 5)) (match (g x) " ++ arm ++ "))"
+        erG <- emitA2 (src "((Boot p) 0) ((Done y) y)")
+        erB <- emitA2 (src "((Boot p) 5) ((Done y) 0)")
+        erBodyFaithfulFns erG `shouldSatisfy` elem "use"
+        mG <- solveFq erG
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erB
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "MSB-9 a used payload that is not an admissible scalar still falls back" $ do
+        er <- emitA2 (ctlTT ++ "(def st [c: Ctl] -> int (post (>= result 0)) (match c ((Boot p) (if (< (first p) 0) 0 (first p))) ((Done x) (if (< x 0) 0 x))))")
+        erBodyFallback er `shouldSatisfy` elem "st"
+
+      it "MSB-10 a let-bound constructor value is not given a free tag: it falls back, never REFUTED" $ do
+        er <- emitA2 (ctlT ++ "(def st [x: int] -> int (post (= result 1)) (let [[k (Done x)]] (match k ((Boot b) 0) ((Done y) 1))))")
+        erBodyFallback er `shouldSatisfy` elem "st"
+
+      it "MSB-11 an unused sealed Json payload is a leaf, not a recursion: the match proves" $
+        -- The drv-status shape: Ctl carries Json in arms that ignore it. Only a
+        -- sum that reaches ITSELF keeps the firewall (ACR-3, ACR-8, ACR-9).
+        sbPair "st"
+          ("(type Ctl (| Boot Json) (| Done int)) (def st [c: Ctl] -> int " ++ rng ++ " (match c ((Boot j) 1) " ++ clamp ++ "))")
+          ("(type Ctl (| Boot Json) (| Done int)) (def st [c: Ctl] -> int " ++ rng ++ " (match c ((Boot j) 1) " ++ raw ++ "))")
+
       -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
       -- values + string RMW chains + cross-call string-map assume-guarantee.
       it "A2S-7 string-map return (the A4 revoke shape): put-then-return verifies; wrong-status twin REFUTED" $ do
@@ -11007,12 +11084,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "settle-adt"
         erBodyFallback er    `shouldSatisfy` not . elem "settle-adt"
 
-      it "DELIM-2: a two-arm ADT with a SUM-typed payload falls back (firewall, not body-faithful)" $ do
-        er <- emitSrc (T.unlines
-          [ "(type Inner (| A int) (| B int))"
-          , "(type Wrap (| W Inner) (| Z int))"
-          , "(def f [w: Wrap] -> int (post (>= result 0)) (match w ((W i) 0) ((Z n) 0)))" ])
-        erBodyFaithfulFns er `shouldSatisfy` not . elem "f"
+      it "DELIM-2: a two-arm ADT with a USED SUM-typed payload falls back (firewall); an unused one proves" $ do
+        -- MATCH-DEAD-PAYLOAD: the firewall refuses a payload the arm READS. An
+        -- arm that ignores its payload binds nothing, so the same match proves.
+        let src arm = T.unlines
+              [ "(type Inner (| A int) (| B int))"
+              , "(type Wrap (| W Inner) (| Z int))"
+              , "(def f [w: Wrap] -> int (post (>= result 0)) (match w (" <> arm <> ") ((Z n) 0)))" ]
+        erUsed <- emitSrc (src "(W i) (match i ((A a) 0) ((B b) 0))")
+        erBodyFaithfulFns erUsed `shouldSatisfy` not . elem "f"
+        erDead <- emitSrc (src "(W i) 0")
+        erBodyFaithfulFns erDead `shouldSatisfy` elem "f"
 
       it "DELIM-3: a two-arm user-ADT var match (derived $Ctor keys) yields a BranchVC carrying its binders" $ do
         let body = EMatch (EVar "o")
@@ -11072,13 +11154,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (match c ((Red) 0) ((Green) 1) ((Blue) 2)))" ])
         erBodyFaithfulFns er `shouldSatisfy` elem "pick"
 
-      it "MW2A-5: a 3-arm sum with a non-admissible (sum-typed) payload arm falls back (firewall)" $ do
-        er <- emitSrc (T.unlines
-          [ "(type Inner (| A int) (| B int))"
-          , "(type Wrap3 (| W Inner) (| Z int) (| Q))"
-          , "(def-shell f [w: Wrap3] -> int (post (>= result 0))"
-          , "  (match w ((W i) 0) ((Z n) 0) ((Q) 0)))" ])
-        erBodyFaithfulFns er `shouldSatisfy` not . elem "f"
+      it "MW2A-5: a 3-arm sum with a USED non-admissible (sum-typed) payload arm falls back (firewall)" $ do
+        let src arm = T.unlines
+              [ "(type Inner (| A int) (| B int))"
+              , "(type Wrap3 (| W Inner) (| Z int) (| Q))"
+              , "(def-shell f [w: Wrap3] -> int (post (>= result 0))"
+              , "  (match w (" <> arm <> ") ((Z n) 0) ((Q) 0)))" ]
+        erUsed <- emitSrc (src "(W i) (match i ((A a) 0) ((B b) 0))")
+        erBodyFaithfulFns erUsed `shouldSatisfy` not . elem "f"
+        -- MATCH-DEAD-PAYLOAD: the same arm ignoring its payload proves.
+        erDead <- emitSrc (src "(W i) 0")
+        erBodyFaithfulFns erDead `shouldSatisfy` elem "f"
 
       it "MW2A-6: a two-arm ADT match is UNCHANGED — a single BranchVC (n=2 byte-identity)" $ do
         -- Mirrors DELIM-3: the n-way generalization must degenerate to the exact
@@ -20001,12 +20087,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       emitWarns er `shouldSatisfy` any (T.isInfixOf "'d'")
 
     it "SFS-3 a NON-recursive sum payload is inadmissible too: the line is {int,bool,string}" $ do
-      er <- emitSF (unlines
-        [ "(type Inner (| A) (| B))"
-        , "(type Outer (| Wrap Inner) (| None4))"
-        , "(def-shell s [b: Outer] -> int (post (> result 5))"
-        , "  (match b ((Wrap i) 1) ((None4) 0)))" ])
-      consOf "s" er `shouldBe` Just ["match-payload-sort"]
+      let src arm = unlines
+            [ "(type Inner (| A) (| B))"
+            , "(type Outer (| Wrap Inner) (| None4))"
+            , "(def-shell s [b: Outer] -> int (post (> result 5))"
+            , "  (match b (" ++ arm ++ ") ((None4) 0)))" ]
+      erUsed <- emitSF (src "(Wrap i) (match i ((A) 1) ((B) 2))")
+      consOf "s" erUsed `shouldBe` Just ["match-payload-sort"]
+      -- MATCH-DEAD-PAYLOAD: an arm that ignores the payload is not refused, so
+      -- the body reaches a VC and nothing labels it.
+      erDead <- emitSF (src "(Wrap i) 1")
+      consOf "s" erDead `shouldBe` Nothing
 
     it "SFS-4 a bool payload is admissible, so the body verifies and nothing warns" $ do
       er <- emitSF (unlines
