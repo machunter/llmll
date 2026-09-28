@@ -297,12 +297,12 @@ def test_ht9_same_file_def_callee_gets_the_placement_diagnostic(tmp_path: Path):
 
 
 def test_ht10_trust_report_carries_the_closure(tmp_path: Path):
-    """HT-10. The report and the headline agree about `use`; version 1.7.0."""
+    """HT-10. The report and the headline agree about `use`; version 1.8.0 (PARTIAL-FNS-GRAPH-1)."""
     _write(tmp_path, {"caller3.llmll": CALLER3})
     assert _run(tmp_path, "verify", "caller3.llmll").returncode == 0
     t = _json(_run(tmp_path, "verify", "--trust-report", "caller3.llmll",
                    json_mode=True).stdout, "trust_report_version")
-    assert t["trust_report_version"] == "1.7.0"
+    assert t["trust_report_version"] == "1.8.0"
     assert t["termination_assumed_fns"] == [{"name": "spin", "via": "spin"},
                                             {"name": "use", "via": "spin"}]
     assert t["partial_fns"] == ["spin"]

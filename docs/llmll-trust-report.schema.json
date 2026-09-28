@@ -10,9 +10,9 @@
   "properties": {
 
     "trust_report_version": {
-      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy.",
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy. 1.8.0 (PARTIAL-FNS-GRAPH-1) added no key: `partial_fns` and the per-entry `termination_unverified` flag now read the module-qualified call graph, so a cached member is named `m.f`, and recursion through a function value counts.",
       "type": "string",
-      "const": "1.7.0"
+      "const": "1.8.0"
     },
 
     "entries": {

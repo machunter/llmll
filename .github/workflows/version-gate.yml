@@ -541,6 +541,23 @@ jobs:
           grep -q ' 10 passed' "$RUNNER_TEMP/headline-term.log" \
             || { echo "HEADLINE-TERM-1: expected 10 passed cells"; exit 1; }
 
+      # PARTIAL-FNS-GRAPH-1 + SHELL-CALL-PRE-1 Part 1: partial_fns and the
+      # caller-obligation lookup read the module-qualified call graph, and
+      # verify names calls whose callee pre nothing proved. PFG-1, PFG-2, SCP-1
+      # and SCP-2 failed on the v0.26.13 binary; PFG-3, PFG-4 and SCP-3
+      # (negative controls) passed on both. Same skip and count guards as above.
+      - name: Run PARTIAL-FNS-GRAPH-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_partial_fns_graph_1.py -v -rs \
+            | tee "$RUNNER_TEMP/partial-fns-graph.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/partial-fns-graph.log"; then
+            echo "a PARTIAL-FNS-GRAPH-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+          grep -q ' 7 passed' "$RUNNER_TEMP/partial-fns-graph.log" \
+            || { echo "PARTIAL-FNS-GRAPH-1: expected 7 passed cells"; exit 1; }
+
       - name: Verify each port adjudicator and assert its crux refutes (TOOL-ORACLE-1)
         run: |
           set -euo pipefail

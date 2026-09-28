@@ -29,6 +29,7 @@ module LLMLL.HoleAnalysis
   , normalizeComplexity
     -- * v0.9.0: call graph (shared with FixpointEmit for SCC detection)
   , buildCallGraph
+  , extractCalls     -- PARTIAL-FNS-GRAPH-1: shared with CallGraph
     -- * v0.10: pointer → function name (shared with ObligationAssembly)
   , enclosingFunc
     -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)

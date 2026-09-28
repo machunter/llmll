@@ -810,6 +810,40 @@ moduleSpec = describe "Module System" $ do
       undischargedCycleMembers g Set.empty `shouldBe` Set.fromList ["f", "g"]
       undischargedCycleMembers g (Set.fromList ["f", "g"]) `shouldBe` Set.empty
 
+    -- PARTIAL-FNS-GRAPH-1: a function used as a value is an edge, unless a
+    -- binder in scope shadows its name.
+    it "PFG-G1: recursion through list-fold is a cycle" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(def-shell g [acc: int y: int] -> int (list-fold (list-prepend y (list-empty)) acc g))")
+      Map.lookup "g" g `shouldBe` Just ["g"]
+      -- 'loop.spin' is in the shared cache and recurses too.
+      undischargedCycleMembers g Set.empty `shouldBe` Set.fromList ["g", "loop.spin"]
+
+    it "PFG-G2: a parameter that shadows a function adds no edge" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(def-shell spin [x: int] -> int (spin x))\n(def-shell k [spin: int] -> int spin)")
+      Map.lookup "k" g `shouldBe` Just []
+
+    it "PFG-G3: a let binder shadows a function in the body" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(def-shell spin [x: int] -> int (spin x))\n(def-shell k [x: int] -> int (let [(spin x)] spin))")
+      Map.lookup "k" g `shouldBe` Just []
+
+    it "PFG-G4: a lambda parameter shadows a function in the lambda body" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(def-shell spin [x: int] -> int (spin x))\n(def-shell k [xs: list[int]] -> list[int] (list-map xs (fn [spin: int] spin)))")
+      Map.lookup "k" g `shouldBe` Just []
+
+    it "PFG-G5: an opened function used as a value resolves to the import" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(import loop)\n(open loop)\n(def-shell use [xs: list[int]] -> list[int] (list-map xs spin))")
+      Map.lookup "use" g `shouldBe` Just ["loop.spin"]
+
+    it "PFG-G6: a qualified function used as a value resolves without an open" $ do
+      let g = qualifiedCallGraph cache (parseSrc
+                "(import loop)\n(def-shell use [xs: list[int]] -> list[int] (list-map xs loop.spin))")
+      Map.lookup "use" g `shouldBe` Just ["loop.spin"]
+
   describe "XMOD-SCOPE-BRIEF: brief scope/function channels see imported names" $ do
     let parseSrc src = case parseTopLevel GrammarCoreInversion "<xmod-scope>" src of
           Left e      -> error ("parse failed: " ++ show e)
