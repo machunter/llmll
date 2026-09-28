@@ -23,7 +23,7 @@ contracted module is proved. Each tool's program starts with `(import adjudicate
 driver's `sequencer.llmll` imports its contracted modules directly or through `wave.llmll`
 and `spine.llmll`.
 
-## What is proved (llmll 0.26.5)
+## What is proved (llmll 0.26.13)
 
 Counts are the file's own functions; a function a file imports is counted where it is defined.
 
@@ -33,13 +33,14 @@ Counts are the file's own functions; a function a file imports is counted where 
 | doc-path-lint | `adjudicate.llmll` | `reports?`, `tally`, `status-of` | a path is reported exactly when none of its six exemptions holds; the finding count rises by one per report and is never negative; strict mode exits 1 exactly when a strict run has findings |
 | doc-archive | `adjudicate.llmll` | `side-of` | Shipped and Superseded route to the spec directory, Dropped and Deferred to the dormant directory, an unknown disposition to neither |
 | build-smoke | `adjudicate.llmll` | `fsenc-verdict`, `status-of` | the encoding verdict is 0 unless the marker, digest, faithfulness and both binary comparisons hold; the stage passes with exit 0 and fails with exit 1 |
-| llmll-driver | 12 modules | 31 | the driver spec's decision rules, each clause cited with `:source`; see below |
+| llmll-driver | 12 modules | 32 | the driver spec's decision rules, each clause cited with `:source`; see below |
 
 The driver's proved modules and what each one states are listed in
 [`llmll-driver/README.md`](llmll-driver/README.md#what-is-proved). Per module: `shape` 5,
 `oracle` 4, `spine` 9 (the stage E, J, L and G2 pins and outcomes), `fill` 3, `gate` 2,
-`validate` 2, and one each in `liveness`, `report`, `skip`, `stage`, `token` and `sequencer`
-(`exit-code`). `twin-skip-reassociated.llmll` also verifies (1 function); it is a correct twin of
+`validate` 2, `sequencer` 2 (`exit-code`, and `drv-status`, the exit status in 0 to 255, proved
+since 0.26.13), and one each in `liveness`, `report`, `skip`, `stage` and `token`.
+`twin-skip-reassociated.llmll` also verifies (1 function); it is a correct twin of
 `skip`, reassociated, kept to show the contract admits more than one phrasing, and the driver does
 not import it.
 
@@ -58,13 +59,6 @@ not import it.
   two-module program that makes the same kind of call builds, and at run time stops with
   `pre-condition failed` and exit 1. A violated precondition therefore stops the tool; it is
   not ruled out in advance.
-- **`drv-status` in `sequencer.llmll`** is asserted, not proved. It carries a contract (the
-  exit status is in 0 to 255), but its body matches on `(second s)`, a pair component of
-  datatype sort, and that falls outside the fragment (`body-outside-fragment`, refused by
-  `match`). Measured on minimal files: a `match` on a `Ctl` variable is proved, and `second` of
-  an `(int, int)` pair is proved; only the combination falls back. The tool cannot work around
-  it: `:status` receives the whole `(Run, Ctl)` state, and a `def` cannot call a helper defined
-  in the same file. Proving it needs compiler support for datatype-sorted pair components.
 - **`fixtures/wave-roots.llmll`** is a holed fixture; its 2 contracts are assumed by design.
 
 A `SAFE` headline on a program with no contracts means only that no contradiction was found.

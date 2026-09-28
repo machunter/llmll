@@ -227,22 +227,21 @@
 ;; THE PROCESS BOUNDARY (PROC-BOUNDARY-1, shipped v0.14.84).
 ;;
 ;; argv arrives as :init's command on the RList arm through RC-3, and the exit
-;; status is the :status projection. Both halves are used as specified. One
-;; measured LIMIT, and it is a finding against the proposal's section 4.4
-;; rather than a defect:
+;; status is the :status projection. Both halves are used as specified.
 ;;
-;;   the range refinement {v : int | 0 <= v <= 255} is proved only where the
-;;   function :status names is BODY-FAITHFUL, and a projection out of a
-;;   structured state is not. MEASURED at v0.14.84: a def whose body applies
-;;   `first` to a pair falls back, for (int, int) as much as for this state
-;;   type, so drv-status is contract-checked rather than proved. The
-;;   proc_boundary.llmll fixture takes `[s: int]` and is the provable case; no
-;;   driver with a product state is.
+;;   the range refinement {v : int | 0 <= v <= 255} is proved where the
+;;   function :status names is BODY-FAITHFUL. drv-status IS, since v0.26.13
+;;   (MATCH-SCRUT-PARAM-1): its match on (second s) reaches the body VC, so
+;;   the clamp is checked and a body without it is refuted on the Done arm.
+;;   Until then it was contract-checked only. MEASURED at v0.14.84, a
+;;   projection out of a structured state fell back, and at v0.26.12 a match
+;;   with a non-scalar payload arm fell back even on a parameter; the
+;;   proposal's section 4.4 finding against a product-state driver is closed.
 ;;
-;; What carries the weight instead is exit-code below, which IS body-faithful
-;; and whose [EXIT-NOVACUOUS] post is the eliminative one: a run that did not
-;; complete cannot exit 0. drv-status then clamps, so a state carrying 256
-;; exits 255 rather than exiting 0 and reporting success.
+;; exit-code below is body-faithful too, and its [EXIT-NOVACUOUS] post is the
+;; eliminative one: a run that did not complete cannot exit 0. drv-status then
+;; clamps, so a state carrying 256 exits 255 rather than exiting 0 and
+;; reporting success.
 ;;
 ;; ------------------------------------------------------------------
 ;; TWO OUT-OF-STAGE HALTS CARRY NO STAGE STATUS.
@@ -3762,9 +3761,9 @@
     (wasi.io.stdout
       (string-concat "[driver-ll] end status=" (int-to-string (done-code s)))))
 
-  ;; :status. Contract-checked, not body-faithful; see the header. The clamp is
-  ;; what makes the declared range true by construction rather than by
-  ;; assertion, and it fails in the safe direction: 256 exits 255, not 0.
+  ;; :status. Body-faithful since v0.26.13; see the header. The clamp is what
+  ;; makes the declared range true, the proof checks it, and it fails in the
+  ;; safe direction: 256 exits 255, not 0.
   ;;
   ;; EVERY ARM BINDS ITS PAYLOAD, including the eight that ignore it. A `_`
   ;; there is PWildcard, and isCoreBodySyntactic's payload-constructor leg

@@ -744,7 +744,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
   ...)
 
 (def cache-lookup [k: Key]
-  (post (or (is-ok result) (is-error result)))
+  (post (or (is-ok result) (not (is-ok result))))
   (spec-entropy :intentional)
   ...)
 ```
