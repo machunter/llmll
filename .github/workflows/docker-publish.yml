@@ -15,10 +15,18 @@
 #            container acceptance gate (scripts/tests/docker-acceptance.sh):
 #            conserve-bad must refute (exit 1, NOT 3), conserve must verify
 #            (exit 0). On a tag push the leg then pushes the SAME build by
-#            digest (untagged; the rebuild is served from the leg's local
-#            BuildKit cache), checks that the pushed layers equal the tested
-#            layers, and uploads the digest as an artifact. On PRs and main
-#            pushes nothing is pushed.
+#            digest (untagged; every step of the rebuild is a cache hit),
+#            checks that the pushed layers equal the tested layers, and
+#            uploads the digest as an artifact. On PRs and main pushes nothing
+#            is pushed.
+#
+# Cache scopes. A tag build WRITES only `llmll-tag-<arch>` and its push step
+# READS only that scope, so the pushed layers come from the tested build. The
+# stack build is not byte-reproducible, and a shared scope let a concurrent
+# main-push build of the same commit replace the cache between the tested
+# build and the push: v0.26.13's first arm64 attempt pushed main's layers,
+# and the layer check stopped it (run 36381400762). The tested build may still
+# READ `llmll-<arch>` as a warm start; whatever it imports is what is tested.
 #   merge  — tag pushes only, after `gate` and every `build` leg succeed.
 #            Creates the multi-arch manifest list from the per-arch digests
 #            and tags it ghcr.io/<owner>/llmll:vX.Y.Z and :latest. An image
@@ -127,8 +135,10 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           load: true
           tags: llmll:ci
-          cache-from: type=gha,scope=llmll-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=llmll-${{ matrix.arch }}
+          cache-from: |
+            type=gha,scope=${{ startsWith(github.ref, 'refs/tags/v') && format('llmll-tag-{0}', matrix.arch) || format('llmll-{0}', matrix.arch) }}
+            type=gha,scope=llmll-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ startsWith(github.ref, 'refs/tags/v') && format('llmll-tag-{0}', matrix.arch) || format('llmll-{0}', matrix.arch) }}
 
       - name: Container acceptance gate
         run: bash scripts/tests/docker-acceptance.sh llmll:ci
@@ -143,9 +153,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Same inputs as the tested build; every layer is a hit in this leg's
-      # local BuildKit cache, so this exports the tested layers rather than
-      # rebuilding them. The next step checks that.
+      # Same inputs as the tested build, and every layer is a cache hit. It
+      # reads ONLY the tag scope, which the tested build just wrote, so the
+      # hits are the tested layers and not another run's. The next step checks
+      # that.
       - name: Push by digest (${{ matrix.arch }}, untagged)
         id: push
         if: startsWith(github.ref, 'refs/tags/v')
@@ -154,7 +165,7 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=llmll-${{ matrix.arch }}
+          cache-from: type=gha,scope=llmll-tag-${{ matrix.arch }}
 
       - name: Assert pushed layers == tested layers
         if: startsWith(github.ref, 'refs/tags/v')
