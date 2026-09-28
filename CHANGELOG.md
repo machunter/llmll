@@ -4,6 +4,50 @@
 
 <a id="Latest"></a>
 
+## v0.26.12: sum values, contract `match` and `is-ok` are proved; two solver crashes fixed (2026-09-27)
+
+### Five body-VC fallbacks from the v0.26.11 probes, and two liquid-fixpoint crashes
+
+Each shape below fell back before this release: the post was assumed, so a wrong body was SAFE.
+Each now reaches a body-faithful VC; a correct body proves and a wrong twin is refuted.
+
+- **`TAIL-VAR-1`: a string parameter returned as a result leaf.** `(def echo [s: string] -> string
+  (post (= result s)) s)` was refused as `var`. The `tailVars` walker declares a string parameter in
+  tail position (`s`, `(if c s "x")`) in the carrier list and the body sort environment, the fifth
+  use of the pattern after `STR-PAYLOAD-CTOR-1`.
+- **`SUM-VALUE-1`: a sum parameter used as a value.** A clause naming a payload-sum parameter,
+  `(= result t)`, was refused by the signature guard, because the opaque-sum encoding gave `t` no
+  value. An admissible user sum or `Result` parameter that a clause names, the body returns, or a
+  call passes to a callee whose contract names it, is now declared at its datatype sort. Match
+  elimination links each arm to it with `tag = k ⇒ t = Cₖ p`, which holds on every run and is
+  guarded by the tag. Match re-construction, `(match t ((Big n) (Big n)) ((Small n) (Small n)))`,
+  and identity, `t`, now prove. A recursive sum parameter stays behind the guard.
+- **`MATCH-POST-1`: `match` and `is-ok` in a pre or post.** A `match` on `result` or on a
+  datatype-sorted parameter reflects as first-match implications over constructor equality, with
+  the datatype's own selectors and no tester symbols; a wildcard or variable arm takes what earlier
+  arms leave. `Success`/`Error` name the declared `ok`/`err`, and `(is-ok x)` reflects as
+  `x = ok (ok_0 x)`. `clauseMatchUnsafe` refuses any other scrutinee (an int-tag enum, a nested
+  payload variable), so the contract falls back whole. `Result` is now declared when a `Result`
+  value is sorted, not only when one is built; an eliminate-only module stays byte-identical.
+- **`POST-TRUE-1`: `(post true)` crashed liquid-fixpoint** ("RHS without single conjunct"). A closed
+  true post emits no body-post constraint, the `RESP-FACT-1` rule for a closed call-pre. Call-pre
+  obligations in the body are still emitted and checked.
+- **`CALLEE-DATA-SORT-1`: a tail call to a sum- or `Result`-returning callee crashed liquid-fixpoint**
+  ("The sort T is not numeric"), on v0.26.11 too. The call result was bound at `int` because the
+  call path sorted it with the alias-unaware `typeToSort`. It is now bound at the datatype sort. A
+  callee post with datatype terms is not assumed when that sort cannot be resolved (an imported sum
+  the local alias map does not hold), a sound weakening instead of a crash. A `match` on a `Result`
+  call result now links its guard to the call result, so the callee's post decides which arm is
+  reachable.
+- **Unchanged:** a `match` on a user-sum call result falls back; the call result is a `let`-bound
+  scrutinee, the case `MATCH-SCRUT-PARAM-1` measures. An old-versus-new sweep over 300 example, tool
+  and script files changes no verdict; 8 `.fq` files gain unused declarations only.
+- **Tests:** hspec `TV-1`, `TV-2`, `SV-1` to `SV-7`, `MP-1` to `MP-3`, `PT-1`, `RS-1` to `RS-4`,
+  `CDS-1` to `CDS-3`. `ENUM-EQ-5` and the `CM-1` battery pinned the refusal this release lifts; each
+  now pins the proof, and `CM-1` keeps a recursive-sum case that must still refuse.
+
+Tests: 2128 examples, 0 failures (+20); Python 312 passed, 92 skipped.
+
 ## v0.26.11: a string payload built from a parameter is proved (2026-09-27)
 
 ### `STR-PAYLOAD-CTOR-1`: `(Named s)` from a string parameter withdrew its own body VC

@@ -8065,6 +8065,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let emitE src = case parseStatements GrammarCoreInversion "test" src of
             Left err    -> error ("parse failed: " <> show err)
             Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+          solveFq er = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/enum-eq-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            a <- findExecutable "liquid-fixpoint"
+            mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+            case mLF of
+              Nothing -> pure Nothing
+              Just lf -> do
+                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                pure (Just (T.pack out))
 
       it "ENUM-EQ-1 if-body: ctor-equality atoms on a nullary-enum param in the post are body-faithful" $ do
         er <- emitE "(type E (| A) (| B)) (def f [x: E] -> int (post (and (=> (= x A) (= result 1)) (=> (= x B) (= result 2)))) (if (= x A) 1 2))"
@@ -8084,9 +8095,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "f"
         erBodyFallback er    `shouldNotSatisfy` elem "f"
 
-      it "ENUM-EQ-5 the guard still fires for a payload-bearing sum param named bare in a post (unmatched → no $tag desugar)" $ do
-        er <- emitE "(type S (| A) (| B int)) (def g [x: S n: int] -> int (post (=> (= x A) (= result 1))) 1)"
-        erBodyFallback er `shouldSatisfy` elem "g"
+      -- SUM-VALUE-1: this used to pin the guard FIRING (fallback). The param now
+      -- has a value binder at its datatype sort, so the clause is well-sorted and
+      -- reflects; the wrong-body twin shows the post is not vacuous.
+      it "ENUM-EQ-5 a payload-bearing sum param named bare in a post reflects via its value binder (SUM-VALUE-1)" $ do
+        er  <- emitE "(type S (| A) (| B int)) (def g [x: S n: int] -> int (post (=> (= x A) (= result 1))) 1)"
+        erB <- emitE "(type S (| A) (| B int)) (def g [x: S n: int] -> int (post (=> (= x A) (= result 1))) 2)"
+        erBodyFaithfulFns er  `shouldSatisfy` elem "g"
+        erBodyFaithfulFns erB `shouldSatisfy` elem "g"
+        mG <- solveFq er
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erB
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
     -- LEVER-A0 (data-scope-lever-a-arrays-proposal.md §10 stage A0): the eight
     -- bytes/map builtins exist at the surface — typecheck (incl. the v1 int-only
@@ -8893,6 +8917,172 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         er <- emitA2 (tagT ++ "(def cat-named [s: string] -> Tag (post (= result (Named s))) (Named (string-concat s \"x\")))")
         erBodyFallback er `shouldSatisfy` elem "cat-named"
 
+      -- TAIL-VAR-1: a string param returned as a result leaf gets the Str body
+      -- SortEnv entry. Before, `s` as the whole body was refused (`var`) and a
+      -- wrong body was SAFE with its post assumed.
+      it "TV-1 TAIL-VAR-1 whole-body string var: s SAFE; returning t REFUTED" $
+        sbPair "echo"
+          "(def echo [s: string t: string] -> string (post (= result s)) s)"
+          "(def echo [s: string t: string] -> string (post (= result s)) t)"
+
+      it "TV-2 TAIL-VAR-1 string var in an if leaf: SAFE; the swapped leaves REFUTED" $
+        sbPair "orx"
+          "(def orx [s: string b: bool] -> string (post (=> b (= result s))) (if b s \"x\"))"
+          "(def orx [s: string b: bool] -> string (post (=> b (= result s))) (if b \"x\" s))"
+
+      -- SUM-VALUE-1: a payload-sum param named by a clause, or returned as a
+      -- leaf, gets a value binder at its datatype sort, and the opaque-sum match
+      -- links each arm to it (tag = k => t = Ck p). Before, the signature guard
+      -- refused any clause naming the param and a wrong body was SAFE.
+      let sumT  = "(type T (| Big int) (| Small int)) "
+          sumM  = "(type M (| None) (| Some int)) "
+          sumT3 = "(type T3 (| A int) (| B int) (| C)) "
+      it "SV-1 SUM-VALUE-1 match re-construction: rebuild SAFE; a swapped constructor REFUTED" $
+        sbPair "keep"
+          (sumT ++ "(def keep [t: T] -> T (post (= result t)) (match t ((Big n) (Big n)) ((Small n) (Small n))))")
+          (sumT ++ "(def keep [t: T] -> T (post (= result t)) (match t ((Big n) (Small n)) ((Small n) (Small n))))")
+
+      it "SV-2 SUM-VALUE-1 identity on a sum param: t SAFE; (Big 1) REFUTED" $
+        sbPair "idt"
+          (sumT ++ "(def idt [t: T] -> T (post (= result t)) t)")
+          (sumT ++ "(def idt [t: T] -> T (post (= result t)) (Big 1))")
+
+      it "SV-3 SUM-VALUE-1 mixed nullary arm: rebuild SAFE; Some to None REFUTED" $
+        sbPair "keepm"
+          (sumM ++ "(def keepm [m: M] -> M (post (= result m)) (match m ((None) None) ((Some n) (Some n))))")
+          (sumM ++ "(def keepm [m: M] -> M (post (= result m)) (match m ((None) None) ((Some n) None)))")
+
+      it "SV-4 SUM-VALUE-1 three arms and a wildcard tail" $ do
+        sbPair "k3"
+          (sumT3 ++ "(def k3 [t: T3] -> T3 (post (= result t)) (match t ((A n) (A n)) ((B n) (B n)) ((C) C)))")
+          (sumT3 ++ "(def k3 [t: T3] -> T3 (post (= result t)) (match t ((A n) (A n)) ((B n) (A n)) ((C) C)))")
+        sbPair "w"
+          (sumT ++ "(def w [t: T] -> T (post (= result t)) (match t ((Big n) (Big n)) (_ t)))")
+          (sumT ++ "(def w [t: T] -> T (post (= result t)) (match t ((Big n) (Small n)) (_ t)))")
+
+      it "SV-5 SUM-VALUE-1 a caller passing its sum param to a pre that names it proves that pre" $ do
+        let callee = sumT ++ "(def pos [t: T] -> int (pre (= t (Big 1))) (post (= result 1)) 1) "
+        erBad  <- emitA2 (callee ++ "(def-shell use [t: T] -> int (post (>= result 0)) (pos t))")
+        erGood <- emitA2 (callee ++ "(def-shell use [t: T] -> int (pre (= t (Big 1))) (post (>= result 0)) (pos t))")
+        erBodyFaithfulFns erBad `shouldSatisfy` elem "use"
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "SV-6 SUM-VALUE-1 does not open a recursive sum: a bare recursive param still falls back" $ do
+        er <- emitA2 "(type R (| Stop) (| Wrap R)) (def w [r: R] -> R (post (= result r)) r)"
+        erBodyFallback er `shouldSatisfy` elem "w"
+
+      it "SV-7 SUM-VALUE-1 a match with no clause naming the param declares no value binder" $ do
+        er <- emitA2 (sumT ++ "(def gi [t: T] -> int (post (>= result 0)) (match t ((Big n) (if (>= n 0) n 0)) ((Small n) 0)))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "gi"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "{ v : T |"
+
+      -- MATCH-POST-1: a `match` on result or a datatype-sorted param in a
+      -- contract clause reflects as first-match implications over constructor
+      -- equality. Before, the post was refused (`match`) and a wrong body was SAFE.
+      it "MP-1 MATCH-POST-1 match on result in a post: (Big n) SAFE; (Small n) REFUTED" $
+        sbPair "mk"
+          (sumT ++ "(def mk [n: int] -> T (post (match result ((Big m) (= m n)) ((Small m) false))) (Big n))")
+          (sumT ++ "(def mk [n: int] -> T (post (match result ((Big m) (= m n)) ((Small m) false))) (Small n))")
+
+      it "MP-2 MATCH-POST-1 wildcard arm in a post; match on a param in a pre" $ do
+        sbPair "mk"
+          (sumT ++ "(def mk [n: int] -> T (post (match result ((Big m) (= m n)) (_ false))) (Big n))")
+          (sumT ++ "(def mk [n: int] -> T (post (match result ((Big m) (= m n)) (_ false))) (Big (+ n 1)))")
+        sbPair "pre-t"
+          (sumT ++ "(def pre-t [t: T] -> int (pre (match t ((Big n) (> n 0)) (_ false))) (post (> result 0)) (match t ((Big n) n) ((Small n) 1)))")
+          (sumT ++ "(def pre-t [t: T] -> int (pre (match t ((Big n) (> n 0)) (_ true))) (post (> result 0)) (match t ((Big n) n) ((Small n) n)))")
+
+      it "MP-3 MATCH-POST-1 refuses a scrutinee without a datatype sort: an enum match post falls back" $ do
+        er1 <- emitA2 "(type Col (| Red) (| Green)) (def col [c: Col] -> int (post (match c ((Red) (= result 1)) ((Green) (= result 2)))) (match c ((Red) 1) ((Green) 2)))"
+        erBodyFallback er1 `shouldSatisfy` elem "col"
+
+      -- POST-TRUE-1: a closed-true post emits no body-post constraint (the
+      -- solver rejects a `true` RHS), but the call-pre obligations stay.
+      it "PT-1 POST-TRUE-1 (post true) is SAFE, not a solver crash; a callee pre is still checked" $ do
+        er <- emitA2 "(def k [x: int] -> int (post true) x)"
+        erBodyFaithfulFns er `shouldSatisfy` elem "k"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        erC <- emitA2 "(def pos [x: int] -> int (pre (> x 0)) (post (> result 0)) x) (def-shell use [x: int] -> int (post true) (pos x))"
+        mC <- solveFq erC
+        case mC of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      -- MATCH-POST-1 / SUM-VALUE-1 for Result: `Success`/`Error` patterns name
+      -- the declared `ok`/`err` constructors, `is-ok` reflects as the Success
+      -- test, a Result param gets a value binder, and the Result datatype is
+      -- declared when a Result VALUE is sorted (not only when one is built).
+      let resT = "Result[int, string]"
+      it "RS-1 Result match in a post: (ok x) SAFE; (err \"no\") REFUTED" $
+        sbPair "r"
+          ("(def r [x: int] -> " ++ resT ++ " (post (match result ((Success v) (= v x)) ((Error e) false))) (ok x))")
+          ("(def r [x: int] -> " ++ resT ++ " (post (match result ((Success v) (= v x)) ((Error e) false))) (err \"no\"))")
+
+      it "RS-2 is-ok in a post: (ok x) SAFE; (err \"no\") REFUTED" $
+        sbPair "r"
+          ("(def r [x: int] -> " ++ resT ++ " (post (is-ok result)) (ok x))")
+          ("(def r [x: int] -> " ++ resT ++ " (post (is-ok result)) (err \"no\"))")
+
+      it "RS-3 Result param as a value: identity and rebuild SAFE; wrong twins REFUTED" $ do
+        sbPair "k"
+          ("(def k [r: " ++ resT ++ "] -> " ++ resT ++ " (post (= result r)) r)")
+          ("(def k [r: " ++ resT ++ "] -> " ++ resT ++ " (post (= result r)) (ok 1))")
+        sbPair "k"
+          ("(def k [r: " ++ resT ++ "] -> " ++ resT ++ " (post (= result r)) (match r ((Success v) (ok v)) ((Error e) (err e))))")
+          ("(def k [r: " ++ resT ++ "] -> " ++ resT ++ " (post (= result r)) (match r ((Success v) (ok v)) ((Error e) (err \"x\"))))")
+
+      it "RS-4 is-ok on a param: a pre makes the Error arm unreachable; is-ok against a match body" $ do
+        sbPair "k"
+          ("(def k [r: " ++ resT ++ "] -> int (pre (is-ok r)) (post (>= result 1)) (match r ((Success v) (if (>= v 1) v 1)) ((Error e) 0)))")
+          ("(def k [r: " ++ resT ++ "] -> int (post (>= result 1)) (match r ((Success v) (if (>= v 1) v 1)) ((Error e) 0)))")
+        sbPair "k"
+          ("(def k [r: " ++ resT ++ "] -> bool (post (= result (is-ok r))) (match r ((Success v) true) ((Error e) false)))")
+          ("(def k [r: " ++ resT ++ "] -> bool (post (= result (is-ok r))) (match r ((Success v) false) ((Error e) false)))")
+
+      -- CALLEE-DATA-SORT-1: a call to a callee returning an admissible sum or
+      -- Result binds its result at the datatype sort. Before, the binder was
+      -- int, and a constructor term in the callee post crashed liquid-fixpoint
+      -- ("The sort T is not numeric") on a tail call.
+      it "CDS-1 a tail call to a sum- or Result-returning callee proves; it no longer crashes the solver" $ do
+        let tail1 = sumT ++ "(def mk [n: int] -> T (post (= result (Big n))) (Big n)) (def-shell use [n: int] -> T (post (= result (Big n))) (mk n))"
+            tail2 = "(def mk [x: int] -> " ++ resT ++ " (post (= result (ok x))) (ok x)) (def-shell use [x: int] -> " ++ resT ++ " (post (= result (ok x))) (mk x))"
+            tail3 = sumT ++ "(def mk [n: int] -> T (post (match result ((Big m) (= m n)) (_ false))) (Big n)) (def-shell use [n: int] -> T (post (match result ((Big m) (= m n)) (_ false))) (mk n))"
+        forM_ [tail1, tail2, tail3] $ \src -> do
+          er <- emitA2 src
+          erBodyFaithfulFns er `shouldSatisfy` elem "use"
+          m <- solveFq er
+          case m of
+            Nothing  -> pendingWith "solver not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "CDS-2 a match on a Result call result uses the callee post: unreachable arm SAFE; reachable arm REFUTED" $ do
+        let src arm = "(def mk [x: int] -> " ++ resT ++ " (post (is-ok result)) (ok x)) (def-shell use [x: int] -> int (post (>= result 0)) (match (mk x) " ++ arm ++ "))"
+        erG <- emitA2 (src "((Success v) 0) ((Error e) (- 0 1))")
+        erB <- emitA2 (src "((Success v) (- 0 1)) ((Error e) 0)")
+        mG <- solveFq erG
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erB
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "CDS-3 an eliminate-only Result module still declares no Result datatype" $ do
+        er <- emitA2 ("(def settle [r: " ++ resT ++ "] -> int (post (>= result 0)) (match r ((Success v) (if (>= v 0) v 0)) ((Error e) 0)))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "settle"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "data Result"
+
       -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
       -- values + string RMW chains + cross-call string-map assume-guarantee.
       it "A2S-7 string-map return (the A4 revoke shape): put-then-return verifies; wrong-status twin REFUTED" $ do
@@ -9660,10 +9850,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "  (post (= result (Accepted n)))"
                 , "  (Accepted n))" ]
               , "qf_lia" )
-            , ( "bare payload-sum param mention (opaque-sum guard)"
+            -- SUM-VALUE-1: an admissible payload-sum param has a value binder
+            -- now, so a clause naming it is in the fragment.
+            , ( "bare payload-sum param mention (SUM-VALUE-1 value binder)"
               , [ "(type Step (| Continue) (| Abort int))"
                 , "(def stuck [st: Step] -> int"
                 , "  (pre (= st Continue))"
+                , "  0)" ]
+              , "qf_lia" )
+            , ( "bare recursive-sum param mention (opaque-sum guard)"
+              , [ "(type R (| Stop) (| Wrap R))"
+                , "(def stuck [r: R] -> int"
+                , "  (pre (= r Stop))"
                 , "  0)" ]
               , "non_qf_lia" )
             , ( "float literal"
@@ -9684,7 +9882,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "non_qf_lia" )
             ]
 
-      it "CM-1 the battery classifies as pinned (measure/pair/ctor/string-literal in; float literal + opaque-sum mention out)" $ do
+      it "CM-1 the battery classifies as pinned (measure/pair/ctor/string-literal in; float literal + recursive opaque-sum mention out)" $ do
         mapM_ (\(label, src, expected) ->
                  (label, classifyFirst (parseCM src)) `shouldBe` (label, expected))
               battery

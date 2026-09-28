@@ -298,6 +298,8 @@ reuseRetrieval mLF aliases spawned pool =
         | otherwise -> any ufBearing as
       EOp _ as  -> any ufBearing as
       EPair _ _ -> True
+      -- MATCH-POST-1: a clause `match` reflects to constructor and selector terms.
+      EMatch _ _ -> True
       _         -> False
 
 -- ---------------------------------------------------------------------------

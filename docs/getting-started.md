@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.26.11)
+  LLMLL — Large Language Model Logical Language Compiler (v0.26.12)
 
 Available options:
   -h,--help                Show this help text
