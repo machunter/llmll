@@ -1,0 +1,8 @@
+;; MINMAX-FRAG-1 fixture 3 of 3: A PARAMETER NAMED `min`.
+;; Here `(min a b)` calls the parameter, not the builtin, and the post is false
+;; for a parameter returning b. The parameter is in neither the sort env nor the
+;; renaming env, so a gate on those envs read it as the builtin and PROVED g.
+;; Must fall back (post assumed), never prove.
+(def-shell g [min: (fn [int int] -> int) a: int b: int] -> int
+  (post (<= result a))
+  (min a b))

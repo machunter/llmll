@@ -3641,6 +3641,17 @@ main = hspec $ do
           removeDirectoryRecursive tmpDir
           pure r
         var n = object ["kind" .= ("var" :: T.Text), "name" .= (n :: T.Text)]
+        -- MINMAX-FRAG-1 moved `min` into the fragment, so the correct-but-outside
+        -- body is now `(unwrap-or (ok <the clamp if>) 0)`, refused by app:unwrap-or.
+        clampIf = object
+          [ "kind" .= ("if" :: T.Text)
+          , "cond" .= object ["kind" .= ("op" :: T.Text), "op" .= ("<=" :: T.Text),
+                              "args" .= [var "amount", var "balance"]]
+          , "then_branch" .= var "amount", "else_branch" .= var "balance" ]
+        outsideBody = object ["kind" .= ("app" :: T.Text), "fn" .= ("unwrap-or" :: T.Text),
+                              "args" .= [ object ["kind" .= ("app" :: T.Text), "fn" .= ("ok" :: T.Text),
+                                                  "args" .= [clampIf]]
+                                        , object ["kind" .= ("lit-int" :: T.Text), "value" .= (0 :: Int)] ]]
 
     it "PP-1 a body inside the fragment is reported body_faithful" $ do
       r <- ledgerPatch "1" (object
@@ -3654,11 +3665,10 @@ main = hspec $ do
         other -> expectationFailure ("expected PatchSuccess, got: " ++ show other)
 
     it "PP-2 a correct body outside the fragment is merged but reported as a fallback" $ do
-      r <- ledgerPatch "2" (object ["kind" .= ("app" :: T.Text), "fn" .= ("min" :: T.Text),
-                                    "args" .= [var "balance", var "amount"]])
+      r <- ledgerPatch "2" outsideBody
       case r of
         PatchSuccess _ fns -> fns `shouldBe`
-          [PatchedFn "clamp-withdrawal" False (Just "body-outside-fragment") ["app:min"]]
+          [PatchedFn "clamp-withdrawal" False (Just "body-outside-fragment") ["app:unwrap-or"]]
         PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
         other -> expectationFailure ("expected PatchSuccess, got: " ++ show other)
 
@@ -3673,8 +3683,7 @@ main = hspec $ do
       Right ct <- checkoutHole fp astVal "/statements/0/body"
       let patchWith body = applyPatchWithMode ScopeNormal True GrammarCoreInversion fp
                              (PatchRequest (ctToken ct) [PatchReplace "/statements/0/body" body])
-      r1 <- patchWith (object ["kind" .= ("app" :: T.Text), "fn" .= ("min" :: T.Text),
-                               "args" .= [var "balance", var "amount"]])
+      r1 <- patchWith outsideBody
       case r1 of
         PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
         PatchNotProved fns -> do
@@ -19443,6 +19452,72 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitSrc =<< fixture "result-call-wrong"
       erBodyFaithfulFns er `shouldSatisfy` elem "use-wrong"
       solverSays "result-call-wrong" er "Unsafe"
+
+  -- -----------------------------------------------------------------------
+  -- MINMAX-FRAG-1: `min`, `max` and `abs` in a body reflect as their `if`
+  -- definitions, as an int-valued if-then-else term (FQIte), so a call in
+  -- argument position stays in the fragment. The reading applies only when the
+  -- name is the builtin: a parameter, binder or top-level function of that name
+  -- keeps the old path. Fixtures: test/fixtures/minmax-frag/.
+  -- -----------------------------------------------------------------------
+  describe "MINMAX-FRAG-1: min, max and abs reflect as their if definitions" $ do
+    let fixture name = TIO.readFile ("test/fixtures/minmax-frag/" ++ name ++ ".llmll")
+        emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        solve tag er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/minmax-frag-" <> tag <> ".fq"
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              pure (Just (T.pack out))
+        solverSays tag er want = do
+          m <- solve tag er
+          case m of
+            Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf want
+        subjectFns = ["clamp-min", "clamp-max", "arg-min", "clamp", "abs-nn", "abs-exact", "len-min"]
+
+    it "MMF-1: every subject function is body-faithful, including argument position and a nested clamp" $ do
+      er <- emitSrc =<< fixture "subject"
+      mapM_ (\f -> erBodyFaithfulFns er `shouldSatisfy` elem f) subjectFns
+
+    it "MMF-2: min renders as the Prelude's if (a <= b), max with the arguments swapped" $ do
+      er <- emitSrc "(def f [a: int b: int] -> int (post (<= result a)) (min a b))\n(def g [a: int b: int] -> int (post (>= result a)) (max a b))"
+      erFQText er `shouldSatisfy` T.isInfixOf "(if (a <= b) then a else b)"
+      erFQText er `shouldSatisfy` T.isInfixOf "(if (a <= b) then b else a)"
+
+    it "MMF-3: abs renders as if (a < 0) then (0 - a) else a" $ do
+      er <- emitSrc "(def f [a: int] -> int (post (>= result 0)) (abs a))"
+      erFQText er `shouldSatisfy` T.isInfixOf "(if (a < 0) then (0 - a) else a)"
+
+    it "MMF-4: the subject is SAFE" $ do
+      er <- emitSrc =<< fixture "subject"
+      solverSays "subject" er "Safe"
+
+    it "MMF-5: the refuting siblings are body-faithful and Unsafe" $ do
+      er <- emitSrc =<< fixture "wrong"
+      mapM_ (\f -> erBodyFaithfulFns er `shouldSatisfy` elem f) ["w1", "w2", "w3"]
+      solverSays "wrong" er "Unsafe"
+
+    it "MMF-6: a parameter named min is not the builtin (falls back, never proves)" $ do
+      er <- emitSrc =<< fixture "shadow-param"
+      erBodyFaithfulFns er `shouldNotSatisfy` elem "g"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+
+    it "MMF-7: a top-level function named min is called as that function, not reflected" $ do
+      er <- emitSrc "(def-shell min [a: int b: int] -> int b)\n(def-shell g [a: int b: int] -> int (post (<= result a)) (min a b))"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+      solverSays "toplevel-min" er "Unsafe"
+
+    it "MMF-8: a let binder named max keeps max on the old path in that body" $ do
+      er <- emitSrc "(def-shell g [a: int b: int] -> int (post (>= result 0)) (let [(max (fn [x: int y: int] x))] (max a b)))"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
 
   -- -----------------------------------------------------------------------
   -- RESP-FACT-1: a Command result carries a proved property to its caller,

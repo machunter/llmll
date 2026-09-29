@@ -1512,7 +1512,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   if isJust mMapRetPair
                     then (seed, Nothing)
                     else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, Map.fromList [ (n, typeToSortA aliases t) | (n, t) <- pairParams ]) cenv sccSet
-                           (reifyBytesZeroLen mRet body')
+                           (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
+                                            (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
               (Just tree, _) -> do
@@ -3791,6 +3792,7 @@ predVars (FQOr  ps)           = concatMap predVars ps
 predVars (FQNot p)            = predVars p
 predVars (FQKVar _ args)      = concatMap predVars args
 predVars (FQApp _ args)       = concatMap predVars args  -- NIW: measure args carry the free vars
+predVars (FQIte c a b)        = concatMap predVars [c, a, b]
 
 -- | MAP-RET-POST-1: does this predicate read `result` through the split map
 -- encoding? 'mapPairTermsC' rewrites a map-rooted contract term into the
@@ -4218,6 +4220,22 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
               , cvResultSort     = retSort
               , cvContinuation   = SimpleVC [] (FQVar resultVar)
               }
+
+-- MINMAX-FRAG-1: `min`, `max` and `abs` reflect as their `if` definitions, as an
+-- int-valued if-then-else TERM rather than a branch split, so a call in argument
+-- position (`(+ 1 (min a b))`) stays in the fragment. The runtime binds each to the
+-- Prelude function on `Integer` (`llmll_min = min` in CodegenHs), whose definition
+-- is exactly this `if`, so the term equals the value the built program computes.
+-- The clause matches only the internal names 'markIntBuiltins' writes, so it never
+-- reads a user function, parameter or local binder named `min` as the builtin.
+bodyToPredM env se cenv sccSet (EApp op args)
+  | Just b <- T.stripPrefix intBuiltinTag op = do
+      mvcs <- mapM (bodyToPredM env se cenv sccSet) args
+      return $ case sequence mvcs of
+        Just vcs | Just ps <- mapM simpleTerm vcs -> SimpleVC [] <$> reflectIntBuiltin b ps
+        _ -> Nothing
+  where simpleTerm (SimpleVC [] p) = Just p
+        simpleTerm _               = Nothing
 
 -- Binary arithmetic operators (+, -)
 bodyToPredM env se cenv sccSet (EApp op [l, r])
@@ -5407,6 +5425,7 @@ predHasDataTerm p = case p of
   FQAnd ps          -> any predHasDataTerm ps
   FQOr ps           -> any predHasDataTerm ps
   FQNot q           -> predHasDataTerm q
+  FQIte c a b       -> any predHasDataTerm [c, a, b]
   _                 -> False
   where
     dataSym f = "ctor_" `T.isPrefixOf` f || f `elem` ["ok", "err", "ok_0", "err_0"]
@@ -5626,6 +5645,7 @@ collectApps p = case p of
   FQOr  ps         -> concatMap collectApps ps
   FQNot q          -> collectApps q
   FQKVar _ args    -> concatMap collectApps args
+  FQIte c a b      -> concatMap collectApps [c, a, b]
   _                -> []
 
 -- | Head symbol names of the measure applications in a predicate.
@@ -5638,6 +5658,7 @@ appNames p = case p of
   FQOr  ps         -> Set.unions (map appNames ps)
   FQNot q          -> appNames q
   FQKVar _ args    -> Set.unions (map appNames args)
+  FQIte c a b      -> Set.unions (map appNames [c, a, b])
   _                -> Set.empty
 
 -- | UF constant declaration for a measure symbol.
@@ -5917,6 +5938,7 @@ predSortOf (FQAnd _)         = FQBool
 predSortOf (FQOr _)          = FQBool
 predSortOf (FQKVar _ _)      = FQInt  -- fallback
 predSortOf (FQApp _ _)       = FQInt  -- NIW: measures are integer-valued
+predSortOf (FQIte _ a _)     = predSortOf a  -- MINMAX-FRAG-1: int-valued branches
 
 -- | Build a SortEnv from function parameters (int-typed only for BODY-VC-0).
 -- v0.8.0: uses isIntLike with alias map to resolve type aliases.
@@ -5934,6 +5956,64 @@ buildSortEnv aliases params = Map.fromList
 -- Compositional verification helpers (v0.9.0 COMP-1)
 -- ---------------------------------------------------------------------------
 
+-- | MINMAX-FRAG-1: the prefix of the internal name a reflected builtin call takes.
+-- `%` cannot appear in an LLMLL identifier, so no user name carries it.
+intBuiltinTag :: Text
+intBuiltinTag = "builtin%"
+
+-- | MINMAX-FRAG-1: rename each application of `min`, `max` or `abs` to its
+-- 'intBuiltinTag' name when the name means the builtin. It does not when the
+-- function binds it anywhere (a parameter, a `let`, `match`, lambda or `do`
+-- binder) or a top-level function of the program or its imports has it (the
+-- first argument carries both). The test is whole-body rather than
+-- scope-exact: a binder anywhere keeps every occurrence on the old path, which
+-- falls back, so a scoping mistake can only cost a proof.
+markIntBuiltins :: Set.Set Name -> Expr -> Expr
+markIntBuiltins declared body = go body
+  where
+    shadowed = declared `Set.union` exprBinders body
+    live f   = f `elem` ["min", "max", "abs"] && f `Set.notMember` shadowed
+    go e = case e of
+      EApp f as | live f -> EApp (intBuiltinTag <> f) (map go as)
+      EOp  f as | live f -> EApp (intBuiltinTag <> f) (map go as)
+      EApp f as          -> EApp f (map go as)
+      EOp  f as          -> EOp f (map go as)
+      ELet bs b          -> ELet [ (p, t, go x) | (p, t, x) <- bs ] (go b)
+      EIf c t f          -> EIf (go c) (go t) (go f)
+      EMatch sc arms     -> EMatch (go sc) [ (p, go x) | (p, x) <- arms ]
+      EPair a b          -> EPair (go a) (go b)
+      EAwait x           -> EAwait (go x)
+      ELambda ps x       -> ELambda ps (go x)
+      EDo steps          -> EDo [ st { dsExpr = go (dsExpr st) } | st <- steps ]
+      _                  -> e
+
+-- | MINMAX-FRAG-1: every name an expression binds, at any depth.
+exprBinders :: Expr -> Set.Set Name
+exprBinders e = case e of
+  ELet bs b      -> Set.unions (exprBinders b : [ patNames p `Set.union` exprBinders x | (p, _, x) <- bs ])
+  EMatch sc arms -> Set.unions (exprBinders sc : [ patNames p `Set.union` exprBinders x | (p, x) <- arms ])
+  ELambda ps x   -> Set.fromList (map fst ps) `Set.union` exprBinders x
+  EDo steps      -> Set.unions [ maybe Set.empty Set.singleton (dsName st) `Set.union` exprBinders (dsExpr st) | st <- steps ]
+  EApp _ as      -> Set.unions (map exprBinders as)
+  EOp _ as       -> Set.unions (map exprBinders as)
+  EIf c t f      -> Set.unions (map exprBinders [c, t, f])
+  EPair a b      -> exprBinders a `Set.union` exprBinders b
+  EAwait x       -> exprBinders x
+  _              -> Set.empty
+  where
+    patNames (PVar x)            = Set.singleton x
+    patNames (PConstructor _ ps) = Set.unions (map patNames ps)
+    patNames _                   = Set.empty
+
+-- | MINMAX-FRAG-1: the `if` definition of an int builtin over translated operands.
+-- `max` follows the Prelude's argument order (`if x <= y then y else x`); on
+-- integers a tie returns equal values, so the order cannot change the result.
+reflectIntBuiltin :: Name -> [FQPred] -> Maybe FQPred
+reflectIntBuiltin "min" [a, b] = Just (FQIte (FQBinPred FQLe a b) a b)
+reflectIntBuiltin "max" [a, b] = Just (FQIte (FQBinPred FQLe a b) b a)
+reflectIntBuiltin "abs" [a]    = Just (FQIte (FQBinPred FQLt a (FQLit 0)) (FQBinArith FQSub (FQLit 0) a) a)
+reflectIntBuiltin _ _          = Nothing
+
 -- | Capture-free predicate substitution.
 -- Replaces free variables in a FQPred according to the substitution map.
 -- Variables not in the map are left unchanged.
@@ -5945,6 +6025,7 @@ applySubst subst (FQAnd ps) = FQAnd (map (applySubst subst) ps)
 applySubst subst (FQOr ps) = FQOr (map (applySubst subst) ps)
 applySubst subst (FQNot p) = FQNot (applySubst subst p)
 applySubst subst (FQApp f args) = FQApp f (map (applySubst subst) args)  -- NIW: substitute measure args
+applySubst subst (FQIte c a b) = FQIte (applySubst subst c) (applySubst subst a) (applySubst subst b)
 applySubst _ p = p  -- FQLit, FQTrue, FQFalse unchanged
 
 -- | Does the postcondition use constructor-dependent reasoning?

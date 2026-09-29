@@ -392,8 +392,9 @@ class TestSkeletonAgainstCompiler:
         assert second.token
 
     def test_require_proof_refuses_an_assumed_fill_through_the_real_compiler(self):
-        """PATCH-PROOF-1 end to end: `min` is correct but outside the fragment,
-        so `patch --require-proof` refuses it and names the construct."""
+        """PATCH-PROOF-1 end to end: `(unwrap-or (ok <clamp>) 0)` is correct but
+        outside the fragment, so `patch --require-proof` refuses it and names the
+        construct. (`min` was the example until MINMAX-FRAG-1 moved it inside.)"""
         import tempfile, shutil
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ledger" / "ledger.ast.json"
         work = Path(tempfile.mkdtemp()) / "ledger.ast.json"
@@ -403,11 +404,17 @@ class TestSkeletonAgainstCompiler:
         req = work.with_name("req.json")
         req.write_text(json.dumps({"token": token.token, "patch": [{
             "op": "replace", "path": "/statements/0/body",
-            "value": {"kind": "app", "fn": "min", "args": [
-                {"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}}]}))
+            "value": {"kind": "app", "fn": "unwrap-or", "args": [
+                {"kind": "app", "fn": "ok", "args": [{
+                    "kind": "if",
+                    "cond": {"kind": "op", "op": "<=", "args": [
+                        {"kind": "var", "name": "amount"}, {"kind": "var", "name": "balance"}]},
+                    "then_branch": {"kind": "var", "name": "amount"},
+                    "else_branch": {"kind": "var", "name": "balance"}}]},
+                {"kind": "lit-int", "value": 0}]}}]}))
         refused = compiler.patch(work, req, require_proof=True)
         assert refused["success"] is False
-        assert "app:min" in refused["diagnostics"][0]["message"]
+        assert "app:unwrap-or" in refused["diagnostics"][0]["message"]
         accepted = compiler.patch(work, req)
         assert accepted["success"] is True
         assert accepted["verification"][0]["body_faithful"] is False

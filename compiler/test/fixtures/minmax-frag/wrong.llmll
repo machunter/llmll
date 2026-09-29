@@ -1,0 +1,10 @@
+;; MINMAX-FRAG-1 fixture 2 of 3: THE REFUTING SIBLINGS.
+;; w1 uses max where the post needs min. w2 claims abs is the identity.
+;; w3 is the subject's clamp without its (<= lo hi) pre, so lo > hi breaks it.
+;; Each must be body-faithful and REFUTED: without this file the subject proves
+;; only that the verifier stopped complaining, not that the term is exact.
+(def w1 [a: int b: int] -> int (post (<= result a)) (max a b))
+(def w2 [a: int] -> int (post (= result a)) (abs a))
+(def w3 [x: int lo: int hi: int] -> int
+  (post (and (>= result lo) (<= result hi)))
+  (min (max x lo) hi))
