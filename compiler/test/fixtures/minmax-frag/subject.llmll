@@ -1,0 +1,16 @@
+;; MINMAX-FRAG-1 fixture 1 of 3: THE SUBJECT.
+;; Each body uses `min`, `max` or `abs`. Before the fix every one fell back
+;; (refused by app:min / app:max / app:abs) with its post assumed. Each builtin
+;; now reflects as its `if` definition, an int-valued if-then-else term, so a
+;; call in argument position (arg-min) and a nested clamp prove too.
+;; Must be body-faithful and SAFE.
+(def clamp-min [a: int b: int] -> int (post (<= result a)) (min a b))
+(def clamp-max [a: int b: int] -> int (post (>= result a)) (max a b))
+(def arg-min [a: int b: int] -> int (post (<= result (+ a 1))) (+ 1 (min a b)))
+(def clamp [x: int lo: int hi: int] -> int
+  (pre (<= lo hi))
+  (post (and (>= result lo) (<= result hi)))
+  (min (max x lo) hi))
+(def abs-nn [a: int] -> int (post (>= result 0)) (abs a))
+(def abs-exact [a: int] -> int (post (or (= result a) (= result (- 0 a)))) (abs a))
+(def len-min [s: string n: int] -> int (post (<= result n)) (min (string-length s) n))

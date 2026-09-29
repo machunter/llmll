@@ -4,6 +4,40 @@
 
 <a id="Latest"></a>
 
+## v0.26.17: `min`, `max` and `abs` are proved in a body (2026-09-28)
+
+### `MINMAX-FRAG-1`: the three builtins reflect as their `if` definitions
+
+A body using `min`, `max` or `abs` fell back, refused by `app:min`, `app:max` or `app:abs`, with its
+post assumed, although each is one `if` over one comparison. No in-tree program uses them; agents
+write them unprompted, and a live `llmll-orchestra` fill had merged `(min balance amount)` with its
+post assumed. Decision and soundness argument:
+[`docs/design/minmax-frag-1-proposal.md`](docs/design/minmax-frag-1-proposal.md).
+
+- **A term, not a branch.** Each call emits an int-valued if-then-else term (`FQIte`, rendered
+  `(if c then a else b)`). An `if` in argument position falls back, so a desugar to `if` would have
+  left `(+ 1 (min a b))` outside; the term keeps it in, and the clamp `(min (max x lo) hi)` nests.
+- **It is the value the program computes.** `int` lowers to `Integer`, and the runtime binds each
+  builtin to the Prelude function, whose definition is the reflected `if`, argument order included.
+- **Only the builtin is reflected.** A call is read as the builtin only when the function binds none
+  of the three names (parameter or inner binder) and no top-level or imported function has the name;
+  otherwise it takes the old path and falls back. A first gate on the sort and renaming environments
+  proved a function whose `min` was a function-typed parameter, and `minmax-frag/shadow-param.llmll`
+  pins that this falls back.
+- **Contracts are unchanged.** `min`, `max` or `abs` in a `pre` or `post` still falls back
+  (`MINMAX-FRAG-1 residue (1)`).
+- **Unchanged on the tree.** `llmll verify` gives the same verdict on all 255 programs under
+  `tools/`, `examples/` and `compiler/test/fixtures/`.
+- **Tests:** hspec `MMF-1` to `MMF-8`; fixtures `minmax-frag/subject.llmll` (seven functions, all
+  proved), `wrong.llmll` (three refuted twins) and `shadow-param.llmll`. Removing the parameter guard
+  fails `MMF-6`, and removing the top-level-name guard fails `MMF-7`. The inner-binder guard has no
+  constructible witness today, since every inner binder of function type already falls back.
+  `PATCH-PROOF-1`'s `PP-2` and `PP-4` and the orchestra's `test_lead_agent.py` used
+  `(min balance amount)` as a correct body outside the fragment; they now use
+  `(unwrap-or (ok <the clamp if>) 0)`, refused by `app:unwrap-or`.
+
+Tests: 2161 examples, 0 failures (+8); Python 312 passed, 105 skipped; orchestra 115 passed.
+
 ## v0.26.16: a correct post over an enum returned through a call is no longer refuted (2026-09-28)
 
 ### `MATCH-TERM-EQ-1` residue (1): the body-post constraint bounds `result` to the constructor tags

@@ -139,6 +139,7 @@ data FQPred
   | FQNot FQPred
   | FQKVar Text [FQPred]              -- ^ $k0(v) — wf constraint variable
   | FQApp Text [FQPred]               -- ^ NIW: uninterpreted function application, e.g. (strLen s)
+  | FQIte FQPred FQPred FQPred        -- ^ MINMAX-FRAG-1: int-valued (if c then a else b)
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -327,6 +328,7 @@ emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> sanitizeFQId k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
 emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map emitPredParens args) <> ")"
+emitPred (FQIte c a b)        = "(if " <> emitPredParens c <> " then " <> emitPredParens a <> " else " <> emitPredParens b <> ")"
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
 -- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.
@@ -422,6 +424,7 @@ predSymbols p = case p of
   FQBinArith _ a b -> predSymbols a `Set.union` predSymbols b
   FQKVar _ args    -> Set.unions (map predSymbols args)
   FQApp f args     -> Set.insert (sanitizeFQId f) (Set.unions (map predSymbols args))
+  FQIte c a b      -> Set.unions (map predSymbols [c, a, b])
 
 -- | FQ-FREEVAR-GUARD-1. Report, for each constraint, every symbol the constraint
 -- names that its own environment does not declare.

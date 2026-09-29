@@ -1,7 +1,7 @@
 ;; A ledger whose four bodies are delegated to three agents. Every body has a
 ;; postcondition inside the decidable fragment, and `llmll patch` re-verifies
 ;; each fill with the solver. A wrong body is rejected. A correct body written
-;; with a construct outside the fragment (`min`, say) is accepted with its
+;; with a construct outside the fragment (`unwrap-or`, say) is accepted with its
 ;; postcondition assumed, unless the run uses `--require-proof`, which refuses
 ;; it and feeds the refused construct back to the agent.
 

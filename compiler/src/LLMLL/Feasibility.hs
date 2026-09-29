@@ -105,6 +105,8 @@ fqPredToSMT (FQOr [])    = Just "false"
 fqPredToSMT (FQOr [p])   = fqPredToSMT p
 fqPredToSMT (FQOr ps)    = (\ss -> "(or " <> T.unwords ss <> ")") <$> mapM fqPredToSMT ps
 fqPredToSMT (FQNot p)    = (\s -> "(not " <> s <> ")") <$> fqPredToSMT p
+fqPredToSMT (FQIte c a b) = (\x y z -> "(ite " <> x <> " " <> y <> " " <> z <> ")")
+                              <$> fqPredToSMT c <*> fqPredToSMT a <*> fqPredToSMT b
 fqPredToSMT (FQApp _ _)  = Nothing   -- uninterpreted-function term → out of fragment
 fqPredToSMT (FQKVar _ _) = Nothing   -- wf constraint variable → out of fragment
 

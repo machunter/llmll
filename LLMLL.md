@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.26.16)
+# LLMLL: Large Language Model Logical Language (v0.26.17)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.26.16.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.26.17.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -972,7 +972,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
-| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `≠`, `<`, `<=`, `>=`, `>`, and the boolean connectives `and`/`or`/`not`, over `int`/`bool`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
+| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `≠`, `<`, `<=`, `>=`, `>`, and the boolean connectives `and`/`or`/`not`, over `int`/`bool`. In a function body, `min`, `max` and `abs` are proved as their `if` definitions (an if-then-else term, so a call in argument position proves too), unless the function or program declares a name of its own that shadows the builtin; in a `pre` or `post` they fall back. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
 | **Termination** (`(decreases …)` measures) | **Shipped** | liquid-fixpoint | A `(decreases e₁ … eₖ)` clause on a recursive `def-shell` discharges termination: **well-foundedness** (`pre ⟹ eᵢ ≥ 0`) plus **call-site strict descent** (`measure(args') < measure(args)` at each intra-cycle call site; lexicographic order on ℕᵏ for k > 1, equal-arity across the SCC). A discharged SCC upgrades from partial to **total** correctness and becomes strict-core admissible; a non-decreasing measure is the hard verdict `measure-not-decreasing` (§4.2). Nonlinear/opaque measure components leave the SCC partial. The legacy `letrec :decreases` path checks non-negativity only; complex legacy measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Lean path** (nonlinear arithmetic / inductive properties) | **Experimental `--leanstral` demo; production deferred** | Lean 4 + Mathlib kernel, via `labs-leanstral-1-5` | An **opt-in, experimental** `--leanstral` path discharges a *faithfully-translatable* obligation — the demo class is **nonlinear integer arithmetic** (`n*n`, the QF-NIA escape the QF-LIA core firewalls out) — by translating a **body-faithful** Lean 4 theorem (`result` bound to the body), having `labs-leanstral-1-5` prove it, and **kernel-checking the proof with `lake env lean` + Mathlib**. A SAFE kernel check records **`verified-lean`** (`DLVerifiedLean`) — a *distinct* evidence kind that is a **peer of SMT `verified`** (§5.3.4) — plus a re-checkable `.lean` certificate. This is **not the production Lean tier:** faithful translation across *all* escape classes (`/`/`mod` floor-vs-truncation, lists/inductive via the retry-with-error loop, Lean-staleness revalidation) remains deferred to the production Lean tier (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md)); general inductive properties in particular are **not** yet shipped. Needs `LLMLL_LEANSTRAL_API_KEY` + a local Lean 4 + Mathlib project; **fails closed** otherwise. The legacy `--leanstral-mock` path emits `by sorry` (rejected by the `sanitizeProof` anti-laundering guard). Scoped in [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md) + [`docs/design/leanstral-integration-scope.md`](docs/design/leanstral-integration-scope.md). |
@@ -2580,9 +2580,9 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 |----------|-----------|-------|
 | `int-to-string` | `int -> string` | Decimal representation |
 | `string-to-int` | `string -> Result[int, string]` | Parse; `Error` on failure |
-| `abs` | `int -> int` | Absolute value |
-| `min` | `int int -> int` | Minimum |
-| `max` | `int int -> int` | Maximum |
+| `abs` | `int -> int` | Absolute value; proved in a body as `(if (< a 0) (- 0 a) a)` (§5.3.3) |
+| `min` | `int int -> int` | Minimum; proved in a body as `(if (<= a b) a b)` (§5.3.3) |
+| `max` | `int int -> int` | Maximum; proved in a body as `(if (<= a b) b a)` (§5.3.3) |
 
 ### 13.8 Result Helpers
 
