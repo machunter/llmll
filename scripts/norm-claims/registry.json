@@ -5,7 +5,7 @@
     "## 0.1 Semantic Foundation",
     "## 1. Core Philosophy"
   ],
-  "assumed_bound": 7,
+  "assumed_bound": 6,
   "bound_reason": "pilot value at v0.19.1: 35 sentences, of which 8 are assumed; lower freely, raise only with a reason here",
   "claims": [
     {
