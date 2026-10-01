@@ -399,11 +399,21 @@ def _c13(tree): set_header(fixtures(tree)[-1], "expect", "check-error")
 # Each cell names the observed label it must produce, so a fixture that fails
 # for an environmental reason does not satisfy a cell meant for a mutation.
 
+# R1 to R4 are written against ONE fixture's shape: a console program whose
+# claim is reached in a STEP (so R2's empty stdin removes it) and whose body is
+# the hole `?hp-impl` (so R3 and R4 can fill it). That is hole-abort-at-run.llmll.
+# Picking "the first fixture with @run" was the same thing while it was the only
+# one. v0.27.0 added three cbv-*.llmll run fixtures that do their work in :init,
+# before any step, and the first of them sorts ahead of it: R3 raised on the
+# missing hole in CI run 36804065177, and R2 would have measured nothing.
+RUN_FIXTURE = "hole-abort-at-run.llmll"
+
+
 def find_with_run(tree: Path) -> Path:
     for f in fixtures(tree):
-        if "@run:" in f.read_text():
+        if f.name == RUN_FIXTURE and "@run:" in f.read_text():
             return f
-    raise AssertionError("no fixture carries @run; this cell would test nothing")
+    raise AssertionError(f"no {RUN_FIXTURE} with @run; this cell would test nothing")
 
 
 def replace_body(f: Path, old: str, new: str) -> None:
