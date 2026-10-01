@@ -1,11 +1,11 @@
 ---
 name: shell-call-pre-1-proposal
 title: "SHELL-CALL-PRE-1: a call from a body that falls back proves nothing about the callee's pre, and nothing says so"
-status: "Rev 3, SETTLED 2026-10-01 (accepted by the user). Next: compiler-engineer plan for Part 2, gated on a prototype outcome count. Rev 0 reviewed by professor (shell-call-pre-1-review.md); Rev 1 folded the review; Rev 2 removed the termination filter (T) because of EVAL-STRICT-1; Rev 3 checks Part 2 against the shipped call-by-value semantics (LLMLL.md §4.7, v0.27.0). Part 1 SHIPPED v0.26.14 (68a1112). Part 2 is code-track and has no open dependency; it waits on adjudication and on a prototype that counts outcomes per site. Roadmap row SHELL-CALL-PRE-1 (G1) carries DECIDE; this proposal answers it: both shapes, A producing evidence and B carrying it."
+status: "Rev 3, SETTLED 2026-10-01 (accepted by the user). Part 2 PARKED 2026-10-01 on yield: stage A of shell-call-pre-1-part2-implementation-plan.md decided 0 of 16 tool call sites (commit 514057b, branch shell-call-pre-1/part2-walker, unmerged). Professor review folded into the appendix and archived 2026-10-01. Rev 0 reviewed by professor (shell-call-pre-1-review.md); Rev 1 folded the review; Rev 2 removed the termination filter (T) because of EVAL-STRICT-1; Rev 3 checks Part 2 against the shipped call-by-value semantics (LLMLL.md §4.7, v0.27.0). Part 1 SHIPPED v0.26.14 (68a1112). Part 2 is code-track and has no open dependency; it waits on adjudication and on a prototype that counts outcomes per site. Roadmap row SHELL-CALL-PRE-1 (G1) carries DECIDE; this proposal answers it: both shapes, A producing evidence and B carrying it."
 date: 2026-10-01
 author: language-team
 consumers: [compiler-engineer, documentation-lead, professor, user]
-reviews: "shell-call-pre-1-review.md (professor, Rev 0)"
+reviews: "../archive/professor-reviews/shell-call-pre-1-review.md (professor, Rev 0; folded into the appendix)"
 related: "eval-strict-1-proposal.md (shipped v0.27.0; Part 2 rests on LLMLL.md §4.7); roadmap rows PARTIAL-FNS-GRAPH-1, DEF-ADMIT-XMOD-1"
 ---
 
@@ -317,3 +317,41 @@ facts are `exprToPred` translations and stay in the same fragment.
   - measurement 3 is re-measured (15 pairs in 4 programs); measurement 5 shows
     that a `post` is checked at run time;
   - the outcomes are stated not to enter `applyContractsMode`.
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal is
+folded here and the source file archived to
+[`docs/archive/professor-reviews/shell-call-pre-1-review.md`](../archive/professor-reviews/shell-call-pre-1-review.md).
+Folded at the settlement of Rev 3, 2026-10-01.
+
+**Source:** `docs/design/shell-call-pre-1-review.md` at commit
+`449b655c8ced812153ed651728e74b018a8ac358` (reviewed 2026-09-28; reviewer: Lead Consultant for Formal
+Language Design). One round, against Rev 0. The review did not see Rev 2 or Rev 3.
+
+### Round 1 recommendation, against Rev 0, and its outcome
+
+**Accept Part 1; accept Part 2 with three changes.** Each finding and where it landed:
+
+1. **A callee `post` in Γ_s is not a fact under lazy evaluation unless the callee terminates** (H1,
+   soundness). Rev 1 added the termination filter (T). Rev 2 replaced it with `EVAL-STRICT-1`, which
+   shipped at v0.27.0 and makes LLMLL call-by-value (`LLMLL.md` §4.7), so a `post` of a call whose
+   result is a value holds on both call-pre paths. Rev 3 cites one §4.7 clause for each kept fact.
+2. **Check `unreachable` first** (H2). Adopted in Rev 1; the outcome order is unreachable, proved,
+   violated-if-reached, unproved.
+3. **Widen the must-fail check to Γ_s ⊢ ¬pre** (H3). Adopted in Rev 1. The name went to
+   `violated-if-evaluated` in Rev 1 and back to `violated-if-reached` in Rev 2, which is accurate under
+   call-by-value.
+4. **One resolver shared with `PARTIAL-FNS-GRAPH-1`** (H4). Adopted; Part 1 shipped at v0.26.14 on
+   `LLMLL.CallGraph`.
+5. **Headline counts** (H5) and **a trust tier for each proved site** (H6). Adopted in Rev 1.
+6. **Keep the prototype gate.** Kept. Stage A of the Part 2 plan ran it on 2026-10-01: 0 of 16 tool
+   call sites decided, and Part 2 is parked on yield (roadmap row `SHELL-CALL-PRE-1`).
+
+The review's open question, whether a termination filter applies to the in-fragment path too, was
+answered by measurement in Rev 1 and made moot by `EVAL-STRICT-1`.
+
+**Correction, 2026-10-01 (finding D4 of Rev 3).** The review's Context item 1 says no build mode
+removes the runtime `pre` check. `--contracts=none` removes every runtime assertion
+(`applyContractsMode` in `compiler/src/LLMLL/Contracts.hs`; `LLMLL.md` §4.4.2). `--contracts=unproven`
+keeps every `pre`. The archived review text is not changed.

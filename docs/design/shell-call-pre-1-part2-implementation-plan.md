@@ -1,7 +1,7 @@
 ---
 name: shell-call-pre-1-part2-implementation-plan
 title: "SHELL-CALL-PRE-1 Part 2: implementation plan"
-status: "DRAFT 2026-10-01, awaits approval. Implements shell-call-pre-1-proposal.md Rev 3 (SETTLED 2026-10-01). Two stages: stage A is the prototype count the design requires; stage B lands the report surfaces only after the user reviews the stage A counts."
+status: "Approved 2026-10-01. Stage A IMPLEMENTED (commit 514057b, branch shell-call-pre-1/part2-walker, unmerged) and the gate decided 0 of 16 tool call sites, so the risk 2 stop rule applies. Stage B NOT BUILT; Part 2 PARKED 2026-10-01. Implements shell-call-pre-1-proposal.md Rev 3."
 date: 2026-10-01
 author: compiler-engineer
 consumers: [user, llmll-patch-implementer, documentation-lead]
