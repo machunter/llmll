@@ -1,0 +1,10 @@
+;; @doc: LLMLL.md §0.1 (NC-001) and the §4 evaluation strategy (EVAL-STRICT-1, edge case 3)
+;; @run: 1
+;; @expect: output:list_head: empty list
+;; @norm: NC-001
+;; @claim: LLMLL is call-by-value: a let binding is evaluated before the body, so a value bound before the guard that would protect it fails on an empty list, although the branch that reads it is not taken. Lazy code generation printed 0. EVAL-STRICT-1, measured v0.26.17.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [xs: list[int]] -> int (let [(h (unwrap (list-head xs)))] (if (= (list-length xs) 0) 0 h)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use (list-empty)))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

@@ -1,0 +1,9 @@
+;; EVAL-STRICT-1 edge case 2: argument order is unspecified, so either (spin s) diverges or tally fails its pre. Both conform; returning a value does not.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell spin [x: int] -> int (spin x))
+(def-shell tally [seen: int] -> int (pre (>= seen 0)) (+ seen 1))
+(def-shell f [a: int b: int] -> int (+ b 1))
+(def-shell use [s: int] -> int (f (spin s) (tally (- 0 5))))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use 3))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

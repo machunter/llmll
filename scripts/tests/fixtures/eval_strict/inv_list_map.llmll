@@ -1,0 +1,6 @@
+;; EVAL-STRICT-1 invariant, rule 3 (list-map): a list bound by let is a full value, so an element that fails is evaluated even when only the length is read.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [s: int] -> int (let [(ys (list-map [1 2] (fn [x: int] (if (= x 2) (unwrap (string-to-int "bad-map")) x))))] (list-length ys)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use 0))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

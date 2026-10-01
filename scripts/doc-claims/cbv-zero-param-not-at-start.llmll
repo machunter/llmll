@@ -1,0 +1,10 @@
+;; @doc: LLMLL.md §0.1 (NC-001) and the §4 evaluation strategy (EVAL-STRICT-1, edge case 12)
+;; @run: 1
+;; @expect: output:ran
+;; @norm: NC-001
+;; @claim: A zero-parameter definition is evaluated at each call and never at program start, so a program that never calls a failing one runs normally. EVAL-STRICT-1, measured v0.26.17.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell broken [] -> int (unwrap (string-to-int "never-called")))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout "ran"))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

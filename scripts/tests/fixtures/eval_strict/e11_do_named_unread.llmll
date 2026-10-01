@@ -1,0 +1,8 @@
+;; EVAL-STRICT-1 edge case 11: a named do step whose state no later step reads is still evaluated, including the list inside its state.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [s: int] -> (list[int], Command)
+  (do [s1 <- (pair (list-map [1 2] (fn [x: int] (if (= x 2) (unwrap (string-to-int "bad-do")) x))) (wasi.io.stdout "a")) :discard]
+      (pair (list-empty) (wasi.io.stdout "done"))))
+(def-main :mode console
+  :init (pair 0 (second (use 0)))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

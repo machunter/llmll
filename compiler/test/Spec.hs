@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -18249,7 +18249,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- response as separate parameters is what stops :mode console's input from
     -- being indistinguishable from a wasi.fs.read payload.
     it "RC-1: the step is called with state, line and response" $
-      T.isInfixOf "let (s', cmd) = drive s line r" (harnessOf withInit) `shouldBe` True
+      T.isInfixOf "let !(s', cmd) = drive s line r" (harnessOf withInit)  -- EVAL-STRICT-1 added the bang `shouldBe` True
 
     it "RC-1: the response comes from the slot, not from the stdout capture" $ do
       let h = harnessOf withInit
@@ -20560,6 +20560,112 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "HG-20: the body lives in httpGetPreamble and NOT in runtimePreamble" $ do
       any (T.isPrefixOf "wasi_http_get ") (map T.stripStart httpGetPreamble) `shouldBe` True
       any (T.isPrefixOf "wasi_http_get ") (map T.stripStart runtimePreamble) `shouldBe` False
+
+  -- =========================================================================
+  -- EVAL-STRICT-1: call-by-value code generation (LLMLL.md §4).
+  --
+  -- These pin the SHAPE of the emitted Haskell. The behaviour is graded by
+  -- built programs in scripts/tests/test_eval_strict_1.py and by the three
+  -- scripts/doc-claims/cbv-*.llmll fixtures, because this suite does not build
+  -- and run generated programs. The invariant the shapes serve: the WHNF of
+  -- every term the generated code builds is a full value.
+  -- =========================================================================
+  describe "EVAL-STRICT-1: call-by-value code generation" $ do
+    let noC = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        int n = ELit (LitInt n)
+
+    it "ES-1: a let binding is a forced case, and a later binding may reuse a name" $ do
+      let out = emitExpr (ELet [ (PVar "x", Nothing, int 1)
+                               , (PVar "x", Nothing, EOp "+" [EVar "x", int 1]) ] (EVar "x"))
+      out `shouldSatisfy` T.isInfixOf "(case (1 :: Integer) of { !x -> "
+      out `shouldSatisfy` T.isInfixOf "of { !x -> x }"
+      out `shouldNotSatisfy` T.isInfixOf "let {"
+
+    it "ES-2: an argument that is not a value is forced before the call" $
+      emitExpr (EApp "f" [EApp "g" [EVar "y"]])
+        `shouldBe` "(case (g (y)) of { !llmll_sa0 -> (f (llmll_sa0)) })"
+
+    it "ES-3: a variable, a literal and a lambda are passed in place" $
+      emitExpr (EApp "f" [EVar "y", int 2, ELambda [("z", TInt)] (EVar "z")])
+        `shouldNotSatisfy` T.isInfixOf "case"
+
+    it "ES-4: and, or and => keep their right operand unevaluated" $
+      mapM_ (\op -> emitExpr (EOp op [EApp "p" [EVar "a"], EApp "q" [EVar "b"]])
+                      `shouldNotSatisfy` T.isInfixOf "llmll_sa")
+            ["and", "or", "=>"]
+
+    it "ES-5: a pair's components are forced" $
+      emitExpr (EPair (EApp "g" [EVar "y"]) (EVar "s"))
+        `shouldBe` "(case (g (y)) of { !llmll_sa0 -> (llmll_sa0, s) })"
+
+    it "ES-6: a call to a zero-parameter function passes (); builtins and constructors do not" $ do
+      emitExpr (EApp "stage-count" []) `shouldBe` "(stage_count ())"
+      emitExpr (EApp "list-empty" []) `shouldNotSatisfy` T.isInfixOf "()"
+      emitExpr (EApp "Red" []) `shouldNotSatisfy` T.isInfixOf "()"
+      emitExpr (EApp "m.Red" []) `shouldNotSatisfy` T.isInfixOf "()"
+
+    it "ES-7: a zero-parameter definition is a function of (), and so is its type" $ do
+      let out = emitStmt (SDefShell "k" [] (Just TInt) noC (int 16) [])
+      out `shouldSatisfy` T.isInfixOf "k :: () -> Integer"
+      out `shouldSatisfy` T.isInfixOf "k () ="
+      toHsType (TFn [] TInt) `shouldBe` "(() -> Integer)"
+
+    it "ES-8: every do step is a forced case, the discarded ones included" $ do
+      let out = emitExpr (EDo [ DoStep Nothing (EApp "a" [EVar "s"]) True
+                              , DoStep (Just "s1") (EApp "b" [EVar "s"]) False
+                              , DoStep Nothing (EApp "c" [EVar "s1"]) False ])
+      out `shouldSatisfy` T.isInfixOf "of { !(_s_0, _cmd0) -> "
+      out `shouldSatisfy` T.isInfixOf "of { !(s1, _cmd1) -> "
+      out `shouldNotSatisfy` T.isInfixOf "let {"
+
+    it "ES-9: a builtin that returns a structure is wrapped in its forcer" $ do
+      emitExpr (EApp "list-map" [EVar "xs", EVar "f"])
+        `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) "
+      emitExpr (EApp "string-split" [EVar "sep", EVar "s"])
+        `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uS) "
+
+    it "ES-10: list-fold evaluates each accumulator (foldl')" $
+      any (T.isInfixOf "list_fold xs acc f = foldl' f acc xs") runtimePreamble `shouldBe` True
+
+    it "ES-11: every builtin that returns a list, string, bytes, Result or Json has a forcer or is exempt" $ do
+      -- The exempt builtins return one new cell over forced arguments, or a
+      -- part of a forced argument, so their WHNF is a full value already.
+      -- string-concat is exempt because its preamble body builds the copy of
+      -- its left operand strictly (llmll_appendS) and shares the right one.
+      let exempt = [ "list-empty", "list-prepend", "pair", "ok", "err", "map-put", "map-empty", "string-concat"
+                   , "json-of-string", "json-of-int", "json-of-bool", "json-of-list", "json-object" ]
+          structural t = case t of
+            TList _     -> True
+            TString     -> True
+            TBytes _    -> True
+            TResult _ _ -> True
+            TCustom _   -> False
+            _           -> False
+          retOf t = case t of { TFn _ r -> Just r; _ -> Nothing }
+          needing = [ n | (n, t) <- Map.toList builtinEnv
+                        , Just r <- [retOf t], structural r
+                        , not ("wasi." `T.isPrefixOf` n) ]
+          missing = [ n | n <- needing, n `notElem` map fst esResultForcers, n `notElem` exempt ]
+      missing `shouldBe` []
+
+    it "ES-13: a rebuild into a used -o directory removes the other program's .cabal (BUILD-DIR-REUSE)" $ do
+      staleCabalFiles "cbv_do" ["cbv-let.cabal", "cbv-do.cabal", "package.yaml", "src", "stack.yaml"]
+        `shouldBe` ["cbv-let.cabal"]
+      staleCabalFiles "cbv_do" ["cbv-do.cabal"] `shouldBe` []
+      staleExecutables "cbv_do" ["cbv-let", "cbv-do"] `shouldBe` ["cbv-let"]
+
+    it "ES-12: the console harness forces each step's (state, command) pair" $
+      case parseStatements GrammarCoreInversion "<es-12>" (T.unlines
+             [ "(import wasi.io (capability stdout :deterministic false))"
+             , "(def-main :mode console"
+             , "  :init (pair 0 (wasi.io.stdout \"\"))"
+             , "  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout \"\"))))" ]) of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> case cgMainHs (generateHaskell "m" stmts) of
+          Nothing -> expectationFailure "no Main.hs"
+          Just m  -> do
+            m `shouldSatisfy` T.isInfixOf "let !(s', cmd) = "
+            m `shouldSatisfy` T.isInfixOf "let !(state0, initCmd) = "
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

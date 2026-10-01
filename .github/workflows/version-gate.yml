@@ -315,6 +315,17 @@ jobs:
           SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
           LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_split_empty_1.py -v
 
+      # EVAL-STRICT-1's runtime cells: built programs evaluate call-by-value
+      # (LLMLL.md §4). Twelve of the fourteen cells failed on the v0.26.17
+      # compiler; edge case 2 and the bare-reference call pass on both and say
+      # so in their docstrings. Failures are made to fail with a message where
+      # the design allows it, so only edge cases 1 and 2 are timed (10 s).
+      - name: Run EVAL-STRICT-1 runtime cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_eval_strict_1.py -v
+
       # BUILD-NOSTACK-1's cells. They need the freshly built compiler and NOT
       # the toolchain: each cell runs `llmll build` with PATH set to an empty
       # directory, so neither `stack` nor `ghc` can be found. Before the patch

@@ -1,0 +1,6 @@
+;; EVAL-STRICT-1 invariant, rule 3 (list-fold): each callback call is evaluated, although the next call discards its result.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [s: int] -> int (list-fold [1 2 3] 0 (fn [acc: int x: int] (if (= x 2) (unwrap (string-to-int "bad-fold")) x))))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use 0))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

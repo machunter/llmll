@@ -1,0 +1,8 @@
+;; EVAL-STRICT-1 edge case 1 (proposal §2): the unread binding (spin s) is evaluated, so tally is never reached and the program does not terminate. Lazy code exits 1 with Precondition violated in tally.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell spin [x: int] -> int (spin x))
+(def-shell tally [seen: int] -> int (pre (>= seen 0)) (+ seen 1))
+(def-shell use [s: int] -> int (let [(y (spin s))] (tally (- 0 5))))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use 3))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))
