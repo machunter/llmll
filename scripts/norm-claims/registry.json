@@ -11,27 +11,31 @@
     {
       "id": "NC-001",
       "section": "0.1",
-      "text": "LLMLL's operational semantics are defined by the generated Haskell program.",
-      "disposition": "assumed",
-      "reason": "definitional stance: the generated Haskell is the semantics by decision (§0.1); the trusted base is named in the same section (NC-036 to NC-040)"
+      "text": "LLMLL is call-by-value, and §4.7 states its evaluation order and the only forms that are not strict.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/cbv-let-before-guard.llmll",
+        "scripts/doc-claims/cbv-do-discard-step.llmll",
+        "scripts/doc-claims/cbv-zero-param-not-at-start.llmll"
+      ]
     },
     {
       "id": "NC-002",
       "section": "0.1",
-      "text": "The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior.",
+      "text": "The compiler is the reference implementation of that semantics: generated Haskell that evaluates differently from §4.7 is a defect in code generation, not a definition of the language.",
       "disposition": "assumed",
-      "reason": "definitional: the compiler is the reference implementation by decision"
+      "reason": "definitional: the compiler is the reference implementation of §4.7 by decision; the trusted base is named in the same section (NC-036 to NC-040)"
     },
     {
       "id": "NC-003",
       "section": "0.1",
-      "text": "There is no separate formal semantics document.",
+      "text": "There is no separate formal semantics document; §4.7 is prose.",
       "disposition": "informative"
     },
     {
       "id": "NC-004",
       "section": "0.1",
-      "text": "Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics: a verified contract holds for all well-typed inputs of the generated Haskell code, and there is no overflow gap on `int`, because `int` is unbounded on both sides (§5.3.5).",
+      "text": "Verification conditions emitted by `llmll verify` are sound with respect to the call-by-value semantics of §4.7 under mathematical-integer (unbounded) semantics: a verified contract holds for all well-typed inputs, and there is no overflow gap on `int`, because `int` is unbounded on both sides (§5.3.5).",
       "disposition": "falsified-by",
       "target": "gate:refute-crux"
     },

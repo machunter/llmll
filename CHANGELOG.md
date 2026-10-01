@@ -4,6 +4,55 @@
 
 <a id="Latest"></a>
 
+## v0.27.0: LLMLL is call-by-value, and a built program evaluates that way (2026-09-30)
+
+### `EVAL-STRICT-1`: a value is computed before it is used
+
+`LLMLL.md` stated no evaluation strategy. The verifier reasons call-by-value and the generated Haskell
+was lazy, so `verify` could make a claim the built program falsified: a function that bound a
+non-terminating call in a `let` it never read, then called `tally` with `-5`, was reported proved only
+if it terminates, and the built binary terminated at once with `Precondition violated in tally`.
+LLMLL is now call-by-value (§4.7) and code generation conforms. Decision:
+[`docs/design/eval-strict-1-proposal.md`](docs/design/eval-strict-1-proposal.md) Rev 2; plan and its
+five recorded deviations:
+[`docs/design/eval-strict-1-implementation-plan.md`](docs/design/eval-strict-1-implementation-plan.md).
+
+- **The semantics.** Arguments, `let` bindings and `do` steps are evaluated before they are used;
+  constructors and the builtin containers are strict; `if`, `match`, `and`, `or`, `=>` and a `fn` body
+  are the only non-strict forms. Argument order, and which of two failures is observed, are
+  unspecified. A zero-parameter definition is evaluated at each call and never at program start.
+- **§0.1 changes direction.** The language was defined by what the generated Haskell does; §4.7 is now
+  the definition, and generated code that evaluates differently is a code-generation defect. `NC-001`
+  moves from `assumed` to `fixture`, on three `@run` fixtures, `scripts/doc-claims/cbv-*.llmll`.
+- **How code generation conforms.** It keeps one invariant: the WHNF of every term it builds is a full
+  value. Bindings, arguments, pairs and `do` steps are forced to WHNF, and the console harness forces
+  each step's `(state, command)` pair. A builtin that returns a structure is wrapped at its call site
+  in the forcer for its result type (`esResultForcers`, checked against `builtinEnv` by `ES-11`);
+  `list-fold` is `foldl'`; `string-concat` copies its left operand and shares the right; `string-split`
+  is one pass. WHNF forcing needs no type class, so a polymorphic binding needs no constraint.
+- **What a program sees.** The proposal's probe no longer terminates. A value bound before the guard
+  that would protect it fails (`cbv-let-before-guard`), and a `:discard` step is evaluated
+  (`cbv-do-discard-step`). `(let [(x 1) (x (+ x 1))] x)`, which passed `check` and failed `build` with
+  GHC "Conflicting definitions", builds and returns 2, and four `examples/withdraw-demo/` files that
+  failed `llmll build` now build.
+- **`llmll build` cleans a reused output directory.** A rebuild into a directory another program used
+  removes that program's `.cabal` file, which made Stack refuse the directory (`S-368`), and its
+  executable under `.stack-work/install/*/*/*/bin`. The doc-claims gate builds every `@run` fixture into
+  one directory, and the second such fixture failed until this change.
+- **Cost.** The path-lint live run takes 11.6 to 12.1 s against 8.7 s, with byte-identical output.
+  Most of the difference is values path-lint builds and never reads, which lazy code skipped
+  (`PATHLINT-UNREAD-1`). No VC changes, and `codegen_semantics_version` stays `"int-unbounded-1"`,
+  whose scope is `int`.
+- **Measured before the patch.** A scratch code generator that forced bindings and arguments passed
+  every gate that builds and runs an LLMLL program, so no LLMLL source in the tree changes
+  ([`docs/design/eval-strict-1-measure-findings.md`](docs/design/eval-strict-1-measure-findings.md)).
+- **Tests:** hspec `ES-1` to `ES-13`; `RC-1`'s harness pin now reads `let !(s', cmd)`.
+  `scripts/tests/test_eval_strict_1.py`, 14 runtime cells with a CI step: 12 fail on v0.26.17, and
+  edge case 2 and the bare-reference call pass on both, as their docstrings state.
+
+Tests: 2174 examples, 0 failures (+13); Python 312 passed, 119 skipped; with the compiler, 426 passed,
+5 skipped; orchestra 115 passed.
+
 ## v0.26.17: `min`, `max` and `abs` are proved in a body (2026-09-28)
 
 ### `MINMAX-FRAG-1`: the three builtins reflect as their `if` definitions
