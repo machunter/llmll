@@ -1,0 +1,12 @@
+;; EVAL-STRICT-1 terminating cells: short-circuit (edge case 5), an unapplied closure (9), a bare reference that is never called (13, first half), a let that rebinds a name, and a zero-parameter function called directly and through a binding.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell broken [] -> int (unwrap (string-to-int "bad-values")))
+(def-shell k [] -> int 16)
+(def-shell e5 [xs: list[int]] -> bool (=> (not (= (list-length xs) 0)) (= (unwrap (list-head xs)) 0)))
+(def-shell e9 [s: int] -> int (let [(g (fn [x: int] (unwrap (string-to-int "bad-closure"))))] 0))
+(def-shell e13a [] -> int (let [(g broken)] 0))
+(def-shell rebind [s: int] -> int (let [(x 1) (x (+ x 1))] x))
+(def-shell zp [] -> int (let [(g k)] (+ (g) (k))))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (string-concat-many ["E5=" (if (e5 (list-empty)) "true" "false") " E9=" (int-to-string (e9 0)) " E13A=" (int-to-string (e13a)) " REBIND=" (int-to-string (rebind 0)) " ZP=" (int-to-string (zp))])))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

@@ -1,0 +1,6 @@
+;; EVAL-STRICT-1 invariant, rule 3 (map values): a map value is a full value; map-put forces only WHNF, so the list inside must already be built.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [s: int] -> bool (let [(m (map-put (map-empty) 1 (list-map [1 2] (fn [x: int] (if (= x 2) (unwrap (string-to-int "bad-mapval")) x)))))] (map-has m 1)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (if (use 0) "true" "false")))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

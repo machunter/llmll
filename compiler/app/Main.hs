@@ -21,11 +21,11 @@ import Data.Version (showVersion)
 import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
-import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile, makeAbsolute, listDirectory, doesDirectoryExist)
 import System.Environment (lookupEnv)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
-import Control.Monad (unless, forM_, when, foldM)
+import Control.Monad (unless, forM_, when, foldM, filterM)
 import Numeric (showFFloat)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -56,7 +56,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReportJson, holeDensityWarnings, isNonLinear)
 import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, canonicalDefEvidenceHash, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson, writeFileUtf8
@@ -747,6 +747,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
           createDirectoryIfMissing True (outDir <> "/src")
           writeFileUtf8 (outDir <> "/src/Lib.hs")     (cgHsSource result)
           writeFileUtf8 (outDir <> "/package.yaml")   (cgPackageYaml result)
+          removeStaleCabal outDir (cgModuleName result)
           writeFileUtf8 (outDir <> "/stack.yaml")     (cgStackYaml result)
           case cgMainHs result of
             Nothing   -> pure ()
@@ -826,6 +827,7 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
       writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)
+      removeStaleCabal outDir (cgModuleName result)
       writeFileUtf8 (outDir <> "/stack.yaml")    (cgStackYaml result)
       case cgMainHs result of
         Nothing      -> pure ()
@@ -885,6 +887,7 @@ doRun json gm fp extraArgs = do
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
       writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)
+      removeStaleCabal outDir (cgModuleName result)
       writeFileUtf8 (outDir <> "/stack.yaml")   (cgStackYaml result)
 
       -- Write FFI hub
@@ -3296,3 +3299,27 @@ doReplayArtifact _json artFp = do
                   TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess
                 ReplayFailClosed reason ->
                   TIO.putStrLn ("\x26d4 replay FAILED CLOSED: " <> reason) >> exitWith (ExitFailure 1)
+
+-- | BUILD-DIR-REUSE. Remove what a previous build of a DIFFERENT program left
+-- in outDir: its .cabal file, which makes Stack refuse the directory (S-368),
+-- and its executable under each .stack-work/install/*/*/*/bin, which leaves
+-- two binaries where a caller expects one. See 'staleCabalFiles' and
+-- 'staleExecutables'. The dependency build in .stack-work is kept.
+removeStaleCabal :: FilePath -> T.Text -> IO ()
+removeStaleCabal outDir modName = do
+  entries <- listDirectory outDir
+  mapM_ (removeFile . (outDir </>)) (staleCabalFiles modName entries)
+  bins <- installBinDirs (outDir </> ".stack-work" </> "install")
+  mapM_ (\b -> listDirectory b >>= mapM_ (removeFile . (b </>)) . staleExecutables modName) bins
+  where
+    -- .stack-work/install/<platform>/<snapshot-hash>/<ghc-version>/bin
+    installBinDirs root = do
+      l1 <- subdirs root
+      l2 <- concat <$> mapM subdirs l1
+      l3 <- concat <$> mapM subdirs l2
+      filterM doesDirectoryExist (map (</> "bin") l3)
+    subdirs d = do
+      ok <- doesDirectoryExist d
+      if not ok then pure [] else do
+        es <- listDirectory d
+        filterM doesDirectoryExist (map (d </>) es)

@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.26.17)
+# LLMLL: Large Language Model Logical Language (v0.27.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.26.17.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.27.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -19,7 +19,7 @@ The refinement surface deliberately has no refinement subtyping, dependent patte
 
 ## 0.1 Semantic Foundation
 
-LLMLL's operational semantics are defined by the generated Haskell program.<a id="nc-001"></a> The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior.<a id="nc-002"></a> There is no separate formal semantics document.<a id="nc-003"></a> Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics: a verified contract holds for all well-typed inputs of the generated Haskell code, and there is no overflow gap on `int`, because `int` is unbounded on both sides (§5.3.5).<a id="nc-004"></a> Compositional reasoning: when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis).<a id="nc-005"></a> This assume-guarantee composition is sound when both functions are independently verified.<a id="nc-006"></a> Functions in recursive call cycles are verified compositionally by the **mutual-recursion assume-guarantee rule** — each cycle member's body-VC assumes its callees' postconditions and proves its own body — which is sound at **partial** correctness (Hoare 1971; Apt, *Ten Years of Hoare's Logic*, TOPLAS 1981): a non-terminating recursion vacuously satisfies its postcondition.<a id="nc-007"></a> Termination is discharged only by a `(decreases …)` clause (§4.2, §5.3.3), which upgrades the cycle to total correctness; without one the verdict is partial.<a id="nc-008"></a> The trust report marks every member of an undischarged cycle `termination_unverified` (§4.4.4).<a id="nc-034"></a> The soundness statement above rests on components this specification does not itself verify, and they are named here so a reader can see the boundary.<a id="nc-036"></a> GHC compiles the generated program, so its code generation is taken as faithful to the Haskell the compiler emits.<a id="nc-037"></a> `CodegenHs` and the codegen preamble produce that program, so the verification conditions describe what they emit rather than the source text a reader sees.<a id="nc-038"></a> The VC emitter, liquid-fixpoint and Z3 decide every obligation, so a defect in any of them is a defect in the verdict.<a id="nc-039"></a> The `.verified.json` sidecar carries evidence between runs, so the hash that gates a persisted tier belongs to this base rather than sitting outside it (§4.4.1).<a id="nc-040"></a>
+LLMLL is call-by-value, and §4.7 states its evaluation order and the only forms that are not strict.<a id="nc-001"></a> The compiler is the reference implementation of that semantics: generated Haskell that evaluates differently from §4.7 is a defect in code generation, not a definition of the language.<a id="nc-002"></a> There is no separate formal semantics document; §4.7 is prose.<a id="nc-003"></a> Verification conditions emitted by `llmll verify` are sound with respect to the call-by-value semantics of §4.7 under mathematical-integer (unbounded) semantics: a verified contract holds for all well-typed inputs, and there is no overflow gap on `int`, because `int` is unbounded on both sides (§5.3.5).<a id="nc-004"></a> Compositional reasoning: when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis).<a id="nc-005"></a> This assume-guarantee composition is sound when both functions are independently verified.<a id="nc-006"></a> Functions in recursive call cycles are verified compositionally by the **mutual-recursion assume-guarantee rule** — each cycle member's body-VC assumes its callees' postconditions and proves its own body — which is sound at **partial** correctness (Hoare 1971; Apt, *Ten Years of Hoare's Logic*, TOPLAS 1981): a non-terminating recursion vacuously satisfies its postcondition.<a id="nc-007"></a> Termination is discharged only by a `(decreases …)` clause (§4.2, §5.3.3), which upgrades the cycle to total correctness; without one the verdict is partial.<a id="nc-008"></a> The trust report marks every member of an undischarged cycle `termination_unverified` (§4.4.4).<a id="nc-034"></a> The soundness statement above rests on components this specification does not itself verify, and they are named here so a reader can see the boundary.<a id="nc-036"></a> GHC compiles the generated program, so its code generation is taken as faithful to the Haskell the compiler emits.<a id="nc-037"></a> `CodegenHs` and the codegen preamble produce that program, so the verification conditions describe what they emit rather than the source text a reader sees.<a id="nc-038"></a> The VC emitter, liquid-fixpoint and Z3 decide every obligation, so a defect in any of them is a defect in the verdict.<a id="nc-039"></a> The `.verified.json` sidecar carries evidence between runs, so the hash that gates a persisted tier belongs to this base rather than sitting outside it (§4.4.1).<a id="nc-040"></a>
 
 ## 0.2 Normative Sentence Markers
 
@@ -802,6 +802,41 @@ In LLMLL's target domains (financial compliance, protocol implementation, crypto
 JSON-AST fields: `"pre_source"` / `"post_source"` (optional string, single-clause shape) or `"pre_clauses"` / `"post_clauses"` (arrays of `{"expr", "source"?}` for 2+ clauses; mutually exclusive with the scalar shape; a one-element array normalizes to it; `schemaVersion` 0.9.0).
 
 
+### 4.7 Evaluation Strategy
+
+LLMLL is call-by-value.
+
+- **Values.** A value is an integer, float, boolean, unit, string, or bytes; a constructor, pair,
+  `Result`, list or map whose components are values; or an opaque value: a function closure, a
+  `Command` or a `Promise`. Constructors and the builtin containers are strict: they are built only
+  from values.
+- **Application.** `(f e₁ … eₙ)` evaluates each `eᵢ` to a value, then applies `f`. The order in which
+  the arguments are evaluated is unspecified. Builtins follow the same rule.
+- **`let`.** Each binding is evaluated to a value before the body. A binding can see only the
+  bindings before it. The order in which independent bindings are evaluated is unspecified.
+- **Failure.** An evaluation fails when it reaches a failed `pre`, a hole, a runtime error, or does not
+  terminate. When more than one sub-expression would fail, which failure is observed is unspecified.
+- **Non-strict forms, and only these.** `if` evaluates its condition, then exactly one branch. `match`
+  evaluates its scrutinee, then exactly one arm. `and`, `or` and `=>` evaluate their right operand only
+  when the left operand does not decide the result (§13.3); `<=>` evaluates both operands. A `fn` body
+  is evaluated only when the function is applied.
+- **`do` blocks.** A `do` block (§9.6) evaluates as the `let` chain it compiles to. Every step is
+  evaluated to a value before the block's result, including an anonymous step, whose state is
+  discarded, and a `:discard` step, whose command is discarded.
+- **Zero-parameter definitions.** A definition with no parameters is a function of no arguments. A call
+  `(k)` evaluates the body of `k` at that call; no definition is evaluated at program start, and a call
+  that is not reached evaluates nothing. A bare reference `k` is a function value and evaluates
+  nothing. Because the body is pure, an implementation may reuse the value of an earlier call to `k`;
+  a call that fails fails at every call that reaches it.
+- **Opaque values.** Evaluating a `Command` builds the action and does not run it. Effects happen only
+  when the `def-main` harness runs a `Command` (§9.4), in the order the harness runs them.
+- **Contracts.** A `pre` is evaluated when the function is entered, after its arguments. A contract
+  mentions only builtins and constructors. A user function may enter a contract only if its
+  termination is proved. This rule is what makes partial correctness sound: a specification never
+  contains a term that can diverge.
+
+Design record: [`docs/design/eval-strict-1-proposal.md`](docs/design/eval-strict-1-proposal.md).
+
 
 ---
 
@@ -1027,7 +1062,7 @@ Body-faithfulness (VC emitted) is necessary but not sufficient: `DLVerified "liq
 
 **A caller with no body VC.** A function whose body falls back, or that declares no post, emits no call-site obligation: nothing proves a callee's `pre` at its calls, and the runtime `pre` assertion is the only check there. `verify` names these calls, for the entry module, on one line: `call-pre unchecked: <caller> -> <callee>, …`, where a callee reached through `open` is named module-qualified (`adjudicate.tally`). A callee passed as a value to a higher-order builtin counts. The trust report lists the callee's `requires` under the caller's `caller_obligations`. The exit status does not change.
 
-**Sequential chains.** For a path with contracted calls `c₁ … cₙ` in evaluation order (chained via an `ELet` that binds a call result used by a later call, or by nested application), each call `cₖ`'s precondition is discharged under the accumulated context of the prior calls on its path:
+**Sequential chains.** For a path with contracted calls `c₁ … cₙ` in binding order (§4.7; chained via an `ELet` that binds a call result used by a later call, or by nested application), each call `cₖ`'s precondition is discharged under the accumulated context of the prior calls on its path:
 
 ```
 guard_k  ∧  P_caller  ∧  ⋀_{i<k} Q_{c_i}[r_i]   ⟹   Pre_{c_k}[args_k]
@@ -1754,7 +1789,7 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 
 - **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
 - **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
-- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def`/`def-shell` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`.
+- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def`/`def-shell` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`. Every step is evaluated, including an anonymous step and a `:discard` step (§4.7).
 - **Called functions need an explicit return-type annotation to be usable in a step.** Type inference for `do`-steps works in synthesis mode per step rather than resolving through unification: calling an unannotated `def`/`def-shell` function (no `-> RetType`) as a step infers `?` for its result and fails with `do-step-type-error`, even though the identical call outside a `do`-block, or with an explicit `-> (S, Command)` on the callee, type-checks fine. Give every function called from inside a `do`-block an explicit return-type annotation.
 - **A dropped intermediate command must be declared.** A non-final step's `Command` component is bound but not executed. Because that is a surprise relative to monadic `do`-notation in other languages, where the point of sequencing is to execute effects in order, dropping one is an **error** unless the step carries an explicit `:discard` marker. **In LLMLL `def`/`def-shell`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** The three ways to write a non-final step are: wrap the command in `seq-commands` (see §9.3) so it reaches the block's result, return it in the final tuple, or mark the step `:discard` to state that dropping it is intended. Code that looks effectful cannot silently drop effects; it either sequences them or says it is discarding them.
 
@@ -2497,6 +2532,8 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 |----------|-----------|-------|
 | `and` | `bool bool -> bool` | Short-circuit AND (right side not evaluated if left is `false`) |
 | `or` | `bool bool -> bool` | Short-circuit OR (right side not evaluated if left is `true`) |
+| `=>` | `bool bool -> bool` | Implication (right side not evaluated if left is `false`) |
+| `<=>` | `bool bool -> bool` | Biconditional (both sides evaluated) |
 | `not` | `bool -> bool` | Logical negation |
 
 ### 13.4 Pair / Record Operations

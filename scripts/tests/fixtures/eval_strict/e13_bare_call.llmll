@@ -1,0 +1,7 @@
+;; EVAL-STRICT-1 edge case 13, second half: a bare reference bound to g is a function value; the call (g) evaluates the body and fails.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell broken [] -> int (unwrap (string-to-int "bad-call")))
+(def-shell use [s: int] -> int (let [(g broken)] (g)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use 0))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

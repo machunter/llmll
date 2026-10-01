@@ -1,0 +1,10 @@
+;; @doc: LLMLL.md §0.1 (NC-001), §4 evaluation strategy and §9.6 (EVAL-STRICT-1, edge case 10)
+;; @run: 1
+;; @expect: output:list_tail: empty list
+;; @norm: NC-001
+;; @claim: A do block evaluates as the let chain it compiles to, so a :discard step whose state and command are both dropped is still evaluated, and here it fails. Lazy code generation printed done. EVAL-STRICT-1, measured v0.26.17.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [s: int xs: list[int]] -> (int, Command) (do [_ <- (pair s (list-length (unwrap (list-tail xs)))) :discard] (pair s (wasi.io.stdout "done"))))
+(def-main :mode console
+  :init (use 0 (list-empty))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

@@ -1,0 +1,6 @@
+;; EVAL-STRICT-1 edge case 4: a hole bound by let is evaluated at the binding, although the branch that reads it is not taken.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell use [c: bool] -> int (let [(x ?todo)] (if c x 0)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (use false))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))
