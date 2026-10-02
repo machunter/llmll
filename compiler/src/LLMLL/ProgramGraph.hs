@@ -25,7 +25,8 @@ import qualified Data.Text as T
 
 import LLMLL.Syntax
 import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, callerClosure)
-import LLMLL.TrustReport (downgradeStaleVerifiedSidecar, positiveTier)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, positiveTier)
+import LLMLL.EvidenceKey (moduleKeyEnv)
 
 prefixOf :: ModulePath -> Text
 prefixOf p = T.intercalate "." p <> "."
@@ -37,7 +38,7 @@ cachedDischargedFns :: ModuleCache -> Set Name
 cachedDischargedFns cache = Set.unions
   [ Set.fromList
       [ prefixOf p <> f
-      | (f, cs) <- Map.toList (validated m)
+      | (f, cs) <- Map.toList (validated cache m)
       , Just er <- [csPost cs]
       , positiveTier (erDisplayLevel er)
       , erTerminationVerified er ]
@@ -50,10 +51,13 @@ importUnprovedFns :: ModuleCache -> Set Name
 importUnprovedFns cache = Set.unions
   [ Set.fromList
       [ prefixOf p <> f
-      | (f, cs) <- Map.toList (validated m)
+      | (f, cs) <- Map.toList (validated cache m)
       , Just er <- [csPost cs]
       , not (positiveTier (erDisplayLevel er)) ]
   | (p, m) <- Map.toList cache ]
 
-validated :: ModuleEnv -> Map Name ContractStatus
-validated m = fst (downgradeStaleVerifiedSidecar (meStatements m) (meContractStatus m))
+-- HASH-PRE-ASYM: checked against the module's own 'KeyEnv' (its transitive
+-- imports, its recorded return types), the view its records were written with.
+validated :: ModuleCache -> ModuleEnv -> Map Name ContractStatus
+validated cache m =
+  fst (downgradeStaleVerifiedSidecarIn (moduleKeyEnv cache m) (meStatements m) (meContractStatus m))

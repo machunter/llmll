@@ -11,6 +11,7 @@ module LLMLL.VerifiedCache
   , saveVerified
   , saveVerifiedWith   -- TRUST-PRE: variant persisting a top-level caller_obligations array
   , saveVerifiedWithAxioms       -- TRUST-AXIOM: plus the per-def sealed-builtin axiom sets
+  , demotePositiveRecords        -- HASH-PRE-ASYM S4: a failed run keeps no positive record it contradicted
   , loadBuiltinAxioms            -- TRUST-AXIOM: Nothing = unrecorded, Just = recorded
   , axiomDisclosureVersion       -- TRUST-AXIOM: the unconditional file-level marker
   , reservedAxiomDisclosureKey
@@ -30,6 +31,8 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Data.List (nub)
 import Data.Text (Text)
@@ -430,6 +433,49 @@ saveVerifiedWithAxioms fp statuses obligations axioms = do
                   .= object [ AK.fromText n .= bs | (n, bs) <- Map.toList axioms ]
               | not (Map.null axioms) ]
   BL.writeFile path (A.encode (object (pairs ++ obKey ++ csKey ++ adKey ++ axKey)))
+
+-- | HASH-PRE-ASYM S4 (docs/design/hash-pre-asym-proposal.md Rev 3): after a
+-- @verify@ that did not end SAFE, demote the positive records of the named
+-- functions to @asserted@, in place. 'Nothing' names every function: the
+-- failure could not be attributed. Every reserved top-level key and every other
+-- record is kept as written. A missing or unreadable sidecar is left alone.
+-- Returns the functions demoted.
+--
+-- A refuted verdict is still not persisted. What this removes is a positive
+-- tier that the same run just contradicted, which an importer would otherwise
+-- keep reading (measured on v0.27.1: docs/design/hash-pre-asym-witness.md, F2).
+demotePositiveRecords :: FilePath -> Maybe (Set Name) -> IO [Name]
+demotePositiveRecords fp mFns = do
+  let path = verifiedPath fp
+  exists <- doesFileExist path
+  if not exists then pure [] else do
+    bs <- BL.readFile path
+    case A.decode bs of
+      Just (Object top) -> do
+        let reserved = [ reservedCallerObligationsKey, reservedCheckerSoundnessKey
+                       , reservedAxiomDisclosureKey, reservedBuiltinAxiomsKey ]
+            targeted k = k `notElem` reserved && maybe True (Set.member k) mFns
+            positive er = case erDisplayLevel er of
+              DLVerified _     -> True
+              DLVerifiedLean _ -> True
+              _                -> False
+            demote er = er { erDisplayLevel = DLAsserted, erBodyFaithful = False
+                           , erVerifiedHash = Nothing, erTerminationVerified = False }
+            step (acc, hit) (key, val)
+              | targeted (AK.toText key)
+              , Just (cs, _) <- csFromJSONWarn val
+              , any positive [ er | Just er <- [csPre cs, csPost cs] ] =
+                  let dm = fmap (\er -> if positive er then demote er else er)
+                      cs' = cs { csPre = dm (csPre cs), csPost = dm (csPost cs) }
+                  in (KM.insert key (csToJSON cs') acc, AK.toText key : hit)
+              | otherwise = (acc, hit)
+            (top', demoted) = foldl step (top, []) (KM.toList top)
+        if null demoted
+          then pure []
+          else do
+            BL.writeFile path (A.encode (Object top'))
+            pure (reverse demoted)
+      _ -> pure []
 
 -- | TRUST-AXIOM: read the per-def sealed-builtin axiom sets from a sidecar.
 --

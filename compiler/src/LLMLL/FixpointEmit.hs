@@ -72,6 +72,9 @@ module LLMLL.FixpointEmit
   , cacheAwareAliasMap           -- xmod-cg-brief: merged local-wins alias map
   , cacheAwareContractEnv        -- xmod-cg-brief: entry ∪ imported ContractEnv
   , augmentContractPost          -- DEF-RET Unit 2: return-refinement → effective post
+  , augmentContractPre           -- HASH-PRE-ASYM: the effective pre enters the evidence key
+  , KeyEnv(..)                   -- HASH-PRE-ASYM: the emitter's per-program inputs, shared with the key
+  , buildKeyEnv
   , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
   , isConstructorDependent
@@ -605,9 +608,51 @@ effRet :: Map Name Type -> Name -> Maybe Type -> Maybe Type
 effRet _        _    r@(Just _) = r
 effRet retTypes name Nothing    = Map.lookup name retTypes
 
+-- | HASH-PRE-ASYM: the per-program inputs of 'emitFnConstraints', built once.
+-- 'emitFixpointWithCache' takes its inputs from here, and 'LLMLL.EvidenceKey'
+-- builds a function's evidence key from the same value, so the key cannot read
+-- a different contract, alias or measure than the VC did
+-- (docs/design/hash-pre-asym-proposal.md Rev 3, §3.2). A new emitter input
+-- belongs here, and then in the key's projection.
+data KeyEnv = KeyEnv
+  { keAliases        :: AliasMap
+    -- ^ entry ∪ imported aliases, local wins ('cacheAwareAliasMap')
+  , keCenv           :: ContractEnv
+    -- ^ cache-aware contracts with the third slot from 'effRet', NOT yet marked
+    -- for MINMAX-FRAG-1 (the mark is translation, which the epoch covers)
+  , keMeasureMap     :: Map Name ([Name], [Expr])
+    -- ^ entry-module measures, as the emitter reads them
+  , keCalleeMeasures :: Map Name ([Name], [Expr])
+    -- ^ entry ∪ imported measures, imported ones dual-keyed like 'cenv'
+  , keRespRefs       :: Map Name (Map Name (Name, Expr))
+    -- ^ RESP-FACT-1 refinements seeded per requesting def
+  , keCallGraph      :: Map Name [Name]
+    -- ^ entry-module call graph ('buildCallGraph'), for recursion groups
+  }
+
+buildKeyEnv :: ModuleCache -> Map Name Type -> [Statement] -> KeyEnv
+buildKeyEnv cache retTypes stmts =
+  let aliases = cacheAwareAliasMap stmts cache
+      cenv0   = cacheAwareContractEnv aliases stmts cache
+      respPlan = respFactPlanOrEmpty (analyzeRespFacts aliases stmts)
+      importedMeasures = Map.unions
+        [ let bare = buildMeasureMap (meStatements m)
+              prefix = T.intercalate "." (mePath m) <> "."
+          in Map.union bare (Map.mapKeys (prefix <>) bare)
+        | m <- Map.elems cache ]
+  in KeyEnv
+       { keAliases        = aliases
+       , keCenv           = Map.mapWithKey (\n (ps, c, mr) -> (ps, c, effRet retTypes n mr)) cenv0
+       , keMeasureMap     = buildMeasureMap stmts
+       , keCalleeMeasures = Map.union (buildMeasureMap stmts) importedMeasures
+       , keRespRefs       = Map.map Map.fromList (rpRefEnvs respPlan)
+       , keCallGraph      = buildCallGraph stmts
+       }
+
 emitFixpointWithCache :: EmitOptions -> FilePath -> ModuleCache -> Map Name Type -> [Statement] -> IO EmitResult
 emitFixpointWithCache opts srcFile cache retTypes stmts = do
-  let aliases = cacheAwareAliasMap stmts cache
+  let ke = buildKeyEnv cache retTypes stmts
+      aliases = keAliases ke
   -- xmod-ag: the DATATYPE-DECL scan (only) widens to imported statements, so an
   -- assumed imported post mentioning a Pair2/Result constructor has its decl in
   -- the .fq. Per-function VC emission below stays entry-only — imported bodies
@@ -634,15 +679,16 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- loaded module (the cache is transitive): a superset of the callee's scope, so a
   -- scoping mistake can only cost a proof. 'cacheAwareContractEnv' stays unmarked,
   -- because the checkout brief renders it.
-  let cenv0 = cacheAwareContractEnv aliases stmts cache
-      cenv = Map.mapWithKey
-               (\n (ps, c, mr) ->
+  -- HASH-PRE-ASYM: 'keCenv' already carries 'effRet'; only the mark is added here.
+  let cenv0 = keCenv ke
+      cenv = Map.map
+               (\(ps, c, mr) ->
                   ( ps
                   , markContractIntBuiltins (Set.fromList (map fst ps) `Set.union` Map.keysSet cenv0) c
-                  , effRet retTypes n mr ))
+                  , mr ))
                cenv0
-      measureMap = buildMeasureMap stmts   -- REC-DESCENT: name → (params, k=1 measure)
-      callGraph = buildCallGraph stmts
+      measureMap = keMeasureMap ke   -- REC-DESCENT: name → (params, k=1 measure)
+      callGraph = keCallGraph ke
       sccs = stronglyConnComp
         [(name, name, deps) | (name, deps) <- Map.toList callGraph]
       recursiveNames = Set.fromList $ concatMap getRecursive sccs
@@ -655,7 +701,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- no refinement, no premise, no warning. Entry-module statements only, as the
   -- entry-module rule requires (§5.2); 'aliases' already merges builtinAliases.
   let respPlan = respFactPlanOrEmpty (analyzeRespFacts aliases stmts)
-      respRefs = Map.map Map.fromList (rpRefEnvs respPlan)
+      respRefs = keRespRefs ke
   ctrRef    <- newIORef (0 :: Int)  -- constraint ID counter
   bindRef   <- newIORef (0 :: Int)  -- binder ID counter
   tableRef  <- newIORef (Map.empty :: ConstraintTable)
