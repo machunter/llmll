@@ -19519,6 +19519,45 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitSrc "(def-shell g [a: int b: int] -> int (post (>= result 0)) (let [(max (fn [x: int y: int] x))] (max a b)))"
       erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
 
+    -- MINMAX-FRAG-1 residue: the same reading in a `pre` or `post`, at the
+    -- definition and in the contract a caller reads.
+    it "MMF-C1: min in a post is proved against a correct body" $ do
+      er <- emitSrc "(def f [a: int b: int] -> int (post (= result (min a b))) (if (<= a b) a b))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "f"
+      erFQText er `shouldSatisfy` T.isInfixOf "(if (a <= b) then a else b)"
+      solverSays "c1" er "Safe"
+
+    it "MMF-C2: max in a post refutes a body that computes min" $ do
+      er <- emitSrc "(def g [a: int b: int] -> int (post (= result (max a b))) (if (<= a b) a b))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
+      solverSays "c2" er "Unsafe"
+
+    it "MMF-C3: abs in a pre and a post is proved" $ do
+      er <- emitSrc "(def h [a: int b: int] -> int (pre (>= (abs a) 3)) (post (>= (+ (abs a) b) (+ 3 b))) (+ (abs a) b))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "h"
+      solverSays "c3" er "Safe"
+
+    it "MMF-C4: a caller assumes a callee post that names min" $ do
+      er <- emitSrc "(def f [a: int b: int] -> int (post (= result (min a b))) (if (<= a b) a b))\n(def-shell k [x: int] -> int (post (<= result x)) (f x (+ x 1)))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "k"
+      solverSays "c4" er "Safe"
+
+    it "MMF-C5: a call-site pre that names abs refutes a violating argument" $ do
+      good <- emitSrc "(def h [a: int] -> int (pre (>= (abs a) 3)) a)\n(def-shell ok [] -> int (post true) (h (- 0 5)))"
+      solverSays "c5-good" good "Safe"
+      bad <- emitSrc "(def h [a: int] -> int (pre (>= (abs a) 3)) a)\n(def-shell bad [] -> int (post true) (h 2))"
+      solverSays "c5-bad" bad "Unsafe"
+
+    it "MMF-C6: a parameter named min in a post is not the builtin (falls back, never proves)" $ do
+      er <- emitSrc "(def-shell p [min: (fn [int int] -> int) a: int b: int] -> int (post (<= (min a b) result)) a)"
+      erBodyFaithfulFns er `shouldNotSatisfy` elem "p"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+
+    it "MMF-C7: a top-level function named max in a post is not the builtin" $ do
+      er <- emitSrc "(def-shell max [a: int b: int] -> int a)\n(def-shell q [a: int b: int] -> int (post (>= result (max a b))) (if (<= a b) b a))"
+      erBodyFaithfulFns er `shouldNotSatisfy` elem "q"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+
   -- -----------------------------------------------------------------------
   -- RESP-FACT-1: a Command result carries a proved property to its caller,
   -- keyed on the program's own control tag. Design: docs/design/

@@ -628,9 +628,19 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- 'synthRet' is deliberately left in place: it is the fallback for ContractEnv
   -- builders that receive no tau_ret, and retiring it here would regress the R1
   -- bool-ret-synth fix (v0.14.14) on those paths.
-  let cenv = Map.mapWithKey
-               (\n (ps, c, mr) -> (ps, c, effRet retTypes n mr))
-               (cacheAwareContractEnv aliases stmts cache)
+  -- MINMAX-FRAG-1 residue: mark `min`, `max` and `abs` in each stored contract, so
+  -- a caller assumes or proves it as the callee's own VC does. The shadow set is
+  -- the callee's params plus every top-level name of the entry module and every
+  -- loaded module (the cache is transitive): a superset of the callee's scope, so a
+  -- scoping mistake can only cost a proof. 'cacheAwareContractEnv' stays unmarked,
+  -- because the checkout brief renders it.
+  let cenv0 = cacheAwareContractEnv aliases stmts cache
+      cenv = Map.mapWithKey
+               (\n (ps, c, mr) ->
+                  ( ps
+                  , markContractIntBuiltins (Set.fromList (map fst ps) `Set.union` Map.keysSet cenv0) c
+                  , effRet retTypes n mr ))
+               cenv0
       measureMap = buildMeasureMap stmts   -- REC-DESCENT: name → (params, k=1 measure)
       callGraph = buildCallGraph stmts
       sccs = stronglyConnComp
@@ -1025,8 +1035,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         , length ctors >= 2    -- MATCH-WIDEN-2: n-ary (was ==2); mixed sums only (any payload)
         , any (isJust . snd) ctors ]
       dsAll e     = desugarScrutCtor scrutTagMap (dsExpr e)
-      contract    = contractAug { contractPre  = dsAll <$> contractPre contractAug
+      contractQ   = contractAug { contractPre  = dsAll <$> contractPre contractAug
                                 , contractPost = dsAll <$> contractPost contractAug }
+      -- MINMAX-FRAG-1 residue: mark `min`, `max` and `abs` in the contract with the
+      -- name set the body uses, so a contract call is proved as a body call is.
+      -- Qualifiers read 'contractQ', unmarked, so the qualifier set is unchanged.
+      contract    = markContractIntBuiltins
+                      (Set.fromList (map fst params) `Set.union` Map.keysSet cenv) contractQ
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isScalarLike aliases t ]
@@ -1196,8 +1211,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     let qualSortMap = Map.fromList $
           ("result", maybe FQInt sortA1 mRet)
           : [ (pn, sortA1 pt) | (pn, pt) <- params ]
-        preQuals  = maybe [] (extractQualifiers qualSortMap "pre"  name) (contractPre contract)
-        postQuals = maybe [] (extractQualifiers qualSortMap "post" name) (contractPost contract)
+        preQuals  = maybe [] (extractQualifiers qualSortMap "pre"  name) (contractPre contractQ)
+        postQuals = maybe [] (extractQualifiers qualSortMap "post" name) (contractPost contractQ)
     addQuals (preQuals ++ postQuals)
 
     -- Emit standalone pre-condition constraint (legacy, non-body-VC mode only)
@@ -3466,6 +3481,11 @@ exprToPred (ELit (LitBool False)) = Just FQFalse
 -- identifying "a"="b" spuriously refutes; §6.1 F2). Term-vs-term string equality
 -- already reflected; this closes the literal gap.
 exprToPred (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
+-- MINMAX-FRAG-1 residue: a contract call 'markIntBuiltins' marked as the builtin
+-- reflects as the same `if` term a body call does. Only the internal name matches,
+-- so an unmarked `min` (a user function, parameter or binder) still falls back.
+exprToPred (EApp op args)
+  | Just b <- T.stripPrefix intBuiltinTag op = mapM exprToPred args >>= reflectIntBuiltin b
 -- | LEVER-A2.2 get-comparison bridge (well-sortedness): a bool-valued
 -- @(map-get m k)@ compared against a bool literal reflects the value select
 -- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
@@ -5986,6 +6006,13 @@ markIntBuiltins declared body = go body
       ELambda ps x       -> ELambda ps (go x)
       EDo steps          -> EDo [ st { dsExpr = go (dsExpr st) } | st <- steps ]
       _                  -> e
+
+-- | MINMAX-FRAG-1 residue: 'markIntBuiltins' over both clauses of a contract.
+-- Each clause is its own scope, so each is tested against its own binders.
+markContractIntBuiltins :: Set.Set Name -> Contract -> Contract
+markContractIntBuiltins declared c =
+  c { contractPre  = markIntBuiltins declared <$> contractPre c
+    , contractPost = markIntBuiltins declared <$> contractPost c }
 
 -- | MINMAX-FRAG-1: every name an expression binds, at any depth.
 exprBinders :: Expr -> Set.Set Name
