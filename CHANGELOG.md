@@ -4,6 +4,34 @@
 
 <a id="Latest"></a>
 
+## v0.27.1: `min`, `max` and `abs` are proved in a contract (2026-10-02)
+
+### `MINMAX-FRAG-1` residue (1): the contract half
+
+v0.26.17 proved the three builtins in a body; in a `pre` or `post` they still fell back and the
+post was assumed. Measured on v0.27.0: `(post (= result (min a b)))` over a correct body, the same
+post with `max` over a body that computes `min`, and `(pre (>= (abs a) 3))` all fell back. The
+second is a wrong contract that `verify` reported SAFE with the post assumed, and the solver never
+saw it.
+
+- **The same term as a body.** A contract call is marked with the name set bodies use, and
+  `exprToPred` reflects it as the same `FQIte` term. A wrong post using `max` is now refuted.
+- **At the definition and at the call site.** The contract a caller reads is marked too, so a
+  caller assumes a callee post that names `min`, and a call that violates a callee `pre` naming
+  `abs` is refuted. A caller with no post still gets no body VC, so it checks no callee `pre`
+  (`SHELL-CALL-PRE-1`).
+- **Only the builtin.** A parameter (function-typed included) or a top-level or imported function
+  of the name keeps the old path and falls back, as in a body.
+- **Nothing else reads the mark.** Qualifier extraction and the checkout brief read the unmarked
+  contract, so no qualifier changes and the brief never shows the internal name.
+- **Unchanged on the tree.** All 222 `.fq` files under `examples/`, `tools/` and `scripts/` are
+  byte-identical, and `llmll verify` output is identical on all 236 programs.
+- **Tests:** hspec `MMF-C1` to `MMF-C7`. Three negative controls each fail exactly their cells: an
+  empty shadow set fails `MMF-C6` and `MMF-C7`, removing the `exprToPred` clause fails `MMF-C1` to
+  `MMF-C5`, and leaving the caller's contract unmarked fails `MMF-C4` and `MMF-C5`.
+
+Tests: 2181 examples, 0 failures (+7); Python 312 passed, 119 skipped.
+
 ## v0.27.0: LLMLL is call-by-value, and a built program evaluates that way (2026-09-30)
 
 ### `EVAL-STRICT-1`: a value is computed before it is used

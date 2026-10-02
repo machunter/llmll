@@ -1,7 +1,7 @@
 ---
 name: minmax-frag-1-proposal
 title: "MINMAX-FRAG-1: min, max and abs are proved in a body as their if definitions"
-status: "Rev 0, SETTLED and SHIPPED v0.26.17 (10fa705). The DECIDE chose reflection over a documented rewrite. Bodies only; the contract half is the residue row MINMAX-FRAG-1 residue (1)."
+status: "Rev 0, SETTLED and SHIPPED v0.26.17 (10fa705). The DECIDE chose reflection over a documented rewrite. Bodies at v0.26.17; the contract half, MINMAX-FRAG-1 residue (1), SHIPPED v0.27.1 (3b125fb)."
 date: 2026-09-28
 author: language-team
 consumers: [compiler-engineer, documentation-lead, user]
