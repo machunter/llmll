@@ -1,11 +1,11 @@
 ---
 name: hash-pre-asym-proposal
 title: "HASH-PRE-ASYM: a stored verdict is keyed on everything its proof read"
-status: "Rev 3, SETTLED (2026-10-02). Folds hash-pre-asym-review.md rounds 1 to 3 (professor) and hash-pre-asym-witness.md (measured on v0.27.1). A stored claim is keyed on every per-program input its proof read, built from the emitter's own per-function inputs; one key function with a round-trip invariant; a failed-run rule. No compiler work in this document."
+status: "Rev 3, SETTLED and SHIPPED v0.27.2 (cd55c22). Folds hash-pre-asym-review.md rounds 1 to 3 (professor) and hash-pre-asym-witness.md (measured on v0.27.1). A stored claim is keyed on every per-program input its proof read, built from the emitter's own per-function inputs; one key function with a round-trip invariant; a failed-run rule. No compiler work in this document."
 date: 2026-10-02
 author: language-team
 consumers: [user, compiler-engineer, documentation-lead]
-reviews: "hash-pre-asym-review.md (professor, standalone, not folded)"
+reviews: "folded below; archived at docs/archive/professor-reviews/hash-pre-asym-review.md"
 related: "hash-pre-asym-witness.md; fact-ag-proposal (Stage 1 augmented the pre, Stage 3 the post); minmax-frag-1-proposal (v0.27.1, the widening case)"
 ---
 
@@ -174,3 +174,50 @@ The professor's H5 is recorded here and not in `docs/design/theory-questions.md`
 ## 10. Hand-off
 
 Code track. On settlement: `compiler-engineer` plans S1 (shared preimage builder, §3 fields), S4 (the non-SAFE sidecar rewrite) and the §8 tests, as one release. The professor's review stays standalone until settlement, then documentation-lead folds and archives it.
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal is
+folded here and the source file archived to
+[`docs/archive/professor-reviews/hash-pre-asym-review.md`](../archive/professor-reviews/hash-pre-asym-review.md).
+Folded at the settlement of Rev 3, 2026-10-02.
+
+**Source:** `docs/design/hash-pre-asym-review.md` at commit `7743a2f` (reviewed 2026-10-02; reviewer:
+Lead Consultant for Formal Language Design). Three rounds, against Rev 0, Rev 1 and Rev 2.
+
+### Round 1, against Rev 0, and its outcome
+
+**The meet is not a dependency key.** Rev 0 let a pre augmentation reach callers through the §4.4.3
+transitive meet "until the callee is re-proved", which is the moment the meet passes again without the
+caller being re-checked. The reviewer cited Boogie and Dafny's dependency checksums (Leino and
+Wüstholz, CAV 2015) and the verifying-trace definition of *Build Systems à la Carte* (Mokhov, Mitchell
+and Peyton Jones, ICFP 2018). Outcomes: the witness ([`hash-pre-asym-witness.md`](hash-pre-asym-witness.md))
+confirmed the gap on v0.27.1 in both the pre and post variants, and found the failed-run defect (S4);
+Rev 1 added the direct-callee digest, the side condition on S3, the release checklist, and recorded a
+VC-keyed hash (Why3 sessions, VSTTE 2013) as deferred design (§7).
+
+### Round 2, against Rev 1, and its outcome
+
+**The read sites could not compute the key** (they held one module's statements and the declared return
+type); **a descent obligation reads an SCC peer's measure**; **S1's "never reads the body" was false**
+for an undeclared return type. The reviewer cited GHC's per-entity interface fingerprints as the closest
+precedent and their history of omitted dependencies. Rev 2 added §3.1 (one key function at every site,
+and the round-trip invariant), folded every direct callee's measure (a deliberate superset of SCC peers,
+so the key never depends on the whole call graph), and restated S1's body sentence.
+
+### Round 3, against Rev 2, and its outcome
+
+**The termination flag depends on the recursion group** (`markDescentDischarged` subtracts the stored
+flag from a live `partial_fns`), **a RESP-FACT refinement depends on issuing defs that are not callees**,
+and **the field list should follow the emitter by construction**. Rev 3 keyed the termination claim on
+its group, folded the seeded RESP-FACT refinement, and added §3.2 (the key built from the emitter's
+per-function inputs, each projected to the function). The reviewer's correction that the round-trip
+invariant passes on v0.27.1, and so guards the new code rather than reproducing the defect, is recorded
+in §8.
+
+**What shipped differs from Rev 3 in one place.** The engineer folded the recursion group into the
+record's single key rather than adding a separate termination key field, which would have changed the
+record format at about 100 construction sites. The whole record of a function whose group changes is
+therefore demoted, not only its termination flag. This over-invalidates and never under-invalidates;
+`LLMLL.md` §5.3 states the shipped behavior.
+
