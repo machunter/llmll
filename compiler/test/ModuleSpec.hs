@@ -37,6 +37,7 @@ import LLMLL.PBT
   , canonicalDefEvidenceHash
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
+import LLMLL.EvidenceKey (evidenceKey, moduleKeyEnv)  -- HASH-PRE-ASYM
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
 import LLMLL.CallGraph (resolveIn)
 import qualified Data.Set as Set
@@ -461,11 +462,15 @@ moduleSpec = describe "Module System" $ do
         -- Recover the live parsed (body,pre,post) of core.withdraw so a seeded
         -- verified_hash matches the live def exactly (and a deliberately wrong
         -- hash is provably stale).
-        recoverWithdraw coreEnv =
+        -- HASH-PRE-ASYM: recovered through the evidence key a real `verify` of
+        -- core writes (the effective pre folds PositiveInt's refinement, and the
+        -- key carries the PositiveInt declaration).
+        recoverWithdraw coreCache coreEnv =
           case find (\s -> case s of SDef "withdraw" _ _ _ _ -> True; _ -> False)
                     (meStatements coreEnv) of
-            Just (SDef _ _ _ c b) -> (canonicalDefEvidenceHash "def" b (contractPre c) (contractPost c) [])
-            _                     -> error "core.withdraw def not found in fixture"
+            Just s  -> maybe (error "no key for core.withdraw") snd
+                         (evidenceKey (moduleKeyEnv coreCache coreEnv) False s)
+            _       -> error "core.withdraw def not found in fixture"
         mkER dl bf vh =
           EvidenceRecord dl bf Nothing [] False Nothing Nothing False vh False []
         -- Build a compose sidecar making safe-withdraw's OWN post verified (the
@@ -486,7 +491,7 @@ moduleSpec = describe "Module System" $ do
       coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
       let Right (coreCache, _, _) = coreOnly
           Just coreEnv = Map.lookup ["core"] coreCache
-          vh = recoverWithdraw coreEnv
+          vh = recoverWithdraw coreCache coreEnv
           ver = mkER (DLVerified "liquid-fixpoint") True (Just vh)
       saveVerified coreFp (Map.fromList [("withdraw", ContractStatus (Just ver) (Just ver) [])])
       flip finally (removeFile coreSidecarFp) $ do
@@ -521,7 +526,7 @@ moduleSpec = describe "Module System" $ do
       coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
       let Right (coreCache, _, _) = coreOnly
           Just coreEnv = Map.lookup ["core"] coreCache
-          _vh = recoverWithdraw coreEnv  -- unused: asserted evidence carries no hash
+          _vh = recoverWithdraw coreCache coreEnv  -- unused: asserted evidence carries no hash
           asserted = mkER DLAsserted False Nothing
       saveVerified coreFp (Map.fromList [("withdraw", ContractStatus (Just asserted) (Just asserted) [])])
       flip finally (removeFile coreSidecarFp) $ do
@@ -549,7 +554,7 @@ moduleSpec = describe "Module System" $ do
       coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
       let Right (coreCache, _, _) = coreOnly
           Just coreEnv = Map.lookup ["core"] coreCache
-          _liveHash = recoverWithdraw coreEnv
+          _liveHash = recoverWithdraw coreCache coreEnv
           -- A deliberately wrong hash (any value distinct from the live one).
           staleHash = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
           staleVer  = mkER (DLVerified "liquid-fixpoint") True (Just staleHash)

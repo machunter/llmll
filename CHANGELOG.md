@@ -4,6 +4,58 @@
 
 <a id="Latest"></a>
 
+## v0.27.2: a stored `verified` depends on everything its proof read (2026-10-02)
+
+### `HASH-PRE-ASYM`: a record's key covers its callees, its recursion group and its seeded facts
+
+A `.verified.json` record is read back without running the solver: by `--trust-report`, by the
+admission check for a `def`, and by every importer. Its `verified_hash` covered the function's own
+text and nothing its proof read from outside it. Measured on v0.27.1
+([`docs/design/hash-pre-asym-witness.md`](docs/design/hash-pre-asym-witness.md)): with `c` importing
+`a` importing `b`, strengthening `g`'s `pre` or weakening its `post` in `b` and re-verifying only `b`
+left `a`'s `f: verified`, and `llmll verify c.llmll --strict-verified-core` passed with exit 0. In the
+first case the built program would stop on `g`'s runtime `pre` check (not run). A failed `verify a.llmll` then left
+`a`'s sidecar byte-identical. The row as filed named only the raw `pre` in the preimage; the witness
+showed that gap was one entry into a missing dependency. Design and three professor review rounds:
+[`docs/design/hash-pre-asym-proposal.md`](docs/design/hash-pre-asym-proposal.md) Rev 3.
+
+- **One key, built from the emitter's inputs.** New `LLMLL.EvidenceKey`. The key covers the function's
+  body, effective `pre` and `post`, measures and signature types; for each callee its body names, the
+  callee's resolved name, parameter types, effective `pre` and `post`, effective return type
+  (inferred when undeclared), measures and type declarations; and any RESP-FACT refinement seeded into
+  it. `FixpointEmit.buildKeyEnv` supplies both the emitter's inputs and the key's, so the two cannot
+  read different contracts. A callee's body is not in its callers' keys.
+- **A termination claim is keyed on its recursion group.** A record that claims termination folds the
+  group's members and measures into its key, so a body edit that joins a function to a group demotes
+  the record. This keys the whole record, not only the termination flag, which avoids a record-format
+  change; the cost is one extra re-proof when a group changes.
+- **Every write and read site uses it.** The sidecar write, the entry read before the strict check (its
+  inferred return types come from a non-strict check, run only when a def declares none), the reads in
+  `verify`, `ProgramGraph.validated`, and the imported-module check in `TrustReport`. An imported
+  module's records are checked against its own imports and recorded return types.
+- **A failed run demotes what it refuted.** A `verify` that does not end SAFE rewrites the sidecar in
+  place: the functions named by the failing constraints lose their positive tier, or every function
+  does when the failure is unattributed. Other keys in the sidecar are kept.
+- **Fixed: a demoted record kept its termination flag.** `demoteToAsserted` cleared the tier and the
+  hash but not `termination_verified`, and `sidecarDischargedSet` reads that flag without the tier, so a
+  stale record still took its function out of `partial_fns`.
+- **The key format changed** (`admitVerifiedSemanticsTag` `av2` to `av3`): every stored key moves once,
+  and each tree needs one re-verify. `checker_soundness_version` is unchanged. The five committed
+  example sidecars are regenerated; four change only their 335 hashes, and the TOTP sidecar is refreshed
+  from a format older than the stamps, with the same tiers.
+- **Unchanged on the tree.** All 222 `.fq` files under `examples/`, `tools/` and `scripts/` are
+  byte-identical, and `llmll verify` output is identical on all 236 programs.
+- **Tests:** hspec `HPA-K1` to `HPA-K10` on the key; `scripts/tests/test_hash_pre_asym.py`, ten cells:
+  the two witness variants, the failed run, the recursion group and the control-tag fact (each failed
+  on v0.27.1), two guards against over-invalidation, and three round-trip cells (a fresh record reads
+  back as written on the entry and import paths). Four negative controls each fail exactly their cells:
+  removing the callee digest, the recursion group, the RESP-FACT seed, or the import module's own view.
+  `HPA-K7` does not isolate the digest, because its two bodies already differ. `XMOD-TIER-POS` now
+  recovers its seeded hash through the new key.
+
+Tests: 2191 examples, 0 failures (+10); Python 312 passed, 129 skipped (436 passed, 5 skipped with
+`LLMLL_BIN` set).
+
 ## v0.27.1: `min`, `max` and `abs` are proved in a contract (2026-10-02)
 
 ### `MINMAX-FRAG-1` residue (1): the contract half

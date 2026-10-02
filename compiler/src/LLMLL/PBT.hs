@@ -26,6 +26,7 @@ module LLMLL.PBT
     -- * ADMIT-VERIFIED (Option 2): def-evidence staleness hash
   , admitVerifiedSemanticsTag
   , canonicalDefEvidenceHash
+  , canonicalDefEvidenceHashWith
   , pbtTrustWriteback
 
     -- * Results
@@ -583,7 +584,9 @@ admitVerifiedSemanticsTag :: Text
 -- REC-HASH-FORM (b0): bumped av1 -> av2 alongside the def-form addition to the
 -- preimage below, so every pre-REC-HASH-FORM sidecar is invalidated once (the
 -- preimage change already drifts every hash; the tag bump records the reason).
-admitVerifiedSemanticsTag = "av2;qf-lia;int=unbounded"
+-- HASH-PRE-ASYM: av2 -> av3 with the dependency fragment and the effective pre
+-- (docs/design/hash-pre-asym-proposal.md Rev 3, S1); every key moves once.
+admitVerifiedSemanticsTag = "av3;qf-lia;int=unbounded"
 
 -- | ADMIT-VERIFIED (Option 2): SHA-256 over the canonical serialization of a
 -- def's @(form, body, pre, post)@ together with 'admitVerifiedSemanticsTag'.
@@ -608,7 +611,15 @@ admitVerifiedSemanticsTag = "av2;qf-lia;int=unbounded"
 -- list: a decreases-free def emits no measure fragment, so its hash is
 -- unchanged from the REC-HASH-FORM shape.
 canonicalDefEvidenceHash :: Text -> Expr -> Maybe Expr -> Maybe Expr -> [Expr] -> Text
-canonicalDefEvidenceHash formTag body mPre mPost decs =
+canonicalDefEvidenceHash = canonicalDefEvidenceHashWith ""
+
+-- | HASH-PRE-ASYM: the def-evidence hash with a dependency fragment: what the
+-- proof read from outside the def's own text (callee interfaces, type
+-- declarations, seeded facts, the recursion group). 'LLMLL.EvidenceKey' builds
+-- it. An empty fragment adds nothing to the preimage, so a def that reads
+-- nothing from outside keeps the plain 'canonicalDefEvidenceHash' value.
+canonicalDefEvidenceHashWith :: Text -> Text -> Expr -> Maybe Expr -> Maybe Expr -> [Expr] -> Text
+canonicalDefEvidenceHashWith deps formTag body mPre mPost decs =
   let clause = maybe "(none)" canonicalExpr
       measurePart = if null decs then ""
                     else " (decreases " <> T.intercalate " " (map canonicalExpr decs) <> ")"
@@ -619,6 +630,7 @@ canonicalDefEvidenceHash formTag body mPre mPost decs =
              <> "(pre " <> clause mPre <> ") "
              <> "(post " <> clause mPost <> ")"
              <> measurePart
+             <> (if T.null deps then "" else " (deps " <> deps <> ")")
              <> ")"
       bytes = SHA256.hash (TE.encodeUtf8 payload)
       hex   = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)

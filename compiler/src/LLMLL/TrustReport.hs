@@ -43,6 +43,7 @@ module LLMLL.TrustReport
   , aggregateTiersPost -- OBLIG-PBT-3: per-post-clause tier-count profile
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , downgradeStaleVerifiedSidecar -- ADMIT-VERIFIED: drop body-faithful evidence on hash drift / absence
+  , downgradeStaleVerifiedSidecarIn -- HASH-PRE-ASYM: the same, against the module's own KeyEnv
   , downgradeContradictedTiers    -- SIDECAR-ADMIT-1: drop a positive tier THIS RUN contradicts
   , positiveTier                  -- SIDECAR-ADMIT-1: the tier class whose backing is a body-faithful VC
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
@@ -75,8 +76,8 @@ import qualified Data.Text.Lazy as TL
 
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
-import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
-import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap, cacheAwareAliasMap, BuiltinAxiom(..))  -- DEF-RET Unit 2; RESP-FACT-1 merged aliases; TRUST-AXIOM rows
+import LLMLL.PBT (canonicalPropBodyHash)
+import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap, cacheAwareAliasMap, BuiltinAxiom(..), KeyEnv, buildKeyEnv)  -- DEF-RET Unit 2; RESP-FACT-1 merged aliases; TRUST-AXIOM rows
 -- RESP-FACT-1 (§12): the disclosure rows come from the same pure analysis the
 -- checker and the emitter run, so the three surfaces cannot drift.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), AssumedFact(..))
@@ -85,6 +86,7 @@ import LLMLL.AstEmit (exprToJson)
 -- PARTIAL-FNS-GRAPH-1: 'partial_fns' reads the module-qualified graph, the
 -- same one 'termination_assumed_fns' reads ('LLMLL.ProgramGraph').
 import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers)
+import LLMLL.EvidenceKey (evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -856,7 +858,23 @@ downgradeStaleVerifiedSidecar
   :: [Statement]                 -- ^ live statements (source of truth for body+contract)
   -> Map Name ContractStatus     -- ^ persisted sidecar evidence (bare-keyed)
   -> (Map Name ContractStatus, [Text])
+-- HASH-PRE-ASYM: the single-module form, for a module with no imports and no
+-- unannotated return types (the unit tests). Production sites pass the module's
+-- own 'KeyEnv' to 'downgradeStaleVerifiedSidecarIn', so the key they check is the
+-- key the write side computed.
 downgradeStaleVerifiedSidecar stmts =
+  downgradeStaleVerifiedSidecarIn (buildKeyEnv Map.empty Map.empty stmts) stmts
+
+-- | HASH-PRE-ASYM: check each persisted record against the evidence key of its
+-- live definition ('LLMLL.EvidenceKey'), computed with the module's own
+-- 'KeyEnv'. A record that claims termination is checked against the key that
+-- folds its recursion group.
+downgradeStaleVerifiedSidecarIn
+  :: KeyEnv
+  -> [Statement]
+  -> Map Name ContractStatus
+  -> (Map Name ContractStatus, [Text])
+downgradeStaleVerifiedSidecarIn ke stmts =
   Map.foldlWithKey' step (Map.empty, [])
   where
     -- DEF-RET Unit 2: the staleness hash covers the return refinement folded into
@@ -864,17 +882,12 @@ downgradeStaleVerifiedSidecar stmts =
     -- annotation (or redefining the alias predicate) invalidates a stale verified
     -- sidecar. Must match the write-side basis (Main provenCS). Recompute is
     -- same-module (alias map in scope), so the augmented hash is reproducible.
-    am = buildAliasMap stmts
-    -- Live (form, body, pre, augmented-post) hash per bare def name.
-    -- REC-HASH-FORM (b0): the 'defFormTag s' leg makes a def-shell -> def rename
-    -- drift the hash so the stale sidecar is downgraded (probe E), read-side dual
-    -- of the write-side stamp in Main.hs.
-    liveHashes :: Map Name Text
-    liveHashes = Map.fromList
-      [ (n, canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost (augmentContractPost am mRet c)) (case s of SDefShell _ _ _ _ _ d -> d; _ -> []))
-      | s <- stmts
-      , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
-      ]
+    -- Live evidence key per bare def name ('LLMLL.EvidenceKey'): the record's
+    -- own text plus everything its proof read. REC-HASH-FORM (b0)'s form tag and
+    -- DEF-RET's augmented post are part of it.
+    liveHashesPlain, liveHashesTerm :: Map Name Text
+    liveHashesPlain = evidenceKeys ke False stmts
+    liveHashesTerm  = evidenceKeys ke True stmts
 
     step (mAcc, dAcc) name cs =
       let (cs', ds) = downgradeCS name cs
@@ -901,7 +914,8 @@ downgradeStaleVerifiedSidecar stmts =
               <> " claimed a positive tier with no body-faithful evidence"
               <> " (body_faithful absent or false). Evidence downgraded to asserted." ] )
       | otherwise =
-          let live = Map.lookup name liveHashes
+          let live = Map.lookup name
+                       (if erTerminationVerified er then liveHashesTerm else liveHashesPlain)
               stale = case (erVerifiedHash er, live) of
                         (Nothing, _)          -> True   -- (a) fail closed on absent hash
                         (_, Nothing)          -> True   -- (c) live def gone
@@ -936,9 +950,13 @@ positiveTier (DLTestedJoint _)  = False
 -- both read-side downgrade passes so a demoted record cannot keep a hash or a
 -- body-faithful flag that its level no longer justifies.
 demoteToAsserted :: EvidenceRecord -> EvidenceRecord
+-- HASH-PRE-ASYM: the termination claim goes with the tier. 'sidecarDischargedSet'
+-- reads the flag without looking at the tier, so a demoted record that kept it
+-- still took its function out of 'partial_fns'.
 demoteToAsserted er = er { erDisplayLevel = DLAsserted
                          , erBodyFaithful = False
-                         , erVerifiedHash = Nothing }
+                         , erVerifiedHash = Nothing
+                         , erTerminationVerified = False }
 
 -- | SIDECAR-ADMIT-1 (v0.23.7): downgrade a persisted positive tier that THIS RUN
 -- contradicts, and report each one.
@@ -1014,7 +1032,8 @@ collectAllContractStatus cache entryStmts =
         let prefix = T.intercalate "." path <> "."
             -- XMOD-TIER: hash-validate this cached module's verified evidence
             -- against its OWN live statements before it can upgrade a tier.
-            (validated, _diags) = downgradeStaleVerifiedSidecar
+            (validated, _diags) = downgradeStaleVerifiedSidecarIn
+                                    (moduleKeyEnv cache menv)
                                     (meStatements menv) (meContractStatus menv)
             qualified = Map.mapKeys (prefix <>) validated
         in Map.union qualified acc) Map.empty cache

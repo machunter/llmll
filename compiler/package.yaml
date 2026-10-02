@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.27.1
+version:             0.27.2
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             GPL-3
@@ -101,6 +101,7 @@ library:
     - LLMLL.TrustReport
     # HEADLINE-TERM-1 + STRICT-XMOD-1: qualified whole-program call graph + caller closures
     - LLMLL.ProgramGraph
+    - LLMLL.EvidenceKey
     # PARTIAL-FNS-GRAPH-1: the qualified call graph, importable by TrustReport
     - LLMLL.CallGraph
     # PROOF-ARTIFACT: unified reproducible verification record

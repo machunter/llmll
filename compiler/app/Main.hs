@@ -43,7 +43,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -54,7 +54,7 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings, isNonLinear)
-import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, canonicalDefEvidenceHash, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
@@ -75,13 +75,14 @@ import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), buildDivergenceReport, divergenceReportJson )
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
-import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath)
+import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath, demotePositiveRecords)
+import LLMLL.EvidenceKey (evidenceKey)  -- HASH-PRE-ASYM
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -96,7 +97,7 @@ import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), w
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
-import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
+import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv, KeyEnv, buildKeyEnv)
 import LLMLL.Feasibility (feasibilityOf, renderWitness, FeasVerdict(..))
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_in, std_out, std_err, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
@@ -1266,7 +1267,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- COLD first-ever-verify case still rejects (no prior sidecar) — the
       -- accepted LT-INV §3.5 "verify-then-build" cost; not fixed here.
       entrySidecarRaw <- loadVerified fp
-      let (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecar stmts entrySidecarRaw
+      -- HASH-PRE-ASYM: the record is checked against its evidence key, which
+      -- reads the return types the checker infers for unannotated defs. The
+      -- strict check below takes this sidecar as input, so the key's return types
+      -- come from a non-strict check here. It is lazy: a module whose defs all
+      -- declare a return type never forces it.
+      let (_, preRetTypes) = typeCheckWithCacheRet gm _cache emptyEnv stmts
+          preKe = buildKeyEnv _cache preRetTypes stmts
+          (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecarIn preKe stmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
       -- FQ-RESULT-SORT-1: the same typecheck now also yields tau_ret per definition,
       -- consumed by the emit calls below so the 'result' binder is sorted from the
@@ -1276,6 +1284,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
+      -- HASH-PRE-ASYM: the KeyEnv the emitter reads in this run; every record
+      -- this run writes or re-reads is keyed with it.
+      let verifyKe = buildKeyEnv _cache retTypes stmts
       -- v0.3.2: --trust-report mode — print trust summary and exit
       -- LT-CDP (v0.11): when '--cdp' is also requested, defer the trust-report
       -- emit to the post-solver path so 'discriminative_axis' can be
@@ -1506,7 +1517,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- unavailable) whatever happens, so a contradiction exit would mask
             -- the more specific status. The render must still not show a tier
             -- the live source no longer supports.
-            (sidecar, _stale, _contra) <- loadCheckedSidecar fp stmts Map.empty
+            (sidecar, _stale, _contra) <- loadCheckedSidecar verifyKe fp stmts Map.empty
             let trustRpt = buildTrustReport _cache stmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
             TIO.putStrLn reportText
@@ -1597,7 +1608,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- '--strict-verified-core' do not exit here — fall through to the
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
-            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
+            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
             let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
@@ -1633,7 +1644,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- what lets the artifact kernel see a stale positive tier beside
               -- this run's fallback mark; both read-side passes now run first, so
               -- the kernel refuses only what neither pass could repair.
-              (paSidecar, _stale, paContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
+              (paSidecar, _stale, paContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
               let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
@@ -1727,7 +1738,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- CDP block below can derive the verifMap oracle without a disk re-read.
           provenCS <- case fqResult of
             FQSafe -> do
-              let bodyFaithfulSet     = Set.fromList (erBodyFaithfulFns emitR)
+              let writeKe             = verifyKe
+                  bodyFaithfulSet     = Set.fromList (erBodyFaithfulFns emitR)
                   -- INT-1 (v0.10.8): functions whose body-faithful evidence carries
                   -- unbounded-Int arithmetic. Strict-verified-core refuses these;
                   -- non-strict consumers see the flag on the per-clause record.
@@ -1751,7 +1763,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                             -- admissible, so it carries no admission hash.
                                             hash = if tainted
                                                    then Nothing
-                                                   else Just (canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost cAug) (case s of SDefShell _ _ _ _ _ d -> d; _ -> []))
+                                                   -- HASH-PRE-ASYM: the evidence key, from the same
+                                                   -- KeyEnv the emitter read ('LLMLL.EvidenceKey').
+                                                   else snd <$> evidenceKey writeKe (Set.member n descentDischargedSet) s
                                         in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash (Set.member n descentDischargedSet) (map pcSource (contractPostClauses c))))
                                                 (contractPost cAug)
                                    else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing False (map pcSource (contractPostClauses c))))
@@ -1760,7 +1774,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9
                         })
                     | s <- stmts
-                    , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
+                    , Just (n, _, mRet, c, _body) <- [normalizeDefStmt s]
                     -- DEF-RET Unit 2: fold the return refinement into the effective
                     -- post so it is credited (csPost) and covered by the staleness
                     -- hash. Post-only (the pre-side NIW hole is a separate ticket).
@@ -1779,7 +1793,21 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               saveVerifiedWithAxioms fp provenCS obligationJson builtinAxiomMap
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
               pure provenCS
-            _ -> pure Map.empty
+            -- HASH-PRE-ASYM S4: a run that did not end SAFE keeps no positive
+            -- record it contradicted. Refuted constraints name their functions
+            -- through the constraint table; anything unattributed (an empty id
+            -- list, an id with no origin, a solver error) demotes every function.
+            _ -> do
+              let refutedFns = case fqResult of
+                    FQUnsafe ids@(_:_)
+                      | Just fns <- mapM (\i -> coFunction <$> Map.lookup i (erConstraintTable emitR)) ids
+                      -> Just (Set.fromList fns)
+                    _ -> Nothing
+              demoted <- demotePositiveRecords fp refutedFns
+              unless (json || null demoted) $
+                TIO.putStrLn $ "   .verified.json: positive records demoted to asserted: "
+                  <> T.intercalate ", " demoted
+              pure Map.empty
 
           -- v0.3.5: Weakness check — only runs on SAFE results
           case fqResult of
@@ -1887,7 +1915,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- agrees with the trust report printed alongside it — not the
                 -- prior 'Map.empty' (every function 'asserted').
                 covSidecarRaw <- loadVerified fp
-                let (covSidecar, _) = downgradeStaleVerifiedSidecar stmts covSidecarRaw
+                let (covSidecar, _) = downgradeStaleVerifiedSidecarIn verifyKe stmts covSidecarRaw
                     covTrust = buildTrustReport _cache stmts covSidecar
                     covLevels = Map.fromList [ (teName e, l)
                                              | e <- trEntries covTrust
@@ -1904,7 +1932,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
           -- '--strict-verified-core' too, so the gate below can fail closed.
           when (trustReport && cdpFlag && not strictCore) $ do
-            (sidecar, _stale, cdpContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
+            (sidecar, _stale, cdpContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
@@ -1933,7 +1961,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- reached; emit a refuted-marked trust report here when requested
           -- (and not already emitted via the obligation report) before failing.
           when strictCore $ do
-            (stSidecar, _stale, stContra) <- loadCheckedSidecar fp stmts bodyFallbackMarks
+            (stSidecar, _stale, stContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
             -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
             -- drops 'discriminative_axis' to a uniform "not-requested" for
             -- every function under '--strict-verified-core --cdp --json',
@@ -3188,11 +3216,11 @@ fqToSolverResult (FQError _)  = RNoVC
 -- Before this, seven of nine 'loadVerified' call sites read the file raw. The
 -- two diagnostic lists are returned separately because only the second one
 -- changes the exit status ('contradictionExit').
-loadCheckedSidecar :: FilePath -> [Statement] -> Map.Map Name (T.Text, [T.Text])
+loadCheckedSidecar :: KeyEnv -> FilePath -> [Statement] -> Map.Map Name (T.Text, [T.Text])
                    -> IO (Map.Map Name ContractStatus, [T.Text], [T.Text])
-loadCheckedSidecar fp stmts marks = do
+loadCheckedSidecar ke fp stmts marks = do
   raw <- loadVerified fp
-  let (gated,   staleDiags)   = downgradeStaleVerifiedSidecar stmts raw
+  let (gated,   staleDiags)   = downgradeStaleVerifiedSidecarIn ke stmts raw
       (checked, contraDiags)  = downgradeContradictedTiers marks gated
   pure (checked, staleDiags, contraDiags)
 

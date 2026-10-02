@@ -30,7 +30,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -100,6 +100,7 @@ import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
+import LLMLL.EvidenceKey (evidenceKey)  -- HASH-PRE-ASYM
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -19557,6 +19558,92 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitSrc "(def-shell max [a: int b: int] -> int a)\n(def-shell q [a: int b: int] -> int (post (>= result (max a b))) (if (<= a b) b a))"
       erBodyFaithfulFns er `shouldNotSatisfy` elem "q"
       erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+
+  -- -----------------------------------------------------------------------
+  -- HASH-PRE-ASYM: a persisted verdict is keyed on everything its proof read
+  -- (docs/design/hash-pre-asym-proposal.md Rev 3, S1 and §3.2). Each cell
+  -- changes one field of what the caller's proof reads and asserts the
+  -- caller's key moves, or changes something it does not read and asserts the
+  -- key stays. The end-to-end cells are scripts/tests/test_hash_pre_asym.py.
+  -- -----------------------------------------------------------------------
+  describe "HASH-PRE-ASYM: the evidence key covers what the proof read" $ do
+    let parseS src = case parseStatements GrammarCoreInversion "test" src of
+          Left err -> error ("parse failed: " <> show err)
+          Right ss -> ss
+        keyIn rt term fn src =
+          let ss = parseS src
+              ke = buildKeyEnv Map.empty rt ss
+          in lookup fn [ kv | Just kv <- map (evidenceKey ke term) ss ]
+        key = keyIn Map.empty False
+        callerOf g = g <> "\n(def f [] -> int (post (= result 1)) (g 1))"
+        fKey g = key "f" (callerOf g)
+
+    it "HPA-K1: the callee's effective pre is in the caller's key" $
+      fKey "(def g [x: int] -> int (pre (>= x 0)) (post (= result x)) x)"
+        `shouldNotBe` fKey "(def g [x: int] -> int (pre (>= x 5)) (post (= result x)) x)"
+
+    it "HPA-K2: the callee's effective post is in the caller's key" $
+      fKey "(def g [x: int] -> int (pre (>= x 0)) (post (= result x)) x)"
+        `shouldNotBe` fKey "(def g [x: int] -> int (pre (>= x 0)) (post (>= result 0)) x)"
+
+    it "HPA-K3: the callee's parameter types are in the caller's key" $
+      fKey "(def-shell g [x: int] -> int (post (>= result 0)) 0)"
+        `shouldNotBe` fKey "(def-shell g [x: string] -> int (post (>= result 0)) 0)"
+
+    it "HPA-K4: the callee's effective return type is in the caller's key, inferred when undeclared" $ do
+      let src = callerOf "(def-shell g [x: int] (post (>= x 0)) x)"
+      keyIn (Map.singleton "g" TInt) False "f" src
+        `shouldNotBe` keyIn (Map.singleton "g" TBool) False "f" src
+
+    it "HPA-K5: the callee's measure is in the caller's key" $
+      fKey "(def-shell g [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (decreases x) 0)"
+        `shouldNotBe` fKey "(def-shell g [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (decreases (+ x 1)) 0)"
+
+    it "HPA-K6: a constructor added to a callee's parameter type moves the caller's key" $ do
+      let prog colors = "(type Color " <> colors <> ")\n"
+            <> "(def-shell g [c: Color] -> int (post (>= result 0)) 0)\n"
+            <> "(def-shell f [] -> int (post (>= result 0)) (g Red))"
+      key "f" (prog "(| Red) (| Green)") `shouldNotBe` key "f" (prog "(| Red) (| Green) (| Blue)")
+
+    it "HPA-K7: which function the body calls is in the key, even with an identical interface" $ do
+      let defs = "(def g [x: int] -> int (post (= result x)) x)\n(def h [x: int] -> int (post (= result x)) x)\n"
+      key "f" (defs <> "(def f [] -> int (post (= result 1)) (g 1))")
+        `shouldNotBe` key "f" (defs <> "(def f [] -> int (post (= result 1)) (h 1))")
+
+    it "HPA-K8: a callee body edit with a declared return type leaves the caller's key" $ do
+      let k = fKey "(def g [x: int] -> int (pre (>= x 0)) (post (= result x)) x)"
+      k `shouldSatisfy` isJust
+      k `shouldBe` fKey "(def g [x: int] -> int (pre (>= x 0)) (post (= result x)) (+ x 0))"
+
+    it "HPA-K9: an issuing-def edit moves the requesting def's key and no other" $ do
+      let prog bind = T.unlines
+            [ "(import wasi.fs (capability read \"/tmp\" :deterministic false))"
+            , "(import wasi.io (capability stdout :deterministic false))"
+            , "(export)"
+            , "(type Ctl (| Boot) (| Probed) (| Halt))"
+            , "(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command) (pair (pair r p) c))"
+            , "(def-shell age-step [p: Ctl x: Response] -> int (pre (= p Probed)) (post (>= result 0)) (match x ((RCode age) age) (_ 0)))"
+            , "(def-shell plain [x: int] -> int (post (= result (+ x 1))) (+ x 1))"
+            , "(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)"
+            , "  (match (second s)"
+            , "    ((Boot)   (go (first s) Probed " <> bind <> "))"
+            , "    ((Probed) (go (age-step Probed x) Halt (wasi.io.stdout \"done\")))"
+            , "    ((Halt)   (go (first s) Halt (wasi.io.stdout \"\")))))"
+            , "(def-shell done? [s: (int, Ctl)] -> bool (match (second s) ((Halt) true) ((Boot) false) ((Probed) false)))"
+            , "(def-main :mode console :init (pair (pair 0 Boot) (wasi.io.stdout \"start\")) :step step :done? done?)"
+            ]
+          statP = prog "(wasi.fs.stat \"/tmp\")"
+          outP  = prog "(wasi.io.stdout \"x\")"
+      key "age-step" statP `shouldNotBe` key "age-step" outP
+      key "plain" statP `shouldBe` key "plain" outP
+
+    it "HPA-K10: the recursion group keys a termination claim and not a post" $ do
+      let before = "(def-shell g [n: int] -> int (pre (>= n 0)) (post (>= result 0)) n)\n"
+                <> "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) (g 0) (f (- n 1))))"
+          after  = "(def-shell g [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (= n 0) 0 (f (- n 1))))\n"
+                <> "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) (g 0) (f (- n 1))))"
+      keyIn Map.empty True "f" before `shouldNotBe` keyIn Map.empty True "f" after
+      keyIn Map.empty False "f" before `shouldBe` keyIn Map.empty False "f" after
 
   -- -----------------------------------------------------------------------
   -- RESP-FACT-1: a Command result carries a proved property to its caller,
