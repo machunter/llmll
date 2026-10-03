@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -18481,9 +18481,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Right stmts -> do
           let result = generateHaskell "event_log_test" stmts
               yaml    = cgPackageYaml result
-          T.isInfixOf "name: event-log-test" yaml `shouldBe` True
+          -- EXAMPLE-BUILD-1: the package name carries the llmll- prefix; the
+          -- executable stanza key stays the sanitized stem.
+          T.isInfixOf "name: llmll-event-log-test" yaml `shouldBe` True
           T.isInfixOf "  event-log-test:" yaml `shouldBe` True
-          T.isInfixOf "      - event-log-test" yaml `shouldBe` True
+          T.isInfixOf "      - llmll-event-log-test" yaml `shouldBe` True
           -- regression guard: the raw underscored form must not survive
           -- into any hpack-parsed identifier field
           T.isInfixOf "event_log_test" yaml `shouldBe` False
@@ -18494,16 +18496,53 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Right stmts -> do
           let result = generateHaskell "a_b_c" stmts
               yaml    = cgPackageYaml result
-          T.isInfixOf "name: a-b-c" yaml `shouldBe` True
-          T.isInfixOf "      - a-b-c" yaml `shouldBe` True
+          T.isInfixOf "name: llmll-a-b-c" yaml `shouldBe` True
+          T.isInfixOf "      - llmll-a-b-c" yaml `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
     it "package.yaml for a non-underscored module name is unaffected by sanitization" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
         Right stmts -> do
           let result = generateHaskell "cleanname" stmts
-          T.isInfixOf "name: cleanname" (cgPackageYaml result) `shouldBe` True
+          T.isInfixOf "name: llmll-cleanname" (cgPackageYaml result) `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -------------------------------------------------------------------------
+  -- EXAMPLE-BUILD-1: `check` and `build` agree on bytes-zero under a contract
+  -- and on a file named after a Haskell package. Measured causes:
+  -- docs/design/example-build-1-measure-findings.md. The end-to-end build
+  -- cells are scripts/tests/test_example_build_1.py.
+  -- -------------------------------------------------------------------------
+  describe "EXAMPLE-BUILD-1: bytes-zero under a contract; package names" $ do
+    let parseS src = case parseStatements GrammarCoreInversion "<eb>" src of
+          Right ss -> ss
+          Left err -> error ("parse failed: " <> show err)
+
+    it "EB-1: an instrumented (bytes-zero) body with a post gets its length" $ do
+      let ss = instrumentContracts ContractsFull Map.empty (parseS
+                 "(def make-buffer [] -> bytes[32] (post (= (bytes-length result) 32)) (bytes-zero))")
+          hs = cgHsSource (generateHaskell "zb" ss)
+      hs `shouldSatisfy` T.isInfixOf "(bytes_zero (fromIntegral ((32 :: Integer)) :: Int))"
+      hs `shouldNotSatisfy` T.isInfixOf "bytes_zero )"
+
+    it "EB-2: an instrumented (bytes-zero) body with a pre only gets its length" $ do
+      let ss = instrumentContracts ContractsFull Map.empty (parseS
+                 "(def make-buffer [k: int] -> bytes[32] (pre (>= k 0)) (bytes-zero))")
+          hs = cgHsSource (generateHaskell "zb" ss)
+      hs `shouldSatisfy` T.isInfixOf "(bytes_zero (fromIntegral ((32 :: Integer)) :: Int))"
+      hs `shouldNotSatisfy` T.isInfixOf "bytes_zero )"
+
+    it "EB-3: the bare (bytes-zero) body keeps the LEVER-A0 emission exactly" $ do
+      let hs = cgHsSource (generateHaskell "zb" (parseS "(def make-buffer [] -> bytes[32] (bytes-zero))"))
+      hs `shouldSatisfy` T.isInfixOf "(llmll_full llmll_uS (bytes_zero 32))"
+
+    it "EB-4: a program named base gets package llmll-base and executable base" $ do
+      let yaml = cgPackageYaml (generateHaskell "base" (parseS
+                   "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"))
+      yaml `shouldSatisfy` T.isInfixOf "name: llmll-base"
+      yaml `shouldSatisfy` T.isInfixOf "\n  base:\n"
+      yaml `shouldSatisfy` T.isInfixOf "      - llmll-base"
+      packageNameFor "base" `shouldBe` "llmll-base"
 
   -- =========================================================================
   -- R5: Differential Implementation Pressure (observational increment, stages 1–2)
@@ -20775,9 +20814,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       missing `shouldBe` []
 
     it "ES-13: a rebuild into a used -o directory removes the other program's .cabal (BUILD-DIR-REUSE)" $ do
-      staleCabalFiles "cbv_do" ["cbv-let.cabal", "cbv-do.cabal", "package.yaml", "src", "stack.yaml"]
-        `shouldBe` ["cbv-let.cabal"]
-      staleCabalFiles "cbv_do" ["cbv-do.cabal"] `shouldBe` []
+      staleCabalFiles "cbv_do" ["llmll-cbv-let.cabal", "llmll-cbv-do.cabal", "package.yaml", "src", "stack.yaml"]
+        `shouldBe` ["llmll-cbv-let.cabal"]
+      staleCabalFiles "cbv_do" ["llmll-cbv-do.cabal"] `shouldBe` []
+      -- EXAMPLE-BUILD-1: a .cabal left by a build before the llmll- prefix is stale.
+      staleCabalFiles "cbv_do" ["cbv-do.cabal", "llmll-cbv-do.cabal"] `shouldBe` ["cbv-do.cabal"]
       staleExecutables "cbv_do" ["cbv-let", "cbv-do"] `shouldBe` ["cbv-let"]
 
     it "ES-12: the console harness forces each step's (state, command) pair" $
