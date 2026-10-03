@@ -4,6 +4,39 @@
 
 <a id="Latest"></a>
 
+## v0.27.3: three examples that passed `check` now build (2026-10-02)
+
+### `EXAMPLE-BUILD-1`: `bytes-zero` under a contract, and a program named after a Haskell package
+
+The `EVAL-STRICT-1` build census filed three programs that pass `llmll check` and fail
+`llmll build`. Both causes were measured on v0.27.2, each confirmed by a control that removes it:
+[`docs/design/example-build-1-measure-findings.md`](docs/design/example-build-1-measure-findings.md).
+Neither touched a verdict: `verify` never reads the generated code.
+
+- **`bytes-zero` keeps its length under a contract.** `llmll build` instruments contracts before code
+  generation (`--contracts=full`, the default), so a `(bytes-zero)` body with a `pre` or `post` reached
+  the code generator wrapped in a `let` or an `if`, and `bytes_zero` was emitted with no length
+  (`GHC-83865`). A `-> bytes[n]` definition whose body is not the bare `(bytes-zero)` now gets the
+  length filled in, emitted through the same `Int` seam as the other bytes builtins and forced like the
+  bare case. The bare case's emission is unchanged. Fixes `examples/bytes-bounds/zero-buffer.llmll`.
+- **The generated package is named `llmll-<stem>`.** It was the file stem, so a program named after
+  one of the 32 packages in the generated project's dependency closure made Stack read it as a
+  replacement for that library (`S-4804`, `base dependency cycle detected`). The executable keeps the
+  stem as its name, since `llmll run`, the tools and CI find a binary by it. A `<stem>.cabal` left by an
+  older build in a reused `-o` directory is removed on the next build. Fixes
+  `examples/refine-demo/base.llmll` and `base.ast.json`.
+- **Unchanged on the tree.** All 82 tracked `def-main` programs were built with v0.27.2 and with this
+  release: 70 build under both and no result changes; the other 12 are RESP-FACT fixtures that `check`
+  rejects by design.
+- **Tests:** hspec `EB-1` to `EB-4`; `scripts/tests/test_example_build_1.py`, five build cells, each
+  failing on v0.27.2 (the two `bytes-zero` shapes, both `base` files, and a `def-main` program named
+  `text` whose executable must stay `text`). Removing either fix fails exactly its cells. The BUG-2 and
+  `ES-13` cells now expect the `llmll-` package name.
+
+Tests: 2195 examples, 0 failures (+4); Python 312 passed, 134 skipped (441 passed, 5 skipped with
+`LLMLL_BIN` set; 17 of those passed on a solo re-run after the full run's processes were killed
+under memory pressure).
+
 ## v0.27.2: a stored `verified` depends on everything its proof read (2026-10-02)
 
 ### `HASH-PRE-ASYM`: a record's key covers its callees, its recursion group and its seeded facts
