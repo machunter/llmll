@@ -42,6 +42,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [eval-strict-1-implementation-plan.md](eval-strict-1-implementation-plan.md) | Engineer plan: one invariant, forced bindings, builtin result forcers | **Implemented v0.27.0**, five deviations recorded |
 | [eval-strict-1-measure-plan.md](eval-strict-1-measure-plan.md) | Engineer plan: a scratch strict code generator run against every gate | **Executed 2026-09-29**; no tree change |
 | [eval-strict-1-measure-findings.md](eval-strict-1-measure-findings.md) | Zero source migration; full-value forcing at each use costs 2.27 times | **MEASURED 2026-09-29** on `f525266` |
+| [example-build-1-measure-findings.md](example-build-1-measure-findings.md) | Two causes: contracts hide `bytes-zero`'s length; package named `base` | **MEASURED 2026-10-02** on v0.27.2; both fixes SHIPPED v0.27.3 |
 | [hash-pre-asym-proposal.md](hash-pre-asym-proposal.md) | A stored verdict is keyed on everything its proof read | **Rev 3, SETTLED and SHIPPED v0.27.2** (`HASH-PRE-ASYM`) |
 | [hash-pre-asym-witness.md](hash-pre-asym-witness.md) | A stale caller record passes `--strict-verified-core` across modules | **MEASURED 2026-10-02** on v0.27.1 |
 | [hash-pre-asym-review.md](../archive/professor-reviews/hash-pre-asym-review.md) | Professor: the meet is not a dependency key; three rounds | **Folded and archived** (M2, 2026-10-02); redirect stub at the old path for one release cycle |

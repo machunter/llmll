@@ -51,6 +51,7 @@ module LLMLL.CodegenHs
     -- * Package-name sanitization (BUG-2, v0.14.3 — shared with Main.hs so the
     -- generated executable's on-disk name always matches package.yaml)
   , sanitizePkgName
+  , packageNameFor   -- EXAMPLE-BUILD-1
   , esResultForcers   -- EVAL-STRICT-1: the builtin result forcers, pinned against builtinEnv in Spec.hs
   , staleCabalFiles   -- BUILD-DIR-REUSE: which .cabal files a rebuild into a used -o dir must remove
   , staleExecutables  -- BUILD-DIR-REUSE: which executables under .stack-work/install/*/*/*/bin it must remove
@@ -1741,7 +1742,32 @@ emitDefLogic name params mRet contract body = T.unlines $
     emitBodyExpr = case (mRet, body) of
       -- EVAL-STRICT-1: the buffer is built fully, like every structure a builtin returns.
       (Just (TBytes n), EApp "bytes-zero" []) -> "(llmll_full llmll_uS (bytes_zero " <> T.pack (show n) <> "))"
+      -- EXAMPLE-BUILD-1: `llmll build` instruments contracts before this point,
+      -- so a `(bytes-zero)` body with a pre or post arrives wrapped in a `let`
+      -- or an `if` and the case above does not see it. The checker admits
+      -- `bytes-zero` only as a whole body under a literal `bytes[n]` return, so
+      -- every zero-argument `bytes-zero` in this definition is that body; it
+      -- gets its length here and the generic path emits it.
+      (Just (TBytes n), _)                    -> emitExpr (fillBytesZero n body)
       _                                       -> emitExpr body
+
+-- | EXAMPLE-BUILD-1: give each zero-argument `bytes-zero` its length.
+fillBytesZero :: Int -> Expr -> Expr
+fillBytesZero n = go
+  where
+    go e = case e of
+      EApp "bytes-zero" [] -> EApp "bytes-zero" [ELit (LitInt (fromIntegral n))]
+      EOp  "bytes-zero" [] -> EApp "bytes-zero" [ELit (LitInt (fromIntegral n))]
+      EApp f as      -> EApp f (map go as)
+      EOp f as       -> EOp f (map go as)
+      ELet bs b      -> ELet [ (p, t, go x) | (p, t, x) <- bs ] (go b)
+      EIf c t f      -> EIf (go c) (go t) (go f)
+      EMatch sc arms -> EMatch (go sc) [ (p, go x) | (p, x) <- arms ]
+      EPair a b      -> EPair (go a) (go b)
+      EAwait x       -> EAwait (go x)
+      ELambda ps x   -> ELambda ps (go x)
+      EDo steps      -> EDo [ st { dsExpr = go (dsExpr st) } | st <- steps ]
+      _              -> e
 
 -- | Emit a check block as a QuickCheck property.
 emitCheck :: Property -> Text
@@ -1838,6 +1864,8 @@ emitApp "string-length" [s]      = "(fromIntegral (string_length " <> wrap s <> 
 emitApp "bytes-length"  [b]      = "(fromIntegral (bytes_length " <> wrap b <> ") :: Integer)"
 emitApp "bytes-get"     [b,i]    = "(bytes_get " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int))"
 emitApp "bytes-set"     [b,i,v]  = "(bytes_set " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int) " <> wrap v <> ")"
+-- EXAMPLE-BUILD-1: the length 'fillBytesZero' gives an instrumented body.
+emitApp "bytes-zero"    [n]      = "(bytes_zero (fromIntegral " <> wrap n <> " :: Int))"
 emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " (fromIntegral " <> wrap i <> " :: Int))"
 emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " (fromIntegral " <> wrap f <> " :: Int) (fromIntegral " <> wrap t <> " :: Int))"
 emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " (fromIntegral " <> wrap i <> " :: Int))"
@@ -2566,6 +2594,15 @@ emitStackYaml = T.unlines
 sanitizePkgName :: Text -> Text
 sanitizePkgName = T.map (\c -> if c == '_' then '-' else c)
 
+-- | EXAMPLE-BUILD-1: the generated PACKAGE's name. It was the sanitized file
+-- stem, so a program named after a package in the dependency closure (`base`,
+-- `text`, and 30 more measured on v0.27.2) made Stack read the local package as
+-- a replacement for that library and refuse the build plan (S-4804). The prefix
+-- makes every stem safe. The EXECUTABLE keeps 'sanitizePkgName', because the
+-- tools, CI and `llmll run` find a built binary by that name.
+packageNameFor :: Text -> Text
+packageNameFor modName = "llmll-" <> sanitizePkgName modName
+
 -- | The @.cabal@ files in an output directory that belong to no package this
 -- build writes. hpack names the file after the package, so building program B
 -- into a directory that program A used leaves @a.cabal@ beside @b.cabal@, and
@@ -2576,10 +2613,10 @@ staleCabalFiles :: Text -> [FilePath] -> [FilePath]
 staleCabalFiles modName entries =
   [ e | e <- entries
       , ".cabal" `T.isSuffixOf` T.pack e
-      , T.pack e /= sanitizePkgName modName <> ".cabal" ]
+      , T.pack e /= packageNameFor modName <> ".cabal" ]
 
 -- | The executables in an install root's @bin/@ that another program built.
--- The executable is named after the package ('emitPackageYaml'), so the
+-- The executable is named after the file stem ('emitPackageYaml'), so the
 -- previous program's binary survives a rebuild beside the new one, and a
 -- caller that needs exactly one binary there (the doc-claims port's @run
 -- fixtures) then fails with no-single-binary. The caller removes these.
@@ -2589,7 +2626,8 @@ staleExecutables modName entries =
 
 emitPackageYaml :: Text -> Bool -> Bool -> [Text] -> Text
 emitPackageYaml modName hasMain httpGet hackagePkgs =
-  let pkgName = sanitizePkgName modName
+  let pkgName = packageNameFor modName
+      exeName = sanitizePkgName modName
   in T.unlines $
   [ "name: " <> pkgName
   , "version: 0.1.0"
@@ -2650,7 +2688,7 @@ emitPackageYaml modName hasMain httpGet hackagePkgs =
   (if hasMain
     then [ ""
          , "executables:"
-         , "  " <> pkgName <> ":"
+         , "  " <> exeName <> ":"
          , "    main: Main.hs"
          , "    source-dirs: src"
          -- PROC-TIMEOUT-1. `-threaded` is what makes wasi.proc.run's timeout
@@ -2873,6 +2911,7 @@ esResultForcers =
   , ("int-to-string",      "llmll_uS")
   , ("string-to-int",      "llmll_uE llmll_uW")
   , ("bytes-set",          "llmll_uS")
+  , ("bytes-zero",         "llmll_uS")  -- EXAMPLE-BUILD-1: reached only with its length
   , ("sha1",               "llmll_uS")
   , ("hmac-sha1",          "llmll_uS")
   , ("json-parse",         "llmll_uE llmll_uJ")
