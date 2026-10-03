@@ -1,7 +1,7 @@
 ---
 name: ret-resolve-implementation-plan
 title: "RET-RESOLVE implementation plan: resolve a wildcard tau_ret transitively in a verification-facing pass"
-status: "Rev 2, review-ready. Implements docs/design/ret-resolve-proposal.md, whose Rev 3 has now LANDED and carries the corrected five-channel table this document drafted. Steps 1 and 2 are DONE and are recorded in ret-resolve-step1-census.md (Rev 2) and ret-resolve-step2-baseline.md (Rev 1); step 3 is the first code and is unstarted. Rev 2 folds THREE corrections that those two measurements made against this document. Risk 2 goes from four gate-blind-spot candidates to FIVE; the fifth is on the S-expression surface and this document already named it in 'Corpus census'. Risk 9 goes from 20 to 25 minutes to about FOUR, measured at 318 files in 256 seconds, so the argument against repeating the sweep per adjudication round no longer holds. The Acceptance clause gains the channel-1 caveat: half one compares 298 constraint files and not 318, because 20 files emit none today, and a file that begins emitting one after the pass is the repair rather than a gate failure. Two operational notes were added with it: diff -r compares 596 files because liquid-fixpoint writes a .liquid subdirectory of .smt2 queries, all checked path-free and timestamp-free. The corpus-measurement section STANDS; the step 1 census reproduced its eliminative counts exactly, including the JSON-AST figure of 139 unannotated heads. Not implemented; no compiler source is changed by this document."
+status: "IMPLEMENTED and SHIPPED v0.23.8 (4c4d7c2); the test residue closed v0.23.9 (490871c). The one open prerequisite, ARR-RANGE-NAME, CLOSED v0.27.4 (1e674af). The Rev 2 status as written follows. Rev 2, review-ready. Implements docs/design/ret-resolve-proposal.md, whose Rev 3 has now LANDED and carries the corrected five-channel table this document drafted. Steps 1 and 2 are DONE and are recorded in ret-resolve-step1-census.md (Rev 2) and ret-resolve-step2-baseline.md (Rev 1); step 3 is the first code and is unstarted. Rev 2 folds THREE corrections that those two measurements made against this document. Risk 2 goes from four gate-blind-spot candidates to FIVE; the fifth is on the S-expression surface and this document already named it in 'Corpus census'. Risk 9 goes from 20 to 25 minutes to about FOUR, measured at 318 files in 256 seconds, so the argument against repeating the sweep per adjudication round no longer holds. The Acceptance clause gains the channel-1 caveat: half one compares 298 constraint files and not 318, because 20 files emit none today, and a file that begins emitting one after the pass is the repair rather than a gate failure. Two operational notes were added with it: diff -r compares 596 files because liquid-fixpoint writes a .liquid subdirectory of .smt2 queries, all checked path-free and timestamp-free. The corpus-measurement section STANDS; the step 1 census reproduced its eliminative counts exactly, including the JSON-AST figure of 139 unannotated heads. Not implemented; no compiler source is changed by this document."
 date: 2026-09-09
 author: compiler-engineer
 consumers: [user, language-team, professor, documentation-lead]
@@ -118,6 +118,10 @@ when the resolved `tau_ret` is a `bytes[n]` or an admissible bool-valued map. **
 resolves to either type** (see "Corpus measurement"). So the population is empty today and
 `ARR-RANGE-NAME` is not a blocking prerequisite. It needs a guard test, not a queue position.
 
+> **Closure, 2026-10-03:** `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03). `bytesRootedArr` now decides on a set of arrays whose
+> `bytes[n]` type is declared or resolved, and the default is no fact. `CH4C-1` shipped as the guard
+> at v0.23.9 and still passes.
+
 **Channel 5, whole-structure equality fallback. LIVE, and conservative.** `wholeArrEqClause` was
 listed inside channel 4 of the proposal. It is not an assumption injection. It is a fallback gate:
 `postCause` returns `FallbackContractPost` or `FallbackContractPre` when it fires. Its `bytesVars`
@@ -164,6 +168,8 @@ Every ordering constraint the proposal's "Ordering" section states is discharged
 | `WILD-ASSUME-2` (map arm) | SHIPPED v0.14.74 | roadmap; `admits = boolValuedMapTy` |
 | `FACT-AG-LEN` Stages 1 to 3 | SHIPPED v0.14.76 to v0.14.78 | roadmap; `bytesLenParamPre`, the `bodyToPredM` axiom equation, `bytesLenRetPost` |
 | `ARR-RANGE-NAME` | OPEN, **not blocking** | reaching population measured empty; guard test in the test plan |
+
+> The table records the state when this plan was written. `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03).
 
 **RET-RESOLVE is unblocked.** The channel that carried the blocking argument is deleted, and the
 channel that replaced it (4b) is sound for the reason FACT-AG-LEN exists.
@@ -578,6 +584,7 @@ returns 299, because `.liquid` is itself an entry.
    `bytesRootedArr` decides a ground fact on a generated variable-name suffix, and it is default-true.
    Reaching population measured empty in the corpus. **Effect: matters only at scale**, that is, the
    first time a program's unannotated return resolves to `bytes[n]`. `CH4C-1` is the guard.
+   **Closure, 2026-10-03:** `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03); no witness of the channel was ever built.
 5. **The channel-3 asymmetry can surprise a reader.** DX. A resolved return adds a definition-site
    obligation and exports no caller guarantee, because `aug` runs before `effRet` in the ContractEnv
    builder. A function can therefore start failing its own post while its callers see no change.

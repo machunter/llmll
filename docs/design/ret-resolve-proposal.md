@@ -1,7 +1,7 @@
 ---
 name: ret-resolve-proposal
 title: "RET-RESOLVE: resolve a wildcard `τ_ret` transitively in a verification-facing pass"
-status: "Rev 3, SETTLED. The design does NOT reopen: the Kleene rule, SC1/SC2′/SC3′, the corpus prediction and I1/I2 stand exactly as settled at Rev 2 (four professor review rounds folded). Rev 3 is a routed correction of the CHANNEL ACCOUNT and the PREREQUISITE CHAIN, measured against HEAD at v0.23.0 by docs/design/ret-resolve-implementation-plan.md. Four channels become FIVE: channel 4a (resultLenFact) was DELETED at v0.14.78, two live channels Rev 2 never named are added (4b, post-assumption unblocking at a call site; 4c, ground LHS range facts), and wholeArrEqClause is separated out as channel 5 with its direction corrected. The Rev 2 trust-base disclosure claim is RE-DERIVED and NARROWS to channel 4c alone: 4a is gone, 4b is a repair whose soundness FACT-AG-LEN Stage 3 supplies, and 4c is owed a section 5.3.5 sentence scoped to the life of the open row ARR-RANGE-NAME. Channel 3 is recorded as ASYMMETRIC for the first time: a resolved return adds a definition-site obligation and exports no caller guarantee. Rev 2 called a byte-identical corpus .fq a COMPLETE gate; it is not, because a contract-free function emits no constraint, and four corpus candidates sit in that blind spot. Two affected-surface errors corrected: the stamp is checkerSoundnessVersion in VerifiedCache.hs, not codegen_semantics_version in ProofArtifact.hs, and Main.emitSynthetic is a third consumer of tau_ret. Bare line-number citations replaced by construct names. ALL PREREQUISITES DISCHARGED; RET-RESOLVE is UNBLOCKED. Roadmap row: RET-RESOLVE"
+status: "Rev 3, SETTLED. The design does NOT reopen: the Kleene rule, SC1/SC2′/SC3′, the corpus prediction and I1/I2 stand exactly as settled at Rev 2 (four professor review rounds folded). Rev 3 is a routed correction of the CHANNEL ACCOUNT and the PREREQUISITE CHAIN, measured against HEAD at v0.23.0 by docs/design/ret-resolve-implementation-plan.md. Four channels become FIVE: channel 4a (resultLenFact) was DELETED at v0.14.78, two live channels Rev 2 never named are added (4b, post-assumption unblocking at a call site; 4c, ground LHS range facts), and wholeArrEqClause is separated out as channel 5 with its direction corrected. The Rev 2 trust-base disclosure claim is RE-DERIVED and NARROWS to channel 4c alone: 4a is gone, 4b is a repair whose soundness FACT-AG-LEN Stage 3 supplies, and 4c is owed a section 5.3.5 sentence scoped to the life of the open row ARR-RANGE-NAME. Channel 3 is recorded as ASYMMETRIC for the first time: a resolved return adds a definition-site obligation and exports no caller guarantee. Rev 2 called a byte-identical corpus .fq a COMPLETE gate; it is not, because a contract-free function emits no constraint, and four corpus candidates sit in that blind spot. Two affected-surface errors corrected: the stamp is checkerSoundnessVersion in VerifiedCache.hs, not codegen_semantics_version in ProofArtifact.hs, and Main.emitSynthetic is a third consumer of tau_ret. Bare line-number citations replaced by construct names. ALL PREREQUISITES DISCHARGED; RET-RESOLVE is UNBLOCKED. Roadmap row: RET-RESOLVE SHIPPED v0.23.8 (4c4d7c2). Its one open row, ARR-RANGE-NAME, CLOSED v0.27.4 (1e674af); the channel 4c disclosure dissolved as this document predicted and was removed from LLMLL.md 5.3.5."
 date: 2026-07-29
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -253,6 +253,11 @@ evidence instead of on a default-true name test, 4c reduces to 4b's position: a 
 type channel has established. The disclosure is therefore scoped to the life of that row, and it
 should say so, so that a later reader does not carry a warning past the defect it describes.
 
+> **Closure, 2026-10-03:** `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03). `bytesRootedArr` now decides on a set of arrays whose
+> `bytes[n]` type is declared or resolved, so a `result` resolved to `bytes[n]` earns the range fact
+> from its type. Channel 4c reduced to 4b's position, as predicted above, and the `§5.3.5` sentence
+> was removed in the same release.
+
 ## Gates
 
 **A byte-identical corpus `.fq` is a strong gate and it is NOT a complete one.** Rev 2 called it
@@ -439,6 +444,8 @@ FACT-AG-LEN exists: the callee proves the length it exports.
 `ARR-RANGE-NAME` is the one open row this proposal touches, and it is a **disclosure** dependency
 rather than a scheduling one. See "The trust-base claim, re-derived". The row does not gate the
 patch; the patch owes the row a sentence in `§5.3.5`.
+
+> **Closure, 2026-10-03:** `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03). The prerequisite table above records the state at Rev 3.
 
 ## Review log
 

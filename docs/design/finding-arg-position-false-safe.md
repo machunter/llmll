@@ -1,7 +1,7 @@
 ---
 name: finding-arg-position-false-safe
 title: "SAFE-ARG: a `bytes[n]` length fact is asserted from an unvalidated declaration, and the wildcard launders the declaration"
-status: "Rev 4, SETTLED and SHIPPED: stage 1 (bytes) v0.14.73; stage 2 (map[k,bool]) v0.14.74; ADMIT-SHARED v0.14.75. ROOT CAUSE CLOSED on the bytes arm by FACT-AG-LEN, v0.14.76 through v0.14.78: the length is no longer asserted from a declaration at any position, so this document's mechanism tables are a HISTORICAL RECORD of the pre-repair emitter and their symbol citations are frozen there. Rev 3 corrected the non-member statement, which implementation read as a blanket refinement exclusion and shipped a wrapper evasion (CR-01) defeating BOTH arms, and replaced the membership side condition with ADMIT-SHARED. Rev 4 replaces 'checker and emitter agree' with the directional ADMIT-OVER invariant plus a declared-type-only side condition, splits the acceptance criterion into A1/A2 and narrows what A2 licenses, makes the non-contractive-alias rule intrinsic rather than ordering-based, and corrects the consumer count from five to a measured three. Four items routed out: bytesRootedArr (ARR-RANGE-NAME), FACT-AG, Module.compatibleTy (no change needed, measured test-only reachable), LLMLL.md §8.8 drift (IFACE-CONFORM)"
+status: "Rev 4, SETTLED and SHIPPED: stage 1 (bytes) v0.14.73; stage 2 (map[k,bool]) v0.14.74; ADMIT-SHARED v0.14.75. ROOT CAUSE CLOSED on the bytes arm by FACT-AG-LEN, v0.14.76 through v0.14.78: the length is no longer asserted from a declaration at any position, so this document's mechanism tables are a HISTORICAL RECORD of the pre-repair emitter and their symbol citations are frozen there. Rev 3 corrected the non-member statement, which implementation read as a blanket refinement exclusion and shipped a wrapper evasion (CR-01) defeating BOTH arms, and replaced the membership side condition with ADMIT-SHARED. Rev 4 replaces 'checker and emitter agree' with the directional ADMIT-OVER invariant plus a declared-type-only side condition, splits the acceptance criterion into A1/A2 and narrows what A2 licenses, makes the non-contractive-alias rule intrinsic rather than ordering-based, and corrects the consumer count from five to a measured three. Four items routed out: bytesRootedArr (ARR-RANGE-NAME), FACT-AG, Module.compatibleTy (no change needed, measured test-only reachable), LLMLL.md §8.8 drift (IFACE-CONFORM) The bytesRootedArr note routed to ARR-RANGE-NAME: that row CLOSED v0.27.4 (1e674af), and the type is threaded as prescribed."
 severity: "FALSE SAFE — a `verified` verdict on a memory-safety obligation that does not hold; not fail-closed"
 found_by: professor review of ret-resolve-proposal, 2026-07-29; chain measured jointly with language-team over four review rounds
 consumers: [compiler-engineer, documentation-lead, language-team, user]
@@ -402,6 +402,10 @@ the hole for a later test author to fall into.
   normalization. This is a live false-fact channel in the SAFE-ARG family that no WILD-ASSUME arm
   guards. ADMIT-SHARED structurally cannot reach it: there is no declared type in the decision.
   Roadmap row **ARR-RANGE-NAME**; the fix is to thread the declared type.
+  **Closure, 2026-10-03:** `ARR-RANGE-NAME` CLOSED v0.27.4 (`1e674af`, 2026-10-03). The fix threaded the type as prescribed: `bytesRootedArr`
+  now tests membership in a per-function set of arrays whose `bytes[n]` type is declared or
+  resolved, and the default is no fact. The "live false-fact channel" reading above did not survive
+  measurement: no witness was ever built, and the row was downgraded to latent on 2026-09-15.
 - **`Module.compatibleTy` is not a third live relation.** Raised in review as a possible third
   compatibility relation needing `admits`. Measured: `checkInterfaceMismatch` (`Module.hs:382-404`),
   its only caller, has **no production call site** — it is reachable exclusively from
