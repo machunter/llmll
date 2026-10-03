@@ -722,6 +722,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   overflowTaintedRef <- newIORef ([] :: [Text])  -- INT-1: body-faithful fns with unbounded-Int arithmetic
   builtinAxiomsRef <- newIORef ([] :: [(Text, [BuiltinAxiom])])  -- TRUST-AXIOM: per-fn sealed-builtin axioms
   groundFactsRef <- newIORef ([] :: [(Text, [Text])])  -- TRUST-AXIOM family C: per-fn ground-fact families
+  bytesArrsRef <- newIORef (Map.empty :: Map Text (Set.Set Text))  -- ARR-RANGE-NAME: per-fn bytes evidence set
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -739,14 +740,21 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- constraint contains no FQApp, so measure-free .fq output is byte-identical.
   -- STRLIT: injectStrLitDistinct conjoins pairwise string-literal distinctness and
   -- injectStrLitLen (Stage 2) pins each literal's code-point length, both composed
-  -- with the measure/byte range facts at the single choke point. Pure,
-  -- constraint-derived (no per-function state); byte-inert without string literals.
+  -- with the measure/byte range facts at the single choke point. The string
+  -- facts are pure and constraint-derived; byte-inert without string literals.
+  -- The byte-range family reads one piece of per-function state, the bytes
+  -- evidence set (ARR-RANGE-NAME).
   -- TRUST-AXIOM family C: the SAME call that injects the ground facts reports
   -- which families it injected, keyed by the constraint's function tag. The
   -- bool-value family is injected upstream (per function, 'boolValArrs' is not
   -- in scope here), so its labels are recorded at that wrapper instead.
   let addConst c  = do
-        let (c', labels) = injectRangeFactsLabeled c
+        -- ARR-RANGE-NAME: the byte-range family reads the function's bytes
+        -- evidence set, registered by 'emitFnConstraints' before its first
+        -- constraint. An untagged or unregistered constraint gets the empty set.
+        bam <- readIORef bytesArrsRef
+        let bytesArrs = Map.findWithDefault Set.empty (fnTagOf c) bam
+        let (c', labels) = injectRangeFactsLabeled bytesArrs c
         unless (null labels) $
           modifyIORef' groundFactsRef (++ [(fnTagOf c, labels)])
         modifyIORef' constsRef (++ [injectStrLitLen (injectStrLitDistinct c')])
@@ -772,6 +780,9 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- TRUST-AXIOM family C: the per-function recorder the bool-value wrapper uses.
   let addGroundFacts n fams =
         unless (null fams) $ modifyIORef' groundFactsRef (++ [(n, fams)])
+  -- ARR-RANGE-NAME: the per-function set of array names whose bytes-ness comes
+  -- from a declared or resolved type ('bytesArrsOfVC'). 'addConst' reads it.
+  let addBytesArrs n s = modifyIORef' bytesArrsRef (Map.insertWith Set.union n s)
 
   -- PAIR-RET: emit the polymorphic product datatype `data Pair2 2 = [ | pair2 {...} ]`
   -- exactly once, only when the module actually uses pairs — so a pair-free module's
@@ -797,20 +808,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -827,14 +838,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -1028,6 +1039,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- INT-1: record overflow-tainted function
   -> (Text -> [BuiltinAxiom] -> IO ())  -- TRUST-AXIOM: record the sealed-builtin axioms this body VC assumed
   -> (Text -> [Text] -> IO ())          -- TRUST-AXIOM family C: record the ground-fact families
+  -> (Text -> Set.Set Text -> IO ())   -- ARR-RANGE-NAME: record the bytes-typed array names
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
@@ -1044,7 +1056,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts bodyCounterRef aliases cenv sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
@@ -1129,6 +1141,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
       sortA1 t = case bytesLenOf aliases t of
                    Just _ | arrGate -> byteArraySort
                    _                -> typeToSortA aliases t
+  -- ARR-RANGE-NAME: the seed of the bytes evidence set is every param and the
+  -- result whose declared (or RET-RESOLVE-resolved) type is bytes[n]. It is
+  -- registered before this function's first constraint; the body walk below
+  -- extends it before any body constraint is added.
+  let bytesSeed = Set.fromList
+        [ n | (n, t) <- params ++ [ ("result", rt) | Just rt <- [mRet] ]
+            , isJust (bytesLenOf aliases t) ]
+  addBytesArrs name bytesSeed
   -- NIW (v0.12): non-int params used as measure arguments get an opaque carrier
   -- binder so (strLen s) / (listLen xs) resolve to an in-scope symbol. Scoped to
   -- genuinely-used measure args (scan of contract + body) so measure-free
@@ -1576,6 +1596,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                            (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
                                             (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
+            forM_ mBodyVC $ \bvc ->
+              addBytesArrs name (bytesArrsOfVC aliases cenv bytesSeed bvc)
             case (mMapRetPair, mBodyVC) of
               (Just tree, _) -> do
                 -- F-011.3: flatten the guarded map-return tree; each leaf is one
@@ -5563,11 +5585,16 @@ isMeasureSort _  _                  = False
 -- disclosure cannot claim a family the emitter did not add. A second walk that
 -- re-detected them would be a mirrored gate, and 'LLMLL.TypeAdmissibility'
 -- exists because a mirrored gate drifted once already.
-injectRangeFacts :: FQConstraint -> FQConstraint
-injectRangeFacts = fst . injectRangeFactsLabeled
+--
+-- ARR-RANGE-NAME: the first argument is the function's bytes evidence set
+-- ('bytesArrsOfVC'). The byte-range family goes only on a select whose array
+-- roots in that set, so the decision rests on a declared or resolved type and
+-- never on how a generated name is spelled.
+injectRangeFacts :: Set.Set Text -> FQConstraint -> FQConstraint
+injectRangeFacts bytesArrs = fst . injectRangeFactsLabeled bytesArrs
 
-injectRangeFactsLabeled :: FQConstraint -> (FQConstraint, [Text])
-injectRangeFactsLabeled c =
+injectRangeFactsLabeled :: Set.Set Text -> FQConstraint -> (FQConstraint, [Text])
+injectRangeFactsLabeled bytesArrs c =
   let apps    = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
       labeled = concatMap factsFor apps
       facts   = map snd labeled
@@ -5575,13 +5602,13 @@ injectRangeFactsLabeled c =
       -- (Map_store / Map_default) get NO facts — `(Map_store …) >= 0` is
       -- ill-sorted over the array sort. A2 resolves the A1 landmine: a
       -- Map_select term carries the byte-range family-2 facts `0 ≤ t ≤ 255`
-      -- ONLY when its array argument is BYTES-ROOTED — a map component read
-      -- (roots named *$has / *$val, or a Map_default chain, which only map
-      -- composites produce in select position) is an unconstrained int and
-      -- must get NO range fact (a phantom 0..255 on a map value would be an
-      -- unsound assumption). Missing a fact only loses completeness; adding a
-      -- wrong one breaks refutation exactness (§6.1) — the discriminator errs
-      -- toward no-facts.
+      -- ONLY when its array argument is BYTES-ROOTED: a variable in the bytes
+      -- evidence set, or a Map_store chain over one. A map component read is
+      -- an unconstrained int and must get NO range fact (a phantom 0..255 on a
+      -- map value would be an unsound assumption). Missing a fact only loses
+      -- completeness; adding a wrong one breaks refutation exactness (§6.1),
+      -- so the discriminator defaults to no-facts. ARR-RANGE-NAME: it used to
+      -- default to facts, on any root whose name lacked a $has / $val suffix.
       --
       -- MEASURE-NONNEG-1: the `t >= 0` fact goes ONLY on a genuine length
       -- measure ('nonNegMeasures'). It used to go on every other FQApp, which
@@ -5602,13 +5629,36 @@ injectRangeFactsLabeled c =
       -- `Map_store` / `Map_default` (array-sorted), datatype constructors and
       -- selectors, and anything not yet named.
       factsFor _ = []
-      bytesRootedArr (FQVar n) = not ("$has" `T.isSuffixOf` n || "$val" `T.isSuffixOf` n)
+      bytesRootedArr (FQVar n) = n `Set.member` bytesArrs
       bytesRootedArr (FQApp "Map_store" (arr : _)) = bytesRootedArr arr
       bytesRootedArr _ = False
   in ( if null facts
          then c
          else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
      , nub (map fst labeled) )
+
+-- | ARR-RANGE-NAME: extend a function's bytes evidence set (seeded with its
+-- bytes-typed params and result) over a translated body VC. A name joins the
+-- set from a type, never from its spelling: a 'CallVC' result joins when the
+-- call is the bytes-set / bytes-zero builtin or a callee whose declared return
+-- is bytes[n]; a let binder joins when its right-hand side roots (through any
+-- Map_store chain) in a name already in the set.
+bytesArrsOfVC :: AliasMap -> ContractEnv -> Set.Set Text -> BodyVC -> Set.Set Text
+bytesArrsOfVC aliases cenv = go
+  where
+    go s (SimpleVC lbs _) = foldl letStep s lbs
+    go s (BranchVC _ _ t e) = go s t `Set.union` go s e
+    go s cv@CallVC{} =
+      let s' = if bytesCall (cvCallee cv) then Set.insert (cvResultVar cv) s else s
+      in go s' (cvContinuation cv)
+    letStep s lb = if rootedIn s (lbRhs lb) then Set.insert (lbName lb) s else s
+    bytesCall f
+      | f `elem` ["bytes-set", "bytes-zero"] = True
+      | Just (_, _, Just rt) <- Map.lookup f cenv = isJust (bytesLenOf aliases rt)
+      | otherwise = False
+    rootedIn s (FQVar n) = n `Set.member` s
+    rootedIn s (FQApp "Map_store" (a : _)) = rootedIn s a
+    rootedIn _ _ = False
 
 -- | MEASURE-NONNEG-1: the length measures that 'exprToPred' / 'bodyToPredM'
 -- emit and 'measureConstant' declares. Each one is a length, so `m(t) >= 0`

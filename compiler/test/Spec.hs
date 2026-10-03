@@ -30,8 +30,8 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8)
@@ -10380,17 +10380,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erFQText er `shouldNotSatisfy` T.isInfixOf "result : { v : int | true }"
 
       it "CH4C-1: a wildcard resolving to bytes[n] is the ARR-RANGE-NAME population" $ do
-        -- The guard the LLMLL.md section 5.3.5 disclosure needs. 'bytesRootedArr'
-        -- grants ground 0 <= select(...) <= 255 facts to every array-sorted
-        -- variable whose generated name lacks a '$has' or '$val' suffix, and a
-        -- resolved 'result' is exactly such a variable. This cell gives that
-        -- disclosure an in-tree witness; before RET-RESOLVE the population was
-        -- measured empty. If ARR-RANGE-NAME closes, revisit this assertion.
+        -- The guard the LLMLL.md section 5.3.5 disclosure needs. A wildcard that
+        -- RET-RESOLVE resolves to bytes[n] puts 'result' into the byte-range
+        -- population. Since ARR-RANGE-NAME the population is decided by type
+        -- (the bytes evidence set), so the fact is earned here: 'b' is a
+        -- declared bytes[8] param. The assertion stays a presence check.
         er <- emitRet (T.concat
           [ "(def w [b: bytes[8]] (bytes-set b 0 1))\n"
           , "(def-shell c [b: bytes[8]] (pre (>= (bytes-get b 0) 0))"
           , " (post (>= (bytes-get b 0) 0)) (w b))" ])
         erFQText er `shouldSatisfy` T.isInfixOf "255"
+
+      -- ARR-RANGE-NAME: the byte-range family (0 <= select <= 255) is decided by
+      -- the function's bytes evidence set, never by how a generated name is
+      -- spelled. ARN-1 fails on the name-suffix decider, which granted the fact
+      -- to any root without a $has / $val suffix.
+      let arnSelect arr = FQConstraint 0 []
+            (FQReft "v" FQInt FQTrue)
+            (FQReft "v" FQInt (FQBinPred FQGe (FQApp "Map_select" [arr, FQLit 0]) (FQLit 0)))
+            ["f", "post"]
+          familiesOf er fn = concat [ fams | (n, fams) <- erGroundFactFamilies er, n == fn ]
+
+      it "ARN-1: a select on an array outside the bytes evidence set gets no byte-range fact" $ do
+        let (c', labels) = injectRangeFactsLabeled Set.empty (arnSelect (FQVar "m"))
+        labels `shouldBe` []
+        c' `shouldBe` arnSelect (FQVar "m")
+
+      it "ARN-2: a select on an evidence-set array, directly or through Map_store, gets the fact" $ do
+        snd (injectRangeFactsLabeled (Set.singleton "m") (arnSelect (FQVar "m")))
+          `shouldBe` ["byte-range"]
+        snd (injectRangeFactsLabeled (Set.singleton "m")
+               (arnSelect (FQApp "Map_store" [FQVar "m", FQLit 1, FQLit 2])))
+          `shouldBe` ["byte-range"]
+
+      it "ARN-3: a let-bound map-returning callee result gets no byte-range fact" $ do
+        -- The callee's bare result var sorts at FQArr int int, the same sort as
+        -- bytes, and its name has no suffix. Only its type keeps it out.
+        er <- emitRet (T.concat
+          [ "(def mk [m: map[int,int]] -> map[int,int] (post (= (map-get result 1) 5)) (map-put m 1 5))\n"
+          , "(def-shell u [m: map[int,int]] -> int (post (= result 5)) (let [(r (mk m))] (map-get r 1)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "u"
+        familiesOf er "u" `shouldNotSatisfy` elem "byte-range"
+
+      it "ARN-4: a let-bound bytes-set result keeps the byte-range fact" $ do
+        er <- emitRet "(def z [b: bytes[8]] -> int (post (>= result 0)) (let [(c2 (bytes-set b 0 1))] (bytes-get c2 0)))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "z"
+        familiesOf er "z" `shouldSatisfy` elem "byte-range"
+
+      it "ARN-5: the result of a callee declared -> bytes[n] keeps the byte-range fact" $ do
+        er <- emitRet (T.concat
+          [ "(def w [b: bytes[8]] -> bytes[8] (post (= (bytes-get result 0) 1)) (bytes-set b 0 1))\n"
+          , "(def-shell c [b: bytes[8]] -> int (post (<= result 255)) (bytes-get (w b) 3))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "c"
+        familiesOf er "c" `shouldSatisfy` elem "byte-range"
 
       it "CH4B-1: a caller of a bytes-returning wildcard callee assumes the callee's post" $ do
         -- Channel 4b. The callee's post applies a bytes op to its own result, and

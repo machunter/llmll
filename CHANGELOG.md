@@ -4,6 +4,41 @@
 
 <a id="Latest"></a>
 
+## v0.27.4: the byte-range fact is decided by type, not by a variable name (2026-10-03)
+
+### `ARR-RANGE-NAME`: `bytesRootedArr` reads a declared type
+
+The verifier assumes `0 <= (bytes-get b i) <= 255` for every byte read, as a ground fact on the
+`Map_select` term (TRUST-AXIOM family C, `byte-range`). Which reads get it was decided on the array's
+generated name: any root whose name lacked a `$has` or `$val` suffix, and so the default was to grant
+it. A map component that reached a select under another name would have been given a false range.
+No witness of that was ever built: the row was downgraded to latent on 2026-09-15 after two probes
+emitted no such fact, and it stayed open on the design objection.
+
+- **The fact now goes only on a `bytes` array.** Each function carries a set of array names whose
+  `bytes[n]` type is known: its parameters and its `result` (declared, or resolved by `RET-RESOLVE`),
+  the result of `bytes-set`, `bytes-zero` or a callee declared `-> bytes[n]`, and a `let` name bound
+  to one of these. A select whose array is outside the set gets no fact. The default is now no fact,
+  which is the direction the emitter's own soundness rule already asked for: a missing fact loses
+  completeness, a wrong one breaks refutation.
+- **No emitted constraint changes.** Every in-tree `.llmll` and `.ast.json` under `examples/`,
+  `tools/`, `scripts/` and `compiler/test/fixtures/` (406 files, 376 of which emit a `.fq`) was emitted
+  with v0.27.3 and with this release: the `.fq` files are byte-identical and every exit status is
+  the same. A trace run first found each of the 19 granted roots in the tree, and the 22 the hspec
+  suite reaches, inside the new set. No verdict moves and no `.verified.json` changes;
+  `checker_soundness_version` and `codegen_semantics_version` are unchanged.
+- **One shape is outside the set: a `bytes` payload bound by a `Result` match arm.** It costs nothing
+  today, because that payload binder is int-sorted and `W-FQ-FREEVAR` withdraws the constraint that
+  names it, so no fact reached the solver before this change either.
+- **The `LLMLL.md` §5.3.5 disclosure that a resolved `τ_ret` can put `result` on a name-decided range
+  fact is removed**, on the condition it stated: `bytesRootedArr` now decides on a type.
+- **Tests:** hspec `ARN-1` to `ARN-5`. `ARN-1` fails with the name test restored; `ARN-4` (a `let`
+  over `bytes-set`) and `ARN-5` (a callee declared `-> bytes[8]`) fail with the body walk removed.
+  `ARN-3` (a `let`-bound map-returning callee) guards a shape that never received the fact, so no
+  mutation fails it. `CH4C-1` is unchanged.
+
+Tests: 2200 examples, 0 failures (+5); Python 312 passed, 134 skipped.
+
 ## v0.27.3: three examples that passed `check` now build (2026-10-02)
 
 ### `EXAMPLE-BUILD-1`: `bytes-zero` under a contract, and a program named after a Haskell package

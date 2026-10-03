@@ -182,9 +182,9 @@
 --     deferred. There is deliberately no @FACT-AG-RANGE@ row.
 --
 -- So this module is no longer provisional against FACT-AG. 'boolValuedMapTy' is
--- where it lands. The remaining hole on that arm is ARR-RANGE-NAME
--- (docs\/compiler-team-roadmap.md), which is about threading the declared type,
--- not about earning the fact.
+-- where it lands. Its byte-range sibling decides from a declared type too:
+-- 'bytesLenOf' seeds the per-function bytes evidence set that
+-- 'LLMLL.FixpointEmit.injectRangeFactsLabeled' reads (ARR-RANGE-NAME).
 module LLMLL.TypeAdmissibility
   ( -- * Alias environment
     AliasMap
