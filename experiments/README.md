@@ -13,7 +13,7 @@ Two summaries answer the main questions. Read them first:
 
 - On the two fixtures built to induce a plausible subtle error (a transfer that must conserve money, a byte operation that must saturate): "**30/30 grade B (verified-correct) across three frontier models**" and "**0/54 wrong fills across the whole solver-catches campaign**".
 - Agents avoided a network-reaching helper they were told about only in prose, 18 of 18 times.
-- The safety net "was never triggered by a real agent fill, because the agents did not produce wrong fills." Every hand-written wrong fill was refuted, so "the value of verification *under agent error* is therefore established by construction, not by an observed agent mistake." A follow-up built to elicit a subtly wrong fill produced none in 69 attempts.
+- The safety net "was never triggered by a real agent fill, because the agents did not produce wrong fills." Every hand-written wrong fill was refuted, so "the value of verification *under agent error* is therefore established by construction, not by an observed agent mistake." A follow-up built to elicit a subtly wrong fill produced none in 15 attempts, bringing the campaign to 0 wrong fills in 69 attempts across three fixture shapes.
 
 **RFC to verified implementation** ([`rfc-swarm/SUMMARY.md`](rfc-swarm/SUMMARY.md)):
 
