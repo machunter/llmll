@@ -273,15 +273,20 @@ def test_ht7_json_names_both_sets_with_their_via(tmp_path: Path):
     assert j["import_assumed_fns"] == [{"name": "use", "via": "lib.sq"}]
 
 
-def test_ht8_same_name_in_two_modules_does_not_merge(tmp_path: Path):
-    """HT-8. Negative control: `moda.go` loops, `modb.go` does not, only modb is opened."""
+def test_ht8_same_name_in_two_modules_is_refused(tmp_path: Path):
+    """HT-8. `moda.go` loops and `modb.go` does not. This was a negative control
+    for the module-qualified graph (the two `go`s must not merge); since v0.28.0
+    (XMOD-SCOPE) a build's top-level names share one scope, so the program is
+    refused before the graph is built. If that rule is ever relaxed, this test
+    fails and the negative control must come back."""
     _write(tmp_path, {"moda.llmll": GO_REC, "modb.llmll": GO_FLAT,
                       "main.llmll": MAIN_USES_GO})
     _verified_lib(tmp_path, "moda.llmll")
     _verified_lib(tmp_path, "modb.llmll")
     r = _run(tmp_path, "verify", "main.llmll")
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert _headline(r.stdout)[0] == "✅ main.llmll — SAFE (liquid-fixpoint)"
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert ("duplicate top-level definition 'go': function declared in moda "
+            "and in modb") in r.stdout, r.stdout
 
 
 def test_ht9_same_file_def_callee_gets_the_placement_diagnostic(tmp_path: Path):

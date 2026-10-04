@@ -154,14 +154,16 @@ def _entry(report: dict, name: str) -> dict:
     return next(e for e in report["entries"] if e["name"] == name)
 
 
-def test_pfg1_same_named_functions_stay_apart(tmp_path: Path):
-    """PFG-1. The recursive `a.go` is partial and flagged; the entry `go` is not."""
+def test_pfg1_same_named_functions_are_refused(tmp_path: Path):
+    """PFG-1. The recursive `a.go` and the entry's own `go` once checked that the
+    module-qualified graph keeps them apart. Since v0.28.0 (XMOD-SCOPE) a build's
+    top-level names share one scope, so the entry is refused first. If that rule
+    is ever relaxed, this test fails and the original check must come back."""
     _write(tmp_path, {"a.llmll": LIB_A, "main.llmll": MAIN_TWO_GOS})
     assert "SAFE (liquid-fixpoint)" in _run(tmp_path, "verify", "a.llmll").stdout
-    t = _report(tmp_path, "main.llmll")
-    assert t["partial_fns"] == ["a.go"]
-    flagged = sorted(e["name"] for e in t["entries"] if e.get("termination_unverified"))
-    assert flagged == ["a.go"]
+    r = _run(tmp_path, "verify", "main.llmll")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "duplicate top-level definition 'go'" in r.stdout, r.stdout
 
 
 def test_pfg2_recursion_through_a_function_value(tmp_path: Path):
