@@ -1,0 +1,2 @@
+;; XMOD-SCOPE fixture (proposal §2.1).
+(def f [n: int] -> int (+ n 2))

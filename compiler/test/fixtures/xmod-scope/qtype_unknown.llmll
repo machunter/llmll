@@ -1,0 +1,3 @@
+;; XMOD-SCOPE R2: a qualified type lib does not declare.
+(import lib)
+(def-shell k [c: lib.Ctlx] -> int 1)

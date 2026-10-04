@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t16 (control): the opened spelling.
+(import lib) (open lib)
+(def-shell mkq [] -> Ctl Ran)

@@ -1,0 +1,4 @@
+;; XMOD-SCOPE fixture (proposal §2.1): h is declared and not exported.
+(export pub)
+(def h [n: int] -> int n)
+(def pub [n: int] -> int n)

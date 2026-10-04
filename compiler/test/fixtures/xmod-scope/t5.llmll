@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t5 / E10: a qualified constructor under a qualified annotation.
+(import lib)
+(def-shell mkq [] -> lib.Ctl lib.Ran)

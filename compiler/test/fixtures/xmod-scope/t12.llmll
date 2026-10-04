@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t12 / E3: a local h and a library's unexported h.
+(import priv) (open priv)
+(def h [n: int] -> int n)

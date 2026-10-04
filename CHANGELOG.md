@@ -4,6 +4,51 @@
 
 <a id="Latest"></a>
 
+## v0.28.0: a build's top-level names share one scope (2026-10-04)
+
+### `XMOD-SCOPE`: cross-module names are resolved at `check`, not left to GHC
+
+Codegen concatenates every module in a build into one `Lib.hs`, so the build has always been one
+scope for top-level names. GHC enforced that at `build`; `check` did not. Two imported modules that
+each declared `Phase` passed `check` with no diagnostic and emitted two `data Phase`. With both
+opened, `check` treated the two types as one and accepted a `P1` value where `modp2`'s `Phase` was
+expected; only the GHC name collision stopped the build. Closes `TYPE-SHADOW-1`,
+`XMOD-CTOR-SEVERITY-1` and `XMOD-QUAL-CTOR-1`. Design: `docs/design/xmod-name-scope-proposal.md`
+Rev 1; plan: `docs/design/xmod-scope-implementation-plan.md`.
+
+- **R1: one declaration per name in a build.** A type, function or constructor name declared by two
+  modules in one build closure (the entry module plus everything it imports, directly or not) is a
+  `check` error of kind `duplicate-definition` that names both modules, opened or not, exported or
+  not. Types and values are separate namespaces. The same module reached twice is not a collision.
+  `open-shadow-warning` is retired, and `LLMLL.md` §8.6's "last wins" policy is withdrawn: no
+  program it described could build. An opened name that shadows a builtin still warns, until
+  `RESERVED-NAME-1`.
+- **A constructor declared twice in one module is now an error** in plain `check` as well. It was a
+  warning there and an error at `build`.
+- **R2: a type's identity is its declaring module plus its name.** `lib.Ctl` and an opened `Ctl`
+  are one type; before, they were incompatible in both directions.
+- **R3: qualified names resolve and build.** `lib.f`, `lib.Ran` and `lib.Ctl` work with
+  `(import lib)` alone; codegen emits the bare Haskell name, which R1 makes unique (`LLMLL.md`
+  §8.5.1, no longer "planned"). The verifier already accepted a qualified call; the evidence key of
+  `use_double_qual.llmll` is unchanged and its `.verified.json` is byte-identical.
+- **R4: an imported name that is not in scope is an error at every gate** (new kind
+  `name-not-in-scope`): `'Ran' is declared in lib; add (open lib) or write lib.Ran`, `'h' is declared
+  in priv and is not exported`, or, for an `open` placed after its first use, `'inc' is used before
+  (open open-aux-lib); move the open above its first use`. A name no module declares keeps plain
+  `check`'s warning.
+- **Programs that change status.** Of 506 tracked `.llmll` and `.ast.json` files, three that passed
+  `check` are now rejected: `wrap-machine/bmain.llmll` (already marked `@expect: check ERROR`) and
+  the two `open-after-def` doc claims, whose expectations now name the new error. No tracked program
+  repeats a top-level name across modules or writes a qualified type name.
+- **Not yet covered:** `llmll test` skips a property that calls `lib.f` without `open`
+  (`PBT-QUAL-1`); `run`, `patch` and `serve` do not load imported modules, so `run` rejects a
+  qualified call that `build` accepts (`XMOD-RUN-LOAD-1`); `typecheck --sketch` does not run R1.
+- **Tests:** a new `XMOD-SCOPE` block in `ModuleSpec.hs` (36 examples over 49 fixtures in
+  `compiler/test/fixtures/xmod-scope/`); M-05 and RF-E8 now assert the new errors. A second NC-011
+  doc claim, `duplicate-def-xmod-rejected.llmll`, guards the cross-module case.
+
+Tests: 2236 examples, 0 failures (+36); Python 312 passed, 134 skipped.
+
 ## v0.27.4: the byte-range fact is decided by type, not by a variable name (2026-10-03)
 
 ### `ARR-RANGE-NAME`: `bytesRootedArr` reads a declared type

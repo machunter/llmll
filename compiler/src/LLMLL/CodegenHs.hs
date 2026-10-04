@@ -66,6 +66,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
 import LLMLL.Syntax
+import LLMLL.BuildScope (stripModuleQualifiers)
+import qualified Data.Set as Set
 import Data.Char (isUpper)
 
 -- ---------------------------------------------------------------------------
@@ -148,7 +150,16 @@ generateHaskellMulti modName importedEnvs entryStmts =
   -- De-duplicate SImport nodes: the consolidated stmts list needs imports
   -- from all modules for hackage/c-lib header generation, but duplicate
   -- SImport nodes are harmless since emitStmt produces "" for them.
-  let allStmts = concatMap meStatements importedEnvs ++ entryStmts
+  --
+  -- XMOD-SCOPE R3: a qualified value name ('lib.f', 'lib.Ran') is emitted as
+  -- its bare Haskell name. The checker accepted it only for a direct import
+  -- that exports it, and R1 makes the bare name unique in this one Lib.hs, so
+  -- dropping the qualifier cannot capture another declaration. The AST keeps
+  -- the qualified name up to this point, because the verifier's contract key
+  -- and the evidence key read it.
+  let paths    = Set.fromList (map mePath importedEnvs)
+      allStmts = stripModuleQualifiers paths
+                   (concatMap meStatements importedEnvs ++ entryStmts)
   in generateHaskell modName allStmts
 
 

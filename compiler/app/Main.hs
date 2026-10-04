@@ -46,6 +46,7 @@ import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
+import LLMLL.BuildScope (closureOf, resolveQualifiedTypes)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
 import LLMLL.HoleAnalysis
@@ -513,7 +514,12 @@ loadStatementsMulti json gm fp = do
         Left diags -> do
           mapM_ (emitDiag json fp) diags
           pure (Left ())
-        Right (cache, loadOrder) -> pure (Right (stmts, cache, loadOrder))
+        -- XMOD-SCOPE R2: the same load-time rewrite 'Module.loadFromFile'
+        -- applies to each dependency. Every caller of this loader (check,
+        -- test, build, verify, typecheck, checkout context, diverge-report)
+        -- gets the rewritten entry statements.
+        Right (cache, loadOrder) ->
+          pure (Right (resolveQualifiedTypes stmts (closureOf stmts cache), cache, loadOrder))
   where
     -- P1 fix: skip built-in capability namespace imports (wasi.*, haskell.*, c.*).
     -- These are resolved by the codegen preamble, not by file-system lookup.

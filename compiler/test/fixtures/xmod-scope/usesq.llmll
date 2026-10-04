@@ -1,0 +1,6 @@
+;; XMOD-SCOPE fixture (R2): a dependency that writes a qualified type in a
+;; type body and a parameter. After the load-time rewrite, every TCustom name
+;; agrees with an alias-map key.
+(import lib)
+(type Holder (| Hold lib.Ctl))
+(def k [c: lib.Ctl] -> int 1)

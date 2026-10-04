@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t18 / E5: the same module imported and opened twice.
+(import lib) (open lib)
+(import lib) (open lib)
+(def-shell mkq [] -> Ctl Stop)

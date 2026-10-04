@@ -1,0 +1,3 @@
+;; XMOD-SCOPE R3: fa is in the closure (through wrap) and is not imported here.
+(import wrap)
+(def-shell g [n: int] -> int (fa.f n))

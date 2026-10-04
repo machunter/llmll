@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (proposal §2.1): reaches fa indirectly for its importers.
+(import fa) (open fa)
+(def w [n: int] -> int n)

@@ -1,0 +1,5 @@
+;; XMOD-SCOPE SOpen: lib and lib.sub both cached; open lib only.
+(import lib)
+(import lib.sub)
+(open lib)
+(def-shell g [n: int] -> int ?hole)

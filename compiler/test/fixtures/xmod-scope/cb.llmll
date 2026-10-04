@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (proposal §2.1): constructor Ran under type B.
+(type B (| Ran int))
+(def take-b [b: B] -> int 3)

@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (proposal §2.1): declares type Phase.
+(type Phase (| P1 int))
+(def mk-p1 [n: int] -> Phase (P1 n))

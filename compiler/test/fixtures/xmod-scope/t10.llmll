@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t10 / E2: selective open; no Phase in the bare scope.
+(import modp1) (open modp1 (mk-p1))
+(import modp2) (open modp2 (take-p2))
+(def-shell go [n: int] -> int (take-p2 (mk-p1 n)))

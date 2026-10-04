@@ -1,0 +1,3 @@
+;; XMOD-SCOPE R4: a bare call to an unexported name.
+(import priv)
+(def-shell g [n: int] -> int (h n))

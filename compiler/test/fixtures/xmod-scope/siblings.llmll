@@ -1,0 +1,5 @@
+;; XMOD-SCOPE: fa and fb do not import each other; each loads alone. Only this
+;; module, which joins them, fails.
+(import fa)
+(import fb)
+(def-shell go [n: int] -> int n)

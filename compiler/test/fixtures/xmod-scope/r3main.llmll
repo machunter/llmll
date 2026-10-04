@@ -1,0 +1,16 @@
+;; XMOD-SCOPE R3 end-to-end: lib.f, lib.Ran and lib.Ctl with import and no open.
+;; Builds and prints 42.
+(import wasi.io (capability stdout :deterministic false))
+(import lib)
+(def-shell code [c: lib.Ctl] -> int (match c ((Ran) 1) ((Stop) 2)))
+(def-shell total [n: int] -> int (+ (lib.f n) (code lib.Ran)))
+(check "the library f is the identity"
+  (for-all [n: int]
+    (= (lib.f n) n)))
+(def-shell r3-step [s: int input: string _r: Response] -> (int, Command)
+  (pair s (wasi.io.stdout "")))
+(def-shell r3-done [s: int] -> bool true)
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (string-concat (int-to-string (total 41)) "\n")))
+  :step r3-step
+  :done? r3-done)

@@ -1,0 +1,4 @@
+;; XMOD-SCOPE type identity: a value of TA where TB is annotated.
+(import ida) (open ida)
+(import idb) (open idb)
+(def-shell go [n: int] -> int (take-tb (mk-a n)))

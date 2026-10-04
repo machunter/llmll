@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (proposal §2.1): a second, different type Phase.
+(type Phase (| P2 int))
+(def take-p2 [p: Phase] -> int 7)

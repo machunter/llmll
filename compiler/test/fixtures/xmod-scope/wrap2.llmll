@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture: imports lib, for qtype_indirect.
+(import lib)
+(def w2 [n: int] -> int n)
