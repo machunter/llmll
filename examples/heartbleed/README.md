@@ -8,8 +8,8 @@ discipline*, the layer where these famous bugs actually lived. Design & plan of 
 ## ▶ The flagship: [`secure-channel/`](secure-channel/) — a 163-function verified channel
 
 A full record layer decomposed into **163 contracted holes across seven modules**, filled by
-**orchestrated agents**, verified **as one whole program** — `SAFE`, every body faithful (about a minute on a quiet laptop
-in July 2026; about three minutes and 4.5 GB of memory on a busy one at v0.26.5).
+**orchestrated agents**, verified **as one whole program** — `SAFE`, every body faithful (about a minute and 5 GB of memory
+on a lightly loaded laptop at v0.28.0; about three minutes on a busy one).
 The goto-fail primitive cannot verify if you reintroduce the bug. See
 [`secure-channel/README.md`](secure-channel/README.md) for the headline and how to reproduce it.
 

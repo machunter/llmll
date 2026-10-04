@@ -32,7 +32,7 @@ token-revocation-emergent and total-recursion. Everything else is not gated.
 fall outside the decidable fragment prints `⚠️ ... SAFE ..., partial: K of N
 contracted functions proved`, and a file with no postconditions prints
 `nothing proved`. Both exit 0: SAFE there means "no contradiction found", not
-"proved". The last column records what each example printed on v0.26.1.
+"proved". The last column records what each example printed on v0.26.1; every row was re-checked on v0.28.0 with the same result.
 
 ## Showcase
 

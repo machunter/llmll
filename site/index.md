@@ -43,8 +43,8 @@ The series is five posts and reads in order.
 
 The series is deliberate about its boundaries, and Post 5 states them in full. In short:
 cryptography is not modeled; the model is arithmetic, and the solver reasons about lengths,
-sequence numbers and states, not arbitrary heap structure; the contracts in the flagship were
-written by us and the bodies by agents; and the compiler proves that a contract
+sequence numbers and states, not arbitrary heap structure; no person wrote the flagship's
+code: an authoring agent wrote its contracts at our direction, and fill agents wrote the bodies; and the compiler proves that a contract
 is met and not vacuous, **not** that it is the right contract. That last one is the open
 frontier, and no solver closes it.
 

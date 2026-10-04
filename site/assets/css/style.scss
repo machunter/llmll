@@ -75,6 +75,16 @@ code.highlighter-rouge {
 
 
 // ---------------------------------------------------------------------------
+// Series byline (rendered by _layouts/series.html from _data/series.yml)
+// ---------------------------------------------------------------------------
+.series-byline {
+  margin-bottom: 1.5rem;
+  color: #6a737d;
+  font-size: 0.9rem;
+}
+
+
+// ---------------------------------------------------------------------------
 // Series navigation (rendered by _layouts/series.html)
 //
 // The posts read in order and previously offered no way forward except the

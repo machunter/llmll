@@ -2,6 +2,15 @@
 layout: default
 ---
 
+{%- assign entry = site.data.series | where: "url", page.url | first -%}
+{%- if entry -%}
+<p class="series-byline">
+  {{ site.author.name }} ·
+  Published <time datetime="{{ entry.published | date: '%Y-%m-%d' }}">{{ entry.published | date: "%-d %B %Y" }}</time>
+  {%- if entry.updated and entry.updated != entry.published %} · Updated <time datetime="{{ entry.updated | date: '%Y-%m-%d' }}">{{ entry.updated | date: "%-d %B %Y" }}</time>{%- endif %}
+</p>
+{%- endif %}
+
 {{ content }}
 
 {%- comment -%}

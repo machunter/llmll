@@ -24,7 +24,7 @@ was received). With a `bool` result and `<=>`, the contract reads as that one se
      seq: int last: int claimed: int received: int] -> bool
   (post (<=> result (and (and (= computed expected) (= hs_state 2))
                          (and (> seq last) (<= claimed received)))))
-  ?admit-byte-body)
+  ?body)
 ```
 
 The walkthrough below is scripted: each step is a committed request file in
@@ -44,7 +44,9 @@ directly: each *is* one comparison, a `bool` returned straight.
 
 Every step verifies against the current frontier's contracts. Starting from the single
 `admit-byte` hole, the open-hole count fans out as agents decompose, then contracts to zero
-as they fill the leaves, with every intermediate program `SAFE`:
+as they fill the leaves. Every intermediate program is `SAFE` with the open holes' contracts
+assumed, so `verify` marks it `⚠️ … partial` and names them; the last step, with no hole
+left, is the first to earn the `✅`:
 
 | step | the move | open holes |
 |:---:|---|:---:|

@@ -536,7 +536,7 @@ The `.fq` file is still written and can be checked manually or in CI once the to
 **A third outcome sits between "proved" and "disproved", and the exit code does not distinguish it.** If the solver is present but returns no verdict — it was killed, or it exited without a parsable answer — `verify` reports that as a solver error, not as a refutation. It exits `1`, the same code a genuine refutation uses, so the exit code alone cannot tell a dead solver from a disproved contract. The `--json` payload carries `solver_verdict` for exactly this: `safe`, `refuted`, or `error`. `success` is `false` for both `refuted` and `error`, so a consumer that reads only `success` will call a dead solver a refutation. Read `solver_verdict`.
 
 > [!IMPORTANT]
-> `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
+> `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. A function whose body or contract uses non-linear arithmetic (`*`, `/`, `mod`) falls back: `verify` reports `body-fallback`, the postcondition is assumed, not proved, and the headline names the function. The experimental `--leanstral` path (or `--leanstral-mock` for testing) can take such an obligation to Lean. To mark one explicitly, write a predicate-carrying `?proof-required` (see §4.11).
 
 #### Proof artifact
 
@@ -1093,7 +1093,7 @@ Property-based tests can call functions defined in imported modules, provided th
     (= (plus-one n) (+ n 1))))
 ```
 
-Without `(open ...)`, the PBT static evaluator cannot resolve the cross-module call: the property body fails to reduce to a literal Bool and `llmll test` reports the check as `Skipped` rather than `Passed` or `Failed`. The fix is always to add `(open imported)` — qualified references (`imported.plus-one ...`) inside check bodies inherit the codegen limitation described under "Prefixed access (default)" above and do not currently resolve at runtime.
+Without `(open ...)`, the PBT static evaluator cannot resolve the cross-module call: the property body fails to reduce to a literal Bool and `llmll test` reports the check as `Skipped` rather than `Passed` or `Failed`. The fix is always to add `(open imported)`. Qualified references (`imported.plus-one ...`) build and run, but `llmll test` does not yet evaluate them inside a check body and reports such a check `Skipped` (`PBT-QUAL-1`).
 
 If `imported` declares `(export ...)`, only the listed names are visible to the test module's PBT evaluator (consistent with the type-checker's behavior).
 
@@ -1147,7 +1147,7 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 
 ### §4.10 Recursive Functions (`def-shell`)
 
-Self-recursive functions are declared with `def-shell`. The self-call is a user-defined callee outside the strict-core fragment; no `:decreases` annotation is required or available under the default grammar.
+Self-recursive functions are declared with `def-shell`. Without a measure, the verifier proves the body at partial correctness: the proof holds only if the recursion terminates, the `verify` headline drops the `✅` and names the function, and a `def` may not call it. An optional `(decreases e)` clause, an int expression over the parameters, discharges termination: the verifier proves `e ≥ 0` and that `e` strictly decreases at each recursive call, and the proof becomes total (`LLMLL.md` §4.2). See [`examples/total-recursion/`](../examples/total-recursion/).
 
 > **Legacy grammar (`--grammar=legacy`).** The `letrec` form provides an explicit `:decreases` termination measure checked for well-foundedness (`measure ≥ 0`) by `llmll verify`. The following examples use `letrec` syntax and require `--grammar=legacy` to parse:
 
@@ -1159,7 +1159,8 @@ Self-recursive functions are declared with `def-shell`. The self-call is a user-
 ;; With pre/post contracts:
 (letrec list-sum [xs: list[int]] :decreases (list-length xs)
   (pre  (>= (list-length xs) 0))
-  (post (>= result 0))\n  (if (list-empty? xs) 0 (+ (list-head xs) (list-sum (list-tail xs)))))
+  (post (>= result 0))
+  (if (list-empty? xs) 0 (+ (list-head xs) (list-sum (list-tail xs)))))
 ```
 
 JSON-AST:
@@ -1182,12 +1183,11 @@ JSON-AST:
 
 ### §4.11 `?proof-required` Holes
 
-The compiler auto-emits `?proof-required` holes for constraints outside the decidable linear arithmetic fragment. These holes are **non-blocking**: code compiles with a runtime assertion fallback.
+`?proof-required` holes mark obligations outside the decidable linear arithmetic fragment. They are **non-blocking**: code compiles with a runtime assertion fallback. A non-linear `pre`/`post` written without one is not turned into a hole: the function falls back at `verify`, and its postcondition is reported assumed, not proved.
 
 | Hole | Emitted when | Blocking? |
 |------|-------------|-----------|
 | `?proof-required(complex-decreases)` | `letrec :decreases` is a non-variable expression (`--grammar=legacy` only) | No |
-| `?proof-required(non-linear-contract)` | `pre`/`post` contains `*`, `/`, `mod`, `^` | No |
 | `(?proof-required :reason "tag" pred-expr)` in `pre`/`post` | Manual annotation; author supplies the predicate expression | No (emits runtime assertion) |
 
 **Manual annotation — bare form** (S-expression):
@@ -1756,6 +1756,7 @@ A step that preconditions on the program's own control tag receives the compiler
 $ llmll verify witness.llmll
    body-faithful: ran-step
    body-fallback: go
+   call-pre unchecked: step -> ran-step
    Running liquid-fixpoint ...
 ✅ witness.llmll — SAFE (liquid-fixpoint)
 $ llmll verify --trust-report witness.llmll

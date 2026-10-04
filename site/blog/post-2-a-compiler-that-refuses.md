@@ -52,8 +52,9 @@ function being filled as an available *filled* function, and a blind agent's ans
 was a degenerate call to itself. That type-checks and even verifies, body-faithful and
 all: the proof assumes the function terminates, and a body that never terminates meets any
 postcondition vacuously. The brief now marks the function as the hole, so an agent is not
-invited to call it. What catches a self-call that does appear is the trust report, which
-flags every function in a recursive cycle `termination_unverified`; the acceptance bar the
+invited to call it. A self-call that does appear is flagged twice: the `verify` headline drops the `✅` and
+prints `⚠️ … proved only if it terminates` with the function's name, and the trust report
+marks every function in a recursive cycle `termination_unverified`; the acceptance bar the
 emergent build in Post 5 uses is SAFE, body-faithful, and not `termination_unverified`.
 Declaring a `(decreases …)` measure turns the degenerate self-call into a hard failure,
 because the solver cannot show the measure goes down.)
@@ -88,8 +89,9 @@ $ llmll verify finalize.llmll
 
 `body-faithful` is the phrase to notice: the solver did not trust the
 contract, it proved the *body* establishes it. The `✅` means every function in the file
-that carries a postcondition was proved from its body (for a recursive function, assuming it
-terminates); when some are only assumed, `verify` prints `⚠️ … partial` and names them. The one path that returns `Verified` is the
+that carries a postcondition was proved from its body; when some are only assumed, `verify`
+prints `⚠️ … partial` and names them, and when a proof holds only if a recursion terminates,
+it prints `⚠️ … proved only if it terminates` and names those. The one path that returns `Verified` is the
 one where `sig` was `Continue`.
 
 Note which pass that is. `llmll build` gates on types and then emits Haskell, so it will

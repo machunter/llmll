@@ -23,6 +23,8 @@ description: >-
   A language where AI agents write the code and a compiler proves it meets its
   specification.
 theme: minima
+author:
+  name: Burc Sahinoglu
 lang: en
 
 # minima's header is overridden in _includes/header.html, so this key is not
