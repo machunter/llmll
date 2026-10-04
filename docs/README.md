@@ -19,7 +19,7 @@ Most files under `docs/` are the team's working material. If you are new, read t
 - [`llmll-trust-report.schema.json`](llmll-trust-report.schema.json): the `verify --trust-report --json` output.
 - [`proof-artifact.schema.json`](proof-artifact.schema.json): the record written by `verify --proof-artifact`.
 
-Both schemas accept what the compiler emits, and a test fails when either disagrees with it. That covers documents the compiler writes, not JSON-AST written by hand; some older committed `.ast.json` files still fail the AST schema.
+The AST and trust-report schemas accept what the compiler emits, and a test fails when either disagrees with it. That covers documents the compiler writes, not JSON-AST written by hand; some older committed `.ast.json` files still fail the AST schema.
 
 ## Working material
 

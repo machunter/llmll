@@ -50,7 +50,7 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 
 ## Prove what the solver can't — kernel-checked
 
-Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
+Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside the linear-arithmetic fragment LLMLL sends to the solver, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
 
 <p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL experimental verified-lean demo"></p>
 <p align="center"><sub>Experimental. Recorded live on v0.26.3 against the Leanstral API; regenerate with <code>examples/leanstral-demo/demo.sh</code> (needs an API key and a Lean 4 + Mathlib project).</sub></p>
@@ -111,7 +111,7 @@ LLMLL treats **verification as the coordination protocol**. A lead agent defines
 
 ## What's proven vs. not — read this before believing the headline
 
-The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. Everything else — string **structure** (concatenation, substring, regex), non-terminating recursion (recursion with a discharging `(decreases e)` measure verifies total), recursive-payload ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)).
+The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. Everything else — string **structure** (concatenation, substring, regex), recursive-payload ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)). Recursion is inside the fragment: with a `(decreases e)` measure the solver discharges, the proof is total; without one, it holds only if the recursion terminates, and the `verify` headline drops the `✅` and names the function.
 
 Nonlinear obligations have an **experimental** Lean 4 path: the opt-in `--leanstral` flag shown above, which needs a Leanstral API key and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is deferred. `--leanstral-mock` runs the same pipeline against a mock prover, for testing.
 
@@ -302,7 +302,7 @@ compiler/                   ← Haskell compiler (stack project)
     DiagnosticFQ.hs         ← liquid-fixpoint output → [Diagnostic] with JSON Pointers
     Replay.hs               ← JSONL event log parser + replay execution
     LeanTranslate.hs        ← LLMLL contracts → Lean 4 theorem obligations
-    MCPClient.hs            ← MCP JSON-RPC client (mock-first)
+    MCPClient.hs            ← Leanstral client (Mistral API over HTTPS; mock-first)
     ProofCache.hs           ← per-file .proof-cache.json sidecar (SHA-256)
     TrustReport.hs          ← transitive trust closure analysis (--trust-report)
     VerifiedCache.hs        ← .verified.json sidecar read/write

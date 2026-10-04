@@ -7,8 +7,9 @@ their own contracts, and each of those becomes a hole for the *next* agent. The
 decomposition tree emerges from the work; it is not drawn up front.
 
 Every intermediate state verifies `SAFE` — each function proven against the current
-frontier's *contracts* via assume-guarantee — and the finished tree verifies as one program
-with zero holes.
+frontier's *contracts* via assume-guarantee, so `verify` prints `⚠️ … partial` and names the
+open holes whose contracts it assumed — and the finished tree verifies as one program
+with zero holes and a `✅`.
 
 ## The tree — a TLS record-delivery gate
 
@@ -61,7 +62,7 @@ spawned contracts in LLMLL surface syntax — read those to follow the cascade w
 TOKEN=$(llmll checkout base.ast.json /statements/0/body --json | jq -r .token)
 sed "s/<TOKEN-from-checkout>/$TOKEN/" 01-refine-admit.json > /tmp/step.json
 llmll refine base.ast.json /tmp/step.json      # apply
-llmll verify base.ast.json                     # every state is SAFE
+llmll verify base.ast.json                     # every state is SAFE (⚠️ partial until the last hole is filled)
 llmll holes  base.ast.json                     # watch the frontier move
 ```
 
@@ -70,16 +71,16 @@ frontier **fans out** as the tree grows, then **contracts** as the leaves fill:
 
 | # | step | checkout | apply | verify | open holes |
 |---|---|---|---|---|---|
-| — | start | — | — | `SAFE` | **1** (`admit-byte`) |
-| 1 | `refine admit-byte` → spawn `authenticated`, `ordered` | `/statements/0/body` | `PatchSuccess` | `SAFE` | **2** |
-| 2 | `refine authenticated` → spawn `mac-matches`, `handshake-up` | `/statements/1/body` | `PatchSuccess` | `SAFE` | **3** |
-| 3 | `refine ordered` → spawn `seq-fresh`, `length-sound` | `/statements/2/body` | `PatchSuccess` | `SAFE` | **4** |
-| 4 | `patch` fill `mac-matches` | `/statements/3/body` | `PatchSuccess` | `SAFE` | **3** |
-| 5 | `patch` fill `handshake-up` | `/statements/4/body` | `PatchSuccess` | `SAFE` | **2** |
-| 6 | `patch` fill `seq-fresh` | `/statements/5/body` | `PatchSuccess` | `SAFE` | **1** |
-| 7 | `patch` fill `length-sound` | `/statements/6/body` | `PatchSuccess` | `SAFE` | **0** |
+| — | start | — | — | ⚠️ `SAFE`, partial | **1** (`admit-byte`) |
+| 1 | `refine admit-byte` → spawn `authenticated`, `ordered` | `/statements/0/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **2** |
+| 2 | `refine authenticated` → spawn `mac-matches`, `handshake-up` | `/statements/1/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **3** |
+| 3 | `refine ordered` → spawn `seq-fresh`, `length-sound` | `/statements/2/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **4** |
+| 4 | `patch` fill `mac-matches` | `/statements/3/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **3** |
+| 5 | `patch` fill `handshake-up` | `/statements/4/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **2** |
+| 6 | `patch` fill `seq-fresh` | `/statements/5/body` | `PatchSuccess` | ⚠️ `SAFE`, partial | **1** |
+| 7 | `patch` fill `length-sound` | `/statements/6/body` | `PatchSuccess` | ✅ `SAFE` | **0** |
 
-Final: `llmll verify` → `SAFE`, `llmll holes` → **0 holes**, seven functions —
+Final: `llmll verify` → ✅ `SAFE`, `llmll holes` → **0 holes**, seven functions —
 `admit-byte`, `authenticated`, `ordered`, `mac-matches`, `handshake-up`, `seq-fresh`,
 `length-sound` — verified as one program.
 
@@ -120,6 +121,6 @@ assemble through the cross-module contract system; that is how the 163-function 
 [`../heartbleed/secure-channel/`](../heartbleed/secure-channel/) was built, with agents
 owning modules in parallel.
 
-*Every command here was run against the built `llmll` (v0.14.61). The request `token`
+*Every command here was run against the built `llmll` (v0.14.61) and re-checked on v0.28.0, with the same hole counts and verdicts. The request `token`
 fields read `<TOKEN-from-checkout>`; substitute the token `checkout` returns — a real token
 witnesses the file's content hash and goes stale if the file changed under you.*

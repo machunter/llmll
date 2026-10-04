@@ -18,12 +18,12 @@ This is the public summary. The team's internal work log, with every open item, 
 
 Open work is grouped by where the fix lands, in priority order. Tags in parentheses name the matching item in the internal log.
 
-1. **The verdict.** Close the remaining cases where a stored proof record could go stale or the trust report under-discloses. Decide whether a strict-core `def` may call an imported recursive function whose termination is not proved (DEF-ADMIT-XMOD-1); the `verify` headline already names such a caller. No open item in this group has a demonstrated false "SAFE" verdict. (G1)
+1. **The verdict.** Close the remaining cases where a stored proof record could go stale or the trust report under-discloses. No open item in this group has a demonstrated false "SAFE" verdict. (G1)
 2. **Crash-freedom of built programs.** A program that passes `check` should not crash at run time; for example, a user type may not yet name its constructors `Success` or `Error` (RESULT-CTOR-RRW). (G2)
-3. **One verdict across `check` and `build`.** Remove the cases where `check` passes and the Haskell build then fails, and where a diagnostic misleads: a binding named `show`, cross-module constructors, a type name declared by two modules, a `returns` key accepted and ignored. (G3)
+3. **One verdict across `check` and `build`.** Remove the cases where `check` passes and the Haskell build then fails, and where a diagnostic misleads: a binding named `show` (RESERVED-NAME-1), a `returns` key accepted and ignored (AST-RETURNS-KEY-1). (G3)
 4. **Commands, responses and replay.** Bring the event log in line with what `LLMLL.md` §10a specifies (EVENT-LOG-2). (G4)
 5. **Capability enforcement.** The `capability` clause is declarative today; decide how the compiler enforces it (CAP-1-REAL). (G5)
-6. **The module system.** Enforce `def-interface` conformance, which the spec already describes (IFACE-CONFORM), and decide on qualified imported constructors. (G6)
+6. **The module system.** Enforce `def-interface` conformance, which the spec already describes (IFACE-CONFORM). Make `run`, `patch`, `serve`, `repl` and `refine` load imports as `check` and `verify` do (XMOD-RUN-LOAD-1), and have `llmll test` run a property that calls a qualified import (PBT-QUAL-1). (G6)
 7. **Builtins and system interface.** Byte-level file reads and writes, path normalization, case-insensitive and capturing regular expressions, setting a child process's environment, and reporting the host platform. Each has a measured workaround, and each ships when a second program needs it or when the workaround weakens trust or correctness. (G7)
 8. **Instruments over the repository.** The rule-stating descriptions in the JSON-AST schema are checked by nothing (SCHEMA-TRUTH-1 residue); no CI job runs `check` over the shipped examples, so one that stops type-checking would go unnoticed (TOTP-CHECK-1); some gates report success when they cannot decide. (G8)
 
