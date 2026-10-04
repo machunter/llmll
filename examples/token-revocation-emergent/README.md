@@ -71,8 +71,12 @@ Identical to secure-channel-emergent, harness copied verbatim
 stateless `claude -p` with **all tools disabled**; its entire input is the fixed
 operation manual + the compiler-emitted checkout brief (contract, in-scope
 names, callable contracts — imported ones included). Retries receive only the
-compiler/harness error text. Acceptance per fill: verify `SAFE` **and**
-body-faithful. Every prompt, reply, and verdict is under `audit/`.
+compiler/harness error text. Acceptance per fill, as run in July 2026: verify `SAFE`
+**and** body-faithful. Every prompt, reply, and verdict is under `audit/`. Since
+2026-10-04, [`audit/runner.py`](audit/runner.py) also rejects a fill whose proof holds only
+if a recursion terminates (`termination_assumed_fns` in the `--json` verdict), the case a
+degenerate self-call falls into; re-verified on v0.28.0, all five `work/` modules print `✅`,
+so no fill accepted in July depended on it.
 
 ## Findings
 
