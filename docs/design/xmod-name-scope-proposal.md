@@ -175,7 +175,7 @@ The tracked tree has 22 programs that import a user module. The census ran `buil
 | E10 | t5, t6: `lib.Ran`, `lib.f` without `open` | R3: accepted and builds. R3-min: error with the `open` hint | type | R3 or R3-min |
 | E11 | t7, RF-E8: imported name without `open`; unexported name | R4 error in both modes | type | R4 |
 | E12 | t19: one module declares `Ran` under two types | Error in both modes | type | §4.1 same-module rule |
-| E13 | t17: a module declares `abs`, which is a builtin | Spec is silent (gap, flagged). Outside this proposal; §6 routes it | none | not handled |
+| E13 | t17: a module declares `abs`, which is a builtin | Spec is silent (gap, flagged). Outside this proposal; folded into `RESERVED-NAME-1` as its second measured case | none | not handled |
 
 ## 6. Verification mapping
 
@@ -192,7 +192,7 @@ All four rules are name resolution in the type channel. Each is a set-membership
 - `compiler/src/LLMLL/CodegenHs.hs`: emit the bare name for a resolved qualified value (R3 only).
 - Tests whose expectations change: RF-E8 in `compiler/test/Spec.hs`; the `open-shadow-warning` test in `compiler/test/ModuleSpec.hs`. Under R3, `use_double_qual.llmll` gains a build test: it must build and run.
 - Spec, for documentation-lead after the code ships: `LLMLL.md` §1 item 1 (state that a build's top-level names share one scope); §8.5 (correct F4); §8.5.1 (shipped under R3, or unchanged under R3-min); §8.6 (withdraw "last wins"). Norm claim `NC-011` gains a second fixture: the E1 witness.
-- Roadmap, for documentation-lead: close the three DECIDE markers to PLAN. File a new row for E13 (a module may declare a builtin's name).
+- Roadmap, for documentation-lead: close the three DECIDE markers to PLAN. E13 (a module may declare a builtin's name) is folded into `RESERVED-NAME-1` as its second measured case; it gets no new row.
 
 ## 8. Risks
 
