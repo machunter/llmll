@@ -3,8 +3,9 @@
 
 Per step: checkout the first open hole -> hand ONLY the brief (+ the fixed
 operation manual) to a fresh, tool-disabled `claude -p` fill agent -> convert
-its FILL/REFINE reply -> apply -> accept iff verify is SAFE and the filled
-function is body-faithful; otherwise roll back and retry with the compiler's
+its FILL/REFINE reply -> apply -> accept iff verify is SAFE, the filled
+function is body-faithful, and its proof does not assume that a recursion
+terminates; otherwise roll back and retry with the compiler's
 error as feedback (max 3 attempts per hole). Every prompt, reply, request and
 verdict is logged under audit/<module>/.
 
@@ -90,7 +91,16 @@ def verify_accept(fname):
     safe = "SAFE (liquid-fixpoint)" in out
     m = re.search(r"body-faithful: (.*)", out)
     faithful = [s.strip() for s in m.group(1).split(",")] if m else []
-    return safe and fname in faithful, out
+    # Added 2026-10-04, after the July 2026 run: the run accepted on SAFE and
+    # body-faithful alone. A self-call is both (secure-channel-emergent F-1),
+    # so a fill whose proof holds only if a recursion terminates is now
+    # rejected too. The JSON verdict names those in `termination_assumed_fns`.
+    try:
+        v = last_json(llmll("--json", "verify", AST).stdout)
+    except ValueError:
+        return False, out  # no verdict to read: fail closed
+    partial = [e["name"] for e in v.get("termination_assumed_fns", [])]
+    return safe and fname in faithful and fname not in partial, out
 
 def main():
     for step in range(1, MAX_STEPS + 1):
