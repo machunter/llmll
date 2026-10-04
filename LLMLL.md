@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.27.4)
+# LLMLL: Large Language Model Logical Language (v0.28.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.27.4.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.28.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1358,7 +1358,15 @@ Circular imports are a **compile error**. The compiler performs a DFS-based cycl
 
 `(import foo)` triggers DFS file loading and seeds the type-checker with **qualified names only** (`foo.f`, `foo.g`). Codegen concatenates all imported module statements into a single flat `Lib.hs` with bare Haskell names.
 
-To call imported functions, use `(open foo)` to inject bare aliases into the type-checker's scope, then call with bare names:
+**A build's top-level names share one scope.** The build closure of an entry module is the entry module plus every module it reaches through `import`, directly or indirectly. Because all of them land in one `Lib.hs`, each top-level name in the closure is declared by exactly one module. Types (`type`, `def-interface`) and values (`def`, `def-shell`, constructors) are separate namespaces, so `(type Box (| Box int))` is legal. A second declaration of a name in another module is a `check` error of kind `duplicate-definition`, whether or not either module is opened, and whether or not the name is exported:
+
+```
+error: duplicate top-level definition 'Phase': type declared in modp1 and in modp2; a build's top-level names share one scope (LLMLL.md §1, §8.5)
+```
+
+The same module reached by two import paths is one declaration, not a collision. A type's identity is its declaring module plus its name, so `foo.T` and an opened `T` are the same type.
+
+To call imported functions, either write the qualified name (§8.5.1) or use `(open foo)` to inject bare aliases into the type-checker's scope, then call with bare names:
 
 ```lisp
 (import app.auth)
@@ -1368,27 +1376,33 @@ To call imported functions, use `(open foo)` to inject bare aliases into the typ
 (hash-password raw-str)
 ```
 
-The usable pattern is: **`import` → `open` → bare call.**
+Both patterns work: **`import` → qualified call**, and **`import` → `open` → bare call.**
 
-Qualified references (`app.auth.hash-password`) are accepted by the type-checker but **fail at codegen** — the flat `Lib.hs` emits bare Haskell names, not qualified ones.
+A name that an imported module declares but that is not in scope is an **error** at every gate (`check`, `verify`, `build`), of kind `name-not-in-scope`. The message names the module and the fix:
+
+```
+error: 'Ran' is declared in lib; add (open lib) or write lib.Ran
+error: 'h' is declared in priv and is not exported
+error: 'inc' is used before (open open-aux-lib); move the open above its first use
+```
 
 > [!NOTE]
 > **Loader permissiveness.** The DFS module loader uses permissive typechecking for
-> imported modules — unbound bare names produce warnings, not errors. The entry-point
-> file is checked with strict typechecking during `llmll build`. This asymmetry means
-> imported modules may omit `(open ...)` declarations and still load successfully,
-> but the entry-point file must include them.
+> imported modules: a bare name that **no** module in the build declares produces a
+> warning, not an error, as it does under plain `llmll check`. The `name-not-in-scope`
+> and `duplicate-definition` errors above are not relaxed for imported modules: a
+> dependency that uses an imported name without `open` or a qualifier fails to load.
 
-#### 8.5.1 Qualified Access (Planned — Not Shipped)
+#### 8.5.1 Qualified Access
 
-The language design supports fully qualified access as the default namespace model:
+A qualified name `M.f`, `M.C` or `M.T` resolves when the current module imports `M` and `M` declares the name. A qualified value or constructor must also be exported by `M`. `open` is not required:
 
 ```lisp
-;; PLANNED (not currently operational at codegen):
+(import app.auth)
 (app.auth.hash-password raw-str)
 ```
 
-This will become operational when codegen emits per-module Haskell files with proper qualified imports, replacing the current single-`Lib.hs` concatenation model.
+Codegen emits the bare Haskell name. That is safe because §8.5 makes every top-level name unique in the build. A qualified name whose module is in the build but is not imported by the current module is an error that says `add (import M)`. Per-module Haskell output remains the long-term path; when it ships, the one-scope-per-build rule can narrow to one scope per module plus its opened names.
 
 ### 8.6 `open` — Bare-Name Injection
 
@@ -1401,11 +1415,13 @@ This will become operational when codegen emits per-module Haskell files with pr
 
 `open` is a compile-time alias injection — it makes the type-checker aware of bare names. Codegen is unaffected (bare names already exist in the concatenated `Lib.hs`).
 
-`(import A)` alone loads module A's definitions into `Lib.hs` but does **not** make them accessible by bare name in the type-checker. Without `(open A)`, only qualified names (`A.f`) are in scope, and qualified names do not resolve at runtime under the current flat-codegen model.
+`(import A)` alone loads module A's definitions into `Lib.hs` but does **not** make them accessible by bare name in the type-checker. Without `(open A)`, only qualified names (`A.f`) are in scope; they resolve and build (§8.5.1).
 
-> **Collision policy:** If two `(open ...)` declarations export the same bare name, the second `open` wins (last wins). The compiler emits a `WARNING` diagnostic.
+`open` is order-sensitive: it injects names only into the statements that follow it. A use placed before the `open` that would bind it is an error at every gate (`'inc' is used before (open open-aux-lib); move the open above its first use`).
 
-> **Property-based testing.** The PBT static evaluator used by `llmll test` honors the same bare-name injection rule: a `(check ...)` block whose body calls an imported function evaluates only when the imported module is in bare-name scope via `(open ...)`. Without `open`, the property body cannot reduce to a literal Bool and `llmll test` reports the check as `Skipped`. Qualified references (`module.fn ...`) inside check bodies share the codegen limitation described in §8.5.1 and currently do not resolve at runtime.
+> **Collisions.** Two opened modules cannot export the same bare name: two declarations of one name in a build are already a `duplicate-definition` error (§8.5), whether or not either is opened. Opening the same module twice is not a collision and gives no diagnostic. An opened name that shadows a builtin (for example a module that declares `abs`) still gives a warning, `'abs' from bi shadows a builtin`; such a program fails in GHC, which `RESERVED-NAME-1` tracks.
+
+> **Property-based testing.** The PBT static evaluator used by `llmll test` honors the same bare-name injection rule: a `(check ...)` block whose body calls an imported function evaluates only when the imported module is in bare-name scope via `(open ...)`. Without `open`, the property body cannot reduce to a literal Bool and `llmll test` reports the check as `Skipped`. Qualified references (`module.fn ...`) inside check bodies are not yet resolved by the evaluator, so such a check is also skipped, although the same call builds and runs (`PBT-QUAL-1`).
 
 ### 8.7 `export` — Visibility Control
 
@@ -1418,9 +1434,9 @@ If no `export` declaration is present, **all** top-level `def`, `def-shell`, `ty
 The `export` declaration must appear before the first `def` or `def-shell`.
 
 > [!NOTE]
-> **Export enforcement scope.** Export control is enforced at compile time during
-> `llmll build` (which uses strict typechecking). Permissive `llmll check` reports
-> unexported-name access as warnings, not errors.
+> **Export enforcement scope.** Export control is enforced at compile time by every
+> gate: using an unexported name of an imported module, bare or qualified, is a
+> `name-not-in-scope` error under `llmll check` as well as `llmll build`.
 >
 > The generated `Lib.hs` contains all definitions from all imported modules, including
 > unexported ones, because exported functions may depend on private helpers and type

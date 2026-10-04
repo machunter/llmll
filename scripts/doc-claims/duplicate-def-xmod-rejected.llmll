@@ -1,0 +1,8 @@
+;; @doc: LLMLL.md §8.5 (a build's top-level names share one scope) and §1.1 (re-binding the same name in the same scope is a compile error)
+;; @expect: check-error:duplicate top-level definition 'Phase'
+;; @norm: NC-011
+;; @claim: two imported modules that each declare `Phase` put two `data Phase` into one `Lib.hs`, so the build is one scope and `check` rejects the program with kind `duplicate-definition`, naming both modules. Nothing is opened and nothing is used: the import alone is enough (XMOD-SCOPE R1, proposal §2.2 t13). Before XMOD-SCOPE, `check` printed OK with no diagnostic and only GHC rejected it, at `build`. Second NC-011 fixture: duplicate-def-rejected.llmll guards one module, this file guards the build.
+(module duplicate-def-xmod-rejected
+  (import duplicate-def-xmod-aux-a)
+  (import duplicate-def-xmod-aux-b)
+  (def-shell go [n: int] -> int n))

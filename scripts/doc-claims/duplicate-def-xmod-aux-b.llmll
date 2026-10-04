@@ -1,0 +1,6 @@
+;; @doc: LLMLL.md §8.5 (a build's top-level names share one scope)
+;; @expect: check-ok
+;; @claim: support module for duplicate-def-xmod-rejected.llmll. It declares a second, different `(type Phase …)`; alone it checks clean.
+(module duplicate-def-xmod-aux-b
+  (type Phase (| P2 int))
+  (def take-p2 [p: Phase] -> int 7))

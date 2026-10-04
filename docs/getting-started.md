@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.27.4)
+  LLMLL — Large Language Model Logical Language Compiler (v0.28.0)
 
 Available options:
   -h,--help                Show this help text
@@ -970,7 +970,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` in the module (position does not matter) before relying on any `wasi.io.*` call |
-| `(open ...)` placed after a `def` that uses its bare names | `typecheck` passes with only a warning; `verify` and `build` fail with `error: call to unknown function` | Put `open` before any `def`/`def-shell` relying on its bare names (unlike `import`/`export`, `open` is order-sensitive) |
+| `(open ...)` placed after a `def` that uses its bare names | Every gate (`typecheck`, `verify`, `build`) fails with `error: 'inc' is used before (open mylib); move the open above its first use` | Put `open` before any `def`/`def-shell` relying on its bare names (unlike `import`/`export`, `open` is order-sensitive), or write the qualified name `mylib.inc` |
 | Binding a value before the guard that protects it, as in `(let [(h (unwrap (list-head xs)))] (if (= (list-length xs) 0) 0 h))` | LLMLL is call-by-value (`LLMLL.md` §4.7): the binding is evaluated first, so an empty list fails with `unwrap: list_head: empty list` although the branch that reads `h` is not taken | Evaluate it inside the branch that needs it: `(if (= (list-length xs) 0) 0 (unwrap (list-head xs)))` |
 | Depending on which of two arguments is evaluated first | The order is unspecified (`LLMLL.md` §4.7); when both fail, either failure may be the one observed | Do not depend on it; guard each argument with `if` where it matters |
 | Discarding a match payload with `_` in a contracted `def-shell`, as in `((Holds _) 1)` | The verifier cannot eliminate the match, so the body is never encoded and the postcondition is **assumed**. A false post reports SAFE. `check` warns `W-MATCH-WILDCARD-PAYLOAD` and `verify` warns `W-BODY-FALLBACK` | Bind the payload by name — `((Holds n) 1)` — even when the arm body ignores it. The same shape in a `def` is the hard error `core-grammar-violation` |
@@ -1009,28 +1009,13 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 (app.auth.hash-password raw-str)
 ```
 
-> [!IMPORTANT]
-> **Codegen limitation — use bare names at call sites.**
-> Qualified access (`module.fn`) is *accepted by the type-checker and resolver*, but
-> The codegen merges all modules into a single flat `Lib.hs` with bare Haskell
-> identifiers. A call written as `(world.make-world ...)` becomes `world_make_world`
-> in the generated Haskell, which **does not exist** — GHC will error with
-> `Variable not in scope: world_make_world`.
->
-> **Rule:** always use **bare function names** at call sites, even for
-> functions imported from other modules. The `(import world)` statement is still
-> required (it triggers module loading and merging); only call sites must be bare.
->
-> ```lisp
-> ;; ✅ correct:
-> (import world)
-> (make-world 20 10)
->
-> ;; ❌ wrong — produces undefined Haskell identifier:
-> (world.make-world 20 10)
-> ```
->
-> Per-module Haskell output (so `world.make-world` compiles correctly) is planned for a future release.
+> [!NOTE]
+> **Qualified names build.** A qualified function, constructor or type (`app.auth.hash-password`,
+> `lib.Ran`, `lib.Ctl`) resolves with `(import …)` alone and builds: codegen emits the bare
+> Haskell name, which is unique because a build's top-level names share one scope (`LLMLL.md`
+> §8.5). The qualified name must be exported by its module, and the module must be imported by
+> the module that uses the name. `llmll test` does not yet evaluate a `(check ...)` body that
+> uses a qualified call; such a check reports `Skipped` (`PBT-QUAL-1`).
 
 #### `open` — pull names into local scope
 
@@ -1044,20 +1029,18 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 ```
 
 > [!WARNING]
-> **Open shadowing.** If two `(open ...)` declarations export the same name, the second wins (last wins, LISP-style). The compiler emits a `WARNING` diagnostic. Use prefixed access when two modules share a function name.
+> **One name, one module, per build.** Two modules in one build cannot declare the same top-level name, opened or not, exported or not: `check` reports `duplicate top-level definition` with kind `duplicate-definition` and names both modules. Prefixed access does not avoid this, because every module lands in one `Lib.hs`. Rename one of the two declarations. Opening the same module twice is fine.
 
 > [!WARNING]
-> **`open` ordering, and why `typecheck` will not catch it.** `import` and `export` are collected
-> regardless of position (above), but `(open ...)` is **not**: the type-checker walks statements in
-> order, so an `open` injects a module's bare names only into the scope of the statements that
-> **follow** it. An `open` placed after a `def` that calls one of those bare names leaves the call
-> unresolved.
+> **`open` ordering.** `import` and `export` are collected regardless of position (above), but
+> `(open ...)` is **not**: the type-checker walks statements in order, so an `open` injects a
+> module's bare names only into the scope of the statements that **follow** it. An `open` placed
+> after a `def` that calls one of those bare names leaves the call unresolved.
 >
-> Where that surfaces is the trap (verified against v0.14.67): `llmll typecheck` **exits 0** and
-> reports only `warning: call to unknown function 'f'`, while `llmll verify` and `llmll build` both
-> **exit 1** with `error: call to unknown function 'f'`. A green typecheck is not evidence the
-> ordering is right. Put `open` declarations before any `def` or `def-shell` that relies on the bare
-> names they bring into scope.
+> Every gate now reports it the same way: `llmll typecheck`, `llmll verify` and `llmll build` all
+> **exit 1** with `error: 'inc' is used before (open mylib); move the open above its first use`.
+> (Before XMOD-SCOPE, `typecheck` exited 0 with only a warning.) Put `open` declarations before any
+> `def` or `def-shell` that relies on the bare names they bring into scope.
 >
 > ```lisp
 > ;; CORRECT: open before the def that uses its bare names
@@ -1066,7 +1049,7 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 >   (open mylib)
 >   (def-shell use-it [n: int] -> int (inc n)))
 >
-> ;; WRONG: 'inc' is unresolved in use-it; typecheck still passes, verify and build fail
+> ;; WRONG: 'inc' is unresolved in use-it; typecheck, verify and build all fail
 > (module bad
 >   (import mylib)
 >   (def-shell use-it [n: int] -> int (inc n))

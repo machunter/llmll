@@ -128,10 +128,12 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `letrec-default-rejected.llmll` | `letrec` rejected under the default grammar | genuine restriction |
 | `stale-import-syntax-rejected.llmll` | bare `(import wasi.io stdout)` is rejected | genuine restriction |
 | `checkout-requires-astjson.llmll` | `checkout` rejects a `.llmll` source (needs `.ast.json`) | genuine restriction (`@cmd`) |
-| `open-after-def-typecheck.llmll` | `(open …)` after a def that uses its bare names: `typecheck` exits **0** with only a warning | genuine restriction (`@cmd`, multi-module) |
-| `open-after-def-verify.llmll` | the same program: `verify` exits **1** with `error:` | genuine restriction (`@cmd`, multi-module) |
+| `open-after-def-typecheck.llmll` | `(open …)` after a def that uses its bare names: `typecheck` exits **1** with `is used before (open …)` (XMOD-SCOPE R4; was exit 0 with a warning) | genuine restriction (`@cmd`, multi-module) |
+| `open-after-def-verify.llmll` | the same program: `verify` exits **1** with the same text | genuine restriction (`@cmd`, multi-module) |
 | `open-aux-lib.llmll` | support module for the two above; its own claim is that it checks clean | positive behaviour |
 | `duplicate-def-rejected.llmll` | two `(def f …)` in one module: `check` rejects with kind `duplicate-definition` (DUP-DEF-1; was GHC-only at `build`) | genuine restriction; first `@norm:` fixture (NC-011) |
+| `duplicate-def-xmod-rejected.llmll` | two imported modules that each declare `Phase`, nothing opened: `check` rejects with kind `duplicate-definition` naming both (XMOD-SCOPE R1; was GHC-only at `build`) | genuine restriction (multi-module); second NC-011 fixture |
+| `duplicate-def-xmod-aux-a.llmll`, `duplicate-def-xmod-aux-b.llmll` | support modules for the above; each checks clean alone | positive behaviour |
 | `assume-guarantee-obligation.llmll` | `verify` lists `call-pre obligations: f` for a caller of a contracted callee (NC-005, NC-026) | positive behaviour (`@cmd: verify`) |
 | `chain-body-faithful.llmll` | both members of a call chain are `body-faithful` and the module is SAFE (NC-027) | positive behaviour (`@cmd: verify`) |
 | `mutual-recursion-partial.llmll` | a two-member cycle without `(decreases …)` verifies body-faithful at partial correctness (NC-007, NC-028) | positive behaviour (`@cmd: verify`) |
@@ -148,12 +150,13 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `import-non-transitive-callee.llmll` | support module for the above; declares `wasi.io` itself and checks clean | positive behaviour |
 | `hole-abort-at-run.llmll` | a built program whose first step reaches a hole aborts with `hole: hp-impl` (NC-035, `emitHole`) | run-time behaviour (`@run: 3`) |
 
-The `open-after-def-*` pair is one claim needing two fixtures. The documented behaviour is that
-`typecheck` and `verify` **disagree** on the same program, so neither command alone can guard it:
-a single `typecheck` fixture would pass just as happily if `verify` also accepted the program, and
-a single `verify` fixture would pass if `typecheck` also refused it. Guarding "green typecheck is
-not evidence" needs both arms. `build` behaves identically to `verify` (exit 1, same message) and
-is unguarded because it would pull GHC into the fast path for no additional discrimination.
+The `open-after-def-*` pair is one claim needing two fixtures. Until XMOD-SCOPE the documented
+behaviour was that `typecheck` and `verify` **disagreed** on the same program (a warning against an
+error), so neither command alone could guard it. XMOD-SCOPE rule R4 made the condition an error at
+every gate, and the pair now guards that the two commands **agree**: a single fixture would pass
+just as happily if the other command drifted back to a warning. `build` behaves identically to
+`verify` (exit 1, same message) and is unguarded because it would pull GHC into the fast path for
+no additional discrimination.
 
 *fixed-stale* fixtures lock in a corrected claim (alert on regression); *genuine
 restriction* fixtures are forward drift-catchers (alert the day the restriction is

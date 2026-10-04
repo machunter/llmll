@@ -1,7 +1,7 @@
 ;; @doc: getting-started.md §4.8 (gotchas table) + §4.9 (`open` ordering WARNING block)
 ;; @cmd: verify {file}
-;; @expect: check-error:call to unknown function
-;; @claim: the same open-after-def program that `typecheck` accepts with a warning is REFUSED by `llmll verify`, which exits 1 with `error: call to unknown function`. `llmll build` behaves identically (exit 1, same message); verify is the guarded arm because it needs no GHC toolchain in CI. The pair with open-after-def-typecheck.llmll is what makes the doc's claim falsifiable: neither command alone distinguishes "warns" from "refuses".
+;; @expect: check-error:is used before (open open-aux-lib)
+;; @claim: the same open-after-def program is REFUSED by `llmll verify`, which exits 1 with `error: 'inc' is used before (open open-aux-lib); move the open above its first use`. `llmll build` behaves identically; verify is the guarded arm because it needs no GHC toolchain in CI. With open-after-def-typecheck.llmll, the pair guards that typecheck and verify AGREE on this program; before XMOD-SCOPE they disagreed (typecheck warned, verify refused).
 (module open-after-def-verify
   (import open-aux-lib)
   (def-shell use-it [n: int] -> int (inc n))

@@ -99,7 +99,8 @@
       "text": "Re-binding the same name in the same scope is a compile error.",
       "disposition": "fixture",
       "target": [
-        "scripts/doc-claims/duplicate-def-rejected.llmll"
+        "scripts/doc-claims/duplicate-def-rejected.llmll",
+        "scripts/doc-claims/duplicate-def-xmod-rejected.llmll"
       ]
     },
     {
