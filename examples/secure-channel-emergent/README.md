@@ -49,11 +49,15 @@ No worked examples, no hints, no steering, no conversation history. On a rejecti
 compiler/harness error text — the same feedback loop any engineer gets. Every prompt,
 reply, request, and verdict is logged under `audit/` for independent inspection.
 
-**Per-fill acceptance bar:** verify `SAFE`, the filled function lands in the
-`body-faithful` set, **and** it is not flagged `termination_unverified`. Plain `SAFE` is not
-enough, and neither is body-faithful alone — a degenerate self-call is *both* SAFE and
-body-faithful (see F-1 below); the `termination_unverified` marker (v0.14.23) is what the bar
-actually rejects on.
+**Per-fill acceptance bar, as run (July 2026):** verify `SAFE` **and** the filled function
+lands in the `body-faithful` set. That bar is not enough on its own: a degenerate self-call
+is *both* SAFE and body-faithful (see F-1 below). The marker that catches it,
+`termination_unverified` (v0.14.23), shipped the day after this build ran, and the July
+runner never checked it. **The outcome does not depend on it:** re-verified on v0.28.0, all
+seven `work/` modules print `✅`, so no accepted function's proof assumes that a recursion
+terminates. Since 2026-10-04, [`audit/runner.py`](audit/runner.py) also rejects a fill whose
+proof does (`termination_assumed_fns` in the `--json` verdict), so a re-run applies the full
+bar: SAFE ∧ body-faithful ∧ not proved only if it terminates.
 
 ## How it was built (`audit/runner.py`)
 
