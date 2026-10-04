@@ -1,0 +1,2 @@
+;; XMOD-SCOPE fixture (proposal t17): declares a builtin's name.
+(def abs [n: int] -> int n)

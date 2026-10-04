@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t4 / E6: constructor Ran under A and B in two modules.
+(import ca) (open ca)
+(import cb) (open cb)
+(def-shell go [n: int] -> int (take-b (Ran n)))

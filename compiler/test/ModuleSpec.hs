@@ -8,7 +8,7 @@
 --   M-02: import without open fails strict typecheck
 --   M-03: export filtering at typecheck (unexported names not injected by open)
 --   M-04: selective open (open with name list)
---   M-05: open collision warning (duplicate bare names)
+--   M-05: open collision (duplicate bare names) is an R1 error (XMOD-SCOPE)
 --   M-06: cycle detection with correct visit-order path
 --   M-07: checkInterfaceMismatch unit test
 module ModuleSpec (moduleSpec) where
@@ -29,7 +29,14 @@ import LLMLL.TypeCheck
 import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
-import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch)
+import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch, isBuiltinImport)
+-- XMOD-SCOPE: build-closure name scope
+import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers)
+import LLMLL.CodegenHs (generateHaskellMulti, cgHsSource)
+import LLMLL.TypeCheck (typeCheckWithCache)
+import LLMLL.Diagnostic (Diagnostic, DiagnosticReport)
+import qualified Data.Text.IO as TIO
+import Control.Monad (foldM)
 import LLMLL.PBT
   ( runPropertyTests, assembleTestStatements
   , PBTResult(..), PBTRun(..), PBTStatus(..)
@@ -102,6 +109,52 @@ modE_env = mkEnv ["modE"] modE_stmts
 -- | Build a ModuleCache from a list of ModuleEnvs.
 mkCache :: [ModuleEnv] -> ModuleCache
 mkCache envs = Map.fromList [(mePath e, e) | e <- envs]
+
+-- ---------------------------------------------------------------------------
+-- XMOD-SCOPE helpers (docs/design/xmod-scope-implementation-plan.md)
+-- ---------------------------------------------------------------------------
+
+xsRoot :: FilePath
+xsRoot = "test/fixtures/xmod-scope"
+
+xsParse :: String -> IO [Statement]
+xsParse name = do
+  src <- TIO.readFile (xsRoot ++ "/" ++ name ++ ".llmll")
+  case parseTopLevel GrammarCoreInversion (name ++ ".llmll") src of
+    Left err -> error (show err)
+    Right ss -> pure ss
+
+-- | The construction 'Main.loadStatementsMulti' performs: load each import
+-- through 'loadModule', then apply the R2 rewrite to the entry statements.
+xsLoad :: String -> IO (Either [Diagnostic] ([Statement], ModuleCache))
+xsLoad name = do
+  stmts <- xsParse name
+  let paths = [ T.splitOn "." (importPath i) | SImport i <- stmts ]
+      step (Left e) _ = pure (Left e)
+      step (Right c) p
+        | isBuiltinImport p = pure (Right c)
+        | otherwise = do
+            r <- loadModule GrammarCoreInversion False xsRoot [] c [] p
+            pure (fmap (\(c', _, _) -> c') r)
+  r <- foldM step (Right Map.empty) paths
+  pure (fmap (\c -> (resolveQualifiedTypes stmts (closureOf stmts c), c)) r)
+
+-- | `check` (plain) or `check --strict` / `build` (strict) on a fixture entry.
+xsCheck :: Bool -> String -> IO DiagnosticReport
+xsCheck strict name = do
+  r <- xsLoad name
+  case r of
+    Left ds -> error ("load failed: " ++ show (map diagMessage ds))
+    Right (ss, c) -> pure $
+      if strict then typeCheckStrictWithCache GrammarCoreInversion c emptyEnv ss
+                else typeCheckWithCache GrammarCoreInversion c emptyEnv ss
+
+xsErrs, xsWarns :: DiagnosticReport -> [Diagnostic]
+xsErrs  r = [ d | d <- reportDiagnostics r, diagSeverity d == SevError ]
+xsWarns r = [ d | d <- reportDiagnostics r, diagSeverity d == SevWarning ]
+
+xsKind :: T.Text -> DiagnosticReport -> [T.Text]
+xsKind k r = [ diagMessage d | d <- xsErrs r, diagKind d == Just k ]
 
 -- ---------------------------------------------------------------------------
 -- Test suite
@@ -190,28 +243,31 @@ moduleSpec = describe "Module System" $ do
       reportSuccess report_fail `shouldBe` False
 
   -- -----------------------------------------------------------------------
-  -- M-05: open collision warning
+  -- M-05: open collision (an R1 error since XMOD-SCOPE)
   -- -----------------------------------------------------------------------
-  describe "M-05: open collision warning" $ do
-    it "two opens with overlapping name 'f' emit a shadow warning" $ do
-      -- Both modA and modE export "f". Opening both should shadow.
+  describe "M-05: open collision error" $ do
+    -- XMOD-SCOPE: was an open-shadow-warning; R1 makes it a duplicate-definition error (docs/design/xmod-scope-implementation-plan.md, Changed expectations).
+    it "two imports declaring 'f' are an R1 duplicate-definition error naming both modules" $ do
+      -- Both modA and modE declare "f". One build closure, one scope.
       let entryStmts =
             [ SImport (Import "modA" Nothing Nothing)
             , SImport (Import "modE" Nothing Nothing)
-            , SOpen ["modA"] Nothing  -- injects f, g
-            , SOpen ["modE"] Nothing  -- injects f again -> shadow
+            , SOpen ["modA"] Nothing
+            , SOpen ["modE"] Nothing
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "f" [EVar "x"])
             ]
           cache = mkCache [modA_env, modE_env]
           report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts
-      -- Should have at least one warning with "open-shadow-warning" in the message.
-      -- NOTE: tcWarn in TypeCheck.hs:609 leaves diagKind as Nothing,
-      -- so we assert only on severity + message text.
-      let shadowWarns = filter
-            (\d -> diagSeverity d == SevWarning
-                && T.isInfixOf "open-shadow-warning" (diagMessage d))
+          dupErrs = filter
+            (\d -> diagSeverity d == SevError
+                && diagKind d == Just "duplicate-definition"
+                && T.isInfixOf "'f'" (diagMessage d)
+                && T.isInfixOf "modA" (diagMessage d)
+                && T.isInfixOf "modE" (diagMessage d))
             (reportDiagnostics report)
-      length shadowWarns `shouldSatisfy` (>= 1)
+      reportSuccess report `shouldBe` False
+      length dupErrs `shouldBe` 1
+      any (T.isInfixOf "open-shadow-warning" . diagMessage) (reportDiagnostics report) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- M-06: cycle detection with correct visit-order path
@@ -409,6 +465,185 @@ moduleSpec = describe "Module System" $ do
               pbtPassed pbtResult  `shouldBe` 1
               pbtSkipped pbtResult `shouldBe` 0
               pbtFailed pbtResult  `shouldBe` 0
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-SCOPE: a build's top-level names share one scope (R1 to R4).
+  -- docs/design/xmod-name-scope-proposal.md Rev 1 (cases t1 to t19, E1 to
+  -- E13) and docs/design/xmod-scope-implementation-plan.md (Test plan).
+  -- Files: test/fixtures/xmod-scope/
+  -- -----------------------------------------------------------------------
+  describe "XMOD-SCOPE" $ do
+    describe "R1: one declaration per top-level name in a build closure" $ do
+      it "E1 (t13, positive witness): two imports declaring Phase, nothing opened or used, is one duplicate-definition error naming modp1 and modp2" $ do
+        r <- xsCheck False "t13"
+        xsKind "duplicate-definition" r `shouldBe`
+          [ "duplicate top-level definition 'Phase': type declared in modp1 and in modp2; a build's top-level names share one scope (LLMLL.md \167\&1, \167\&8.5)" ]
+      it "E2 (t1, full open): an error in plain check and in strict" $ do
+        rp <- xsCheck False "t1"
+        rs <- xsCheck True "t1"
+        map (any (T.isInfixOf "'Phase'") . xsKind "duplicate-definition") [rp, rs] `shouldBe` [True, True]
+      it "E2 (t10, selective open, no Phase in the bare scope): an error in plain check and in strict" $ do
+        rp <- xsCheck False "t10"
+        rs <- xsCheck True "t10"
+        map (any (T.isInfixOf "'Phase'") . xsKind "duplicate-definition") [rp, rs] `shouldBe` [True, True]
+      it "E3 (t12): a local h and a library's unexported h is an error" $ do
+        r <- xsCheck False "t12"
+        xsKind "duplicate-definition" r `shouldSatisfy`
+          any (T.isInfixOf "'h': function declared in this module and in priv;")
+      it "E4 (t11): the collision reached through wrap is an error whose text names wrap" $ do
+        r <- xsCheck False "t11"
+        xsKind "duplicate-definition" r `shouldBe`
+          [ "duplicate top-level definition 'f': function declared in this module and in fa (fa reached through wrap); a build's top-level names share one scope (LLMLL.md \167\&1, \167\&8.5)" ]
+      it "E5 (t18): the same module imported and opened twice gives no diagnostic at all" $ do
+        r <- xsCheck False "t18"
+        reportDiagnostics r `shouldBe` []
+      it "E6 (t4): constructor Ran under A and B in two modules is a value-namespace error" $ do
+        r <- xsCheck False "t4"
+        xsKind "duplicate-definition" r `shouldSatisfy`
+          any (T.isInfixOf "'Ran': constructor declared in ca and in cb;")
+      it "E7: type Box and constructor Box from one module give no diagnostic" $ do
+        r <- xsCheck False "e7"
+        reportDiagnostics r `shouldBe` []
+      it "t2: two opened modules declaring f is an error" $ do
+        r <- xsCheck False "t2"
+        xsKind "duplicate-definition" r `shouldSatisfy` any (T.isInfixOf "'f': function declared in fa and in fb;")
+      it "t3: an opened module and this module declaring f is an error" $ do
+        r <- xsCheck False "t3"
+        xsKind "duplicate-definition" r `shouldSatisfy` any (T.isInfixOf "'f': function declared in this module and in fa;")
+      it "a dependency whose own closure collides fails its own load, with the error attributed to it" $ do
+        rd <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["dep"]
+        case rd of
+          Right _ -> expectationFailure "dep loaded; expected its R1 error"
+          Left ds -> map diagMessage ds `shouldSatisfy`
+            any (\m -> "'f': function declared in fa and in fb;" `T.isInfixOf` m
+                       && not ("reached through" `T.isInfixOf` m))
+        ru <- xsLoad "usedep"
+        either (const True) (const False) ru `shouldBe` True
+      it "two siblings that do not import each other each load alone; only the entry that joins them fails" $ do
+        ra <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["fa"]
+        rb <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["fb"]
+        map (either (const False) (const True)) [ra, rb] `shouldBe` [True, True]
+        r <- xsCheck False "siblings"
+        xsKind "duplicate-definition" r `shouldSatisfy` any (T.isInfixOf "'f': function declared in fa and in fb;")
+    describe "R2: a type's identity is its declaring module plus its name" $ do
+      it "E8 (t14): lib.Ctl against the opened constructor Ran is accepted (strict)" $ do
+        r <- xsCheck True "t14"
+        map diagMessage (xsErrs r) `shouldBe` []
+      it "E8 (t15): a lib.Ctl parameter returned as Ctl is accepted (strict)" $ do
+        r <- xsCheck True "t15"
+        map diagMessage (xsErrs r) `shouldBe` []
+      it "E9 (t8): int where Phase is expected is still rejected" $ do
+        r <- xsCheck False "t8"
+        map diagMessage (xsErrs r) `shouldSatisfy` any (T.isInfixOf "type mismatch in 'take-p2'")
+      it "TYPE-SHADOW-1 type identity: a value of sum TA where sum TB is annotated is rejected" $ do
+        r <- xsCheck False "ident"
+        map diagMessage (xsErrs r) `shouldSatisfy` any (T.isInfixOf "type mismatch in 'take-tb'")
+      it "an unknown qualified type lib.Ctlx is an error" $ do
+        r <- xsCheck False "qtype_unknown"
+        xsKind "name-not-in-scope" r `shouldBe` ["type 'lib.Ctlx' is not declared in lib"]
+      it "a qualified type from a module in the closure that is not a direct import is an error with add (import lib)" $ do
+        r <- xsCheck False "qtype_indirect"
+        xsKind "name-not-in-scope" r `shouldBe`
+          ["type 'lib.Ctl' is declared in lib, which is not imported here; add (import lib)"]
+      it "after the load-time rewrite, a dependency's TCustom names agree with the alias-map keys" $ do
+        rl <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["usesq"]
+        case rl of
+          Left ds -> expectationFailure ("usesq failed to load: " ++ show (map diagMessage ds))
+          Right (cache, _, env) -> do
+            Map.lookup "Holder" (meAliasMap env) `shouldBe` Just (TSumType [("Hold", Just (TCustom "Ctl"))])
+            [ ps | SDef "k" ps _ _ _ <- meStatements env ] `shouldBe` [[("c", TCustom "Ctl")]]
+            fmap (Map.member "Ctl" . meAliasMap) (Map.lookup ["lib"] cache) `shouldBe` Just True
+    describe "R3: a qualified value resolves for a direct import" $ do
+      it "t5 (E10): lib.Ran under the annotation lib.Ctl is accepted (strict)" $ do
+        r <- xsCheck True "t5"
+        map diagMessage (xsErrs r) `shouldBe` []
+      it "t6 (E10): lib.f without open is accepted with no S4 warning" $ do
+        r <- xsCheck False "t6"
+        reportDiagnostics r `shouldBe` []
+      it "an unexported priv.h is an error, and only that one" $ do
+        r <- xsCheck False "qpriv"
+        map diagMessage (reportDiagnostics r) `shouldBe` ["'h' is declared in priv and is not exported"]
+        xsKind "name-not-in-scope" r `shouldBe` ["'h' is declared in priv and is not exported"]
+      it "fa.f where fa is in the closure (through wrap) and is not imported here is an error" $ do
+        r <- xsCheck False "qsib"
+        xsKind "name-not-in-scope" r `shouldBe` ["fa is not imported here; add (import fa)"]
+      it "wasi.http.get gets no new diagnostic (regression)" $ do
+        r <- xsCheck False "wasiget"
+        reportDiagnostics r `shouldBe` []
+      it "stripModuleQualifiers: longest prefix, wasi untouched, PConstructor and a name in a lambda body rewritten" $ do
+        let paths = Set.fromList [["lib"], ["lib", "sub"]]
+            body  = EMatch (EVar "lib.Ran")
+                      [ (PConstructor "lib.Ran" [], EApp "lib.sub.g" [EVar "x"])
+                      , (PWildcard, EApp "wasi.io.stdout" [ELambda [("y", TInt)] (EApp "lib.f" [EVar "y"])]) ]
+            stmt  = SDefShell "k" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] []) body []
+        stripModuleQualifiers paths [stmt] `shouldBe`
+          [ SDefShell "k" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+              (EMatch (EVar "Ran")
+                 [ (PConstructor "Ran" [], EApp "g" [EVar "x"])
+                 , (PWildcard, EApp "wasi.io.stdout" [ELambda [("y", TInt)] (EApp "f" [EVar "y"])]) ])
+              [] ]
+      it "codegen (r3main): Lib.hs carries the bare names, never lib_f, lib_Ran or lib_Ctl" $ do
+        Right (ss, c) <- xsLoad "r3main"
+        r <- xsCheck True "r3main"
+        map diagMessage (xsErrs r) `shouldBe` []
+        let hs = cgHsSource (generateHaskellMulti "r3main" (Map.elems c) ss)
+        map (`T.isInfixOf` hs) ["lib_f", "lib_Ran", "lib_Ctl"] `shouldBe` [False, False, False]
+        T.isInfixOf "f n" hs `shouldBe` True
+      it "codegen (xmod-ag/use_double_qual): Lib.hs calls double, not lib_double" $ do
+        let root = "test/fixtures/xmod-ag"
+        src <- TIO.readFile (root ++ "/use_double_qual.llmll")
+        ss <- either (fail . show) pure (parseTopLevel GrammarCoreInversion "use_double_qual.llmll" src)
+        rl <- loadModule GrammarCoreInversion False root [] Map.empty [] ["lib"]
+        case rl of
+          Left ds -> expectationFailure (show (map diagMessage ds))
+          Right (c, _, _) -> do
+            let hs = cgHsSource (generateHaskellMulti "use_double_qual" (Map.elems c) ss)
+            T.isInfixOf "lib_double" hs `shouldBe` False
+            T.isInfixOf "double x" hs `shouldBe` True
+    describe "R4: an imported name that is not in scope" $ do
+      it "E11 (t7): Ran without open is an error in plain check and in strict, with the add (open lib) text" $ do
+        rp <- xsCheck False "t7"
+        rs <- xsCheck True "t7"
+        map (xsKind "name-not-in-scope") [rp, rs] `shouldBe`
+          replicate 2 ["'Ran' is declared in lib; add (open lib) or write lib.Ran"]
+      it "an unexported bare h is an error that says it is not exported (it stays unusable)" $ do
+        r <- xsCheck False "rpriv"
+        xsKind "name-not-in-scope" r `shouldBe` ["'h' is declared in priv and is not exported"]
+        reportSuccess r `shouldBe` False
+      it "Amendment 1: a name used before its (open lib) says to move the open" $ do
+        r <- xsCheck False "openlate"
+        xsKind "name-not-in-scope" r `shouldBe`
+          ["'f' is used before (open lib); move the open above its first use"]
+      it "Amendment 1 regression: with no later open the original R4 text stays" $ do
+        r <- xsCheck False "t7"
+        xsKind "name-not-in-scope" r `shouldBe`
+          ["'Ran' is declared in lib; add (open lib) or write lib.Ran"]
+      it "a name no closure module declares keeps the plain-check warning (regression)" $ do
+        r <- xsCheck False "nowhere"
+        map diagMessage (xsErrs r) `shouldBe` []
+        map diagMessage (xsWarns r) `shouldBe` ["call to unknown function 'nowhere'"]
+    describe "E12: a constructor declared twice in one module" $ do
+      it "t19 is a duplicate-definition error in plain check (it was a warning) and in strict" $ do
+        rp <- xsCheck False "t19"
+        rs <- xsCheck True "t19"
+        map (any (T.isInfixOf "duplicate constructor name 'Ran'") . xsKind "duplicate-definition") [rp, rs]
+          `shouldBe` [True, True]
+    describe "SOpen" $ do
+      it "t18: no shadow warning for the same module opened twice" $ do
+        r <- xsCheck False "t18"
+        xsWarns r `shouldBe` []
+      it "t17: opening bi, which declares abs, gives one builtin-shadow warning and no open-shadow-warning" $ do
+        r <- xsCheck False "t17"
+        map diagMessage (xsWarns r) `shouldBe` ["'abs' from bi shadows a builtin"]
+      it "lib and lib.sub both cached, open lib: no key from lib.sub is injected as a bare name" $ do
+        Right (ss, c) <- xsLoad "subopen"
+        let sk = runSketch GrammarCoreInversion (seedCacheEnv builtinEnv c) ss defaultPatterns
+        case sketchHoles sk of
+          (h : _) -> do
+            Map.member "sub.subonly" (shEnv h) `shouldBe` False
+            Map.member "subonly" (shEnv h) `shouldBe` False
+            Map.member "f" (shEnv h) `shouldBe` True
+          [] -> expectationFailure "subopen has a hole; the sketch found none"
 
   -- -----------------------------------------------------------------------
   -- XMOD-ALIAS: cross-module refinement-alias resolution (on-disk, end-to-end).

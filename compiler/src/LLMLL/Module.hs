@@ -40,6 +40,7 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, em
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
 import LLMLL.VerifiedCache (loadVerified, loadBuiltinAxioms)
+import LLMLL.BuildScope (closureOf, resolveQualifiedTypes)
 
 -- ---------------------------------------------------------------------------
 -- Module path utilities
@@ -169,14 +170,20 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
   mStmts <- parseFile gm fp
   case mStmts of
     Left diag -> pure $ Left [diag]
-    Right stmts -> do
-      let imports  = [imp | SImport imp <- stmts]
+    Right stmts0 -> do
+      let imports  = [imp | SImport imp <- stmts0]
           newStack = modPath : visitedStack
       result <- foldM (loadOneImport gm srcRoot extraRoots newStack) (Right (cache0, [])) imports
       case result of
         Left diags -> pure $ Left diags
         Right (cache1, depOrder) -> do
-          let importedEnvs = mapMaybe
+          let -- XMOD-SCOPE R2: a qualified type name ('lib.Ctl') becomes the
+              -- bare name its declaring module uses, once, here. After this
+              -- point the checker, the verifier, codegen and the evidence key
+              -- all see one spelling. No tracked program held a qualified type
+              -- before this rewrite, so no sidecar key moves.
+              stmts = resolveQualifiedTypes stmts0 (closureOf stmts0 cache1)
+              importedEnvs = mapMaybe
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
               -- XMOD-ALIAS: type-check this module through the cache-aware path so

@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (proposal §2.1).
+(type Ctl (| Ran) (| Stop))
+(def f [n: int] -> int n)

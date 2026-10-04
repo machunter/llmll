@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t14 / E8: lib.Ctl against the opened constructor.
+(import lib) (open lib)
+(def-shell mkq [] -> lib.Ctl Ran)

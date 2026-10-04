@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (TYPE-SHADOW-1 type identity): a different sum TB.
+(type TB (| MkB int))
+(def take-tb [b: TB] -> int 3)

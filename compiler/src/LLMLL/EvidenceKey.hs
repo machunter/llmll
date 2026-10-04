@@ -44,6 +44,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import LLMLL.BuildScope (closureOf)
 import LLMLL.FixpointEmit (KeyEnv(..), augmentContractPost, augmentContractPre, buildKeyEnv)
 import LLMLL.PBT (canonicalDefEvidenceHashWith, canonicalExpr)
 import LLMLL.Syntax
@@ -71,16 +72,10 @@ moduleKeyEnv cache m =
 
 -- | The part of a cache a module's statements reach through their imports,
 -- transitively. Imports with no cached module (the @wasi.*@ namespaces) drop out.
+-- XMOD-SCOPE: the walk moved to 'LLMLL.BuildScope.closureOf', which R1 also
+-- uses; this name stays so its callers do not change.
 restrictCache :: [Statement] -> ModuleCache -> ModuleCache
-restrictCache stmts cache = go Set.empty (importsOf stmts)
-  where
-    importsOf ss = [ T.splitOn "." (importPath i) | SImport i <- ss ]
-    go seen [] = Map.restrictKeys cache seen
-    go seen (p : ps)
-      | p `Set.member` seen = go seen ps
-      | otherwise = case Map.lookup p cache of
-          Nothing -> go seen ps
-          Just m  -> go (Set.insert p seen) (ps ++ importsOf (meStatements m))
+restrictCache = closureOf
 
 -- | 'evidenceKey' for every definition of a module.
 evidenceKeys :: KeyEnv -> Bool -> [Statement] -> Map Name Text

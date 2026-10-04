@@ -89,6 +89,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
+import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
 -- ---------------------------------------------------------------------------
@@ -630,6 +631,18 @@ data TCState = TCState
   -- it reaches, qualified), else 'Nothing'. Filled only by the cache-aware
   -- entry point; empty elsewhere, which checks nothing extra.
   , tcFnResolve      :: Map Name (Maybe Name)
+  -- XMOD-SCOPE: appended at the END for the reason 'tcRetTypes' gives. Both
+  -- are filled only by the cache-aware entry point; empty elsewhere, which
+  -- checks nothing extra.
+  --
+  -- 'tcClosureDecls' is every declaration of every module in this module's
+  -- build closure, exported or not, with its declaring module (R4 and the R3
+  -- export check). An unexported name is visible here for the DIAGNOSTIC and
+  -- never for resolution: resolution still reads 'tcEnv' only.
+  , tcClosureDecls   :: Map (Namespace, Name) [Decl]
+  -- 'tcDirectImports' is the modules this module's own (import ...) statements
+  -- name, restricted to the closure (R3: M.f resolves only for a direct import).
+  , tcDirectImports  :: Set.Set ModulePath
   } deriving (Show)
 
 type TC a = State TCState a
@@ -983,7 +996,8 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
           (_, st) = runState (checkStatements stmts)
                       (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
-                               Map.empty [] Map.empty seeded sccs Map.empty)
+                               Map.empty [] Map.empty seeded sccs Map.empty
+                               Map.empty Set.empty)
       in Map.mapWithKey (keep (tcRetTypes st)) m
     -- SC1 again, on the read side: a round may only replace a wildcard, and only
     -- with something that is not itself a wildcard. A freshened wildcard
@@ -1366,6 +1380,7 @@ initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
           strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty Map.empty
+          Map.empty Set.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1572,8 +1587,19 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       seededAliases = Map.union (Map.foldl seedAliases Map.empty cache) builtinAliases
       (_, st) = runState (checkStatements stmts)
         (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
-                 (fnResolveMap cache seededCS stmts))
-      diags = tcErrors st
+                 (fnResolveMap cache seededCS stmts)
+                 (closureDecls cl)
+                 (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ]))
+      -- XMOD-SCOPE R1: one declaration for each top-level name in this
+      -- module's build closure. The closure is this module's own imports,
+      -- transitively ('closureOf'), not the whole cache, so a collision inside
+      -- a dependency's closure fails that dependency's load, and a collision
+      -- between two branches fails only the module that joins them.
+      -- XMOD-SCOPE R2: a qualified type the loader could not resolve, whose
+      -- prefix is a module in the closure.
+      cl = closureOf stmts cache
+      scopeDiags = checkBuildScope stmts cl ++ unresolvedQualifiedTypes stmts cl
+      diags = scopeDiags ++ tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
       -- RET-RESOLVE: the pass runs AFTER the report is taken, and every
       -- accumulator of its own runs is discarded (SC2'). 'diags' comes from the
@@ -1684,10 +1710,11 @@ checkStatements stmts = do
   -- and every later one is shadowed silently; CodegenHs emits all of them and
   -- GHC reports "Multiple declarations"; 'emitMainHs' keeps the first def-main
   -- and drops the rest. Until this pass, only GHC enforced the sentence, at
-  -- build, and `check` said OK. The error is unconditional, unlike the
-  -- constructor pass below, because a duplicate constructor still builds and
-  -- a duplicate binding does not: a warning would leave `verify` and its
-  -- sidecar green on a program `build` rejects.
+  -- build, and `check` said OK. The error is unconditional: a warning would
+  -- leave `verify` and its sidecar green on a program `build` rejects.
+  -- XMOD-SCOPE (proposal F6): the constructor pass below is unconditional too.
+  -- An earlier comment here said a duplicate constructor still builds; it does
+  -- not (GHC reports "Multiple declarations", measured as case t19).
   checkDuplicateTopLevel stmts
   withEnv topLevel $ do
     -- Register ADT constructors as callable functions (LLMLL.md §3.3).
@@ -1695,8 +1722,10 @@ checkStatements stmts = do
     -- Phase 1: intra-module constructor name duplicates.
     let ctorNames = map fst ctorBindings
         dupes = ctorNames \\ nub ctorNames
+    -- XMOD-SCOPE E12: an error in both modes, as DUP-DEF-1 made a duplicate
+    -- binding (docs/design/xmod-scope-implementation-plan.md).
     forM_ (nub dupes) $ \dupName ->
-      tcWarnOrError $ "duplicate constructor name '" <> dupName
+      tcErrorK "duplicate-definition" $ "duplicate constructor name '" <> dupName
                       <> "' within or across type definitions; first definition wins"
     -- XMOD-CTOR-2 / RESULT-CTOR-COLLIDE: a user sum type may not declare a
     -- constructor named Success or Error.
@@ -2094,25 +2123,30 @@ checkStatement (SImport imp) = do
 -- | SOpen: inject exported names from the referenced module as bare names.
 -- Qualified names (module.path.f) must already be in the env via typeCheckWithCache.
 -- We look for any key of the form "<dotted-path>.<name>" and add bare aliases.
--- Emits open-shadow-warning when a name collision occurs.
+--
+-- XMOD-SCOPE: the prefix is matched as a module path, not as text: the rest of
+-- the key must be one name, so opening @lib@ does not pick up the keys of a
+-- module @lib.sub@. The open-shadow-warning is retired: R1 ('checkBuildScope')
+-- now rejects every real collision as an error, and the same module opened
+-- twice is not a collision (proposal F7). One warning stays: an opened name
+-- that shadows a builtin. It is the only `check` signal for that case (E13)
+-- until RESERVED-NAME-1 ships.
 checkStatement (SOpen openPath_ mNames) = do
   let prefix = T.intercalate "." openPath_ <> "."
   env <- gets tcEnv
-  let qualifying = Map.filterWithKey (\k _ -> prefix `T.isPrefixOf` k) env
+  let ownName k = case T.stripPrefix prefix k of
+        Just rest -> not (T.null rest) && not ("." `T.isInfixOf` rest)
+        Nothing   -> False
+      qualifying = Map.filterWithKey (\k _ -> ownName k) env
       -- Strip prefix to get bare name
       bareExports = Map.mapKeys (T.drop (T.length prefix)) qualifying
       -- Apply selective open filter if present
       filtered = case mNames of
         Nothing -> bareExports
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) bareExports
-  -- Detect collisions and emit warnings
   forM_ (Map.toList filtered) $ \(bareName, ty) -> do
-    mExisting <- tcLookup bareName
-    case mExisting of
-      Just _ -> tcWarn $
-        "open-shadow-warning: '" <> bareName <> "' from " <> T.intercalate "." openPath_
-        <> " shadows an existing binding"
-      Nothing -> pure ()
+    when (Map.member bareName builtinEnv) $ tcWarn $
+      "'" <> bareName <> "' from " <> T.intercalate "." openPath_ <> " shadows a builtin"
     tcInsert bareName ty
     -- v0.3.5 (Phase C): tag open-imported bindings for checkout context
     modify $ \s -> s { tcProvenance = Map.insert bareName SrcOpenImport (tcProvenance s) }
@@ -2376,16 +2410,93 @@ checkExpr (EHole hk) expected = do
   unify "<check>" expected actual
 checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected actual
 
+-- | XMOD-SCOPE R3: check a qualified value name @M.x@ against the build
+-- closure, M being the longest module-path prefix of the name that is a
+-- closure module.
+--
+--   * M is a direct import and exports x: nothing to say; 'tcEnv' holds @M.x@.
+--   * M is a direct import and declares x without exporting it: an error.
+--   * M is in the closure and is not a direct import: an error.
+--   * no closure module matches and the name is not @wasi.*@: in application
+--     position, the S4 warning, unchanged.
+--
+-- Answers True when it reported an error, so the caller does not add a second
+-- diagnostic for the same name.
+qualifiedValueCheck :: Bool -> Name -> TC Bool
+qualifiedValueCheck appPos func
+  | not ("." `T.isInfixOf` func) = pure False
+  | otherwise = do
+      decls  <- gets tcClosureDecls
+      direct <- gets tcDirectImports
+      let mods = Set.union direct (Set.fromList [ dModule d | ds <- Map.elems decls, d <- ds ])
+      case longestModulePrefix mods func of
+        Nothing -> do
+          when (appPos && not ("wasi." `T.isPrefixOf` func)) $
+            tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
+                   <> "use (open <module-path>) and call the bare exported name. "
+                   <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
+          pure False
+        Just (m, x)
+          | m `Set.member` direct ->
+              case [ d | d <- Map.findWithDefault [] (NsValue, x) decls, dModule d == m ] of
+                (d : _) | not (dExported d) -> do
+                  tcErrorK "name-not-in-scope" $
+                    "'" <> x <> "' is declared in " <> T.intercalate "." m <> " and is not exported"
+                  pure True
+                _ -> pure False
+          | otherwise -> do
+              let mt = T.intercalate "." m
+              tcErrorK "name-not-in-scope" $
+                mt <> " is not imported here; add (import " <> mt <> ")"
+              pure True
+
+-- | XMOD-SCOPE R4: a name that is not in scope. When a module in the build
+-- closure declares it, that is an error in both strictness modes, naming the
+-- module and the fix: the flat Lib.hs would bind the name, so the warning's
+-- "may be in scope at runtime" was true, and `build` rejected it by policy.
+-- A name no closure module declares keeps the given warning-or-error, which
+-- serves holes and incomplete programs.
+--
+-- Amendment 1: when this module has an (open M) that would bring x into scope
+-- (M declares and exports x; the open is unrestricted or lists x), the name is
+-- out of scope only because that open comes later. An open above the use
+-- would already have bound x. The text then says to move the open.
+unknownName :: Name -> Text -> TC ()
+unknownName x fallback = do
+  decls <- gets tcClosureDecls
+  stmts <- gets tcModuleStmts
+  let opensX d = dExported d && or
+        [ True | SOpen p mNames <- stmts, p == dModule d
+               , maybe True (x `elem`) mNames ]
+  case Map.findWithDefault [] (NsValue, x) decls of
+    ds@(d0 : _) -> case filter opensX ds of
+      (d : _) ->
+        let m = T.intercalate "." (dModule d)
+        in tcErrorK "name-not-in-scope" $
+             "'" <> x <> "' is used before (open " <> m <> "); move the open above its first use"
+      [] ->
+        let m = T.intercalate "." (dModule d0)
+        in tcErrorK "name-not-in-scope" $
+             if dExported d0
+               then "'" <> x <> "' is declared in " <> m <> "; add (open " <> m <> ") or write " <> m <> "." <> x
+               else "'" <> x <> "' is declared in " <> m <> " and is not exported"
+    [] -> tcWarnOrError fallback
+
 -- | Infer the type of an expression.
 inferExpr :: Expr -> TC Type
 inferExpr (ELit lit) = pure (inferLiteral lit)
 
 inferExpr (EVar name) = do
+  -- XMOD-SCOPE R3: a qualified value ('lib.Ran', an unexported 'priv.h') is
+  -- checked against the closure first, so an unexported name reports that and
+  -- not 'unbound variable'.
+  qHandled <- qualifiedValueCheck False name
   mTy <- tcLookup name
   case mTy of
     Just ty -> pure ty
     Nothing -> do
-      tcWarnOrError $ "unbound variable '" <> name <> "' (may be in scope at runtime)"
+      unless qHandled $
+        unknownName name $ "unbound variable '" <> name <> "' (may be in scope at runtime)"
       pure (TVar name)  -- Return type variable for unbound
 
 inferExpr (ELet bindings body) = do
@@ -2574,11 +2685,10 @@ inferExpr (EApp func args) = do
     _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func
-  -- S4: warn on dotted function names in app position (non-wasi)
-  when ("." `T.isInfixOf` func && not ("wasi." `T.isPrefixOf` func)) $
-    tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
-           <> "use (open <module-path>) and call the bare exported name. "
-           <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
+  -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module
+  -- in the closure now resolves or is an error; the S4 text stays only for a
+  -- dotted name no closure module matches (see 'qualifiedValueCheck').
+  qHandled <- qualifiedValueCheck True func
   -- BUG-3 (v0.14.3): freshen the callee's TVars for this call site so a
   -- polymorphic builtin's own placeholder names (e.g. "a"/"b" in `second`)
   -- can never collide with an unrelated leaked TVar or another call's
@@ -2614,7 +2724,8 @@ inferExpr (EApp func args) = do
     then inferArrayOp func args
     else case mFuncTy of
     Nothing -> do
-      tcWarnOrError $ "call to unknown function '" <> func <> "'"
+      unless qHandled $
+        unknownName func $ "call to unknown function '" <> func <> "'"
       pure (TVar "?")  -- wildcard: don't inject false type mismatch downstream
     Just (TFn paramTypes retType) -> do
       when (nArgs /= length paramTypes) $ do
@@ -3133,7 +3244,7 @@ inferArrayOp func args = case func of
     vt' <- valueArg 2 vt
     pure (TMap kt vt')
   _ -> do  -- unreachable by construction (arrayOpNames gate)
-    tcWarnOrError $ "call to unknown function '" <> func <> "'"
+    unknownName func $ "call to unknown function '" <> func <> "'"
     pure (TVar "?")
   where
     checkArity n =

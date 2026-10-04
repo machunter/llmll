@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t2: two opened modules declare f.
+(import fa) (open fa)
+(import fb) (open fb)
+(def-shell go [n: int] -> int (f n))

@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t8 / E9 (regression control): int where Phase is expected. Only
+;; modp2 is imported, so the type error is the one diagnostic measured.
+(import modp2) (open modp2)
+(def-shell go [n: int] -> int (take-p2 n))

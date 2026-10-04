@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t19 / E12: one module declares Ran under two types.
+(type A (| Ran int))
+(type B (| Ran int))

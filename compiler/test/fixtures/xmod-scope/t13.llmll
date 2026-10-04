@@ -1,0 +1,5 @@
+;; XMOD-SCOPE t13 / E1 (positive witness): two imports declare Phase; nothing
+;; opened, nothing used.
+(import modp1)
+(import modp2)
+(def-shell go [n: int] -> int n)

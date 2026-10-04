@@ -150,10 +150,14 @@ data PBTResult = PBTResult
 --   * Imports come first, local stmts last — 'Map.fromList' right-bias gives
 --     local-shadows-import semantics matching the type-checker.
 --
--- Qualified-name resolution (@solution.plus-one@) is intentionally out of
--- scope: per @LLMLL.md §8.5@, qualified names do not resolve at runtime
--- under the flat-codegen model; PBT honoring them would over-promise
--- relative to the rest of the runtime.
+-- Qualified-name resolution (@solution.plus-one@) is not done here. The
+-- earlier reason (LLMLL.md §8.5: qualified names do not resolve at runtime)
+-- stopped being true with XMOD-SCOPE R3: @check@ accepts @M.f@ for a direct
+-- import, and 'CodegenHs.generateHaskellMulti' emits the bare name. The real
+-- limit is this function: it forwards definitions of OPENED modules only and
+-- does not strip qualifiers, so a property that calls @M.f@ without @open@
+-- does not find @M.f@. Widening it is a follow-up row, not part of
+-- XMOD-SCOPE (docs/design/xmod-scope-implementation-plan.md, risk 4).
 assembleTestStatements :: [Statement] -> ModuleCache -> [Statement]
 assembleTestStatements localStmts cache =
   let openSpecs   = [(openPath o, openNames o) | o@SOpen{} <- localStmts]

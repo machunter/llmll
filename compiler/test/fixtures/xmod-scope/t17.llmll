@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t17 / E13: an opened module declares a builtin's name.
+(import bi) (open bi)
+(def-shell go [n: int] -> int (abs n))

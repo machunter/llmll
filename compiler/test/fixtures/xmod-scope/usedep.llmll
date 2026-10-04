@@ -1,0 +1,3 @@
+;; XMOD-SCOPE: imports a dependency whose own closure collides.
+(import dep)
+(def-shell go [n: int] -> int n)

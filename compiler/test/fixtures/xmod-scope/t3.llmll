@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t3: an opened module and this module declare f.
+(import fa) (open fa)
+(def f [n: int] -> int n)

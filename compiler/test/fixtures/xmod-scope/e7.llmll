@@ -1,0 +1,4 @@
+;; XMOD-SCOPE E7: type Box and constructor Box from one imported module are one
+;; name in each namespace, not a collision.
+(import box) (open box)
+(def-shell k [b: Box] -> int 1)

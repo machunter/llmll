@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture (TYPE-SHADOW-1 type identity): sum TA.
+(type TA (| MkA int))
+(def mk-a [n: int] -> TA (MkA n))

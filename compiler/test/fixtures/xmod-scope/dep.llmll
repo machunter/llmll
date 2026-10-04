@@ -1,0 +1,5 @@
+;; XMOD-SCOPE fixture: a dependency whose own closure collides (fa and fb both
+;; declare f). Its own load fails.
+(import fa)
+(import fb)
+(def d [n: int] -> int n)

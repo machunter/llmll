@@ -1,0 +1,4 @@
+;; XMOD-SCOPE Amendment 1: f is used before the (open lib) that would bind it.
+(import lib)
+(def-shell g [n: int] -> int (f n))
+(open lib)

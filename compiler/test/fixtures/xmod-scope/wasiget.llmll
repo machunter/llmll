@@ -1,0 +1,4 @@
+;; XMOD-SCOPE R3 regression: a wasi.* call gets no new diagnostic.
+(import wasi.http (capability get "https://example.com/"))
+(import lib)
+(def-shell fetch [u: string] -> Command (wasi.http.get "https://example.com/" "out.txt"))

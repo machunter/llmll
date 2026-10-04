@@ -1,0 +1,4 @@
+;; XMOD-SCOPE R2: a qualified type from a module in the closure (through wrap2)
+;; that is not imported here.
+(import wrap2)
+(def-shell k [c: lib.Ctl] -> int 1)

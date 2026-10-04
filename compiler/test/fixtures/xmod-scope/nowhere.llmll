@@ -1,0 +1,3 @@
+;; XMOD-SCOPE R4 regression: a name no module declares keeps the check warning.
+(import lib)
+(def-shell g [n: int] -> int (nowhere n))

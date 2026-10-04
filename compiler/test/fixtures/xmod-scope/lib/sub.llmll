@@ -1,0 +1,3 @@
+;; XMOD-SCOPE fixture: module lib.sub, beside module lib. Opening lib must not
+;; inject this module's names.
+(def subonly [n: int] -> int n)

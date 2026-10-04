@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t7 / E11: an imported constructor without open.
+(import lib)
+(def-shell mkr [] -> lib.Ctl Ran)

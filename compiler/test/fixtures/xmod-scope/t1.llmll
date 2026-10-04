@@ -1,0 +1,4 @@
+;; XMOD-SCOPE t1 / E2: the TYPE-SHADOW-1 witness, full open.
+(import modp1) (open modp1)
+(import modp2) (open modp2)
+(def-shell go [n: int] -> int (take-p2 (mk-p1 n)))

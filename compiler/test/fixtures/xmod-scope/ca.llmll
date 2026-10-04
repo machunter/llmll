@@ -1,0 +1,2 @@
+;; XMOD-SCOPE fixture (proposal §2.1): constructor Ran under type A.
+(type A (| Ran int))

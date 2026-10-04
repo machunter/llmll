@@ -20047,13 +20047,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "RF-E7 exporting a helper that reaches neither the tag nor a requesting def passes" $ do
         src <- fixture "export-ok"
         respErrs src `shouldBe` []
-      it "RF-E8 cell E: with (export) in amain, an importer that opens it cannot name a-step (the §16 item 5 asymmetry keeps it a warning at check)" $ do
+      -- XMOD-SCOPE: R4 makes this an error at check, with a new text (docs/design/xmod-scope-implementation-plan.md, Changed expectations).
+      it "RF-E8 cell E: with (export) in amain, an importer that opens it cannot name a-step" $ do
         aSrc <- fixture "wrap-machine/amain"
         bSrc <- fixture "wrap-machine/bmain"
         respErrs aSrc `shouldBe` []
         let cache = Map.fromList [(["amain"], buildModuleEnv ["amain"] (parseSrc aSrc) Map.empty emptyEnv)]
             report = typeCheckWithCache GrammarCoreInversion cache builtinEnv (parseSrc bSrc)
-        map diagMessage (reportDiagnostics report) `shouldSatisfy` any (T.isInfixOf "unknown function 'a-step'")
+        [ diagMessage d | d <- reportDiagnostics report, diagSeverity d == SevError ]
+          `shouldSatisfy` elem "'a-step' is declared in amain and is not exported"
 
     describe "the emitter: arm-binder refinement, ctor lowering, closed folds, premises" $ do
       it "RF-M1 the witness's RCode arm binder carries v >= 100 and ran-step is body-faithful" $ do

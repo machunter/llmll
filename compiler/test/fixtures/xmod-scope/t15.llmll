@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t15 / E8: a lib.Ctl parameter returned as Ctl.
+(import lib) (open lib)
+(def-shell mkq [c: lib.Ctl] -> Ctl c)

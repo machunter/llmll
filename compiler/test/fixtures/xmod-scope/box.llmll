@@ -1,0 +1,2 @@
+;; XMOD-SCOPE fixture (E7): one name in each namespace.
+(type Box (| Box int))

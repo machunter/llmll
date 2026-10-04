@@ -21,6 +21,7 @@ library
       LLMLL.ParserJSON
       LLMLL.AstEmit
       LLMLL.TypeAdmissibility
+      LLMLL.BuildScope
       LLMLL.TypeCheck
       LLMLL.HoleAnalysis
       LLMLL.RespFact

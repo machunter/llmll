@@ -1,0 +1,3 @@
+;; XMOD-SCOPE t11 / E4: the collision is reached through wrap.
+(import wrap) (open wrap)
+(def f [n: int] -> int n)
