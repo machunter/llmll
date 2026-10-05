@@ -1,8 +1,8 @@
 # LLMLL — v0.28.0
 
-**AI writes the code; the compiler proves it matches the spec, and rejects a type-correct-but-wrong implementation before it merges.**
+**An experiment in letting AI write the code: the compiler proves each function against its contract, and refutes a type-correct but wrong body before it merges.**
 
-LLMLL (Large Language Model Logical Language) is a language and verification pipeline whose primary author is an LLM agent, not a human. Agents coordinate through formal contracts the compiler enforces — not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
+LLMLL (Large Language Model Logical Language) is a programming language and verification pipeline built for experiments in which AI agents write code under formal contracts. Its primary author is an LLM agent, not a human: contracts state what a function must do, agents fill typed holes, and the compiler proves each body against its contract with Z3 before the patch is applied. Agents coordinate through those contracts, not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
 
 > **Current version:** see [`CHANGELOG.md § Latest`](CHANGELOG.md#Latest). Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
