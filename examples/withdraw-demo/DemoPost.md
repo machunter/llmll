@@ -288,7 +288,7 @@ llmll patch ./demo.ast.json ./patch-wrong.json | jq '{result, message: .diagnost
 }
 ```
 
-`PatchVerifyError` — the patch was type-checked *and* handed to the solver, which disproved it. Every other tool would have merged this.
+`PatchVerifyError` — the patch was type-checked *and* handed to the solver, which disproved it. A gate that only type-checks would have merged this.
 
 **Pulse check** — `shasum` unchanged, `jq '.tokens | length'` still `3`. Nothing committed; the gate fails closed.
 

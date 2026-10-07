@@ -272,7 +272,7 @@ llmll patch ./demo.ast.json ./patch-wrong.json | jq '{result, message: .diagnost
 
 > **🔍 Check — still untouched.** `shasum` unchanged; `jq '.tokens | length'` still `3`. The gate **fails closed**: verified at submission, disproved by liquid-fixpoint, rejected — nothing committed.
 
-*"This type-checks — every other tool would merge it. LLMLL proves it wrong anyway."*
+*"This type-checks — a type-check-only gate would merge it. LLMLL proves it wrong at the patch boundary."*
 
 ### 4 — The repaired fill — accepted (and the lock auto-releases)
 
@@ -702,7 +702,7 @@ Exit `2`: the forged record is rejected when it is parsed.
 ## Narration cues
 
 - **Step 2:** "Three agents, three holes, one program — reserved at once. Watch what the system does when their writes collide."
-- **Step 3 (withdraw, contract channel):** "This fill *type-checks* — `int + int → int` — and every other tool would merge it. LLMLL proves it wrong anyway: the contract says `result = balance − amount`, and `+` isn't `−`." (`PatchVerifyError`; the 🔍 check proves nothing was committed.) The *type* channel isn't the interesting beat for a bare-`int` return — it shows up next, on `withdraw-outcome`, where the return type itself carries the contract.
+- **Step 3 (withdraw, contract channel):** "This fill *type-checks* — `int + int → int` — and a gate that only type-checks would merge it. LLMLL proves it wrong at the patch boundary: the contract says `result = balance − amount`, and `+` isn't `−`." (`PatchVerifyError`; the 🔍 check proves nothing was committed.) The *type* channel isn't the interesting beat for a bare-`int` return — it shows up next, on `withdraw-outcome`, where the return type itself carries the contract.
 - **Step 4 → 5a:** "Agent A commits. Agent B's reservation is now stale — and the system says so (`PatchAuthError`) rather than letting B clobber A's work. B re-reads and proceeds. That's the swarm's safety property in one move."
 - **Step 5b:** "`maxi` is where it earns its keep. The spec says the answer is ≥ both inputs and is one of them — it doesn't say *how*. A fill that returns the min type-checks and passes most tests. The solver refutes it for every input and names *which branch* is wrong."
 - **Step 6, the key line:** *"All four are verified — `withdraw` included. It proved its job. What it carries is a separate thing: a caller-obligation, `balance ≥ amount`, on its own axis. We don't demote a function for having a precondition — we name the precondition as the caller's to honor. Two questions, two axes."*
