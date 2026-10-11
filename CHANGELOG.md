@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.28.1: a definition head rejects keys the schema does not declare (2026-10-11)
+
+### `AST-RETURNS-KEY-1`: the JSON reader no longer drops an unknown key on a `def` or `def-shell`
+
+`DefCore` and `DefShell` in `docs/llmll-ast.schema.json` are `additionalProperties: false`, and the
+S-expression parser already rejects an unknown clause keyword. The JSON reader read only the keys it
+knew and dropped the rest without a message. Measured on v0.28.0: a head declaring a `bool` return
+under a `"returns"` key over an `int` body checked `OK`, because the key was never read; the same
+declaration under `"return_type"` is `error: type mismatch in 'p': expected bool, got int`. A
+`"postcondition"` key over a body that breaks it verified as `SAFE (liquid-fixpoint), nothing proved`,
+where `"post"` is `body verification of 'p' failed`. Closes `AST-RETURNS-KEY-1`.
+
+- **An undeclared key on a definition head is a parse error** of kind `unexpected-key` (`E011`). The
+  message names the definition, the keys and the allowed set:
+  `def 'p' has unexpected keys: ["returns"] (allowed: "kind", "name", "params", "return_type", ...)`.
+- **Hints.** `"returns"` points at `"return_type"`; `"decreases"` on a `def` points at `def-shell`;
+  any other key points at the schema.
+- **No `returns` alias and no schema change.** An alias would fix one spelling; the rejection fixes
+  every misspelling, including the contract keys. A head carrying both `return_type` and `returns`
+  is rejected, not resolved by precedence.
+- **No tracked program changes status.** 0 of 327 definition heads in the 98 tracked `.ast.json`
+  files carry an undeclared key; the last `returns` keys were renamed in v0.26.0 (`totp_rfc6238`)
+  and at `c1866ded` (`erc20_token`).
+- **The `let`-binding check (N3) and the new check share one helper**, `rejectUnknownKeys`; the
+  `let` message is unchanged.
+- **Not yet covered:** other JSON node types the schema closes may drop keys the same way
+  (`AST-STRICT-KEYS-1`, filed to measure them).
+- **Tests:** six examples in `Spec.hs` (ARK-1 to ARK-6).
+
+Tests: 2242 examples, 0 failures (+6); Python 312 passed, 134 skipped.
+
 ## v0.28.0: a build's top-level names share one scope (2026-10-04)
 
 ### `XMOD-SCOPE`: cross-module names are resolved at `check`, not left to GHC

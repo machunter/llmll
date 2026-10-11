@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.28.0)
+# LLMLL: Large Language Model Logical Language (v0.28.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.28.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.28.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -2504,7 +2504,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 9. **JSON-AST identifier shape is stated by the schema.** The JSON-AST schema at `docs/llmll-ast.schema.json` requires:
    - `ExprApp.fn` matches `^[^.]+$` — no dots permitted in plain function-call position. The character class is intentionally permissive to accept operator identifiers (`+`, `-`, `<=`, `mod`, etc.) that may appear in `app` position when emitted by JSON-AST agents that do not partition operators into `EOp`.
    - `ExprQualApp.qual_fn` matches `^[A-Za-z_][A-Za-z0-9_?\-]*(\.[A-Za-z_][A-Za-z0-9_?\-]*)+$` — at least one dot required, character class matches `IDENT` per §2.1. This formalizes the `qual-ident = IDENT { "." IDENT }` EBNF rule above.
-   The compiler does not validate a document against the schema. The JSON reader accepts a dotted `app.fn` and reads it exactly as the equivalent `qual-app`. For either source format, the typechecker warns on a dotted name in function-call position unless it begins with `wasi.` (`compiler/src/LLMLL/TypeCheck.hs` `inferExpr`). What is checked against the schema is the compiler's own output: every document `llmll build --emit` writes from a tracked source must validate (`scripts/tests/test_schema_valid_1.py`).
+   The compiler does not validate a document against the schema. One schema rule is enforced by the reader: a `def` or `def-shell` head that carries a key its schema object does not declare is a parse error (`unexpected-key`), as an unknown clause keyword is in S-expression source (`compiler/src/LLMLL/ParserJSON.hs` `rejectUnknownKeys`). The JSON reader accepts a dotted `app.fn` and reads it exactly as the equivalent `qual-app`. For either source format, the typechecker warns on a dotted name in function-call position unless it begins with `wasi.` (`compiler/src/LLMLL/TypeCheck.hs` `inferExpr`). What is checked against the schema is the compiler's own output: every document `llmll build --emit` writes from a tracked source must validate (`scripts/tests/test_schema_valid_1.py`).
 10. **`check` may carry explicit subject metadata.** The optional `subject-meta` clause between the label STRING and the `for-all` expresses agent intent to lift trust evidence per declared callee. `:subject f` is singleton sugar for `:subjects [f]`. The annotated branch bypasses the head-position scan rule and lifts trust evidence per declared subject (§4.4.5). Empty `:subjects []` is rejected at parse time; duplicate names are deduplicated; cross-module subjects qualify through the existing `qualMap`. JSON-AST encodes this via the optional `CheckDecl.subjects: [Name]` field. See §4.4.5 *Annotated-subject branch* for the PBT-Lift semantics and the joint-witness scalar-exclusion rule.
 
 
