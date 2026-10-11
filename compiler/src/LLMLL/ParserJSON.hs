@@ -122,6 +122,8 @@ parseJSONAST mode fp bs =
                              then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
                            else if k == "legacy-grammar-violation"
                              then Just "Drop --grammar=legacy to parse v0.11 programs ({\"kind\":\"def\",...} / {\"kind\":\"def-shell\",...} are the current forms); def-logic was removed in v0.12.1, so under --grammar=legacy only {\"kind\":\"letrec\",...} remains available"
+                           else if k == "unexpected-key"
+                             then Just (unexpectedKeyHint (T.pack msg))
                            else if k == "removed-construct"
                              then Just "def-logic was removed in v0.12.1; replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive)"
                            else Nothing
@@ -134,7 +136,19 @@ parseJSONAST mode fp bs =
       | "core-grammar-violation"   `T.isInfixOf` msg = "core-grammar-violation"
       | "legacy-grammar-violation" `T.isInfixOf` msg = "legacy-grammar-violation"
       | "removed-construct"        `T.isInfixOf` msg = "removed-construct"
+      | "unexpected-key:"          `T.isInfixOf` msg = "unexpected-key"
       | otherwise = "json-decode-error"
+
+-- | AST-RETURNS-KEY-1: the fix for a definition-head key the reader does not
+-- know. "returns" is the measured confusion (the DEMO-COMP brief spells it so).
+unexpectedKeyHint :: Text -> Text
+unexpectedKeyHint msg
+  | "\"returns\"" `T.isInfixOf` msg =
+      "The return-type key is \"return_type\"; a \"returns\" key is not read"
+  | "def '" `T.isInfixOf` msg && "\"decreases\"" `T.isInfixOf` msg =
+      "A \"decreases\" measure belongs on a def-shell; a def may not self-recurse"
+  | otherwise =
+      "Remove the key or correct its spelling; docs/llmll-ast.schema.json lists the declared keys"
 
 -- | Parse a JSON Value (already decoded) into statements.
 -- Returns multi-error diagnostics for agent round-trip efficiency.
@@ -297,10 +311,36 @@ contractSide o exprK srcK clausesK side = do
   mArr    <- o .:? clausesK
   resolveClauseSide side mScalar mSrc mArr
 
+-- | AST-RETURNS-KEY-1: the keys DefCore and DefShell declare in
+-- docs/llmll-ast.schema.json. Both are additionalProperties: false, and a key
+-- outside these lists was dropped without a message: a misspelled "post"
+-- verified as SAFE with nothing proved, and "returns" left the return type
+-- unchecked.
+defCoreKeys, defShellKeys :: [Text]
+defCoreKeys =
+  [ "kind", "name", "params", "return_type"
+  , "pre", "pre_source", "pre_clauses"
+  , "post", "post_source", "post_clauses"
+  , "spec_entropy", "body" ]
+defShellKeys = defCoreKeys ++ ["decreases"]
+
+-- | Fail on any key outside @allowed@. For nodes the schema declares
+-- additionalProperties: false (N3, AST-RETURNS-KEY-1).
+rejectUnknownKeys :: String -> [Text] -> Object -> Parser ()
+rejectUnknownKeys what allowed o =
+  case filter (`notElem` allowed) (map Key.toText (KM.keys o)) of
+    [] -> pure ()
+    ks -> fail $ what ++ " has unexpected keys: "
+                 ++ show (map T.unpack ks)
+                 ++ " (allowed: "
+                 ++ T.unpack (T.intercalate ", " (map (T.pack . show) allowed))
+                 ++ ")"
+
 -- | LT-INV (v0.11): parse {"kind":"def",...} into SDef (strict-core).
 parseDefCore :: Object -> Parser Statement
 parseDefCore o = do
   name     <- o .: "name"
+  rejectUnknownKeys ("unexpected-key: def '" ++ T.unpack name ++ "'") defCoreKeys o
   params   <- o .: "params" >>= mapM parseTypedParam
   (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
   (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
@@ -313,6 +353,7 @@ parseDefCore o = do
 parseDefShellJSON :: Object -> Parser Statement
 parseDefShellJSON o = do
   name     <- o .: "name"
+  rejectUnknownKeys ("unexpected-key: def-shell '" ++ T.unpack name ++ "'") defShellKeys o
   params   <- o .: "params" >>= mapM parseTypedParam
   (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
   (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
@@ -688,14 +729,7 @@ parseExpr = withObject "Expr" $ \o -> do
 parseLet1Binding :: Value -> Parser (Pattern, Maybe Type, Expr)
 parseLet1Binding = withObject "LetBinding" $ \o -> do
   -- N3: reject unexpected keys — schema declares additionalProperties: false
-  let allowedKeys = ["name", "pattern", "expr"]
-      allKeys     = map (Key.toText . fst) (KM.toList o)
-      extraKeys   = filter (`notElem` allowedKeys) allKeys
-  case extraKeys of
-    [] -> pure ()
-    ks -> fail $ "let binding has unexpected keys: "
-                 ++ show (map T.unpack ks)
-                 ++ " (allowed: \"name\", \"pattern\", \"expr\")"
+  rejectUnknownKeys "let binding" ["name", "pattern", "expr"] o
   -- PR 4: "name" → PVar (ergonomic shorthand); "pattern" → full pattern
   pat <- do
     mName <- o .:? "name" :: Parser (Maybe Name)

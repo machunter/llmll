@@ -1697,6 +1697,56 @@ main = hspec $ do
         Right _  -> pure ()
 
   -- -----------------------------------------------------------------------
+  -- AST-RETURNS-KEY-1: a definition head rejects keys the schema does not
+  -- declare (DefCore / DefShell are additionalProperties: false). Before, the
+  -- reader dropped them: "returns" left a bool return over an int body OK, and
+  -- "postcondition" turned a failing proof into SAFE with nothing proved.
+  -- -----------------------------------------------------------------------
+  describe "AST-RETURNS-KEY-1 definition-head unknown-key rejection" $ do
+    let intT  = "{\"kind\": \"primitive\", \"name\": \"int\"}"
+        boolT = "{\"kind\": \"primitive\", \"name\": \"bool\"}"
+        headDoc kind extra = BLC.pack $ concat
+          [ "{\"schemaVersion\": \"0.6.0\", \"statements\": [{"
+          , "\"kind\": \"", kind, "\", \"name\": \"p\", "
+          , "\"params\": [{\"name\": \"x\", \"param_type\": ", intT, "}], "
+          , extra
+          , "\"body\": {\"kind\": \"var\", \"name\": \"x\"}}]}" ]
+        rejected kind extra = case parseJSONAST GrammarCoreInversion "<test>" (headDoc kind extra) of
+          Left diag -> pure diag
+          Right _   -> expectationFailure "expected the head to be rejected" >> error "unreachable"
+        accepted kind extra = case parseJSONAST GrammarCoreInversion "<test>" (headDoc kind extra) of
+          Left diag -> expectationFailure (show diag)
+          Right _   -> pure ()
+
+    it "ARK-1 a def with a \"returns\" key is rejected and pointed at return_type" $ do
+      diag <- rejected "def" ("\"returns\": " ++ boolT ++ ", ")
+      diagKind diag `shouldBe` Just "unexpected-key"
+      diagMessage diag `shouldSatisfy` T.isInfixOf "def 'p' has unexpected keys: [\"returns\"]"
+      diagSuggestion diag `shouldSatisfy` maybe False (T.isInfixOf "\"return_type\"")
+
+    it "ARK-2 a def with both return_type and returns is rejected, not resolved by precedence" $ do
+      diag <- rejected "def" ("\"return_type\": " ++ intT ++ ", \"returns\": " ++ boolT ++ ", ")
+      diagMessage diag `shouldSatisfy` T.isInfixOf "[\"returns\"]"
+
+    it "ARK-3 a misspelled contract key (postcondition) is rejected rather than dropped" $ do
+      diag <- rejected "def" "\"postcondition\": {\"kind\": \"lit-bool\", \"value\": false}, "
+      diagMessage diag `shouldSatisfy` T.isInfixOf "[\"postcondition\"]"
+      diagSuggestion diag `shouldSatisfy` maybe False (T.isInfixOf "llmll-ast.schema.json")
+
+    it "ARK-4 a misspelled return key on a def-shell is rejected" $ do
+      diag <- rejected "def-shell" ("\"retrun_type\": " ++ boolT ++ ", ")
+      diagMessage diag `shouldSatisfy` T.isInfixOf "def-shell 'p' has unexpected keys: [\"retrun_type\"]"
+
+    it "ARK-5 decreases on a def is rejected and pointed at def-shell" $ do
+      diag <- rejected "def" "\"decreases\": [{\"kind\": \"var\", \"name\": \"x\"}], "
+      diagMessage diag `shouldSatisfy` T.isInfixOf "[\"decreases\"]"
+      diagSuggestion diag `shouldSatisfy` maybe False (T.isInfixOf "def-shell")
+
+    it "ARK-6 decreases on a def-shell and return_type on a def are accepted" $ do
+      accepted "def-shell" "\"decreases\": [{\"kind\": \"var\", \"name\": \"x\"}], "
+      accepted "def" ("\"return_type\": " ++ intT ++ ", \"post\": {\"kind\": \"lit-bool\", \"value\": true}, ")
+
+  -- -----------------------------------------------------------------------
   -- Phase 2c --sketch D2 output contract (HoleStatus, SketchHole, pointers)
   -- -----------------------------------------------------------------------
   -- DELEGATE-BRIEF: a ?delegate hole is recorded in sketch mode like a named
