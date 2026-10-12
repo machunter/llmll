@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.28.1)
+  LLMLL — Large Language Model Logical Language Compiler (v0.28.2)
 
 Available options:
   -h,--help                Show this help text
@@ -632,6 +632,9 @@ The replay command:
 
 > [!NOTE]
 > Event logs are crash-safe: if the program is killed mid-run, the log is valid up to the last flushed line. Partial logs can be replayed.
+
+> [!NOTE]
+> Replay detects a change in observable behavior; it does not reproduce a run. Every command runs again on replay, so a program whose output depends on a clock, file, environment, process or HTTP response can diverge with no change to its source. `:init` and `:on-done` output is not logged. See [`LLMLL.md §10a`](../LLMLL.md#10a-event-log-specification).
 
 ### `typecheck --sketch` — partial-program type inference
 

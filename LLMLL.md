@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.28.1)
+# LLMLL: Large Language Model Logical Language (v0.28.2)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.28.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.28.2.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1217,7 +1217,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 >
 > So the property that holds is **module-scoped declaration of effect namespaces**, which is real and useful for auditing, and it is weaker than least authority. Whether LLMLL should adopt object-capabilities, enforce the verb statically, or route the target through the contract channel is an open design question tracked as `CAP-1-REAL` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). Write the clause anyway: it is the declaration a future enforcing checker will read, and it is what the effect summary (§11.2) and reviewers use today.
 
-Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-log capture for replay:
+Capabilities can carry the `:deterministic` flag. The flag is **reserved**: the parser reads it and the JSON-AST carries it, but it causes no capture and no injection (§10a). It is a type error on a `wasi.env` or a `wasi.fs` import (below):
 
 ```lisp
 (import wasi.clock  (capability monotonic-read :deterministic true))
@@ -1226,14 +1226,18 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 
 > **The verbs the parser names.** Nine verbs are recognised: `read-write`, `read`, `write`, `connect`, `serve`, `post`, `get-bytes`, `get` (the verb `wasi.http.get` documents) and `monotonic-read`; the parser tries `get-bytes` before `get`, longest match first, so both parse. Any other identifier, `exec`, `stdout` and `delete` among them, parses as a custom verb. `(capability get-bytes :deterministic true)` checks clean. As the warning above says, no verb is enforced.
 
-> **`:deterministic true` is refused on a `wasi.env` import.** It is a type error, not a default.
-> §10a captures a deterministic capability's return value into the Event Log, and the environment
-> is the one namespace that carries credentials by convention, so a capture of an environment read
-> would write a secret to `<module>.event-log.jsonl` in plaintext. It is a refusal rather than a
-> default because a default that fails open writes a secret whenever somebody copies a clock
-> import. Redaction of a captured value is not designed yet. The consequence is disclosed rather
-> than hidden: a module that reads the environment is replayable in its control flow and is **not**
-> replayable in that value, because a replayed run reads the live environment.
+> **`:deterministic true` is refused on a `wasi.env` import and on a `wasi.fs` import.** Each is a
+> type error, not a default. No capture runs today (§10a). The refusals guard a capture mechanism
+> that is specified and not built (`REPLAY-INJECT` in the roadmap): if it is built, the flag would
+> record a capability's return values in `<module>.event-log.jsonl` and replay them from there. The
+> environment carries credentials by convention, so a captured environment read would write a
+> secret in plaintext. `wasi.fs.stat` differences the wall clock against a file's modification time,
+> so it returns a different value on a later run over an unchanged tree, and the flag would claim a
+> replay determinism the operation does not have. It is a refusal rather than a default because a
+> default that fails open writes a secret whenever somebody copies a clock import. Redaction of a
+> captured value is not designed yet. Today replay runs each read again: a module that reads the
+> environment is replayable in its control flow and is **not** replayable in that value, because a
+> replayed run reads the live environment.
 
 **External Bridge (FFI):** To use existing Haskell packages or C libraries, define a Verified Wrapper using the `haskell.*` or `c.*` prefix:
 
@@ -1954,7 +1958,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
 7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities. WASM-WASI is planned as a future replacement.
-8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
+8. **Event-Log Replay:** A `:mode console` program records its turns, and `llmll replay` reports whether a re-run on the same inputs gives the same output (§10a). Replay detects a change in observable behavior. It does not reproduce a run.
 
 
 
@@ -1962,14 +1966,49 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 
 ## 10a. Event Log Specification
 
-Correct replay is the foundation of fault tolerance, audit trails, and SMT proof validation over execution traces.
+A `:mode console` program writes an event log, and `llmll replay` uses the log to detect a change in
+the program's observable behavior. This section specifies what ships. It replaces an earlier
+description of per-call value capture with injection on replay, which was never built (`EVENT-LOG-2`,
+see `docs/design/event-log-scope-proposal.md`). That mechanism is preserved as the unscheduled
+roadmap row `REPLAY-INJECT`.
+
+### The mechanism
+
+The console harness writes `<module>.event-log.jsonl` next to the program. The file holds one
+header line, then one event for each turn of the loop (§9.4). Each event records the stdin line the
+turn received and the stdout the turn produced. **Only the console harness writes a log.** A program
+in another mode writes none, and `llmll replay` has nothing to read for it.
+
+`llmll replay SOURCE LOG` builds the program, runs it as a new process, writes each recorded input
+to its stdin in order, and compares the output against the recorded result. It reports how many
+events matched and each event that diverged.
+
+### The guarantee
+
+Replay is a **divergence oracle over the observable I/O trace**. It detects that the program's
+observable behavior changed. It does **not** reproduce a run: on replay, every command runs again
+for real.
+
+### What replay cannot separate
+
+Under the response channel (§9.7), the output of a turn can depend on the `Response` of a command:
+a clock read, a file read, an environment read, a process run, or an HTTP call. When the world gives
+a different response on replay, the output changes while the program does not, and replay reports a
+divergence. **Replay cannot tell "the program changed" from "the world changed".** This applies to
+every command whose response depends on the world, not only to the sources in the table below.
+
+Measured at v0.28.1: a program that reads `wasi.clock.monotonic` on one turn and prints the reading
+on the next replays at `2/4 events matched` with no change to its source. The two diverging events
+are the two that print a clock reading.
 
 ### Sources of Non-Determinism
 
-| Source | Problem | Runtime Fix |
-|--------|---------|-------------|
+The "Known, not addressed" column describes the `REPLAY-INJECT` design. None of it is built.
+
+| Source | Problem | Known, not addressed |
+|--------|---------|----------------------|
 | **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules; `wasm-determinism` extension with WASM target) |
-| **Monotonic clock** | Wall-clock calls diverge across replay runs | Virtualize via `:deterministic true`; log return value |
+| **Monotonic clock** | Wall-clock calls diverge across replay runs | Record the return value; replay it from the log |
 | **PRNG** | Non-seeded random generation diverges on replay | Log seed + call sequence; replay re-seeds from log |
 
 ### The `:deterministic` Capability Flag
@@ -1979,29 +2018,39 @@ Correct replay is the foundation of fault tolerance, audit trails, and SMT proof
 (import wasi.random (capability get-bytes      :deterministic true))
 ```
 
-> **Known compiler bug (parser, fix in progress).** `get-bytes` currently fails to parse — see the note at its first occurrence above (§10, Capability Imports).
-
-When `:deterministic true` is set, the runtime **captures the return value** of every call and appends it to the Event Log. On replay, these calls **read from the log** instead of invoking the real system call.
+The flag is **reserved**. The parser reads it and the JSON-AST carries it. It causes no capture and
+no injection, and a program with the flag logs and replays the same as a program without it. It is
+a type error on a `wasi.env` import and on a `wasi.fs` import; §7 gives the reasons. Those refusals
+guard `REPLAY-INJECT` and stay in force.
 
 ### Event Log Format
 
-```lisp
-(event
-  :seq      42
-  :input    (http.request GET "/checkout")
-  :result   (http.response 200 "OK")
-  :captures [(wasi.clock.monotonic 1741823200000)
-             (wasi.random.bytes #x4f2a...)])
+```json
+{"type":"header","version":"0.3.1","module":"clockw"}
+{"type":"event","seq":0,"input":{"kind":"stdin","value":"a"},"result":{"kind":"stdout","value":"700718874047000"},"captures":[]}
 ```
 
-Replay feeds each `:input` to the logic in order. `:result` and `:captures` are injected directly, bypassing real system calls.
+`version` is the log format version, not the compiler version. `seq` counts events from 0.
+`captures` is always `[]`. It is reserved so that `REPLAY-INJECT` can fill it without a format
+change.
 
-### Replayability Status
+**Line framing.** The wire bytes of a turn are `output ++ "\n"`. An event therefore occupies
+`count('\n', output) + 1` lines of stdout, not one. Replay reads that many lines for each event.
 
-| Condition | Compiler Status |
-|-----------|----------------|
-| All non-deterministic capabilities use `:deterministic true` | ✅ **replayable** |
-| Any non-deterministic capability without `:deterministic true` | ⚠️ **best-effort replay** |
+**The settle entry.** The command of the terminating step is not performed (§9.5), so its entry
+has result kind `none`. Replay does not read output for it. The entry keeps the input count equal to the
+recorded run.
+
+### Limits
+
+- **`:on-done` output is not logged.** It goes to stdout outside the log. A passing replay is not
+  evidence that `:on-done` ran, or ran correctly.
+- **`:init` output is not logged and is not newline-framed.** It joins the output of the first turn.
+  A program whose `:init` command prints therefore fails replay at `seq 0` with no change to its
+  source. Measured at v0.28.1: `1/2 events matched`, `expected="a" actual="welcomea"`.
+
+The repair for each limit changes the stdout bytes of shipped programs. Both repairs belong to
+`REPLAY-INJECT`.
 
 ---
 
@@ -2713,9 +2762,9 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.fs.mkdir` | `string -> Command` | `(import wasi.fs (capability write PATH))` | Create directory at path, with parents; idempotent |
 | `wasi.fs.sha256` | `string -> Command` | `(import wasi.fs (capability read PATH))` | SHA-256 of the file's **bytes**, as lowercase hex |
 | `wasi.fs.copy` | `string string -> Command` | `(import wasi.fs (capability read-write PATH))` | Copy a file's **bytes** from source to destination, overwriting; never decodes. `(wasi.fs.copy src dst)` puts the **source first**; a reversed call type-checks and overwrites the source instead |
-| `wasi.fs.stat` | `string -> Command` | `(import wasi.fs (capability read PATH))` | The file's **age in seconds** as `RCode`, measured from its modification time to now. A **negative** computed age delivers `RErr` and is **not clamped to zero**: a future modification time means clock skew, a tampered timestamp or an unpacked archive, and reporting zero would claim maximal freshness to a liveness check. A **missing** path delivers `RErr`. **`:deterministic true` on this import is a type error** (§10). Its `RCode` arm carries a declared fact; see **Declared facts** below |
+| `wasi.fs.stat` | `string -> Command` | `(import wasi.fs (capability read PATH))` | The file's **age in seconds** as `RCode`, measured from its modification time to now. A **negative** computed age delivers `RErr` and is **not clamped to zero**: a future modification time means clock skew, a tampered timestamp or an unpacked archive, and reporting zero would claim maximal freshness to a liveness check. A **missing** path delivers `RErr`. **`:deterministic true` on this import is a type error** (§7). Its `RCode` arm carries a declared fact; see **Declared facts** below |
 | `wasi.fs.exists` | `string -> Command` | `(import wasi.fs (capability read PATH))` | A three-way presence answer as `RText`: `"absent"`, `"file"`, `"dir"` or `"symlink"`. Shares one probe with `wasi.fs.stat`, so the same call decides presence and age. A path that exists but **cannot be reached** delivers `RErr` rather than `"absent"`, so undecidable and absent stay distinguishable. A **dangling** symlink delivers `"absent"`, the probe following the link |
-| `wasi.env.get` | `string -> Command` | `(import wasi.env (capability read NAME))` | Read one environment variable. Delivers the value as `RText`, and an **unset** variable as `RErr`. A variable that is set and **empty** delivers `RText ""`, so empty and unset stay distinguishable. **`:deterministic true` on this import is a type error** (§10). A **literal** name that is empty or contains `=` is a type error; a computed one is not, and such a name delivers `RErr` indistinguishably from unset |
+| `wasi.env.get` | `string -> Command` | `(import wasi.env (capability read NAME))` | Read one environment variable. Delivers the value as `RText`, and an **unset** variable as `RErr`. A variable that is set and **empty** delivers `RText ""`, so empty and unset stay distinguishable. **`:deterministic true` on this import is a type error** (§7). A **literal** name that is empty or contains `=` is a type error; a computed one is not, and such a name delivers `RErr` indistinguishably from unset |
 | `wasi.clock.monotonic` | `Command` | `(import wasi.clock (capability read))` | Monotonic nanoseconds. **Nullary: a value, not a call** |
 | `wasi.proc.args` | `Command` | `(import wasi.proc (capability exec NAME))` | This process's argument vector, `argv[0]` excluded. **Nullary: a value, not a call** |
 | `wasi.proc.run` | `string list[string] string string string int string -> Command` | `(import wasi.proc (capability exec NAME))` | Run executable with argv in a working directory, stdout/stderr redirected to paths, timeout in seconds, stdin read from a path: `(wasi.proc.run exe argv cwd stdout-path stderr-path timeout-secs stdin-path)`. The three trailing `string` parameters before the `int` are **working directory, stdout path, stderr path** in that order, and any permutation of them type-checks. **The stdin path sits AFTER the `int` deliberately**: `stdin-path` and `stdout-path` differ by one character and name opposite directions, so the `int` at position 6 makes that transposition a type error rather than a silent swap. **`"/dev/null"` means no input.** **Equal stdout and stderr path strings mean MERGE**, the counterpart to a shell's `2>&1`: one handle carries both streams. The test is **string equality, not path identity**, so `"log"` and `"./log"` do not merge. **No equality rule constrains the stdin path.** The three handles open in the order **stdout, stderr, stdin**, and that order is normative because it is observable: `WriteMode` truncates, so a caller naming one real file as both an output path and the stdin path gives the child an **empty** file, exactly as a shell's `cmd < f > f` does. **The interleaving is not specified**: it is the order the child flushes, not the order it writes, so a child that buffers one stream and not the other can emit them out of write order. **The child's stdin is never the caller's**: `std_in` is bound to the named path, so a child that reads stdin cannot consume the parent's own input |
