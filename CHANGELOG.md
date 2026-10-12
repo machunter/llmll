@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.28.3: `check` type-checks `:init` (2026-10-12)
+
+### `INIT-SHAPE-1`: `:init` is checked against `(State, Command)`
+
+`LLMLL.md §9.5` requires `:init` to return a `(State, Command)` pair. `check` did not test it.
+Measured on v0.28.2: `:init 0`, `:init (pair "zero" <command>)` and `:init (pair 0 42)` each passed
+`llmll check`, and `llmll build` then failed in GHC on the generated `Main.hs`. A `:init` that called
+`wasi.fs.write` with no `wasi.fs` import passed `check`, built and ran, because the capability check
+(§7) runs only on an expression the checker infers, and `:init` was never inferred. Closes
+`INIT-SHAPE-1`.
+
+- **New error kind `def-main-init-shape`.** `check` infers `:init` and reports an error when its
+  type is not a pair, when the first element does not match the state parameter of `:step`, or when
+  the second element is not a `Command`. The message names the element and both types.
+- **`:init` is subject to the capability check.** A capability-gated builtin in `:init` without its
+  import is now `missing-capability`, as in `:step`.
+- **An unbound name in `:init`** gets the same warning as in any other expression ("may be in scope
+  at runtime"). It is not an error.
+- **Not caught at `check`:** an `:init` whose type is not known when it is checked, for example a
+  call to a helper with no declared return type. GHC still rejects a wrong shape at `build`.
+- **`:mode cli` is exempt** from the shape rule, because its harness does not read `:init`.
+  `MODE-CLI-1` removes the exemption.
+- **Census:** 83 tracked programs with a `def-main`, checked before and after. One diagnostic
+  changed, on the negative fixture `wrap-machine/bmain.llmll`, which already failed. No passing
+  program changed status.
+- **No schema change.**
+- **Tests:** nine examples in `Spec.hs` (`INIT-SHAPE-1` block).
+
+Tests: 2253 examples, 0 failures (+9); Python 312 passed, 134 skipped.
+
 ## v0.28.2: replay is a divergence oracle, and the spec now says so (2026-10-11)
 
 ### `EVENT-LOG-2`: `LLMLL.md §10a` describes the event log that ships
