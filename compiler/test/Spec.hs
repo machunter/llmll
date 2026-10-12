@@ -18018,6 +18018,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           msgs = map diagMessage (filter ((== Just "env-deterministic-refused") . diagKind) ds)
       msgs `shouldSatisfy` any (T.isInfixOf "separate proposal")
 
+    -- EVENT-LOG-2: no capture runs, so the message states a forward condition
+    -- and names the row that would build capture, not a present-tense opt-in.
+    it "ER-7b: the refusal states a forward condition and names REPLAY-INJECT" $ do
+      let ds = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv
+                                    [envImport True, getLit "HOME"])
+          msgs = map diagMessage (filter ((== Just "env-deterministic-refused") . diagKind) ds)
+      msgs `shouldSatisfy` any (T.isInfixOf "REPLAY-INJECT")
+      msgs `shouldSatisfy` all (not . T.isInfixOf "opts into event-log capture")
+
     -- Side conditions 2 and 3, each with a sibling that must NOT fire.
     it "ER-8: a literal name containing \"=\" is REFUSED" $
       kindsOf [envImport False, getLit "A=B"] `shouldContain` ["env-name-malformed"]
@@ -19920,6 +19929,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         src <- fixture "fs-deterministic"
         any (\m -> "deterministic" `T.isInfixOf` m && "wasi.fs" `T.isInfixOf` m)
             (errsOf src) `shouldBe` True
+
+      -- EVENT-LOG-2: the fs refusal is a forward guard too.
+      it "RF-T1j fs-deterministic: the refusal states a forward condition and names REPLAY-INJECT" $ do
+        src <- fixture "fs-deterministic"
+        let ms = filter (\m -> "deterministic" `T.isInfixOf` m && "wasi.fs" `T.isInfixOf` m) (errsOf src)
+        any ("REPLAY-INJECT" `T.isInfixOf`) ms `shouldBe` True
+        any ("opts into event-log capture" `T.isInfixOf`) ms `shouldBe` False
 
       it "RF-T2 wasi.proc.run declares NO fact (its RCode arm is OS-determined, §6)" $
         respFactsOf "wasi.proc.run" `shouldBe` []
