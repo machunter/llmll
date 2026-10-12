@@ -2188,6 +2188,7 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
   stepTy <- inferExpr stepE
   checkStepArity mode stepTy
   checkInitRequired mode mInit stepTy
+  mapM_ (checkInitShape mode stepTy) mInit
   case doneE of
     Nothing -> pure ()
     Just de -> do
@@ -2363,6 +2364,54 @@ checkInitRequired _       Nothing  stepTy = do
     -- ill-typed :step, already diagnosed by 'inferExpr' at the call site. A
     -- second error here would double-report, exactly as in 'checkStepArity'.
     _ -> pure ()
+
+-- | INIT-SHAPE-1: @:init@ is an expression, and it is checked as one.
+--
+-- Before this, the 'SDefMain' clause inferred @:step@ and @:done?@ and never
+-- @:init@. Measured at v0.28.2, all of these passed @check@: @:init 0@, a pair
+-- whose state disagrees with the step's, a pair whose second element is not a
+-- Command, an unbound name inside @:init@, and a @wasi.fs.write@ with no
+-- @wasi.fs@ import. The first three then died in GHC; the last BUILT AND RAN,
+-- because 'checkWasiCapability' fires only from 'inferExpr', so an effect in
+-- @:init@ escaped CAP-1 entirely.
+--
+-- Inferring the expression closes the unbound-name and capability cases. The
+-- shape test closes the other three: the type must be a pair whose first
+-- element is compatible with @:step@'s state parameter and whose second is a
+-- Command.
+--
+-- A 'TVar' passes, as it does for @:step@ and @:done?@: an unannotated helper
+-- such as @(boot)@ infers a variable, and rejecting it would reject correct
+-- programs. That gap is disclosed; annotating the helper closes it.
+--
+-- ModeCli is skipped for the shape test only. Its harness emits
+-- @print (step args)@ and never reads @:init@, so there is no state to agree
+-- with. The expression is still inferred. MODE-CLI-1 removes this exemption.
+checkInitShape :: EntryMode -> Type -> Expr -> TC ()
+checkInitShape mode stepTy ini = do
+  initTy <- inferExpr ini >>= expandAlias
+  case (mode, initTy) of
+    (ModeCli, _)      -> pure ()
+    (_, TVar _)       -> pure ()
+    (_, TPair a b)    -> do
+      stepRes <- expandAlias stepTy
+      stateOk <- case stepRes of
+        TFn (p0 : _) _ -> compatibleExpanded a p0
+        _              -> pure True
+      cmdOk   <- compatibleExpanded b (TCustom "Command")
+      unless stateOk $ shapeError $
+        "its state element is " <> typeLabel a <> ", but :step's state parameter is "
+        <> stateLabel stepRes
+      unless cmdOk $ shapeError $
+        "its second element is " <> typeLabel b <> ", not a Command"
+    (_, other)        -> shapeError $ "its type is " <> typeLabel other <> ", not a pair"
+  where
+    stateLabel (TFn (p0 : _) _) = typeLabel p0
+    stateLabel _                = "unknown"
+    shapeError detail = tcErrorK "def-main-init-shape" $
+      ":init must return a (State, Command) pair; " <> detail
+      <> ". The State is passed to the first :step, and the Command is performed "
+      <> "before it (INIT-SHAPE-1)."
 
 -- ---------------------------------------------------------------------------
 -- v0.4 CAP-1: Capability Enforcement Helpers
