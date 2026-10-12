@@ -17495,6 +17495,78 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       kindsOf src `shouldNotContain` ["def-main-step-arity"]
 
   -- -----------------------------------------------------------------------
+  -- INIT-SHAPE-1: :init is inferred, and its type must be (State, Command).
+  --
+  -- MEASURED at v0.28.2 before the fix: every cell below passed `check`.
+  -- Cells 1-3 then died in GHC; cell 5 accepted an unbound name; cell 6 BUILT
+  -- AND RAN a wasi.fs.write with no wasi.fs import, because CAP-1 fires only
+  -- from inferExpr and :init was never inferred. Cells 4, 7, 8 and 9 are the
+  -- siblings that must stay clean.
+  -- -----------------------------------------------------------------------
+
+  describe "INIT-SHAPE-1: :init is type-checked against (State, Command)" $ do
+
+    let kindsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> [ k | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+                             , Just k <- [diagKind d] ]
+        io    = "(import wasi.io (capability stdout))"
+        step  = T.unlines
+          [ "(def-shell st [s: int i: string r: Response]"
+          , "  (pair (+ s 1) (wasi.io.stdout i)))" ]
+        prog imports ini = T.unlines (imports ++ [step, "(def-main :mode console :init " <> ini <> " :step st)"])
+        kind  = "def-main-init-shape"
+
+    -- CELL 1, THE POSITIVE WITNESS.
+    it "cell 1: :init 0 is not a pair and is rejected" $
+      kindsOf (prog [io] "0") `shouldContain` [kind]
+
+    it "cell 2: a state element that disagrees with :step's state is rejected" $
+      kindsOf (prog [io] "(pair \"zero\" (wasi.io.stdout \"x\"))") `shouldContain` [kind]
+
+    it "cell 3: a second element that is not a Command is rejected" $
+      kindsOf (prog [io] "(pair 0 42)") `shouldContain` [kind]
+
+    it "cell 4: (pair 0 (wasi.io.stdout \"x\")) is clean" $
+      kindsOf (prog [io] "(pair 0 (wasi.io.stdout \"x\"))") `shouldBe` []
+
+    -- An unbound name is a WARNING everywhere in the language ("may be in scope
+    -- at runtime"), so :init now gets the same treatment as :step, not more.
+    it "cell 5: an unbound name inside :init is reported as it is elsewhere" $ do
+      let src = prog [io] "(pair 0 (wasi.io.stdout no-such-name))"
+          ds  = case parseStatements GrammarCoreInversion "<test>" src of
+                  Left err    -> error ("parse failed: " <> show err)
+                  Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+      map diagMessage ds `shouldSatisfy` any (T.isInfixOf "no-such-name")
+
+    it "cell 6: a wasi.fs call in :init with no wasi.fs import is missing-capability" $
+      kindsOf (prog [io] "(pair 0 (wasi.fs.write \"/tmp/x\" \"y\"))")
+        `shouldContain` ["missing-capability"]
+
+    it "cell 7: the same :init with the wasi.fs import is clean" $
+      kindsOf (prog [io, "(import wasi.fs (capability write \"/tmp\"))"]
+                    "(pair 0 (wasi.fs.write \"/tmp/x\" \"y\"))") `shouldBe` []
+
+    -- CELL 8, THE DISCLOSED GAP. An unannotated helper infers a type variable,
+    -- and a variable passes, as it does for :step and :done?.
+    it "cell 8: an unannotated helper call passes (type-variable gap, disclosed)" $ do
+      let src = T.unlines
+            [ io
+            , "(def-shell mk-init [] (pair 0 (wasi.io.stdout \"x\")))"
+            , step
+            , "(def-main :mode console :init (mk-init) :step st)" ]
+      kindsOf src `shouldNotContain` [kind]
+
+    it "cell 9: a state declared through an alias of int accepts an int state" $ do
+      let src = T.unlines
+            [ io
+            , "(type Count int)"
+            , "(def-shell st [s: Count i: string r: Response]"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"x\")) :step st)" ]
+      kindsOf src `shouldNotContain` [kind]
+
+  -- -----------------------------------------------------------------------
   -- CONSOLE-INIT-1: :init is required unless the declared state type is unit.
   --
   -- emitMainBody binds `state0 = ()` when :init is absent, and it does that
