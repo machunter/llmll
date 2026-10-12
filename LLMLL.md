@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.28.2)
+# LLMLL: Large Language Model Logical Language (v0.28.3)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.28.2.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.28.3.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1654,6 +1654,7 @@ A console `:step` takes **three** parameters. Declaring two, one, or a wrong thi
 #### Key semantics
 
 - `:init` must return a `(State, Command)` pair. The `Command` is executed (e.g., print welcome message), and the `State` is passed to the first `:step` call.
+- **`check` tests the shape of `:init`.** It reports `def-main-init-shape` when the type of `:init` is not a pair, when the first element does not match the state parameter of `:step`, or when the second element is not a `Command`. An `:init` whose type is not known at `check`, such as a call to a helper with no declared return type, passes, and GHC rejects a wrong shape at `build`. `:init` is also subject to the capability check of §7, like `:step`. The `cli` harness does not read `:init` and is not subject to the shape rule.
 - **`:init` is required unless the `:step`'s declared state type is `unit`.** With no `:init` the harness starts the program on `()`, so a step declaring any other state type is rejected at `check` with `def-main-init-required`. The rule applies to `console` and `http`; the `cli` harness binds no initial state and is not subject to it. A state type that is an alias of `unit` is accepted. The two repairs are to declare `:init`, or to declare the state parameter as `unit`.
 - `:step` receives the current state and one line of input (for `console`) or the OS args (for `cli`). It must return a `(NewState, Command)` pair.
 - `:done?` (optional, console only) receives the new state after each step. If it returns `true`, the loop exits.
