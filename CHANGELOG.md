@@ -4,6 +4,48 @@
 
 <a id="Latest"></a>
 
+## v0.28.2: replay is a divergence oracle, and the spec now says so (2026-10-11)
+
+### `EVENT-LOG-2`: `LLMLL.md §10a` describes the event log that ships
+
+`§10a` specified per-call value capture gated on `:deterministic true`, with recorded values injected
+on replay, and a `replayable` / `best-effort replay` status. None of it ran. The event log has
+shipped since v0.3.1 as an input log: the console harness records each turn's stdin and stdout, and
+`llmll replay` re-runs the program on the recorded inputs and compares. Measured on v0.28.1: a
+program that reads `wasi.clock.monotonic` on one turn and prints the reading on the next, with
+`:deterministic true` on the clock import, logs `"captures":[]` on every event and replays at
+`2/4 events matched` with no change to its source. §10 item 8 said that replay was bitwise
+deterministic for exactly that program. Closes `EVENT-LOG-2` (fork (b) of the absorbed
+`EVENT-CAPTURE-1`). Design: `docs/design/event-log-scope-proposal.md` Rev 2.
+
+- **`§10a` is rewritten** to state the mechanism, the guarantee (a divergence oracle over the
+  observable I/O trace, not a reproduction), and that only the console harness writes a log.
+- **What replay cannot separate.** A command whose `Response` depends on the world (clock, file,
+  environment, process, HTTP) can change a turn's output while the program stays the same, and
+  replay reports that as divergence.
+- **Format, framing, settle entry.** The JSONL `header` and `event` shapes replace the old
+  S-expression example; `captures` is always `[]` and reserved. An event spans `count('\n')+1`
+  lines (`REPLAY-FRAME-1`, v0.14.83). The terminating step's entry has result kind `none`.
+- **Two disclosed limits.** `:on-done` output is not logged. `:init` output is not logged and not
+  newline-framed, so a program whose `:init` prints fails replay at `seq 0` with no change to its
+  source (measured: `1/2 events matched`). Both repairs change shipped stdout bytes and belong to
+  `REPLAY-INJECT`.
+- **Withdrawn:** the Replayability Status table, the sentence "`:result` and `:captures` are
+  injected directly", and the `get-bytes` parse-bug note, which the §7 verb note contradicts.
+- **`:deterministic` is reserved.** §7 no longer calls it an opt-in to capture. It stays a type
+  error on a `wasi.env` or `wasi.fs` import; the §7 note now gives both reasons as a forward
+  condition, and the §13 rows cite §7 instead of §10.
+- **The two refusal diagnostics** (`env-deterministic-refused`, `fs-deterministic-refused`) no
+  longer say the flag "opts into event-log capture". They say no capture runs and name
+  `REPLAY-INJECT` as the mechanism the refusal guards. `diagKind` is unchanged.
+- **`getting-started.md`** carries a note on the `replay` limits.
+- **No schema change.** `"deterministic"` stays in the schema.
+- **Filed:** `INIT-SHAPE-1`. `check` accepts `:init 0`, which is not a `(State, Command)` pair,
+  and the build then fails in GHC.
+- **Tests:** two examples in `Spec.hs` (ER-7b, RF-T1j).
+
+Tests: 2244 examples, 0 failures (+2); Python 312 passed, 134 skipped.
+
 ## v0.28.1: a definition head rejects keys the schema does not declare (2026-10-11)
 
 ### `AST-RETURNS-KEY-1`: the JSON reader no longer drops an unknown key on a `def` or `def-shell`

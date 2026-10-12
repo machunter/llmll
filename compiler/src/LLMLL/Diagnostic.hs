@@ -400,6 +400,9 @@ mkMissingCapability func namespace =
 --
 -- The guard therefore lands BEFORE the leak rather than after it. A message
 -- claiming the flag writes a secret today would be false today.
+--
+-- EVENT-LOG-2 (v0.28.2) narrowed §10a to the shipped oracle. Both refusal
+-- messages now say so and name REPLAY-INJECT as the row the guard is for.
 -- | FS-STAT-1. The @wasi.fs@ counterpart, and the REASON IS DIFFERENT, which is
 -- why this is a second diagnostic rather than one more path on the environment
 -- one above. The environment refusal is about SECRECY: a captured environment
@@ -424,12 +427,13 @@ mkFsDeterministicRefused
   -> Diagnostic
 mkFsDeterministicRefused path =
   let msg = ":deterministic true is refused on a " <> path <> " import. "
-            <> "A deterministic capability opts into event-log capture of a "
-            <> "command's return value (LLMLL.md 10a), and wasi.fs.stat "
-            <> "differences the wall clock against a file's modification time, "
-            <> "so it returns a different value on a later run over an "
-            <> "unchanged tree. The flag would claim replay determinism over an "
-            <> "operation that does not have it."
+            <> "No capture runs today (LLMLL.md 10a). The refusal guards "
+            <> "REPLAY-INJECT: if capture is built, the flag would mark this "
+            <> "capability's return values as replayable from the log, and "
+            <> "wasi.fs.stat differences the wall clock against a file's "
+            <> "modification time, so it returns a different value on a later "
+            <> "run over an unchanged tree. The flag would claim replay "
+            <> "determinism over an operation that does not have it."
       suggestion = "Use (capability read \"...\" :deterministic false), or omit "
                    <> "the flag entirely."
   in (mkError Nothing msg)
@@ -442,11 +446,10 @@ mkEnvDeterministicRefused
   -> Diagnostic
 mkEnvDeterministicRefused path =
   let msg = ":deterministic true is refused on a " <> path <> " import. "
-            <> "A deterministic capability opts into event-log capture of a "
-            <> "command's return value (LLMLL.md 10a), and the environment "
-            <> "carries credentials by convention, so a captured environment "
-            <> "read would write a secret to <module>.event-log.jsonl in "
-            <> "plaintext. This is refused rather than defaulted, because a "
+            <> "No capture runs today (LLMLL.md 10a). The refusal guards "
+            <> "REPLAY-INJECT: if capture is built, a captured environment read "
+            <> "would write a secret to <module>.event-log.jsonl in plaintext, "
+            <> "because the environment carries credentials by convention. This is refused rather than defaulted, because a "
             <> "default that fails open writes a secret whenever a clock import "
             <> "is copied. Redaction of a captured value is a separate proposal."
       suggestion = "Use (capability read \"...\" :deterministic false), or omit "

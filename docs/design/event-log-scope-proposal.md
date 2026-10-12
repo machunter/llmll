@@ -1,7 +1,7 @@
 ---
 name: event-log-scope-proposal
 title: "EVENT-LOG-2: the event log is an I/O-trace divergence oracle, and §10a describes a different mechanism"
-status: "Rev 1, PARTIALLY DISCHARGED. Rev 1 folds what the DRIVER-LL Phase 3 port measured and what shipped in response, adding two items to the proposed §10a resolution: the LINE-FRAMING CONTRACT (a turn's wire bytes are `output ++ \"\\n\"`, so an event is `count('\\n')+1` lines and not one, which `Replay.replayOne` had assumed since the log existed) and the SETTLE ENTRY'S `none` RESULT KIND (RC-4 performs no command, so the prior `stdout` entry claimed an output that was never produced). Both landed unreleased on `driver-ll/phase-3-stage-j`. The framing defect is the one worth the spec text: an output ending in a newline matched at its own event, then desynchronized and reported the divergence against the FOLLOWING event, so the oracle could blame the wrong turn. Rev 1 also records the A2 limit as a disclosure `§10a` owes: `:on-done`'s output is outside the capture, so a green replay is not evidence it ran. Rev 0, PARTIALLY DISCHARGED. Adjudicates a four-part drift between LLMLL.md §10a and the shipped event log. Recommends that §10a narrow to the shipped mechanism (zero in-tree cost: no program declares :deterministic true) and that the specified-but-unbuilt injection mechanism be preserved as its own unscheduled row, because EFFECT-RESP RC-1 degrades the shipped oracle and injection is its named repair. Routed from documentation-lead 2026-08-02, who declined to write a roadmap row on a premise that did not survive verification. DISCHARGED 2026-08-02: Affected-surface items 2 and 3 are applied. The roadmap carries EVENT-LOG-2 [SPEC] and REPLAY-INJECT [CT] as separate rows in the Open work (v0.12+) table, and the v0.8.0-versus-v0.3.1 attribution is corrected by an appended note in Shipped Releases rather than by editing the shipped rows, that section being append-only. STILL OPEN BY DESIGN: item 1, the six-point §10a narrowing (doc-lead, spec-track, the action EVENT-LOG-2 closes on) and item 4, retiring ReplayStatus (compiler, rides REPLAY-INJECT or standalone cleanup). Item 5 stands: no schema delta."
+status: "Rev 2, SETTLED; mixed-track (spec, plus two diagnostic messages). Rev 2 re-measures every claim at `llmll 0.28.1` / `653ed1b8`. The adjudication does not change: §10a narrows and the code does not move. Three premises moved. `:deterministic` now has two consumers: TypeCheck refuses it on `wasi.env` (ENV-READ-1) and on `wasi.fs` (FS-STAT-1), so the flag is reserved, not inert. Rev 1 items 7 and 8 (line framing, the `none` result kind) shipped, so §10a states them as fact. The EFFECT-RESP degradation is now measured: an unchanged clock program replays at 2/4 events matched. Rev 2 adds two disclosures (world-dependent responses; unlogged, unframed `:init` output) and one strike (the §10a `get-bytes` parse note, which the §7 verb note contradicts). The section \"Rev 2: the §10a resolution\" supersedes the Rev 1 \"Proposed §10a text shape\". One small compiler change rides the doc pass: the two refusal diagnostics (`mkEnvDeterministicRefused`, `mkFsDeterministicRefused`) state capture in the present tense and cite §10a, so their message text moves to the conditional reason. W-REPLAY-INERT and the ReplayStatus retirement stay with REPLAY-INJECT. Rev 1, PARTIALLY DISCHARGED. Rev 1 folds what the DRIVER-LL Phase 3 port measured and what shipped in response, adding two items to the proposed §10a resolution: the LINE-FRAMING CONTRACT (a turn's wire bytes are `output ++ \"\\n\"`, so an event is `count('\\n')+1` lines and not one, which `Replay.replayOne` had assumed since the log existed) and the SETTLE ENTRY'S `none` RESULT KIND (RC-4 performs no command, so the prior `stdout` entry claimed an output that was never produced). Both landed unreleased on `driver-ll/phase-3-stage-j`. The framing defect is the one worth the spec text: an output ending in a newline matched at its own event, then desynchronized and reported the divergence against the FOLLOWING event, so the oracle could blame the wrong turn. Rev 1 also records the A2 limit as a disclosure `§10a` owes: `:on-done`'s output is outside the capture, so a green replay is not evidence it ran. Rev 0, PARTIALLY DISCHARGED. Adjudicates a four-part drift between LLMLL.md §10a and the shipped event log. Recommends that §10a narrow to the shipped mechanism (zero in-tree cost: no program declares :deterministic true) and that the specified-but-unbuilt injection mechanism be preserved as its own unscheduled row, because EFFECT-RESP RC-1 degrades the shipped oracle and injection is its named repair. Routed from documentation-lead 2026-08-02, who declined to write a roadmap row on a premise that did not survive verification. DISCHARGED 2026-08-02: Affected-surface items 2 and 3 are applied. The roadmap carries EVENT-LOG-2 [SPEC] and REPLAY-INJECT [CT] as separate rows in the Open work (v0.12+) table, and the v0.8.0-versus-v0.3.1 attribution is corrected by an appended note in Shipped Releases rather than by editing the shipped rows, that section being append-only. STILL OPEN BY DESIGN: item 1, the six-point §10a narrowing (doc-lead, spec-track, the action EVENT-LOG-2 closes on) and item 4, retiring ReplayStatus (compiler, rides REPLAY-INJECT or standalone cleanup). Item 5 stands: no schema delta."
 date: 2026-08-02
 author: language-team
 consumers: [compiler-engineer, professor, documentation-lead, user]
@@ -13,6 +13,205 @@ consumers: [compiler-engineer, professor, documentation-lead, user]
 specifies per-call value capture with injection replay gated on `:deterministic true`; the two are
 different mechanisms with different guarantees, and only the spec is describing something that does
 not run.
+
+## Rev 2: re-measured at `llmll 0.28.1` / `653ed1b8` (2026-10-11)
+
+Rev 2 does not change the adjudication. The roadmap row `EVENT-LOG-2` records it as "§10a narrows,
+the code does not move", and `EVENT-CAPTURE-1` fork (b) is absorbed into it. Rev 2 re-measures each
+premise of Rev 1 after fourteen minor releases. This section and "Rev 2: the §10a resolution" are
+the current record. Where the Rev 0 and Rev 1 sections below disagree with them, these sections
+apply. The line numbers in the Rev 0 and Rev 1 sections are from `65a08c7` and are not refreshed.
+
+### What moved since Rev 1
+
+1. **`:deterministic` now has two consumers.** The `SImport` clause in `TypeCheck.hs` refuses
+   `:deterministic true` on a `wasi.env` import (ENV-READ-1, `mkEnvDeterministicRefused`) and on a
+   `wasi.fs` import (FS-STAT-1, `mkFsDeterministicRefused`). The Rev 0 statement "consulted by
+   nothing" is therefore incorrect. Both refusals take their reason from the present-tense capture
+   sentence in §10a. The source comment above `mkEnvDeterministicRefused` says the message "states a
+   forward condition and not a live leak". The message text does not: both messages say "A
+   deterministic capability opts into event-log capture of a command's return value (LLMLL.md 10a)".
+   That is the same present-tense claim, and after the narrowing it cites a §10a that no longer
+   makes it.
+2. **Rev 1 items 7 and 8 shipped.** `Replay.expectedLineCount` reads `count('\n') + 1` lines per
+   event (REPLAY-FRAME-1). The settle entry writes `"kind":"none"` (`emitMainBody` for
+   `ModeConsole` in `CodegenHs.hs`). §10a can state both as shipped behavior.
+3. **Census.** No tracked program declares an accepted `:deterministic true`. The one match is
+   `compiler/test/fixtures/resp-fact/fs-deterministic.llmll`, a negative fixture that expects the
+   FS-STAT-1 type error. Two comment lines also match. 146 declarations write `false`.
+4. **The mode restriction holds.** Only `emitMainBody ModeConsole` opens the log handle.
+5. **Rev 0 affected-surface item 3 is done.** The roadmap carries the v0.8.0 attribution note under
+   Shipped Releases.
+6. **New drift.** §10a says "`get-bytes` currently fails to parse (fix in progress)". The §7 note
+   "The verbs the parser names" says `get-bytes` parses and checks clean. The §10a note is
+   incorrect.
+7. **New drift.** The §13 rows for `wasi.fs.stat` and `wasi.env.get` say the refusal is a type error
+   "(§10)". The refusal note is in §7.
+
+### Witnesses, built and run on `llmll 0.28.1`
+
+**Clock witness.** It falsifies §10 item 8 and is the first measurement of "The EFFECT-RESP
+interaction" below.
+
+```lisp
+(import wasi.io    (capability stdout :deterministic false))
+(import wasi.clock (capability read :deterministic true))
+
+;; Odd turns read the clock; even turns print the reading the previous turn produced.
+(def-shell clock-step [s: int input: string r: Response]
+  (match r
+    ((RCode n) (pair (+ s 1) (wasi.io.stdout (int-to-string n))))
+    (_         (pair (+ s 1) wasi.clock.monotonic))))
+
+(def-main :mode console
+  :init (pair 0 wasi.clock.monotonic)
+  :step clock-step)
+```
+
+Input `a b c d`. `llmll check` passes. All four events log `"captures":[]`. `llmll replay` of the
+**unchanged** program reports `2/4 events matched`, with divergence at `seq 0` and `seq 2`, the two
+events that print a clock reading. The flag is accepted and has no effect.
+
+**`:init` witness.** It shows a gap that Rev 1 did not name.
+
+```lisp
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell echo-step [s: int input: string r: Response]
+  (pair (+ s 1) (wasi.io.stdout input)))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout "welcome"))
+  :step echo-step)
+```
+
+Input `a b`. Live stdout is `welcomea` then `b`. The log records `"a"` at `seq 0`. `llmll replay`
+of the **unchanged** program reports `1/2 events matched`, `DIVERGE seq 0: expected="a"
+actual="welcomea"`. The output of the `:init` command is not logged. It also has no newline
+framing, so it joins the output of the first turn.
+
+## Rev 2: the §10a resolution
+
+This list supersedes the Rev 1 "Proposed §10a text shape". It is the resolution that the spec must
+state. The prose belongs to documentation-lead.
+
+1. **Mechanism.** In `:mode console`, the runtime writes `<module>.event-log.jsonl`. The file has a
+   header line and one event for each loop turn. Each event records `(input, result)`.
+   `llmll replay FILE LOG` rebuilds the program, runs it again on the recorded inputs, and reports
+   match or divergence for each event.
+2. **Guarantee.** Replay is a divergence oracle over the observable I/O trace. It detects a change
+   in observable behavior. It does not reproduce a run, because each command runs again for real
+   on replay.
+3. **What replay cannot separate (now measured).** Under the response channel (§9.7), the output
+   of a turn can depend on the `Response` of a command. A clock read, a file read, an environment
+   read, a process run, or an HTTP call can change the output while the program stays the same.
+   Replay reports this as divergence. State it as a general rule about commands whose response
+   depends on the world. Do not list the sources: Rev 0 listed three, and the list became
+   incorrect when `wasi.env.get` shipped. Use the clock witness as the example.
+4. **Mode restriction.** "Only the console harness writes a log." This wording stays true for each
+   possible result of MODE-CLI-1 and MODE-HTTP-1.
+5. **`:deterministic` is reserved (changed from Rev 1 "inert").** The flag is parsed and carried
+   through the JSON-AST. It causes no capture and no injection. It is a type error on a `wasi.env`
+   import and on a `wasi.fs` import. These refusals stay. Their reason becomes conditional: if
+   capture is built (REPLAY-INJECT), the flag on `wasi.env` would write a secret to the log, and on
+   `wasi.fs` it would claim determinism for `stat`, which reads the clock. The §7 refusal note
+   changes from "§10a captures" to this conditional reason, and gains the `wasi.fs` reason. The §7
+   flag paragraph stops calling the flag an opt-in to capture. The two refusal diagnostics change in
+   the same way (compiler, see "Rev 2 affected surface").
+6. **§10 item 8 is rewritten.** The clock witness falsifies its claim of bitwise-deterministic
+   replay. It becomes one sentence that points to items 1 to 3.
+7. **The Sources of Non-Determinism table is relabelled.** The "Runtime Fix" column becomes "known,
+   not addressed". The clock and PRNG rows describe the REPLAY-INJECT design, not shipped behavior.
+8. **The Replayability Status table is withdrawn** (as in Rev 1). Nothing computes it.
+9. **The event format example is replaced** with the real JSONL shape: a `header` line, then
+   `event` lines with `seq`, `input`, `result`, and `captures`. `captures` is always `[]`. It stays
+   in the format so that REPLAY-INJECT can fill it without a format change. The sentence
+   "`:result` and `:captures` are injected directly" is removed.
+10. **Line framing (Rev 1 item 7, shipped).** The wire bytes of a turn are `output ++ "\n"`. An
+    event therefore occupies `count('\n', output) + 1` lines.
+11. **The settle entry has result kind `none`** (Rev 1 item 8, shipped).
+12. **Two disclosures.**
+    - The output of `:on-done` is outside the log (Rev 1). A passing replay is not evidence that
+      `:on-done` ran.
+    - The output of the `:init` command is not logged and has no newline framing (Rev 2). It joins
+      the output of the first turn. Thus a program whose `:init` prints fails replay at `seq 0`
+      when the program is unchanged.
+
+    The repair for each changes the stdout bytes of shipped programs. Both repairs stay with
+    REPLAY-INJECT.
+13. **Remove the §10a `get-bytes` parse note.** The §7 verb note contradicts it.
+
+No schema delta. `"deterministic"` stays in the schema.
+
+### Rev 2 edge cases
+
+1. **Positive witness for item 3: the clock witness.** The unchanged program gives `2/4 events
+   matched`. The narrowed text predicts this. The current §10 item 8 denies it. Channel: none.
+   Replay is a runtime oracle, not a verification channel. The spec is silent today (gap, closed
+   by item 3).
+2. **`:deterministic true` on `wasi.clock`.** Accepted, with no effect. The narrowed text calls it
+   reserved. The clock witness is also the firing witness for `W-REPLAY-INERT`. The in-tree
+   population is zero, so the warning stays with REPLAY-INJECT.
+3. **`:deterministic true` on `wasi.env` or `wasi.fs`.** Type error, unchanged. Channel: type. The
+   text must keep the refusal and replace its reason (item 5). If the reason is removed and not
+   replaced, the refusal looks arbitrary.
+4. **A program whose `:init` prints: the `:init` witness.** It fails replay at `seq 0` when
+   unchanged. Disclosed by item 12, not repaired. The spec is silent today (gap).
+5. **`:mode cli` or `:mode http`.** No log file. `llmll replay` has no input. The spec is silent
+   today (gap, closed by item 4).
+
+### Rev 2 verification mapping
+
+No proof obligations. This is a spec-only narrowing. Replay is a runtime divergence oracle outside
+the three verification channels. `LLMLL.md §5.3.3` and `§5.3.5` do not cite it, and nothing in the
+trust closure depends on it.
+
+### Rev 2 affected surface
+
+1. **`LLMLL.md`** (documentation-lead):
+   - §7: the `:deterministic` flag paragraph and the refusal note (item 5).
+   - §13: the `wasi.fs.stat` and `wasi.env.get` rows cite "(§10)" for the refusal; change to §7.
+   - §8.1: the example with `stdin :deterministic true` still checks clean and is not false under
+     the narrowing. Leave it; doc-lead does not edit examples.
+   - §10 item 8 (item 6).
+   - §10a in full (items 1 to 13).
+2. **`docs/compiler-team-roadmap.md`:**
+   - Close `EVENT-LOG-2` on the doc pass.
+   - `REPLAY-INJECT`: replace "still unmeasured" with the clock witness result. Add the `:init`
+     framing gap beside the `:on-done` gap.
+   - File a new G3 `[CT]` row for the incidental finding below (suggested tag `INIT-SHAPE-1`).
+3. **One small compiler change (compiler-engineer).** `mkEnvDeterministicRefused` and
+   `mkFsDeterministicRefused` in `Diagnostic.hs`: the message text states the reason as a forward
+   condition ("if a capture mechanism is built, ...") and stops claiming that the flag opts into
+   capture. `diagKind` does not change. ER-7 in `Spec.hs` asserts "separate proposal", so the
+   environment message keeps that phrase. The `ReplayStatus` retirement (`Syntax.hs`) stays a
+   REPLAY-INJECT sub-item.
+4. No standalone review file exists for this proposal, so there is no fold or archive.
+
+### Rev 2 risks
+
+1. **Incidental finding, outside this row: `check` accepts a `:init` that is not a pair.**
+   Classification: spec drift, G3 shape. `:init 0` passes `llmll check`. LLMLL.md §9.5 requires
+   `:init` to return a `(State, Command)` pair, and GHC rejects the generated `Main.hs`
+   (`Couldn't match expected type 'Integer' with actual type '(a, b)'`). No roadmap row covers it.
+   It does not block this row.
+2. **The refusals lose their present-tense reason.** Classification: spec drift. If the conditional
+   reason in item 5 is weak, a reader can conclude that the refusals can be removed. Keep them as
+   forward guards, as `Diagnostic.hs` already says.
+3. **A smaller claim can read as a regression.** Classification: scope. No shipped behavior
+   changes.
+
+No professor question. The Rev 1 question (input logging against value logging) does not change
+what gets written, and the measurement now gives the guarantee.
+
+### Hand-off to documentation-lead (spec-track)
+
+(a) `docs/design/event-log-scope-proposal.md`. (b) Settled revision: Rev 2. (c) No standalone
+review file exists, so M2 does not apply. (d) Mixed-track. Engineer summary: reword the two
+refusal messages, with no `diagKind` change. Doc-lead summary: apply "Rev 2: the §10a resolution"
+to `LLMLL.md` §7, §10 item 8, §10a, and the two §13 cross-references. Close `EVENT-LOG-2`. Update `REPLAY-INJECT` with the clock
+measurement and the `:init` gap. File `INIT-SHAPE-1` in G3. Change the INDEX label to Rev 2,
+SETTLED.
 
 ## Background
 
@@ -103,6 +302,8 @@ on `EventLogEntry`, and a replay mode that swaps effect implementations for log 
 larger surface than EFFECT-RESP, and no DRIVER-LL phase is blocked on it.
 
 ## Proposed §10a text shape
+
+**Superseded by "Rev 2: the §10a resolution" above.** Kept as the Rev 0 and Rev 1 record.
 
 Not verbatim spec prose, which is documentation-lead's slot. This is the resolution the narrowed
 section must state.
