@@ -2187,10 +2187,14 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
   -- Type-check the step and done? expressions
   stepTy <- inferExpr stepE
   checkStepArity mode stepTy
-  checkInitRequired mode mInit stepTy
-  mapM_ (checkInitShape mode stepTy) mInit
+  checkInitRequired mInit stepTy
+  mapM_ (checkInitShape stepTy) mInit
   case doneE of
-    Nothing -> pure ()
+    -- MODE-CLI-1: the cli loop reads no stdin, so :done? is its only exit.
+    -- Without it the program cannot terminate except by a crash.
+    Nothing -> when (mode == ModeCli) $
+      tcErrorK "def-main-done-required"
+        ":mode cli requires :done?: it is the only exit of the cli loop, which does not read stdin (MODE-CLI-1)."
     Just de -> do
       -- DONE-TYPE-1: :done? names a FUNCTION, so compare its RETURN position
       -- against bool, as 'checkStatusField' does for :status. Comparing the
@@ -2203,13 +2207,17 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
                     TFn _ r -> expandAlias r
                     other   -> pure other
       doneOk   <- compatibleExpanded retTy TBool
-      unless doneOk $
-        tcWarn ":done? should return bool; found a non-bool return type"
+      -- MODE-CLI-1 (amendment 2): an error in cli, where :done? is the only
+      -- exit; a warning in console, as before, where stdin EOF also exits.
+      unless doneOk $ case mode of
+        ModeCli     -> tcErrorK "def-main-done-type"
+          ":done? must return bool in :mode cli, where it is the only exit of the loop; found a non-bool return type (MODE-CLI-1)."
+        ModeConsole -> tcWarn ":done? should return bool; found a non-bool return type"
   checkStatusField mode doneE statusE
 
 -- | PROC-BOUNDARY-1 §4: the @:status@ field's check-time surface.
 --
--- Three diagnostics, all warnings and none an error, because @:status@ is
+-- Two diagnostics (three before MODE-CLI-1), all warnings and none an error, because @:status@ is
 -- additive and no shipped program declares it: a hard error here could only
 -- fire on a program written after this ships, and the design's own gap case
 -- (§6.6) names @tcWarn@ as the in-scope move.
@@ -2232,11 +2240,10 @@ checkStatement (SDefMain { defMainMode = mode, defMainInit = mInit, defMainStep 
 checkStatusField :: EntryMode -> Maybe Expr -> Maybe Expr -> TC ()
 checkStatusField _    _     Nothing   = pure ()
 checkStatusField mode mDone (Just se) = do
-  -- §4: the field is meaningful only where a :done? path exists to apply it on.
-  -- cli and http harnesses perform no Command and have no terminal state to
-  -- project, so :status there is dead surface.
-  unless (mode == ModeConsole) $
-    tcWarn ":status applies only to :mode console; it is ignored in cli and http mode"
+  -- MODE-CLI-1 (amendment 3): the ":status applies only to :mode console"
+  -- warning is deleted. The cli harness now applies :status on its :done?
+  -- path, and with ModeHttp removed the warning's guard could never fire.
+  --
   -- §6.6, the gap the proposal flags: with no :done? the settle path is
   -- unreachable, the only exit is stdin exhaustion, and exhaustion does NOT
   -- consult :status (§4.3). The projection is therefore dead code, and a
@@ -2248,6 +2255,7 @@ checkStatusField mode mDone (Just se) = do
   -- :done? has no notion of completion, so EOF is normal termination rather
   -- than starvation. That makes this warning MORE worth emitting, not less --
   -- the author asked for an exit status and will silently get 0 every run.
+  -- In cli, a missing :done? is already the error def-main-done-required.
   when (mode == ModeConsole && not (isJust mDone)) $
     tcWarn ":status without :done? is dead: the only exit is stdin exhaustion, \
            \which is normal termination here and exits 0 without consulting \
@@ -2279,9 +2287,11 @@ checkStatusField mode mDone (Just se) = do
 -- migrate. The return shape is already enforced where it can be: codegen
 -- destructures the pair, and 'expectPairType' covers the do-notation path.
 --
--- cli and http modes are untouched. Their harnesses perform no command
--- (CodegenHs 'emitMainBody' ModeCli prints the step's result and ModeHttp is an
--- error stub), so there is no response to deliver and no arity to change.
+-- MODE-CLI-1: the cli harness performs commands too, and has no stdin, so its
+-- step takes @(S, Response)@. The same parameter-list-only rule applies, with
+-- two parameters and the second compatible with Response. A one-parameter step
+-- (the old @print (step args)@ shape) and a three-parameter console-shaped
+-- step are both rejected here rather than at GHC.
 checkStepArity :: EntryMode -> Type -> TC ()
 checkStepArity ModeConsole stepTy = do
   resolved <- expandAlias stepTy
@@ -2305,13 +2315,32 @@ checkStepArity ModeConsole stepTy = do
            Nothing -> ""
       <> ". Each performed command yields one Response, delivered as the next "
       <> "step's third argument (EFFECT-RESP RC-1)."
-checkStepArity _ _ = pure ()
+checkStepArity ModeCli stepTy = do
+  resolved <- expandAlias stepTy
+  case resolved of
+    TFn ps _
+      | length ps == 2 -> do
+          secondOk <- compatibleExpanded (ps !! 1) (TCustom "Response")
+          unless secondOk $ arityError (Just (ps !! 1)) (length ps)
+      | otherwise -> arityError Nothing (length ps)
+    -- Hole or ill-typed :step: already diagnosed by 'inferExpr'.
+    _ -> pure ()
+  where
+    arityError mSecond n = tcErrorK "def-main-step-arity" $
+      ":step of a cli def-main must take two parameters "
+      <> "(state, response: Response) and return (state, Command); found "
+      <> tshow n <> " parameter" <> (if n == 1 then "" else "s")
+      <> case mSecond of
+           Just t  -> ", whose second is " <> typeLabel t <> " rather than Response"
+           Nothing -> ""
+      <> ". The cli loop reads no stdin; each performed command yields one "
+      <> "Response, delivered as the next step's second argument (MODE-CLI-1)."
 
 -- | CONSOLE-INIT-1: @:init@ is required unless the state type is @unit@.
 --
 -- 'emitMainBody' binds @state0 = ()@ when @:init@ is absent, in both the
--- ModeConsole and the ModeHttp clause, and it does that whatever type the step
--- declared for its state. Without this check a program can declare @string@ and
+-- ModeConsole and the ModeCli clause (MODE-CLI-1), and it does that whatever
+-- type the step declared for its state. Without this check a program can declare @string@ and
 -- run on @()@.
 --
 -- THE SILENT CASE IS THE WORSE ONE. Generated definitions carry no type
@@ -2333,9 +2362,8 @@ checkStepArity _ _ = pure ()
 -- makes a parameter type mandatory, so a declared state type is never a 'TVar'
 -- today. The positive test is what keeps that true if either fact changes.
 --
--- ModeCli is excluded by its own clause rather than by omission: 'emitMainBody'
--- ModeCli emits @print (step args)@ and binds no @state0@, so that harness has
--- no state to get wrong.
+-- MODE-CLI-1: the rule applies to every mode. The cli harness binds
+-- @state0@ exactly as the console one does, so the mode parameter is gone.
 --
 -- THE SECOND 'expandAlias' IS IDEMPOTENT TODAY, AND IT IS KEPT ON PURPOSE.
 -- 'expandAlias' recurses into @TFn args ret@, so the outer call has already
@@ -2345,10 +2373,9 @@ checkStepArity _ _ = pure ()
 -- would arrive as @TCustom@, compare unequal to 'TUnit', and REJECT a correct
 -- program. The alias pair in the test block decides the behaviour either way:
 -- an alias OF unit is accepted, and an alias of a non-unit type is rejected.
-checkInitRequired :: EntryMode -> Maybe Expr -> Type -> TC ()
-checkInitRequired _       (Just _) _      = pure ()
-checkInitRequired ModeCli Nothing  _      = pure ()
-checkInitRequired _       Nothing  stepTy = do
+checkInitRequired :: Maybe Expr -> Type -> TC ()
+checkInitRequired (Just _) _      = pure ()
+checkInitRequired Nothing  stepTy = do
   resolved <- expandAlias stepTy
   case resolved of
     TFn (p0 : _) _ -> do
@@ -2384,16 +2411,15 @@ checkInitRequired _       Nothing  stepTy = do
 -- such as @(boot)@ infers a variable, and rejecting it would reject correct
 -- programs. That gap is disclosed; annotating the helper closes it.
 --
--- ModeCli is skipped for the shape test only. Its harness emits
--- @print (step args)@ and never reads @:init@, so there is no state to agree
--- with. The expression is still inferred. MODE-CLI-1 removes this exemption.
-checkInitShape :: EntryMode -> Type -> Expr -> TC ()
-checkInitShape mode stepTy ini = do
+-- MODE-CLI-1 removed the cli exemption: the cli harness performs @:init@'s
+-- command and passes its state to the first @:step@, as console does, so the
+-- shape test applies to every mode and the mode parameter is gone.
+checkInitShape :: Type -> Expr -> TC ()
+checkInitShape stepTy ini = do
   initTy <- inferExpr ini >>= expandAlias
-  case (mode, initTy) of
-    (ModeCli, _)      -> pure ()
-    (_, TVar _)       -> pure ()
-    (_, TPair a b)    -> do
+  case initTy of
+    TVar _       -> pure ()
+    TPair a b    -> do
       stepRes <- expandAlias stepTy
       stateOk <- case stepRes of
         TFn (p0 : _) _ -> compatibleExpanded a p0
@@ -2404,7 +2430,7 @@ checkInitShape mode stepTy ini = do
         <> stateLabel stepRes
       unless cmdOk $ shapeError $
         "its second element is " <> typeLabel b <> ", not a Command"
-    (_, other)        -> shapeError $ "its type is " <> typeLabel other <> ", not a pair"
+    other        -> shapeError $ "its type is " <> typeLabel other <> ", not a pair"
   where
     stateLabel (TFn (p0 : _) _) = typeLabel p0
     stateLabel _                = "unknown"

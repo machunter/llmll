@@ -4,6 +4,46 @@
 
 <a id="Latest"></a>
 
+## v0.29.0: `:mode cli` performs commands, and `:mode http` is gone (2026-10-12)
+
+### `MODE-CLI-1`: `cli` is the console harness without stdin
+
+`:mode cli` printed the result of a pure function of the argument list and performed no command, and
+the `cli` shape `LLMLL.md §9.5` documented did not build. No tracked program used it. The harness now
+performs `:init`'s command, then calls `:step` with the state and the last `Response` until `:done?`
+holds; the command of the terminating step is not performed, `:on-done` runs, and the process exits
+with `:status` (0 if absent). It reads no stdin and writes no event log. Arguments come from
+`wasi.proc.args`, as in console. Design: `docs/design/entry-mode-settlement-proposal.md` Rev 1. Closes
+`MODE-CLI-1`.
+
+- **`:step` is `(State, Response) -> (State, Command)`.** Any other arity is `def-main-step-arity`.
+- **`:done?` is required** (`def-main-done-required`) **and must return `bool`** (`def-main-done-type`).
+  In console a non-bool `:done?` stays a warning.
+- **`:init` follows the console rules.** `def-main-init-required` and `def-main-init-shape` now apply
+  to cli.
+- **The loop is unbounded, and the trust report says so.** A cli program's report carries the
+  top-level `unbounded_entry_loop: true` and one text line, and lists the three EFFECT-RESP harness
+  assumptions with the prefix `cli harness`. `trust_report_version` 1.9.0. A step limit is a counter
+  in the state that `:done?` reads (`LLMLL.md §9.5`); a `(decreases …)` measure on the loop is parked
+  as `LOOP-MEASURE-1`.
+- **The `:status`-only-in-console warning is gone**, since every remaining mode honours `:status`.
+
+### `MODE-HTTP-1`: the `http` stub is removed
+
+`:mode http` passed `check` and `build`, and the built program exited 1 with
+`http mode: wire warp in package.yaml and uncomment above`. It is now a parse error:
+`:mode http is not supported: no HTTP server harness exists. Outbound HTTP calls are wasi.http.*
+commands from a console or cli program. The server design is tracked as HTTP-SERVE-1.` A JSON `mode`
+that is not `"console"` or `"cli"` is a decode error (`def-main: unknown mode "consoel"; the accepted
+values are "console" and "cli"`); before, it became an HTTP program. Closes `MODE-HTTP-1`; the server
+use case is parked as `HTTP-SERVE-1`.
+
+- **Schema 0.12.0.** `DefMain.mode` is the enum `["console", "cli"]`; the http object is removed. The
+  reader still accepts 0.6.0 to 0.11.0.
+
+Census: 81 tracked programs with a `def-main`, checked before and after; none changed. 2267 examples,
+0 failures (+14). Python: 312 passed; 442 with `LLMLL_BIN` set (+1).
+
 ## v0.28.3: `check` type-checks `:init` (2026-10-12)
 
 ### `INIT-SHAPE-1`: `:init` is checked against `(State, Command)`

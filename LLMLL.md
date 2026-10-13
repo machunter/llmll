@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.28.3)
+# LLMLL: Large Language Model Logical Language (v0.29.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.28.3.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.29.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -635,6 +635,8 @@ Use `--trust-report --json` for machine-readable JSON output suitable for CI or 
 **`termination_unverified` — the partiality marker.** Every function in a recursive call-graph cycle (a cyclic SCC over the whole-program call graph, entry plus cached modules) carries a per-entry `termination_unverified: true` flag, and the report gains a top-level `partial_fns` list of these names. The graph is module-qualified, the same one `termination_assumed_fns` reads: a cached member is named `m.f`, two modules' same-named functions are two nodes, and a function used as a value (`(list-fold xs acc g)`) is an edge unless a binder in scope shadows its name. Like `refuted` / `overflow_tainted`, it is an **orthogonal informational marker**, not a `DisplayLevel` element: it is **derived at report-build time** from the call graph — never persisted to the sidecar — so it is present even on a solver-less `--trust-report` render (unlike `refuted_fns`, which is verify-time only). It does not feed `evidenceMeet`, the effective level, `refutedClosure`, or strict-core admission; a recursive `def-shell` keeps whatever tier its body VC earned (typically `verified` post at partial correctness) and simply carries the flag. It marks that termination is unverified for the cycle, per the §4.2 partial-correctness caveat; strict descent under a discharging `(decreases …)` clause (§4.2) discharges it. `termination_unverified` arrived at `trust_report_version` `1.5.0`; the module-qualified graph and the function-value edge arrived at `1.8.0`.
 
 **`termination_assumed`: the callers of an undischarged cycle.** `partial_fns` lists cycle members only, and a function that calls a cycle is proved at partial correctness too. The report therefore also carries a top-level `termination_assumed_fns` list of `{name, via}` objects and a per-entry `termination_assumed: true` flag (only-on-true): every contracted function that reaches an undischarged cycle over the whole-program call graph (entry plus cached modules, names module-qualified), including the cycle members (each its own `via`) and callers in other modules. The text report lists the callers under "Proved only if a called function terminates". Like `termination_unverified` it is an informational marker and does not feed `evidenceMeet`, the effective level, or strict-core admission. It is the same set the `verify` headline names (§5.3). `termination_assumed_fns` arrived at `trust_report_version` `1.7.0`.
+
+**`unbounded_entry_loop`: the `cli` harness loop.** A program whose `def-main` is `:mode cli` runs until `:done?` holds, and nothing checks that it does (§9.5). Its report carries the top-level `unbounded_entry_loop: true` (only-on-true), and the text report prints `Entry loop: :mode cli runs until :done? holds; its termination is not checked (unbounded_entry_loop).` under its heading. It is not a `partial_fns` entry: that list names call-graph cycle members and `termination_assumed_fns` derives its callers from it, while the `cli` loop lives in the harness. Like `termination_unverified` it is derived at report-build time, never persisted, and does not feed `evidenceMeet`, the effective level or strict-core admission. The same report lists the three EFFECT-RESP harness assumptions under `harness_assumptions` with the prefix `cli harness`, because the `cli` harness delivers responses as the console harness does. `unbounded_entry_loop` arrived at `trust_report_version` `1.9.0`.
 
 **`body_fallback` — the body-refusal marker.** A function whose body the emitter refused carries a per-entry `body_fallback` object with two fields: `cause`, one value of the closed `fallback_reason` vocabulary, and `constructs`, a closed label set naming what refused the body. In the text report it sits on the post line, as `post: asserted   [body_fallback: body-outside-fragment; match-wildcard-payload]`. It exists because `asserted` alone merges two different states: *`verify` ran and the emitter refused this body* and *nothing ever examined this function*. The lattice has no element for the first state, so the marker reports it.
 
@@ -1629,36 +1631,38 @@ The LLMLL host runtime processes each `Command` as follows:
 
 ```lisp
 (def-main
-  :mode    (console | cli | http PORT)   ;; required, selects the harness template
+  :mode    (console | cli)               ;; required, selects the harness template
   :init    init-expr                      ;; returns (State, Command) pair
                                           ;; required unless the state type is unit
   :step    step-fn                        ;; console: (State, string, Response) -> (State, Command)
-  :done?   done-pred                      ;; State -> Bool (optional; console only)
+                                          ;; cli:     (State, Response) -> (State, Command)
+  :done?   done-pred                      ;; State -> Bool (optional in console; required in cli)
   :on-done on-done-fn                     ;; State -> Command (optional)
-  :status  status-fn)                     ;; State -> int (optional; console only)
+  :status  status-fn)                     ;; State -> int (optional)
 ```
 
 Fields are parsed in the order shown. Every optional field is read sequentially, so a `def-main` that
 writes `:on-done` ahead of `:done?`, or `:status` ahead of `:on-done`, does not parse.
 
-A console `:step` takes **three** parameters. Declaring two, one, or a wrong third type is rejected with `def-main-step-arity`. The `cli` and `http` harnesses perform no command and so deliver no response; their `:step` is unchanged at `(State, string) -> (State, Command)`.
+A console `:step` takes **three** parameters, `(State, string, Response)`. A `cli` `:step` takes **two**, `(State, Response)`, because it reads no input line. Any other arity, or a `Response` parameter of the wrong type, is rejected with `def-main-step-arity`.
+
+`:mode http` is not a mode. It is a parse error that names `HTTP-SERVE-1`, the parked design for a server harness; outbound HTTP calls are `wasi.http.*` commands from a `console` or `cli` program.
 
 #### Modes
 
 | Mode | Harness behaviour |
 |------|-------------------|
 | `console` | Interactive loop: `:init` creates state + welcome message, then loops on stdin calling `:step` until `:done?` returns `true`. When `:on-done` is also declared, it is called with the final state when `:done?` becomes `true` — before the loop exits. |
-| `cli` | Single-shot: reads OS args, calls `:step` once, prints result. |
-| `http PORT` | HTTP server on `PORT`: `:init` creates initial state, each request calls `:step`. |
+| `cli` | Loop without stdin: performs `:init`'s command, then calls `:step` on the state and the last `Response` until `:done?` returns `true`. Writes no event log. See "The `cli` loop" below. |
 
 #### Key semantics
 
 - `:init` must return a `(State, Command)` pair. The `Command` is executed (e.g., print welcome message), and the `State` is passed to the first `:step` call.
-- **`check` tests the shape of `:init`.** It reports `def-main-init-shape` when the type of `:init` is not a pair, when the first element does not match the state parameter of `:step`, or when the second element is not a `Command`. An `:init` whose type is not known at `check`, such as a call to a helper with no declared return type, passes, and GHC rejects a wrong shape at `build`. `:init` is also subject to the capability check of §7, like `:step`. The `cli` harness does not read `:init` and is not subject to the shape rule.
-- **`:init` is required unless the `:step`'s declared state type is `unit`.** With no `:init` the harness starts the program on `()`, so a step declaring any other state type is rejected at `check` with `def-main-init-required`. The rule applies to `console` and `http`; the `cli` harness binds no initial state and is not subject to it. A state type that is an alias of `unit` is accepted. The two repairs are to declare `:init`, or to declare the state parameter as `unit`.
-- `:step` receives the current state and one line of input (for `console`) or the OS args (for `cli`). It must return a `(NewState, Command)` pair.
-- `:done?` (optional, console only) receives the new state after each step. If it returns `true`, the loop exits.
-- `:status` (optional, console only) is a **total projection from the state type to `int`**. It is applied to the final state when `:done?` holds, and the process exits with the result. Absent means exit 0. It is **not** consulted when stdin exhausts first; see "The terminal status" below.
+- **`check` tests the shape of `:init`.** It reports `def-main-init-shape` when the type of `:init` is not a pair, when the first element does not match the state parameter of `:step`, or when the second element is not a `Command`. An `:init` whose type is not known at `check`, such as a call to a helper with no declared return type, passes, and GHC rejects a wrong shape at `build`. `:init` is also subject to the capability check of §7, like `:step`. The rule applies in both modes.
+- **`:init` is required unless the `:step`'s declared state type is `unit`.** With no `:init` the harness starts the program on `()`, so a step declaring any other state type is rejected at `check` with `def-main-init-required`. The rule applies in both modes. A state type that is an alias of `unit` is accepted. The two repairs are to declare `:init`, or to declare the state parameter as `unit`.
+- `:step` receives the current state, one line of input (`console` only), and the `Response` of the previous command. It must return a `(NewState, Command)` pair. Program arguments come from `wasi.proc.args` in both modes.
+- `:done?` receives the new state after each step. If it returns `true`, the loop exits. It is optional in `console` and **required** in `cli`, where it is the only exit: a `cli` `def-main` without it is rejected with `def-main-done-required`. In `cli` a `:done?` whose return type is not `bool` is the error `def-main-done-type`; in `console` it is a warning.
+- `:status` (optional) is a **total projection from the state type to `int`**. It is applied to the final state when `:done?` holds, and the process exits with the result. Absent means exit 0. In `console` it is **not** consulted when stdin exhausts first; see "The terminal status" below.
 - The `Command` returned by `:step` is executed directly as an IO action (it is **not** printed or shown).
 
 #### Complete example
@@ -1724,9 +1728,41 @@ and **exactly once**, regardless of how many times `:done?` is checked.
 > behavior lose their last render rather than duplicating it. The four game examples under
 > `examples/` have not yet been repaired and are known to be affected.
 
+#### The `cli` loop
+
+A `cli` program is a console program with no input line. The harness performs `:init`'s command and
+keeps its `Response`. It then calls `:step` on the state and the last `Response`. If `:done?` holds on
+the new state, the step's command is discarded (as in console, see above), `:on-done` runs, and the
+process exits with `:status`, or 0 if `:status` is absent. Otherwise the harness performs the command,
+keeps its `Response`, and calls `:step` again. A `cli` program does not read stdin and writes no event
+log (§10a).
+
+**The loop is unbounded, and that is allowed.** A `cli` program whose `:done?` never holds runs until it
+is killed. No warning fires: a process that never stops on purpose is a legitimate program. Because
+the loop is part of the harness rather than of the call graph, the trust report states it separately
+from `termination_unverified`: a `:mode cli` program's report carries the top-level marker
+`unbounded_entry_loop` (§4.4.4).
+
+**A step limit is a counter in the state.** There is no `:fuel` field. A program that wants a bound keeps
+a count in its state and tests it in `:done?`, so the bound is part of the program and visible to
+`check`:
+
+```lisp
+(def-shell tick [s: int r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout (string-concat (int-to-string (+ s 1)) "\n"))))
+(def-shell fin [s: int] -> bool (>= s 4))
+(def-shell bye [s: int] -> Command (wasi.io.stdout "end\n"))
+(def-shell code [s: int] -> int s)
+(def-main :mode cli :init (pair 0 (wasi.io.stdout "start\n"))
+          :step tick :done? fin :on-done bye :status code)
+```
+
+This prints `start`, `1`, `2`, `3` and `end`, and exits with status 4. The step that reaches 4 has its
+command discarded, so `4` is not printed.
+
 #### The terminal status (`:status`), and the two terminal paths
 
-A console program has two ways to stop, and the harness does **not** treat them alike. `:status` is a
+A console program has two ways to stop, and the harness does **not** treat them alike. (A `cli` program has one: `:done?` holds.) `:status` is a
 total projection from the state type to `int`, applied on one of them.
 
 | `:done?` | Terminal path | Behaviour |
@@ -2448,7 +2484,7 @@ def-invariant = "(" "def-invariant" IDENT "[" typed-param "]" expr ")" ;
 (* Entry point                                                    *)
 (* ============================================================ *)
 def-main    = "(" "def-main"
-                ":mode" ( "console" | "cli" | "(" "http" INT ")" )
+                ":mode" ( "console" | "cli" )
                 [ ":init"    expr ]
                 ":step"     expr
                 [ ":done?"   expr ]
@@ -2456,8 +2492,10 @@ def-main    = "(" "def-main"
                 [ ":status"  expr ]
               ")" ;
               (* Fields are read in this order; an out-of-order optional
-                 field does not parse. :status is console-only, a total
-                 State -> int projection applied when :done? holds (§9.5). *)
+                 field does not parse. :status is a total State -> int
+                 projection applied when :done? holds (§9.5). :done?'s
+                 brackets are syntax only in cli mode, where it is
+                 required (def-main-done-required). *)
               (* :init's brackets are SYNTAX ONLY. It is semantically
                  required unless the :step's declared state type is
                  unit: with no :init the harness starts the program on
@@ -2807,8 +2845,7 @@ determines.
 > (§9.7). A console program can therefore read a file and branch on its contents, with no function
 > performing IO. `wasi.fs.read` delivers contents as `RText` and an IO failure as `RErr`;
 > `wasi.fs.list` delivers entries as `RList`, an empty directory as `RList` with zero entries, and a
-> missing directory as `RErr`. The `cli` and `http` harnesses perform no command and deliver no
-> response.
+> missing directory as `RErr`. The `cli` harness delivers responses the same way.
 
 > **The text commands are pinned to UTF-8**, not to the ambient locale, so the byte image of a read
 > or a write is a property of the program rather than of the environment that launched it.

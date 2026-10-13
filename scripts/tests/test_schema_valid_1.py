@@ -60,10 +60,10 @@ KNOWN_INVALID = {
         ("ALIAS-LOWER-1", "is not one of"),
 }
 
-# MODE-HTTP-1 defect (iii), the proposal's section 7.2 witness: the emitter
-# writes "http:9000", and DefMain.mode is a console/cli string or a
-# {"kind": "http", "port": N} object. No tracked program uses http mode, so the
-# witness is built here.
+# MODE-HTTP-1 defect (iii), the proposal's section 7.2 witness. The emitter used
+# to write "http:9000", which the schema rejected. MODE-HTTP-1 removed the mode,
+# so the witness no longer parses; SV-3 pins that. No tracked program used http
+# mode, so the witness is built here.
 HTTP_WITNESS = """\
 (def-shell step [s: int i: string] -> int s)
 (def-main
@@ -163,18 +163,39 @@ def test_sv2_known_invalid_entries_still_fail_as_recorded(results):
         assert by_src[rel][1], f"{rel} now emits; remove its NO_EMIT entry"
 
 
-def test_sv3_mode_http_witness_is_rejected(tmp_path):
-    """MODE-HTTP-1 (iii): pinned so that its fix flips this cell and the row's record with it."""
-    v = _validator()
+def test_sv3_mode_http_does_not_parse(tmp_path):
+    """MODE-HTTP-1: `:mode http` is a parse error that names HTTP-SERVE-1."""
     src = tmp_path / "http_witness.llmll"
     src.write_text(HTTP_WITNESS)
+    p = subprocess.run([os.environ["LLMLL_BIN"], "check", str(src)],
+                       capture_output=True, text=True, cwd=REPO)
+    out = p.stdout + p.stderr
+    assert p.returncode != 0, f"the http witness checks clean; MODE-HTTP-1 is not in effect: {out[-400:]}"
+    assert "HTTP-SERVE-1" in out, f"the http rejection does not name HTTP-SERVE-1: {out[-400:]}"
+
+
+# MODE-CLI-1: no tracked program uses :mode cli, so SV-1 never emits a cli
+# def-main. This witness is the console harness without stdin, in its new shape.
+CLI_WITNESS = """\
+(import wasi.io (capability stdout))
+(def-shell tick [s: int r: Response] -> (int, Command)
+  (pair (+ s 1) (wasi.io.stdout "x")))
+(def-shell fin [s: int] -> bool (>= s 3))
+(def-main :mode cli :init (pair 0 (wasi.io.stdout "start")) :step tick :done? fin)
+"""
+
+
+def test_sv3b_mode_cli_document_validates(tmp_path):
+    """MODE-CLI-1: an emitted cli def-main validates, with mode the string "cli"."""
+    v = _validator()
+    src = tmp_path / "cli_witness.llmll"
+    src.write_text(CLI_WITNESS)
     doc_path, why = _emit(src, tmp_path / "out")
-    assert doc_path is not None, f"the http witness no longer emits: {why}"
+    assert doc_path is not None, f"the cli witness does not emit: {why}"
     doc = json.loads(doc_path.read_text(encoding="utf-8"))
     modes = [s.get("mode") for s in doc["statements"] if s.get("kind") == "def-main"]
-    assert modes == ["http:9000"], f"the emitter's http mode changed to {modes}; revisit MODE-HTTP-1"
-    err = _first_error(v, doc)
-    assert err is not None and "mode" in err, f"the schema now accepts {modes}; revisit MODE-HTTP-1: {err}"
+    assert modes == ["cli"], f"the emitter's cli mode is {modes}"
+    assert _first_error(v, doc) is None, _first_error(v, doc)
 
 
 def test_sv4_negative_control_the_validator_rejects_a_broken_document(tmp_path):

@@ -874,9 +874,10 @@ runtimePreamble =
   -- PROC-BOUNDARY-1 half one. The argument vector, on the EXISTING RList arm.
   --
   -- getArgs, so argv[0] IS EXCLUDED. That is the vector a program reasons about
-  -- -- its flags -- and it is what ModeCli's harness has always passed to :step
-  -- (`args <- getArgs` in emitMainBody below). Publishing argv[0] here would
-  -- make the two entry modes disagree about what "the arguments" means, and the
+  -- -- its flags -- and it is what the pre-MODE-CLI-1 cli harness passed to
+  -- :step. Since MODE-CLI-1 both entry modes read arguments only through this
+  -- builtin. Publishing argv[0] here would disagree with that earlier
+  -- meaning of "the arguments", and the
   -- executable's own path is a fact about how the process was launched rather
   -- than about what it was asked to do.
   --
@@ -2409,7 +2410,7 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
   , "  logHandle <- openFile \"" <> modName <> ".event-log.jsonl\" WriteMode"
   , "  hPutStrLn logHandle (headerJsonL \"" <> modName <> "\")"
   , "  seqRef <- newIORef (0 :: Int)"
-  ] ++ initBlock ++
+  ] ++ harnessInitBlock mInit ++
   [ "  outcome <- loop state0 r0 logHandle seqRef"
   , "  hClose logHandle"
   , "  llmll_terminate outcome"
@@ -2428,29 +2429,6 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
   , "        let !(s', cmd) = " <> stepCall step <> " s line r"  -- EVAL-STRICT-1
   ] ++ doneLines ++ settleDef
   where
-    -- RC-3: :init's command supplies the FIRST response, so there is no special
-    -- initial case. It is performed through llmll_perform (not captureStdout),
-    -- which keeps init's own output going straight to the real stdout as it did
-    -- before, and it is not logged, as it was not before.
-    --
-    -- CONSOLE-INIT-1: the Nothing arm's () is now the DECLARED state, not a
-    -- default. 'TypeCheck.checkInitRequired' rejects a def-main that omits :init
-    -- unless the step declares a unit state, so this arm is reached only for a
-    -- program whose state type IS unit. Before that check the arm emitted () for
-    -- any declared type, and a step that merely threaded its state built and ran
-    -- on the wrong one, because generated definitions carry no type signatures.
-    --
-    -- This stays an emitter with no opinion, deliberately. All three codegen
-    -- entry points in app/Main.hs (doBuild, doBuildFromJson, doRun) run
-    -- typeCheckStrict and exitFailure before reaching generateHaskell, so the
-    -- check is fail-closed ahead of this line on both the S-expression and the
-    -- JSON-AST paths. A rejection here would duplicate that and would break the
-    -- test helpers that call generateHaskell with no type check in front.
-    initBlock = case mInit of
-      Nothing -> [ "  let state0 = ()"
-                 , "  let r0 = RNone" ]
-      Just e  -> [ "  let !(state0, initCmd) = " <> emitExpr e  -- EVAL-STRICT-1
-                 , "  r0 <- llmll_perform initCmd" ]
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\ s l r -> " <> emitExpr e <> " s l r)"
     -- The exhaustion status, gated on whether :done? is DECLARED. mDone is the
@@ -2510,73 +2488,120 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
     settleDef = case mDone of
       Nothing -> []
       Just _  ->
-        [ "    settle " <> settleParam <> " seqN line logHandle = do"
+        [ "    settle " <> harnessSettleParam mOnDone mStatus <> " seqN line logHandle = do"
         , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"none\" \"\")"
         , "      hFlush logHandle"
-        ] ++ onDoneLine ++
+        ] ++ harnessOnDoneLine mOnDone ++
         -- PROC-BOUNDARY-1: the settled run's status leaves through the return
         -- value, so `main` still closes the log before exiting. :on-done keeps
         -- running FIRST and its command is still performed here, outside
         -- performStep, exactly as before -- the status application is appended
         -- after it and observes only the state, so it cannot reorder anything.
-        [ "      return (Just (" <> statusExpr <> "))" ]
-    -- Absent :status is exit 0, which is what every program shipped before this
-    -- field did on the :done? path. The annotation pins the literal's type
-    -- rather than leaving it to the use site, so the generated code does not
-    -- depend on where GHC generalizes the where-block's binding group.
-    onDoneLine = maybe [] (\od -> ["      " <> emitExpr od <> " s'"]) mOnDone
-    statusExpr = maybe "0 :: Integer" (\st -> emitExpr st <> " s'") mStatus
-    -- Underscore-prefixed when NEITHER :on-done nor :status is present, so
-    -- -Wunused-matches stays quiet on generated code. :status reads the final
-    -- state too, so it binds the parameter for the same reason :on-done does.
-    settleParam
-      | isJust mOnDone || isJust mStatus = "s'"
-      | otherwise                        = "_s'"
+        [ "      return (Just (" <> harnessStatusExpr mStatus <> "))" ]
 
--- The cli harness gets the same pins as the console one. It has no event log and
--- no captureStdout, so only the standard handles are at stake -- but `print` of
--- any non-ASCII result dies exactly as the console path did, and a fix that left
--- one of the two modes on the ambient locale would be the same defect with a
--- smaller blast radius rather than a fix.
-emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
+-- | MODE-CLI-1: the cli harness is the console harness without stdin.
+--
+-- Three parts of the console clause are absent: the stdin read, the event log
+-- and the EOF exit. :init's command is performed and its Response goes to the
+-- first :step, which takes (State, Response). The loop calls :step on the state
+-- and the last response, tests :done?, and either settles (RC-4: the command
+-- that same step returned is discarded, :on-done runs, the process exits with
+-- :status) or performs the command and repeats.
+--
+-- llmll_perform, not performStep: there is no event log, so the step's output
+-- is not captured and goes straight to the real stdout. emitEventLogPreamble is
+-- in every Main.hs, so llmll_perform and Response are in scope here.
+--
+-- The encoding pins are the console clause's, for the FS-ENCODING-1 reason:
+-- the RTS creates the standard handles before main runs. stdin gets no pin
+-- because nothing reads it. NoBuffering matches the console harness; without a
+-- stdin loop nothing else would flush stdout between steps.
+--
+-- :done? is REQUIRED in cli ('TypeCheck' reports def-main-done-required), so
+-- the loop has one exit and llmll_terminate takes Integer, not Maybe Integer.
+-- The emitter keeps no opinion, as the console clause's initBlock note says:
+-- with no :done? it emits a predicate that never holds, so the generated code
+-- stays well-formed for test helpers that skip the type check.
+emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone, defMainStatus = mStatus} =
   [ "main :: IO ()"
   , "main = do"
   , "  setLocaleEncoding utf8"
   , "  hSetEncoding stdout utf8"
   , "  hSetEncoding stderr utf8"
-  , "  args <- getArgs"
-  , "  print (" <> stepCall step <> " args)"
-  ]
+  , "  hSetBuffering stdout NoBuffering"
+  ] ++ harnessInitBlock mInit ++
+  [ "  outcome <- loop state0 r0"
+  , "  llmll_terminate outcome"
+  , "  where"
+  -- ExitFailure 0 is an error in GHC, so 0 branches to exitSuccess.
+  , "    llmll_terminate :: Integer -> IO ()"
+  , "    llmll_terminate 0 = exitSuccess"
+  , "    llmll_terminate n = exitWith (ExitFailure (fromIntegral n))"
+  , "    loop s r = do"
+  , "      let !(s', cmd) = " <> stepCall step <> " s r"  -- EVAL-STRICT-1
+  , "      if " <> doneCall <> " s' then settle s' else do"
+  , "        r' <- llmll_perform cmd"
+  , "        loop s' r'"
+  , "    settle " <> harnessSettleParam mOnDone mStatus <> " = do"
+  ] ++ harnessOnDoneLine mOnDone ++
+  [ "      return (" <> harnessStatusExpr mStatus <> ")" ]
   where
     stepCall (EVar n) = toHsIdent n
-    stepCall e        = "(" <> emitExpr e <> ")"
-
-emitMainBody _ SDefMain{defMainMode = ModeHttp{httpPort = port}, defMainStep = step, defMainInit = mInit} =
-  [ "-- HTTP mode requires 'import haskell.warp' in the LLMLL source."
-  , "-- package.yaml dependency: warp, wai, http-types"
-  , "-- import Network.Wai (Application, responseLBS)"
-  , "-- import Network.Wai.Handler.Warp (run)"
-  , "-- import Network.HTTP.Types (status200)"
-  , "-- import qualified Data.ByteString.Lazy.Char8 as BLC"
-  , "main :: IO ()"
-  , "main = do"
-  , "  putStrLn \"LLMLL HTTP server on port " <> T.pack (show port) <> "\""
-  -- CONSOLE-INIT-1: the () fallback here is the console clause's defect in a
-  -- second place, and the rule covers this mode too.
-  -- 'TypeCheck.checkInitRequired' rejects an http def-main that omits :init
-  -- unless the step declares a unit state, so this maybe reaches its default
-  -- only for a unit-stated program.
-  , "  let _state = " <> maybe "()" emitExpr mInit
-  , "  -- run " <> T.pack (show port) <> " (app _state) -- uncomment after wiring warp"
-  , "  -- where app s req respond = ..."
-  , "  error \"http mode: wire warp in package.yaml and uncomment above\""
-  , "  where _step = " <> stepCall step
-  ]
-  where
-    stepCall (EVar n) = toHsIdent n
-    stepCall e        = "(" <> emitExpr e <> ")"
+    stepCall e        = "(\\ s r -> " <> emitExpr e <> " s r)"
+    doneCall = maybe "(\\_ -> False)" emitExpr mDone
 
 emitMainBody _ _ = ["main :: IO ()", "main = return ()"]
+
+-- ---------------------------------------------------------------------------
+-- Harness helpers shared by the console and cli clauses of emitMainBody
+-- ---------------------------------------------------------------------------
+--
+-- MODE-CLI-1: these four were local to the console clause. They moved here,
+-- unchanged in output, so the cli clause emits the same :init, :on-done and
+-- :status code. The hspec case T-C1 pins the console bytes across the move.
+
+-- RC-3: :init's command supplies the FIRST response, so there is no special
+-- initial case. It is performed through llmll_perform (not captureStdout),
+-- which keeps init's own output going straight to the real stdout as it did
+-- before, and it is not logged, as it was not before.
+--
+-- CONSOLE-INIT-1: the Nothing arm's () is now the DECLARED state, not a
+-- default. 'TypeCheck.checkInitRequired' rejects a def-main that omits :init
+-- unless the step declares a unit state, so this arm is reached only for a
+-- program whose state type IS unit. Before that check the arm emitted () for
+-- any declared type, and a step that merely threaded its state built and ran
+-- on the wrong one, because generated definitions carry no type signatures.
+--
+-- This stays an emitter with no opinion, deliberately. All three codegen
+-- entry points in app/Main.hs (doBuild, doBuildFromJson, doRun) run
+-- typeCheckStrict and exitFailure before reaching generateHaskell, so the
+-- check is fail-closed ahead of this line on both the S-expression and the
+-- JSON-AST paths. A rejection here would duplicate that and would break the
+-- test helpers that call generateHaskell with no type check in front.
+harnessInitBlock :: Maybe Expr -> [Text]
+harnessInitBlock mInit = case mInit of
+  Nothing -> [ "  let state0 = ()"
+             , "  let r0 = RNone" ]
+  Just e  -> [ "  let !(state0, initCmd) = " <> emitExpr e  -- EVAL-STRICT-1
+             , "  r0 <- llmll_perform initCmd" ]
+
+harnessOnDoneLine :: Maybe Expr -> [Text]
+harnessOnDoneLine mOnDone = maybe [] (\od -> ["      " <> emitExpr od <> " s'"]) mOnDone
+
+-- Absent :status is exit 0, which is what every program shipped before this
+-- field did on the :done? path. The annotation pins the literal's type
+-- rather than leaving it to the use site, so the generated code does not
+-- depend on where GHC generalizes the where-block's binding group.
+harnessStatusExpr :: Maybe Expr -> Text
+harnessStatusExpr mStatus = maybe "0 :: Integer" (\st -> emitExpr st <> " s'") mStatus
+
+-- Underscore-prefixed when NEITHER :on-done nor :status is present, so
+-- -Wunused-matches stays quiet on generated code. :status reads the final
+-- state too, so it binds the parameter for the same reason :on-done does.
+harnessSettleParam :: Maybe Expr -> Maybe Expr -> Text
+harnessSettleParam mOnDone mStatus
+  | isJust mOnDone || isJust mStatus = "s'"
+  | otherwise                        = "_s'"
 
 -- ---------------------------------------------------------------------------
 -- package.yaml

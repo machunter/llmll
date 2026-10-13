@@ -2,7 +2,7 @@
 module Main (main) where
 
 import Test.Hspec
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, when, unless)
 import Control.Exception (finally)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -67,8 +67,9 @@ import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable, listDirectory)
-import System.Environment (setEnv, unsetEnv, lookupEnv)
-import System.Process (callProcess, readProcessWithExitCode)
+import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
+import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
+import qualified System.Process as SP
 import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
@@ -1939,15 +1940,16 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.11.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.12.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
+      -- MODE-CLI-1 + MODE-HTTP-1: retargeted 0.11.0 -> 0.12.0 (def-main mode enum).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.11.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.12.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -4921,8 +4923,8 @@ main = hspec $ do
           report   = buildTrustReport Map.empty [withdrawStmt] sidecar
           jsonText = formatTrustReportJson report
           jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
-      -- trust_report_version now 1.8.0 (PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
-      jsonText `shouldSatisfy` T.isInfixOf "\"1.8.0\""
+      -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.9.0\""
       case jsonV of
         Just (Object o) -> case KM.lookup "entries" o of
           Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
@@ -5210,8 +5212,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          -- trust_report_version now 1.8.0 (PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.8.0")
+          -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.9.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All required fields present
@@ -7254,7 +7256,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
@@ -7263,7 +7265,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty  -- empty: no origin for constraint 42
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -7277,7 +7279,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -7292,7 +7294,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -7307,7 +7309,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -7321,7 +7323,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -13904,8 +13906,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            -- trust_report_version now 1.8.0 (PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.8.0")
+            -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.9.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -14217,8 +14219,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- trust_report_version now 1.8.0 (PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
-        T.isInfixOf "\"trust_report_version\":\"1.8.0\"" jsonTxt `shouldBe` True
+        -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
       -- J7 (OBLIG-PBT-5b): a joint-only clause renders the distinct 'tested-joint'
@@ -14760,10 +14762,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
         T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
 
-      it "C18 trust_report_version is 1.8.0 (PARTIAL-FNS-GRAPH-1 bump)" $ do
+      it "C18 trust_report_version is 1.9.0 (MODE-CLI-1 bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.8.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
 
       -- REC-PARTIAL-MARK (increment 2/(a) of REC-BODY-VC): recursive-cycle
       -- members carry a derived 'termination_unverified' marker + a top-level
@@ -14975,10 +14977,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
         T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
 
-      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.8.0 (PARTIAL-FNS-GRAPH-1)" $ do
+      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.9.0 (MODE-CLI-1)" $ do
         let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.8.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
@@ -17360,9 +17362,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (pair (+ s 1) (wasi.io.stdout i)))"
           , "(def-main :mode console :step drive)"
           ]
+        -- MODE-CLI-1: the cli shape is the console harness without stdin, so
+        -- the step takes (State, Response) and :done? is required.
         cliSrc = T.unlines
-          [ "(def-shell run [args: list[string]] -> string \"ok\")"
-          , "(def-main :mode cli :step run)"
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell run [s: int r: Response] -> (int, Command)"
+          , "  (pair (+ s 1) (wasi.io.stdout \"x\")))"
+          , "(def-shell fin [s: int] -> bool (>= s 1))"
+          , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"a\")) :step run :done? fin)"
           ]
 
     -- The three the RTS creates before main runs, so no locale move can reach
@@ -17484,15 +17491,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
       kindsOf src `shouldNotContain` ["def-main-step-arity"]
 
-    -- cli and http harnesses perform no command, so there is no response to
-    -- deliver and no arity to change. Scoping the rule to console is what keeps
-    -- this from being a change to modes the channel does not reach.
-    it "cli mode is NOT subject to the console arity rule" $ do
-      let src = T.unlines
-            [ "(def-shell run [args: list[string]] -> string \"ok\")"
-            , "(def-main :mode cli :step run)"
-            ]
-      kindsOf src `shouldNotContain` ["def-main-step-arity"]
+    -- MODE-CLI-1: the cell that stood here said cli was NOT subject to the
+    -- arity rule. cli now performs commands and has its own two-parameter
+    -- rule; its cells are T-T2 and T-T3 in the "MODE-CLI-1 / MODE-HTTP-1" block.
 
   -- -----------------------------------------------------------------------
   -- INIT-SHAPE-1: :init is inferred, and its type must be (State, Command).
@@ -17674,38 +17675,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       kindsOf src `shouldContain` [kind]
       any (T.isInfixOf "parameter is string") msgs `shouldBe` True
 
-    -- CELL 6, THE http HALF. emitMainBody ModeHttp has the same () fallback in
-    -- `let _state = maybe "()" emitExpr mInit`. checkStepArity returns pure ()
-    -- for every non-console mode, so this state type is read WITHOUT an arity
-    -- rule: http's :step shape is unconstrained today and this check does not
-    -- change that. MEASURED at v0.23.5: this program checks clean.
-    it "http mode is subject to the rule too" $ do
-      let src = T.unlines
-            [ cap
-            , "(def-shell serve [s: string i: string] -> (string, Command)"
-            , "  (pair s (wasi.io.stdout i)))"
-            , "(def-main :mode http 8080 :step serve)"
-            ]
-      kindsOf src `shouldContain` [kind]
-
-    it "http mode with a unit state is accepted with no :init" $ do
-      let src = T.unlines
-            [ cap
-            , "(def-shell serve [s: unit i: string] -> (unit, Command)"
-            , "  (pair s (wasi.io.stdout i)))"
-            , "(def-main :mode http 8080 :step serve)"
-            ]
-      kindsOf src `shouldNotContain` [kind]
-
-    -- CELL 8, THE SCOPE GUARD. emitMainBody ModeCli emits `print (step args)`
-    -- and binds no state0, so there is no wrong state to reject. Excluded by an
-    -- explicit clause in checkInitRequired, not by falling off the end.
-    it "cli mode is NOT subject to the rule" $ do
-      let src = T.unlines
-            [ "(def-shell run [args: list[string]] -> string \"ok\")"
-            , "(def-main :mode cli :step run)"
-            ]
-      kindsOf src `shouldNotContain` [kind]
+    -- MODE-HTTP-1 removed cells 6 (the http half) and 7 (http with a unit
+    -- state): `:mode http` no longer parses, and T-P1 pins that. MODE-CLI-1
+    -- removed cell 8, the cli scope guard: the rule now covers cli, and T-T5
+    -- in the "MODE-CLI-1 / MODE-HTTP-1" block pins it.
 
     -- CELL 9. The step may be an inline lambda, whose parameter list the check
     -- resolves the same way checkStepArity does.
@@ -17744,6 +17717,380 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       any (T.isInfixOf ":init") msgs `shouldBe` True
       any (T.isInfixOf "unit") msgs  `shouldBe` True
       any (T.isInfixOf "string") msgs `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- MODE-CLI-1 / MODE-HTTP-1 (docs/design/entry-mode-settlement-proposal.md
+  -- Rev 1, Decisions 1 and 2). `:mode cli` is the console harness without
+  -- stdin; `:mode http` is removed.
+  -- -----------------------------------------------------------------------
+  describe "MODE-CLI-1 / MODE-HTTP-1" $ do
+
+    let mainSection src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> snd (T.breakOn "main :: IO ()"
+                               (fromMaybe "" (cgMainHs (generateHaskell "h" stmts))))
+
+    -- T-C1. The cli clause shares initBlock, onDoneLine, statusExpr and
+    -- settleParam with the console clause, so those four moved out of the
+    -- console clause's where block. The expected text below was captured from
+    -- the compiler BEFORE the move (v0.28.3, bcabf52), so a byte change to any
+    -- console program's harness fails here. Two programs cover both arms of
+    -- every moved helper: one with :init, :on-done and :status, one with none.
+    it "T-C1: the console Main.hs is byte-identical across the helper refactor" $ do
+      let full = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell drive [s: int i: string r: Response] -> (int, Command)"
+            , "  (pair (+ s 1) (wasi.io.stdout i)))"
+            , "(def-shell fin [s: int] -> bool (>= s 3))"
+            , "(def-shell bye [s: int] -> Command (wasi.io.stdout \"bye\"))"
+            , "(def-shell code [s: int] -> int s)"
+            , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"hi\")) :step drive :done? fin :on-done bye :status code)"
+            ]
+          bare = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell drive [s: unit i: string r: Response] -> (unit, Command)"
+            , "  (pair s (wasi.io.stdout i)))"
+            , "(def-main :mode console :step (fn [s: unit i: string r: Response] (drive s i r)) :done? (fn [s: unit] false))"
+            ]
+      mainSection full `shouldBe` T.unlines
+        [ "main :: IO ()"
+        , "main = do"
+        , "  setLocaleEncoding utf8"
+        , "  hSetEncoding stdin utf8"
+        , "  hSetEncoding stdout utf8"
+        , "  hSetEncoding stderr utf8"
+        , "  hSetBuffering stdin LineBuffering"
+        , "  hSetBuffering stdout NoBuffering"
+        , "  logHandle <- openFile \"h.event-log.jsonl\" WriteMode"
+        , "  hPutStrLn logHandle (headerJsonL \"h\")"
+        , "  seqRef <- newIORef (0 :: Int)"
+        , "  let !(state0, initCmd) = (case (wasi_io_stdout (\"hi\")) of { !llmll_sa1 -> ((0 :: Integer), llmll_sa1) })"
+        , "  r0 <- llmll_perform initCmd"
+        , "  outcome <- loop state0 r0 logHandle seqRef"
+        , "  hClose logHandle"
+        , "  llmll_terminate outcome"
+        , "  where"
+        , "    llmll_terminate :: Maybe Integer -> IO ()"
+        , "    llmll_terminate Nothing  = exitWith (ExitFailure 70)"
+        , "    llmll_terminate (Just 0) = exitSuccess"
+        , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
+        , "    loop s r logHandle seqRef = do"
+        , "      eof <- hIsEOF stdin"
+        , "      if eof then return Nothing else do"
+        , "        line <- getLine"
+        , "        seqN <- readIORef seqRef"
+        , "        let !(s', cmd) = drive s line r"
+        , "        if fin s' then settle s' seqN line logHandle else do"
+        , "          (output, resp) <- performStep cmd"
+        , "          hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" output)"
+        , "          hFlush logHandle"
+        , "          modifyIORef' seqRef (+1)"
+        , "          loop s' resp logHandle seqRef"
+        , "    settle s' seqN line logHandle = do"
+        , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"none\" \"\")"
+        , "      hFlush logHandle"
+        , "      bye s'"
+        , "      return (Just (code s'))"
+        ]
+      mainSection bare `shouldBe` T.unlines
+        [ "main :: IO ()"
+        , "main = do"
+        , "  setLocaleEncoding utf8"
+        , "  hSetEncoding stdin utf8"
+        , "  hSetEncoding stdout utf8"
+        , "  hSetEncoding stderr utf8"
+        , "  hSetBuffering stdin LineBuffering"
+        , "  hSetBuffering stdout NoBuffering"
+        , "  logHandle <- openFile \"h.event-log.jsonl\" WriteMode"
+        , "  hPutStrLn logHandle (headerJsonL \"h\")"
+        , "  seqRef <- newIORef (0 :: Int)"
+        , "  let state0 = ()"
+        , "  let r0 = RNone"
+        , "  outcome <- loop state0 r0 logHandle seqRef"
+        , "  hClose logHandle"
+        , "  llmll_terminate outcome"
+        , "  where"
+        , "    llmll_terminate :: Maybe Integer -> IO ()"
+        , "    llmll_terminate Nothing  = exitWith (ExitFailure 70)"
+        , "    llmll_terminate (Just 0) = exitSuccess"
+        , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
+        , "    loop s r logHandle seqRef = do"
+        , "      eof <- hIsEOF stdin"
+        , "      if eof then return Nothing else do"
+        , "        line <- getLine"
+        , "        seqN <- readIORef seqRef"
+        , "        let !(s', cmd) = (\\ s l r -> (\\s i r -> (drive (s) (i) (r))) s l r) s line r"
+        , "        if (\\s -> False) s' then settle s' seqN line logHandle else do"
+        , "          (output, resp) <- performStep cmd"
+        , "          hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" output)"
+        , "          hFlush logHandle"
+        , "          modifyIORef' seqRef (+1)"
+        , "          loop s' resp logHandle seqRef"
+        , "    settle _s' seqN line logHandle = do"
+        , "      hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"none\" \"\")"
+        , "      hFlush logHandle"
+        , "      return (Just (0 :: Integer))"
+        ]
+
+    let parseMsg src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err -> Just (diagMessage (megaparsecToDiagnostic "<test>" err))
+          Right _  -> Nothing
+        jsonDoc mode = BLC.pack $
+          "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"def-main\",\"mode\":"
+          ++ mode ++ ",\"step\":{\"kind\":\"var\",\"name\":\"s\"}}]}"
+        jsonMsg mode = case parseJSONAST GrammarCoreInversion "<test>" (jsonDoc mode) of
+          Left d  -> Just (diagMessage d)
+          Right _ -> Nothing
+        diagsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+        kindsOf src = [k | d <- diagsOf src, Just k <- [diagKind d]]
+        msgsOf kind src = [diagMessage d | d <- diagsOf src, diagKind d == Just kind]
+        warnsOf src = [diagMessage d | d <- diagsOf src, diagSeverity d == SevWarning]
+        io = "(import wasi.io (capability stdout))"
+        cliStep = "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+        cliFin  = "(def-shell fin [s: int] -> bool (>= s 3))"
+        cliProg extra = T.unlines [io, cliStep, cliFin, "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step st :done? fin" <> extra <> ")"]
+
+    -- T-P1, edge case 4. The old http form with a port.
+    it "T-P1: `:mode http 9000` fails to parse and names HTTP-SERVE-1" $
+      case parseMsg (T.unlines ["(def-shell step [s: int i: string] -> int s)", "(def-main :mode http 9000 :init 0 :step step)"]) of
+        Nothing -> expectationFailure ":mode http 9000 parsed; MODE-HTTP-1 is not in effect"
+        Just m  -> m `shouldSatisfy` T.isInfixOf "HTTP-SERVE-1"
+
+    it "T-P2: bare `:mode http` fails to parse too" $
+      case parseMsg (T.unlines ["(def-shell step [s: int i: string] -> int s)", "(def-main :mode http :step step)"]) of
+        Nothing -> expectationFailure ":mode http parsed; MODE-HTTP-1 is not in effect"
+        Just m  -> m `shouldSatisfy` T.isInfixOf "HTTP-SERVE-1"
+
+    -- T-J1, edge case 5 and defect (i): the catch-all decoded a misspelling as
+    -- an http server on port 8080.
+    it "T-J1: a JSON mode \"consoel\" is a decode error naming console and cli" $
+      case jsonMsg "\"consoel\"" of
+        Nothing -> expectationFailure "\"consoel\" decoded; defect (i) is back"
+        Just m  -> do
+          m `shouldSatisfy` T.isInfixOf "consoel"
+          m `shouldSatisfy` T.isInfixOf "\"console\""
+          m `shouldSatisfy` T.isInfixOf "\"cli\""
+          m `shouldNotSatisfy` T.isInfixOf "HTTP-SERVE-1"
+
+    it "T-J2: a JSON mode \"http:9000\" is a decode error with the HTTP-SERVE-1 hint" $
+      case jsonMsg "\"http:9000\"" of
+        Nothing -> expectationFailure "\"http:9000\" decoded"
+        Just m  -> m `shouldSatisfy` T.isInfixOf "HTTP-SERVE-1"
+
+    it "T-J3: a cli program round-trips through AstEmit and ParserJSON unchanged" $
+      case parseStatements GrammarCoreInversion "<test>" (cliProg " :status (fn [s: int] s)") of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let doc = emitJsonAST stmts
+          T.isInfixOf "\"mode\": \"cli\"" (TE.decodeUtf8 (BL.toStrict doc)) `shouldBe` True
+          case parseJSONAST GrammarCoreInversion "<test>" doc of
+            Left e     -> expectationFailure ("emitted cli doc must re-read: " <> show e)
+            Right back -> do
+              [s | s@SDefMain{} <- back] `shouldBe` [s | s@SDefMain{} <- stmts]
+              emitJsonAST back `shouldBe` doc
+
+    -- T-T1, edge case 1 is the witness.
+    it "T-T1: cli with no :done? reports def-main-done-required" $
+      kindsOf (T.unlines [io, "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step s)"])
+        `shouldContain` ["def-main-done-required"]
+
+    -- T-T2, edge case 3: the old one-parameter cli step.
+    it "T-T2: cli with a one-parameter step reports def-main-step-arity" $ do
+      let src = T.unlines [ io
+                          , "(def-shell run [args: list[string]] -> string \"ok\")"
+                          , "(def-shell fin [s: unit] -> bool true)"
+                          , "(def-main :mode cli :step run :done? fin)" ]
+      kindsOf src `shouldContain` ["def-main-step-arity"]
+      any (T.isInfixOf "(state, response: Response)") (msgsOf "def-main-step-arity" src) `shouldBe` True
+
+    it "T-T3: cli with a three-parameter console-shaped step reports def-main-step-arity" $
+      kindsOf (T.unlines [ io
+                         , "(def-shell st [s: int i: string r: Response] -> (int, Command) (pair s (wasi.io.stdout i)))"
+                         , cliFin
+                         , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step st :done? fin)" ])
+        `shouldContain` ["def-main-step-arity"]
+
+    -- T-T4, amendment 2: an error in cli, a warning in console (the control).
+    it "T-T4: an int :done? is the error def-main-done-type in cli and a warning in console" $ do
+      let badDone = "(def-shell fin [s: int] -> int s)"
+          cliSrc  = T.unlines [io, cliStep, badDone, "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step st :done? fin)"]
+          conSrc  = T.unlines [ io
+                              , "(def-shell cs [s: int i: string r: Response] -> (int, Command) (pair s (wasi.io.stdout i)))"
+                              , badDone
+                              , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"x\")) :step cs :done? fin)" ]
+      kindsOf cliSrc `shouldContain` ["def-main-done-type"]
+      kindsOf conSrc `shouldNotContain` ["def-main-done-type"]
+      any (T.isInfixOf ":done? should return bool") (warnsOf conSrc) `shouldBe` True
+
+    it "T-T5: cli with no :init reports def-main-init-required for an int state, not for a unit state" $ do
+      kindsOf (T.unlines [io, cliStep, cliFin, "(def-main :mode cli :step st :done? fin)"])
+        `shouldContain` ["def-main-init-required"]
+      kindsOf (T.unlines [ io
+                         , "(def-shell ust [s: unit r: Response] -> (unit, Command) (pair s (wasi.io.stdout \"x\")))"
+                         , "(def-shell ufin [s: unit] -> bool true)"
+                         , "(def-main :mode cli :step ust :done? ufin)" ])
+        `shouldNotContain` ["def-main-init-required"]
+
+    it "T-T6: cli `:init 0` reports def-main-init-shape; the pair sibling is clean" $ do
+      kindsOf (T.unlines [io, cliStep, cliFin, "(def-main :mode cli :init 0 :step st :done? fin)"])
+        `shouldContain` ["def-main-init-shape"]
+      kindsOf (cliProg "") `shouldBe` []
+
+    -- T-T7, amendment 3: the ":status applies only to :mode console" warning
+    -- is gone, and a correct cli program with :status is quiet.
+    it "T-T7: a correct cli program that declares :status gives no warning" $ do
+      let src = T.unlines [io, cliStep, cliFin, "(def-shell code [s: int] -> int s)"
+                          , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step st :done? fin :status code)"]
+      diagsOf src `shouldBe` []
+
+    -- T-C2..T-C4 build and run a generated cli program. The generated package
+    -- needs the stack snapshot (regex-tdfa, cryptohash-sha256), so runghc
+    -- cannot run it; this builds it the way `llmll build` does. stack's own
+    -- environment variables are removed so the nested stack does not read the
+    -- test suite's package database.
+    let buildAndRun :: String -> T.Text -> (FilePath -> IO ()) -> IO (Maybe (ExitCode, String, String, [FilePath]))
+        buildAndRun name src prepare = do
+          mStack <- findExecutable "stack"
+          case mStack of
+            Nothing -> pure Nothing
+            Just stackExe -> do
+              stmts <- case parseStatements GrammarCoreInversion "<test>" src of
+                Left err -> fail ("parse failed: " <> show err)
+                Right ss -> pure ss
+              let errs = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+                                         , diagSeverity d == SevError ]
+              unless (null errs) $ fail ("the cli fixture does not type-check: " <> show errs)
+              tmpRoot <- getTemporaryDirectory
+              let dir    = tmpRoot </> ("llmll-mode-cli-1-" <> name)
+                  runDir = dir </> "run"
+                  r      = generateHaskell (T.pack name) stmts
+                  put fp t = BL.writeFile fp (BL.fromStrict (TE.encodeUtf8 t))
+              exists <- doesDirectoryExist dir
+              when exists $ removeDirectoryRecursive dir
+              createDirectoryIfMissing True (dir </> "src")
+              createDirectoryIfMissing True runDir
+              put (dir </> "src" </> "Lib.hs") (cgHsSource r)
+              put (dir </> "package.yaml") (cgPackageYaml r)
+              put (dir </> "stack.yaml") (cgStackYaml r)
+              put (dir </> "src" </> "Main.hs") (fromMaybe "" (cgMainHs r))
+              env0 <- getEnvironment
+              let childEnv = [ kv | kv@(k, _) <- env0
+                             , k `notElem` ["GHC_PACKAGE_PATH", "GHC_ENVIRONMENT", "HASKELL_DIST_DIR", "STACK_EXE"]
+                             , not ("HASKELL_PACKAGE_SANDBOX" `isPrefixOf` k) ]
+                  stackP args = (proc stackExe args) { SP.cwd = Just dir, SP.env = Just childEnv }
+              (bc, _, berr) <- readCreateProcessWithExitCode (stackP ["build", "--silent"]) ""
+              case bc of
+                ExitFailure _ -> fail ("the generated cli package did not build:\n" <> berr)
+                ExitSuccess   -> pure ()
+              (_, root, _) <- readCreateProcessWithExitCode (stackP ["path", "--local-install-root"]) ""
+              prepare runDir
+              -- stdin CLOSED, not empty: a harness that reads stdin fails here.
+              (_, Just hOut, Just hErr, ph) <- createProcess
+                (proc (takeWhile (/= '\n') root </> "bin" </> name) [])
+                  { SP.cwd = Just runDir, SP.std_in = NoStream, SP.std_out = CreatePipe, SP.std_err = CreatePipe }
+              out <- BSS.hGetContents hOut
+              err <- BSS.hGetContents hErr
+              code <- waitForProcess ph
+              files <- listDirectory runDir
+              removeDirectoryRecursive dir
+              pure (Just (code, T.unpack (TE.decodeUtf8 out), T.unpack (TE.decodeUtf8 err), files))
+
+    -- T-C2, amendment 4: the counter idiom. :init writes `start`, each step
+    -- writes the count it moves to, :done? holds at 4, so the command of the
+    -- step that reached 4 is discarded (RC-4), :on-done writes `end`, and
+    -- :status returns the state.
+    it "T-C2: a cli counter runs to :done?, exits with :status, reads no stdin, writes no log" $ do
+      let src = T.unlines
+            [ io
+            , "(def-shell tick [s: int r: Response] -> (int, Command)"
+            , "  (pair (+ s 1) (wasi.io.stdout (string-concat (int-to-string (+ s 1)) \"\\n\"))))"
+            , "(def-shell fin [s: int] -> bool (>= s 4))"
+            , "(def-shell bye [s: int] -> Command (wasi.io.stdout \"end\\n\"))"
+            , "(def-shell code [s: int] -> int s)"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"start\\n\")) :step tick :done? fin :on-done bye :status code)"
+            ]
+      res <- buildAndRun "tc2" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH; T-T1..T-T7 still pin the cli check rules"
+        Just (code, out, err, files) -> do
+          (out, err) `shouldBe` ("start\n1\n2\n3\nend\n", "")
+          code `shouldBe` ExitFailure 4
+          filter (".event-log.jsonl" `isSuffixOf`) files `shouldBe` []
+
+    -- T-C3: the Response of :init's command reaches the first step.
+    it "T-C3: a cli step receives the RText of a wasi.fs.read" $ do
+      tmpRoot <- getTemporaryDirectory
+      let inFile = tmpRoot </> "llmll-mode-cli-1-tc3" </> "run" </> "in.txt"
+          src = T.unlines
+            [ io
+            , "(import wasi.fs (capability read \"/\"))"
+            , "(def-shell go [s: int r: Response] -> (int, Command)"
+            , "  (match r"
+            , "    ((RText t) (pair (+ s 1) (wasi.io.stdout (string-concat \"got:\" t))))"
+            , "    (_ (pair (+ s 1) (wasi.io.stdout \"other\")))))"
+            , "(def-shell fin [s: int] -> bool (>= s 2))"
+            , "(def-main :mode cli :init (pair 0 (wasi.fs.read \"" <> T.pack inFile <> "\")) :step go :done? fin)"
+            ]
+      res <- buildAndRun "tc3" src (\_ -> writeFile inFile "hello")
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, _, _) -> do
+          out `shouldBe` "got:hello"
+          code `shouldBe` ExitSuccess
+
+    -- T-C4: RC-4 in cli. The step that makes :done? true returns a command,
+    -- and it is not performed.
+    it "T-C4: the command of the step that makes :done? true is not performed" $ do
+      let src = T.unlines
+            [ io
+            , "(def-shell go [s: int r: Response] -> (int, Command)"
+            , "  (if (>= s 1) (pair (+ s 1) (wasi.io.stdout \"MUST-NOT-PRINT\")) (pair (+ s 1) (wasi.io.stdout \"ok\\n\"))))"
+            , "(def-shell fin [s: int] -> bool (>= s 2))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"\")) :step go :done? fin)"
+            ]
+      res <- buildAndRun "tc4" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, _, _) -> do
+          out `shouldBe` "ok\n"
+          out `shouldNotSatisfy` isInfixOf "MUST-NOT-PRINT"
+          code `shouldBe` ExitSuccess
+
+    let reportOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> buildTrustReport Map.empty stmts Map.empty
+        jsonObj rep = case decode (BL.fromStrict (TE.encodeUtf8 (formatTrustReportJson rep))) :: Maybe Value of
+          Just (Object o) -> o
+          _               -> error "trust report JSON is not an object"
+        consoleProg = T.unlines
+          [ io
+          , "(def-shell cs [s: int i: string r: Response] -> (int, Command) (pair s (wasi.io.stdout i)))"
+          , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"x\")) :step cs)" ]
+
+    it "T-R1: a cli report carries unbounded_entry_loop and the text line; a console report does not" $ do
+      let cliRep = reportOf (cliProg "")
+          conRep = reportOf consoleProg
+          line   = "Entry loop: :mode cli runs until :done? holds; its termination is not checked (unbounded_entry_loop)."
+      KM.lookup "unbounded_entry_loop" (jsonObj cliRep) `shouldBe` Just (Bool True)
+      KM.lookup "unbounded_entry_loop" (jsonObj conRep) `shouldBe` Nothing
+      T.lines (formatTrustReport cliRep) `shouldContain` [line]
+      formatTrustReport conRep `shouldNotSatisfy` T.isInfixOf "unbounded_entry_loop"
+
+    it "T-R2: a cli report has the three `cli harness` entries; the console entries keep their bytes" $ do
+      let cliAs = trHarnessAssumptions (reportOf (cliProg ""))
+          conAs = trHarnessAssumptions (reportOf consoleProg)
+      length (filter ("cli harness (EFFECT-RESP" `T.isPrefixOf`) cliAs) `shouldBe` 3
+      length (filter ("console harness" `T.isPrefixOf`) cliAs) `shouldBe` 0
+      length conAs `shouldBe` 3
+      map (T.replace "cli harness" "console harness") cliAs `shouldBe` conAs
+      take 1 conAs `shouldBe`
+        [ "console harness (EFFECT-RESP RC-1..RC-4): the harness supplies one \
+          \Response per performed command, and its arm is not typed against the \
+          \command the step returned. A program that receives an unexpected arm \
+          \takes that arm rather than failing; exhaustive matching is what bounds \
+          \the consequence. Assumed, not proved." ]
 
   describe "EFFECT-RESP: Response is a sealed compiler-supplied sum" $ do
 
@@ -18193,9 +18540,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "wasi_proc_args :: IO ()" preambleText `shouldBe` True
       T.isInfixOf "wasi_proc_args = llmll_publish_io" preambleText `shouldBe` True
 
-    -- getArgs, not getProgName ++ getArgs. ModeCli's harness has always passed
-    -- getArgs to :step, so publishing argv[0] here would make the two entry
-    -- modes disagree about what "the arguments" means.
+    -- getArgs, not getProgName ++ getArgs. The old ModeCli harness passed
+    -- getArgs to :step, and this vector matched it. Since MODE-CLI-1 the cli
+    -- harness reads argv the same way console does, through wasi.proc.args, so
+    -- this is the ONE definition of "the arguments" for both entry modes.
     it "PB-6: reads getArgs, so argv[0] is excluded and cli/console agree" $ do
       T.isInfixOf "as <- getArgs" preambleText `shouldBe` True
       T.isInfixOf "getProgName" preambleText `shouldBe` False
@@ -18253,8 +18601,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- Emit/read symmetry. Bumping the stamp without extending the accepted list
     -- makes the compiler emit a document it then refuses to read.
+    -- MODE-CLI-1 + MODE-HTTP-1 moved the emitted stamp to 0.12.0; 0.11.0, the
+    -- PROC-BOUNDARY-1 stamp, must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.11.0"
+      expectedSchemaVersion `shouldBe` "0.12.0"
+      acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
       acceptedSchemaVersions `shouldContain` ["0.11.0"]
       acceptedSchemaVersions `shouldContain` ["0.10.0"]
 
@@ -18598,9 +18949,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- top-level key, which by the precedent already recorded for
     -- joint_pbt_witnesses / overflow_tainted_fns / over_annotation does not
     -- move the version. Pinned so the next additive field does not move it by
-    -- accident either.
+    -- accident either. MODE-CLI-1 moved it to 1.9.0 deliberately, for the
+    -- unbounded_entry_loop field (docs/design/entry-mode-implementation-plan.md).
     it "the additive key does not bump trust_report_version" $
-      trustReportEmitVersion `shouldBe` "1.8.0"
+      trustReportEmitVersion `shouldBe` "1.9.0"
 
   describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
 

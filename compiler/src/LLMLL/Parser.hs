@@ -467,7 +467,9 @@ pTrustLevel = choice
 splitDotted :: Text -> [Text]
 splitDotted = T.splitOn "."
 
--- | Parse (def-main :mode console|cli|http [:port n] :init expr :step expr ...)
+-- | Parse (def-main :mode console|cli :init expr :step expr ...)
+--
+-- MODE-HTTP-1: @:mode http@ is a parse error that names HTTP-SERVE-1.
 --
 -- PROC-BOUNDARY-1: @:status@ is appended LAST, keeping the existing
 -- fixed-order discipline every other field already has (each @optional@ below
@@ -489,12 +491,20 @@ pDefMain = do
     pModeKeyword = symbol ":mode"
 
 -- | Parse the mode keyword after `:mode`.
+--
+-- MODE-HTTP-1: @http@ is matched only to reject it with a hint. The old
+-- harness was an @error@ stub, so no program could have depended on it.
 pEntryMode :: Parser EntryMode
 pEntryMode = choice
   [ ModeConsole <$ symbol "console"
   , ModeCli     <$ symbol "cli"
-  , symbol "http" *> (ModeHttp . fromIntegral <$> option (8080 :: Integer) pIntLit)
+  , symbol "http" *> fail httpRetiredHint
   ]
+  where
+    httpRetiredHint =
+      ":mode http is not supported: no HTTP server harness exists. Outbound \
+      \HTTP calls are wasi.http.* commands from a console or cli program. The \
+      \server design is tracked as HTTP-SERVE-1."
 
 pInterfaceSpec :: Parser [(Name, Type)]
 pInterfaceSpec = parens $ do
