@@ -1657,7 +1657,7 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.11.0` (optional `status` field on `def-main`, PROC-BOUNDARY-1; the reader also accepts `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility, the newer fields being additive-optional). New `.ast.json` files should carry `"schemaVersion": "0.11.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+- Schema `schemaVersion` is `0.12.0` (`def-main` `mode` is `"console"` or `"cli"`, and the `http` mode is removed, MODE-HTTP-1; the reader also accepts `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.12.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
 ### §4.26 Bytes and Map Patterns (Array Class)
 
