@@ -311,6 +311,12 @@ data TrustReport = TrustReport
   -- every report path including a solver-less render. Disclosure only: it
   -- changes no tier, feeds no meet, and gates no admission.
   , trOpenSpecRows     :: [OpenSpecRow]
+  -- MODE-CLI-1 (1.9.0): the module declares a @:mode cli@ def-main. That loop
+  -- runs until @:done?@ holds and its termination is not checked. DERIVED from
+  -- the entry statements, not persisted. Informational only (settlement
+  -- amendment 1): it does not feed 'evidenceMeet', the effective level or
+  -- strict-core admission. Emitted as @unbounded_entry_loop@ only when true.
+  , trUnboundedEntryLoop :: Bool
   } deriving (Show, Eq)
 
 -- | DISCLOSE-ROW-1: one open '[SPEC]' roadmap row a program's surface touches.
@@ -412,8 +418,13 @@ data TierProfile = TierProfile
 -- 'termination_unverified' flag change VALUE: a cached member is named
 -- qualified (@loop.spin@, not @spin@), same-named functions of two modules are
 -- no longer one entry, and recursion through a function value is counted.
+-- MODE-CLI-1 (1.9.0): additive top-level 'unbounded_entry_loop' (only-on-true),
+-- set when the module declares a @:mode cli@ def-main, whose loop runs until
+-- @:done?@ holds with no termination check. Derived, never persisted, and it
+-- feeds no tier. 'harness_assumptions' gains three @cli harness@ entries for
+-- such a module. Existing 1.8.0 consumers ignore the new key.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.8.0"
+trustReportEmitVersion = "1.9.0"
 
 -- | EFFECT-RESP: the harness-level residue a console program carries.
 --
@@ -430,7 +441,7 @@ trustReportEmitVersion = "1.8.0"
 -- 'joint_pbt_witnesses', 'overflow_tainted_fns' and 'over_annotation': readers
 -- ignore unknown keys and the JSON shape grows monotonically.
 harnessAssumptions :: [Statement] -> [Text]
-harnessAssumptions stmts = consoleEntries ++ httpGetEntries
+harnessAssumptions stmts = consoleEntries ++ cliEntries ++ httpGetEntries
   where
     -- HTTP-GET-1 (docs/design/http-get-1-proposal.md section 7). Conditioned
     -- on a CALL, not on the harness mode: a library module that fetches carries
@@ -476,8 +487,17 @@ harnessAssumptions stmts = consoleEntries ++ httpGetEntries
           ELambda _ b     -> go b
           EDo steps       -> any (\(DoStep _ x _) -> go x) steps
     consoleEntries
-      | any isConsoleMain stmts =
-      [ "console harness (EFFECT-RESP RC-1..RC-4): the harness supplies one \
+      | any isConsoleMain stmts = effectRespEntries "console harness"
+      | otherwise = []
+    -- MODE-CLI-1: the cli harness performs commands through the same response
+    -- channel, so the same three assumptions hold for it. Omitting them would
+    -- make a cli report claim less than the harness assumes. The console bytes
+    -- are unchanged; only the prefix differs.
+    cliEntries
+      | any isCliMain stmts = effectRespEntries "cli harness"
+      | otherwise = []
+    effectRespEntries prefix =
+      [ prefix <> " (EFFECT-RESP RC-1..RC-4): the harness supplies one \
         \Response per performed command, and its arm is not typed against the \
         \command the step returned. A program that receives an unexpected arm \
         \takes that arm rather than failing; exhaustive matching is what bounds \
@@ -488,19 +508,24 @@ harnessAssumptions stmts = consoleEntries ++ httpGetEntries
       -- admissibility rule that keeps the arm set small, and it makes a
       -- mispaired response more likely to be silently well-typed than the
       -- sentence above alone suggests.
-      , "console harness (EFFECT-RESP arm set): Response arms are payload \
+      , prefix <> " (EFFECT-RESP arm set): Response arms are payload \
         \shape-classes, not per-command result types, so a single arm may have \
         \several unrelated producers (RCode carries an HTTP status, a process \
         \exit code, and a clock reading). A response that is well-typed for the \
         \arm is therefore not evidence that it came from the command the step \
         \issued. Closed by CMD-A, which parameterises Command by its result."
-      , "console harness (EFFECT-RESP RC-4): done? is evaluated on the state a \
+      , prefix <> " (EFFECT-RESP RC-4): done? is evaluated on the state a \
         \step produced, and the command that same step returned is NOT \
         \performed. A final effect must be issued from a non-terminating step."
       ]
-      | otherwise = []
     isConsoleMain SDefMain{defMainMode = ModeConsole} = True
     isConsoleMain _ = False
+
+-- | MODE-CLI-1: a @:mode cli@ def-main. Its loop has no stdin to exhaust, so
+-- it ends only when @:done?@ holds; the report marks it 'trUnboundedEntryLoop'.
+isCliMain :: Statement -> Bool
+isCliMain SDefMain{defMainMode = ModeCli} = True
+isCliMain _ = False
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -640,6 +665,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trOverAnnotation  = overAnnotation
        , trBodyFallback    = Map.empty  -- TRUST-CC-1: populated by markBodyFallback post-emit
        , trOpenSpecRows    = openSpecRows entryStmts  -- DISCLOSE-ROW-1: derived, every path
+       , trUnboundedEntryLoop = any isCliMain entryStmts  -- MODE-CLI-1: derived, not persisted
        }
 
 -- | VERIFY-RPT-1 (Commit 4): refusal set for '--strict-verified-core' conjunct
@@ -1927,7 +1953,12 @@ formatTrustReport report =
                        rows -> "" : "Specified but not enforced (open roadmap rows this program touches):" :
                                map (\r -> "  ⚑ " <> osrTag r <> " — " <> osrSurface r
                                         <> ": " <> osrDisclosure r) rows
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ termCallerLines ++ openRowLines ++ [separator] ++ summaryLines)
+      -- MODE-CLI-1: one line, only for a module with a cli def-main.
+      entryLoopLines
+        | trUnboundedEntryLoop report =
+            [ "Entry loop: :mode cli runs until :done? holds; its termination is not checked (unbounded_entry_loop)." ]
+        | otherwise = []
+  in T.unlines ([header] ++ entryLoopLines ++ [separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ termCallerLines ++ openRowLines ++ [separator] ++ summaryLines)
 
 -- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
 -- hash remains in the JSON emit.
@@ -2041,7 +2072,7 @@ formatSuppressions supps =
 -- cannot suffer this class of corruption.
 formatTrustReportJson :: TrustReport -> Text
 formatTrustReportJson report =
-  TL.toStrict . encodeToLazyText $ object
+  TL.toStrict . encodeToLazyText $ object $
     [ "trust_report_version" .= trustReportEmitVersion
     , "entries"      .= map entryJson (trEntries report)
     , "summary"      .= summaryJson (trSummary report)
@@ -2092,7 +2123,10 @@ formatTrustReportJson report =
     -- bump, same additive-field precedent as the three keys above. Empty (and
     -- so inert) for any module without a console def-main.
     , "harness_assumptions" .= trHarnessAssumptions report
-    ]
+    ] ++
+    -- MODE-CLI-1 (1.9.0): only-on-true, so a console or library report keeps
+    -- its shape. Informational; it feeds no tier and no admission.
+    [ "unbounded_entry_loop" .= True | trUnboundedEntryLoop report ]
   where
     overAnnotationJson oai = object
       [ "ratio"     .= oaiRatio oai

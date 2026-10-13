@@ -57,7 +57,8 @@ VERIFY_TIMEOUT_S = 300
 # ADDITIVE per-entry key, so this must NOT move (the `harness_assumptions`
 # precedent, stated at the JSON emitter in TrustReport.hs). A cell asserts it,
 # because an accidental change here silently breaks every consumer.
-TRUST_REPORT_VERSION = "1.8.0"
+# MODE-CLI-1 moved it to 1.9.0 deliberately (unbounded_entry_loop).
+TRUST_REPORT_VERSION = "1.9.0"
 
 # A bytes-free and map-free program. It must disclose nothing, which is what
 # proves the activation gate is inherited rather than mirrored.

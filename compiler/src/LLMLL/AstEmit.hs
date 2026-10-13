@@ -183,9 +183,10 @@ stmtToJson (SDefMain mode mInit step mDone mOnDone mStatus) =
     -- def-main that declares no :status round-trips byte-identically.
     maybe [] (\e -> ["status"  .= exprToJson e]) mStatus
   where
+    -- MODE-HTTP-1: the ModeHttp clause wrote "http:<port>", which neither the
+    -- reader nor the schema accepted (defect iii). The mode is gone.
     entryModeLabel ModeConsole  = "console" :: Text
     entryModeLabel ModeCli      = "cli"
-    entryModeLabel (ModeHttp p) = "http:" <> T.pack (show p)
 
 -- v0.2 module system nodes
 stmtToJson (SOpen path mNames) =

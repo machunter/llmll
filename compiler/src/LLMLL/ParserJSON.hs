@@ -66,8 +66,12 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- valid 0.11.0 one. The bump is still owed rather than optional, because
 -- DefMain carries "additionalProperties": false, so a document with `status`
 -- fails validation against 0.10.0 and the field cannot ride in unversioned.
+-- MODE-CLI-1 + MODE-HTTP-1: bumped 0.11.0 → 0.12.0. DefMain.mode becomes the
+-- plain string enum ["console", "cli"] and the {"kind": "http", "port": N}
+-- object is removed. A cli step now takes (State, Response). No tracked
+-- document used http, so every older version stays accepted for reading.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.11.0"
+expectedSchemaVersion = "0.12.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -87,7 +91,7 @@ expectedSchemaVersion = "0.11.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -559,10 +563,21 @@ parseDefMain o = do
   -- :done? path, which is what every pre-0.11.0 document meant, so a 0.10.0
   -- def-main reads unchanged.
   mStatus <- o .:? "status"  >>= mapM parseExpr
-  let entryMode = case mode of
-        "console" -> ModeConsole
-        "cli"     -> ModeCli
-        _         -> ModeHttp 8080
+  -- MODE-HTTP-1 defect (i): the catch-all here was `_ -> ModeHttp 8080`, so a
+  -- misspelt mode ("consoel") decoded as an http server on port 8080. An
+  -- unknown mode is now a decode error that names the accepted values. A mode
+  -- that is an object (the old http form) already fails at the `Parser Text`
+  -- read above.
+  entryMode <- case mode of
+        "console" -> pure ModeConsole
+        "cli"     -> pure ModeCli
+        other     -> fail $ T.unpack $
+          "def-main: unknown mode " <> T.pack (show other)
+          <> "; the accepted values are \"console\" and \"cli\""
+          <> (if "http" `T.isPrefixOf` other
+                then ". No HTTP server harness exists; the server design is \
+                     \tracked as HTTP-SERVE-1"
+                else "")
   pure $ SDefMain entryMode mInit step mDone mOnDone mStatus
 
 -- ---------------------------------------------------------------------------

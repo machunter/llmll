@@ -12,9 +12,9 @@ rejects a `def-main` that omits `:init` unless the step declares a `unit` state.
 This test is the corpus half of the same rule, and it needs no toolchain: it
 reads the tracked sources and resolves each `:step` to its declaration.
 
-SCOPE MATCHES THE COMPILER'S. `:mode cli` is excluded here for the reason it is
-excluded there: `emitMainBody` ModeCli emits `print (step args)` and binds no
-`state0`, so that harness has no state to get wrong.
+SCOPE MATCHES THE COMPILER'S. Since MODE-CLI-1 the rule covers `:mode cli` as
+well: the cli harness binds `state0` exactly as the console one does, so cli is
+no longer excluded here or there.
 
 A `:step` written as an inline `fn` is read in place. A `:step` naming a
 function is resolved to its `def`/`def-shell` in the same file. A name this
@@ -155,7 +155,7 @@ def test_no_init_implies_a_unit_state():
     for path in _tracked_llmll_sources():
         rel = path.relative_to(REPO_ROOT)
         for src, mode, has_init, step in _def_main_facts(path):
-            if has_init or mode == "cli":
+            if has_init:
                 continue
             state_ty, how = _resolve_step_state_type(src, step)
             if state_ty is None:

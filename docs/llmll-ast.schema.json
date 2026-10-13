@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.11/ast.schema.json",
-  "title": "LLMLL v0.11 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.11.0' (PROC-BOUNDARY-1: optional 'status' on def-main, an exit-status projection from the state type to int; was 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
+  "$id": "https://llmll.dev/schemas/v0.12/ast.schema.json",
+  "title": "LLMLL v0.12 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.12.0' (MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; was 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "The compiler emits '0.11.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "The compiler emits '0.12.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "enum": ["0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+          "enum": ["0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -1228,30 +1228,20 @@
       "properties": {
         "kind": { "type": "string", "const": "def-main" },
         "mode": {
-          "description": "Selects the generated harness template.",
-          "oneOf": [
-            { "type": "string", "enum": ["console", "cli"] },
-            {
-              "type": "object",
-              "required": ["kind", "port"],
-              "additionalProperties": false,
-              "properties": {
-                "kind": { "type": "string", "const": "http" },
-                "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
-              }
-            }
-          ]
+          "description": "Selects the generated harness template. console reads stdin line by line; cli is the console harness without stdin (MODE-CLI-1). The http mode was removed at 0.12.0 (MODE-HTTP-1): it was a stub with no server, and an unknown mode string is a decode error. The server design is tracked as HTTP-SERVE-1.",
+          "type": "string",
+          "enum": ["console", "cli"]
         },
         "init": {
-          "description": "Expression returning (State, Command) pair. Executed once at startup; its Command is performed and its Response reaches the first step (EFFECT-RESP RC-3). CONSOLE-INIT-1 (0.23.6): REQUIRED unless the step's declared state type is unit. With no init the harness starts the program on (), so a step declaring any other state type is rejected at check with def-main-init-required. The rule applies to console and http; cli binds no initial state and is not subject to it. A state type that is an alias of unit is accepted.",
+          "description": "Expression returning (State, Command) pair. Executed once at startup; its Command is performed and its Response reaches the first step (EFFECT-RESP RC-3). CONSOLE-INIT-1 (0.23.6): REQUIRED unless the step's declared state type is unit. With no init the harness starts the program on (), so a step declaring any other state type is rejected at check with def-main-init-required. The rule applies to console and cli (MODE-CLI-1), and init's type is checked against (State, Command) in both. A state type that is an alias of unit is accepted.",
           "$ref": "#/$defs/Expr"
         },
         "step": {
-          "description": "Function or expression returning a (State, Command) pair. Called on each input line (console) or OS args (cli). EFFECT-RESP (0.14.80): a console step takes THREE parameters, (State, string, Response), where Response carries the result of the Command that step returned on the previous turn; a wrong arity, or a third parameter that is not Response, is rejected at check with def-main-step-arity. cli and http perform no Command and so deliver no response: their step is unchanged at (State, string) -> (State, Command).",
+          "description": "Function or expression returning a (State, Command) pair. Called on each input line (console) or in a loop with no stdin (cli). EFFECT-RESP (0.14.80): a console step takes THREE parameters, (State, string, Response), where Response carries the result of the Command that step returned on the previous turn; a wrong arity, or a third parameter that is not Response, is rejected at check with def-main-step-arity. MODE-CLI-1 (0.12.0): a cli step takes TWO parameters, (State, Response), and the same check applies.",
           "$ref": "#/$defs/Expr"
         },
         "done?": {
-          "description": "Predicate of type State -> Bool. When true the console loop exits (optional).",
+          "description": "Predicate of type State -> Bool. When true the loop exits. Optional in console, where a non-bool return is a warning. REQUIRED in cli (def-main-done-required), where it is the only exit and a non-bool return is an error (def-main-done-type) (MODE-CLI-1).",
           "$ref": "#/$defs/Expr"
         },
         "on-done": {
@@ -1259,7 +1249,7 @@
           "$ref": "#/$defs/Expr"
         },
         "status": {
-          "description": "PROC-BOUNDARY-1 (0.11.0). Total function of type State -> int, applied to the FINAL state when done? holds; the process then exits with the result. Optional: absent means exit 0 on that path, which is every pre-0.11.0 program's behaviour. Declare the range on the named function's contract: {v : int | 0 <= v && v <= 255}. POSIX truncates a status to the low 8 bits, so an unconstrained 256 would exit 0 and report success. NOT consulted when stdin reaches EOF: where done? IS declared that path exits a fixed 70, because a projection from state alone cannot distinguish a completed run from a starved one (the distinguishing predicate, done?, lives outside the state). 70 is not reserved from the program, so a shell can tell neither path from success but cannot tell exhaustion from a deliberately-returned 70. Where done? is NOT declared, EOF is normal termination and the program exits 0: a program with no completion predicate has no notion of completion, so exhaustion is not starvation. The discriminator is whether done? is DECLARED, not whether it fired. Console mode only; ignored in cli and http, which perform no Command and have no terminal state to project.",
+          "description": "PROC-BOUNDARY-1 (0.11.0). Total function of type State -> int, applied to the FINAL state when done? holds; the process then exits with the result. Optional: absent means exit 0 on that path, which is every pre-0.11.0 program's behaviour. Declare the range on the named function's contract: {v : int | 0 <= v && v <= 255}. POSIX truncates a status to the low 8 bits, so an unconstrained 256 would exit 0 and report success. NOT consulted when stdin reaches EOF: where done? IS declared that path exits a fixed 70, because a projection from state alone cannot distinguish a completed run from a starved one (the distinguishing predicate, done?, lives outside the state). 70 is not reserved from the program, so a shell can tell neither path from success but cannot tell exhaustion from a deliberately-returned 70. Where done? is NOT declared, EOF is normal termination and the program exits 0: a program with no completion predicate has no notion of completion, so exhaustion is not starvation. The discriminator is whether done? is DECLARED, not whether it fired. Applies in console and in cli (MODE-CLI-1); cli has no stdin, so its only exit is the done? path.",
           "$ref": "#/$defs/Expr"
         }
       }
