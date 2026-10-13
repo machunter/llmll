@@ -17863,6 +17863,20 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Nothing -> expectationFailure ":mode http parsed; MODE-HTTP-1 is not in effect"
         Just m  -> m `shouldSatisfy` T.isInfixOf "HTTP-SERVE-1"
 
+    -- T-P3: the http error is the whole message. The generic E001 hint "use
+    -- def, def-shell, type, import, or check at the top level" sent the reader
+    -- away from the fix; any other parse error keeps it (the control).
+    it "T-P3: the `:mode http` parse error carries no generic top-level hint; other parse errors keep it" $ do
+      let suggestionOf src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err -> diagSuggestion (megaparsecToDiagnostic "<test>" err)
+            Right _  -> error "expected a parse error"
+      suggestionOf (T.unlines ["(def-shell step [s: int i: string] -> int s)", "(def-main :mode http 9000 :init 0 :step step)"])
+        `shouldBe` Nothing
+      suggestionOf (T.unlines ["(def-shell step [s: int i: string] -> int s)", "(def-main :mode http :step step)"])
+        `shouldBe` Nothing
+      suggestionOf "(def-main :mode consoel :step step)"
+        `shouldBe` Just "use def, def-shell, type, import, or check at the top level"
+
     -- T-J1, edge case 5 and defect (i): the catch-all decoded a misspelling as
     -- an http server on port 8080.
     it "T-J1: a JSON mode \"consoel\" is a decode error naming console and cli" $
@@ -17890,6 +17904,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Right back -> do
               [s | s@SDefMain{} <- back] `shouldBe` [s | s@SDefMain{} <- stmts]
               emitJsonAST back `shouldBe` doc
+
+    -- T-C5: no harness calls getArgs (arguments arrive through wasi.proc.args,
+    -- whose body is in Lib), so Main.hs does not import it.
+    it "T-C5: the cli and console Main.hs do not import getArgs" $ do
+      let mainHsOf src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> fromMaybe "" (cgMainHs (generateHaskell "h" stmts))
+          cliHs = mainHsOf (cliProg "")
+          conHs = mainHsOf (T.unlines [ io
+                                      , "(def-shell cs [s: int i: string r: Response] -> (int, Command) (pair s (wasi.io.stdout i)))"
+                                      , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"x\")) :step cs)" ])
+      cliHs `shouldSatisfy` T.isInfixOf "main :: IO ()"
+      cliHs `shouldNotSatisfy` T.isInfixOf "getArgs"
+      cliHs `shouldNotSatisfy` T.isInfixOf "System.Environment"
+      conHs `shouldSatisfy` T.isInfixOf "main :: IO ()"
+      conHs `shouldNotSatisfy` T.isInfixOf "getArgs"
 
     -- T-T1, edge case 1 is the witness.
     it "T-T1: cli with no :done? reports def-main-done-required" $

@@ -2258,12 +2258,15 @@ emitMainHs modName stmts =
       [ "{-# LANGUAGE BangPatterns #-}"  -- EVAL-STRICT-1: the harness forces each step
       , "module Main where"
       , "import Lib"
-      , "import System.Environment (getArgs)"
-      -- PROC-BOUNDARY-1: the console harness's terminal paths. Imported
+      -- No System.Environment import: neither harness calls getArgs. Since
+      -- MODE-CLI-1 (v0.29.0) arguments reach a program only through the
+      -- wasi.proc.args builtin, whose body lives in Lib (runtimePreamble).
+      -- PROC-BOUNDARY-1: the harnesses' terminal paths. Imported
       -- unconditionally rather than per-mode because emitMainHs emits ONE
-      -- import block for all three harnesses; the generated project sets no
-      -- -Wall (emitPackageYaml below ships no ghc-options), so an import the
-      -- cli/http bodies do not use costs a name in scope and nothing else.
+      -- import block for both harnesses (console and cli); the generated
+      -- project sets no -Wall (emitPackageYaml below ships no ghc-options), so
+      -- an import one harness body does not use costs a name in scope and
+      -- nothing else.
       , "import System.Exit (exitWith, exitSuccess, ExitCode(..))"
       , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, openTempFile, IOMode(..), BufferMode(..), stdin, stdout, stderr, hSetEncoding, utf8)"
       -- FS-ENCODING-1, second half. See the note on emitMainBody below: the fs

@@ -644,7 +644,7 @@ The replay command:
 ```json
 // if_hole.ast.json
 {
-  "schemaVersion": "0.11.0",
+  "schemaVersion": "0.12.0",
   "statements": [
     { "kind": "def", "name": "greet",
       "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
@@ -840,13 +840,13 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.11.0",
+  "schemaVersion": "0.12.0",
   "llmll_version": "0.14.65",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
+The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
 
 | Field | Meaning |
 |-------|---------|

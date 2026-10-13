@@ -41,10 +41,10 @@
 ;; string literal and compares it against captured bytes. Before v0.14.90 the
 ;; literal reached the running program as `05`.
 ;;
-;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits a pure
-;; `print (step args)`: no Command performed, no exit status. `console` is the
-;; only entry mode that can touch the world, so a gate is a stdin-driven step
-;; machine that exits 70 on EOF.
+;; WHY THIS IS A STATE MACHINE: it predates v0.29.0. Before MODE-CLI-1 shipped,
+;; `:mode cli` performed no Command, so a gate had to be a stdin-driven `console`
+;; step machine that exits 70 on EOF. Since v0.29.0 `:mode cli` performs
+;; commands without stdin; this program keeps the older console shape.
 ;;
 ;; THE TWO SKIP PATHS ARE REPRODUCED FAITHFULLY AND DELIBERATELY. The reference
 ;; exits 0 without asserting anything when it finds no compiler and again when
