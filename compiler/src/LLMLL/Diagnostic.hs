@@ -17,6 +17,7 @@ module LLMLL.Diagnostic
   , formatDiagnosticJson
   , formatReportJson
   , megaparsecToDiagnostic
+, modeHttpRetiredMessage
   -- * Phase 2a: Module System Diagnostics
   , mkCircularImport
   , mkModuleNotFound
@@ -75,7 +76,8 @@ import Data.Aeson.Types (Value(..))
 import Data.Void (Void)
 import qualified Data.List.NonEmpty as NE
 import Text.Megaparsec (ParseErrorBundle, errorBundlePretty, bundleErrors, attachSourcePos, bundlePosState)
-import Text.Megaparsec.Error (errorOffset)
+import Text.Megaparsec.Error (errorOffset, ParseError(..), ErrorFancy(..))
+import qualified Data.Set as Set
 import Text.Megaparsec.Pos (unPos, sourceLine, sourceColumn)
 import LLMLL.Syntax (Span(..))
 import GHC.Generics (Generic)
@@ -736,7 +738,17 @@ megaparsecToDiagnostic fp bundle =
       -- Strip the "<file>:line:col:\n" prefix that errorBundlePretty adds,
       -- so downstream formatters can append their own location info.
       cleanMsg    = stripLocationPrefix prettyMsg
-      suggestion  = Just "use def, def-shell, type, import, or check at the top level"
+      -- The generic hint is wrong for an error that already says what to do
+      -- instead. Today that is only the retired `:mode http` (MODE-HTTP-1):
+      -- the error sits inside a def-main, so "use def ... at the top level"
+      -- pointed the reader away from the actual fix.
+      isHttpRetired = any isHttpFail (NE.toList (bundleErrors bundle))
+      isHttpFail (FancyError _ fs) =
+        ErrorFail (T.unpack modeHttpRetiredMessage) `Set.member` fs
+      isHttpFail _ = False
+      suggestion
+        | isHttpRetired = Nothing
+        | otherwise     = Just "use def, def-shell, type, import, or check at the top level"
   in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing)
   where
     stripLocationPrefix t =
@@ -745,6 +757,15 @@ megaparsecToDiagnostic fp bundle =
       in case ls of
            (_hdr:rest) -> T.strip (T.unlines rest)
            []          -> t
+
+-- | MODE-HTTP-1: the parse error for @:mode http@. It lives here rather than
+-- in LLMLL.Parser so 'megaparsecToDiagnostic' can recognise it and omit the
+-- generic top-level hint. The text is quoted verbatim by CHANGELOG v0.29.0.
+modeHttpRetiredMessage :: Text
+modeHttpRetiredMessage =
+  ":mode http is not supported: no HTTP server harness exists. Outbound \
+  \HTTP calls are wasi.http.* commands from a console or cli program. The \
+  \server design is tracked as HTTP-SERVE-1."
 
 -- ---------------------------------------------------------------------------
 -- TOOL-ENCODING-1: source decoding, pinned to UTF-8

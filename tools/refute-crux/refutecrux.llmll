@@ -33,10 +33,10 @@
 ;; dependency on a Haskell build system into the image. It is NOT dropped: CI
 ;; builds before this runs, and `make refute-crux-gate` builds first.
 ;;
-;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits `print (step
-;; args)`: a pure step, no Command performed, no exit status. So `console` is
-;; the only entry mode that can touch the world, and every LLMLL tool is a
-;; stdin-driven step machine that exits 70 on EOF. This gate needs one command
+;; WHY THIS IS A STATE MACHINE: it predates v0.29.0. Before MODE-CLI-1 shipped,
+;; `:mode cli` performed no Command, so every LLMLL tool was a stdin-driven
+;; `console` step machine that exits 70 on EOF. Since v0.29.0 `:mode cli`
+;; performs commands without stdin; this gate keeps the older shape, one command
 ;; per step across three nested loops (suite, then case, then file), so it needs
 ;; a step budget in the high hundreds where the reference needs a `for`.
 ;;

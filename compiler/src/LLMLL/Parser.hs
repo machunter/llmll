@@ -25,6 +25,7 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 import LLMLL.Syntax
+import LLMLL.Diagnostic (modeHttpRetiredMessage)
 
 type Parser = Parsec Void Text
 type ParseError = ParseErrorBundle Text Void
@@ -498,13 +499,8 @@ pEntryMode :: Parser EntryMode
 pEntryMode = choice
   [ ModeConsole <$ symbol "console"
   , ModeCli     <$ symbol "cli"
-  , symbol "http" *> fail httpRetiredHint
+  , symbol "http" *> fail (T.unpack modeHttpRetiredMessage)
   ]
-  where
-    httpRetiredHint =
-      ":mode http is not supported: no HTTP server harness exists. Outbound \
-      \HTTP calls are wasi.http.* commands from a console or cli program. The \
-      \server design is tracked as HTTP-SERVE-1."
 
 pInterfaceSpec :: Parser [(Name, Type)]
 pInterfaceSpec = parens $ do

@@ -11,11 +11,11 @@
 ;; input teaches people to write worse prose to appease it. Do not "promote"
 ;; this to fail-closed. That is a language problem, not a scripting one.
 ;;
-;; MODE-CLI-1 IS WHY THIS IS A STATE MACHINE. `:mode cli` emits a pure
-;; `print (step args)` with no Command performed and no exit status, so a
-;; program that touches the world has to be a stdin-driven step machine in
-;; `console` mode. That is the single largest reason a 132-line Python script
-;; becomes this.
+;; WHY THIS IS A STATE MACHINE: it predates v0.29.0. Before MODE-CLI-1 shipped,
+;; `:mode cli` performed no Command, so a program that touched the world had to
+;; be a stdin-driven step machine in `console` mode, the single largest reason a
+;; 132-line Python script became this. Since v0.29.0 `:mode cli` performs
+;; commands without stdin; this program keeps the older console shape.
 ;;
 ;; --------------------------------------------------------------------------
 ;; THREE DESIGN CHOICES THAT WERE MEASURED, NOT ARGUED. All three are RFC
