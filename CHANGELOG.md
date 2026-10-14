@@ -4,6 +4,39 @@
 
 ## Unreleased (on `main` after v0.29.0)
 
+### `RESERVED-NAME-1`: names that collide with the generated Haskell now build
+
+User names that collide with Haskell or generated names (`show`, `map`, `data`, `Left`, `Maybe`,
+`loop`, `prop_*`, ...) now build, with no visible change to program output. Using a builtin's name
+for a top-level definition or a constructor, or declaring `True`/`False` constructors, is now a
+check error. Closes `RESERVED-NAME-1` (`0691e19a`).
+
+- **Codegen renames colliding names.** A user name whose Haskell form is a Haskell keyword, a
+  Prelude name, an unqualified import, a preamble or harness name (`loop`, `settle`), a Haskell
+  constructor or type (`Left`, `Just`, `Maybe`), or a name beginning `prop_` is emitted with a
+  `_u<k>` suffix. A sum type with a renamed constructor gets a `Show` instance that prints the
+  source spelling. `a-b` and `a_b` stay distinct. Keyword-named parameters now build. A program
+  that uses none of these names produces the same Haskell as before.
+- **New check error `builtin-redefinition`.** A top-level `def`, `def-shell`, `letrec` or
+  `def-invariant` whose name is a builtin:
+  `'string-concat' is a builtin and cannot be redefined at the top level; rename it. A parameter or let binding may shadow it.`
+  A constructor whose name is a builtin:
+  `'RErr' is a builtin and cannot be used as a constructor name; rename it.` A parameter, `let`,
+  `match` or lambda binder may still shadow a builtin.
+- **A constructor named `RNone`, `RText`, `RCode`, `RErr` or `RList` is now a check error.**
+  Before, plain `check` passed it, and `RNone` also built.
+- **`True` and `False` are reserved constructor names**, joining `Success` and `Error`:
+  `constructor 'True' is reserved: True and False are the constructors of bool; rename it`. The kind
+  is `reserved-constructor-name`.
+- **The `open` warning `'abs' from bi shadows a builtin` is retired.** The module that declares
+  `abs` now fails its own `check` with `builtin-redefinition`. The `xmod-scope/bi.llmll` fixture and
+  the t17 test expect that error.
+- **Measured:** 279 build failures caused by name collisions, among programs that pass `check`, are
+  now 0. No schema change.
+- **Docs:** `LLMLL.md §1` (three new sentences, NC-041 to NC-043, each with a `scripts/doc-claims/`
+  fixture), `§3.3` and `§8.5`. Four follow-up rows are filed in G3 of the roadmap as
+  `RESERVED-NAME-1 residue (1)` to `(4)`.
+
 ### `RESULT-CTOR-RRW`: closed by design; `Success` and `Error` stay reserved
 
 `Success` and `Error` are the constructors of `Result[t,e]`, and LLMLL has no qualified constructor
@@ -28,7 +61,7 @@ codegen fix the row proposed was not built. Closes `RESULT-CTOR-RRW` (`8843b1b`,
 - **`docs/getting-started.md`:** the two JSON examples carry `schemaVersion` 0.12.0, and the list of
   older versions the reader accepts includes 0.11.0.
 
-2273 examples, 0 failures (+6 since v0.29.0). Python: 312 passed; 442 with `LLMLL_BIN` set.
+2299 examples, 0 failures (+32 since v0.29.0). Python: 312 passed; 442 with `LLMLL_BIN` set.
 
 ---
 

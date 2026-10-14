@@ -30,6 +30,9 @@ Every sentence in §0.1 and §1 ends with an empty anchor of the form `<a id="nc
 ## 1. Core Philosophy
 
 1. **Strict Immutability:** There are no variables, only constants.<a id="nc-009"></a> State is transformed, never mutated.<a id="nc-010"></a> Re-binding the same name in the same scope is a compile error.<a id="nc-011"></a> Shadowing in nested scopes (e.g., a `let` binding that reuses a parameter name) is permitted but discouraged — the verifier alpha-renames shadowed bindings internally.<a id="nc-012"></a>
+
+   Builtin names (§13) are bound in every program's top-level scope.<a id="nc-041"></a> A top-level declaration that reuses one re-binds a name in that scope and is rejected with `builtin-redefinition`; a parameter, `let`, `match` or lambda binder may shadow a builtin as a nested scope.<a id="nc-042"></a> Names are otherwise not constrained by the target language: where an LLMLL name collides with a name in the generated Haskell, the compiler renames it, and the renaming is not observable in the program's behaviour.<a id="nc-043"></a>
+
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`).<a id="nc-013"></a> A program with holes can be analyzed and type-checked.<a id="nc-014"></a> `build` accepts it, and a hole that execution reaches aborts the program with `hole: <name>` (`emitHole`), so the program does no useful work until the holes are filled.<a id="nc-035"></a> Always prefer a typed hole over a hallucinated implementation.<a id="nc-015"></a>
 3. **Typed Logic:** Every expression has a type.<a id="nc-016"></a> The type system prevents null pointer dereferences, type mismatches, and unguarded IO.<a id="nc-017"></a>
 4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications.<a id="nc-018"></a> These contracts are the trust interface between agents.<a id="nc-019"></a> Verification is stratified: contracts in the decidable arithmetic fragment (QF-LIA) are verified at compile time via liquid-fixpoint / Z3; a function whose contract or body leaves that fragment is reported as `body-fallback` with a recorded `fallback_reason`, its contracts are enforced as runtime assertions, and an author may route the obligation to Lean with a `?proof-required` hole (§5.3.3).<a id="nc-020"></a> An interactive proof path (Lean 4 via Leanstral, `--leanstral`) ships as an experimental, opt-in demo that records `verified-lean`; the production Lean tier is designed and deferred (see §5.3.3).<a id="nc-021"></a> Each contract clause carries a *display level* — `verified`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.<a id="nc-022"></a>
@@ -208,7 +211,20 @@ For unit-payload constructors (discouraged for new code; see "Idiomatic guidance
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
-**Reserved constructor names.** `Success` and `Error` are the constructors of `Result[t,e]` (§13.8). A sum type may not declare a constructor with either name; `check` rejects it with `reserved-constructor-name`. LLMLL has no qualified constructor names, so a user `Error` would make the pattern `(Error e)` ambiguous. Rename the constructor, for example to `Errored` or `Succeeded`.
+**Reserved constructor names.** `Success` and `Error` are the constructors of `Result[t,e]` (§13.8), and `True` and `False` are the constructors of `bool`. A sum type may not declare a constructor with any of these four names; `check` rejects it with `reserved-constructor-name`. LLMLL has no qualified constructor names, so a user `Error` would make the pattern `(Error e)` ambiguous, and a user `True` would do the same to `(True)`. Rename the constructor, for example to `Errored` or `Succeeded`. `(True)` and `(False)` are the patterns of `bool` in `match`, and `check` checks a `match` on a `bool` for exhaustiveness as it does for any sum type:
+
+```
+error: constructor 'True' is reserved: True and False are the constructors of bool; rename it
+error: non-exhaustive match in 'f': type 'Bool' has unmatched constructors: False (covered: True)
+```
+
+A constructor may not take a builtin's name either (§13). The `Response` constructors `RNone`, `RText`, `RCode`, `RErr` and `RList` are builtins, so a sum type that declares one is rejected with `builtin-redefinition`:
+
+```
+error: 'RErr' is a builtin and cannot be used as a constructor name; rename it.
+```
+
+Every other constructor name is available. A name such as `Left`, `Just` or `Maybe` collides with a name in the generated Haskell, and the compiler renames it there (§1).
 
 **Pattern arity.** Each constructor pattern's sub-pattern count must equal the declared arity of the constructor at its declaration site. A constructor declared `(| Red)` has arity 0 and matches with zero sub-patterns. A constructor declared `(| Red unit)` has arity 1 and matches with one sub-pattern (conventionally `_`). A constructor declared `(| Circle float)` has arity 1 and matches with one sub-pattern bound to the payload. Mismatch produces a typechecker warning.
 
@@ -1374,6 +1390,12 @@ error: duplicate top-level definition 'Phase': type declared in modp1 and in mod
 
 The same module reached by two import paths is one declaration, not a collision. A type's identity is its declaring module plus its name, so `foo.T` and an opened `T` are the same type.
 
+**Builtin names are in that scope too.** Every builtin (§13) is bound at the top level of every build, so a `def`, `def-shell`, `letrec` or `def-invariant` whose name is a builtin is a `check` error of kind `builtin-redefinition`. The constructor form of the same error is in §3.3. A parameter, `let`, `match` or lambda binder may still shadow a builtin (§1):
+
+```
+error: 'string-concat' is a builtin and cannot be redefined at the top level; rename it. A parameter or let binding may shadow it.
+```
+
 To call imported functions, either write the qualified name (§8.5.1) or use `(open foo)` to inject bare aliases into the type-checker's scope, then call with bare names:
 
 ```lisp
@@ -1427,7 +1449,7 @@ Codegen emits the bare Haskell name. That is safe because §8.5 makes every top-
 
 `open` is order-sensitive: it injects names only into the statements that follow it. A use placed before the `open` that would bind it is an error at every gate (`'inc' is used before (open open-aux-lib); move the open above its first use`).
 
-> **Collisions.** Two opened modules cannot export the same bare name: two declarations of one name in a build are already a `duplicate-definition` error (§8.5), whether or not either is opened. Opening the same module twice is not a collision and gives no diagnostic. An opened name that shadows a builtin (for example a module that declares `abs`) still gives a warning, `'abs' from bi shadows a builtin`; such a program fails in GHC, which `RESERVED-NAME-1` tracks.
+> **Collisions.** Two opened modules cannot export the same bare name: two declarations of one name in a build are already a `duplicate-definition` error (§8.5), whether or not either is opened. Opening the same module twice is not a collision and gives no diagnostic. A module cannot export a name that shadows a builtin, because a top-level declaration with a builtin's name (for example `abs`) fails that module's own `check` with `builtin-redefinition` (§8.5).
 
 > **Property-based testing.** The PBT static evaluator used by `llmll test` honors the same bare-name injection rule: a `(check ...)` block whose body calls an imported function evaluates only when the imported module is in bare-name scope via `(open ...)`. Without `open`, the property body cannot reduce to a literal Bool and `llmll test` reports the check as `Skipped`. Qualified references (`module.fn ...`) inside check bodies are not yet resolved by the evaluator, so such a check is also skipped, although the same call builds and runs (`PBT-QUAL-1`).
 

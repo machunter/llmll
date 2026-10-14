@@ -1,0 +1,29 @@
+;; @doc: LLMLL.md §1 item 1 (Strict Immutability: a name that collides with the generated Haskell is renamed, and the renaming is not observable)
+;; @run: 3
+;; @expect: output:rn:42
+;; @norm: NC-043
+;; @claim: `show`, `data`, `loop`, `Just` and `Nothing` are names in the generated Haskell (Prelude, a keyword, the harness, Prelude constructors). Before RESERVED-NAME-1 (0691e19a) this program passed `check` and failed GHC. Codegen now gives each a `_u<k>` suffix, the program builds, and its first step prints `rn:42`, the value the source computes. Measured on main after v0.29.0.
+(module haskell-name-renamed
+  (import wasi.io (capability stdout :deterministic false))
+
+  (type Opt (| Just int) (| Nothing))
+
+  (def-shell show [data: int] -> int (+ data 1))
+
+  (def-shell loop [o: Opt] -> int
+    (match o
+      ((Just n) (show n))
+      ((Nothing) 0)))
+
+  (def-shell rn-init [] (pair 0 (wasi.io.stdout "")))
+
+  (def-shell rn-step [s: int input: string _r: Response]
+    (pair (+ s 1) (wasi.io.stdout (string-concat "rn:" (int-to-string (loop (Just 41)))))))
+
+  (def-shell rn-done? [s: int] -> bool (>= s 2))
+
+  (def-main
+    :mode    console
+    :init    (rn-init)
+    :step    rn-step
+    :done?   rn-done?))

@@ -149,6 +149,9 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `import-non-transitive.llmll` | importing a module that imports `wasi.io` does not import `wasi.io` (NC-030) | genuine restriction (multi-module) |
 | `import-non-transitive-callee.llmll` | support module for the above; declares `wasi.io` itself and checks clean | positive behaviour |
 | `hole-abort-at-run.llmll` | a built program whose first step reaches a hole aborts with `hole: hp-impl` (NC-035, `emitHole`) | run-time behaviour (`@run: 3`) |
+| `builtin-redefinition-rejected.llmll` | a top-level `def-shell` named `string-concat` is a `check` error of kind `builtin-redefinition` (NC-041, NC-042; RESERVED-NAME-1, was `check` OK) | genuine restriction |
+| `builtin-shadow-local.llmll` | a parameter and a `let` binder that shadow builtins pass `check` (NC-042) | positive behaviour |
+| `haskell-name-renamed.llmll` | a program that names `show`, `data`, `loop`, `Just` and `Nothing` builds and prints `rn:42`, because codegen renames the colliding names (NC-043; RESERVED-NAME-1, was a GHC failure) | run-time behaviour (`@run: 3`) |
 
 The `open-after-def-*` pair is one claim needing two fixtures. Until XMOD-SCOPE the documented
 behaviour was that `typecheck` and `verify` **disagreed** on the same program (a warning against an

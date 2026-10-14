@@ -113,6 +113,34 @@
       ]
     },
     {
+      "id": "NC-041",
+      "section": "1.1",
+      "text": "Builtin names (§13) are bound in every program's top-level scope.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/builtin-redefinition-rejected.llmll"
+      ]
+    },
+    {
+      "id": "NC-042",
+      "section": "1.1",
+      "text": "A top-level declaration that reuses one re-binds a name in that scope and is rejected with `builtin-redefinition`; a parameter, `let`, `match` or lambda binder may shadow a builtin as a nested scope.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/builtin-redefinition-rejected.llmll",
+        "scripts/doc-claims/builtin-shadow-local.llmll"
+      ]
+    },
+    {
+      "id": "NC-043",
+      "section": "1.1",
+      "text": "Names are otherwise not constrained by the target language: where an LLMLL name collides with a name in the generated Haskell, the compiler renames it, and the renaming is not observable in the program's behaviour.",
+      "disposition": "fixture",
+      "target": [
+        "scripts/doc-claims/haskell-name-renamed.llmll"
+      ]
+    },
+    {
       "id": "NC-013",
       "section": "1.2",
       "text": "**Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`).",

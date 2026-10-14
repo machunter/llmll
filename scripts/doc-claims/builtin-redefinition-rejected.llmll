@@ -1,0 +1,6 @@
+;; @doc: LLMLL.md §1 item 1 (Strict Immutability: builtin names are bound in the top-level scope, and a top-level declaration that reuses one is rejected)
+;; @expect: check-error:is a builtin and cannot be redefined at the top level
+;; @norm: NC-041, NC-042
+;; @claim: Builtin names are bound in every program's top-level scope, so a top-level `def-shell` named `string-concat` re-binds a name in that scope and `check` rejects it with kind `builtin-redefinition`. Before RESERVED-NAME-1 (0691e19a) `check` printed OK on this file and every later call got the builtin's argument hints. Measured on main after v0.29.0.
+(module builtin-redefinition-rejected
+  (def-shell string-concat [a: string b: string] -> string a))
