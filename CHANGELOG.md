@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.29.0)
+<a id="Latest"></a>
+
+## v0.29.1: names that collide with the generated Haskell build; builtin names are reserved at the top level (2026-10-14)
 
 ### `RESERVED-NAME-1`: names that collide with the generated Haskell now build
 
@@ -61,11 +63,9 @@ codegen fix the row proposed was not built. Closes `RESULT-CTOR-RRW` (`8843b1b`,
 - **`docs/getting-started.md`:** the two JSON examples carry `schemaVersion` 0.12.0, and the list of
   older versions the reader accepts includes 0.11.0.
 
-2299 examples, 0 failures (+32 since v0.29.0). Python: 312 passed; 442 with `LLMLL_BIN` set.
+Tests: 2299 examples, 0 failures (+32 since v0.29.0). Python: 312 passed; 442 with `LLMLL_BIN` set.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.29.0: `:mode cli` performs commands, and `:mode http` is gone (2026-10-12)
 

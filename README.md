@@ -1,4 +1,4 @@
-# LLMLL — v0.29.0
+# LLMLL — v0.29.1
 
 **An experiment in letting AI write the code: the compiler proves each function against its contract, and refutes a type-correct but wrong body before it merges.**
 
