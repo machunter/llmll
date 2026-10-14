@@ -19,7 +19,7 @@ This is the public summary. The team's internal work log, with every open item, 
 
 Open work is grouped by where the fix lands, in priority order. Tags in parentheses name the matching item in the internal log.
 
-1. **The verdict.** Close the remaining cases where a stored proof record could go stale or the trust report under-discloses. No open item in this group has a demonstrated false "SAFE" verdict. (G1)
+1. **The verdict.** Close the remaining cases where a stored proof record could go stale or the trust report under-discloses. No open item in this group has a demonstrated false "SAFE" verdict, but `verify --trust-report` exits 0 on a function the solver disproves, because it reads saved results instead of running the solver (TRUST-REPORT-GATE-1). (G1)
 2. **Crash-freedom of built programs.** A program that passes `check` should not crash at run time. No item in this group is open. `Success` and `Error` are reserved constructor names by design, because they are `Result`'s own constructors (RESULT-CTOR-RRW, closed). (G2)
 3. **One verdict across `check` and `build`.** Remove the cases where `check` passes and the Haskell build then fails, and where a diagnostic misleads: a binding named `show` or a constructor named `Left`, `Just` or `True`, which collide with Haskell's own names (RESERVED-NAME-1); Unicode operator aliases that do not work (ALIAS-LOWER-1); a JSON-AST node that may drop an unknown key without a message (AST-STRICT-KEYS-1). (G3)
 4. **Commands, responses and replay.** Measure what a second and third declared `Response` fact cost before adding more (RESP-FACT-2). Replay with injected responses waits on a trigger (REPLAY-INJECT). (G4)
