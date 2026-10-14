@@ -118,7 +118,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 |---|---|---|
 | Function / variable / parameter names | **kebab-case** | `safe-subtract`, `account-id`, `from-balance` |
 | Type names | **PascalCase** | `Ledger`, `Balance`, `PositiveInt` |
-| Constructor / variant names | **PascalCase** | `Success`, `Error`, `Ok` |
+| Constructor / variant names | **PascalCase** | `Pending`, `Errored`, `Ok` |
 | Boolean predicates | **kebab-case + trailing `?`** | `empty?`, `string-empty?`, `is-game-over?` |
 | Built-in keywords and builtins | **kebab-case** (no underscore) | `def`, `def-shell`, `for-all`, `string-length`, `list-empty` |
 | Reserved identifiers | **lowercase** | `result`, `unit`, `true`, `false` |
@@ -207,6 +207,8 @@ For unit-payload constructors (discouraged for new code; see "Idiomatic guidance
 ```
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
+
+**Reserved constructor names.** `Success` and `Error` are the constructors of `Result[t,e]` (§13.8). A sum type may not declare a constructor with either name; `check` rejects it with `reserved-constructor-name`. LLMLL has no qualified constructor names, so a user `Error` would make the pattern `(Error e)` ambiguous. Rename the constructor, for example to `Errored` or `Succeeded`.
 
 **Pattern arity.** Each constructor pattern's sub-pattern count must equal the declared arity of the constructor at its declaration site. A constructor declared `(| Red)` has arity 0 and matches with zero sub-patterns. A constructor declared `(| Red unit)` has arity 1 and matches with one sub-pattern (conventionally `_`). A constructor declared `(| Circle float)` has arity 1 and matches with one sub-pattern bound to the payload. Mismatch produces a typechecker warning.
 
