@@ -2,6 +2,36 @@
 
 ---
 
+## Unreleased (on `main` after v0.29.0)
+
+### `RESULT-CTOR-RRW`: closed by design; `Success` and `Error` stay reserved
+
+`Success` and `Error` are the constructors of `Result[t,e]`, and LLMLL has no qualified constructor
+names, so a user constructor with either name would make the pattern `(Error e)` ambiguous in the
+source. The `reserved-constructor-name` check error stays, and its message now states that rule:
+`constructor 'Error' is reserved: Success and Error are the constructors of Result[t,e]; rename it
+(for example 'Errored' or 'Succeeded')`. The kind is unchanged. `LLMLL.md §3.3` now lists the two
+names as reserved, and the naming table no longer offers them as examples. The type-directed
+codegen fix the row proposed was not built. Closes `RESULT-CTOR-RRW` (`8843b1b`, `a32cd57`).
+
+- **Host-language collisions are a separate defect.** A user constructor named `Left`, `Right`,
+  `Just`, `Nothing` or `True` passes `check` and fails `build` with GHC `Ambiguous occurrence`. These
+  are not reserved; the fix is codegen name mangling, recorded on `RESERVED-NAME-1`.
+
+### v0.29.0 follow-ups
+
+- **The `:mode http` parse error carries no generic hint.** It ended with
+  `use def, def-shell, type, import, or check at the top level`, which does not apply inside a
+  `def-main`. The message text is unchanged; other parse errors keep the hint.
+- **Generated `Main.hs` no longer imports `getArgs`.** Neither harness used it.
+- **Five tool and fixture comments** no longer say `:mode cli` cannot perform commands.
+- **`docs/getting-started.md`:** the two JSON examples carry `schemaVersion` 0.12.0, and the list of
+  older versions the reader accepts includes 0.11.0.
+
+2273 examples, 0 failures (+6 since v0.29.0). Python: 312 passed; 442 with `LLMLL_BIN` set.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.29.0: `:mode cli` performs commands, and `:mode http` is gone (2026-10-12)
