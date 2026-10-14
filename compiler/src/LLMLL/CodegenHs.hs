@@ -56,6 +56,11 @@ module LLMLL.CodegenHs
   , staleCabalFiles   -- BUILD-DIR-REUSE: which .cabal files a rebuild into a used -o dir must remove
   , staleExecutables  -- BUILD-DIR-REUSE: which executables under .stack-work/install/*/*/*/bin it must remove
   , emitStmt
+    -- * RESERVED-NAME-1: collision renaming (exported for test coverage)
+  , reservedHsNames
+  , isReservedHsName
+  , buildRenameMap
+  , renameStatements
   ) where
 
 import Data.Text (Text)
@@ -109,8 +114,14 @@ classifyImport imp
 -- ---------------------------------------------------------------------------
 
 generateHaskell :: Text -> [Statement] -> CodegenResult
-generateHaskell modName stmts =
-  let imports   = [imp | SImport imp <- stmts]
+generateHaskell modName stmts0 =
+  -- RESERVED-NAME-1: rename every user-bound name whose Haskell form collides
+  -- with a generated or imported name, once, before any emitter runs. An
+  -- empty map (no collision) leaves the statements untouched.
+  let renameMap = buildRenameMap stmts0
+      stmts     = renameStatements renameMap stmts0
+      srcOf     = Map.fromList [ (new, toHsIdent old) | (old, new) <- Map.toList renameMap ]
+      imports   = [imp | SImport imp <- stmts]
       hackageMs = nub [pkg | imp <- imports, HackageImport pkg <- [classifyImport imp]]
       cLibs     = nub [lib | imp <- imports, CLibImport lib   <- [classifyImport imp]]
       hasFfi    = not (null cLibs)
@@ -122,7 +133,7 @@ generateHaskell modName stmts =
       -- statements before calling here, so a call in an imported module is seen.
       httpGet   = usesHttpGet stmts
 
-      libHs     = emitLibHs modName hackageMs httpGet stmts
+      libHs     = emitLibHs modName hackageMs httpGet srcOf stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
       pkgYaml   = emitPackageYaml modName hasMain httpGet hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
@@ -181,8 +192,8 @@ preludeHiding
   | null preludeClashes = "import Prelude"
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
-emitLibHs :: Text -> [Text] -> Bool -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet stmts = T.unlines $
+emitLibHs :: Text -> [Text] -> Bool -> Map Text Text -> [Statement] -> Text
+emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -285,7 +296,7 @@ emitLibHs _modName hackagePkgs httpGet stmts = T.unlines $
   , "-- ---------------------------------------------------------------------------"
   , ""
   ] ++
-  map emitStmt (filter (not . isDefMain) stmts)
+  map (emitStmtRenamed srcOf) (filter (not . isDefMain) stmts)
 
 -- | Map haskell.<pkg> short names to their actual Haskell module paths.
 -- Unknown packages fall back to capitalize-and-join.
@@ -1621,6 +1632,22 @@ emitStmt (SExport _)                      = ""  -- compile-time export annotatio
 emitStmt (STrust _ _)                     = ""  -- trust declaration (compile-time)
 emitStmt (SWeaknessOk _ _)                = ""  -- weakness suppression (compile-time)
 
+-- | RESERVED-NAME-1: 'emitStmt', except that a sum type with a renamed
+-- constructor derives Eq only and gets 'emitShowInstance', so 'show' prints
+-- the source constructor name. @srcOf@ maps a renamed Haskell name to its
+-- unrenamed form; it is empty for a program with no collision, and then this
+-- is 'emitStmt' exactly.
+emitStmtRenamed :: Map Text Text -> Statement -> Text
+emitStmtRenamed srcOf (STypeDef name (TSumType ctors))
+  | any ((`Map.member` srcOf) . fst) ctors =
+      let fmtCtor (c, Nothing) = toHsIdent c
+          fmtCtor (c, Just t)  = toHsIdent c <> " " <> toHsType t
+          ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
+      in "data " <> toHsIdent name <> "\n  = " <> ctorStr
+         <> "\n  deriving (Eq)\n"
+         <> emitShowInstance srcOf (toHsIdent name) ctors
+emitStmtRenamed _ stmt = emitStmt stmt
+
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text
 emitTypeDef name (TSumType ctors) =
@@ -2802,6 +2829,447 @@ emitFfiDecl (fname, ftype) =
 -- ---------------------------------------------------------------------------
 -- Identifier helpers
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- RESERVED-NAME-1: user names that collide with generated Haskell
+-- ---------------------------------------------------------------------------
+--
+-- Every module's statements are concatenated into ONE Lib.hs, which imports
+-- Prelude and a fixed set of names unqualified and defines the §13 preamble at
+-- top level; Main.hs imports Lib and defines the harness. A user name whose
+-- Haskell form ('toHsIdent') is one of those names passed `llmll check` and then
+-- failed GHC (measured 2026-10-13: 279 of 533 checked (name, position) cases,
+-- with diagnostics that point at generated code the author never wrote).
+--
+-- The fix is name mangling at codegen, not a reserved list in the language:
+-- Haskell's names are not LLMLL's. A user-bound name that collides is emitted
+-- as @<hsname>_u<k>@; every other name is emitted exactly as before, so a
+-- program that uses none of these names produces byte-identical Haskell.
+--
+-- Renaming must be UNOBSERVABLE. The one place a Haskell identifier reaches a
+-- program's output is a derived 'Show' instance, so a sum type with a renamed
+-- constructor gets a hand-written one that prints the source name
+-- ('emitShowInstance').
+--
+-- The rename is applied to the AST once, at the top of 'generateHaskell'
+-- ('renameStatements'), so every emission site sees the final name and
+-- 'toHsIdent' leaves it fixed: @_u<k>@ carries no @-@, @?@ or @.@.
+
+-- | R: every Haskell name a user-bound name must not take. Values, types,
+-- classes and constructors alike, because LLMLL has one namespace for them all
+-- and the rename map is keyed by the LLMLL name. Pinned in Spec.hs
+-- (RESERVED-NAME-1) against the names the emitted Lib.hs and Main.hs define
+-- and import unqualified.
+reservedHsNames :: Set.Set Text
+reservedHsNames = Set.fromList $
+     hsKeywords
+  ++ hsPreludeNames
+  ++ hsImportedNames
+  ++ hsPreambleNames
+  ++ hsHarnessNames
+  ++ hsTemporaryNames
+
+-- | Haskell 2010 reserved identifiers. forall, mdo, proc and rec are not
+-- listed: measured, each builds as an LLMLL name.
+hsKeywords :: [Text]
+hsKeywords =
+  [ "case", "class", "data", "default", "deriving", "do", "else", "foreign"
+  , "if", "import", "in", "infix", "infixl", "infixr", "instance", "let"
+  , "module", "newtype", "of", "then", "type", "where" ]
+
+-- | Prelude's export list (GHC 9.6.6, lts-22.43), minus the operators (no
+-- LLMLL name is symbolic) and minus Word, which 'preludeHiding' hides.
+hsPreludeNames :: [Text]
+hsPreludeNames =
+  -- values and class methods
+  [ "abs", "acos", "acosh", "all", "and", "any", "appendFile", "asTypeOf"
+  , "asin", "asinh", "atan", "atan2", "atanh", "break", "ceiling", "compare"
+  , "concat", "concatMap", "const", "cos", "cosh", "curry", "cycle"
+  , "decodeFloat", "div", "divMod", "drop", "dropWhile", "either", "elem"
+  , "encodeFloat", "enumFrom", "enumFromThen", "enumFromThenTo", "enumFromTo"
+  , "error", "errorWithoutStackTrace", "even", "exp", "exponent", "fail"
+  , "filter", "flip", "floatDigits", "floatRadix", "floatRange", "floor"
+  , "fmap", "foldMap", "foldl", "foldl1", "foldr", "foldr1", "fromEnum"
+  , "fromInteger", "fromIntegral", "fromRational", "fst", "gcd", "getChar"
+  , "getContents", "getLine", "head", "id", "init", "interact", "ioError"
+  , "isDenormalized", "isIEEE", "isInfinite", "isNaN", "isNegativeZero"
+  , "iterate", "last", "lcm", "length", "lex", "liftA2", "lines", "log"
+  , "logBase", "lookup", "map", "mapM", "mapM_", "mappend", "max", "maxBound"
+  , "maximum", "maybe", "mconcat", "mempty", "min", "minBound", "minimum"
+  , "mod", "negate", "not", "notElem", "null", "odd", "or", "otherwise", "pi"
+  , "pred", "print", "product", "properFraction", "pure", "putChar", "putStr"
+  , "putStrLn", "quot", "quotRem", "read", "readFile", "readIO", "readList"
+  , "readLn", "readParen", "reads", "readsPrec", "realToFrac", "recip", "rem"
+  , "repeat", "replicate", "return", "reverse", "round", "scaleFloat"
+  , "scanl", "scanl1", "scanr", "scanr1", "seq", "sequence", "sequenceA"
+  , "sequence_", "show", "showChar", "showList", "showParen", "showString"
+  , "shows", "showsPrec", "significand", "signum", "sin", "sinh", "snd"
+  , "span", "splitAt", "sqrt", "subtract", "succ", "sum", "tail", "take"
+  , "takeWhile", "tan", "tanh", "toEnum", "toInteger", "toRational"
+  , "traverse", "truncate", "uncurry", "undefined", "unlines", "until"
+  , "unwords", "unzip", "unzip3", "userError", "words", "writeFile", "zip"
+  , "zip3", "zipWith", "zipWith3"
+  -- types, classes and constructors
+  , "Applicative", "Bool", "Bounded", "Char", "Double", "EQ", "Either", "Enum"
+  , "Eq", "False", "FilePath", "Float", "Floating", "Foldable", "Fractional"
+  , "Functor", "GT", "IO", "IOError", "Int", "Integer", "Integral", "Just"
+  , "LT", "Left", "Maybe", "Monad", "MonadFail", "Monoid", "Nothing", "Num"
+  , "Ord", "Ordering", "Rational", "Read", "ReadS", "Real", "RealFloat"
+  , "RealFrac", "Right", "Semigroup", "Show", "ShowS", "String"
+  , "Traversable", "True" ]
+
+-- | Every name an unqualified import list in Lib.hs (including the
+-- HTTP-GET-1 imports) or Main.hs brings into scope, with each @T(..)@
+-- expanded to the type and its constructors. Operators are omitted.
+hsImportedNames :: [Text]
+hsImportedNames =
+  [ "isPrefixOf", "intercalate", "nub", "sort", "foldl'", "ord", "chr"
+  , "hPutStr", "hPutStrLn", "stderr", "openFile", "hClose", "hSetEncoding"
+  , "utf8", "hGetContents", "quickCheck", "property", "try", "evaluate"
+  , "onException", "SomeException", "IOException", "bracket", "IORef"
+  , "newIORef", "readIORef", "writeIORef", "doesFileExist"
+  , "doesDirectoryExist", "removeFile", "removeDirectory", "listDirectory"
+  , "createDirectoryIfMissing", "copyFile", "getModificationTime"
+  , "pathIsSymbolicLink", "isDoesNotExistError", "catchIOError", "UTCTime"
+  , "getCurrentTime", "diffUTCTime", "when", "xor", "Word8"
+  , "unsafePerformIO", "getArgs", "lookupEnv", "timeout"
+  , "getMonotonicTimeNSec", "showHex"
+  , "IOMode", "ReadMode", "WriteMode", "AppendMode", "ReadWriteMode"
+  , "ExitCode", "ExitSuccess", "ExitFailure"
+  -- HTTP-GET-1 (conditional imports; reserved unconditionally so a name's
+  -- emitted form does not depend on whether the program fetches)
+  , "newManager", "parseRequest", "withResponse", "responseStatus"
+  , "responseBody", "brRead", "method", "redirectCount", "responseTimeout"
+  , "responseTimeoutMicro", "HttpException", "tlsManagerSettings"
+  , "statusCode", "methodGet", "takeDirectory", "openBinaryTempFile"
+  , "renameFile"
+  -- Main.hs
+  , "exitWith", "exitSuccess", "hSetBuffering", "hFlush", "hIsEOF"
+  , "openTempFile", "BufferMode", "NoBuffering", "LineBuffering"
+  , "BlockBuffering", "stdin", "stdout", "setLocaleEncoding"
+  , "modifyIORef'", "hDuplicate", "hDuplicateTo", "getTemporaryDirectory" ]
+
+-- | Every top-level name the Lib.hs preamble defines ('runtimePreamble',
+-- its 'jsonPreamble', and 'httpGetPreamble'), including the Response and Json
+-- types and constructors. The llmll_-prefixed ones are covered by the prefix
+-- rule in 'isReservedHsName' and are not repeated here.
+hsPreambleNames :: [Text]
+hsPreambleNames =
+  [ "Response", "RNone", "RText", "RCode", "RErr", "RList"
+  , "Json", "JNull", "JBool", "JNum", "JStr", "JArr", "JObj"
+  , "bytes_get", "bytes_length", "bytes_set", "bytes_zero", "err", "hmac_sha1"
+  , "int_to_string", "is_ok", "jsonHexVal", "jsonIsDigit", "jsonIsHex"
+  , "jsonIsIntLexeme", "jsonLit", "jsonMaxDepth", "jsonNumOk", "jsonPArr"
+  , "jsonPNumber", "jsonPObj", "jsonPString", "jsonPValue", "jsonQuote"
+  , "jsonRender", "jsonSkipWs", "jsonU", "jsonUpsert", "json_array"
+  , "json_as_bool", "json_as_int", "json_as_number", "json_as_string"
+  , "json_get", "json_get_bool", "json_get_int", "json_get_number"
+  , "json_get_string", "json_object", "json_of_bool", "json_of_int"
+  , "json_of_list", "json_of_string", "json_parse", "json_serialize"
+  , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
+  , "list_fold", "list_head", "list_length", "list_map", "list_nth"
+  , "list_prepend", "list_tail", "map_empty", "map_get", "map_has", "map_put"
+  , "ok", "range", "regex_match", "seq_commands", "sha1_hash"
+  , "string_char_at", "string_concat", "string_concat_many"
+  , "string_contains", "string_empty'", "string_length", "string_slice"
+  , "string_split", "string_to_int", "string_trim", "unwrap", "unwrap_or"
+  , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"
+  , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_mkdir", "wasi_fs_read"
+  , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_stat", "wasi_fs_write"
+  , "wasi_http_get", "wasi_http_post", "wasi_http_response", "wasi_io_stderr"
+  , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_run" ]
+
+-- | Every top-level name the Main.hs harness defines ('emitEventLogPreamble'
+-- and 'emitMainBody'), plus the two functions its @main@ binds in a @where@
+-- clause. @loop@ and @settle@ are in scope where the harness emits the
+-- :step, :done?, :on-done and :status references, so a user function of
+-- either name was captured by the harness's own (measured: a
+-- @(def-shell loop ...)@ used as :step passed check and failed GHC).
+-- llmll_terminate, the third, is covered by the llmll_ prefix.
+hsHarnessNames :: [Text]
+hsHarnessNames = ["main", "headerJsonL", "eventJsonL", "captureStdout", "performStep", "loop", "settle"]
+
+-- | Fixed temporary names codegen binds around user code. The patterned ones
+-- (llmll_*, _cmdN, _s_N) are in 'isReservedHsName'.
+hsTemporaryNames :: [Text]
+hsTemporaryNames = ["_pre_", "_result_", "_ppost_", "r_", "e_", "v_"]
+
+-- | Is this Haskell name unavailable to a user binding? R, the @llmll_@ and
+-- @prop_@ prefixes, and the do-block temporaries @_cmd<n>@ and @_s_<n>@.
+-- @prop_@ is the prefix of every QuickCheck property codegen emits
+-- ('emitCheck', 'emitLaw'), so a user @prop_x@ could collide with the
+-- property of a check labelled "x".
+isReservedHsName :: Text -> Bool
+isReservedHsName h =
+     h `Set.member` reservedHsNames
+  || "llmll_" `T.isPrefixOf` h
+  || "prop_" `T.isPrefixOf` h
+  || numbered "_cmd" || numbered "_s_"
+  where
+    numbered p = case T.stripPrefix p h of
+      Just ds -> not (T.null ds) && T.all (\c -> c >= '0' && c <= '9') ds
+      Nothing -> False
+
+-- | Every name a program binds: top-level def, def-shell, def-logic, letrec
+-- and def-invariant names, interface names and methods, type names,
+-- constructor names, and local binders (params, let, match and do binders,
+-- lambda params, check and law bindings).
+userBoundNames :: [Statement] -> Set.Set Name
+userBoundNames stmts = Set.unions (map stmtNames stmts)
+  where
+    stmtNames s = case s of
+      SDefLogic n ps _ c b       -> defNames n ps c [b]
+      SDef n ps _ c b            -> defNames n ps c [b]
+      SDefShell n ps _ c b ds    -> defNames n ps c (b : ds)
+      SDefInvariant n ps _ c b   -> defNames n ps c [b]
+      SLetrec n ps _ c d b       -> defNames n ps c [d, b]
+      SDefInterface n fns laws   -> Set.insert n (Set.fromList (map fst fns))
+                                      <> Set.unions (map propNames laws)
+      STypeDef n body            -> Set.insert n (Set.fromList (typeDefCtors body))
+      SCheck p                   -> propNames p
+      SExpr e                    -> exprBinders e
+      SDefMain{}                 -> Set.unions (map exprBinders (stmtExprs s))
+      _                          -> Set.empty
+    defNames n ps c es = Set.insert n (Set.fromList (map fst ps))
+      <> Set.unions (map exprBinders (es ++ catMaybes [contractPre c, contractPost c]))
+    propNames p = Set.fromList (map fst (propBindings p)) <> exprBinders (propBody p)
+
+-- | The constructor names a type definition declares. The pipe-text form is
+-- 'emitTypeDef''s legacy TCustom branch.
+typeDefCtors :: Type -> [Name]
+typeDefCtors (TSumType cs) = map fst cs
+typeDefCtors (TCustom body)
+  | " | " `T.isInfixOf` body =
+      [ T.strip (T.takeWhile (/= ':') p) | p <- T.splitOn " | " body ]
+typeDefCtors _ = []
+
+exprBinders :: Expr -> Set.Set Name
+exprBinders e = case e of
+  ELet bs b      -> Set.unions [ patBinders p <> exprBinders x | (p, _, x) <- bs ] <> exprBinders b
+  EMatch s arms  -> exprBinders s <> Set.unions [ patBinders p <> exprBinders x | (p, x) <- arms ]
+  ELambda ps b   -> Set.fromList (map fst ps) <> exprBinders b
+  EDo steps      -> Set.unions [ maybe Set.empty Set.singleton n <> exprBinders x | DoStep n x _ <- steps ]
+  EApp _ as      -> Set.unions (map exprBinders as)
+  EOp _ as       -> Set.unions (map exprBinders as)
+  EIf c t f      -> exprBinders c <> exprBinders t <> exprBinders f
+  EPair a b      -> exprBinders a <> exprBinders b
+  EAwait x       -> exprBinders x
+  EHole h        -> Set.unions (map exprBinders (holeExprs h))
+  ELit _         -> Set.empty
+  EVar _         -> Set.empty
+
+patBinders :: Pattern -> Set.Set Name
+patBinders p = case p of
+  PVar n             -> Set.singleton n
+  PConstructor _ ps  -> Set.unions (map patBinders ps)
+  _                  -> Set.empty
+
+-- | The expressions a hole carries that codegen emits.
+holeExprs :: HoleKind -> [Expr]
+holeExprs h = case h of
+  HDelegate spec             -> maybe [] pure (delegateOnFailure spec)
+  HProofRequired _ (Just e)  -> [e]
+  _                          -> []
+
+-- | The rename map: LLMLL name to emitted Haskell name, for colliding names
+-- only. A name collides when its Haskell form is reserved ('isReservedHsName')
+-- or when another user name has the same Haskell form (@a-b@ and @a_b@). A
+-- colliding name becomes @<hsname>_u<k>@, k the smallest integer >= 1 whose
+-- result is not reserved, is not the Haskell form of any user name, and is not
+-- already taken by an earlier entry. Names are assigned in ascending order,
+-- so the map is deterministic, and the last condition makes it one-to-one.
+buildRenameMap :: [Statement] -> Map Name Text
+buildRenameMap stmts = snd (foldl assign (Set.empty, Map.empty) colliding)
+  where
+    names     = Set.toAscList (userBoundNames stmts)
+    hsOf      = toHsIdent
+    formCount = Map.fromListWith (+) [ (hsOf n, 1 :: Int) | n <- names ]
+    userForms = Map.keysSet formCount
+    colliding = [ n | n <- names
+                    , isReservedHsName (hsOf n)
+                      || Map.findWithDefault 0 (hsOf n) formCount > 1 ]
+    -- The property names this program's checks and laws emit. A renamed
+    -- prop_ name keeps its prefix, so it must also avoid these.
+    propNames = Set.fromList $
+         [ "prop_" <> sanitizeCheckLabel (propDescription p) | SCheck p <- stmts ]
+      ++ [ "prop_" <> toHsIdent i <> "_law_" <> T.pack (show k)
+         | SDefInterface i _ laws <- stmts, k <- [1 .. length laws] ]
+    assign (taken, m) n =
+      let base  = hsOf n
+          cands = [ base <> "_u" <> T.pack (show k) | k <- [1 :: Int ..] ]
+          ok c  = not (c `Set.member` reservedHsNames)
+                  && not (c `Set.member` userForms)
+                  && not (c `Set.member` taken)
+                  && not (c `Set.member` propNames)
+          new   = head (filter ok cands)
+      in (Set.insert new taken, Map.insert n new m)
+
+-- | Apply a rename map to a program. Binders take their mapped name. A
+-- reference takes it only when it resolves to a user binding: a local binder
+-- in scope, a top-level definition, a constructor or an interface method. A
+-- reference to a builtin is emitted by name and is never renamed, so a
+-- parameter named @string-concat@ is renamed inside its own scope while a call
+-- to the builtin elsewhere still emits @string_concat@. Type references are
+-- renamed when they name a user type or interface.
+renameStatements :: Map Name Text -> [Statement] -> [Statement]
+renameStatements m stmts
+  | Map.null m = stmts
+  | otherwise  = map renStmt stmts
+  where
+    topVals = Set.fromList $
+      [ n | s <- stmts, Just n <- [defNameOf s] ]
+      ++ [ c | STypeDef _ body <- stmts, c <- typeDefCtors body ]
+      ++ [ f | SDefInterface _ fns _ <- stmts, (f, _) <- fns ]
+    topTypes = Set.fromList $
+      [ n | STypeDef n _ <- stmts ] ++ [ n | SDefInterface n _ _ <- stmts ]
+    defNameOf s = case s of
+      SDefLogic n _ _ _ _     -> Just n
+      SDef n _ _ _ _          -> Just n
+      SDefShell n _ _ _ _ _   -> Just n
+      SDefInvariant n _ _ _ _ -> Just n
+      SLetrec n _ _ _ _ _     -> Just n
+      _                       -> Nothing
+
+    bind n = maybe n id (Map.lookup n m)
+    ref locals n
+      | n `Set.member` locals || n `Set.member` topVals = bind n
+      | otherwise = n
+    ctorRef n
+      | n `Set.member` topVals = bind n
+      | otherwise = n
+
+    renTy t = case t of
+      TCustom n
+        | n `Set.member` topTypes -> TCustom (bind n)
+        | otherwise               -> t
+      TList a          -> TList (renTy a)
+      TMap k v         -> TMap (renTy k) (renTy v)
+      TResult a b      -> TResult (renTy a) (renTy b)
+      TPair a b        -> TPair (renTy a) (renTy b)
+      TFn as r         -> TFn (map renTy as) (renTy r)
+      TPromise a       -> TPromise (renTy a)
+      TDependent n b e -> TDependent n (renTy b) e
+      TSumType cs      -> TSumType [ (bind c, fmap renTy p) | (c, p) <- cs ]
+      _                -> t
+
+    renParams ps = [ (bind n, renTy t) | (n, t) <- ps ]
+
+    renContract locals c = c
+      { contractPre  = fmap (renExpr locals) (contractPre c)
+      , contractPost = fmap (renExpr locals) (contractPost c) }
+
+    renDef n ps r c bodies =
+      let locals = Set.fromList (map fst ps)
+      in (bind n, renParams ps, fmap renTy r, renContract locals c, map (renExpr locals) bodies)
+
+    renProp p =
+      let locals = Set.fromList (map fst (propBindings p))
+      in p { propBindings = renParams (propBindings p)
+           , propBody     = renExpr locals (propBody p) }
+
+    renStmt s = case s of
+      SDefLogic n ps r c b ->
+        let (n', ps', r', c', bs') = renDef n ps r c [b]
+        in SDefLogic n' ps' r' c' (head bs')
+      SDef n ps r c b ->
+        let (n', ps', r', c', bs') = renDef n ps r c [b]
+        in SDef n' ps' r' c' (head bs')
+      SDefShell n ps r c b ds ->
+        let (n', ps', r', c', bs') = renDef n ps r c (b : ds)
+        in SDefShell n' ps' r' c' (head bs') (tail bs')
+      SDefInvariant n ps r c b ->
+        let (n', ps', r', c', bs') = renDef n ps r c [b]
+        in SDefInvariant n' ps' r' c' (head bs')
+      SLetrec n ps r c d b ->
+        let (n', ps', r', c', bs') = renDef n ps r c [d, b]
+        in case bs' of
+             [d', b'] -> SLetrec n' ps' r' c' d' b'
+             _        -> error "renameStatements: SLetrec arity"
+      SDefInterface n fns laws ->
+        SDefInterface (bind n) [ (bind f, renTy t) | (f, t) <- fns ] (map renProp laws)
+      STypeDef n body -> STypeDef (bind n) (renTypeDefBody body)
+      SCheck p -> SCheck (renProp p)
+      SExpr e -> SExpr (renExpr Set.empty e)
+      SDefMain{} -> s
+        { defMainInit   = fmap (renExpr Set.empty) (defMainInit s)
+        , defMainStep   = renExpr Set.empty (defMainStep s)
+        , defMainDone   = fmap (renExpr Set.empty) (defMainDone s)
+        , defMainOnDone = fmap (renExpr Set.empty) (defMainOnDone s)
+        , defMainStatus = fmap (renExpr Set.empty) (defMainStatus s) }
+      _ -> s
+
+    -- The legacy pipe-text sum type: rename each constructor and payload type
+    -- in place, keeping the text shape 'emitCtorDecl' parses.
+    renTypeDefBody body = case body of
+      TCustom txt | " | " `T.isInfixOf` txt ->
+        TCustom (T.intercalate " | " (map renPart (T.splitOn " | " txt)))
+      _ -> renTy body
+    renPart p = case T.breakOn ":" (T.strip p) of
+      (c, rest)
+        | T.null rest -> bind c
+        | otherwise   ->
+            let ty = T.strip (T.drop 1 rest)
+                ty' = if ty `Set.member` topTypes then bind ty else ty
+            in bind c <> ":" <> ty'
+
+    renPat p = case p of
+      PVar n            -> PVar (bind n)
+      PConstructor c ps -> PConstructor (ctorRef c) (map renPat ps)
+      _                 -> p
+
+    renExpr locals e = case e of
+      ELit _       -> e
+      EVar n       -> EVar (ref locals n)
+      EApp f as    -> EApp (ref locals f) (map (renExpr locals) as)
+      EOp o as     -> EOp o (map (renExpr locals) as)
+      EIf c t f    -> EIf (renExpr locals c) (renExpr locals t) (renExpr locals f)
+      EPair a b    -> EPair (renExpr locals a) (renExpr locals b)
+      EAwait x     -> EAwait (renExpr locals x)
+      EHole h      -> EHole (renHole locals h)
+      ELambda ps b ->
+        ELambda (renParams ps) (renExpr (locals <> Set.fromList (map fst ps)) b)
+      -- A binding sees the bindings before it ('emitLet' nests them).
+      ELet bs b ->
+        let go ls [] = ([], ls)
+            go ls ((p, t, x) : rest) =
+              let x'          = renExpr ls x
+                  ls'         = ls <> patBinders p
+                  (rest', lf) = go ls' rest
+              in ((renPat p, fmap renTy t, x') : rest', lf)
+            (bs', lsFinal) = go locals bs
+        in ELet bs' (renExpr lsFinal b)
+      EMatch s arms ->
+        EMatch (renExpr locals s)
+               [ (renPat p, renExpr (locals <> patBinders p) x) | (p, x) <- arms ]
+      -- A step sees the state names bound by the steps before it ('emitDo').
+      EDo steps ->
+        let go _  [] = []
+            go ls (DoStep n x d : rest) =
+              DoStep (fmap bind n) (renExpr ls x) d
+                : go (maybe ls (`Set.insert` ls) n) rest
+        in EDo (go locals steps)
+
+    renHole locals h = case h of
+      HDelegate spec ->
+        HDelegate spec { delegateOnFailure = fmap (renExpr locals) (delegateOnFailure spec) }
+      HProofRequired r (Just x) -> HProofRequired r (Just (renExpr locals x))
+      _ -> h
+
+-- | RESERVED-NAME-1: the 'Show' instance of a sum type with a renamed
+-- constructor. It prints each constructor's unrenamed Haskell form, so the
+-- output is the derived instance's output for the same program with a
+-- non-colliding spelling. 'showParen' at precedence 11 is what deriving emits
+-- for a one-field constructor.
+emitShowInstance :: Map Text Text -> Text -> [(Name, Maybe Type)] -> Text
+emitShowInstance srcOf tyName ctors = T.unlines $
+  ("instance Show " <> tyName <> " where") : map clause ctors
+  where
+    src c = T.unpack (Map.findWithDefault c c srcOf)
+    clause (c, Nothing) =
+      "  showsPrec _ " <> c <> " = showString " <> T.pack (show (src c))
+    clause (c, Just _) =
+      "  showsPrec d (" <> c <> " x) = showParen (d >= 11) (showString "
+      <> T.pack (show (src c ++ " ")) <> " . showsPrec 11 x)"
 
 toHsIdent :: Text -> Text
 toHsIdent = T.map sanitize

@@ -632,9 +632,18 @@ moduleSpec = describe "Module System" $ do
       it "t18: no shadow warning for the same module opened twice" $ do
         r <- xsCheck False "t18"
         xsWarns r `shouldBe` []
-      it "t17: opening bi, which declares abs, gives one builtin-shadow warning and no open-shadow-warning" $ do
-        r <- xsCheck False "t17"
-        map diagMessage (xsWarns r) `shouldBe` ["'abs' from bi shadows a builtin"]
+      -- RESERVED-NAME-1 retired the "'abs' from bi shadows a builtin" warning
+      -- this case used to give: bi's top-level abs is now a
+      -- builtin-redefinition error in bi itself, so the open is never reached.
+      it "t17: bi, which declares abs, fails its own check with builtin-redefinition" $ do
+        let msg = "'abs' is a builtin and cannot be redefined at the top level; "
+                  <> "rename it. A parameter or let binding may shadow it."
+        rb <- xsCheck False "bi"
+        xsKind "builtin-redefinition" rb `shouldBe` [msg]
+        r <- xsLoad "t17"
+        case r of
+          Left ds -> [ diagMessage d | d <- ds, diagKind d == Just "builtin-redefinition" ] `shouldBe` [msg]
+          Right _ -> expectationFailure "t17 loaded; bi's top-level abs was not rejected"
       it "lib and lib.sub both cached, open lib: no key from lib.sub is injected as a bare name" $ do
         Right (ss, c) <- xsLoad "subopen"
         let sk = runSketch GrammarCoreInversion (seedCacheEnv builtinEnv c) ss defaultPatterns

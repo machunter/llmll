@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -70,7 +70,8 @@ import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDi
 import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
 import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
 import qualified System.Process as SP
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub)
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, (\\))
+import Data.Char (isAlphaNum, isLower)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -5788,6 +5789,56 @@ main = hspec $ do
   holeAnalysisV033Tests
 
 -- | Helper to remove a file if it exists (used for test cleanup).
+-- | MODE-CLI-1 T-C2..T-C4, RESERVED-NAME-1: build a generated program the way
+-- `llmll build` does and run it with stdin closed. Lifted from a local `let`
+-- so more than one describe block can use it. Nothing when stack is absent.
+buildAndRun :: String -> T.Text -> (FilePath -> IO ()) -> IO (Maybe (ExitCode, String, String, [FilePath]))
+buildAndRun name src prepare = do
+          mStack <- findExecutable "stack"
+          case mStack of
+            Nothing -> pure Nothing
+            Just stackExe -> do
+              stmts <- case parseStatements GrammarCoreInversion "<test>" src of
+                Left err -> fail ("parse failed: " <> show err)
+                Right ss -> pure ss
+              let errs = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+                                         , diagSeverity d == SevError ]
+              unless (null errs) $ fail ("the cli fixture does not type-check: " <> show errs)
+              tmpRoot <- getTemporaryDirectory
+              let dir    = tmpRoot </> ("llmll-mode-cli-1-" <> name)
+                  runDir = dir </> "run"
+                  r      = generateHaskell (T.pack name) stmts
+                  put fp t = BL.writeFile fp (BL.fromStrict (TE.encodeUtf8 t))
+              exists <- doesDirectoryExist dir
+              when exists $ removeDirectoryRecursive dir
+              createDirectoryIfMissing True (dir </> "src")
+              createDirectoryIfMissing True runDir
+              put (dir </> "src" </> "Lib.hs") (cgHsSource r)
+              put (dir </> "package.yaml") (cgPackageYaml r)
+              put (dir </> "stack.yaml") (cgStackYaml r)
+              put (dir </> "src" </> "Main.hs") (fromMaybe "" (cgMainHs r))
+              env0 <- getEnvironment
+              let childEnv = [ kv | kv@(k, _) <- env0
+                             , k `notElem` ["GHC_PACKAGE_PATH", "GHC_ENVIRONMENT", "HASKELL_DIST_DIR", "STACK_EXE"]
+                             , not ("HASKELL_PACKAGE_SANDBOX" `isPrefixOf` k) ]
+                  stackP args = (proc stackExe args) { SP.cwd = Just dir, SP.env = Just childEnv }
+              (bc, _, berr) <- readCreateProcessWithExitCode (stackP ["build", "--silent"]) ""
+              case bc of
+                ExitFailure _ -> fail ("the generated cli package did not build:\n" <> berr)
+                ExitSuccess   -> pure ()
+              (_, root, _) <- readCreateProcessWithExitCode (stackP ["path", "--local-install-root"]) ""
+              prepare runDir
+              -- stdin CLOSED, not empty: a harness that reads stdin fails here.
+              (_, Just hOut, Just hErr, ph) <- createProcess
+                (proc (takeWhile (/= '\n') root </> "bin" </> name) [])
+                  { SP.cwd = Just runDir, SP.std_in = NoStream, SP.std_out = CreatePipe, SP.std_err = CreatePipe }
+              out <- BSS.hGetContents hOut
+              err <- BSS.hGetContents hErr
+              code <- waitForProcess ph
+              files <- listDirectory runDir
+              removeDirectoryRecursive dir
+              pure (Just (code, T.unpack (TE.decodeUtf8 out), T.unpack (TE.decodeUtf8 err), files))
+
 removeIfExists :: FilePath -> IO ()
 removeIfExists fp = do
   exists <- doesFileExist fp
@@ -17979,53 +18030,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- needs the stack snapshot (regex-tdfa, cryptohash-sha256), so runghc
     -- cannot run it; this builds it the way `llmll build` does. stack's own
     -- environment variables are removed so the nested stack does not read the
-    -- test suite's package database.
-    let buildAndRun :: String -> T.Text -> (FilePath -> IO ()) -> IO (Maybe (ExitCode, String, String, [FilePath]))
-        buildAndRun name src prepare = do
-          mStack <- findExecutable "stack"
-          case mStack of
-            Nothing -> pure Nothing
-            Just stackExe -> do
-              stmts <- case parseStatements GrammarCoreInversion "<test>" src of
-                Left err -> fail ("parse failed: " <> show err)
-                Right ss -> pure ss
-              let errs = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
-                                         , diagSeverity d == SevError ]
-              unless (null errs) $ fail ("the cli fixture does not type-check: " <> show errs)
-              tmpRoot <- getTemporaryDirectory
-              let dir    = tmpRoot </> ("llmll-mode-cli-1-" <> name)
-                  runDir = dir </> "run"
-                  r      = generateHaskell (T.pack name) stmts
-                  put fp t = BL.writeFile fp (BL.fromStrict (TE.encodeUtf8 t))
-              exists <- doesDirectoryExist dir
-              when exists $ removeDirectoryRecursive dir
-              createDirectoryIfMissing True (dir </> "src")
-              createDirectoryIfMissing True runDir
-              put (dir </> "src" </> "Lib.hs") (cgHsSource r)
-              put (dir </> "package.yaml") (cgPackageYaml r)
-              put (dir </> "stack.yaml") (cgStackYaml r)
-              put (dir </> "src" </> "Main.hs") (fromMaybe "" (cgMainHs r))
-              env0 <- getEnvironment
-              let childEnv = [ kv | kv@(k, _) <- env0
-                             , k `notElem` ["GHC_PACKAGE_PATH", "GHC_ENVIRONMENT", "HASKELL_DIST_DIR", "STACK_EXE"]
-                             , not ("HASKELL_PACKAGE_SANDBOX" `isPrefixOf` k) ]
-                  stackP args = (proc stackExe args) { SP.cwd = Just dir, SP.env = Just childEnv }
-              (bc, _, berr) <- readCreateProcessWithExitCode (stackP ["build", "--silent"]) ""
-              case bc of
-                ExitFailure _ -> fail ("the generated cli package did not build:\n" <> berr)
-                ExitSuccess   -> pure ()
-              (_, root, _) <- readCreateProcessWithExitCode (stackP ["path", "--local-install-root"]) ""
-              prepare runDir
-              -- stdin CLOSED, not empty: a harness that reads stdin fails here.
-              (_, Just hOut, Just hErr, ph) <- createProcess
-                (proc (takeWhile (/= '\n') root </> "bin" </> name) [])
-                  { SP.cwd = Just runDir, SP.std_in = NoStream, SP.std_out = CreatePipe, SP.std_err = CreatePipe }
-              out <- BSS.hGetContents hOut
-              err <- BSS.hGetContents hErr
-              code <- waitForProcess ph
-              files <- listDirectory runDir
-              removeDirectoryRecursive dir
-              pure (Just (code, T.unpack (TE.decodeUtf8 out), T.unpack (TE.decodeUtf8 err), files))
+    -- test suite's package database. The helper is the top-level 'buildAndRun'.
 
     -- T-C2, amendment 4: the counter idiom. :init writes `start`, each step
     -- writes the count it moves to, :done? holds at 4, so the command of the
@@ -21169,6 +21174,273 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let rep = tcSrc "(type Outcome (| Ok int) (| Errored))"
       rsvErrors rep `shouldBe` []
       reportSuccess rep `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- RESERVED-NAME-1: a user name whose Haskell form collides with a name the
+  -- generated Lib.hs or Main.hs defines or imports is renamed at codegen
+  -- (<hsname>_u<k>), unobservably; a top-level definition may not take a
+  -- builtin's name, and True/False join Success/Error as reserved
+  -- constructors.
+  -- -----------------------------------------------------------------------
+  describe "RESERVED-NAME-1" $ do
+    let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
+          Left err -> error ("RESERVED-NAME-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        rmapOf = buildRenameMap . parseOk
+        libOf  = cgHsSource . generateHaskell "rn" . parseOk
+        tcStmts = typeCheck GrammarCoreInversion emptyEnv
+        errsOfKind k rep = [ diagMessage d | d <- reportDiagnostics rep
+                                           , diagSeverity d == SevError, diagKind d == Just k ]
+        cliProg :: [T.Text] -> T.Text -> T.Text
+        cliProg defs initOut = T.unlines $
+          [ "(import wasi.io (capability stdout))" ] ++ defs ++
+          [ "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+          , "(def-shell fin [s: int] -> bool (>= s 1))"
+          , "(def-main :mode cli :init (pair 0 (wasi.io.stdout " <> initOut <> ")) :step st :done? fin)" ]
+        redefMsg n = "'" <> n <> "' is a builtin and cannot be redefined at the top level; "
+                     <> "rename it. A parameter or let binding may shadow it."
+
+    describe "rename map" $ do
+      it "a top-level def named show is emitted as show_u1" $
+        Map.lookup "show" (rmapOf "(def-shell show [x: int] -> int x)") `shouldBe` Just "show_u1"
+
+      it "with both show and show_u1 defined, show takes show_u2 and show_u1 is untouched" $
+        rmapOf "(def-shell show [x: int] -> int x)\n(def-shell show_u1 [x: int] -> int x)"
+          `shouldBe` Map.fromList [("show", "show_u2")]
+
+      it "a parameter named data is renamed, at its binder and at its use" $ do
+        Map.lookup "data" (rmapOf "(def f [data: int] -> int data)") `shouldBe` Just "data_u1"
+        libOf "(def f [data: int] -> int data)" `shouldSatisfy` T.isInfixOf "f data_u1 =\n  data_u1\n"
+
+      it "a constructor named Left and a type named Maybe are renamed" $ do
+        let m = rmapOf "(type Maybe (| Left int) (| Other))"
+        Map.lookup "Left" m `shouldBe` Just "Left_u1"
+        Map.lookup "Maybe" m `shouldBe` Just "Maybe_u1"
+        Map.member "Other" m `shouldBe` False
+
+      it "a renamed prop_ name skips a property name the program's own checks emit" $
+        Map.lookup "prop_x" (rmapOf (T.unpack (T.unlines
+          [ "(def-shell prop_x [n: int] -> int n)"
+          , "(check \"x u1\" (for-all [n: int] (= n n)))" ])))
+          `shouldBe` Just "prop_x_u2"
+
+      it "a-b and a_b, which share a Haskell form, get different names" $ do
+        let m = rmapOf "(def-shell f [a-b: int] -> int a-b)\n(def-shell g [a_b: int] -> int a_b)"
+        sort (Map.keys m) `shouldBe` ["a-b", "a_b"]
+        Map.lookup "a-b" m `shouldNotBe` Map.lookup "a_b" m
+        Map.elems m `shouldNotContain` ["a_b"]
+
+      it "a reference to a builtin is not renamed where a parameter of the same name is" $ do
+        let hs = libOf (T.unpack (T.unlines
+                   [ "(def-shell g [string-concat: string] -> string string-concat)"
+                   , "(def-shell h [a: string] -> string (string-concat a a))" ]))
+        hs `shouldSatisfy` T.isInfixOf "g string_concat_u1 =\n  string_concat_u1\n"
+        hs `shouldSatisfy` T.isInfixOf "(string_concat (a) (a))"
+
+      it "a renamed constructor's type derives Eq and gets a Show instance that prints the source name" $ do
+        let hs = libOf "(type Wrap (| Left int) (| Nothing))"
+        hs `shouldSatisfy` T.isInfixOf "  deriving (Eq)\ninstance Show Wrap where\n"
+        hs `shouldSatisfy` T.isInfixOf "showsPrec d (Left_u1 x) = showParen (d >= 11) (showString \"Left \" . showsPrec 11 x)"
+        hs `shouldSatisfy` T.isInfixOf "showsPrec _ Nothing_u1 = showString \"Nothing\""
+
+      it "a program with no colliding name has an empty map and is emitted byte-identically" $ do
+        let src = T.unlines
+              [ "(import wasi.io (capability stdout))"
+              , "(type Color (| Red) (| Blue int))"
+              , "(def-shell pick [c: Color] -> int (match c ((Red) 1) ((Blue n) n)))"
+              , "(def-shell st [s: int input: string r: Response] -> (int, Command)"
+              , "  (let [(k (pick (Blue s)))] (pair (+ s k) (wasi.io.stdout input))))"
+              , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"\")) :step st)" ]
+            ss = parseOk (T.unpack src)
+        buildRenameMap ss `shouldBe` Map.empty
+        renameStatements (buildRenameMap ss) ss `shouldBe` ss
+        -- With an empty map the emitters see the statements unchanged, so the
+        -- emitted text is the pre-RESERVED-NAME-1 text: the derived instance,
+        -- the source names, no _u suffix anywhere.
+        let r = generateHaskell "rn" ss
+        cgHsSource r `shouldSatisfy` T.isInfixOf "data Color\n  = Red\n  | Blue Integer\n  deriving (Eq, Show)\n"
+        cgHsSource r `shouldSatisfy` (not . T.isInfixOf "_u1")
+        fmap (T.isInfixOf "_u1") (cgMainHs r) `shouldBe` Just False
+
+    describe "R is pinned against the emitted Lib.hs and Main.hs" $ do
+      -- One program that turns on the conditional HTTP-GET-1 imports and
+      -- preamble, emitted with both harnesses.
+      let hdr = [ "(import wasi.io (capability stdout :deterministic false))"
+                , "(import wasi.http (capability get \"https://example.com/\" :deterministic false))" ]
+          console = parseOk $ T.unpack $ T.unlines $ hdr ++
+            [ "(def-shell zstep [zs: unit zin: string zr: Response]"
+            , "  (pair zs (wasi.http.get \"https://example.com/\" \"x\")))"
+            , "(def-main :mode console :step zstep)" ]
+          cli = parseOk $ T.unpack $ T.unlines $ hdr ++
+            [ "(def-shell zstep [zs: int zr: Response] -> (int, Command)"
+            , "  (pair zs (wasi.http.get \"https://example.com/\" \"x\")))"
+            , "(def-shell zfin [zs: int] -> bool (>= zs 1))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"\")) :step zstep :done? zfin)" ]
+          rc = generateHaskell "rnpin" console
+          rl = generateHaskell "rnpin" cli
+          files = [cgHsSource rc, fromMaybe "" (cgMainHs rc), cgHsSource rl, fromMaybe "" (cgMainHs rl)]
+          userNames = ["zstep", "zfin"]
+          isIdentChar c = isAlphaNum c || c == '_' || c == '\''
+          firstIdent = T.takeWhile isIdentChar
+          ctorsAfterEq l = [ firstIdent (T.strip c) | c <- T.splitOn "|" (T.drop 1 (T.dropWhile (/= '=') l)) ]
+          -- Column-0 names: value definitions and signatures, data/newtype/type
+          -- heads, and the constructors of a data declaration (on its own line
+          -- or on the indented `= C` / `| C` lines that follow it).
+          topNames src = go False (T.lines src)
+            where
+              go _ [] = []
+              go inData (l : ls)
+                | "--" `T.isPrefixOf` l || "{-" `T.isPrefixOf` l = go False ls
+                | Just r <- T.stripPrefix "data " l =
+                    firstIdent r : (if "=" `T.isInfixOf` l then ctorsAfterEq l else []) ++ go True ls
+                | Just r <- T.stripPrefix "newtype " l = firstIdent r : ctorsAfterEq l ++ go False ls
+                | Just r <- T.stripPrefix "type " l = firstIdent r : go False ls
+                | inData, Just r <- T.stripPrefix "=" (T.stripStart l) = firstIdent (T.strip r) : go True ls
+                | inData, Just r <- T.stripPrefix "|" (T.stripStart l) = firstIdent (T.strip r) : go True ls
+                | Just (c, _) <- T.uncons l, isLower c || c == '_' =
+                    let n = firstIdent l
+                    in (if n `elem` ["import", "module", "instance", "where", "deriving"] then [] else [n])
+                       ++ go False ls
+                | otherwise = go inData ls
+          -- Every name in an unqualified explicit import list, T(..) as T.
+          importNames src =
+            [ T.strip (T.replace "(..)" "" n)
+            | blk <- importBlocks (T.lines src)
+            , not ("import qualified" `T.isPrefixOf` blk)
+            , not (" hiding " `T.isInfixOf` blk)   -- Prelude's hiding list hides; it imports nothing
+            , "(" `T.isInfixOf` blk
+            , let inner = T.dropEnd 1 (T.drop 1 (T.dropWhile (/= '(') blk))
+            , n <- T.splitOn "," inner
+            , not ("(" `T.isPrefixOf` T.strip n) ]
+          importBlocks [] = []
+          importBlocks (l : ls)
+            | "import " `T.isPrefixOf` l =
+                let (cont, rest) = span (\x -> " " `T.isPrefixOf` x) ls
+                in T.unwords (l : map T.strip cont) : importBlocks rest
+            | otherwise = importBlocks ls
+
+      it "every top-level name the emitted files define is reserved" $ do
+        let names = nub (concatMap topNames files) \\ userNames
+        length names `shouldSatisfy` (> 100)
+        -- the extractor sees all four shapes: preamble values, data heads,
+        -- constructors, the HTTP-GET-1 block, and the harness
+        filter (`notElem` names) ["sha1_hash", "Response", "RErr", "Json", "JArr", "wasi_http_get", "main", "captureStdout"]
+          `shouldBe` []
+        filter (not . isReservedHsName) names `shouldBe` []
+
+      it "every name an unqualified import list brings into scope is reserved" $ do
+        let names = nub (concatMap importNames files)
+        length names `shouldSatisfy` (> 60)
+        filter (`notElem` names) ["foldl'", "IOMode", "Word8", "methodGet", "stdin", "BufferMode", "modifyIORef'"]
+          `shouldBe` []
+        filter (not . isReservedHsName) names `shouldBe` []
+
+      it "R reserves the Haskell keywords, Prelude names, Response and Json constructors, and the llmll_ prefix" $ do
+        map isReservedHsName ["data", "of", "show", "Maybe", "Left", "RErr", "JArr", "llmll_anything", "_cmd3"
+                             , "loop", "settle", "prop_anything"]
+          `shouldBe` replicate 12 True
+        map isReservedHsName ["Word", "Map", "forall", "zstep", "show_u1"]
+          `shouldBe` replicate 5 False
+        Set.size reservedHsNames `shouldSatisfy` (> 400)
+
+    describe "end to end: builds, runs, prints the source behaviour" $ do
+      let runExpect name src expected = do
+            res <- buildAndRun name src (const (pure ()))
+            case res of
+              Nothing -> pendingWith "stack not on PATH"
+              Just (code, out, err, _) -> do
+                (out, err) `shouldBe` (expected, "")
+                code `shouldBe` ExitSuccess
+
+      it "top-level defs named show, map and string_concat" $
+        runExpect "rn1" (cliProg
+          [ "(def show [x: int] -> int (+ x 1))"
+          , "(def-shell map [x: int] -> int (* x 2))"
+          , "(def-shell string_concat [a: string b: string] -> string (string-concat b a))" ]
+          "(string-concat (string_concat \"A\" \"B\") (int-to-string (map (show 2))))")
+          "BA6"
+
+      -- Left and Just collide with Prelude, JArr with the preamble's Json
+      -- constructor. (A user RErr is now a builtin-redefinition check error,
+      -- tested under "checker" below, so it cannot appear here.)
+      it "constructors Left, Just and JArr in a user type render with their source names" $
+        runExpect "rn2" (cliProg
+          [ "(type Wrap (| Left int) (| Just string) (| JArr))"
+          , "(def-shell render [w: Wrap] -> string"
+          , "  (match w ((Left n) (string-concat \"Left \" (int-to-string n))) ((Just s) (string-concat \"Just \" s)) ((JArr) \"JArr\")))" ]
+          "(string-concat-many [(render (Left 7)) \",\" (render (Just \"q\")) \",\" (render JArr)])")
+          "Left 7,Just q,JArr"
+
+      it "a type named Maybe" $
+        runExpect "rn3" (cliProg
+          [ "(type Maybe (| Some int) (| None))"
+          , "(def-shell get [m: Maybe] -> int (match m ((Some n) n) ((None) 0)))" ]
+          "(int-to-string (+ (get (Some 4)) (get None)))")
+          "4"
+
+      -- Main.hs binds `loop` and `settle` in main's `where` clause, in scope
+      -- where it emits the :step and :done? references; before they were in R
+      -- the harness's own functions captured these.
+      it "a :step named loop and a :done? named settle" $
+        runExpect "rn5" (T.unlines
+          [ "(import wasi.io (capability stdout))"
+          , "(def-shell loop [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout (int-to-string s))))"
+          , "(def-shell settle [s: int] -> bool (>= s 3))"
+          , "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"go:\")) :step loop :done? settle)" ])
+          "go:01"
+
+      -- A check labelled "x" is emitted as the property prop_x.
+      it "a def named prop_x beside a check labelled x" $
+        runExpect "rn6" (cliProg
+          [ "(def-shell prop_x [n: int] -> int (+ n 10))"
+          , "(check \"x\" (for-all [n: int] (= (prop_x n) (+ n 10))))" ]
+          "(int-to-string (prop_x 5))")
+          "15"
+
+      it "parameters named data, of and string-concat" $
+        runExpect "rn4" (cliProg
+          [ "(def f [data: int of: int] -> int (+ data of))"
+          , "(def-shell g [string-concat: string] -> string string-concat)" ]
+          "(string-concat (g \"x\") (int-to-string (f 1 2)))")
+          "x3"
+
+    describe "checker" $ do
+      it "a user constructor named True is rejected with reserved-constructor-name" $
+        errsOfKind "reserved-constructor-name" (tcStmts (parseOk "(type T (| True) (| B))"))
+          `shouldBe` ["constructor 'True' is reserved: True and False are the constructors of bool; rename it"]
+
+      it "a user constructor named False is rejected with reserved-constructor-name" $
+        errsOfKind "reserved-constructor-name" (tcStmts (parseOk "(type T (| A int) (| False))"))
+          `shouldBe` ["constructor 'False' is reserved: True and False are the constructors of bool; rename it"]
+
+      it "a top-level def named string-concat is a builtin-redefinition error" $
+        errsOfKind "builtin-redefinition" (tcStmts (parseOk "(def string-concat [x: int] -> int x)"))
+          `shouldBe` [redefMsg "string-concat"]
+
+      it "JSON-AST parity: the same definition through ParserJSON gives the same error" $
+        case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST (parseOk "(def string-concat [x: int] -> int x)")) of
+          Left err     -> expectationFailure (show err)
+          Right stmts' -> errsOfKind "builtin-redefinition" (tcStmts stmts') `shouldBe` [redefMsg "string-concat"]
+
+      it "a def-shell named abs is rejected the same way" $
+        errsOfKind "builtin-redefinition" (tcStmts (parseOk "(def-shell abs [n: int] -> int n)"))
+          `shouldBe` [redefMsg "abs"]
+
+      it "a user constructor named RErr (a builtin) is a builtin-redefinition error, reported once" $ do
+        let rep = tcStmts (parseOk "(type Wrap (| RErr string) (| Fine))")
+        errsOfKind "builtin-redefinition" rep
+          `shouldBe` ["'RErr' is a builtin and cannot be used as a constructor name; rename it."]
+        [ m | d <- reportDiagnostics rep, let m = diagMessage d, "shadows existing binding" `T.isInfixOf` m ]
+          `shouldBe` []
+
+      it "control: a constructor whose name is not a builtin passes check" $ do
+        let rep = tcStmts (parseOk "(type Wrap (| Failed string) (| Fine))")
+        filter ((== SevError) . diagSeverity) (reportDiagnostics rep) `shouldBe` []
+
+      it "control: a parameter named string-concat passes check" $ do
+        let rep = tcStmts (parseOk "(def-shell g [string-concat: string] -> string string-concat)")
+        filter ((== SevError) . diagSeverity) (reportDiagnostics rep) `shouldBe` []
+        reportSuccess rep `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- HTTP-GET-1: wasi.http.get, a byte-faithful fetch to a file
