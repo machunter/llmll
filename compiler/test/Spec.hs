@@ -21133,6 +21133,44 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       dupErrors rep `shouldBe` []
 
   -- -----------------------------------------------------------------------
+  -- RESULT-CTOR-RRW: Success and Error are reserved constructor names, the
+  -- constructors of Result[t,e]. Closed by design on 2026-10-13; the guard
+  -- in TypeCheck had no tests until this block.
+  -- -----------------------------------------------------------------------
+  describe "RESULT-CTOR-RRW reserved constructor names" $ do
+    let tcSrc src =
+          case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
+            Left err    -> error ("RESULT-CTOR-RRW test source failed to parse: " ++ show err)
+            Right stmts -> typeCheck GrammarCoreInversion emptyEnv stmts
+        rsvErrors rep =
+          [ d | d <- reportDiagnostics rep
+              , diagSeverity d == SevError
+              , diagKind d == Just "reserved-constructor-name" ]
+        outcomeSrc = "(type Outcome (| Ok int) (| Error string))"
+
+    it "a user constructor named Error is rejected with the language rule in the message" $ do
+      let errs = rsvErrors (tcSrc outcomeSrc)
+      length errs `shouldBe` 1
+      map diagMessage errs `shouldSatisfy`
+        all (\m -> "'Error'" `T.isInfixOf` m && "constructors of Result[t,e]" `T.isInfixOf` m)
+
+    it "a nullary user constructor named Success is rejected with the same kind" $ do
+      length (rsvErrors (tcSrc "(type Status (| Success) (| Failed))")) `shouldBe` 1
+
+    it "JSON-AST parity: the Error declaration through ParserJSON carries the same kind" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack outcomeSrc) of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
+            Left err     -> expectationFailure (show err)
+            Right stmts' -> length (rsvErrors (typeCheck GrammarCoreInversion emptyEnv stmts')) `shouldBe` 1
+
+    it "control: a constructor named Errored passes check" $ do
+      let rep = tcSrc "(type Outcome (| Ok int) (| Errored))"
+      rsvErrors rep `shouldBe` []
+      reportSuccess rep `shouldBe` True
+
+  -- -----------------------------------------------------------------------
   -- HTTP-GET-1: wasi.http.get, a byte-faithful fetch to a file
   -- (docs/design/http-get-1-proposal.md; docs/design/http-get-1-implementation-plan.md)
   -- -----------------------------------------------------------------------

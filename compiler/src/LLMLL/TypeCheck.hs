@@ -1730,27 +1730,19 @@ checkStatements stmts = do
     -- XMOD-CTOR-2 / RESULT-CTOR-COLLIDE: a user sum type may not declare a
     -- constructor named Success or Error.
     --
-    -- CodegenHs.rewriteCtor rewrites those two names to Right and Left
-    -- UNCONDITIONALLY, with no knowledge of the declaring type, because
-    -- Result[t,e] is emitted as Either e t. So `(type Outcome (| Error) ...)`
-    -- silently emits a nullary user constructor as `Left`, and GHC then reports
-    -- "The constructor 'Left' should have 1 argument, but has been given none".
-    -- Found by building tools/llmll-driver/stage.llmll, which had type-checked
-    -- and VERIFIED in that state since July: the corpus is check-only, so
-    -- nothing had ever compiled it.
-    --
-    -- Rejecting here converts a silent miscompile into a check error. The
-    -- principled fix is to thread the declaring type into rewriteCtor so user
-    -- constructors are never confused with Result's; that is a codegen refactor
-    -- and is filed rather than done here.
+    -- The two names are reserved by design. LLMLL has no qualified
+    -- constructors, so a user `Error` would make the `(Error e)` pattern
+    -- ambiguous in the source: it could name Result's constructor or the
+    -- user's. The name-keyed sites in codegen (CodegenHs.rewriteCtor rewrites
+    -- Success/Error to Right/Left, because Result[t,e] is emitted as
+    -- Either e t) and in the verifier rely on this guard holding.
+    -- RESULT-CTOR-RRW closed by design on 2026-10-13.
     forM_ (nub (map fst ctorBindings)) $ \ctorName ->
       when (ctorName `elem` (["Success", "Error"] :: [Name])) $
         tcErrorK "reserved-constructor-name" $
-          "constructor '" <> ctorName <> "' is reserved: it is a Result[t,e] "
-          <> "constructor and the code generator rewrites it to Haskell's "
-          <> (if ctorName == "Success" then "Right" else "Left")
-          <> " regardless of the declaring type. Rename it; a program using it "
-          <> "type-checks and then fails to build."
+          "constructor '" <> ctorName <> "' is reserved: Success and Error are "
+          <> "the constructors of Result[t,e]; rename it (for example "
+          <> "'Errored' or 'Succeeded')"
     -- Phase 2: constructor/function collisions (value namespace only).
     -- Skip TCustom entries (type names, interface names) — separate namespace.
     forM_ (nub (map fst ctorBindings)) $ \ctorName -> do
