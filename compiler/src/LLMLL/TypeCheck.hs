@@ -1727,25 +1727,48 @@ checkStatements stmts = do
     forM_ (nub dupes) $ \dupName ->
       tcErrorK "duplicate-definition" $ "duplicate constructor name '" <> dupName
                       <> "' within or across type definitions; first definition wins"
-    -- XMOD-CTOR-2 / RESULT-CTOR-COLLIDE: a user sum type may not declare a
-    -- constructor named Success or Error.
+    -- XMOD-CTOR-2 / RESULT-CTOR-COLLIDE / RESERVED-NAME-1: a user sum type
+    -- may not declare a constructor named Success, Error, True or False.
     --
-    -- The two names are reserved by design. LLMLL has no qualified
+    -- The four names are reserved by design because they are LLMLL's own
+    -- constructors, not because of any Haskell name. LLMLL has no qualified
     -- constructors, so a user `Error` would make the `(Error e)` pattern
     -- ambiguous in the source: it could name Result's constructor or the
     -- user's. The name-keyed sites in codegen (CodegenHs.rewriteCtor rewrites
     -- Success/Error to Right/Left, because Result[t,e] is emitted as
     -- Either e t) and in the verifier rely on this guard holding.
     -- RESULT-CTOR-RRW closed by design on 2026-10-13.
+    --
+    -- True and False are bool's match patterns (`(match b ((True) 1) ((False)
+    -- 0))`, with exhaustiveness enforced in 'checkExhaustive'), so a user
+    -- `True` is ambiguous in the same way. Every other constructor name that
+    -- collides with a Haskell name is renamed at codegen
+    -- (CodegenHs.buildRenameMap, RESERVED-NAME-1) and is not reserved here.
     forM_ (nub (map fst ctorBindings)) $ \ctorName ->
-      when (ctorName `elem` (["Success", "Error"] :: [Name])) $
-        tcErrorK "reserved-constructor-name" $
+      if ctorName `elem` (["Success", "Error"] :: [Name])
+        then tcErrorK "reserved-constructor-name" $
           "constructor '" <> ctorName <> "' is reserved: Success and Error are "
           <> "the constructors of Result[t,e]; rename it (for example "
           <> "'Errored' or 'Succeeded')"
+        else when (ctorName `elem` (["True", "False"] :: [Name])) $
+          tcErrorK "reserved-constructor-name" $
+            "constructor '" <> ctorName <> "' is reserved: True and False are "
+            <> "the constructors of bool; rename it"
+    -- RESERVED-NAME-1: a constructor may not take a builtin's name either
+    -- (the Response constructors RNone, RText, RCode, RErr, RList are builtin
+    -- keys). Before this, plain check only warned (Phase 2 below) and the
+    -- strict checker in `llmll build` then rejected the same program, so check
+    -- and build disagreed. Same rule and kind as the top-level form in
+    -- 'checkDuplicateTopLevel'.
+    let builtinCtors = [ c | c <- nub (map fst ctorBindings), Map.member c builtinEnv ]
+    forM_ builtinCtors $ \ctorName ->
+      tcErrorK "builtin-redefinition" $
+        "'" <> ctorName <> "' is a builtin and cannot be used as a constructor "
+        <> "name; rename it."
     -- Phase 2: constructor/function collisions (value namespace only).
     -- Skip TCustom entries (type names, interface names) — separate namespace.
-    forM_ (nub (map fst ctorBindings)) $ \ctorName -> do
+    -- A builtin name was already reported above, so it is not reported twice.
+    forM_ (filter (`notElem` builtinCtors) (nub (map fst ctorBindings))) $ \ctorName -> do
       mExisting <- tcLookup ctorName
       case mExisting of
         Just (TCustom _) -> pure ()  -- type/interface name, not value — skip
@@ -1792,6 +1815,18 @@ checkDuplicateTopLevel stmts = do
           <> " times in this module; a name is bound once per scope (LLMLL.md §1.1)"
   forM_ (dupesOf fnNames) (report "function" fnNames)
   forM_ (dupesOf tyNames) (report "type" tyNames)
+  -- RESERVED-NAME-1: a top-level definition may not take a builtin's name.
+  -- Before this check `(def string-concat [x: int] -> int x)` passed silently,
+  -- and every later call got the builtin's argument hints. A parameter, let,
+  -- match or lambda binder may still shadow a builtin: that is lexical scope,
+  -- and codegen renames the binder when its Haskell form collides
+  -- (CodegenHs.buildRenameMap). This makes the SOpen builtin-shadow warning
+  -- unreachable, because the declaring module now fails.
+  forM_ (nub fnNames) $ \n ->
+    when (Map.member n builtinEnv) $
+      tcErrorK "builtin-redefinition" $
+        "'" <> n <> "' is a builtin and cannot be redefined at the top level; "
+        <> "rename it. A parameter or let binding may shadow it."
   when (mains > 1) $
     tcErrorK "duplicate-definition" $
       "duplicate def-main: " <> T.pack (show mains)
@@ -2120,9 +2155,10 @@ checkStatement (SImport imp) = do
 -- the key must be one name, so opening @lib@ does not pick up the keys of a
 -- module @lib.sub@. The open-shadow-warning is retired: R1 ('checkBuildScope')
 -- now rejects every real collision as an error, and the same module opened
--- twice is not a collision (proposal F7). One warning stays: an opened name
--- that shadows a builtin. It is the only `check` signal for that case (E13)
--- until RESERVED-NAME-1 ships.
+-- twice is not a collision (proposal F7). The builtin-shadow warning (E13) is
+-- retired too, by RESERVED-NAME-1: a module whose top-level definition takes a
+-- builtin's name now fails its own check with `builtin-redefinition`
+-- ('checkDuplicateTopLevel'), so an opened module can no longer export one.
 checkStatement (SOpen openPath_ mNames) = do
   let prefix = T.intercalate "." openPath_ <> "."
   env <- gets tcEnv
@@ -2137,8 +2173,6 @@ checkStatement (SOpen openPath_ mNames) = do
         Nothing -> bareExports
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) bareExports
   forM_ (Map.toList filtered) $ \(bareName, ty) -> do
-    when (Map.member bareName builtinEnv) $ tcWarn $
-      "'" <> bareName <> "' from " <> T.intercalate "." openPath_ <> " shadows a builtin"
     tcInsert bareName ty
     -- v0.3.5 (Phase C): tag open-imported bindings for checkout context
     modify $ \s -> s { tcProvenance = Map.insert bareName SrcOpenImport (tcProvenance s) }

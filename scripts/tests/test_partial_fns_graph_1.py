@@ -112,7 +112,7 @@ SAME_MODULE = TALLY + """(def-shell caller [x: int] -> int
 """
 
 # A body-faithful caller: its call-site obligation is emitted and proved.
-FAITHFUL = TALLY + """(def-shell ok [x: int] -> int
+FAITHFUL = TALLY + """(def-shell ok-shell [x: int] -> int
   (pre (>= x 0))
   (post (>= result 1))
   (tally x))

@@ -1,0 +1,7 @@
+;; @doc: LLMLL.md §1 item 1 (Strict Immutability: a parameter or let binder may shadow a builtin as a nested scope)
+;; @expect: check-ok
+;; @norm: NC-042
+;; @claim: A parameter named `abs` and a `let` binder named `string-concat` shadow two builtins inside one function body, and `check` accepts the program. This is the other half of `builtin-redefinition-rejected.llmll`: the rule rejects only a top-level declaration. Measured on main after v0.29.0 (RESERVED-NAME-1, 0691e19a).
+(module builtin-shadow-local
+  (def-shell f [abs: int] -> int
+    (let [(string-concat 1)] (+ abs string-concat))))
