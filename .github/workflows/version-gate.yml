@@ -356,8 +356,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/schema-valid.log"; then
             echo "a SCHEMA-TRUTH-1 cell skipped; LLMLL_BIN and jsonschema must be present"; exit 1
           fi
-          grep -q ' 5 passed' "$RUNNER_TEMP/schema-valid.log" \
-            || { echo "SCHEMA-TRUTH-1: expected 5 passed cells"; exit 1; }
+          grep -q ' 6 passed' "$RUNNER_TEMP/schema-valid.log" \
+            || { echo "SCHEMA-TRUTH-1: expected 6 passed cells"; exit 1; }
 
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
