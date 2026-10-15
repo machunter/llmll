@@ -649,14 +649,14 @@ When the sidecar `.verified.json` file is missing for an imported module, all co
 
 Exit 4 refuses a report because a saved `.verified.json` record contradicts this run; the refusal goes to stderr. Plain `verify` exits 3 when the solver is absent, so a flagged run exits 3 as well.
 
-**`--json`: one document.** Under `--json`, `llmll verify` prints exactly one JSON document on stdout for every combination of flags. The document is the verdict object, and its first four keys state the outcome and the versions it composes:
+**`--json`: one document.** Under `--json`, `llmll verify` prints exactly one JSON document on stdout for every combination of flags, once the file type-checks; a file that fails to parse or type-check gets the diagnostics output instead. The document is the verdict object, and its first four keys state the outcome and the versions it composes:
 
 - `verify_json_version`: the version of the document's own shape (`1.0.0`).
 - `exit_code`: the status the process returns.
 - `solver_verdict`: `safe`, `refuted`, `error`, or `not-run`. `not-run` marks the two exits that come before the solver: the pre-solver `--strict-verified-core` refusal, and solver absent (exit 3).
 - `composed`: `trust_report_version`, `schema_version`, and `obligation_report_schema_version` when the obligation report is present, each computed from the emitter.
 
-The verdict keys follow. Each requested report nests under a fixed key, present only when the report was computed: `trust_report`, `spec_coverage`, `weakness`, `obligation_suggestions`, `obligation_report`, `strict_errors` (the `--strict-verified-core` refusal).
+The verdict keys follow. Each requested report nests under a fixed key, present only when the report was computed: `trust_report`, `spec_coverage`, `weakness`, `obligation_suggestions`, `obligation_report`, `strict_errors` (the `--strict-verified-core` refusal). The shape is published as [`docs/llmll-verify.schema.json`](docs/llmll-verify.schema.json); the nested `trust_report` refers to [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json).
 
 **`llmll trust-report <file>`: the saved evidence without the solver.** It renders the trust report from `.verified.json` through the evidence-key checks that every sidecar read applies (the persisted-record note in §4.4.1; for `tested` records, the `pbt_witnesses` paragraph below). It runs no emitter, no solver and no prover, writes no sidecar, and exits 1 when the file fails the type check and 0 otherwise. It cannot show `refuted`, and its text output ends with a note that the report is sidecar-only. It lists the records the evidence-key checks discarded, as `records discarded (key mismatch): N (names)` in text and as `discarded_records` in JSON (present only when non-empty), so a reader can tell "no record" from "a record that no longer matches the source". `llmll spec-coverage <file>` is the same render for the coverage report (§5.3.2).
 
@@ -1011,7 +1011,7 @@ stack exec llmll -- verify program.llmll --spec-coverage
 # Spec Coverage Report
 # ────────────────────────────────────────────
 #   Functions with contracts:     4 / 7   (57%)
-#     Proven:                     2
+#     Verified:                   2
 #     Tested:                     1
 #     Asserted:                   1
 #   Intentional Underspecification:
@@ -1027,14 +1027,17 @@ Use `--spec-coverage --json` for machine-readable output. The report nests under
 ```json
 {
   "summary": {
-    "contracted": 12,
-    "suppressed": 5,
-    "unspecified": 3,
-    "total": 20,
-    "proven": 4,
-    "tested": 3,
     "asserted": 5,
-    "effective_coverage": 0.85
+    "contract_checked": 0,
+    "contracted": 12,
+    "effective_coverage": 0.85,
+    "spec_coverage": 0.6,
+    "suppressed": 5,
+    "suppression_debt": 0.25,
+    "tested": 3,
+    "total": 20,
+    "unspecified": 3,
+    "verified": 4
   },
   "entries": ["..."],
   "laws": [],

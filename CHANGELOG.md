@@ -26,9 +26,10 @@ to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1.
   (`trust_report_version`, `schema_version`, and `obligation_report_schema_version` when that report
   is present). The verdict keys follow unchanged. Each requested report nests under a fixed key, only
   when it was computed: `trust_report`, `spec_coverage`, `weakness`, `obligation_suggestions`,
-  `obligation_report`, `strict_errors`. Before, `--trust-report --cdp --json` printed two documents
-  and `--strict-verify --json` three. A caller that read `.entries` from `verify --trust-report`
-  reads `.trust_report.entries`.
+  `obligation_report`, `strict_errors`. The shape is published as `docs/llmll-verify.schema.json`
+  (new), and the spec-roundtrip CI job validates the binary's output against it. Before,
+  `--trust-report --cdp --json` printed two documents and `--strict-verify --json` three. A caller
+  that read `.entries` from `verify --trust-report` reads `.trust_report.entries`.
 - **New subcommands `llmll trust-report <file>` and `llmll spec-coverage <file>`.** Each renders the
   saved `.verified.json` through the evidence-key check. Each runs no emitter, solver or prover,
   writes no sidecar, and exits 1 when the file fails the type check and 0 otherwise. Under `--json`
@@ -65,10 +66,12 @@ to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1.
   reads an imported `tested` record without the key check).
 - **Docs:** `LLMLL.md §4.4.4` (the exit law, the `--json` document, the two subcommands, the
   `subject_key` check), `§4.4.1`, `§5.3.2` and the Lean-path note in `§5.3.3`; `README.md` command
-  table; `docs/getting-started.md`.
+  table; `docs/getting-started.md`. The `--spec-coverage` examples in `LLMLL.md §5.3.2` and
+  `docs/getting-started.md` now match the binary: `Verified:` (was `Proven:`), the JSON `summary`
+  key `verified` (was `proven`), and no `Contract-checked:` line.
 
-Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. 2326 examples, 0 failures (+27 since
-v0.29.1). Python: 312 passed; 477 with `LLMLL_BIN` set (+35), 5 skipped.
+Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. 2330 examples, 0 failures (+31 since
+v0.29.1). Python: 312 passed; 503 with `LLMLL_BIN` set (+61), 5 skipped.
 
 ---
 

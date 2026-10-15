@@ -366,7 +366,6 @@ Spec Coverage Report
 ────────────────────────────────────────────
   Functions with contracts:     4 / 7   (57%)
     Verified:                   2
-    Contract-checked:           0
     Tested:                     1
     Asserted:                   1
   Intentional Underspecification:
