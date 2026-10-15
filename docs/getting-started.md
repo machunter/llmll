@@ -316,8 +316,7 @@ $ stack exec llmll -- verify file.llmll --leanstral-mock
 $ stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
 
 # Trust report — transitive trust closure with epistemic drift detection
-# (run plain `verify` first so the .verified.json sidecar is warm — see NOTE below):
-$ stack exec llmll -- verify file.llmll
+# (runs the solver; the exit status is the verdict's, as for plain `verify`):
 $ stack exec llmll -- verify file.llmll --trust-report
 Trust Report
 ────────────────────────────────────────────────────────────
@@ -333,13 +332,12 @@ Summary:
   no contract:      5
   ⚠ epistemic drifts: 1
 
-# JSON trust report (for tooling consumption):
+# JSON trust report (for tooling consumption); one JSON document, the report under .trust_report:
 $ stack exec llmll -- verify file.llmll --trust-report --json
 
-# NOTE: --trust-report reloads persisted evidence *instead of running fixpoint*.
-# A function the solver would refute therefore renders as `asserted` under
-# --trust-report, not `refuted`. To surface `refuted`, run the default `verify`
-# (which runs fixpoint) or `verify --strict-verified-core`.
+# Render the saved .verified.json without running the solver (cannot show `refuted`;
+# exits 0 when the file type-checks):
+$ stack exec llmll -- trust-report file.llmll
 
 # Weakness check — detect specs that admit trivial implementations:
 $ stack exec llmll -- verify file.llmll --weakness-check
@@ -358,7 +356,8 @@ $ stack exec llmll -- verify file.llmll --cdp
    cache-lookup: [identity-satisfies-post, const-satisfies-post] score=0.000 (14/14 candidates satisfy)
    increment: score=1.000 (1/12 candidates satisfy)
 
-# CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis:
+# CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis
+# (discriminative_axis sits on each .trust_report.entries[] element):
 $ stack exec llmll -- --json verify file.llmll --cdp --trust-report
 
 # Spec coverage — how much of your module is under contract:
@@ -377,7 +376,7 @@ Spec Coverage Report
 ────────────────────────────────────────────
   Effective coverage: 71% (5/7)
 
-# JSON spec coverage (for CI gates / quality.py):
+# JSON spec coverage (for CI gates / quality.py); the report nests under .spec_coverage:
 $ stack exec llmll -- verify file.llmll --spec-coverage --json
 ```
 
@@ -1807,8 +1806,9 @@ $ llmll verify --trust-report probe.llmll
     ≈ assumes Probed ⇒ wasi.fs.stat/RCode {v : int | (>= v 0)} [codegen-determined; premise: codegen:wasi.fs.stat] (ASSUMED, not proved: it rides codegen_semantics_version)
 ```
 
-Run `verify` first, as above. `--trust-report` reads the `.verified.json` sidecar the plain run
-writes, so on a first run against a fresh tree the post reads `asserted` rather than `verified`.
+`verify --trust-report` runs the solver before it renders, so the post reads `verified` even on a
+fresh tree. The plain run above only shows the solver's own lines. `llmll trust-report probe.llmll`
+renders the saved `.verified.json` without the solver.
 
 **Read that note as the warning it is.** A codegen-determined fact is *assumed*, not proved: it
 holds only because the generated runtime cannot publish a violating value — `wasi.fs.stat` delivers

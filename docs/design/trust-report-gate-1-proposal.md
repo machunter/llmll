@@ -2,7 +2,7 @@
 title: TRUST-REPORT-GATE-1 — a reporting flag never changes the verdict
 status: Rev 1, SETTLED 2026-10-14
 row: TRUST-REPORT-GATE-1 (G1)
-review: trust-report-gate-1-review.md (professor, Rev 0 and Rev 1, both folded here)
+review: "folded below; archived at docs/archive/professor-reviews/trust-report-gate-1-review.md (professor, Rev 0 and Rev 1)"
 ---
 
 # TRUST-REPORT-GATE-1 — a reporting flag never changes the verdict
@@ -283,3 +283,49 @@ No new builtin, construct, FFI tier or capability.
 - Move the `TRUST-REPORT-GATE-1` marker from DECIDE to PLAN.
 - File `TRUST-REFUTED-PERSIST-1` in G1 with a DECIDE marker (§3.6).
 - Add a `docs/design/INDEX.md` row for this proposal.
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal is
+folded here and the source file archived to
+[`docs/archive/professor-reviews/trust-report-gate-1-review.md`](../archive/professor-reviews/trust-report-gate-1-review.md).
+Folded 2026-10-15, after Rev 1 settled (2026-10-14) and the code commits `9451c2f7`, `1b3335f2`,
+`47c85722` and `a3273fc7`.
+
+**Source:** `docs/design/trust-report-gate-1-review.md` at commit `8a6eeb20` (reviewed 2026-10-14;
+reviewer: Lead Consultant for Formal Language Design). Two rounds: Rev 0 against the direction
+discussed in session (item D of [`external-review-v0-29-0-triage.md`](external-review-v0-29-0-triage.md)),
+before any proposal existed, and Rev 1 against this proposal's Rev 0.
+
+### Round 1, against the direction, and its outcome
+
+**A reporting flag must not change the exit status.** The reviewer measured that dropping the early
+exit alone gives two JSON documents on stdout under `--json` (H1), that `--spec-coverage` has the same
+solver-less exit (H2), and stated the rule as flag orthogonality, after GHC's `-ddump-*` flags and
+Dafny's named `--no-verify` opt-out (H3). On the importer gap, the review found a loss of precision
+and no soundness hole, because a callee with no positive record already renders `asserted` and
+`--strict-verified-core` refuses its caller (H4); the proposed `unverified (no record)` label was
+dropped. HASH-PRE-ASYM's evidence key removes the old reason not to save `refuted` (H5, citing Leino
+and Wüstholz, CAV 2015, and *Build Systems à la Carte*, ICFP 2018), with the qualifier that a refuted
+body VC means "not entailed by the declared contracts". H6 (cost) and H7 (the sidecar write) were
+recorded. Outcomes: Rev 0 adopted H1 to H4 and H7, measured H6 (context item 13), answered both open
+questions in §3.1 and §3.4, and filed H5 as `TRUST-REFUTED-PERSIST-1`.
+
+### Round 2, against Rev 0, and its outcome
+
+**A report run now erases `tested` evidence** (R1-1): a SAFE `verify` replaced the sidecar with this
+run's solver result, so under Rev 0 every report run would drop the `tested` records the solver-less
+render showed. **The document must state its exit status** (R1-2): the reviewer weighed the
+tagged-stream shape of Cargo, `go test -json` and GHC 9.10 and kept one document, after SARIF 2.1.0's
+`invocations[].exitCode`. **The proof artifact's composed versions were hard-coded and incorrect**
+(R1-3). **The flag rule should be one monotone law**, so exit 4 needs no exception (R1-4). Outcomes:
+Rev 1 adopted all four. For R1-1 the user chose the reviewer's answer, and reading for it found that
+neither non-solver tier had a key to check, so §3.5 added `subject_key` for `tested` records and the
+`obligation_hash` comparison for `verified-lean` posts.
+
+**What shipped differs from Rev 1 in three places.** `solver_verdict` takes a fourth value, `not-run`,
+for the two exits that come before the solver (the pre-solver `--strict-verified-core` refusal and
+solver absent); §3.3 names three. A `tested` record for an imported subject (`lib.sq`) is checked
+against its defining module's key (implementation-plan amendment A2), which §3.5 did not specify. The
+type checker's cross-module trust-gap warning still reads an imported `tested` record without the key
+check; it is filed as `TRUST-GAP-KEY-1`. `LLMLL.md` §4.4.4 states the shipped behavior.

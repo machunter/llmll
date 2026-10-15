@@ -2,6 +2,76 @@
 
 ---
 
+## Unreleased (on `main` after v0.29.1)
+
+### `TRUST-REPORT-GATE-1`: `verify --trust-report` and `verify --spec-coverage` run the solver; `verify --json` prints one document
+
+`llmll verify --trust-report` and `llmll verify --spec-coverage` rendered the saved `.verified.json`
+without running the solver and exited 0. On a function the solver refutes, plain `verify` exits 1
+and each of these flags exited 0, so a script that gated on either flag passed a disproved function.
+Both flags now run the solver, mark `refuted`, and exit on its verdict. The solver-less renders move
+to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1. Closes
+`TRUST-REPORT-GATE-1`.
+
+- **One exit law for every `verify` flag.** If plain `verify` exits non-zero, the same run with any
+  flag exits with the same code. If plain `verify` exits 0, a reporting flag (`--trust-report`,
+  `--spec-coverage`, `--cdp`, `--weakness-check`, `--obligations`, `--obligation-report`,
+  `--proof-artifact`, `--fq-out`, `--strict-verify`) or a prover flag (`--leanstral` and the other
+  `--leanstral-*` flags) may add only exit 4, and `--strict-verified-core` may add only 1 or 4.
+- **`llmll --json verify` prints exactly one JSON document, for every combination of flags.**
+  Breaking for JSON consumers. The document is the verdict object. It begins with
+  `verify_json_version` (`1.0.0`), `exit_code` (the process status), `solver_verdict` (`safe`,
+  `refuted`, `error`, or `not-run` when the run stopped before the solver: the pre-solver
+  `--strict-verified-core` refusal, or no solver on PATH, exit 3), and `composed`
+  (`trust_report_version`, `schema_version`, and `obligation_report_schema_version` when that report
+  is present). The verdict keys follow unchanged. Each requested report nests under a fixed key, only
+  when it was computed: `trust_report`, `spec_coverage`, `weakness`, `obligation_suggestions`,
+  `obligation_report`, `strict_errors`. Before, `--trust-report --cdp --json` printed two documents
+  and `--strict-verify --json` three. A caller that read `.entries` from `verify --trust-report`
+  reads `.trust_report.entries`.
+- **New subcommands `llmll trust-report <file>` and `llmll spec-coverage <file>`.** Each renders the
+  saved `.verified.json` through the evidence-key check. Each runs no emitter, solver or prover,
+  writes no sidecar, and exits 1 when the file fails the type check and 0 otherwise. Under `--json`
+  each prints the bare report, with no verdict object. Each lists the records the key check
+  discarded: `records discarded (key mismatch): N (names)` in text, `discarded_records` in JSON (only
+  when non-empty). `trust-report` keeps the sidecar-only footer; `spec-coverage` has none.
+- **A `tested` record is checked against the tested function.** `llmll test` stamps the subject's
+  evidence key on each PBT witness (`subject_key`). A `tested` or `tested-joint` record is valid only
+  when a witness is live and its `subject_key` equals the tested function's live evidence key; an
+  imported subject such as `lib.sq` is checked against its defining module. An edit of the function's
+  body now demotes the record. **A `tested` record written by an earlier release has no key and
+  renders `asserted` until `llmll test` runs again.**
+- **A `verified-lean` post is checked against the live obligation.** The `.proof-cache.json` entry's
+  `obligation_hash` must equal the live obligation hash. A post edited after its Leanstral proof
+  renders `asserted`; run `--leanstral` again to restore it.
+- **A SAFE `verify` keeps valid `tested` records** in the `.verified.json` it writes. Before, it
+  replaced the file and dropped them.
+- **Sidecar and report versions.** `checker_soundness_version` "2" to "3", so a sidecar written by an
+  older binary is revalidated; PBT witnesses gain the optional `subject_key`. Trust report version
+  1.9.0 to **1.10.0**: the optional top-level `discarded_records`
+  (`docs/llmll-trust-report.schema.json`).
+- **Smaller fixes.** The proof artifact's `composed` versions are computed from the live emitters
+  instead of the hard-coded `1.4.0` and `0.7.0`. `--json --obligations` now emits
+  `obligation_suggestions`; before, its JSON emit sat in the text-mode branch and never printed. The
+  solver-absent banner names `llmll trust-report` as the way to read saved evidence. Plain
+  `verify --trust-report` now shows the `[body_fallback: …]` marker.
+- **In-tree callers migrated** to `.trust_report` and `.spec_coverage`: `scripts/benchmark-totp.sh`,
+  `scripts/benchmark-erc20.sh`, `scripts/rfc_coverage.py`, `scripts/rfc_to_implementation.py`,
+  `scripts/tools_verification.py`, `scripts/driver_ll_cover.py`, stage L of
+  `tools/llmll-driver/spine.llmll`, and the repair-loop scripts. The five tracked `.verified.json`
+  files were regenerated; only `checker_soundness_version` changed.
+- **Follow-ups filed in G1 of the roadmap:** `TRUST-REFUTED-PERSIST-1` (save `refuted` in
+  `.verified.json`, keyed by `evidenceKey`) and `TRUST-GAP-KEY-1` (the cross-module trust-gap warning
+  reads an imported `tested` record without the key check).
+- **Docs:** `LLMLL.md §4.4.4` (the exit law, the `--json` document, the two subcommands, the
+  `subject_key` check), `§4.4.1`, `§5.3.2` and the Lean-path note in `§5.3.3`; `README.md` command
+  table; `docs/getting-started.md`.
+
+Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. 2326 examples, 0 failures (+27 since
+v0.29.1). Python: 312 passed; 477 with `LLMLL_BIN` set (+35), 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.29.1: names that collide with the generated Haskell build; builtin names are reserved at the top level (2026-10-14)
