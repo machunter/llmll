@@ -54,8 +54,8 @@ def _verify_safe(d: Path, name: str) -> None:
 
 
 def _report(d: Path, name: str) -> dict:
-    """The solver-less trust report, as JSON."""
-    r = _run(d, "--json", "verify", name, "--trust-report")
+    """The solver-less trust report, as JSON (TRUST-REPORT-GATE-1: `llmll trust-report`)."""
+    r = _run(d, "--json", "trust-report", name)
     return json.loads(r.stdout)
 
 
@@ -240,7 +240,7 @@ def test_hpa_inv_fresh_sidecar_reads_back(tmp_path: Path, rel: str):
     fresh = {m: _sidecar_verified(d, m) for m in mods}
     assert any(fresh.values()), f"no verified record anywhere under {rel}"
     for m in mods:
-        r = _run(d, "--json", "verify", f"{m}.llmll", "--trust-report")
+        r = _run(d, "--json", "trust-report", f"{m}.llmll")
         try:
             rep = json.loads(r.stdout)
         except json.JSONDecodeError:

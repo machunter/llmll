@@ -36,7 +36,9 @@ module LLMLL.TrustReport
   , computeDecompMeet         -- Cascade L3(d) (Rev 8): decomposition-trust meet
   , contractVouched           -- Cascade L3(d) (Rev 8): :source vouched predicate
   , formatTrustReport
+  , formatTrustReportWith      -- TRUST-REPORT-GATE-1: plus the discarded-record line
   , formatTrustReportJson
+  , formatTrustReportJsonWith  -- TRUST-REPORT-GATE-1: plus 'discarded_records'
   , effectiveLevel     -- v0.10: for obligation trust labels (F9)
   , aggregateTiers     -- v0.10.4: fixed-arity tier-count profile (R6d)
   , aggregateTiersPre  -- OBLIG-PBT-3: per-pre-clause tier-count profile
@@ -44,6 +46,7 @@ module LLMLL.TrustReport
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , downgradeStaleVerifiedSidecar -- ADMIT-VERIFIED: drop body-faithful evidence on hash drift / absence
   , downgradeStaleVerifiedSidecarIn -- HASH-PRE-ASYM: the same, against the module's own KeyEnv
+  , carryForwardTested            -- TRUST-REPORT-GATE-1: the tested records a SAFE write keeps
   , downgradeContradictedTiers    -- SIDECAR-ADMIT-1: drop a positive tier THIS RUN contradicts
   , positiveTier                  -- SIDECAR-ADMIT-1: the tier class whose backing is a body-faithful VC
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
@@ -423,8 +426,12 @@ data TierProfile = TierProfile
 -- @:done?@ holds with no termination check. Derived, never persisted, and it
 -- feeds no tier. 'harness_assumptions' gains three @cli harness@ entries for
 -- such a module. Existing 1.8.0 consumers ignore the new key.
+-- TRUST-REPORT-GATE-1 (1.10.0): additive top-level 'discarded_records', the
+-- names of the sidecar records the read check demoted because their evidence
+-- key no longer matches the live source. Emitted only when non-empty, and only
+-- by 'llmll trust-report' ('formatTrustReportJsonWith').
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.9.0"
+trustReportEmitVersion = "1.10.0"
 
 -- | EFFECT-RESP: the harness-level residue a console program carries.
 --
@@ -888,18 +895,29 @@ downgradeStaleVerifiedSidecar
 -- unannotated return types (the unit tests). Production sites pass the module's
 -- own 'KeyEnv' to 'downgradeStaleVerifiedSidecarIn', so the key they check is the
 -- key the write side computed.
-downgradeStaleVerifiedSidecar stmts =
-  downgradeStaleVerifiedSidecarIn (buildKeyEnv Map.empty Map.empty stmts) stmts
+downgradeStaleVerifiedSidecar stmts sidecar =
+  let (m, ds) = downgradeStaleVerifiedSidecarIn (buildKeyEnv Map.empty Map.empty stmts) stmts sidecar
+  in (m, map snd ds)
 
 -- | HASH-PRE-ASYM: check each persisted record against the evidence key of its
 -- live definition ('LLMLL.EvidenceKey'), computed with the module's own
 -- 'KeyEnv'. A record that claims termination is checked against the key that
 -- folds its recursion group.
+--
+-- TRUST-REPORT-GATE-1 (§3.5): a 'tested' record is checked too. It is valid only
+-- when one of its witnesses carries the live plain key of the record's function
+-- ('pwSubjectKey'). A witness with no key (every pre-v0.30.0 record), a key that
+-- differs, or a record whose name has no live definition here demotes the record
+-- to 'asserted'. The property-body liveness check ('downgradeStaleSidecar',
+-- inside 'buildTrustReport') still runs, so a record must pass both.
+--
+-- Each diagnostic is paired with the name of the record it demoted, so a render
+-- can list the discarded records ('discarded_records').
 downgradeStaleVerifiedSidecarIn
   :: KeyEnv
   -> [Statement]
   -> Map Name ContractStatus
-  -> (Map Name ContractStatus, [Text])
+  -> (Map Name ContractStatus, [(Name, Text)])
 downgradeStaleVerifiedSidecarIn ke stmts =
   Map.foldlWithKey' step (Map.empty, [])
   where
@@ -926,6 +944,25 @@ downgradeStaleVerifiedSidecarIn ke stmts =
 
     downgradeER _    _      Nothing   = (Nothing, [])
     downgradeER name clause (Just er)
+      -- TRUST-REPORT-GATE-1 (§3.5): a tested record needs a witness stamped with
+      -- the live key of its function. Fails closed on an absent key.
+      | testedTier (erDisplayLevel er) =
+          let live   = Map.lookup name liveHashesPlain
+              keys   = map pwSubjectKey (erPbtWitnesses er)
+              valid  = case live of
+                         Just lk -> Just lk `elem` keys
+                         Nothing -> False
+              reason = case live of
+                         Nothing -> "no live definition for this name"
+                         Just _ | all (== Nothing) keys -> "no subject_key on its witness (pre-v0.30.0 record)"
+                                | otherwise             -> "the tested function or its contract changed since the test"
+          in if valid
+               then (Just er, [])
+               else ( Just ((demoteToAsserted er) { erPbtWitnesses = [] })
+                    , [ ( name
+                        , name <> "." <> clause
+                          <> " was tested, but its evidence key no longer matches ("
+                          <> reason <> "). Evidence downgraded to asserted." ) ] )
       -- SIDECAR-ADMIT-1: no positive tier claimed, so there is nothing to check.
       | not (positiveTier (erDisplayLevel er)) = (Just er, [])
       -- SIDECAR-ADMIT-1: a positive tier with the body-faithful flag unset is
@@ -936,9 +973,10 @@ downgradeStaleVerifiedSidecarIn ke stmts =
       -- admit exactly the record this case exists to refuse.
       | not (erBodyFaithful er) =
           ( Just (demoteToAsserted er)
-          , [ name <> "." <> clause
-              <> " claimed a positive tier with no body-faithful evidence"
-              <> " (body_faithful absent or false). Evidence downgraded to asserted." ] )
+          , [ ( name
+              , name <> "." <> clause
+                <> " claimed a positive tier with no body-faithful evidence"
+                <> " (body_faithful absent or false). Evidence downgraded to asserted." ) ] )
       | otherwise =
           let live = Map.lookup name
                        (if erTerminationVerified er then liveHashesTerm else liveHashesPlain)
@@ -955,7 +993,36 @@ downgradeStaleVerifiedSidecarIn ke stmts =
                else let diag = name <> "." <> clause
                           <> " carried body-faithful verified evidence but it is stale ("
                           <> reason <> "). Evidence downgraded to asserted."
-                    in ( Just (demoteToAsserted er), [diag] )
+                    in ( Just (demoteToAsserted er), [(name, diag)] )
+
+-- | TRUST-REPORT-GATE-1 (§3.5): is this a 'tested' tier, whose backing is a PBT
+-- witness? 'tested-joint' is assigned at report time and never saved, but it is
+-- checked the same way if a sidecar ever carries it.
+testedTier :: DisplayLevel -> Bool
+testedTier (DLTested _)      = True
+testedTier (DLTestedJoint _) = True
+testedTier _                 = False
+
+-- | TRUST-REPORT-GATE-1 (§3.5): the 'tested' records a SAFE write keeps from the
+-- sidecar that was on disk before the run. A record is kept when, and only when,
+-- it still describes the live function: a witness carries the live evidence key
+-- ('downgradeStaleVerifiedSidecarIn') AND a witness's property body is still
+-- live ('downgradeStaleSidecar'). Only the post clause is kept, since PBT
+-- write-back stamps nothing else; the caller merges the result under this run's
+-- solver records with 'mergeCS', which keeps 'verified' over 'tested' and
+-- 'tested' over 'asserted'.
+carryForwardTested
+  :: ModuleCache -> KeyEnv -> [Statement]
+  -> Map Name ContractStatus   -- ^ the pre-run sidecar, raw
+  -> Map Name ContractStatus
+carryForwardTested cache ke stmts raw =
+  let (keyed, _) = downgradeStaleVerifiedSidecarIn ke stmts raw
+      (live, _)  = downgradeStaleSidecar (liveCheckHashes cache stmts) keyed
+  in Map.fromList
+       [ (n, ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] })
+       | (n, cs) <- Map.toList live
+       , Just er <- [csPost cs]
+       , testedTier (erDisplayLevel er) ]
 
 -- | SIDECAR-ADMIT-1: is this a POSITIVE tier — one whose only legitimate backing
 -- is a discharged body-faithful VC, or a kernel-checked Lean proof?
@@ -1913,6 +1980,16 @@ classifyToProfile classify entries =
 -- Formatting (human-readable)
 -- ---------------------------------------------------------------------------
 
+-- | TRUST-REPORT-GATE-1: 'formatTrustReport' plus one line counting the records
+-- the read check discarded (key mismatch), when there are any. A reader can then
+-- tell "no record" from "a record that no longer matches the source".
+formatTrustReportWith :: [Name] -> TrustReport -> Text
+formatTrustReportWith discarded report =
+  formatTrustReport report
+  <> (if null discarded then ""
+      else "records discarded (key mismatch): " <> T.pack (show (length discarded))
+           <> " (" <> T.intercalate ", " discarded <> ")\n")
+
 formatTrustReport :: TrustReport -> Text
 formatTrustReport report =
   let header = "Trust Report"
@@ -2071,7 +2148,13 @@ formatSuppressions supps =
 -- Text directly from the aeson 'Value' with no byte-level round-trip, so it
 -- cannot suffer this class of corruption.
 formatTrustReportJson :: TrustReport -> Text
-formatTrustReportJson report =
+formatTrustReportJson = formatTrustReportJsonWith []
+
+-- | TRUST-REPORT-GATE-1 (1.10.0): 'formatTrustReportJson' plus the names of the
+-- records the read check discarded (key mismatch). The key is emitted only when
+-- the list is non-empty, so every other report keeps its shape.
+formatTrustReportJsonWith :: [Name] -> TrustReport -> Text
+formatTrustReportJsonWith discarded report =
   TL.toStrict . encodeToLazyText $ object $
     [ "trust_report_version" .= trustReportEmitVersion
     , "entries"      .= map entryJson (trEntries report)
@@ -2126,7 +2209,9 @@ formatTrustReportJson report =
     ] ++
     -- MODE-CLI-1 (1.9.0): only-on-true, so a console or library report keeps
     -- its shape. Informational; it feeds no tier and no admission.
-    [ "unbounded_entry_loop" .= True | trUnboundedEntryLoop report ]
+    [ "unbounded_entry_loop" .= True | trUnboundedEntryLoop report ] ++
+    -- TRUST-REPORT-GATE-1 (1.10.0): only when non-empty.
+    [ "discarded_records" .= discarded | not (null discarded) ]
   where
     overAnnotationJson oai = object
       [ "ratio"     .= oaiRatio oai

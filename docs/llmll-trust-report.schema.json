@@ -10,9 +10,9 @@
   "properties": {
 
     "trust_report_version": {
-      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy. 1.8.0 (PARTIAL-FNS-GRAPH-1) added no key: `partial_fns` and the per-entry `termination_unverified` flag now read the module-qualified call graph, so a cached member is named `m.f`, and recursion through a function value counts. 1.9.0 (MODE-CLI-1) added the top-level `unbounded_entry_loop` flag.",
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy. 1.8.0 (PARTIAL-FNS-GRAPH-1) added no key: `partial_fns` and the per-entry `termination_unverified` flag now read the module-qualified call graph, so a cached member is named `m.f`, and recursion through a function value counts. 1.9.0 (MODE-CLI-1) added the top-level `unbounded_entry_loop` flag. 1.10.0 (TRUST-REPORT-GATE-1) added the optional top-level `discarded_records` array.",
       "type": "string",
-      "const": "1.9.0"
+      "const": "1.10.0"
     },
 
     "entries": {
@@ -107,6 +107,12 @@
         "threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
         "warning":   { "type": "boolean" }
       }
+    },
+
+    "discarded_records": {
+      "description": "v1.10.0 (TRUST-REPORT-GATE-1). The names of the `.verified.json` records the read check demoted because their evidence key no longer matches the live source: a `verified` record whose key drifted or is absent, or a `tested` record whose witness carries no subject key or a key that differs from the live one. Lets a reader tell \"no record\" from \"a record that no longer matches\" without running the solver. Emitted by `llmll trust-report --json` only when non-empty; omitted otherwise. Informational: the demotion is already reflected in every tier.",
+      "type": "array",
+      "items": { "type": "string" }
     },
 
     "unbounded_entry_loop": {

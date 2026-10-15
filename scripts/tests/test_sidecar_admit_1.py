@@ -53,7 +53,7 @@ FIXTURE_UNSAFE = """(module two
 """
 
 FORGED = {
-    "checker_soundness_version": "2",
+    "checker_soundness_version": "3",
     "sq3": {
         "post": {"display_level": {"level": "verified", "prover": "liquid-fixpoint"}},
         "pre": {"display_level": {"level": "asserted"}},
@@ -76,11 +76,21 @@ def _verify(src, *flags):
     )
 
 
+def _trust_report(src, *global_flags):
+    # TRUST-REPORT-GATE-1: the sidecar-only render moved from
+    # `verify --trust-report` to the `trust-report` subcommand.
+    llmll = shlex.split(os.environ["LLMLL_BIN"])
+    return subprocess.run(
+        [*llmll, *global_flags, "trust-report", str(src)],
+        capture_output=True, text=True, timeout=300,
+    )
+
+
 @needs_binary
 def test_trust_report_does_not_render_a_forged_tier(tmp_path):
     """Cell A. The sidecar-only render downgrades, discloses, and still exits 0."""
     src = _write(tmp_path, "sq.llmll", FIXTURE)
-    r = _verify(src, "--trust-report")
+    r = _trust_report(src)
 
     assert "post: verified" not in r.stdout, "forged tier rendered: " + r.stdout
     assert "post: asserted" in r.stdout
@@ -89,6 +99,11 @@ def test_trust_report_does_not_render_a_forged_tier(tmp_path):
     # contradiction, so it must not claim to have found one.
     assert r.returncode == 0
     assert "sidecar-only report" in r.stdout
+    # TRUST-REPORT-GATE-1: the demoted record is named, so a reader can tell a
+    # record that no longer matches from no record at all.
+    j = _trust_report(src, "--json")
+    assert j.returncode == 0
+    assert json.loads(j.stdout)["discarded_records"] == ["sq3"]
 
 
 @needs_binary

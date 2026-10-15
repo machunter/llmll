@@ -713,11 +713,18 @@ escapeText s = "\"" <> T.replace "\"" "\\\"" s <> "\""
 --
 -- Per proposal §8 the sidecar key is the qualified import path when the
 -- subject came from @(open path …)@, bare-local otherwise.
-pbtTrustWriteback :: [Statement]
+--
+-- TRUST-REPORT-GATE-1 (§3.5): the first argument maps a sidecar key (bare or
+-- qualified, as above) to the subject's live evidence key. 'LLMLL.EvidenceKey'
+-- imports this module, so the caller ('Main.doTest') computes the keys and this
+-- module only stamps them on each witness ('pwSubjectKey'). 'const Nothing'
+-- writes unkeyed witnesses, which the read check does not accept.
+pbtTrustWriteback :: (Name -> Maybe Text)
+                  -> [Statement]
                   -> ModuleCache
                   -> PBTResult
                   -> (Map Name ContractStatus, [Text])
-pbtTrustWriteback localStmts cache result =
+pbtTrustWriteback subjectKeyOf localStmts cache result =
   let -- Local names: only those defined in the local file. SOpen-forwarded
       -- imports do not appear here even after 'assembleTestStatements'
       -- because we work off 'localStmts' directly.
@@ -772,7 +779,7 @@ pbtTrustWriteback localStmts cache result =
         ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) _ <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
-      processed = map (processRun contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
+      processed = map (processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
       (mapsList, diagsList) = unzip processed
       mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList
   in (mergedMap, concat diagsList)
@@ -786,13 +793,14 @@ pbtTrustWriteback localStmts cache result =
 -- 'pbt_witnesses' hash (per proposal §11.1 inference rule, 2026-05-14). On
 -- absence of the annotation, the v0.10.5 singleton-head-position semantics
 -- continue to apply unchanged.
-processRun :: Map Name Contract
+processRun :: (Name -> Maybe Text)  -- ^ TRUST-REPORT-GATE-1: sidecar key → live evidence key
+           -> Map Name Contract
            -> Map Name Name      -- ^ bare → qualified sidecar key
            -> Map Name LLMLL.Syntax.Property
            -> Set Name           -- ^ F-GATE-8: names with hole-delegate bodies
            -> PBTRun
            -> (Map Name ContractStatus, [Text])
-processRun contractByName qualMap propsByDesc delegateBodies run =
+processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
   case pbtStatus run of
     PBTPassed ->
       case Map.lookup (pbtDescription run) propsByDesc of
@@ -803,11 +811,13 @@ processRun contractByName qualMap propsByDesc delegateBodies run =
               n      = pbtSamplesRun run
               desc   = pbtDescription run
               h      = canonicalPropBodyHash body
-              w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False []
+                let key = Map.findWithDefault f f qualMap
+                    -- TRUST-REPORT-GATE-1: each subject's record carries a
+                    -- witness stamped with THAT subject's evidence key.
+                    w   = PbtWitness h desc (subjectKeyOf key)
+                    er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False []
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
-                    key = Map.findWithDefault f f qualMap
                 in (key, cs)
               -- F-GATE-8: Guard a candidate subject against delegation holes.
               -- The static evaluator observes only delegateOnFailure, not the

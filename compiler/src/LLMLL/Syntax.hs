@@ -507,9 +507,18 @@ data EvidenceRecord = EvidenceRecord
 -- over the canonical 'Expr' serialization of 'propBody' (see
 -- 'LLMLL.PBT.canonicalPropBodyHash'). 'buildTrustReport' validates on read
 -- against live property bodies and downgrades stale entries.
+--
+-- TRUST-REPORT-GATE-1 (§3.5): 'pwSubjectKey' is the evidence key
+-- ('LLMLL.EvidenceKey', plain variant) of the subject function at write time.
+-- The read check accepts a 'tested' record only when a witness carries the
+-- live key of the record's function, so a record no longer survives an edit of
+-- the tested function's body. 'Nothing' (every record written before v0.30.0)
+-- fails closed. The key lives here and not in 'erVerifiedHash' so the
+-- strict-core admission leg, which reads 'erVerifiedHash' only, is unchanged.
 data PbtWitness = PbtWitness
-  { pwHash        :: Text   -- ^ \"sha256:\" + 64 hex chars
-  , pwDescription :: Text   -- ^ propDescription at write time, for display
+  { pwHash        :: Text         -- ^ \"sha256:\" + 64 hex chars
+  , pwDescription :: Text         -- ^ propDescription at write time, for display
+  , pwSubjectKey  :: Maybe Text   -- ^ TRUST-REPORT-GATE-1: subject's evidence key at write time
   } deriving (Show, Eq, Generic)
 
 -- | Classification of unverified dependencies.

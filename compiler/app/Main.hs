@@ -77,13 +77,13 @@ import LLMLL.DivergenceCheck
   , DivergenceReport(..), buildDivergenceReport, divergenceReportJson )
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath, demotePositiveRecords)
-import LLMLL.EvidenceKey (evidenceKey)  -- HASH-PRE-ASYM
+import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
-import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
+import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -96,7 +96,7 @@ import LLMLL.CDP
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
-import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson)
+import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson, formatCoverageJsonWith)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv, KeyEnv, buildKeyEnv)
 import LLMLL.Feasibility (feasibilityOf, renderWitness, FeasVerdict(..))
@@ -125,6 +125,8 @@ data Command
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
   | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool Bool (Maybe FilePath) -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp, --strict-verify, --proof-artifact (PROOF-ARTIFACT)
   | CmdReplayArtifact FilePath  -- PROOF-ARTIFACT: re-derive + check a recorded artifact (fail-closed)
+  | CmdTrustReport FilePath     -- TRUST-REPORT-GATE-1: solver-less trust report from the saved sidecar
+  | CmdSpecCoverage FilePath    -- TRUST-REPORT-GATE-1: solver-less spec coverage from the saved sidecar
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -206,6 +208,12 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
           (progDesc "Manage llmll-hub local package cache (fetch, scaffold)"))
       <> command "verify" (info (helper <*> verifyCmd)
           (progDesc "Emit .fq constraints and run liquid-fixpoint (if installed)"))
+      -- TRUST-REPORT-GATE-1 (design §3.4): the solver-less renders. Neither runs
+      -- the emitter or the solver, and neither name says 'verify'.
+      <> command "trust-report" (info (helper <*> (CmdTrustReport <$> fileArg))
+          (progDesc "Render the trust report from the saved .verified.json (no solver run; exit 0 when the file type-checks)"))
+      <> command "spec-coverage" (info (helper <*> (CmdSpecCoverage <$> fileArg))
+          (progDesc "Render specification coverage from the saved .verified.json (no solver run; exit 0 when the file type-checks)"))
       <> command "typecheck" (info (helper <*> typecheckCmd)
           (progDesc "Parse and type-check; with --sketch infer hole types from context"))
       <> command "serve" (info (helper <*> serveCmd)
@@ -425,6 +433,8 @@ main = do
     CmdHubQuery sig               -> doHubQuery json GrammarLegacy sig
     CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa
     CmdReplayArtifact af -> doReplayArtifact json af
+    CmdTrustReport fp             -> doTrustReport json gm fp
+    CmdSpecCoverage fp            -> doSpecCoverage json gm fp
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
     CmdCheckout fp ptr            -> doCheckout json gm fp (T.pack ptr)
@@ -643,10 +653,26 @@ doTest json gm fp emitOnly = do
           exitSuccess
         else do
           result <- runPropertyTests mergedStmts
+          -- TRUST-REPORT-GATE-1 (§3.5): stamp each tested record with its
+          -- subject's evidence key (plain variant), computed with the KeyEnv
+          -- the record's module is read with. An entry-module subject uses the
+          -- entry KeyEnv, which 'doVerify' builds the same way (non-strict
+          -- return types). An imported subject is keyed qualified in this
+          -- sidecar ('PBT.buildQualMap'), and its key comes from its own
+          -- module's 'moduleKeyEnv'. Lazy: a run that lifts nothing never
+          -- forces the type-check.
+          let (_, testRetTypes) = typeCheckWithCacheRet gm cache emptyEnv stmts
+              entryKeys = evidenceKeys (buildKeyEnv cache testRetTypes stmts) False stmts
+              subjectKeyOf k = case Map.lookup k entryKeys of
+                Just h  -> Just h
+                Nothing -> listToMaybe
+                  [ h | (path, menv) <- Map.toList cache
+                      , Just bare <- [T.stripPrefix (T.intercalate "." path <> ".") k]
+                      , Just h <- [Map.lookup bare (evidenceKeys (moduleKeyEnv cache menv) False (meStatements menv))] ]
           -- OBLIG-PBT-3: write back PBTPassed evidence to .verified.json.
           -- Singleton head-position contracted callee lifts to DLTested n;
           -- multi-subject / skipped / failed produce diagnostics, no lift.
-          let (pbtCS, pbtDiags) = pbtTrustWriteback stmts cache result
+          let (pbtCS, pbtDiags) = pbtTrustWriteback subjectKeyOf stmts cache result
           unless (Map.null pbtCS) $ do
             existing <- loadVerified fp
             -- pbtCS on the sidecar side so DLTested upgrades any DLAsserted;
@@ -1293,6 +1319,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- HASH-PRE-ASYM: the KeyEnv the emitter reads in this run; every record
       -- this run writes or re-reads is keyed with it.
       let verifyKe = buildKeyEnv _cache retTypes stmts
+          -- TRUST-REPORT-GATE-1 (§3.5): the live obligation hash per def. A
+          -- proof-cache entry upgrades a post to 'verified-lean' only when its
+          -- 'obligation_hash' equals this. Lazy, so a run with no proof-cache
+          -- entry to check never computes it.
+          liveOblHashes = liveObligationHashes stmts
       -- v0.3.2: --trust-report mode — print trust summary and exit
       -- LT-CDP (v0.11): when '--cdp' is also requested, defer the trust-report
       -- emit to the post-solver path so 'discriminative_axis' can be
@@ -1334,7 +1365,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- it is a same-run solver verdict and is never persisted.
         let report = markTerminationAssumed (termClosureOf _cache stmts (sidecarDischargedSet entrySidecar))
                    $ markDescentDischarged (sidecarDischargedSet entrySidecar)
-                       (buildTrustReport _cache stmts (upgradeLeanstralPosts leanCache entrySidecar))
+                       (buildTrustReport _cache stmts (upgradeLeanstralPosts liveOblHashes leanCache entrySidecar))
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
@@ -1742,7 +1773,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
 
           -- v0.3: write .verified.json sidecar on SAFE; return provenCS so the
           -- CDP block below can derive the verifMap oracle without a disk re-read.
-          provenCS <- case fqResult of
+          (provenCS, writtenCS) <- case fqResult of
             FQSafe -> do
               let writeKe             = verifyKe
                   bodyFaithfulSet     = Set.fromList (erBodyFaithfulFns emitR)
@@ -1793,12 +1824,27 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- 'refuted' it IS persisted. The axis is computed by the trust
               -- report over the live source + the just-proven sidecar, then
               -- flattened to the shared '{fn, requires}' JSON shape.
-              let obReport      = buildTrustReport _cache stmts provenCS
+              --
+              -- TRUST-REPORT-GATE-1 (§3.5): the write keeps the non-solver
+              -- evidence that still describes the live function. 'tested'
+              -- records from the pre-run sidecar are kept when a witness is live
+              -- and carries the live evidence key ('carryForwardTested'); this
+              -- run's solver records take precedence by 'mergeCS' (verified over
+              -- tested, tested over asserted). A post with an untainted Leanstral
+              -- proof whose obligation hash matches the live one is written as
+              -- 'verified-lean' on every SAFE write, not only under '--leanstral'.
+              wLeanCache <- loadProofCache fp
+              let validTested    = carryForwardTested _cache verifyKe stmts entrySidecarRaw
+                  written        = upgradeLeanstralPosts liveOblHashes wLeanCache
+                                     (Map.unionWith mergeCS provenCS validTested)
+                  obReport       = buildTrustReport _cache stmts written
                   obligationJson = concatMap (map callerObligationJson . teCallerObligations)
                                              (trEntries obReport)
-              saveVerifiedWithAxioms fp provenCS obligationJson builtinAxiomMap
+              saveVerifiedWithAxioms fp written obligationJson builtinAxiomMap
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
-              pure provenCS
+              -- 'provenCS' (this run's solver records only) stays the CDP
+              -- oracle below, unchanged; 'written' is what is on disk.
+              pure (provenCS, written)
             -- HASH-PRE-ASYM S4: a run that did not end SAFE keeps no positive
             -- record it contradicted. Refuted constraints name their functions
             -- through the constraint table; anything unattributed (an empty id
@@ -1813,7 +1859,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               unless (json || null demoted) $
                 TIO.putStrLn $ "   .verified.json: positive records demoted to asserted: "
                   <> T.intercalate ", " demoted
-              pure Map.empty
+              pure (Map.empty, Map.empty)
 
           -- v0.3.5: Weakness check — only runs on SAFE results
           case fqResult of
@@ -1938,7 +1984,13 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
           -- '--strict-verified-core' too, so the gate below can fail closed.
           when (trustReport && cdpFlag && not strictCore) $ do
-            (sidecar, _stale, cdpContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            (sidecar0, _stale, cdpContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            -- TRUST-REPORT-GATE-1 (§3.5): a post-solver render applies the
+            -- hash-checked Leanstral upgrade, as the solver-less render does.
+            -- After the contradiction pass: a Leanstral proof is FOR a fallback
+            -- body, so the pass would otherwise refuse every one of them.
+            cdpLeanCache <- loadProofCache fp
+            let sidecar = upgradeLeanstralPosts liveOblHashes cdpLeanCache sidecar0
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
@@ -1967,7 +2019,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- reached; emit a refuted-marked trust report here when requested
           -- (and not already emitted via the obligation report) before failing.
           when strictCore $ do
-            (stSidecar, _stale, stContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            (stSidecar0, _stale, stContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            -- TRUST-REPORT-GATE-1 (§3.5): the hash-checked Leanstral upgrade, as
+            -- on the CDP render above.
+            stLeanCache <- loadProofCache fp
+            let stSidecar = upgradeLeanstralPosts liveOblHashes stLeanCache stSidecar0
             -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
             -- drops 'discriminative_axis' to a uniform "not-requested" for
             -- every function under '--strict-verified-core --cdp --json',
@@ -2012,29 +2068,114 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint).
               -- Leanstral demo (Layer-2): --leanstral also routes nonlinear
               -- 'erBodyFallback' functions (real bodies) into the pipeline.
-              when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
+              when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $
                 runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
-                -- Leanstral demo (FIX B, trust surface 1): the '.verified.json'
-                -- sidecar was written above (~:1471) with the fallback post at
-                -- 'asserted', BEFORE the proof cache existed. Now that
-                -- 'runLeanstralPipeline' has written it, re-stamp the sidecar so a
-                -- kernel-checked '/post/<name>' reads 'verified-lean' instead of
-                -- contradicting the certificate. 'caller_obligations' are re-derived
-                -- from the upgraded status so the persisted axis is preserved.
-                -- Fail-safe: no leanstral entry → 'upgraded == provenCS' → no rewrite.
-                leanCache <- loadProofCache fp
-                let upgraded = upgradeLeanstralPosts leanCache provenCS
-                unless (upgraded == provenCS) $ do
-                  let obReport'       = buildTrustReport _cache stmts upgraded
-                      obligationJson' = concatMap (map callerObligationJson . teCallerObligations)
-                                                  (trEntries obReport')
-                  saveVerifiedWithAxioms fp upgraded obligationJson' builtinAxiomMap
-                  unless json $ TIO.putStrLn
-                    "   .verified.json re-stamped: leanstral proof(s) → verified-lean"
+              -- Leanstral demo (FIX B, trust surface 1): the '.verified.json'
+              -- sidecar was written above, before this run's prover (if any)
+              -- added proof-cache entries. Re-stamp it so a kernel-checked
+              -- '/post/<name>' reads 'verified-lean' instead of contradicting the
+              -- certificate. 'caller_obligations' are re-derived from the upgraded
+              -- status so the persisted axis is preserved.
+              -- TRUST-REPORT-GATE-1 (§3.5): no longer under the prover-flag guard,
+              -- and hash-checked. The write above already applied the same upgrade
+              -- with the proof cache as it was then, so with no prover run
+              -- 'upgraded == writtenCS' and nothing is rewritten.
+              leanCache <- loadProofCache fp
+              let upgraded = upgradeLeanstralPosts liveOblHashes leanCache writtenCS
+              unless (upgraded == writtenCS) $ do
+                let obReport'       = buildTrustReport _cache stmts upgraded
+                    obligationJson' = concatMap (map callerObligationJson . teCallerObligations)
+                                                (trEntries obReport')
+                saveVerifiedWithAxioms fp upgraded obligationJson' builtinAxiomMap
+                unless json $ TIO.putStrLn
+                  "   .verified.json re-stamped: leanstral proof(s) → verified-lean"
               printDeferredCoverage
               exitSuccess
             FQUnsafe _ -> exitFailure
             FQError _  -> exitFailure
+
+-- ---------------------------------------------------------------------------
+-- TRUST-REPORT-GATE-1: llmll trust-report / llmll spec-coverage
+-- ---------------------------------------------------------------------------
+
+-- | TRUST-REPORT-GATE-1 (design §3.4): the shared front half of the two
+-- solver-less renders. Parse, read the entry sidecar through the evidence-key
+-- check, and type-check exactly as 'doVerify' does before its emitter runs. A
+-- file that fails the type-check exits 1, as 'verify' does. Returns the
+-- statements, the module cache, the checked sidecar, and the names of the
+-- records the check discarded.
+loadForRender :: Bool -> GrammarMode -> FilePath
+              -> IO ([Statement], ModuleCache, Map.Map Name ContractStatus, [Name])
+loadForRender json gm fp = do
+  mResult <- loadStatementsMulti json gm fp
+  case mResult of
+    Left () -> exitFailure
+    Right (stmts, cache, _) -> do
+      raw <- loadVerified fp
+      let (_, preRetTypes) = typeCheckWithCacheRet gm cache emptyEnv stmts
+          preKe = buildKeyEnv cache preRetTypes stmts
+          (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn preKe stmts raw
+          (tcReport, _) = typeCheckStrictWithCacheAndStatusRet gm cache sidecar emptyEnv stmts
+      unless (reportSuccess tcReport) $ do
+        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        exitFailure
+      pure (stmts, cache, sidecar, dedupNames (map fst staleDiags))
+  where
+    dedupNames = go Set.empty
+      where go _ [] = []
+            go seen (n:ns) | Set.member n seen = go seen ns
+                           | otherwise         = n : go (Set.insert n seen) ns
+
+-- | TRUST-REPORT-GATE-1 (design §3.4): @llmll trust-report <file>@. The render
+-- that @verify --trust-report@ used to print before it ran the solver, moved
+-- here. It reads the saved evidence, runs no emitter, no solver and no prover,
+-- writes no sidecar, and exits 0 when the file type-checks.
+doTrustReport :: Bool -> GrammarMode -> FilePath -> IO ()
+doTrustReport json gm fp = do
+  (stmts, cache, entrySidecar, discarded) <- loadForRender json gm fp
+  -- Leanstral demo (FIX B, trust surface 2), hash-checked (§3.5): a
+  -- '/post/<name>' with an untainted 'leanstral' entry whose obligation hash
+  -- equals the live one upgrades that post to 'verified-lean'. The live hash is
+  -- a pure function of the def, so this render needs no emitter for it.
+  leanCache <- loadProofCache fp
+  -- TERM-REPORT-PLAIN: honor the sidecar's persisted descent discharge, as the
+  -- strict/CDP paths do.
+  let report = markTerminationAssumed (termClosureOf cache stmts (sidecarDischargedSet entrySidecar))
+             $ markDescentDischarged (sidecarDischargedSet entrySidecar)
+                 (buildTrustReport cache stmts (upgradeLeanstralPosts (liveObligationHashes stmts) leanCache entrySidecar))
+  if json
+    then TIO.putStrLn (formatTrustReportJsonWith discarded report)
+    else TIO.putStr (formatTrustReportWith discarded report)
+  -- SIDECAR-ADMIT-1 part (2): this render has ONE input. The emitter has not
+  -- run, so no tier here was checked against a VC this run produced, and no
+  -- contradiction is detectable. Say so rather than let the reader assume the
+  -- report was validated.
+  unless json $ TIO.putStrLn
+    "   (sidecar-only report: evidence is read from .verified.json and was \
+    \NOT validated against a run of the VC emitter; use --strict-verify for that)"
+  exitSuccess
+
+-- | TRUST-REPORT-GATE-1 (design §3.4): @llmll spec-coverage <file>@. The
+-- solver-less coverage render @verify --spec-coverage@ used to print, moved here.
+doSpecCoverage :: Bool -> GrammarMode -> FilePath -> IO ()
+doSpecCoverage json gm fp = do
+  (stmts, cache, entrySidecar, discarded) <- loadForRender json gm fp
+  -- COVERAGE-TIER (F-1982-1): classify coverage tiers on the persisted,
+  -- key-checked sidecar evidence via the trust report's headline levels, so the
+  -- coverage report agrees with 'llmll trust-report'.
+  let covTrust = buildTrustReport cache stmts entrySidecar
+      covLevels = Map.fromList [ (teName e, l)
+                               | e <- trEntries covTrust
+                               , Just l <- [entryHeadlineLevel e] ]
+      coverageReport = runCoverageWithLevels stmts entrySidecar covLevels
+  if json
+    then TIO.putStrLn (formatCoverageJsonWith discarded coverageReport)
+    else do
+      TIO.putStr (formatCoverageText coverageReport)
+      unless (null discarded) $
+        TIO.putStrLn $ "records discarded (key mismatch): " <> tshow (length discarded)
+                       <> " (" <> T.intercalate ", " discarded <> ")"
+  exitSuccess
 
 -- | LT-CDP (v0.11): Run the solver on one CDP candidate; return True iff the
 -- solver reports SAFE (the candidate's trivial body satisfies the contract).
@@ -3228,7 +3369,7 @@ loadCheckedSidecar ke fp stmts marks = do
   raw <- loadVerified fp
   let (gated,   staleDiags)   = downgradeStaleVerifiedSidecarIn ke stmts raw
       (checked, contraDiags)  = downgradeContradictedTiers marks gated
-  pure (checked, staleDiags, contraDiags)
+  pure (checked, map snd staleDiags, contraDiags)
 
 -- | SIDECAR-ADMIT-1 unit 3: a run that DETECTED an evidence contradiction does
 -- not exit 0. The consequence follows the detection capability of the

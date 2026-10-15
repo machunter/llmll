@@ -55,9 +55,9 @@ import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit, ReplayObs(..), expectedLineCount, obsMatches, describeObs, escapeForDiag)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
-import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
+import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.TrustReport (markBuiltinAxioms, markGroundFacts, markInheritedAxioms, trustAssumptionRows,
-                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion)
+                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -95,14 +95,14 @@ import LLMLL.CDP
   , computeCDPFor, overAnnotationRatio, overAnnotationThreshold
   , cdpWarningLabel
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
-import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
+import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageJsonWith, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
 import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
-import LLMLL.EvidenceKey (evidenceKey)  -- HASH-PRE-ASYM
+import LLMLL.EvidenceKey (evidenceKey, evidenceKeys)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -4295,30 +4295,180 @@ main = hspec $ do
                        (EApp "*" [EVar "x", EVar "x"])
         leanEntry  = ProofEntry "deadbeef" "by nlinarith" "leanstral"
                        "2026-07-05T00:00:00Z"
+        -- TRUST-REPORT-GATE-1: the live obligation hash the entry must match.
+        liveHs     = Map.fromList [("square", "deadbeef")]
         postLevelOf sidecar =
           let rpt = buildTrustReport Map.empty [squareStmt] sidecar
           in fmap teEffectivePostLevel (find ((== "square") . teName) (trEntries rpt))
 
     it "renders 'verified-lean' when /post/square has a leanstral proof entry" $ do
       let cache    = Map.fromList [("/post/square", leanEntry)]
-          upgraded = upgradeLeanstralPosts cache Map.empty
+          upgraded = upgradeLeanstralPosts liveHs cache Map.empty
       postLevelOf upgraded `shouldBe` Just (Just (DLVerifiedLean "leanstral"))
 
     it "stays 'asserted' with no proof cache (fail-safe identity)" $ do
-      upgradeLeanstralPosts Map.empty Map.empty `shouldBe` (Map.empty :: Map.Map Name ContractStatus)
+      upgradeLeanstralPosts Map.empty Map.empty Map.empty `shouldBe` (Map.empty :: Map.Map Name ContractStatus)
       postLevelOf Map.empty `shouldBe` Just (Just DLAsserted)
 
     it "does NOT upgrade a tainted ('by sorry') leanstral entry" $ do
       let tainted  = ProofEntry "deadbeef" "by sorry" "leanstral" ""
           cache    = Map.fromList [("/post/square", tainted)]
-          upgraded = upgradeLeanstralPosts cache Map.empty
+          upgraded = upgradeLeanstralPosts liveHs cache Map.empty
       postLevelOf upgraded `shouldBe` Just (Just DLAsserted)
 
     it "does NOT upgrade a non-leanstral (e.g. mock) prover entry" $ do
       let mockE    = ProofEntry "deadbeef" "by decide" "mock" ""
           cache    = Map.fromList [("/post/square", mockE)]
-          upgraded = upgradeLeanstralPosts cache Map.empty
+          upgraded = upgradeLeanstralPosts liveHs cache Map.empty
       postLevelOf upgraded `shouldBe` Just (Just DLAsserted)
+
+  -- -----------------------------------------------------------------------
+  -- TRUST-REPORT-GATE-1 C2 (design §3.5): a 'tested' record is valid only with
+  -- a witness stamped with its subject's live evidence key; a 'verified-lean'
+  -- upgrade needs the live obligation hash; a SAFE write carries valid
+  -- 'tested' records forward.
+  -- -----------------------------------------------------------------------
+  describe "TRUST-REPORT-GATE-1 C2: evidence key checks (§3.5)" $ do
+    let gPost   = Just (EOp ">" [EVar "result", EVar "x"])
+        gStmt k = SDefShell "g" [("x", TInt)] (Just TInt)
+                    (Contract Nothing Nothing gPost Nothing Nothing [] [])
+                    (EOp "+" [EVar "x", ELit (LitInt k)]) []
+        gProp   = Property "g-grows" [("x", TInt)]
+                    (EOp ">" [EApp "g" [EVar "x"], EVar "x"]) []
+        gHash   = canonicalPropBodyHash (propBody gProp)
+        liveSrc k = [gStmt k, SCheck gProp]
+        keOf ss   = buildKeyEnv Map.empty Map.empty ss
+        keyOf ss  = Map.lookup "g" (evidenceKeys (keOf ss) False ss)
+        testedER mk = EvidenceRecord (DLTested 100) False Nothing [PbtWitness gHash "g-grows" mk]
+                        False Nothing Nothing False Nothing False []
+        sidecarWith mk = Map.singleton "g" (ContractStatus Nothing (Just (testedER mk)) [])
+        postLvl m = erDisplayLevel <$> (csPost =<< Map.lookup "g" m)
+        check ss  = downgradeStaleVerifiedSidecarIn (keOf ss) ss
+
+    it "GT-1 a witness with subject_key round-trips through the sidecar codec" $ do
+      let er = testedER (Just "sha256:abc")
+      erFromJSON (erToJSON er) `shouldBe` Just er
+
+    it "GT-2 a witness without subject_key omits the field and reads back as Nothing" $ do
+      let er = testedER Nothing
+      T.isInfixOf "subject_key" (T.pack (BLC.unpack (encode (erToJSON er)))) `shouldBe` False
+      (map pwSubjectKey . erPbtWitnesses <$> erFromJSON (erToJSON er)) `shouldBe` Just [Nothing]
+
+    it "GT-3 a tested record whose witness carries the live key is kept" $ do
+      let ss = liveSrc 1
+          (m, ds) = check ss (sidecarWith (keyOf ss))
+      keyOf ss `shouldSatisfy` isJust
+      postLvl m `shouldBe` Just (DLTested 100)
+      ds `shouldBe` []
+
+    it "GT-4 a tested record whose function body changed since the test is demoted" $ do
+      let (m, _) = check (liveSrc 2) (sidecarWith (keyOf (liveSrc 1)))
+      postLvl m `shouldBe` Just DLAsserted
+      (erPbtWitnesses <$> (csPost =<< Map.lookup "g" m)) `shouldBe` Just []
+
+    it "GT-5 a tested record with no subject_key (pre-v0.30.0) is demoted" $ do
+      let (m, _) = check (liveSrc 1) (sidecarWith Nothing)
+      postLvl m `shouldBe` Just DLAsserted
+
+    it "GT-6 the demotion diagnostic is paired with, and names, the function" $ do
+      let (_, ds) = check (liveSrc 2) (sidecarWith (keyOf (liveSrc 1)))
+      map fst ds `shouldBe` ["g"]
+      map snd ds `shouldSatisfy` all (T.isInfixOf "g.post")
+
+    it "GT-7 both checks apply: a live witness with a stale key demotes, and a live key with a dead witness demotes" $ do
+      -- stale key, live property: the key check demotes it
+      let (m1, _) = check (liveSrc 2) (sidecarWith (keyOf (liveSrc 1)))
+          r1      = buildTrustReport Map.empty (liveSrc 2) m1
+      (teEffectivePostLevel <$> find ((== "g") . teName) (trEntries r1)) `shouldBe` Just (Just DLAsserted)
+      -- live key, property deleted: the key check passes, the witness check demotes
+      let ssNoProp = [gStmt 1]
+          (m2, ds2) = check ssNoProp (sidecarWith (keyOf ssNoProp))
+          r2        = buildTrustReport Map.empty ssNoProp m2
+      ds2 `shouldBe` []
+      (teEffectivePostLevel <$> find ((== "g") . teName) (trEntries r2)) `shouldBe` Just (Just DLAsserted)
+
+    let sqStmt  = SDef "square" [("x", TInt)] (Just TInt)
+                    (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
+                    (EApp "*" [EVar "x", EVar "x"])
+        sqLive  = liveObligationHashes [sqStmt]
+        sqHash  = Map.findWithDefault "" "square" sqLive
+        sqLevel m = erDisplayLevel <$> (csPost =<< Map.lookup "square" m)
+
+    it "GT-8 upgradeLeanstralPosts upgrades a post whose entry matches the live obligation hash" $ do
+      let pc = Map.fromList [("/post/square", ProofEntry sqHash "by nlinarith" "leanstral" "t")]
+      sqLevel (upgradeLeanstralPosts sqLive pc Map.empty) `shouldBe` Just (DLVerifiedLean "leanstral")
+
+    it "GT-9 upgradeLeanstralPosts does not upgrade when the obligation changed (hash mismatch)" $ do
+      let pc = Map.fromList [("/post/square", ProofEntry "0000stale" "by nlinarith" "leanstral" "t")]
+      sqLevel (upgradeLeanstralPosts sqLive pc Map.empty) `shouldBe` Nothing
+
+    it "GT-10 upgradeLeanstralPosts never upgrades a tainted proof, whatever the hash" $ do
+      let pcMatch    = Map.fromList [("/post/square", ProofEntry sqHash "by sorry" "leanstral" "t")]
+          pcMismatch = Map.fromList [("/post/square", ProofEntry "0000stale" "by sorry" "leanstral" "t")]
+      sqLevel (upgradeLeanstralPosts sqLive pcMatch Map.empty) `shouldBe` Nothing
+      sqLevel (upgradeLeanstralPosts sqLive pcMismatch Map.empty) `shouldBe` Nothing
+
+    it "GT-11 liveObligationHashes is computeObligationHash of translateObligation's theorem" $ do
+      case translateObligation "square" [("x", TInt)] (Just TInt)
+             (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
+             (EApp "*" [EVar "x", EVar "x"]) of
+        LeanTheorem thm -> Map.lookup "square" sqLive `shouldBe` Just (computeObligationHash thm)
+        Unsupported r   -> expectationFailure ("square did not translate: " <> T.unpack r)
+
+    it "GT-12 liveObligationHashes omits a def that does not translate (Unsupported)" $ do
+      -- no return type: 'translateObligation' cannot bind 'result'
+      let noRet = SDef "noret" [("x", TInt)] Nothing
+                    (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
+                    (EVar "x")
+      Map.member "noret" (liveObligationHashes [noRet, sqStmt]) `shouldBe` False
+      Map.member "square" (liveObligationHashes [noRet, sqStmt]) `shouldBe` True
+
+    let verifiedER = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "k") False []
+        assertedER = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False []
+        provenWith er = Map.singleton "g" (ContractStatus Nothing (Just er) [])
+
+    it "GT-13 carry-forward: this run's verified post is kept over a valid tested record" $ do
+      let ss    = liveSrc 1
+          valid = carryForwardTested Map.empty (keOf ss) ss (sidecarWith (keyOf ss))
+      postLvl valid `shouldBe` Just (DLTested 100)
+      postLvl (Map.unionWith mergeCS (provenWith verifiedER) valid) `shouldBe` Just (DLVerified "liquid-fixpoint")
+
+    it "GT-14 carry-forward: a valid tested record is kept over this run's asserted post" $ do
+      let ss    = liveSrc 1
+          valid = carryForwardTested Map.empty (keOf ss) ss (sidecarWith (keyOf ss))
+      postLvl (Map.unionWith mergeCS (provenWith assertedER) valid) `shouldBe` Just (DLTested 100)
+
+    it "GT-15 carry-forward drops an invalid record (key mismatch, no key, or dead witness)" $ do
+      let ss = liveSrc 2
+      carryForwardTested Map.empty (keOf ss) ss (sidecarWith (keyOf (liveSrc 1))) `shouldBe` Map.empty
+      carryForwardTested Map.empty (keOf ss) ss (sidecarWith Nothing) `shouldBe` Map.empty
+      let ssNoProp = [gStmt 1]
+      carryForwardTested Map.empty (keOf ssNoProp) ssNoProp (sidecarWith (keyOf ssNoProp)) `shouldBe` Map.empty
+      postLvl (Map.unionWith mergeCS (provenWith assertedER)
+                 (carryForwardTested Map.empty (keOf ss) ss (sidecarWith Nothing)))
+        `shouldBe` Just DLAsserted
+
+  describe "TRUST-REPORT-GATE-1 C3: discarded_records on the solver-less renders" $ do
+    let dStmt = SDefShell "d" [("x", TInt)] (Just TInt)
+                  (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", EVar "x"])) Nothing Nothing [] [])
+                  (EVar "x") []
+        dReport = buildTrustReport Map.empty [dStmt] Map.empty
+        dCov    = runCoverageWithLevels [dStmt] Map.empty Map.empty
+        keysOf t = case decode (BLC.pack (T.unpack t)) of
+                     Just (Object o) -> Just o
+                     _               -> Nothing
+
+    it "GT-16 the trust-report JSON carries discarded_records only when the list is non-empty" $ do
+      (KM.member "discarded_records" <$> keysOf (formatTrustReportJsonWith [] dReport)) `shouldBe` Just False
+      formatTrustReportJsonWith [] dReport `shouldBe` formatTrustReportJson dReport
+      (KM.lookup "discarded_records" =<< keysOf (formatTrustReportJsonWith ["d"] dReport))
+        `shouldBe` Just (toJSON ["d" :: T.Text])
+
+    it "GT-17 the spec-coverage JSON carries discarded_records only when the list is non-empty" $ do
+      (KM.member "discarded_records" <$> keysOf (formatCoverageJsonWith [] dCov)) `shouldBe` Just False
+      formatCoverageJsonWith [] dCov `shouldBe` formatCoverageJson dCov
+      (KM.lookup "discarded_records" =<< keysOf (formatCoverageJsonWith ["d"] dCov))
+        `shouldBe` Just (toJSON ["d" :: T.Text])
 
   describe "kernelCheck fail-closed on missing lake (FIX D)" $
     it "returns LeanstralUnavailable (not an exception) when lake is off PATH" $ do
@@ -4924,8 +5074,8 @@ main = hspec $ do
           report   = buildTrustReport Map.empty [withdrawStmt] sidecar
           jsonText = formatTrustReportJson report
           jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
-      -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
-      jsonText `shouldSatisfy` T.isInfixOf "\"1.9.0\""
+      -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.10.0\""
       case jsonV of
         Just (Object o) -> case KM.lookup "entries" o of
           Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
@@ -5213,8 +5363,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.9.0")
+          -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.10.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All required fields present
@@ -13766,7 +13916,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "f-twice" [] body []
             stmts  = [f, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "f-twice" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
         ds        `shouldBe` []
         case Map.lookup "f" m of
@@ -13783,7 +13933,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "roundtrip" [("x", TInt)] body []
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "roundtrip" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 0
         length ds  `shouldBe` 1
         any (T.isInfixOf "multiple contracted callees") ds `shouldBe` True
@@ -13796,7 +13946,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop    = Property "f-id" [] body []
             stmts   = [f, SCheck prop]
             result  = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            (pbtCS, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report  = buildTrustReport Map.empty stmts pbtCS
             tpFull  = trTierProfile     report
             tpPre   = trTierProfilePre  report
@@ -13820,7 +13970,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop       = Property "f-id" [] body []
             stmts      = [f, SCheck prop]
             result     = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            (pbtCS, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             -- Prior sidecar entry at DLVerified — replicates the verifier write
             -- shape at Main.hs:1196-1206.
             priorCS    = Map.singleton "f" $ ContractStatus
@@ -13859,7 +14009,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                      (EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]) [])
                          ]
             result      = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (m, _)      = pbtTrustWriteback localStmts cache result
+            (m, _)      = pbtTrustWriteback (const Nothing) localStmts cache result
         Map.keys m `shouldBe` ["lib.f"]
 
       -- E10: idempotent re-run — pbt_witnesses dedup by hash.
@@ -13872,8 +14022,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Run twice — second invocation should produce the same map (same
             -- propBody hash, same description → deduplicated witness).
             result1 = PBTResult 1 1 0 0 [run]
-            (m1, _) = pbtTrustWriteback stmts Map.empty result1
-            (m2, _) = pbtTrustWriteback stmts Map.empty result1
+            (m1, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result1
+            (m2, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result1
         m1 `shouldBe` m2
         case Map.lookup "f" m1 >>= csPost of
           Just er -> length (erPbtWitnesses er) `shouldBe` 1
@@ -13891,7 +14041,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                          [ passedRun "f-pass" 100
                          , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9")
                          ]
-            (m, ds)   = pbtTrustWriteback stmts Map.empty result
+            (m, ds)   = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
         case Map.lookup "f" m >>= csPost of
           Just er -> do
@@ -13906,7 +14056,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E13 edited property body downgrades stale DLTested to DLAsserted" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
-            staleW    = PbtWitness staleHash "f-id"
+            staleW    = PbtWitness staleHash "f-id" Nothing
             staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False Nothing False []
             staleCS   = Map.singleton "f" $ ContractStatus
                          (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False []))
@@ -13931,7 +14081,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "a"
             staleEr   = EvidenceRecord (DLTested 100) False Nothing
-                          [PbtWitness staleHash "f-id"] False Nothing Nothing False Nothing False []
+                          [PbtWitness staleHash "f-id" Nothing] False Nothing Nothing False Nothing False []
             staleCS   = Map.singleton "f" $ ContractStatus
                          (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False []))
                          (Just staleEr)
@@ -13952,13 +14102,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop     = Property "f-id" [] body []
             stmts    = [f, SCheck prop]
             result   = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            (pbtCS, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report   = buildTrustReport Map.empty stmts pbtCS
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.9.0")
+            -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.10.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -14001,7 +14151,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "f-id" [] body ["f"]
             stmts  = [f, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
         ds        `shouldBe` []
         case Map.lookup "f" m >>= csPost of
@@ -14016,7 +14166,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "roundtrip" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 2
         ds        `shouldBe` []
         let fHash = (csPost =<< Map.lookup "encrypt" m) >>= fmap pwHash . listToMaybe . erPbtWitnesses
@@ -14032,7 +14182,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "fg" [] body ["f", "g"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "fg" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
         Map.keys m `shouldBe` ["g"]
         any (T.isInfixOf "has no postcondition") ds `shouldBe` True
@@ -14046,7 +14196,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "fg-but-f" [] body ["f"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "fg-but-f" 100]
-            (m, ds) = pbtTrustWriteback stmts Map.empty result
+            (m, ds) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.keys m `shouldBe` ["f"]
         ds         `shouldBe` []
         -- Crucial: the multi-callee diagnostic is NOT produced under explicit annotation.
@@ -14061,7 +14211,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "trivial" [] body ["f", "g"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "trivial" 100]
-            (m, _) = pbtTrustWriteback stmts Map.empty result
+            (m, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 2
 
       -- S7: duplicate subjects are deduped (assumed already deduped by parser;
@@ -14073,7 +14223,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "f-id" [] body ["f", "f"]
             stmts  = [f, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "f-id" 100]
-            (m, _) = pbtTrustWriteback stmts Map.empty result
+            (m, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
         case Map.lookup "f" m >>= csPost of
           Just er -> length (erPbtWitnesses er) `shouldBe` 1
@@ -14089,7 +14239,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop2     = Property "p2" [] body2 ["f", "g"]
             stmts     = [f, g, SCheck prop1, SCheck prop2]
             result    = PBTResult 2 2 0 0 [passedRun "p1" 100, passedRun "p2" 50]
-            (m, _)    = pbtTrustWriteback stmts Map.empty result
+            (m, _)    = pbtTrustWriteback (const Nothing) stmts Map.empty result
         -- f appears in both → DLTested 100 (max), 2 witnesses
         case Map.lookup "f" m >>= csPost of
           Just er -> do
@@ -14173,7 +14323,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun5a "roundtrip" 100]
-            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            (sidecar, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report       = buildTrustReport Map.empty stmts sidecar
         tpTested  (trTierProfilePost report) `shouldBe` 0
         tsTested  (trSummary         report) `shouldBe` 0
@@ -14203,7 +14353,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             stmts  = [f, g, SCheck joint, SCheck solo]
             result = PBTResult 2 2 0 0 [ passedRun5a "roundtrip"        100
                                        , passedRun5a "encrypt-positive" 100 ]
-            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            (sidecar, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report       = buildTrustReport Map.empty stmts sidecar
         -- encrypt earned a non-joint witness → not demoted.
         case filter (\e -> teName e == "encrypt") (trEntries report) of
@@ -14244,7 +14394,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "f-nonneg" [] body []  -- no :subjects, singleton head
             stmts  = [f, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun5a "f-nonneg" 100]
-            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            (sidecar, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report       = buildTrustReport Map.empty stmts sidecar
         tpTested  (trTierProfilePost report) `shouldBe` 1
         trJointWitnesses report `shouldBe` []
@@ -14258,7 +14408,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun5a "roundtrip" 100]
-            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            (sidecar, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report       = buildTrustReport Map.empty stmts sidecar
             jsonTxt = formatTrustReportJson report
         -- Both encrypt and decrypt are joint-only → both carry the flag.
@@ -14270,8 +14420,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- trust_report_version now 1.9.0 (MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
-        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
+        -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
       -- J7 (OBLIG-PBT-5b): a joint-only clause renders the distinct 'tested-joint'
@@ -14283,7 +14433,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun5a "roundtrip" 100]
-            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            (sidecar, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
             report       = buildTrustReport Map.empty stmts sidecar
             jsonTxt      = formatTrustReportJson report
         T.isInfixOf "tested-joint"        jsonTxt `shouldBe` True
@@ -14813,10 +14963,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
         T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
 
-      it "C18 trust_report_version is 1.9.0 (MODE-CLI-1 bump)" $ do
+      it "C18 trust_report_version is 1.10.0 (TRUST-REPORT-GATE-1 bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
 
       -- REC-PARTIAL-MARK (increment 2/(a) of REC-BODY-VC): recursive-cycle
       -- members carry a derived 'termination_unverified' marker + a top-level
@@ -15028,10 +15178,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
         T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
 
-      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.9.0 (MODE-CLI-1)" $ do
+      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.10.0 (TRUST-REPORT-GATE-1)" $ do
         let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.9.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
@@ -15951,17 +16101,30 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fmap erBodyFaithful postER `shouldBe` Just True
         diags `shouldBe` []
 
-      it "SA-4 a non-positive tier is passed through with no hash check" $ do
-        -- Negative control: 'asserted' and 'tested' records claim nothing this
-        -- guard can check. A tested record never sets body_faithful, so keying
-        -- the guard on the tier must not start refusing them.
-        let testedER = dblVerifiedER { erDisplayLevel = DLTested 100
-                                     , erBodyFaithful = False
-                                     , erVerifiedHash = Nothing }
-            rawCS    = DM.fromList [("double", ContractStatus Nothing (Just testedER) [])]
-            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
-        fmap erDisplayLevel (csPost (out DM.! "double")) `shouldBe` Just (DLTested 100)
-        diags `shouldBe` []
+      it "SA-4 a non-positive tier is not hash-checked; a tested record is checked by its witness key instead" $ do
+        -- Negative control: an 'asserted' record claims nothing this guard can
+        -- check. A tested record never sets body_faithful, so keying the
+        -- positive-tier guard on the tier must not start refusing it on that
+        -- ground. TRUST-REPORT-GATE-1 (§3.5): a tested record is now checked by
+        -- the subject key on its witness, so it passes when the key is live and
+        -- demotes when it carries none.
+        let assertedER = dblVerifiedER { erDisplayLevel = DLAsserted
+                                       , erBodyFaithful = False
+                                       , erVerifiedHash = Nothing }
+            liveKey    = DM.lookup "double" (evidenceKeys (buildKeyEnv DM.empty DM.empty [dblStmt]) False [dblStmt])
+            testedER k = dblVerifiedER { erDisplayLevel = DLTested 100
+                                       , erBodyFaithful = False
+                                       , erVerifiedHash = Nothing
+                                       , erPbtWitnesses = [PbtWitness "sha256:p" "double-prop" k] }
+            run er     = downgradeStaleVerifiedSidecar [dblStmt]
+                           (DM.fromList [("double", ContractStatus Nothing (Just er) [])])
+            lvl (out, _) = fmap erDisplayLevel (csPost (out DM.! "double"))
+        lvl (run assertedER) `shouldBe` Just DLAsserted
+        snd (run assertedER) `shouldBe` []
+        liveKey `shouldSatisfy` isJust
+        lvl (run (testedER liveKey)) `shouldBe` Just (DLTested 100)
+        snd (run (testedER liveKey)) `shouldBe` []
+        lvl (run (testedER Nothing)) `shouldBe` Just DLAsserted
 
       -- ---- SIDECAR-ADMIT-1: the contradiction pass ----
       it "SA-7 an imported module's unbacked positive tier does not upgrade a caller" $ do
@@ -16274,7 +16437,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtCounterexample = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
-      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
       csMap `shouldBe` Map.empty
       diags `shouldSatisfy` (not . null)
 
@@ -16300,7 +16463,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtCounterexample = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
-      let (csMap, _diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      let (csMap, _diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
       csMap `shouldSatisfy` (not . Map.null)
 
     -- FG8-6: HDelegateAsync body is also blocked, symmetric with HDelegate.
@@ -16324,7 +16487,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtCounterexample = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
-      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
       csMap `shouldBe` Map.empty
       diags `shouldSatisfy` (not . null)
 
@@ -16351,7 +16514,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtCounterexample = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
-      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
       csMap `shouldBe` Map.empty
       diags `shouldSatisfy` (not . null)
 
@@ -16376,7 +16539,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtCounterexample = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
-      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
       csMap `shouldBe` Map.empty
       diags `shouldSatisfy` (not . null)
 
@@ -16431,7 +16594,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "PA-6: an artifact minted before C1 (composed 1.4.0 / 0.7.0) still decodes and replays" $ do
       let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
-          Right fr = mkFnRecord pos
+          fr   = either (error . show) id (mkFnRecord pos)
           old  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
                    "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
                    RSafe "vc" Nothing [fr] Nothing
@@ -19005,8 +19168,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- move the version. Pinned so the next additive field does not move it by
     -- accident either. MODE-CLI-1 moved it to 1.9.0 deliberately, for the
     -- unbounded_entry_loop field (docs/design/entry-mode-implementation-plan.md).
+    -- TRUST-REPORT-GATE-1 moved it to 1.10.0 deliberately, for discarded_records.
     it "the additive key does not bump trust_report_version" $
-      trustReportEmitVersion `shouldBe` "1.9.0"
+      trustReportEmitVersion `shouldBe` "1.10.0"
 
   describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
 
@@ -20700,8 +20864,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = buildTrustReport Map.empty (parseSrc src) Map.empty
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
-      it "RF-P4 checker_soundness_version is \"2\": a sidecar stamped \"1\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "2"
+      it "RF-P4 checker_soundness_version is \"3\" (TRUST-REPORT-GATE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "3"
+        sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
     describe "the measured consumer, made to qualify (§10)" $ do
