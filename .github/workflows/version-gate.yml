@@ -573,6 +573,27 @@ jobs:
           grep -q ' 7 passed' "$RUNNER_TEMP/partial-fns-graph.log" \
             || { echo "PARTIAL-FNS-GRAPH-1: expected 7 passed cells"; exit 1; }
 
+      # TRUST-REPORT-GATE-1: `verify --trust-report` and `--spec-coverage` run
+      # the solver, every flag obeys one exit law, and `verify --json` prints
+      # one document that satisfies docs/llmll-verify.schema.json. The flag-law
+      # cells failed on the v0.29.1 binary for exactly --trust-report and
+      # --spec-coverage, and the one-document cells for all eleven flags.
+      # Placed after the toolchain assert: every cell but solver-absent needs
+      # fixpoint. jsonschema was installed at the SCHEMA-TRUTH-1 step. Same skip
+      # and count guards as above: 35 gate cells plus 26 schema cells.
+      - name: Run TRUST-REPORT-GATE-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_trust_report_gate_1.py \
+            scripts/tests/test_verify_json_schema.py -v -rs \
+            | tee "$RUNNER_TEMP/trust-report-gate.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/trust-report-gate.log"; then
+            echo "a TRUST-REPORT-GATE-1 cell skipped; fixpoint and jsonschema must be present here"; exit 1
+          fi
+          grep -q ' 61 passed' "$RUNNER_TEMP/trust-report-gate.log" \
+            || { echo "TRUST-REPORT-GATE-1: expected 61 passed cells"; exit 1; }
+
       # DEF-ADMIT-XMOD-1: a def may not call, or pass as a value, a function
       # proved only if a recursion terminates. DAX-1, DAX-2 and DAX-4 failed on
       # the v0.26.14 binary; DAX-3, DAX-5 and DAX-6 (negative controls) passed

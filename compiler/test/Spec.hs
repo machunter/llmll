@@ -4547,6 +4547,47 @@ main = hspec $ do
       (KM.lookup "trust_report" =<< decodeObj (renderEnvelope e)) `shouldBe` Just (object ["a" .= (2 :: Int)])
       (KM.lookup "strict_errors" =<< decodeObj (renderEnvelope e)) `shouldBe` Nothing
 
+  -- The envelope and docs/llmll-verify.schema.json agree, in the manner of
+  -- SCHEMA-DRIFT-1 above: these read the schema file, so a version change or a
+  -- new nested key that the schema does not list fails here.
+  describe "TRUST-REPORT-GATE-1: the verify --json envelope matches docs/llmll-verify.schema.json" $ do
+    let loadSchema = do
+          raw <- BL.readFile (".." </> "docs" </> "llmll-verify.schema.json")
+          case decode raw :: Maybe Value of
+            Just (Object s) -> pure s
+            _ -> fail "docs/llmll-verify.schema.json did not decode as a JSON object"
+        props s = case KM.lookup "properties" s of
+          Just (Object p) -> p
+          _               -> KM.empty
+        e = VerifyEnvelope 0 "safe" [] [ (k, "{}") | k <- nestedReportKeys ]
+
+    it "VS-1 verify_json_version equals the schema's const" $ do
+      s <- loadSchema
+      let v = case KM.lookup "verify_json_version" (props s) of
+            Just (Object o) -> KM.lookup "const" o
+            _               -> Nothing
+      v `shouldBe` Just (String verifyJsonVersion)
+
+    it "VS-2 the schema requires exactly the four envelope head keys, in emit order" $ do
+      s <- loadSchema
+      KM.lookup "required" s `shouldBe` Just (toJSON (take 4 (map fst (envelopeFields e))))
+
+    it "VS-3 every nested report key is listed in the schema's properties" $ do
+      s <- loadSchema
+      mapM_ (\k -> KM.member (K.fromText k) (props s) `shouldBe` True) nestedReportKeys
+
+    it "VS-4 every composed key the envelope emits is listed under composed" $ do
+      s <- loadSchema
+      let composedProps = case KM.lookup "composed" (props s) of
+            Just (Object c) | Just (Object cp) <- KM.lookup "properties" c -> cp
+            _ -> KM.empty
+          emitted = case lookup "composed" (envelopeFields
+                      (VerifyEnvelope 0 "safe" [] [("obligation_report", "{\"schema_version\":\"0.12.4\"}")])) of
+            Just raw | Just (Object o) <- decode (BLC.pack (T.unpack raw)) -> KM.keys o
+            _ -> []
+      emitted `shouldSatisfy` (not . null)
+      mapM_ (\k -> KM.member k composedProps `shouldBe` True) emitted
+
   describe "kernelCheck fail-closed on missing lake (FIX D)" $
     it "returns LeanstralUnavailable (not an exception) when lake is off PATH" $ do
       tmp <- getTemporaryDirectory
