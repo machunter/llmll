@@ -1306,7 +1306,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- declare a return type never forces it.
       let (_, preRetTypes) = typeCheckWithCacheRet gm _cache emptyEnv stmts
           preKe = buildKeyEnv _cache preRetTypes stmts
-          (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecarIn preKe stmts entrySidecarRaw
+          (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecarIn _cache preKe stmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
       -- FQ-RESULT-SORT-1: the same typecheck now also yields tau_ret per definition,
       -- consumed by the emit calls below so the 'result' binder is sorted from the
@@ -1554,7 +1554,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- unavailable) whatever happens, so a contradiction exit would mask
             -- the more specific status. The render must still not show a tier
             -- the live source no longer supports.
-            (sidecar, _stale, _contra) <- loadCheckedSidecar verifyKe fp stmts Map.empty
+            (sidecar, _stale, _contra) <- loadCheckedSidecar _cache verifyKe fp stmts Map.empty
             let trustRpt = buildTrustReport _cache stmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
             TIO.putStrLn reportText
@@ -1645,7 +1645,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- '--strict-verified-core' do not exit here — fall through to the
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
-            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
             let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
@@ -1681,7 +1681,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- what lets the artifact kernel see a stale positive tier beside
               -- this run's fallback mark; both read-side passes now run first, so
               -- the kernel refuses only what neither pass could repair.
-              (paSidecar, _stale, paContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+              (paSidecar, _stale, paContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
               let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
@@ -1967,7 +1967,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- agrees with the trust report printed alongside it — not the
                 -- prior 'Map.empty' (every function 'asserted').
                 covSidecarRaw <- loadVerified fp
-                let (covSidecar, _) = downgradeStaleVerifiedSidecarIn verifyKe stmts covSidecarRaw
+                let (covSidecar, _) = downgradeStaleVerifiedSidecarIn _cache verifyKe stmts covSidecarRaw
                     covTrust = buildTrustReport _cache stmts covSidecar
                     covLevels = Map.fromList [ (teName e, l)
                                              | e <- trEntries covTrust
@@ -1984,7 +1984,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
           -- '--strict-verified-core' too, so the gate below can fail closed.
           when (trustReport && cdpFlag && not strictCore) $ do
-            (sidecar0, _stale, cdpContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            (sidecar0, _stale, cdpContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
             -- TRUST-REPORT-GATE-1 (§3.5): a post-solver render applies the
             -- hash-checked Leanstral upgrade, as the solver-less render does.
             -- After the contradiction pass: a Leanstral proof is FOR a fallback
@@ -2019,7 +2019,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- reached; emit a refuted-marked trust report here when requested
           -- (and not already emitted via the obligation report) before failing.
           when strictCore $ do
-            (stSidecar0, _stale, stContra) <- loadCheckedSidecar verifyKe fp stmts bodyFallbackMarks
+            (stSidecar0, _stale, stContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
             -- TRUST-REPORT-GATE-1 (§3.5): the hash-checked Leanstral upgrade, as
             -- on the CDP render above.
             stLeanCache <- loadProofCache fp
@@ -2114,7 +2114,7 @@ loadForRender json gm fp = do
       raw <- loadVerified fp
       let (_, preRetTypes) = typeCheckWithCacheRet gm cache emptyEnv stmts
           preKe = buildKeyEnv cache preRetTypes stmts
-          (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn preKe stmts raw
+          (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn cache preKe stmts raw
           (tcReport, _) = typeCheckStrictWithCacheAndStatusRet gm cache sidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
@@ -3363,11 +3363,11 @@ fqToSolverResult (FQError _)  = RNoVC
 -- Before this, seven of nine 'loadVerified' call sites read the file raw. The
 -- two diagnostic lists are returned separately because only the second one
 -- changes the exit status ('contradictionExit').
-loadCheckedSidecar :: KeyEnv -> FilePath -> [Statement] -> Map.Map Name (T.Text, [T.Text])
+loadCheckedSidecar :: ModuleCache -> KeyEnv -> FilePath -> [Statement] -> Map.Map Name (T.Text, [T.Text])
                    -> IO (Map.Map Name ContractStatus, [T.Text], [T.Text])
-loadCheckedSidecar ke fp stmts marks = do
+loadCheckedSidecar cache ke fp stmts marks = do
   raw <- loadVerified fp
-  let (gated,   staleDiags)   = downgradeStaleVerifiedSidecarIn ke stmts raw
+  let (gated,   staleDiags)   = downgradeStaleVerifiedSidecarIn cache ke stmts raw
       (checked, contraDiags)  = downgradeContradictedTiers marks gated
   pure (checked, map snd staleDiags, contraDiags)
 

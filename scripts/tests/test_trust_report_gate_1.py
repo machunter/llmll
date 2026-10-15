@@ -192,3 +192,25 @@ def test_e13_a_leanstral_entry_for_an_edited_obligation_does_not_upgrade(tmp_pat
     assert v.returncode == 0, v.stdout + v.stderr
     side = json.loads((tmp_path / "sq.llmll.verified.json").read_text())
     assert side["sq"]["post"]["display_level"]["level"] != "verified-lean"
+
+
+@needs_binary
+def test_e10b_an_imported_subject_keeps_its_tested_record(tmp_path):
+    """Plan Rev 1 amendment A2. `llmll test` writes the record for an imported
+    subject under its qualified key (`lib.sq`), stamped with the key of the
+    module that defines it. The read check resolves the name through that module,
+    so a matching record renders `tested-joint` (a qualified record shares its
+    witness with the opened alias), and an edit of the imported body demotes it."""
+    lib = _write(tmp_path, "lib.llmll", "(def-shell sq [x: int] -> int\n  (post (>= result 0))\n  (* x x))\n")
+    _write(tmp_path, "main.llmll", "(import lib)\n(open lib)\n(check \"sq is non-negative\"\n"
+                                   "  (for-all [x: int]\n    (>= (sq x) 0)))\n")
+    assert _llmll(tmp_path, "test", "main.llmll").returncode == 0
+    side = json.loads((tmp_path / "main.llmll.verified.json").read_text())
+    assert side["lib.sq"]["post"]["pbt_witnesses"][0]["subject_key"].startswith("sha256:")
+    rep = _report_json(tmp_path, "main.llmll")
+    assert _entry(rep, "lib.sq")["post_level"].startswith("tested-joint"), rep
+    assert "discarded_records" not in rep
+    lib.write_text("(def-shell sq [x: int] -> int\n  (post (>= result 0))\n  (+ (* x x) 0))\n")
+    rep = _report_json(tmp_path, "main.llmll")
+    assert _entry(rep, "lib.sq")["post_level"] == "asserted"
+    assert rep["discarded_records"] == ["lib.sq"]

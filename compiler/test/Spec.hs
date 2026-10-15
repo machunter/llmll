@@ -102,7 +102,7 @@ import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
-import LLMLL.EvidenceKey (evidenceKey, evidenceKeys)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
+import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -4343,7 +4343,7 @@ main = hspec $ do
                         False Nothing Nothing False Nothing False []
         sidecarWith mk = Map.singleton "g" (ContractStatus Nothing (Just (testedER mk)) [])
         postLvl m = erDisplayLevel <$> (csPost =<< Map.lookup "g" m)
-        check ss  = downgradeStaleVerifiedSidecarIn (keOf ss) ss
+        check ss  = downgradeStaleVerifiedSidecarIn Map.empty (keOf ss) ss
 
     it "GT-1 a witness with subject_key round-trips through the sidecar codec" $ do
       let er = testedER (Just "sha256:abc")
@@ -4447,6 +4447,24 @@ main = hspec $ do
       postLvl (Map.unionWith mergeCS (provenWith assertedER)
                  (carryForwardTested Map.empty (keOf ss) ss (sidecarWith Nothing)))
         `shouldBe` Just DLAsserted
+
+  describe "TRUST-REPORT-GATE-1 C2 amendment A2: imported tested subjects" $ do
+    it "GT-18 a qualified tested record is checked against its defining module's key" $ do
+      let gStmt k = SDefShell "g" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EOp ">" [EVar "result", EVar "x"])) Nothing Nothing [] [])
+                      (EOp "+" [EVar "x", ELit (LitInt k)]) []
+          libAt k = buildModuleEnv ["lib"] [gStmt k] Map.empty emptyEnv
+          cacheAt k = Map.fromList [(["lib"], libAt k)]
+          keyAt k = Map.lookup "g" (evidenceKeys (moduleKeyEnv (cacheAt k) (libAt k)) False [gStmt k])
+          entry = [SImport (Import "lib" Nothing Nothing), SOpen ["lib"] Nothing]
+          rec mk = Map.singleton "lib.g" (ContractStatus Nothing (Just (EvidenceRecord (DLTested 100) False Nothing
+                     [PbtWitness "sha256:p" "g-prop" mk] False Nothing Nothing False Nothing False [])) [])
+          lvl (m, _) = erDisplayLevel <$> (csPost =<< Map.lookup "lib.g" m)
+          run k mk = downgradeStaleVerifiedSidecarIn (cacheAt k) (buildKeyEnv (cacheAt k) Map.empty entry) entry (rec mk)
+      keyAt 1 `shouldSatisfy` isJust
+      lvl (run 1 (keyAt 1)) `shouldBe` Just (DLTested 100)          -- matching key: kept
+      lvl (run 2 (keyAt 1)) `shouldBe` Just DLAsserted              -- the imported body changed
+      map fst (snd (run 2 (keyAt 1))) `shouldBe` ["lib.g"]
 
   describe "TRUST-REPORT-GATE-1 C3: discarded_records on the solver-less renders" $ do
     let dStmt = SDefShell "d" [("x", TInt)] (Just TInt)

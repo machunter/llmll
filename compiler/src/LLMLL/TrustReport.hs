@@ -896,7 +896,7 @@ downgradeStaleVerifiedSidecar
 -- own 'KeyEnv' to 'downgradeStaleVerifiedSidecarIn', so the key they check is the
 -- key the write side computed.
 downgradeStaleVerifiedSidecar stmts sidecar =
-  let (m, ds) = downgradeStaleVerifiedSidecarIn (buildKeyEnv Map.empty Map.empty stmts) stmts sidecar
+  let (m, ds) = downgradeStaleVerifiedSidecarIn Map.empty (buildKeyEnv Map.empty Map.empty stmts) stmts sidecar
   in (m, map snd ds)
 
 -- | HASH-PRE-ASYM: check each persisted record against the evidence key of its
@@ -911,16 +911,28 @@ downgradeStaleVerifiedSidecar stmts sidecar =
 -- to 'asserted'. The property-body liveness check ('downgradeStaleSidecar',
 -- inside 'buildTrustReport') still runs, so a record must pass both.
 --
+-- Plan Rev 1 amendment A2: a 'tested' record for an IMPORTED subject is keyed
+-- qualified (@lib.sq@, 'PBT.buildQualMap') and stamped with the key its own
+-- module's 'KeyEnv' gives ('moduleKeyEnv'). A name that is not a definition of
+-- this module is resolved through the module cache the same way, so the check
+-- compares the key the write side stamped.
+--
 -- Each diagnostic is paired with the name of the record it demoted, so a render
 -- can list the discarded records ('discarded_records').
 downgradeStaleVerifiedSidecarIn
-  :: KeyEnv
+  :: ModuleCache
+  -> KeyEnv
   -> [Statement]
   -> Map Name ContractStatus
   -> (Map Name ContractStatus, [(Name, Text)])
-downgradeStaleVerifiedSidecarIn ke stmts =
+downgradeStaleVerifiedSidecarIn cache ke stmts =
   Map.foldlWithKey' step (Map.empty, [])
   where
+    -- A2: the live plain key of a tested subject, local first, then qualified
+    -- through the module that defines it.
+    testedLiveKey name = case Map.lookup name liveHashesPlain of
+      Just k  -> Just k
+      Nothing -> qualifiedPlainKey cache name
     -- DEF-RET Unit 2: the staleness hash covers the return refinement folded into
     -- the effective post (augmentContractPost), so editing a `-> RetType`
     -- annotation (or redefining the alias predicate) invalidates a stale verified
@@ -947,7 +959,7 @@ downgradeStaleVerifiedSidecarIn ke stmts =
       -- TRUST-REPORT-GATE-1 (§3.5): a tested record needs a witness stamped with
       -- the live key of its function. Fails closed on an absent key.
       | testedTier (erDisplayLevel er) =
-          let live   = Map.lookup name liveHashesPlain
+          let live   = testedLiveKey name
               keys   = map pwSubjectKey (erPbtWitnesses er)
               valid  = case live of
                          Just lk -> Just lk `elem` keys
@@ -995,6 +1007,18 @@ downgradeStaleVerifiedSidecarIn ke stmts =
                           <> reason <> "). Evidence downgraded to asserted."
                     in ( Just (demoteToAsserted er), [(name, diag)] )
 
+-- | Plan Rev 1 amendment A2: the live plain evidence key of a qualified name
+-- (@a.b.f@), computed with the 'KeyEnv' of the cached module that defines it
+-- ('moduleKeyEnv'), which is the key 'Main.doTest' stamps for an imported
+-- subject. 'Nothing' when no cached module defines the name.
+qualifiedPlainKey :: ModuleCache -> Name -> Maybe Text
+qualifiedPlainKey cache name = case
+  [ k | (path, menv) <- Map.toList cache
+      , Just bare <- [T.stripPrefix (T.intercalate "." path <> ".") name]
+      , Just k <- [Map.lookup bare (evidenceKeys (moduleKeyEnv cache menv) False (meStatements menv))] ] of
+    (k : _) -> Just k
+    []      -> Nothing
+
 -- | TRUST-REPORT-GATE-1 (§3.5): is this a 'tested' tier, whose backing is a PBT
 -- witness? 'tested-joint' is assigned at report time and never saved, but it is
 -- checked the same way if a sidecar ever carries it.
@@ -1016,7 +1040,7 @@ carryForwardTested
   -> Map Name ContractStatus   -- ^ the pre-run sidecar, raw
   -> Map Name ContractStatus
 carryForwardTested cache ke stmts raw =
-  let (keyed, _) = downgradeStaleVerifiedSidecarIn ke stmts raw
+  let (keyed, _) = downgradeStaleVerifiedSidecarIn cache ke stmts raw
       (live, _)  = downgradeStaleSidecar (liveCheckHashes cache stmts) keyed
   in Map.fromList
        [ (n, ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] })
@@ -1126,7 +1150,7 @@ collectAllContractStatus cache entryStmts =
             -- XMOD-TIER: hash-validate this cached module's verified evidence
             -- against its OWN live statements before it can upgrade a tier.
             (validated, _diags) = downgradeStaleVerifiedSidecarIn
-                                    (moduleKeyEnv cache menv)
+                                    cache (moduleKeyEnv cache menv)
                                     (meStatements menv) (meContractStatus menv)
             qualified = Map.mapKeys (prefix <>) validated
         in Map.union qualified acc) Map.empty cache
