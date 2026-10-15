@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.29.1)
+<a id="Latest"></a>
+
+## v0.30.0: `verify --trust-report` and `--spec-coverage` run the solver; one `verify --json` document; `tested` and `verified-lean` evidence checked against the live source (2026-10-15)
 
 ### `TRUST-REPORT-GATE-1`: `verify --trust-report` and `verify --spec-coverage` run the solver; `verify --json` prints one document
 
@@ -81,12 +83,10 @@ to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1.
   `docs/getting-started.md` now match the binary: `Verified:` (was `Proven:`), the JSON `summary`
   key `verified` (was `proven`), and no `Contract-checked:` line.
 
-Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. 2330 examples, 0 failures (+31 since
+Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. Tests: 2330 examples, 0 failures (+31 since
 v0.29.1). Python: 313 passed; 509 with `LLMLL_BIN` set (+67), 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.29.1: names that collide with the generated Haskell build; builtin names are reserved at the top level (2026-10-14)
 
