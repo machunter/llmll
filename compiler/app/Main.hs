@@ -769,7 +769,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
           -- v0.6.3: typecheck gate (BUG-4) — hard error before codegen
           let tcReport = typeCheckStrictWithCache gm cache emptyEnv stmts
           unless (reportSuccess tcReport) $ do
-            mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+            printTypeCheckFailure json tcReport
             exitFailure
           let -- v0.6.3: collect contract statuses and instrument contracts per mode (BUG-2)
               allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
@@ -850,7 +850,7 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
       -- v0.6.3: typecheck gate (BUG-4)
       let tcReport = typeCheckStrictWithCache gm cache emptyEnv stmts
       unless (reportSuccess tcReport) $ do
-        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        printTypeCheckFailure json tcReport
         exitFailure
       let -- v0.6.3: instrument contracts (BUG-2)
           allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
@@ -913,7 +913,7 @@ doRun json gm fp extraArgs = do
       -- v0.6.3: typecheck gate (BUG-4)
       let tcReport = typeCheckStrict gm emptyEnv stmts
       unless (reportSuccess tcReport) $ do
-        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        printTypeCheckFailure json tcReport
         exitFailure
       let modNameT = T.pack modName
           -- v0.6.3: instrument contracts (BUG-2) — full mode for run
@@ -1272,6 +1272,15 @@ parseOneType t
 -- SAFE succeeds; UNSAFE (refuted) and solver ERROR fail closed. Used by the
 -- report-flag early-exit paths so they agree with the final verdict routing
 -- and never exit 0 on a disproved file.
+-- | The strict type-check gate's failure output. Under @--json@ it is the same
+-- diagnostics object @llmll --json check@ prints ('formatReportJson'); before
+-- this, the gate in @build@, @build-json@, @run@, @verify@ and the
+-- @trust-report@ / @spec-coverage@ renders printed text even under @--json@.
+printTypeCheckFailure :: Bool -> DiagnosticReport -> IO ()
+printTypeCheckFailure json tcReport
+  | json      = TIO.putStrLn (formatReportJson tcReport)
+  | otherwise = mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+
 fqExitCode :: FQVerifyResult -> ExitCode
 fqExitCode FQSafe        = ExitSuccess
 fqExitCode (FQUnsafe _)  = ExitFailure 1
@@ -1317,7 +1326,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       let (tcReport, retTypes) =
             typeCheckStrictWithCacheAndStatusRet gm _cache entrySidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
-        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        printTypeCheckFailure json tcReport
         exitFailure
       -- HASH-PRE-ASYM: the KeyEnv the emitter reads in this run; every record
       -- this run writes or re-reads is keyed with it.
@@ -2097,7 +2106,7 @@ loadForRender json gm fp = do
           (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn cache preKe stmts raw
           (tcReport, _) = typeCheckStrictWithCacheAndStatusRet gm cache sidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
-        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        printTypeCheckFailure json tcReport
         exitFailure
       pure (stmts, cache, sidecar, dedupNames (map fst staleDiags))
   where

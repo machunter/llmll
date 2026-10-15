@@ -56,6 +56,17 @@ to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1.
   `obligation_suggestions`; before, its JSON emit sat in the text-mode branch and never printed. The
   solver-absent banner names `llmll trust-report` as the way to read saved evidence. Plain
   `verify --trust-report` now shows the `[body_fallback: …]` marker.
+- **A strict type error under `--json` prints the diagnostics object.** In `verify`, `build`,
+  `build-json`, `run`, `trust-report` and `spec-coverage`, the strict type-check gate printed text
+  even under `--json` (for example, a `def` with nonlinear arithmetic, `core-grammar-violation`).
+  It now prints the same `{"success": false, "diagnostics": [...]}` object as `llmll --json check`.
+  Exit status is unchanged (1). The behaviour dates from before v0.28.0. `scripts/fallback_census.py`
+  reports that object as `check-failed` with its first error, as it did the text.
+- **CI runs the solver-dependent pytest files it skipped.** `test_trust_report_gate_1.py`,
+  `test_verify_json_schema.py`, `test_hash_pre_asym.py`, `test_trust_axiom_1.py`,
+  `test_example_build_1.py`, `test_oblig_contract_channel_1.py` and `test_oblig_trust_channel_1.py`
+  skip without `LLMLL_BIN`, and no step of the spec-roundtrip job named them. Three new steps run
+  them and fail on a skipped cell or a changed count.
 - **In-tree callers migrated** to `.trust_report` and `.spec_coverage`: `scripts/benchmark-totp.sh`,
   `scripts/benchmark-erc20.sh`, `scripts/rfc_coverage.py`, `scripts/rfc_to_implementation.py`,
   `scripts/tools_verification.py`, `scripts/driver_ll_cover.py`, stage L of
@@ -71,7 +82,7 @@ to two subcommands. Design: `docs/design/trust-report-gate-1-proposal.md` Rev 1.
   key `verified` (was `proven`), and no `Contract-checked:` line.
 
 Commits `9451c2f7`, `1b3335f2`, `47c85722`, `a3273fc7`. 2330 examples, 0 failures (+31 since
-v0.29.1). Python: 312 passed; 503 with `LLMLL_BIN` set (+61), 5 skipped.
+v0.29.1). Python: 313 passed; 509 with `LLMLL_BIN` set (+67), 5 skipped.
 
 ---
 

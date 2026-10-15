@@ -241,11 +241,12 @@ def test_hpa_inv_fresh_sidecar_reads_back(tmp_path: Path, rel: str):
     assert any(fresh.values()), f"no verified record anywhere under {rel}"
     for m in mods:
         r = _run(d, "--json", "trust-report", f"{m}.llmll")
-        try:
-            rep = json.loads(r.stdout)
-        except json.JSONDecodeError:
+        rep = json.loads(r.stdout)
+        if "entries" not in rep:
             # A module that fails `check` (the refute-crux fixtures do, by
-            # design) has no report; it must also have no fresh record.
+            # design) has no report: under --json it prints the diagnostics
+            # object instead. It must also have no fresh record.
+            assert rep.get("success") is False and rep.get("diagnostics"), (m, r.stdout + r.stderr)
             assert not fresh[m], (m, r.stdout + r.stderr)
             continue
         levels = {e["name"]: (e["post_level"] or "") for e in rep["entries"]}

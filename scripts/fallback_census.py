@@ -164,6 +164,15 @@ def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
                 payload = json.loads(line)
             except json.JSONDecodeError:
                 continue
+    if (payload is not None and payload.get("success") is False and "diagnostics" in payload
+            and "body_faithful" not in payload and "fn_kinds" not in payload):
+        # A type error under --json prints the diagnostics object `llmll --json
+        # check` prints, not the verify document: it carries no per-function
+        # keys. Report its first error, for the same reason as below.
+        diags = payload.get("diagnostics") or []
+        errs = [d for d in diags if d.get("severity") == "error"] or diags
+        msg = errs[0].get("message", "") if errs else f"exit {proc.returncode}, no output"
+        return {"outcome": "check-failed", "detail": f"error: {msg}"[:200]}
     if payload is None:
         # Prefer the error line: a `check` failure prints its warnings first, and
         # reporting a warning as the cause sends a reader to the wrong place.

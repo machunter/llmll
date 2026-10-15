@@ -100,3 +100,24 @@ def test_vs_solver_absent_is_not_run(tmp_path):
     r, doc = _verify(tmp_path, INC_CORRECT, ["--trust-report"], env=env)
     _assert_valid(doc, r.returncode)
     assert (doc["solver_verdict"], doc["exit_code"]) == ("not-run", 3)
+
+
+# A strict-core type error (a `def` with nonlinear arithmetic) under `--json`.
+# Before this fix the strict type-check gate in these commands printed text even
+# under `--json`; `llmll --json check` printed the diagnostics object. Measured
+# on the v0.29.1 binary and on 0.28.0: text on stdout for `verify`.
+SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (* n n))\n"
+
+
+@pytest.mark.parametrize("cmd", ["verify", "trust-report", "spec-coverage", "build", "run"])
+def test_vs_type_error_prints_the_diagnostics_object(tmp_path, cmd):
+    f = tmp_path / "subject.llmll"
+    f.write_text(SQ_CORE_VIOLATION)
+    r = subprocess.run(
+        [os.environ["LLMLL_BIN"], "--json", cmd, f.name],
+        cwd=tmp_path, capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 1
+    doc = json.loads(r.stdout)
+    assert doc["success"] is False
+    assert [d["kind"] for d in doc["diagnostics"]] == ["core-grammar-violation"]
