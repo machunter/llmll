@@ -23,6 +23,7 @@ module LLMLL.SpecCoverage
     -- * Formatting
   , formatCoverageText
   , formatCoverageJson
+  , formatCoverageJsonWith  -- TRUST-REPORT-GATE-1: plus discarded_records
   ) where
 
 import Data.Map.Strict (Map)
@@ -364,13 +365,20 @@ formatCoverageText report =
 -- 'T.pack . BLC.unpack . encode' -- see LLMLL.TrustReport.formatTrustReportJson
 -- for why the latter double-encodes non-ASCII content.
 formatCoverageJson :: CoverageReport -> Text
-formatCoverageJson report =
-  TL.toStrict . encodeToLazyText $ object
+formatCoverageJson = formatCoverageJsonWith []
+
+-- | TRUST-REPORT-GATE-1: 'formatCoverageJson' plus 'discarded_records', the
+-- names of the sidecar records the read check demoted (key mismatch). Emitted
+-- only when non-empty, so every other coverage report keeps its shape.
+formatCoverageJsonWith :: [Name] -> CoverageReport -> Text
+formatCoverageJsonWith discarded report =
+  TL.toStrict . encodeToLazyText $ object $
     [ "entries"   .= map entryJson (sortOn feName (crEntries report))
     , "summary"   .= summaryJson (crSummary report)
     , "laws"      .= map lawJson (crLaws report)
     , "warnings"  .= map warnJson (crWarnings report)
     ]
+    ++ [ "discarded_records" .= discarded | not (null discarded) ]
   where
     entryJson e = object
       [ "name"       .= feName e

@@ -60,4 +60,4 @@ importUnprovedFns cache = Set.unions
 -- imports, its recorded return types), the view its records were written with.
 validated :: ModuleCache -> ModuleEnv -> Map Name ContractStatus
 validated cache m =
-  fst (downgradeStaleVerifiedSidecarIn (moduleKeyEnv cache m) (meStatements m) (meContractStatus m))
+  fst (downgradeStaleVerifiedSidecarIn cache (moduleKeyEnv cache m) (meStatements m) (meContractStatus m))

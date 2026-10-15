@@ -13,9 +13,10 @@ sidecar next to every file it reads):
 
   1. `llmll verify FILE`: runs the solver, writes the sidecar, gives the
      headline and the exit status.
-  2. `llmll verify FILE --trust-report --json`: reads that sidecar. Run on its
-     own, without step 1, it reports nothing proved, because `--trust-report`
-     renders a sidecar and does not run the solver.
+  2. `llmll verify FILE --trust-report --json`: runs the solver again and
+     renders the trust report, nested under `trust_report` in the one JSON
+     document `verify --json` prints (TRUST-REPORT-GATE-1). A file whose
+     verify prints no report counts as n/a.
 
 A trust report also lists the functions a file imports, under qualified names
 (`fill.next-error-budget`). The OWN columns count only unqualified names, so
@@ -119,11 +120,12 @@ def main():
             t = subprocess.run([llmll, "verify", "./" + b, "--trust-report", "--json"],
                                cwd=d, capture_output=True, text=True)
             try:
-                c = own_counts(json.loads(t.stdout))
+                # TRUST-REPORT-GATE-1: the report nests in the verify envelope.
+                c = own_counts(json.loads(t.stdout)["trust_report"])
                 cells = [str(c["verified"]), str(c["asserted"]), str(c["no contract"])]
                 if c["other"]:
                     cells[2] += f" (+{c['other']} other)"
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, KeyError):
                 cells = ["n/a", "n/a", "n/a"]
             hl = headline(out).replace("|", "\\|")
             if len(hl) > 110:

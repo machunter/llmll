@@ -195,10 +195,13 @@ erFromJSON = fmap fst . erFromJSONWarn
 -- ---------------------------------------------------------------------------
 
 pwToJSON :: PbtWitness -> Value
-pwToJSON w = object
+pwToJSON w = object $
   [ "hash"        .= pwHash w
   , "description" .= pwDescription w
   ]
+  -- TRUST-REPORT-GATE-1: emitted only when present, so an unkeyed witness keeps
+  -- its pre-v0.30.0 shape.
+  ++ maybe [] (\k -> ["subject_key" .= k]) (pwSubjectKey w)
 
 pwFromJSON :: Value -> Maybe PbtWitness
 pwFromJSON (Object o) =
@@ -208,7 +211,12 @@ pwFromJSON (Object o) =
       d = case KM.lookup "description" o of
             Just (String s) -> s
             _               -> ""
-  in if T.null h then Nothing else Just (PbtWitness h d)
+      -- TRUST-REPORT-GATE-1: optional; absent on every pre-v0.30.0 witness,
+      -- which the read check treats as not valid (fail closed).
+      k = case KM.lookup "subject_key" o of
+            Just (String s) -> Just s
+            _               -> Nothing
+  in if T.null h then Nothing else Just (PbtWitness h d k)
 pwFromJSON _ = Nothing
 
 -- ---------------------------------------------------------------------------
@@ -366,8 +374,13 @@ reservedCallerObligationsKey = "caller_obligations"
 -- ('LLMLL.RespFact.respFactTable') and on the delivery rule, so a sidecar
 -- written by a binary without them must not be admitted. One re-verify per
 -- tree, the cost the SAFE-ARG precedent already accepted.
+--
+-- "3" (TRUST-REPORT-GATE-1): a 'tested' record is valid only with a witness
+-- that carries its subject's evidence key ('pwSubjectKey'), and a SAFE write
+-- now carries such records forward. A sidecar written by an older binary is
+-- revalidated on first read; its 'tested' records have no key and demote.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "2"
+checkerSoundnessVersion = "3"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

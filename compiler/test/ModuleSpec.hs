@@ -442,7 +442,7 @@ moduleSpec = describe "Module System" $ do
             ]
           cache  = mkCache [importedEnv]
           result = PBTResult 1 1 0 0 [PBTRun "cross-mod" PBTPassed 100 Nothing]
-          (m, _ds) = pbtTrustWriteback localStmts cache result
+          (m, _ds) = pbtTrustWriteback (const Nothing) localStmts cache result
       Map.size m `shouldBe` 2
       Map.member "f" m         `shouldBe` True   -- bare-local
       Map.member "imported.g" m `shouldBe` True  -- qualified import

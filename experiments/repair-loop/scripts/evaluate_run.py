@@ -570,7 +570,12 @@ def _summarize_trust_report(parsed_verify: Any) -> dict[str, Any]:
     R6d adds `tier_profile` (six-Int aggregate, harness-side Assurance signal)
     and `cred` (harness-derived universal-Cred binary) to the returned dict.
     Both are None on pre-R6d trust reports that lack the aggregate field.
+
+    TRUST-REPORT-GATE-1 (llmll v0.30.0): `verify --json` prints one envelope and
+    the trust report nests under its "trust_report" key.
     """
+    if isinstance(parsed_verify, dict) and isinstance(parsed_verify.get("trust_report"), dict):
+        parsed_verify = parsed_verify["trust_report"]
     if not isinstance(parsed_verify, dict):
         return {
             "locally_verified_obligations": None,

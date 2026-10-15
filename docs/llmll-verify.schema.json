@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://llmll.dev/schemas/v1.0/verify.schema.json",
+  "title": "llmll verify --json document",
+  "description": "Shape of the one JSON document `llmll --json verify <file> [flags]` prints on stdout once the file type-checks (TRUST-REPORT-GATE-1, design docs/design/trust-report-gate-1-proposal.md §3.3; emitter compiler/src/LLMLL/VerifyEnvelope.hs). Exactly one document is printed for every combination of flags, and `exit_code` equals the process status. Key order: `verify_json_version`, `exit_code`, `solver_verdict`, `composed`, then the verdict keys (the pre-v0.30.0 verdict object, unchanged), then each requested report under its fixed key, present only when it was computed. Emit-only: the compiler never re-parses this document. Versioning is independent of the JSON-AST schema and of the trust-report schema; `composed` names the versions of the nested reports. Additive-only changes within a major version; a breaking shape change increases the major. The verdict keys listed here are the ones the emitter writes today; the top level stays open (`additionalProperties` true) because a verdict key may be added without a version change, as before v1.0.0. A file that fails to parse or type-check gets the diagnostics output instead of this document.",
+  "type": "object",
+  "required": ["verify_json_version", "exit_code", "solver_verdict", "composed"],
+  "additionalProperties": true,
+  "properties": {
+    "verify_json_version": {
+      "const": "1.0.0",
+      "description": "Version of this document's shape (`LLMLL.VerifyEnvelope.verifyJsonVersion`)."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 1, 3, 4],
+      "description": "The process exit status. 0 SAFE; 1 refuted, solver error, or a strict-core refusal; 3 solver not on PATH (the proof did not run); 4 a contradiction found by a reporting or prover flag on an otherwise passing run."
+    },
+    "solver_verdict": {
+      "enum": ["safe", "refuted", "error", "not-run"],
+      "description": "`not-run` when the run stopped before the solver: the pre-solver `--strict-verified-core` refusal, or no solver on PATH (exit 3)."
+    },
+    "composed": {
+      "type": "object",
+      "required": ["trust_report_version", "schema_version"],
+      "additionalProperties": false,
+      "properties": {
+        "trust_report_version": {
+          "type": "string",
+          "description": "Version of the nested `trust_report` (docs/llmll-trust-report.schema.json). Present whether or not the report is nested."
+        },
+        "schema_version": {
+          "type": "string",
+          "description": "The JSON-AST schema version this compiler reads (docs/llmll-ast.schema.json)."
+        },
+        "obligation_report_schema_version": {
+          "type": "string",
+          "description": "The nested `obligation_report`'s own `schema_version`; present only when that report is present."
+        }
+      }
+    },
+
+    "diagnostics": { "type": "array", "items": { "type": "object" } },
+    "phase": { "type": "string" },
+    "success": { "type": "boolean" },
+    "all_proved": { "type": "boolean" },
+    "proved_count": { "type": "integer", "minimum": 0 },
+    "contracted_count": { "type": "integer", "minimum": 0 },
+    "assumed_fns": { "type": "array" },
+    "import_assumed_fns": { "type": "array" },
+    "termination_assumed_fns": { "type": "array" },
+    "body_faithful": { "type": "array", "items": { "type": "string" } },
+    "body_fallback": { "type": "array", "items": { "type": "string" } },
+    "body_fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
+    "body_fallback_constructs": { "type": "object" },
+    "fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
+    "fn_kinds": { "type": "object", "additionalProperties": { "type": "string" } },
+    "file": { "type": "string" },
+    "fq_file": { "type": "string" },
+    "reason": { "type": "string" },
+    "solver_available": { "type": "boolean" },
+    "verified": { "type": "boolean" },
+
+    "trust_report": {
+      "$ref": "https://llmll.dev/schemas/v1.2/trust-report.schema.json",
+      "description": "Under `--trust-report`, `--strict-verify` or `--cdp` (SAFE). The same shape `llmll trust-report <file> --json` prints bare."
+    },
+    "spec_coverage": {
+      "type": "object",
+      "required": ["entries", "summary"],
+      "description": "Under `--spec-coverage` or `--strict-verify`. The same shape `llmll spec-coverage <file> --json` prints bare."
+    },
+    "weakness": {
+      "type": "object",
+      "required": ["weaknesses"],
+      "properties": { "weaknesses": { "type": "array" } },
+      "description": "Under `--weakness-check` or `--strict-verify`, after a SAFE result; `weaknesses` is empty when the check found nothing."
+    },
+    "obligation_suggestions": {
+      "type": "object",
+      "required": ["obligation_suggestions"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "obligation_suggestions": { "type": "array", "items": { "type": "object" } }
+      },
+      "description": "Under `--obligations`, on an UNSAFE result."
+    },
+    "obligation_report": {
+      "type": "object",
+      "required": ["schema_version"],
+      "description": "Under `--obligation-report`."
+    },
+    "strict_errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cause", "fns", "msg"],
+        "properties": {
+          "cause": { "type": "string" },
+          "fns": { "type": "array", "items": { "type": "string" } },
+          "msg": { "type": "string" }
+        }
+      },
+      "description": "Under `--strict-verified-core`, when it refuses."
+    }
+  }
+}

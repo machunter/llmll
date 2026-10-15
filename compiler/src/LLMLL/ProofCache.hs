@@ -20,6 +20,7 @@ module LLMLL.ProofCache
   , isTaintedProof
     -- * Trust surface bridge (Leanstral demo)
   , upgradeLeanstralPosts
+  , liveObligationHashes   -- TRUST-REPORT-GATE-1: the live obligation hash per def
     -- * Hashing
   , computeObligationHash
   ) where
@@ -42,7 +43,9 @@ import Data.Word (Word8)
 import Numeric (showHex)
 
 import LLMLL.Syntax
-  ( DisplayLevel(..), ContractStatus(..), EvidenceRecord(..), Name )
+  ( DisplayLevel(..), ContractStatus(..), EvidenceRecord(..), Name, Statement(..)
+  , normalizeDefStmt )
+import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 
 -- | A cached proof entry.
 data ProofEntry = ProofEntry
@@ -155,24 +158,29 @@ isTaintedProof pe =
 --     "proven" ('isTaintedProof');
 --   * a non-@leanstral@ prover does NOT upgrade (the fixpoint / PBT paths stay
 --     the sole authors of 'DLVerified' / 'DLTested');
+--   * TRUST-REPORT-GATE-1 (§3.5): an entry upgrades only when its
+--     @obligation_hash@ equals the hash of the LIVE obligation (the first
+--     argument, from 'liveObligationHashes'). Before this the upgrade was
+--     presence-based, so a post kept @verified-lean@ after the function was
+--     edited. A def with no live hash (absent, or not translatable to Lean)
+--     never upgrades;
 --   * the record is written with @erBodyFaithful = False@ and no
---     @erVerifiedHash@, so it is INERT to the fixpoint-hash staleness gate
---     ('TrustReport.downgradeStaleVerifiedSidecar', which only touches
---     body-faithful entries). Leanstral-proof staleness is governed instead by
---     the proof-cache @obligation_hash@ invalidation on the next @--leanstral@
---     run ('lookupProof').
+--     @erVerifiedHash@, so a saved copy is demoted on every read
+--     ('TrustReport.downgradeStaleVerifiedSidecarIn'); the proof cache, checked
+--     here against the live hash, is the tier's only source.
 --
 -- The upgrade preserves any pre clause and existing post metadata (source,
 -- predicate fields); only the display level, body-faithful flag and verified
 -- hash of the post are set. Keys are bare def names, matching the sidecar and
 -- the entry-module trust entries.
-upgradeLeanstralPosts :: Map Text ProofEntry -> Map Name ContractStatus -> Map Name ContractStatus
-upgradeLeanstralPosts pcache statuses = foldr apply statuses (Map.toList pcache)
+upgradeLeanstralPosts :: Map Name Text -> Map Text ProofEntry -> Map Name ContractStatus -> Map Name ContractStatus
+upgradeLeanstralPosts live pcache statuses = foldr apply statuses (Map.toList pcache)
   where
     apply (key, pe) acc
       | Just name <- T.stripPrefix "/post/" key
       , peProver pe == "leanstral"
       , not (isTaintedProof pe)
+      , Map.lookup name live == Just (peObligationHash pe)
       = Map.alter (Just . upgradeCS pe) name acc
       | otherwise = acc
 
@@ -185,3 +193,23 @@ upgradeLeanstralPosts pcache statuses = foldr apply statuses (Map.toList pcache)
 
     emptyCS = ContractStatus Nothing Nothing []
     emptyER = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False []
+
+-- | TRUST-REPORT-GATE-1 (§3.5): the live obligation hash of every definition,
+-- keyed by bare name. It is the hash 'Main.runLeanstralPipeline' stores in a
+-- proof-cache entry: 'computeObligationHash' of the theorem text that
+-- 'translateObligation' produces for the def. Both are pure functions of the
+-- def, so no emitter run is needed and the solver-less render can apply the
+-- check. A def that does not translate ('Unsupported') gets no entry, so its
+-- post never upgrades.
+liveObligationHashes :: [Statement] -> Map Name Text
+liveObligationHashes stmts = Map.fromList
+  [ (n, computeObligationHash thm)
+  | s <- stmts
+  , Just (n, params, ret, contract, body) <- [normalizeDefOrLetrec s]
+  , LeanTheorem thm <- [translateObligation n params ret contract body] ]
+  where
+    -- Mirrors 'Main.normalizeDefOrLetrec': the Leanstral worklist covers
+    -- letrec functions too, so their hashes must be live here.
+    normalizeDefOrLetrec s@SLetrec{} =
+      Just (letrecName s, letrecParams s, letrecReturn s, letrecContract s, letrecBody s)
+    normalizeDefOrLetrec s = normalizeDefStmt s

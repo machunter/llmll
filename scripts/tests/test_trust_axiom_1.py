@@ -58,7 +58,8 @@ VERIFY_TIMEOUT_S = 300
 # precedent, stated at the JSON emitter in TrustReport.hs). A cell asserts it,
 # because an accidental change here silently breaks every consumer.
 # MODE-CLI-1 moved it to 1.9.0 deliberately (unbounded_entry_loop).
-TRUST_REPORT_VERSION = "1.9.0"
+# TRUST-REPORT-GATE-1 moved it to 1.10.0 deliberately (discarded_records).
+TRUST_REPORT_VERSION = "1.10.0"
 
 # A bytes-free and map-free program. It must disclose nothing, which is what
 # proves the activation gate is inherited rather than mirrored.
@@ -136,6 +137,9 @@ def test_json_carries_builtin_axioms_without_moving_the_emit_version(zero_buffer
             doc = json.loads(line)
             break
     assert doc is not None, f"no trust-report JSON object in output\n{out[-3000:]}"
+    # TRUST-REPORT-GATE-1: the report nests in the one `verify --json` envelope.
+    assert "trust_report" in doc, f"no trust_report key in the envelope\n{out[-3000:]}"
+    doc = doc["trust_report"]
 
     assert doc["trust_report_version"] == TRUST_REPORT_VERSION
 
@@ -159,8 +163,15 @@ def test_the_sidecar_only_path_does_not_invent_rows(zero_buffer_copy):
     exists so the path difference is pinned rather than rediscovered.
     """
     # Seed the sidecar with a strict run first, then read it back without one.
+    # TRUST-REPORT-GATE-1: the sidecar-only render is `llmll trust-report`.
     _verify(zero_buffer_copy.parent, zero_buffer_copy, "--strict-verify")
-    out = _verify(zero_buffer_copy.parent, zero_buffer_copy)
+    p = subprocess.run(
+        [*_llmll(), "trust-report", str(zero_buffer_copy)],
+        capture_output=True, text=True, timeout=VERIFY_TIMEOUT_S,
+        cwd=str(zero_buffer_copy.parent),
+    )
+    assert p.returncode == 0, f"trust-report failed rc={p.returncode}\n{p.stderr[-2000:]}"
+    out = p.stdout
     assert "sidecar-only report" in out, out[-3000:]
     assert "codegen_semantics_version" not in out, out[-3000:]
 

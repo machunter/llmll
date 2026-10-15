@@ -60,6 +60,22 @@ def load(path: str) -> Any:
         return json.load(f)
 
 
+def trust_report_of(doc: Any) -> Any:
+    """The trust report inside a `verify --json` document.
+
+    TRUST-REPORT-GATE-1: `llmll verify --json` prints one envelope, recognised
+    by its `verify_json_version` key, and the report nests under
+    `trust_report`. An envelope without one (the solver did not run, or
+    `--trust-report` was not passed) yields an empty report, so a
+    `--require-full-coverage` run fails instead of passing on stale evidence.
+    A document without the version key is a bare trust report
+    (`llmll trust-report --json`, or a fixture) and is used as is.
+    """
+    if isinstance(doc, dict) and "verify_json_version" in doc:
+        return doc.get("trust_report") or {}
+    return doc
+
+
 def inventory_rows(doc: Any) -> dict[str, dict]:
     """Accept either the dispositioned shape {"rows":[...]} or a bare list."""
     rows = doc["rows"] if isinstance(doc, dict) and "rows" in doc else doc
@@ -172,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
 
     inv = inventory_rows(load(a.inventory))
-    trust = load(a.trust_report)
+    trust = trust_report_of(load(a.trust_report))
     roots = None
     if a.roots:
         with open(a.roots) as f:

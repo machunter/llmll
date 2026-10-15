@@ -109,6 +109,8 @@ library:
     - LLMLL.CallGraph
     # PROOF-ARTIFACT: unified reproducible verification record
     - LLMLL.ProofArtifact
+    # TRUST-REPORT-GATE-1: the one JSON document 'verify --json' prints
+    - LLMLL.VerifyEnvelope
     # v0.3.4: agent spec generator
     - LLMLL.AgentSpec
     # v0.3.5: weak-spec counter-example generation

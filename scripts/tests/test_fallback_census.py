@@ -204,6 +204,22 @@ def test_check_failure_reports_the_error_line_not_the_warning(tmp_path):
     assert detail.startswith("error: call to unknown function")
 
 
+def test_a_json_type_error_is_check_failed_with_its_error(tmp_path):
+    # Since TRUST-REPORT-GATE-1, a strict type error under `--json verify`
+    # prints the diagnostics object `llmll --json check` prints, not text. It is
+    # a check failure, reported by its first error rather than its warning.
+    diag = {"success": False, "diagnostics": [
+        {"severity": "warning", "message": "a warning that is not the cause"},
+        {"severity": "error", "message": "def 'sq': body contains non-core syntax"},
+    ]}
+    repo = make_repo(tmp_path, {"core.llmll": {"json": diag, "exit": 1}})
+    out = tmp_path / "record.json"
+    run_census(tmp_path, repo, "--no-ratchet", "--out", str(out))
+    rec = json.loads(out.read_text())["files"]["examples/core.llmll"]
+    assert rec["outcome"] == "check-failed"
+    assert rec["detail"].startswith("error: def 'sq': body contains non-core syntax")
+
+
 def test_a_verdict_that_disagrees_with_itself_is_reported_unstable(tmp_path):
     files = {
         "flip.llmll": {

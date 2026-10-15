@@ -52,6 +52,7 @@ library
       LLMLL.EvidenceKey
       LLMLL.CallGraph
       LLMLL.ProofArtifact
+      LLMLL.VerifyEnvelope
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck
       LLMLL.CDP

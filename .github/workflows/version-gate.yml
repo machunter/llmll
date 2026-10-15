@@ -573,6 +573,66 @@ jobs:
           grep -q ' 7 passed' "$RUNNER_TEMP/partial-fns-graph.log" \
             || { echo "PARTIAL-FNS-GRAPH-1: expected 7 passed cells"; exit 1; }
 
+      # TRUST-REPORT-GATE-1: `verify --trust-report` and `--spec-coverage` run
+      # the solver, every flag obeys one exit law, and `verify --json` prints
+      # one document that satisfies docs/llmll-verify.schema.json. The flag-law
+      # cells failed on the v0.29.1 binary for exactly --trust-report and
+      # --spec-coverage, and the one-document cells for all eleven flags.
+      # Placed after the toolchain assert: every cell but solver-absent needs
+      # fixpoint. jsonschema was installed at the SCHEMA-TRUTH-1 step. Same skip
+      # and count guards as above: 35 gate cells plus 31 schema cells.
+      - name: Run TRUST-REPORT-GATE-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_trust_report_gate_1.py \
+            scripts/tests/test_verify_json_schema.py -v -rs \
+            | tee "$RUNNER_TEMP/trust-report-gate.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/trust-report-gate.log"; then
+            echo "a TRUST-REPORT-GATE-1 cell skipped; fixpoint and jsonschema must be present here"; exit 1
+          fi
+          grep -q ' 66 passed' "$RUNNER_TEMP/trust-report-gate.log" \
+            || { echo "TRUST-REPORT-GATE-1: expected 66 passed cells"; exit 1; }
+
+      # HASH-PRE-ASYM and TRUST-AXIOM-1: a verified record is keyed by the live
+      # source and survives every read that does not run the solver, and the
+      # trust report names the axioms and lemmas a proof rests on. Both files
+      # skip without LLMLL_BIN and no step ran them, so neither had run in CI
+      # since it landed. Every cell calls `llmll verify`, so this follows the
+      # toolchain assert. Same skip and count guards as above.
+      - name: Run HASH-PRE-ASYM and TRUST-AXIOM-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_hash_pre_asym.py \
+            scripts/tests/test_trust_axiom_1.py -v -rs \
+            | tee "$RUNNER_TEMP/hash-pre-asym.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/hash-pre-asym.log"; then
+            echo "a HASH-PRE-ASYM or TRUST-AXIOM-1 cell skipped; fixpoint must be on PATH here"; exit 1
+          fi
+          grep -q ' 21 passed' "$RUNNER_TEMP/hash-pre-asym.log" \
+            || { echo "HASH-PRE-ASYM / TRUST-AXIOM-1: expected 21 passed cells"; exit 1; }
+
+      # EXAMPLE-BUILD-1, OBLIG-CONTRACT-CHANNEL-1 and OBLIG-TRUST-CHANNEL-1. Each
+      # file's docstring says this job runs it, and until this step none did:
+      # all three skip without a built binary. The obligation cells call
+      # `llmll verify --obligation-report` (fixpoint); the example-build cells
+      # call `llmll build`, which runs `stack build` on the generated package.
+      # Same skip and count guards as above: 5 + 5 + 7 cells.
+      - name: Run EXAMPLE-BUILD-1 and OBLIG channel cells (pytest, needs the solver and Stack)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_example_build_1.py \
+            scripts/tests/test_oblig_contract_channel_1.py \
+            scripts/tests/test_oblig_trust_channel_1.py -v -rs \
+            | tee "$RUNNER_TEMP/example-build-oblig.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/example-build-oblig.log"; then
+            echo "an EXAMPLE-BUILD-1 or OBLIG channel cell skipped; the binary, fixpoint and Stack must be present here"; exit 1
+          fi
+          grep -q ' 17 passed' "$RUNNER_TEMP/example-build-oblig.log" \
+            || { echo "EXAMPLE-BUILD-1 / OBLIG channels: expected 17 passed cells"; exit 1; }
+
       # DEF-ADMIT-XMOD-1: a def may not call, or pass as a value, a function
       # proved only if a recursion terminates. DAX-1, DAX-2 and DAX-4 failed on
       # the v0.26.14 binary; DAX-3, DAX-5 and DAX-6 (negative controls) passed
