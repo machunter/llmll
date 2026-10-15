@@ -137,6 +137,9 @@ def test_json_carries_builtin_axioms_without_moving_the_emit_version(zero_buffer
             doc = json.loads(line)
             break
     assert doc is not None, f"no trust-report JSON object in output\n{out[-3000:]}"
+    # TRUST-REPORT-GATE-1: the report nests in the one `verify --json` envelope.
+    assert "trust_report" in doc, f"no trust_report key in the envelope\n{out[-3000:]}"
+    doc = doc["trust_report"]
 
     assert doc["trust_report_version"] == TRUST_REPORT_VERSION
 

@@ -36,7 +36,7 @@
         "--trust-report", "--weakness-check", "--spec-coverage"
       ],
       "capture": "exit_and_json",
-      "_note": "Top-level --json flag is required to get structured trust-report output; --trust-report alone produces human-readable text. Reads the .verified.json sidecar written by the verify-fixpoint step above."
+      "_note": "Top-level --json flag is required to get structured trust-report output; --trust-report alone produces human-readable text. Since llmll v0.30.0 (TRUST-REPORT-GATE-1) this runs the solver and prints one JSON envelope; the trust report is its `trust_report` key, the coverage its `spec_coverage` key, and the weakness check its `weakness` key. scripts/run_repair_loop.py and scripts/evaluate_run.py read `.trust_report`."
     }
   ],
   "terminal_target_predicates": {

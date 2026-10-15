@@ -229,9 +229,12 @@ if cmd == "verify":
     target = pathlib.Path(argv[1])
     if "--trust-report" in argv:
         cites = re.findall(r'\[([A-Za-z0-9]+)\]', target.read_text())
-        print(json.dumps({"entries": [
+        # TRUST-REPORT-GATE-1: `verify --json` prints one envelope; the trust
+        # report nests under "trust_report" (stage L and RFC-COV-1 read it there).
+        print(json.dumps({"verify_json_version": "1.0.0", "exit_code": 0,
+                          "solver_verdict": "safe", "trust_report": {"entries": [
             {"name": f"fn{i}", "post_sources": [f"[{c}] SPEC line"]}
-            for i, c in enumerate(cites)]}))
+            for i, c in enumerate(cites)]}}))
         sys.exit(0)
     if target.name.endswith(".ast.json"):
         n = bump(target, "treeverify")

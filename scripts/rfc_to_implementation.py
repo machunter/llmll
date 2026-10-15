@@ -1154,7 +1154,9 @@ def stage_L_coverage(ctx: Ctx) -> None:
     p = subprocess.run([ctx.llmll, "verify", str(roots), "--trust-report", "--json"],
                        capture_output=True, text=True, check=False)
     tr.write_text(p.stdout, encoding="utf-8")
-    names = [e["name"] for e in read_json(tr).get("entries", [])]
+    # TRUST-REPORT-GATE-1: `verify --json` prints one envelope; the report nests
+    # under "trust_report" and is present only after a solver pass.
+    names = [e["name"] for e in (read_json(tr).get("trust_report") or {}).get("entries", [])]
     roots_txt = ctx.d("11-freeze", "ROOTS.txt")
     roots_txt.write_text("\n".join(names) + "\n", encoding="utf-8")
     inv = ctx.workdir / "06-disposition" / "inventory-dispositioned.json"
@@ -1655,7 +1657,9 @@ def self_test() -> int:
         p = subprocess.run([llmll, "verify", str(roots / "tftp.llmll"),
                             "--trust-report", "--json"],
                            capture_output=True, text=True, check=False)
-        if p.stdout.strip().startswith("{"):
+        # TRUST-REPORT-GATE-1: the envelope always parses; the report is its
+        # "trust_report" key. RFC-COV-1 reads it out of the envelope.
+        if p.stdout.strip().startswith("{") and '"trust_report"' in p.stdout:
             tr.write_text(p.stdout, encoding="utf-8")
             cov = subprocess.run(
                 [sys.executable, str(RFC_COVERAGE), "--inventory",

@@ -3427,7 +3427,9 @@
       ["  RFC-COV-1 at freeze strength exited " (int-to-string n)
        "; its full output is 11-freeze/rfc-cov-1.txt"]))
 
-  ;; s=0. The verify run's stdout IS the trust report. 300 seconds, as
+  ;; s=0. The verify run's stdout is the `verify --json` envelope; the trust
+  ;; report nests under its "trust_report" key (TRUST-REPORT-GATE-1), which
+  ;; spine.roots-file and RFC-COV-1 both read. 300 seconds, as
   ;; spine.llmll passes, and it does not fire (PROC-TIMEOUT-1, open).
   (def-shell l-enter [rn: Run k: int start: int] -> ((Run, Ctl), Command)
     (let [(c (cfg-of rn))]

@@ -1932,7 +1932,10 @@ def l1(b, wd):
     roots = (wd / "11-freeze" / "ROOTS.txt").read_text(encoding="utf-8")
     want(roots.endswith("\n") and roots.strip() != "",
          f"ROOTS.txt is the entry names newline-joined with a trailing newline: {roots!r}")
+    # TRUST-REPORT-GATE-1: the file is the `verify --json` envelope; the
+    # report is its "trust_report" key.
     tr = json.loads((wd / "11-freeze" / "trust-report.json").read_text(encoding="utf-8"))
+    tr = tr.get("trust_report") or {}
     want([e["name"] for e in tr.get("entries", [])] == roots.split("\n")[:-1],
          f"ROOTS.txt is derived from the report's entries, not from the source: "
          f"{roots!r} against {[e.get('name') for e in tr.get('entries', [])]}")

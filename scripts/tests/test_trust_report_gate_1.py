@@ -214,3 +214,132 @@ def test_e10b_an_imported_subject_keeps_its_tested_record(tmp_path):
     rep = _report_json(tmp_path, "main.llmll")
     assert _entry(rep, "lib.sq")["post_level"] == "asserted"
     assert rep["discarded_records"] == ["lib.sq"]
+
+
+# ---------------------------------------------------------------------------
+# C4: the flag law (design §3.1) and the one document (design §3.3)
+# ---------------------------------------------------------------------------
+
+INC_CORRECT = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) (+ x 1))\n"
+
+REPORTING = {0, 4}
+GATE = {0, 1, 4}
+
+# (flag args, Adds(F) ∪ {0}). `{out}` is replaced with a tmp path. The other
+# prover flags need a live Leanstral endpoint or binary; `--leanstral-mock`
+# drives the same pipeline.
+FLAGS = [
+    (["--trust-report"], REPORTING),
+    (["--spec-coverage"], REPORTING),
+    (["--cdp"], REPORTING),
+    (["--weakness-check"], REPORTING),
+    (["--obligations"], REPORTING),
+    (["--obligation-report"], REPORTING),
+    (["--proof-artifact", "{out}"], REPORTING),
+    (["--fq-out", "{out}"], REPORTING),
+    (["--strict-verify"], REPORTING),
+    (["--strict-verified-core"], GATE),
+    (["--leanstral-mock"], REPORTING),
+]
+
+
+def _documents(stdout):
+    """Every top-level JSON value on stdout, in order."""
+    dec, i, docs = json.JSONDecoder(), 0, []
+    while i < len(stdout):
+        while i < len(stdout) and stdout[i].isspace():
+            i += 1
+        if i >= len(stdout):
+            break
+        doc, i = dec.raw_decode(stdout, i)
+        docs.append(doc)
+    return docs
+
+
+def _flag_args(args, tmp_path):
+    return [a.replace("{out}", str(tmp_path / "out.bin")) for a in args]
+
+
+@needs_binary
+@pytest.mark.parametrize("args,allowed", FLAGS, ids=[" ".join(a) for a, _ in FLAGS])
+def test_flag_law(tmp_path, args, allowed):
+    """No flag masks a failure; on a passing run a flag adds only Adds(F)."""
+    for name, src in (("bad.llmll", INC_REFUTED), ("good.llmll", INC_CORRECT)):
+        d = tmp_path / name.split(".")[0]
+        d.mkdir()
+        _write(d, name, src)
+        plain = _llmll(d, "verify", name).returncode
+        flagged = _llmll(d, "verify", name, *_flag_args(args, d)).returncode
+        if plain != 0:
+            assert flagged == plain, (name, args, plain, flagged)
+        else:
+            assert flagged in allowed, (name, args, plain, flagged)
+    # the positive witness really is refuted, and its twin really passes
+    assert _llmll(tmp_path / "bad", "verify", "bad.llmll").returncode == 1
+    assert _llmll(tmp_path / "good", "verify", "good.llmll").returncode == 0
+
+
+@needs_binary
+@pytest.mark.parametrize("args,allowed", FLAGS, ids=[" ".join(a) for a, _ in FLAGS])
+def test_one_document_whose_exit_code_is_the_status(tmp_path, args, allowed):
+    """`verify --json` prints exactly one JSON value, carrying the process status."""
+    for name, src in (("bad.llmll", INC_REFUTED), ("good.llmll", INC_CORRECT)):
+        d = tmp_path / name.split(".")[0]
+        d.mkdir()
+        _write(d, name, src)
+        r = _llmll(d, "--json", "verify", name, *_flag_args(args, d))
+        docs = _documents(r.stdout)
+        assert len(docs) == 1, (args, name, r.stdout)
+        assert docs[0]["exit_code"] == r.returncode, (args, name, docs[0])
+        assert list(docs[0])[:4] == ["verify_json_version", "exit_code", "solver_verdict", "composed"]
+
+
+@needs_binary
+def test_edge_1_and_14_the_refuted_inc_under_trust_report(tmp_path):
+    """Design edge cases 1 and 14: exit 1, one document, refuted, on stdout alone."""
+    _write(tmp_path, "inc.llmll", INC_REFUTED)
+    r = _llmll(tmp_path, "--json", "verify", "inc.llmll", "--trust-report")
+    assert r.returncode == 1
+    (doc,) = _documents(r.stdout)
+    assert doc["exit_code"] == 1
+    assert doc["solver_verdict"] == "refuted"
+    assert doc["trust_report"]["refuted_fns"] == ["inc"]
+    t = _llmll(tmp_path, "verify", "inc.llmll", "--trust-report")
+    assert t.returncode == 1
+    assert "sidecar-only report" not in t.stdout
+
+
+@needs_binary
+def test_edge_2_the_refuted_inc_under_spec_coverage(tmp_path):
+    _write(tmp_path, "inc.llmll", INC_REFUTED)
+    r = _llmll(tmp_path, "--json", "verify", "inc.llmll", "--spec-coverage")
+    assert r.returncode == 1
+    (doc,) = _documents(r.stdout)
+    assert doc["solver_verdict"] == "refuted"
+    assert doc["spec_coverage"]["summary"]["contracted"] == 1
+
+
+@needs_binary
+def test_edge_3_strict_verify_obligation_report_is_one_document(tmp_path):
+    _write(tmp_path, "inc.llmll", INC_CORRECT)
+    r = _llmll(tmp_path, "--json", "verify", "inc.llmll", "--strict-verify", "--obligation-report")
+    assert r.returncode == 0
+    (doc,) = _documents(r.stdout)
+    assert doc["exit_code"] == 0
+    assert doc["composed"]["obligation_report_schema_version"] == doc["obligation_report"]["schema_version"]
+    s = _llmll(tmp_path, "--json", "verify", "inc.llmll", "--strict-verify")
+    (doc2,) = _documents(s.stdout)
+    assert {"trust_report", "spec_coverage"} <= set(doc2)
+
+
+@needs_binary
+def test_edge_10_report_run_keeps_tested(tmp_path):
+    """Design edge case 10 through the C4 path: `test`, then `verify --trust-report`."""
+    _write(tmp_path, "sq.llmll", SQ)
+    assert _llmll(tmp_path, "test", "sq.llmll").returncode == 0
+    r = _llmll(tmp_path, "--json", "verify", "sq.llmll", "--trust-report")
+    assert r.returncode == 0, r.stdout + r.stderr
+    (doc,) = _documents(r.stdout)
+    assert _entry(doc["trust_report"], "sq")["post_level"].startswith("tested")
+    side = json.loads((tmp_path / "sq.llmll.verified.json").read_text())
+    assert side["sq"]["post"]["display_level"]["level"] == "tested"

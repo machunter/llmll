@@ -160,6 +160,11 @@ def _json(stdout: str, key: str) -> dict:
             obj = json.loads(line)
         except ValueError:
             continue
+        # TRUST-REPORT-GATE-1: `verify --json` prints one envelope; the trust
+        # report nests under its "trust_report" key.
+        tr = obj.get("trust_report") if isinstance(obj, dict) else None
+        if isinstance(tr, dict) and key in tr:
+            return tr
         if key in obj:
             return obj
     raise AssertionError(f"no object with {key!r} in output:\n" + stdout)

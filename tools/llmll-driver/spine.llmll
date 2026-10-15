@@ -516,9 +516,15 @@
   ;; The trust report's entries are the clause-carrying surface. Python takes
   ;; e["name"] for each (rfc_to_implementation.py:990); ROOTS.txt is those names
   ;; newline-joined with a trailing newline (:992).
-  (def-shell root-names [tr: Json] -> list[string]
-    (list-map (arr-at tr "entries")
-              (fn [e: Json] (unwrap-or (json-get-string e "name") "MISSING"))))
+  ;; TRUST-REPORT-GATE-1: `verify --json` prints one envelope, and the report
+  ;; nests under its "trust_report" key. An envelope with no report (the solver
+  ;; did not run) yields no names, so RFC-COV-1 fails rather than passes.
+  (def-shell root-names [env: Json] -> list[string]
+    (match (json-get env "trust_report")
+      ((Success tr)
+        (list-map (arr-at tr "entries")
+                  (fn [e: Json] (unwrap-or (json-get-string e "name") "MISSING"))))
+      ((Error _) (list-empty))))
 
   (def-shell roots-file [tr: Json] -> string
     (list-fold (root-names tr) ""

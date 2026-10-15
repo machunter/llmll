@@ -577,6 +577,10 @@ def _count_bad_trust_tiers(parsed: Any) -> int:
         "tested",
     }
     entries = None
+    # TRUST-REPORT-GATE-1 (llmll v0.30.0): `verify --json` prints one envelope
+    # and the trust report nests under its "trust_report" key.
+    if isinstance(parsed, dict) and isinstance(parsed.get("trust_report"), dict):
+        parsed = parsed["trust_report"]
     if isinstance(parsed, dict):
         entries = parsed.get("entries") or parsed.get("trust_report") or parsed.get("trust")
     if not isinstance(entries, list):

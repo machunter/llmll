@@ -69,14 +69,16 @@ echo ""
 
 # ── 1. Spec Coverage ──────────────────────────────────────────
 
+# TRUST-REPORT-GATE-1: `verify --json` prints one envelope; the coverage
+# report is its .spec_coverage key and runs after the solver.
 echo "▸ Running --spec-coverage ..."
 COVERAGE_JSON=$(cd "$REPO_ROOT/compiler" && $LLMLL verify "$FILLED" --spec-coverage --json 2>/dev/null)
 
-ACTUAL_CONTRACTED=$(echo "$COVERAGE_JSON" | jq '.summary.contracted')
-ACTUAL_SUPPRESSED=$(echo "$COVERAGE_JSON" | jq '.summary.suppressed')
-ACTUAL_UNSPECIFIED=$(echo "$COVERAGE_JSON" | jq '.summary.unspecified')
-ACTUAL_TOTAL=$(echo "$COVERAGE_JSON" | jq '.summary.total')
-ACTUAL_COVERAGE=$(echo "$COVERAGE_JSON" | jq '.summary.effective_coverage')
+ACTUAL_CONTRACTED=$(echo "$COVERAGE_JSON" | jq '.spec_coverage.summary.contracted')
+ACTUAL_SUPPRESSED=$(echo "$COVERAGE_JSON" | jq '.spec_coverage.summary.suppressed')
+ACTUAL_UNSPECIFIED=$(echo "$COVERAGE_JSON" | jq '.spec_coverage.summary.unspecified')
+ACTUAL_TOTAL=$(echo "$COVERAGE_JSON" | jq '.spec_coverage.summary.total')
+ACTUAL_COVERAGE=$(echo "$COVERAGE_JSON" | jq '.spec_coverage.summary.effective_coverage')
 
 EXPECTED_CONTRACTED=$(jq '.expected_spec_coverage.contracted' "$EXPECTED")
 EXPECTED_SUPPRESSED=$(jq '.expected_spec_coverage.suppressed' "$EXPECTED")
@@ -94,13 +96,14 @@ echo ""
 
 # ── 2. Trust Report ───────────────────────────────────────────
 
+# TRUST-REPORT-GATE-1: the trust report is the envelope's .trust_report key.
 echo "▸ Running --trust-report ..."
 TRUST_JSON=$(cd "$REPO_ROOT/compiler" && $LLMLL verify "$FILLED" --trust-report --json 2>/dev/null)
 
-ACTUAL_TR_ENTRIES=$(echo "$TRUST_JSON" | jq '.entries | length')
-ACTUAL_TR_NONE=$(echo "$TRUST_JSON" | jq '.summary.no_contract')
-ACTUAL_TR_DRIFTS=$(echo "$TRUST_JSON" | jq '.summary.drifts')
-ACTUAL_TR_SUPPS=$(echo "$TRUST_JSON" | jq '.suppressions | length')
+ACTUAL_TR_ENTRIES=$(echo "$TRUST_JSON" | jq '.trust_report.entries | length')
+ACTUAL_TR_NONE=$(echo "$TRUST_JSON" | jq '.trust_report.summary.no_contract')
+ACTUAL_TR_DRIFTS=$(echo "$TRUST_JSON" | jq '.trust_report.summary.drifts')
+ACTUAL_TR_SUPPS=$(echo "$TRUST_JSON" | jq '.trust_report.suppressions | length')
 
 EXPECTED_TR_ENTRIES=$(jq '.expected_trust_report.verified + .expected_trust_report.asserted + .expected_trust_report.no_contract' "$EXPECTED")
 EXPECTED_TR_NONE=$(jq '.expected_trust_report.no_contract' "$EXPECTED")
@@ -116,8 +119,8 @@ echo ""
 # ── 3. Source provenance (PROV-3) ─────────────────────────────
 
 echo "▸ Checking source provenance in trust report ..."
-HAS_PRE_SOURCE=$(echo "$TRUST_JSON" | jq '[.entries[] | select(.pre_source != null)] | length')
-HAS_POST_SOURCE=$(echo "$TRUST_JSON" | jq '[.entries[] | select(.post_source != null)] | length')
+HAS_PRE_SOURCE=$(echo "$TRUST_JSON" | jq '[.trust_report.entries[] | select(.pre_source != null)] | length')
+HAS_POST_SOURCE=$(echo "$TRUST_JSON" | jq '[.trust_report.entries[] | select(.post_source != null)] | length')
 
 check_result "entries with pre_source > 0"   "true" "$([ "$HAS_PRE_SOURCE" -gt 0 ] && echo true || echo false)"
 check_result "entries with post_source > 0"  "true" "$([ "$HAS_POST_SOURCE" -gt 0 ] && echo true || echo false)"

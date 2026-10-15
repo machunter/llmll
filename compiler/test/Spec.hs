@@ -59,6 +59,7 @@ import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, savePro
 import LLMLL.TrustReport (markBuiltinAxioms, markGroundFacts, markInheritedAxioms, trustAssumptionRows,
                           buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
 import LLMLL.ProofArtifact
+import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields, nestedReportKeys, verifyJsonVersion)
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
@@ -4487,6 +4488,64 @@ main = hspec $ do
       formatCoverageJsonWith [] dCov `shouldBe` formatCoverageJson dCov
       (KM.lookup "discarded_records" =<< keysOf (formatCoverageJsonWith ["d"] dCov))
         `shouldBe` Just (toJSON ["d" :: T.Text])
+
+  -- -----------------------------------------------------------------------
+  -- TRUST-REPORT-GATE-1 C4 (design §3.3): 'verify --json' prints ONE document.
+  -- -----------------------------------------------------------------------
+  describe "TRUST-REPORT-GATE-1 C4: the verify --json envelope" $ do
+    let fqReport = fqResultToReport "f.llmll" Map.empty FQSafe
+        objFields v = case v of
+          Object o -> [ (K.toText k, x) | (k, x) <- KM.toList o ]
+          _        -> []
+        meta = object [ "body_faithful" .= ["f" :: T.Text], "solver_verdict" .= ("safe" :: T.Text)
+                      , "proved_count" .= (1 :: Int) ]
+        verdict = objFields (toJSON fqReport) ++ objFields meta
+        env code sv nested = VerifyEnvelope code sv verdict nested
+        decodeObj t = case decode (BLC.pack (T.unpack t)) of
+                        Just (Object o) -> Just o
+                        _               -> Nothing
+        keysOf = map fst . envelopeFields
+
+    it "GT-19 key order: version, exit_code, solver_verdict, composed, verdict keys, then nested in fixed order" $ do
+      let e = env 0 "safe" [("strict_errors", "[]"), ("spec_coverage", "{}"), ("trust_report", "{}")]
+      take 4 (keysOf e) `shouldBe` ["verify_json_version", "exit_code", "solver_verdict", "composed"]
+      drop (length (keysOf e) - 3) (keysOf e) `shouldBe` ["trust_report", "spec_coverage", "strict_errors"]
+      filter (`elem` nestedReportKeys) (keysOf e) `shouldBe` ["trust_report", "spec_coverage", "strict_errors"]
+
+    it "GT-20 exit_code is the integer the envelope was built with" $ do
+      (KM.lookup "exit_code" =<< decodeObj (renderEnvelope (env 4 "safe" []))) `shouldBe` Just (Number 4)
+      (KM.lookup "exit_code" =<< decodeObj (renderEnvelope (env 1 "refuted" []))) `shouldBe` Just (Number 1)
+
+    it "GT-21 a nested key appears only when its report was recorded" $ do
+      let ks = keysOf (env 0 "safe" [("weakness", "{\"weaknesses\":[]}")])
+      filter (`elem` nestedReportKeys) ks `shouldBe` ["weakness"]
+      filter (`elem` nestedReportKeys) (keysOf (env 0 "safe" [])) `shouldBe` []
+
+    it "GT-22 the pre-verdict exits carry solver_verdict not-run" $ do
+      let e = VerifyEnvelope 3 "not-run" [("solver_available", Bool False)] []
+      (KM.lookup "solver_verdict" =<< decodeObj (renderEnvelope e)) `shouldBe` Just (String "not-run")
+
+    it "GT-23 composed carries the live emitter versions, plus the obligation report's own when present" $ do
+      let comp e = KM.lookup "composed" =<< decodeObj (renderEnvelope e)
+      comp (env 0 "safe" []) `shouldBe`
+        Just (object [ "trust_report_version" .= trustReportEmitVersion, "schema_version" .= expectedSchemaVersion ])
+      comp (env 0 "safe" [("obligation_report", "{\"schema_version\":\"0.12.4\",\"obligations\":[]}")]) `shouldBe`
+        Just (object [ "trust_report_version" .= trustReportEmitVersion, "schema_version" .= expectedSchemaVersion
+                     , "obligation_report_schema_version" .= ("0.12.4" :: T.Text) ])
+
+    it "GT-24 every pre-v0.30.0 verdict key is still present, solver_verdict once and at the head" $ do
+      let ks = keysOf (env 0 "safe" [])
+      mapM_ (\k -> ks `shouldContain` [k]) ["phase", "success", "diagnostics", "body_faithful", "proved_count", "solver_verdict"]
+      length (filter (== "solver_verdict") ks) `shouldBe` 1
+      (KM.lookup "verify_json_version" =<< decodeObj (renderEnvelope (env 0 "safe" []))) `shouldBe` Just (String verifyJsonVersion)
+
+    it "GT-25 the envelope is one JSON object with unique keys (a colliding verdict key is dropped; a nested key's last value wins)" $ do
+      let e = VerifyEnvelope 1 "refuted" (verdict ++ [("strict_errors", Bool True)])
+                [("trust_report", "{\"a\":1}"), ("trust_report", "{\"a\":2}")]
+          ks = keysOf e
+      length ks `shouldBe` length (nub ks)
+      (KM.lookup "trust_report" =<< decodeObj (renderEnvelope e)) `shouldBe` Just (object ["a" .= (2 :: Int)])
+      (KM.lookup "strict_errors" =<< decodeObj (renderEnvelope e)) `shouldBe` Nothing
 
   describe "kernelCheck fail-closed on missing lake (FIX D)" $
     it "returns LeanstralUnavailable (not an exception) when lake is off PATH" $ do

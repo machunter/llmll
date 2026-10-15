@@ -33,6 +33,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
 import Data.Aeson (Value(..), encode, object, toJSON, (.=))
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as K
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -105,6 +106,8 @@ import System.Process (createProcess, proc, std_in, std_out, std_err, StdStream(
 import System.IO (hGetLine)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import Data.IORef (newIORef, readIORef, writeIORef, modifyIORef')
+import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope)
 
 import qualified Data.Map.Strict as Map
 
@@ -1324,86 +1327,36 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- 'obligation_hash' equals this. Lazy, so a run with no proof-cache
           -- entry to check never computes it.
           liveOblHashes = liveObligationHashes stmts
-      -- v0.3.2: --trust-report mode — print trust summary and exit
-      -- LT-CDP (v0.11): when '--cdp' is also requested, defer the trust-report
-      -- emit to the post-solver path so 'discriminative_axis' can be
-      -- populated from the CDP measurement.
-      -- VERIFY-RPT-1 (Commit 4): also defer when '--strict-verified-core' is
-      -- set, so the solver runs and the post-solver gate can both render
-      -- 'refuted' and fail the build closed. A solver-less '--trust-report'
-      -- render shows 'asserted' (no refuted info) by design — see the refuted
-      -- proposal edge case 3.
-      when (trustReport && not cdpFlag && not strictCore) $ do
-        -- Leanstral demo: this early-exit otherwise short-circuits BEFORE the
-        -- post-solver path that fires the proof pipeline (line ~1631), so
-        -- '--leanstral --trust-report' silently skipped proving and wrote no
-        -- artifacts. When the pipeline is requested, run it FIRST — same worklist
-        -- as the solver path (the nonlinear body-fallback functions) — THEN render
-        -- the report. In JSON mode 'runLeanstralPipeline' stays quiet (all its
-        -- prints are 'unless isJson'-gated), so the trust-report JSON is uncorrupted.
-        when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
-          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache retTypes stmts
-          runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
-        -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
-        -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
-        -- raw reload — otherwise a stale verdict (e.g. a return-annotation or post
-        -- edit leaving body/pre identical) renders as live 'verified'. DEF-RET Unit 2
-        -- surfaced this pre-existing solver-less-display staleness bypass.
-        -- Leanstral demo (FIX B, trust surface 2): a '/post/<name>' with an
-        -- untainted 'leanstral' entry in the just-written '.proof-cache.json'
-        -- upgrades that post to 'verified-lean' so the report agrees with the
-        -- kernel-checked certificate. Presence-based + fail-safe (no cache / no
-        -- match → unchanged 'asserted'); applied AFTER the staleness gate.
-        leanCache <- loadProofCache fp
-        -- TERM-REPORT-PLAIN: this render-only path must honor the sidecar's
-        -- persisted descent discharge ('erTerminationVerified' on the post
-        -- record, staleness-gated via 'entrySidecar') the same way it honors
-        -- persisted 'verified' posts — otherwise a discharged '(decreases)'
-        -- renders 'termination_unverified' here while the strict/CDP paths
-        -- (and the sidecar itself) say total. 'measure-not-decreasing' stays
-        -- solver-path-only, exactly like 'refuted' (the by-design note above):
-        -- it is a same-run solver verdict and is never persisted.
-        let report = markTerminationAssumed (termClosureOf _cache stmts (sidecarDischargedSet entrySidecar))
-                   $ markDescentDischarged (sidecarDischargedSet entrySidecar)
-                       (buildTrustReport _cache stmts (upgradeLeanstralPosts liveOblHashes leanCache entrySidecar))
-        if json
-          then TIO.putStrLn (formatTrustReportJson report)
-          else TIO.putStr (formatTrustReport report)
-        -- SIDECAR-ADMIT-1 part (2): this render has ONE input. The emitter has
-        -- not run on this path, so no tier here was checked against a VC this
-        -- run produced, and no contradiction is detectable. Say so rather than
-        -- let the reader assume the report was validated. Exit status is
-        -- unchanged: a run cannot report what it did not compute.
-        unless json $ TIO.putStrLn
-          "   (sidecar-only report: evidence is read from .verified.json and was \
-          \NOT validated against a run of the VC emitter; use --strict-verify for that)"
-        exitSuccess
-      -- v0.6: --spec-coverage mode — print coverage report and exit.
-      -- --strict-verify defers this exit (mirrors the '--trust-report' vs.
-      -- '--cdp'/'--strict-verified-core' deferral above at line ~1147) so the
-      -- solver pipeline still runs and '--weakness-check'/'--cdp' still fire;
-      -- the coverage report prints as a trailing section (below, near the
-      -- final SAFE exit) instead of short-circuiting. Standalone
-      -- '--spec-coverage' (the common case — a fast syntactic check with no
-      -- solver dependency) keeps its existing early-exit behavior unchanged.
-      when (specCoverage && not strictVerify) $ do
-        -- COVERAGE-TIER (F-1982-1): classify coverage tiers on the same
-        -- persisted, staleness-gated sidecar evidence '--trust-report' reads
-        -- ('entrySidecar', loaded+gated above), via the trust report's per-function
-        -- headline levels — so '--spec-coverage' reports 'verified' where the
-        -- trust report does, instead of the prior 'Map.empty' (everything
-        -- 'asserted'). No solver runs here; 'buildTrustReport' is pure and only
-        -- reads the sidecar + computes the call-graph meet. No sidecar on disk →
-        -- empty map → tiers all 'asserted', which is correct (nothing proven yet).
-        let covTrust = buildTrustReport _cache stmts entrySidecar
-            covLevels = Map.fromList [ (teName e, l)
-                                     | e <- trEntries covTrust
-                                     , Just l <- [entryHeadlineLevel e] ]
-            coverageReport = runCoverageWithLevels stmts entrySidecar covLevels
-        if json
-          then TIO.putStrLn (formatCoverageJson coverageReport)
-          else TIO.putStr (formatCoverageText coverageReport)
-        exitSuccess
+      -- TRUST-REPORT-GATE-1 (design §3.2, §3.3): '--trust-report' and
+      -- '--spec-coverage' no longer exit before the solver; both render on the
+      -- post-solver path below, which marks 'refuted' and exits on the verdict.
+      -- The solver-less renders moved to 'llmll trust-report' and
+      -- 'llmll spec-coverage' ('doTrustReport', 'doSpecCoverage').
+      --
+      -- The envelope. Under '--json' every report this run computes is
+      -- recorded here under its §3.3 key instead of printed, and 'finishVerify'
+      -- prints ONE document and exits. 'exit_code' in the document is the
+      -- argument of 'finishVerify', so it cannot differ from the process status.
+      -- Every exit after this point goes through 'finishVerify'.
+      envVerdict <- newIORef ([] :: [(T.Text, Value)])
+      envNested  <- newIORef ([] :: [(T.Text, T.Text)])
+      envSolver  <- newIORef ("not-run" :: T.Text)
+      let nest k raw = modifyIORef' envNested (\xs -> filter ((/= k) . fst) xs ++ [(k, raw)])
+          objectFields v = case v of
+            Object o -> [ (K.toText k, x) | (k, x) <- KM.toList o ]
+            _        -> []
+          finishVerify :: ExitCode -> IO a
+          finishVerify code = do
+            when json $ do
+              vfs <- readIORef envVerdict
+              nfs <- readIORef envNested
+              sv  <- readIORef envSolver
+              TIO.putStrLn (renderEnvelope VerifyEnvelope
+                { veExitCode      = case code of { ExitSuccess -> 0; ExitFailure n -> n }
+                , veSolverVerdict = sv
+                , veVerdict       = vfs
+                , veNested        = nfs })
+            exitWith code
       -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
       emitR <- emitFixpointWithCache emitOpts fp _cache retTypes stmts
@@ -1487,15 +1440,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                    | not (null importDeps)
                    ]
         unless (null errs) $ do
+          -- TRUST-REPORT-GATE-1: the refusal nests under 'strict_errors'; the
+          -- other keys stay verdict keys. 'solver_verdict' is 'not-run'.
           if json
-            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
+            then do
+             nest "strict_errors" . TL.toStrict . encodeToLazyText $
+               [ object [ "cause" .= cause
+                        , "fns"   .= fns
+                        , "msg"   .= msg
+                        ]
+               | (cause, fns, msg) <- errs ]
+             writeIORef envVerdict $ objectFields $
                    object $ ["file" .= fp]
-                         ++ [ "strict_errors" .= [ object [ "cause" .= cause
-                                                         , "fns"   .= fns
-                                                         , "msg"   .= msg
-                                                         ]
-                                                | (cause, fns, msg) <- errs ]
-                            ]
                          ++ [ "fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- causes ]) | not (null causes) ]
                          -- FALLBACK-CENSUS-1: the census reads ONE shape on both
                          -- exit paths. A refused file exits here before the
@@ -1510,7 +1466,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                             ]
             else mapM_ (\(_cause, _fns, msg) ->
                           TIO.putStrLn $ "ERROR: --strict-verified-core: " <> msg) errs
-          exitFailure
+          finishVerify (ExitFailure 1)
 
       -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
       mLF <- do
@@ -1527,7 +1483,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- written so an expert can run fixpoint by hand.
           let reason = "liquid-fixpoint / z3 not found on PATH -- the proof did NOT run"
           if json
-            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
+            then writeIORef envVerdict $ objectFields $
                    object [ "file" .= fp, "fq_file" .= fqPath
                            , "verified" .= False
                            , "solver_available" .= False
@@ -1546,6 +1502,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                    , "    brew install z3                 # (or apt-get install z3)"
                    , ""
                    , "  (.fq constraints written to " <> T.pack fqPath <> " for manual runs.)"
+                     -- TRUST-REPORT-GATE-1 (design edge case 4): the saved
+                     -- evidence is still readable, without a proof run.
+                   , "  (To read saved evidence without the solver: llmll trust-report " <> T.pack fp <> ")"
                    , "  ============================================================"
                    ]
           -- v0.10 F8: obligation-report degradation (no solver → all status="open")
@@ -1557,8 +1516,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             (sidecar, _stale, _contra) <- loadCheckedSidecar _cache verifyKe fp stmts Map.empty
             let trustRpt = buildTrustReport _cache stmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
-            TIO.putStrLn reportText
-          exitWith (ExitFailure 3)   -- distinct: solver unavailable (proof did not run)
+            if json then nest "obligation_report" reportText else TIO.putStrLn reportText
+          finishVerify (ExitFailure 3)   -- distinct: solver unavailable (proof did not run)
 
         Just lfBin -> do
           -- 5. Run liquid-fixpoint
@@ -1640,25 +1599,6 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                             Nothing -> [ n | (n, _) <- Map.toList (meContractStatus menv) ]
                 , let entry = fmap (Map.findWithDefault [] bare) (meBuiltinAxioms menv) ]
 
-          -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
-          -- embedded trust report is refuted-marked. Under
-          -- '--strict-verified-core' do not exit here — fall through to the
-          -- post-solver gate so a refuted result fails closed.
-          when obligationReport $ do
-            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
-                reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
-            TIO.putStrLn reportText
-            -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
-            -- unconditionally — a refuted file must fail closed even via the
-            -- obligation-report view. Under '--strict-verified-core' fall through
-            -- to the post-solver gate instead.
-            unless strictCore $ do
-              -- SIDECAR-ADMIT-1: escalate from success only, so a refuted file
-              -- keeps its own exit code.
-              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json oblContra)
-              exitWith (fqExitCode fqResult)
-
           -- EMIT-DIAG-JSON: fold the EMITTER's diagnostics into the report.
           -- 'fqResultToReport' builds the payload from the solver result alone, so
           -- every warning raised during constraint emission (the >4096-path fallback,
@@ -1671,6 +1611,77 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           let report0 = fqResultToReport fp table fqResult
               report  = report0
                 { reportDiagnostics = erDiagnostics emitR ++ reportDiagnostics report0 }
+
+          -- VERIFY-HEADLINE-1: the proved set behind the SAFE headline and the
+          -- '--json' counts. Pure over this run's emit result and the source.
+          let headline = headlineCounts (cacheAwareAliasMap stmts _cache) retTypes
+                                        stmts (erBodyFaithfulFns emitR)
+                                        termClosure
+                                        (Map.fromList (importAssumedOf _cache stmts (erBodyFaithfulFns emitR)))
+          -- TRUST-REPORT-GATE-1 (design §3.3): the verdict is known, so record it
+          -- now. Every exit below prints it in the one envelope. The keys are the
+          -- pre-v0.30.0 verdict object's, in the same order: the report's, then
+          -- the body-faithful metadata ('solver_verdict' moves to the head).
+          writeIORef envSolver (case fqResult of
+                                  FQSafe     -> "safe"
+                                  FQUnsafe _ -> "refuted"
+                                  FQError _  -> "error")
+          let -- v0.8.0: augment JSON with body-faithful metadata
+              bodyMetaV = object $
+                [ "body_faithful" .= erBodyFaithfulFns emitR
+                , "body_fallback" .= erBodyFallback emitR
+                  -- FALLBACK-REASON-CONST-1: the per-function cause, the histogram source
+                , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- erBodyFallbackCauses emitR ])
+                  -- FALLBACK-CENSUS-1: which constructs refused a contract clause,
+                  -- and which functions the ratio's denominator may count.
+                , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
+                , "fn_kinds" .= toJSON (fnKindMap stmts)
+                  -- VERDICT-UNSTABLE-1: 'success' cannot tell a refutation
+                  -- from a solver that produced no verdict. Both are false,
+                  -- so every consumer reading 'success' alone reported a
+                  -- dead solver as a refutation. 'scripts/fallback_census.py'
+                  -- did exactly that. This field carries the distinction;
+                  -- 'success' keeps its meaning so no consumer breaks.
+                , "solver_verdict" .= (case fqResult of
+                    FQSafe     -> "safe"    :: T.Text
+                    FQUnsafe _ -> "refuted"
+                    FQError _  -> "error")
+                ]
+                -- VERIFY-HEADLINE-1: what the SAFE verdict proved. Emitted on
+                -- SAFE only: the proved set is defined over a solver pass, and
+                -- a refuted or crashed run proved nothing it could name.
+                ++ (case fqResult of
+                      FQSafe ->
+                        [ "all_proved"       .= headlineAllProved headline
+                        , "proved_count"     .= length (hcProved headline)
+                        , "contracted_count" .= length (hcContracted headline)
+                        , "assumed_fns"      .= hcAssumed headline
+                          -- HEADLINE-TERM-1 / STRICT-XMOD-1: proved, but only if
+                          -- a reached function terminates / an import holds.
+                        , "termination_assumed_fns" .= viaJson (hcTermAssumed headline)
+                        , "import_assumed_fns"      .= viaJson (hcImportAssumed headline)
+                        ]
+                      _ -> [])
+          when json $ writeIORef envVerdict (objectFields (toJSON report) ++ objectFields bodyMetaV)
+
+          -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
+          -- embedded trust report is refuted-marked. Under
+          -- '--strict-verified-core' do not exit here — fall through to the
+          -- post-solver gate so a refuted result fails closed.
+          when obligationReport $ do
+            (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
+            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
+                reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
+            if json then nest "obligation_report" reportText else TIO.putStrLn reportText
+            -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
+            -- unconditionally — a refuted file must fail closed even via the
+            -- obligation-report view. Under '--strict-verified-core' fall through
+            -- to the post-solver gate instead.
+            unless strictCore $ do
+              -- SIDECAR-ADMIT-1: escalate from success only, so a refuted file
+              -- keeps its own exit code.
+              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json finishVerify oblContra)
+              finishVerify (fqExitCode fqResult)
 
           -- PROOF-ARTIFACT: emit the unified, replayable record (additive, informational).
           case mProofArtifact of
@@ -1702,60 +1713,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   unless json $ TIO.putStrLn ("   proof-artifact written to " <> T.pack paPath)
               -- SIDECAR-ADMIT-1: the artifact command holds both inputs, so a
               -- contradiction it detected must not report success.
-              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json paContra)
+              when (fqExitCode fqResult == ExitSuccess) (contradictionExit json finishVerify paContra)
 
-          -- 6. Report
-          -- VERIFY-HEADLINE-1: the proved set behind the SAFE headline and the
-          -- '--json' counts. Pure over this run's emit result and the source.
-          let headline = headlineCounts (cacheAwareAliasMap stmts _cache) retTypes
-                                        stmts (erBodyFaithfulFns emitR)
-                                        termClosure
-                                        (Map.fromList (importAssumedOf _cache stmts (erBodyFaithfulFns emitR)))
-          if json
-            then do
-              -- v0.8.0: augment JSON with body-faithful metadata
-              let reportJson = formatReportJson report
-                  bodyMeta = TL.toStrict . encodeToLazyText $ object $
-                    [ "body_faithful" .= erBodyFaithfulFns emitR
-                    , "body_fallback" .= erBodyFallback emitR
-                      -- FALLBACK-REASON-CONST-1: the per-function cause, the histogram source
-                    , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- erBodyFallbackCauses emitR ])
-                      -- FALLBACK-CENSUS-1: which constructs refused a contract clause,
-                      -- and which functions the ratio's denominator may count.
-                    , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
-                    , "fn_kinds" .= toJSON (fnKindMap stmts)
-                      -- VERDICT-UNSTABLE-1: 'success' cannot tell a refutation
-                      -- from a solver that produced no verdict. Both are false,
-                      -- so every consumer reading 'success' alone reported a
-                      -- dead solver as a refutation. 'scripts/fallback_census.py'
-                      -- did exactly that. This field carries the distinction;
-                      -- 'success' keeps its meaning so no consumer breaks.
-                    , "solver_verdict" .= (case fqResult of
-                        FQSafe     -> "safe"    :: T.Text
-                        FQUnsafe _ -> "refuted"
-                        FQError _  -> "error")
-                    ]
-                    -- VERIFY-HEADLINE-1: what the SAFE verdict proved. Emitted on
-                    -- SAFE only: the proved set is defined over a solver pass, and
-                    -- a refuted or crashed run proved nothing it could name.
-                    ++ (case fqResult of
-                          FQSafe ->
-                            [ "all_proved"       .= headlineAllProved headline
-                            , "proved_count"     .= length (hcProved headline)
-                            , "contracted_count" .= length (hcContracted headline)
-                            , "assumed_fns"      .= hcAssumed headline
-                              -- HEADLINE-TERM-1 / STRICT-XMOD-1: proved, but only if
-                              -- a reached function terminates / an import holds.
-                            , "termination_assumed_fns" .= viaJson (hcTermAssumed headline)
-                            , "import_assumed_fns"      .= viaJson (hcImportAssumed headline)
-                            ]
-                          _ -> [])
-              -- Merge by stripping closing } from report and appending body_meta fields
-              let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of
-                    (Just base, Just extra) -> base <> "," <> extra
-                    _ -> reportJson  -- fallback: just emit original
-              TIO.putStrLn augmented
-            else case fqResult of
+          -- 6. Report (text mode). TRUST-REPORT-GATE-1: under '--json' the verdict
+          -- object was recorded in the envelope above; nothing prints here.
+          unless json $ case fqResult of
               FQSafe ->
                 mapM_ TIO.putStrLn (safeHeadlineLines fp headline)
               FQUnsafe _ -> do
@@ -1765,11 +1727,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   oblSidecar <- loadVerified fp
                   let trustRpt = buildTrustReport _cache stmts oblSidecar
                       oblSugs  = mineObligations table fqResult trustRpt stmts
-                  if json
-                    then TIO.putStrLn (formatObligationsJson oblSugs)
-                    else TIO.putStr (formatObligations oblSugs)
+                  TIO.putStr (formatObligations oblSugs)
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
+          -- TRUST-REPORT-GATE-1 (design §3.3): '--obligations' nests under
+          -- 'obligation_suggestions'. The JSON emit used to sit inside the
+          -- text-mode branch, so '--json --obligations' printed no suggestions.
+          when (json && obligations) $ case fqResult of
+            FQUnsafe _ -> do
+              oblSidecar <- loadVerified fp
+              let trustRpt = buildTrustReport _cache stmts oblSidecar
+              nest "obligation_suggestions" (formatObligationsJson (mineObligations table fqResult trustRpt stmts))
+            _ -> pure ()
 
           -- v0.3: write .verified.json sidecar on SAFE; return provenCS so the
           -- CDP block below can derive the verifMap oracle without a disk re-read.
@@ -1868,23 +1837,26 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               let candidates = generateWeaknessCandidates gm stmts
                   typeDefs   = [s | s@STypeDef{} <- stmts]
               weakDiags <- fmap concat $ mapM (checkWeaknessCandidate gm lfBin json typeDefs) candidates
-              if null weakDiags
-                then unless json $ TIO.putStrLn "   No spec weaknesses detected."
-                else do
-                  unless json $ do
+              unless json $
+                if null weakDiags
+                  then TIO.putStrLn "   No spec weaknesses detected."
+                  else do
                     TIO.putStrLn $ "   ⚠ " <> tshow (length weakDiags) <> " spec weakness(es) detected:"
                     mapM_ (TIO.putStrLn . ("   " <>) . formatDiagnostic) weakDiags
-                  when json $ do
-                    let weakJson = object
-                          [ "file" .= fp
-                          , "weakness_check" .= True
-                          , "weaknesses" .= map (\d -> object
-                              [ "kind" .= diagKind d
-                              , "message" .= diagMessage d
-                              , "suggestion" .= diagSuggestion d
-                              ]) weakDiags
-                          ]
-                    TIO.putStrLn . TL.toStrict . encodeToLazyText $ weakJson
+              -- TRUST-REPORT-GATE-1 (design §3.3): nests under 'weakness'. Recorded
+              -- whenever the check ran, with an empty list when it found nothing,
+              -- so a consumer can tell "checked, none" from "not checked".
+              when json $ do
+                let weakJson = object
+                      [ "file" .= fp
+                      , "weakness_check" .= True
+                      , "weaknesses" .= map (\d -> object
+                          [ "kind" .= diagKind d
+                          , "message" .= diagMessage d
+                          , "suggestion" .= diagSuggestion d
+                          ]) weakDiags
+                      ]
+                nest "weakness" (TL.toStrict (encodeToLazyText weakJson))
             _ -> pure ()
 
           -- LT-CDP (v0.11): contract discriminative power — runs on SAFE results.
@@ -1960,7 +1932,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- could run first on the SAFE result. Print the trailing coverage
           -- section from whichever exit point below is actually taken —
           -- '--cdp'/'--trust-report' combinations exit at more than one site.
-          let printDeferredCoverage = when (specCoverage && strictVerify) $ do
+          -- TRUST-REPORT-GATE-1: '--spec-coverage' always renders here now (the
+          -- early exit is gone), on every post-solver exit ('postSolverExit'),
+          -- refuted runs included (design edge case 2).
+          let printDeferredCoverage = when specCoverage $ do
                 -- COVERAGE-TIER (F-1982-1): the solver has run and written the
                 -- sidecar; classify tiers on it (staleness-gated) via the trust
                 -- report's headline levels, so the trailing coverage section
@@ -1974,100 +1949,22 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                              , Just l <- [entryHeadlineLevel e] ]
                     coverageReport = runCoverageWithLevels stmts covSidecar covLevels
                 if json
-                  then TIO.putStrLn (formatCoverageJson coverageReport)
+                  then nest "spec_coverage" (formatCoverageJson coverageReport)
                   else TIO.putStr (formatCoverageText coverageReport)
+              -- TRUST-REPORT-GATE-1: every exit after the solver ran.
+              postSolverExit :: ExitCode -> IO a
+              postSolverExit code = printDeferredCoverage >> finishVerify code
 
-          -- LT-CDP (v0.11): when '--trust-report' was deferred (because '--cdp'
-          -- was set), emit the trust report here so 'discriminative_axis' can
-          -- be populated from the CDP map. The non-CDP early-exit at line ~1078
-          -- already handled the trust-report-only path.
-          -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
-          -- '--strict-verified-core' too, so the gate below can fail closed.
-          when (trustReport && cdpFlag && not strictCore) $ do
-            (sidecar0, _stale, cdpContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            -- TRUST-REPORT-GATE-1 (§3.5): a post-solver render applies the
-            -- hash-checked Leanstral upgrade, as the solver-less render does.
-            -- After the contradiction pass: a Leanstral proof is FOR a fallback
-            -- body, so the pass would otherwise refuse every one of them.
-            cdpLeanCache <- loadProofCache fp
-            let sidecar = upgradeLeanstralPosts liveOblHashes cdpLeanCache sidecar0
-            -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
-            -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
-            -- emitters already exist; they were being fed an unmarked report).
-            let report = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
-                           (markDescentDischarged descentDischargedSet
-                             (markMeasureNotDecreasing measureNotDecreasingSet
-                               (markRefuted refutedSet
-                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))))))
-            if json
-              then TIO.putStrLn (formatTrustReportJson report)
-              else TIO.putStr (formatTrustReport report)
-            printDeferredCoverage
-            -- VERIFY-RPT-1 (Commit 4): fail closed on a refuted/UNSAFE verdict
-            -- instead of the prior unconditional exitSuccess (which re-opened the
-            -- Defect-1 fail-open on '--trust-report --cdp'). Keyed identically to
-            -- the final verdict routing below.
-            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json cdpContra)
-            exitWith (fqExitCode fqResult)
-
-          -- VERIFY-RPT-1 (Commit 4): post-solver '--strict-verified-core'
-          -- conjunct (c). The pre-solver gate (fallback/overflow-tainted) runs
-          -- before the solver and cannot see the verdict; this refuses a
-          -- body-faithful function the solver disproved (refuted), transitively
-          -- per assume-guarantee. The '--trust-report'/'--obligation-report'
-          -- early exits were deferred under strict mode so this point is
-          -- reached; emit a refuted-marked trust report here when requested
-          -- (and not already emitted via the obligation report) before failing.
-          when strictCore $ do
-            (stSidecar0, _stale, stContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            -- TRUST-REPORT-GATE-1 (§3.5): the hash-checked Leanstral upgrade, as
-            -- on the CDP render above.
-            stLeanCache <- loadProofCache fp
-            let stSidecar = upgradeLeanstralPosts liveOblHashes stLeanCache stSidecar0
-            -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
-            -- drops 'discriminative_axis' to a uniform "not-requested" for
-            -- every function under '--strict-verified-core --cdp --json',
-            -- even pre-existing/untouched functions. The sibling non-strict
-            -- branch above (cdpFlag && not strictCore) already threads
-            -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
-                refusal  = refutedClosure refutedSet stReport
-            when (trustReport && not obligationReport) $
-              if json
-                then TIO.putStrLn (formatTrustReportJson stReport)
-                else TIO.putStr (formatTrustReport stReport)
-            unless (Set.null refusal) $ do
-              if json
-                then TIO.putStrLn . TL.toStrict . encodeToLazyText $
-                       object [ "file" .= fp
-                              , "strict_errors" .=
-                                  [ object
-                                      [ "cause" .= ("refuted" :: T.Text)
-                                      , "fns"   .= Set.toList refusal
-                                      , "msg"   .= ("body-faithful function(s) disproved by liquid-fixpoint, or transitively depending on one: "
-                                                    <> T.intercalate ", " (Set.toList refusal))
-                                      ]
-                                  ]
-                              ]
-                else mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
-                           (Set.toList refusal)
-              exitFailure
-            -- SIDECAR-ADMIT-1: reached only when the refusal set is empty, so
-            -- the run is otherwise heading to the solver's own verdict. Escalate
-            -- from success only.
-            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json stContra)
-
-          -- VERIFY-RPT-1 (Defect 1a): route the verdict through the
-          -- 'FQVerifyResult' constructor, not the lossy 'reportSuccess'
-          -- projection. An UNSAFE result that resolved no constraint id used to
-          -- project 'reportSuccess = True' and fail open here; keying on the
-          -- constructor makes 'FQUnsafe'/'FQError' fail closed unconditionally.
-          -- Placed after the SAFE sidecar write above so SAFE still persists.
+          -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint), on SAFE.
+          -- Leanstral demo (Layer-2): --leanstral also routes nonlinear
+          -- 'erBodyFallback' functions (real bodies) into the pipeline.
+          -- TRUST-REPORT-GATE-1: moved ahead of the report renders. The removed
+          -- '--trust-report' early exit used to run the prover before its render;
+          -- the post-solver render below exits on the verdict, so the prover must
+          -- run first or '--leanstral --trust-report' would skip it. A fallback
+          -- obligation never sets the exit status, so this adds no exit (§3.1).
           case fqResult of
             FQSafe -> do
-              -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint).
-              -- Leanstral demo (Layer-2): --leanstral also routes nonlinear
-              -- 'erBodyFallback' functions (real bodies) into the pipeline.
               when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $
                 runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
               -- Leanstral demo (FIX B, trust surface 1): the '.verified.json'
@@ -2089,10 +1986,93 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 saveVerifiedWithAxioms fp upgraded obligationJson' builtinAxiomMap
                 unless json $ TIO.putStrLn
                   "   .verified.json re-stamped: leanstral proof(s) → verified-lean"
-              printDeferredCoverage
-              exitSuccess
-            FQUnsafe _ -> exitFailure
-            FQError _  -> exitFailure
+            _ -> pure ()
+
+          -- LT-CDP (v0.11): the trust report renders here, after the solver, so
+          -- 'discriminative_axis' can be populated from the CDP map.
+          -- TRUST-REPORT-GATE-1 (design §3.2): the plain '--trust-report' renders
+          -- here too (the early exit is gone). Without '--cdp', 'cdpResults' is
+          -- empty and 'buildTrustReportWithCDP' is 'buildTrustReport', so the plain
+          -- case goes through the same marker chain.
+          -- VERIFY-RPT-1 (Commit 4): defer the trust emit under
+          -- '--strict-verified-core', so the gate below can fail closed.
+          when (trustReport && not strictCore) $ do
+            (sidecar0, _stale, cdpContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
+            -- TRUST-REPORT-GATE-1 (§3.5): a post-solver render applies the
+            -- hash-checked Leanstral upgrade, as the solver-less render does.
+            -- After the contradiction pass: a Leanstral proof is FOR a fallback
+            -- body, so the pass would otherwise refuse every one of them.
+            cdpLeanCache <- loadProofCache fp
+            let sidecar = upgradeLeanstralPosts liveOblHashes cdpLeanCache sidecar0
+            -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver path
+            -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
+            -- emitters already exist; they were being fed an unmarked report).
+            let report = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
+                           (markDescentDischarged descentDischargedSet
+                             (markMeasureNotDecreasing measureNotDecreasingSet
+                               (markRefuted refutedSet
+                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))))))
+            if json
+              then nest "trust_report" (formatTrustReportJson report)
+              else TIO.putStr (formatTrustReport report)
+            -- VERIFY-RPT-1 (Commit 4): fail closed on a refuted/UNSAFE verdict
+            -- instead of the prior unconditional exitSuccess (which re-opened the
+            -- Defect-1 fail-open on '--trust-report --cdp'). Keyed identically to
+            -- the final verdict routing below.
+            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json postSolverExit cdpContra)
+            postSolverExit (fqExitCode fqResult)
+
+          -- VERIFY-RPT-1 (Commit 4): post-solver '--strict-verified-core'
+          -- conjunct (c). The pre-solver gate (fallback/overflow-tainted) runs
+          -- before the solver and cannot see the verdict; this refuses a
+          -- body-faithful function the solver disproved (refuted), transitively
+          -- per assume-guarantee. The '--trust-report'/'--obligation-report'
+          -- renders were deferred under strict mode so this point is reached;
+          -- emit a refuted-marked trust report here when requested (and not
+          -- already emitted via the obligation report) before failing.
+          when strictCore $ do
+            (stSidecar0, _stale, stContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
+            -- TRUST-REPORT-GATE-1 (§3.5): the hash-checked Leanstral upgrade, as
+            -- on the render above.
+            stLeanCache <- loadProofCache fp
+            let stSidecar = upgradeLeanstralPosts liveOblHashes stLeanCache stSidecar0
+            -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
+            -- drops 'discriminative_axis' to a uniform "not-requested" for
+            -- every function under '--strict-verified-core --cdp --json',
+            -- even pre-existing/untouched functions. The sibling non-strict
+            -- branch above (not strictCore) already threads 'cdpResults'
+            -- correctly; this branch just never did.
+            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
+                refusal  = refutedClosure refutedSet stReport
+            when (trustReport && not obligationReport) $
+              if json
+                then nest "trust_report" (formatTrustReportJson stReport)
+                else TIO.putStr (formatTrustReport stReport)
+            unless (Set.null refusal) $ do
+              if json
+                then nest "strict_errors" . TL.toStrict . encodeToLazyText $
+                       [ object
+                           [ "cause" .= ("refuted" :: T.Text)
+                           , "fns"   .= Set.toList refusal
+                           , "msg"   .= ("body-faithful function(s) disproved by liquid-fixpoint, or transitively depending on one: "
+                                         <> T.intercalate ", " (Set.toList refusal))
+                           ]
+                       ]
+                else mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
+                           (Set.toList refusal)
+              postSolverExit (ExitFailure 1)
+            -- SIDECAR-ADMIT-1: reached only when the refusal set is empty, so
+            -- the run is otherwise heading to the solver's own verdict. Escalate
+            -- from success only.
+            when (fqExitCode fqResult == ExitSuccess) (contradictionExit json postSolverExit stContra)
+
+          -- VERIFY-RPT-1 (Defect 1a): route the verdict through the
+          -- 'FQVerifyResult' constructor, not the lossy 'reportSuccess'
+          -- projection. An UNSAFE result that resolved no constraint id used to
+          -- project 'reportSuccess = True' and fail open here; keying on the
+          -- constructor makes 'FQUnsafe'/'FQError' fail closed unconditionally.
+          -- Placed after the SAFE sidecar write above so SAFE still persists.
+          postSolverExit (fqExitCode fqResult)
 
 -- ---------------------------------------------------------------------------
 -- TRUST-REPORT-GATE-1: llmll trust-report / llmll spec-coverage
@@ -3388,14 +3368,18 @@ loadCheckedSidecar cache ke fp stmts marks = do
 -- JSON document and touches no schema. Before this, the artifact kernel's
 -- refusal was printed under 'unless json', so a '--json' consumer saw exit 0,
 -- a SAFE verdict and an absent artifact with no explanation anywhere.
-contradictionExit :: Bool -> [T.Text] -> IO ()
-contradictionExit _    []    = pure ()
-contradictionExit json diags = do
+--
+-- TRUST-REPORT-GATE-1: the exit goes through the caller's 'finishVerify' (the
+-- second argument), so under '--json' the one envelope still prints, with
+-- 'exit_code' 4. The refusal message stays on stderr in JSON mode.
+contradictionExit :: Bool -> (ExitCode -> IO ()) -> [T.Text] -> IO ()
+contradictionExit _    _      []    = pure ()
+contradictionExit json finish diags = do
   let hdr = "ERROR: laundered evidence refused (SIDECAR-ADMIT-1):" :: T.Text
   if json
     then mapM_ (hPutStrLn stderr . T.unpack) (hdr : diags)
     else mapM_ TIO.putStrLn (hdr : diags)
-  exitWith (ExitFailure 4)
+  finish (ExitFailure 4)
 
 buildProofArtifact :: FilePath -> T.Text -> SolverMeta -> FQVerifyResult -> EmitResult -> TrustReport
                    -> Either LaunderError ProofArtifact
