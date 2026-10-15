@@ -317,13 +317,13 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
       <*> leanstralOpts
       <*> switch (long "trust-report"
-            <> help "Print transitive trust summary instead of running fixpoint")
+            <> help "Run fixpoint, then print the transitive trust summary (render saved evidence without the solver: llmll trust-report)")
       <*> switch (long "weakness-check"
             <> help "After SAFE, check if trivial implementations also satisfy contracts")
       <*> switch (long "obligations"
             <> help "On UNSAFE, suggest postcondition strengthenings on callees")
       <*> switch (long "spec-coverage"
-            <> help "Print specification coverage report")
+            <> help "Run fixpoint, then print the specification coverage report (without the solver: llmll spec-coverage)")
       <*> switch (long "strict-verified-core"
             <> help "Hard-error if any function falls back from body-faithful verification or carries overflow-tainted verified evidence")
       <*> switch (long "obligation-report"
