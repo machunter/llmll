@@ -45,12 +45,16 @@ module LLMLL.ProofArtifact
     -- * Constants
   , proofArtifactVersion
   , codegenSemanticsVersion
+  , liveComposedVersions
   ) where
 
 import           Data.Aeson
 import           Data.Aeson.Types   (Parser)
 import           Data.Text          (Text)
 import qualified Data.Text          as T
+
+import           LLMLL.TrustReport  (trustReportEmitVersion)
+import           LLMLL.ParserJSON   (expectedSchemaVersion)
 
 -- ---------------------------------------------------------------------------
 -- Tiers
@@ -204,9 +208,20 @@ solverResultFromText _                = Nothing
 
 -- | Versions this artifact COMPOSES — embedded, not re-minted (Risk 6).
 data ComposedVersions = ComposedVersions
-  { cvTrustReport :: Text   -- ^ trust_report_version (1.4.0 at time of writing)
-  , cvSchema      :: Text   -- ^ JSON-AST schemaVersion
+  { cvTrustReport :: Text   -- ^ trust_report_version, from 'trustReportEmitVersion'
+  , cvSchema      :: Text   -- ^ JSON-AST schemaVersion, from 'expectedSchemaVersion'
   } deriving (Show, Eq)
+
+-- | TRUST-REPORT-GATE-1 (C1): the versions a freshly minted artifact composes,
+-- computed from the live emitter constants. Before this they were hard-coded
+-- ("1.4.0" and "0.7.0") and had drifted from both emitters. The field is
+-- informational: 'classifyReplay' does not read it, so an artifact minted with
+-- the old literals still replays.
+liveComposedVersions :: ComposedVersions
+liveComposedVersions = ComposedVersions
+  { cvTrustReport = trustReportEmitVersion
+  , cvSchema      = expectedSchemaVersion
+  }
 
 data ProofArtifact = ProofArtifact
   { paVersion       :: Text             -- ^ proof_artifact_version

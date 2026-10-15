@@ -16422,6 +16422,25 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       classifyReplay (Just "sha256:H") meta RUnknown art       `shouldSatisfy` failed  -- unknown/timeout
       classifyReplay (Just "sha256:H") meta RUnsafeRefuted art `shouldSatisfy` failed  -- verdict mismatch
 
+    -- TRUST-REPORT-GATE-1 (C1): the composed versions are computed from the
+    -- live emitter constants, not hard-coded.
+    it "PA-5: a freshly minted artifact composes the live trust-report and schema versions" $ do
+      liveComposedVersions `shouldBe` ComposedVersions trustReportEmitVersion expectedSchemaVersion
+      cvTrustReport liveComposedVersions `shouldNotBe` "1.4.0"
+      cvSchema liveComposedVersions `shouldNotBe` "0.7.0"
+
+    it "PA-6: an artifact minted before C1 (composed 1.4.0 / 0.7.0) still decodes and replays" $ do
+      let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          Right fr = mkFnRecord pos
+          old  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+                   "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                   RSafe "vc" Nothing [fr] Nothing
+      case decode (encode old) of
+        Nothing  -> expectationFailure "old artifact did not decode"
+        Just art -> do
+          paComposed art `shouldBe` ComposedVersions "1.4.0" "0.7.0"
+          classifyReplay (Just "sha256:H") meta RSafe art `shouldBe` ReplayReproduced RSafe
+
   -- -----------------------------------------------------------------------
   -- CodegenHs: generated Main.hs must be valid, compilable Haskell
   -- (regression for the v0.14.2 doc-audit hangman findings — the `esc`

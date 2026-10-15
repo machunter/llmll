@@ -3262,7 +3262,7 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
   fns <- mapM (mkFnRecord . entryToInputs) (trEntries trust)
   pure ProofArtifact
     { paVersion       = proofArtifactVersion
-    , paComposed      = ComposedVersions { cvTrustReport = "1.4.0", cvSchema = "0.7.0" }
+    , paComposed      = liveComposedVersions  -- TRUST-REPORT-GATE-1 (C1): computed, not hard-coded
     , paSourcePath    = T.pack srcPath
     , paSourceHash    = Just srcHash
     , paSolver        = meta
