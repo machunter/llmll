@@ -1363,14 +1363,14 @@
     },
 
     "TrustDecl": {
-      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def or def-shell function declaration. Multiple trust declarations per module are allowed; duplicates are idempotent.",
+      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Multiple trust declarations per module are allowed; duplicates are idempotent.",
       "type": "object",
       "required": ["kind", "target", "level"],
       "additionalProperties": false,
       "properties": {
         "kind":   { "type": "string", "const": "trust" },
         "target": { "type": "string", "description": "Dot-separated qualified function name, e.g. 'crypto.hash.pbkdf2'." },
-        "level":  { "type": "string", "enum": ["proven", "tested", "asserted"], "description": "The verification level being acknowledged. Sample counts for 'tested' are compiler-internal (stored in sidecar .verified.json, not in surface syntax)." }
+        "level":  { "type": "string", "enum": ["tested", "asserted"], "description": "The evidence level the caller accepted: the declaration silences the trust gap only while the function's checked evidence is at least this level (TRUST-LEVEL-FLOOR-1). 'verified' is rejected, because a solver-backed clause has no trust gap. Sample counts for 'tested' are compiler-internal (stored in sidecar .verified.json, not in surface syntax)." }
       },
       "examples": [
         { "kind": "trust", "target": "crypto.hash.pbkdf2", "level": "asserted" },

@@ -33,6 +33,7 @@ module LLMLL.Diagnostic
   , rebaseToPatch
   -- * v0.3: Stratified verification
   , mkTrustGapWarning
+  , mkTrustGapDeclaredWarning
   -- * v0.3.5: Weakness check
   , mkSpecWeakness
   , mkCandidateUnvalidated
@@ -245,10 +246,22 @@ mkContractReadOOBWarning fnName bytesVar idx n =
 
 -- | v0.3: Cross-module call to a function with an unproven contract.
 mkTrustGapWarning :: Text -> Text -> Text -> Diagnostic
-mkTrustGapWarning funcName level pointer =
-  let msg = "Function " <> funcName <> " has an unproven contract (level: "
-            <> level <> "). Your module inherits this trust gap. "
-            <> "Silence with: (trust " <> funcName <> " :level " <> level <> ")"
+mkTrustGapWarning funcName level = mkTrustGapDeclaredWarning funcName level level Nothing
+
+-- | TRUST-LEVEL-FLOOR-1: the general form. @level@ is the checked level the
+-- warning reports, @hint@ the level the fix-it declares (they differ only for
+-- @tested-joint@, which has no surface form, so the hint is @asserted@), and
+-- @mDeclared@ the level of a @(trust ...)@ declaration the evidence no longer
+-- covers. The @(level: ...)@ prefix is the same in both forms.
+mkTrustGapDeclaredWarning :: Text -> Text -> Text -> Maybe Text -> Text -> Diagnostic
+mkTrustGapDeclaredWarning funcName level hint mDeclared pointer =
+  let declared = case mDeclared of
+        Nothing -> "Your module inherits this trust gap. "
+        Just d  -> "Your (trust " <> funcName <> " :level " <> d <> ") declares "
+                   <> d <> ", which this evidence no longer meets. "
+      msg = "Function " <> funcName <> " has an unproven contract (level: "
+            <> level <> "). " <> declared
+            <> "Silence with: (trust " <> funcName <> " :level " <> hint <> ")"
   in (mkWarning Nothing msg)
        { diagKind = Just "trust-gap"
        , diagPointer = Just pointer

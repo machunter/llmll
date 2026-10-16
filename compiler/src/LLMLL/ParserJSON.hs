@@ -531,7 +531,8 @@ parseTrustDecl o = do
       fail "trust level 'contract-checked' was retired (TRUST-CC-1); \
            \a body that leaves the fragment reports 'asserted' plus a \
            \body_fallback marker on the trust report"
-    "verified"  -> pure $ DLVerified ""
+    -- TRUST-LEVEL-FLOOR-1: rejected, with the S-expression parser's text.
+    "verified" -> fail trustVerifiedRejected
     "tested"   -> pure $ DLTested 0
     "asserted" -> pure DLAsserted
     _          -> fail $ "unknown trust level: " ++ T.unpack lvl

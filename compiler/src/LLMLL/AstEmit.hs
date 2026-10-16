@@ -207,7 +207,9 @@ stmtToJson (STrust target level) =
   object
     [ "kind"   .= ("trust" :: Text)
     , "target" .= target
-    , "level"  .= dlLabel level
+    -- TRUST-LEVEL-FLOOR-1 (A1): the surface spelling. 'dlLabel' appends the
+    -- sample count ("tested (0 samples)"), which 'parseTrustDecl' rejects.
+    , "level"  .= dlSurfaceLabel level
     ]
 
 -- v0.6 suppression governance

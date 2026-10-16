@@ -611,8 +611,7 @@ Without a prior `llmll verify` pass, `llmll build` defaults to `--contracts=full
 When module B imports module A and calls a function whose contract is `tested` or `asserted`, the compiler emits a **downstream trust warning**:
 
 ```
-⚠ Function foo.bar.withdraw has an unproven postcondition.
-  Your module inherits this trust gap.
+Function foo.bar.withdraw has an unproven contract (level: asserted). Your module inherits this trust gap. Silence with: (trust foo.bar.withdraw :level asserted)
 ```
 
 The downstream module can acknowledge the gap explicitly:
@@ -623,7 +622,7 @@ The downstream module can acknowledge the gap explicitly:
 (trust auth.verify-token :level tested)
 ```
 
-This silences the warning and makes the trust decision visible in source. An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
+This silences the warning while the function's checked evidence is at least the declared level, and makes the trust decision visible in source. The declared level states the evidence the caller accepted, so it is a floor: stronger evidence than declared is silent, and evidence that falls below it (a `tested` record demoted to `asserted` after the function's body changed, §4.4.4) re-warns and names both levels, `Your (trust foo.bar.withdraw :level tested) declares tested, which this evidence no longer meets.` `:level verified` is rejected: a solver-backed clause has no trust gap, so the declaration would acknowledge nothing. `tested-joint` evidence has no surface level; accepting it means declaring `asserted`. A declaration never assigns evidence; it changes no tier on the trust report (`TRUST-LEVEL-FLOOR-1`). An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
 
 `(trust ...)` declarations are per-function, allow multiple declarations per module, and are collected regardless of position (the parser enforces no ordering relative to `def`/`def-shell` — the same as `import`). Duplicate declarations for the same function are idempotent (not an error).
 
@@ -702,7 +701,7 @@ The report walks the full module cache (entry-point module plus all imported mod
 
 #### 4.4.5 PBT-Derived Trust Evidence
 
-The `tested` display level can be assigned to a function's post clause from either (a) a source-annotated `(trust f :level tested)` declaration, or (b) a passing `(check ...)` block under the lift rule below. The lift rule, formalised:
+The `tested` display level is assigned to a function's post clause by a passing `(check ...)` block under the lift rule below. A `(trust f :level tested)` declaration does not assign it (§4.4.3). The lift rule, formalised:
 
 ```
               (SCheck p) ∈ Σ
@@ -2424,7 +2423,7 @@ export-decl = "(" "export" { IDENT } ")" ;
 (* Trust declarations (§4.4.3) *)
 (* ============================================================ *)
 trust-decl  = "(" "trust" qual-ident ":level" TRUST_LEVEL ")" ;
-TRUST_LEVEL = "verified" | "tested" | "asserted" ;
+TRUST_LEVEL = "tested" | "asserted" ;
               (* "contract-checked" is rejected at parse time (§4.4.1).        *)
               (* Acknowledges an unproven contract from an imported function.    *)
               (* Per-function, multiple per module. Idempotent (duplicates OK).  *)

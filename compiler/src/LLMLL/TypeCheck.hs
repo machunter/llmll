@@ -1408,20 +1408,28 @@ runTCSketch gm env action = runState action (initialTCState gm env Map.empty Tru
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
+--
+-- TRUST-LEVEL-FLOOR-1: a declaration states the evidence level the caller
+-- accepted, so it silences the gap only while the checked level @vl@ covers the
+-- declared level @tl@ (a floor). Before, the test was @evidenceCovers tl vl@ (a
+-- ceiling): a stale @tested@ record demoted to @asserted@ stayed silent under
+-- @(trust f :level tested)@, and better evidence than declared warned.
 emitTrustGap :: Name -> Map Name DisplayLevel -> Maybe DisplayLevel -> TC ()
 emitTrustGap _ _ Nothing = pure ()
 emitTrustGap _ _ (Just vl) | isSolverBacked vl = pure ()  -- solver-backed: no gap
 emitTrustGap func trusts (Just vl) =
   case Map.lookup func trusts of
-    Just tl | evidenceCovers tl vl -> pure ()  -- trust level sufficient
-    _ -> do
+    Just tl | evidenceCovers vl tl -> pure ()  -- evidence meets the declared floor
+    mDeclared -> do
       ptr <- gets tcPointerStack
       let ptrText = "/" <> T.intercalate "/" (reverse ptr)
-          levelText = case vl of
-            DLAsserted  -> "asserted"
-            DLTested _  -> "tested"
-            _           -> "unknown"
-      modify $ \s -> s { tcErrors = tcErrors s ++ [mkTrustGapWarning func levelText ptrText] }
+          -- 'tested-joint' has no surface level; accepting it means 'asserted'.
+          hint = case vl of
+            DLTestedJoint _ -> "asserted"
+            _               -> dlSurfaceLabel vl
+      modify $ \s -> s { tcErrors = tcErrors s ++
+        [mkTrustGapDeclaredWarning func (dlSurfaceLabel vl) hint
+           (fmap dlSurfaceLabel mDeclared) ptrText] }
 
 -- | Push a path segment onto the pointer stack, run action, then pop (D4).
 -- Structurally identical to withEnv: push/run/pop.
