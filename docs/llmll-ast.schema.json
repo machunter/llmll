@@ -1363,7 +1363,7 @@
     },
 
     "TrustDecl": {
-      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def or def-shell function declaration. Multiple trust declarations per module are allowed; duplicates are idempotent.",
+      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Multiple trust declarations per module are allowed; duplicates are idempotent.",
       "type": "object",
       "required": ["kind", "target", "level"],
       "additionalProperties": false,

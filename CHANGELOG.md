@@ -4,6 +4,33 @@
 
 ## Unreleased (on `main` after v0.30.0)
 
+### `TRUST-LEVEL-FLOOR-1`: a `(trust f :level L)` declaration silences the trust gap only while the evidence covers `L`
+
+A declaration silenced the cross-module trust-gap warning for every level at or below the declared one.
+After a body edit demoted `lib.f`'s `tested` record to `asserted`, `(trust lib.f :level tested)` kept the
+warning silent, and `(trust lib.f :level asserted)` warned once `lib.f` became `tested`. The declared
+level is now a floor: it states the evidence the caller accepted. Design:
+`docs/design/trust-level-floor-proposal.md` Rev 0. Closes `TRUST-LEVEL-FLOOR-1`.
+
+- **A declaration the evidence no longer meets re-warns and names both levels**: `Function lib.f has an
+  unproven contract (level: asserted). Your (trust lib.f :level tested) declares tested, which this
+  evidence no longer meets. Silence with: (trust lib.f :level asserted)`. Stronger evidence than declared
+  is silent.
+- **`(trust f :level verified)` is rejected** in S-expression and JSON-AST, naming `TRUST-LEVEL-FLOOR-1`.
+  A solver-backed clause has no trust gap, so the declaration silenced every gap and acknowledged
+  nothing.
+- **`tested-joint` evidence is labelled `tested-joint`** in the warning (it read `unknown`); the fix-it
+  declares `asserted`, because `tested-joint` has no surface level.
+- **A `tested` trust declaration round-trips through the JSON-AST.** `build --emit` wrote
+  `"level": "tested (0 samples)"`, which the JSON-AST parser rejected. The schema's `TrustDecl` level enum
+  is now `["tested", "asserted"]`: it listed `proven`, which the parser rejects, and not `verified`.
+  Schema version unchanged.
+- **Tests:** Spec.hs floor, rejection and round-trip cells; pytest
+  `test_tlf1_a_stale_declaration_re_warns`; the spec-roundtrip CI step for the gate files now expects
+  68 passed cells.
+
+2336 examples, 0 failures (+6). Python: 313 passed; 511 with `LLMLL_BIN` set (+1), 5 skipped.
+
 ### `TRUST-GAP-KEY-1`: the cross-module trust-gap warning names the checked evidence level
 
 The warning `Function lib.f has an unproven contract (level: …)` read an imported module's
@@ -15,9 +42,9 @@ The warning `Function lib.f has an unproven contract (level: …)` read an impor
   (`TrustReport.checkCacheEvidence`, applied in the loader that `check`, `test`, `build`, `verify`,
   `typecheck`, `checkout` and `diverge-report` share), before any type check reads it. The check only
   lowers a record.
-- **`(trust f :level tested)` is unchanged.** It silences an `asserted` gap before and after, because a
-  declaration silences every level it covers (`evidenceCovers`). The roadmap row said otherwise when
-  it was filed; the closed row records the correction.
+- **`(trust f :level tested)` still silenced an `asserted` gap at this commit**, because a declaration
+  silenced every level it covers (`evidenceCovers`). `TRUST-LEVEL-FLOOR-1` above changes that. The
+  roadmap row said otherwise when it was filed; the closed row records the correction.
 - **Tests:** pytest `test_tgk1_the_trust_gap_warning_reads_the_checked_level` (fails on v0.30.0); the
   spec-roundtrip CI step for the gate files now expects 67 passed cells.
 
