@@ -34,7 +34,7 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8)
 import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
@@ -4778,6 +4778,13 @@ main = hspec $ do
       diagKind d `shouldBe` Just "trust-gap"
       diagPointer d `shouldBe` Just "/statements/0"
 
+    it "TRUST-LEVEL-FLOOR-1: the declared form names both levels and keeps the kind" $ do
+      let d = mkTrustGapDeclaredWarning "lib.f" "asserted" "asserted" (Just "tested") "/statements/1"
+      diagKind d `shouldBe` Just "trust-gap"
+      diagMessage d `shouldSatisfy` T.isInfixOf "(level: asserted)"
+      diagMessage d `shouldSatisfy` T.isInfixOf "(trust lib.f :level tested) declares tested"
+      diagMessage d `shouldSatisfy` T.isInfixOf "Silence with: (trust lib.f :level asserted)"
+
   describe "VerifiedCache: verifiedPath" $ do
     it "foo.llmll -> foo.llmll.verified.json" $
       verifiedPath "foo.llmll" `shouldBe` "foo.llmll.verified.json"
@@ -4971,20 +4978,51 @@ main = hspec $ do
           report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
       countTrustGaps report `shouldBe` 0
 
-    -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
-    -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
-    it "trust at asserted does NOT suppress tested-level gap" $ do
+    -- Test 6 (TRUST-LEVEL-FLOOR-1): a declaration is a floor. Evidence stronger
+    -- than the declared level meets it, so the gap is silent. Before the floor,
+    -- this test asserted the opposite (a ceiling: "asserted < tested").
+    it "trust at asserted suppresses a tested-level gap (floor)" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
-            [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
+            [ STrust "auth.verify.auth.verify" DLAsserted
             , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
                 (Contract Nothing Nothing Nothing Nothing Nothing [] [])
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
           report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
-      -- Trust at asserted is insufficient for tested contracts → gap still emitted
-      countTrustGaps report `shouldSatisfy` (> 0)
+      countTrustGaps report `shouldBe` 0
+
+    -- TRUST-LEVEL-FLOOR-1 positive witness: evidence weaker than the declared
+    -- level (a tested record demoted to asserted) re-warns, naming both levels.
+    let floorGaps declared actual =
+          let authEnv = mkAuthModule (ContractStatus Nothing (Just (EvidenceRecord actual False Nothing [] False Nothing Nothing False Nothing False [])) [])
+              cache   = DM.fromList [(authModPath, authEnv)]
+              callerStmts =
+                [ STrust "auth.verify.auth.verify" declared
+                , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
+                    (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+                    (EApp "auth.verify.auth.verify" [EVar "uid"])
+                ]
+              report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          in [ diagMessage d | d <- reportDiagnostics report, diagKind d == Just "trust-gap" ]
+
+    it "TRUST-LEVEL-FLOOR-1: trust at tested re-warns when the evidence is asserted" $ do
+      case floorGaps (DLTested 0) DLAsserted of
+        [m] -> do
+          m `shouldSatisfy` T.isInfixOf "(level: asserted)"
+          m `shouldSatisfy` T.isInfixOf "declares tested"
+        ms  -> expectationFailure ("expected one trust-gap, got: " ++ show ms)
+
+    it "TRUST-LEVEL-FLOOR-1: trust at tested does not cover tested-joint evidence" $ do
+      case floorGaps (DLTested 0) (DLTestedJoint 50) of
+        [m] -> do
+          m `shouldSatisfy` T.isInfixOf "(level: tested-joint)"
+          m `shouldSatisfy` T.isInfixOf "Silence with: (trust auth.verify.auth.verify :level asserted)"
+        ms  -> expectationFailure ("expected one trust-gap, got: " ++ show ms)
+
+    it "TRUST-LEVEL-FLOOR-1: trust at asserted covers tested-joint evidence" $ do
+      floorGaps DLAsserted (DLTestedJoint 50) `shouldBe` []
 
     -- Test 7: Two modules with different trust levels — both are checked independently
     it "two imported modules with different trust levels: gaps emitted correctly" $ do

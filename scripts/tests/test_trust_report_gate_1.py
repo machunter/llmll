@@ -240,6 +240,31 @@ def test_tgk1_the_trust_gap_warning_reads_the_checked_level(tmp_path):
     assert gap_levels() == ["asserted"]        # the body changed after the test
 
 
+@needs_binary
+def test_tlf1_a_stale_declaration_re_warns(tmp_path):
+    """TRUST-LEVEL-FLOOR-1. A `(trust f :level L)` declaration silences the gap
+    only while f's checked evidence covers L. Under the old ceiling rule
+    `(trust lib.sq :level tested)` stayed silent after the body edit demoted the
+    record to `asserted`; now the warning returns and names both levels."""
+    lib_src = ("(def-shell sq [x: int] -> int\n  (post (>= result 0))\n  {body})\n"
+               "(check \"sq is non-negative\"\n  (for-all [x: int]\n    (>= (sq x) 0)))\n")
+    lib = _write(tmp_path, "lib.llmll", lib_src.format(body="(* x x)"))
+    _write(tmp_path, "main.llmll", "(import lib)\n(trust lib.sq :level tested)\n"
+                                   "(def-shell f [x: int] -> int\n  (lib.sq x))\n")
+    assert _llmll(tmp_path, "test", "lib.llmll").returncode == 0
+
+    def gaps():
+        r = _llmll(tmp_path, "--json", "check", "main.llmll")
+        return [d["message"] for d in json.loads(r.stdout)["diagnostics"]
+                if d.get("kind") == "trust-gap"]
+
+    assert gaps() == []                        # control: tested evidence meets the declaration
+    lib.write_text(lib_src.format(body="(+ (* x x) 0)"), encoding="utf-8")
+    [msg] = gaps()                             # the body changed after the test
+    assert "(level: asserted)" in msg
+    assert "(trust lib.sq :level tested) declares tested" in msg
+
+
 # ---------------------------------------------------------------------------
 # C4: the flag law (design §3.1) and the one document (design §3.3)
 # ---------------------------------------------------------------------------

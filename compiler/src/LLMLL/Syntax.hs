@@ -61,6 +61,7 @@ module LLMLL.Syntax
   , isSolverBacked
   , dlProverName
   , dlLabel
+  , dlSurfaceLabel
   , akLabel
   , ContractStatus(..)
 
@@ -616,6 +617,16 @@ dlLabel (DLTestedJoint n)     = "tested-joint (" <> tshow n <> " samples)"
 dlLabel (DLTested n)          = "tested (" <> tshow n <> " samples)"
 dlLabel (DLVerified p)        = "verified (" <> p <> ")"
 dlLabel (DLVerifiedLean _)    = "verified-lean"
+
+-- | TRUST-LEVEL-FLOOR-1: the level as a @(trust f :level L)@ declaration and a
+-- trust-gap warning spell it, without the sample count or prover that 'dlLabel'
+-- appends.
+dlSurfaceLabel :: DisplayLevel -> Text
+dlSurfaceLabel DLAsserted         = "asserted"
+dlSurfaceLabel (DLTestedJoint _)  = "tested-joint"
+dlSurfaceLabel (DLTested _)       = "tested"
+dlSurfaceLabel (DLVerified _)     = "verified"
+dlSurfaceLabel (DLVerifiedLean _) = "verified-lean"
 
 -- | Human display label for an assumption kind.
 akLabel :: AssumptionKind -> Text

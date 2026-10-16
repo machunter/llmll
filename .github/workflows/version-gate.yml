@@ -591,8 +591,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/trust-report-gate.log"; then
             echo "a TRUST-REPORT-GATE-1 cell skipped; fixpoint and jsonschema must be present here"; exit 1
           fi
-          grep -q ' 67 passed' "$RUNNER_TEMP/trust-report-gate.log" \
-            || { echo "TRUST-REPORT-GATE-1: expected 67 passed cells"; exit 1; }
+          grep -q ' 68 passed' "$RUNNER_TEMP/trust-report-gate.log" \
+            || { echo "TRUST-REPORT-GATE-1: expected 68 passed cells"; exit 1; }
 
       # HASH-PRE-ASYM and TRUST-AXIOM-1: a verified record is keyed by the live
       # source and survives every read that does not run the solver, and the
