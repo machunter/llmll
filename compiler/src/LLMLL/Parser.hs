@@ -459,7 +459,9 @@ pTrustLevel = choice
       *> fail "trust level 'contract-checked' was retired (TRUST-CC-1); \
               \a body that leaves the fragment reports 'asserted' plus a \
               \body_fallback marker on the trust report"
-  , DLVerified ""        <$ symbol "verified"
+  -- TRUST-LEVEL-FLOOR-1: a declaration silences a gap only while the evidence
+  -- covers the declared level, and a verified clause has no gap to silence.
+  , try (symbol "verified") *> fail trustVerifiedRejected
   , DLTested 0           <$ symbol "tested"
   , DLAsserted           <$ symbol "asserted"
   ]

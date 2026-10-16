@@ -62,6 +62,7 @@ module LLMLL.Syntax
   , dlProverName
   , dlLabel
   , dlSurfaceLabel
+  , trustVerifiedRejected
   , akLabel
   , ContractStatus(..)
 
@@ -627,6 +628,15 @@ dlSurfaceLabel (DLTestedJoint _)  = "tested-joint"
 dlSurfaceLabel (DLTested _)       = "tested"
 dlSurfaceLabel (DLVerified _)     = "verified"
 dlSurfaceLabel (DLVerifiedLean _) = "verified-lean"
+
+-- | TRUST-LEVEL-FLOOR-1: the one rejection text both parsers give for
+-- @(trust f :level verified)@. A declaration silences a gap only while the
+-- evidence covers the declared level, and a solver-backed clause has no gap,
+-- so a @verified@ declaration could never silence anything.
+trustVerifiedRejected :: String
+trustVerifiedRejected =
+  "trust level 'verified' acknowledges nothing: a solver-backed clause has no \
+  \trust gap (TRUST-LEVEL-FLOOR-1); declare the level the trust-gap warning reports"
 
 -- | Human display label for an assumption kind.
 akLabel :: AssumptionKind -> Text

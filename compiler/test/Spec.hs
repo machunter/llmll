@@ -4724,10 +4724,21 @@ main = hspec $ do
         Left err -> show err `shouldContain` "TRUST-CC-1"
         Right ok -> expectationFailure $ "retired level parsed: " ++ show ok
 
-    it "still parses the surviving trust levels" $ do
+    -- TRUST-LEVEL-FLOOR-1: a verified clause has no trust gap, so a 'verified'
+    -- declaration could never silence one. Rejected with a named error.
+    it "REJECTS (trust z3.verify :level verified) and names TRUST-LEVEL-FLOOR-1" $ do
       case parseStatements GrammarCoreInversion "<test>" "(trust z3.verify :level verified)" of
-        Right [STrust target (DLVerified _)] -> target `shouldBe` "z3.verify"
-        other -> expectationFailure $ "unexpected: " ++ show other
+        Left err -> show err `shouldContain` "TRUST-LEVEL-FLOOR-1"
+        Right ok -> expectationFailure $ "verified trust level parsed: " ++ show ok
+
+    it "REJECTS the JSON-AST trust level \"verified\" and names TRUST-LEVEL-FLOOR-1" $ do
+      let doc = object [ "schemaVersion" .= expectedSchemaVersion
+                       , "statements" .= [object [ "kind" .= ("trust" :: T.Text)
+                                                 , "target" .= ("a.b" :: T.Text)
+                                                 , "level" .= ("verified" :: T.Text) ]] ]
+      case parseJSONASTValue GrammarCoreInversion doc of
+        Left ds  -> concatMap (T.unpack . diagMessage) ds `shouldContain` "TRUST-LEVEL-FLOOR-1"
+        Right ok -> expectationFailure $ "verified trust level parsed: " ++ show ok
 
   describe "parseWeaknessOk (S-expression)" $ do
     it "parses (weakness-ok f \"known identity\")" $ do
