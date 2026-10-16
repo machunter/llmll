@@ -216,6 +216,30 @@ def test_e10b_an_imported_subject_keeps_its_tested_record(tmp_path):
     assert rep["discarded_records"] == ["lib.sq"]
 
 
+@needs_binary
+def test_tgk1_the_trust_gap_warning_reads_the_checked_level(tmp_path):
+    """TRUST-GAP-KEY-1. The module loader merged an imported module's sidecar into
+    the cache as written, and the type checker's cross-module trust-gap warning
+    read that, so after an edit of `lib.sq`'s body it still named `level: tested`
+    while every other reader showed `asserted`. The cache now passes the read
+    check where it is loaded. Failed on v0.30.0 (the edited case said `tested`)."""
+    lib_src = ("(def-shell sq [x: int] -> int\n  (post (>= result 0))\n  {body})\n"
+               "(check \"sq is non-negative\"\n  (for-all [x: int]\n    (>= (sq x) 0)))\n")
+    lib = _write(tmp_path, "lib.llmll", lib_src.format(body="(* x x)"))
+    _write(tmp_path, "main.llmll", "(import lib)\n(def-shell f [x: int] -> int\n  (lib.sq x))\n")
+    assert _llmll(tmp_path, "test", "lib.llmll").returncode == 0
+
+    def gap_levels():
+        r = _llmll(tmp_path, "--json", "check", "main.llmll")
+        diags = json.loads(r.stdout)["diagnostics"]
+        return [d["message"].split("(level: ")[1].split(")")[0]
+                for d in diags if d.get("kind") == "trust-gap"]
+
+    assert gap_levels() == ["tested"]          # control: the record matches its source
+    lib.write_text(lib_src.format(body="(+ (* x x) 0)"), encoding="utf-8")
+    assert gap_levels() == ["asserted"]        # the body changed after the test
+
+
 # ---------------------------------------------------------------------------
 # C4: the flag law (design §3.1) and the one document (design §3.3)
 # ---------------------------------------------------------------------------

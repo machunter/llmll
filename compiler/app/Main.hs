@@ -84,7 +84,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, checkCacheEvidence, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -531,8 +531,12 @@ loadStatementsMulti json gm fp = do
         -- applies to each dependency. Every caller of this loader (check,
         -- test, build, verify, typecheck, checkout context, diverge-report)
         -- gets the rewritten entry statements.
-        Right (cache, loadOrder) ->
-          pure (Right (resolveQualifiedTypes stmts (closureOf stmts cache), cache, loadOrder))
+        -- TRUST-GAP-KEY-1: every cached module's evidence passes the read
+        -- check here, before any caller type-checks against it, so the
+        -- trust-gap warning cannot read a record the source no longer matches.
+        Right (cache0, loadOrder) ->
+          let cache = checkCacheEvidence cache0
+          in pure (Right (resolveQualifiedTypes stmts (closureOf stmts cache), cache, loadOrder))
   where
     -- P1 fix: skip built-in capability namespace imports (wasi.*, haskell.*, c.*).
     -- These are resolved by the codegen preamble, not by file-system lookup.

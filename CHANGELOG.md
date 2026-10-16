@@ -2,6 +2,27 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.0)
+
+### `TRUST-GAP-KEY-1`: the cross-module trust-gap warning names the checked evidence level
+
+The warning `Function lib.f has an unproven contract (level: …)` read an imported module's
+`.verified.json` as written. After an edit of `lib.f`'s body, the trust report showed `lib.f` as
+`asserted` (v0.30.0's evidence-key check), but the warning still said `level: tested`. Closes
+`TRUST-GAP-KEY-1`.
+
+- **Every cached module's evidence passes the read check where the cache is loaded**
+  (`TrustReport.checkCacheEvidence`, applied in the loader that `check`, `test`, `build`, `verify`,
+  `typecheck`, `checkout` and `diverge-report` share), before any type check reads it. The check only
+  lowers a record.
+- **`(trust f :level tested)` is unchanged.** It silences an `asserted` gap before and after, because a
+  declaration silences every level it covers (`evidenceCovers`). The roadmap row said otherwise when
+  it was filed; the closed row records the correction.
+- **Tests:** pytest `test_tgk1_the_trust_gap_warning_reads_the_checked_level` (fails on v0.30.0); the
+  spec-roundtrip CI step for the gate files now expects 67 passed cells.
+
+2330 examples, 0 failures (unchanged). Python: 313 passed; 510 with `LLMLL_BIN` set (+1), 5 skipped.
+
 <a id="Latest"></a>
 
 ## v0.30.0: `verify --trust-report` and `--spec-coverage` run the solver; one `verify --json` document; `tested` and `verified-lean` evidence checked against the live source (2026-10-15)
