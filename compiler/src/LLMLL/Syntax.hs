@@ -621,7 +621,8 @@ dlLabel (DLVerifiedLean _)    = "verified-lean"
 
 -- | TRUST-LEVEL-FLOOR-1: the level as a @(trust f :level L)@ declaration and a
 -- trust-gap warning spell it, without the sample count or prover that 'dlLabel'
--- appends.
+-- appends. 'LLMLL.AstEmit' writes it for a trust declaration, so the JSON-AST
+-- @level@ is one that 'LLMLL.ParserJSON.parseTrustDecl' reads back.
 dlSurfaceLabel :: DisplayLevel -> Text
 dlSurfaceLabel DLAsserted         = "asserted"
 dlSurfaceLabel (DLTestedJoint _)  = "tested-joint"

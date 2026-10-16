@@ -4740,6 +4740,19 @@ main = hspec $ do
         Left ds  -> concatMap (T.unpack . diagMessage) ds `shouldContain` "TRUST-LEVEL-FLOOR-1"
         Right ok -> expectationFailure $ "verified trust level parsed: " ++ show ok
 
+    -- TRUST-LEVEL-FLOOR-1 (A1): the emitter wrote dlLabel ("tested (0 samples)"),
+    -- which parseTrustDecl rejected, so a tested declaration failed the JSON
+    -- round-trip.
+    it "a trust declaration round-trips through the JSON-AST" $ do
+      let roundTrip st = parseJSONASTValue GrammarCoreInversion $
+            object [ "schemaVersion" .= expectedSchemaVersion, "statements" .= [stmtToJson st] ]
+      roundTrip (STrust "auth.verify-token" (DLTested 0)) `shouldSatisfy` \case
+        Right [STrust "auth.verify-token" (DLTested _)] -> True
+        _ -> False
+      roundTrip (STrust "crypto.hash.pbkdf2" DLAsserted) `shouldSatisfy` \case
+        Right [STrust "crypto.hash.pbkdf2" DLAsserted] -> True
+        _ -> False
+
   describe "parseWeaknessOk (S-expression)" $ do
     it "parses (weakness-ok f \"known identity\")" $ do
       case parseStatements GrammarCoreInversion "<test>" "(weakness-ok f \"known identity\")" of
