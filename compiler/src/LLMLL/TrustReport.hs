@@ -46,6 +46,7 @@ module LLMLL.TrustReport
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , downgradeStaleVerifiedSidecar -- ADMIT-VERIFIED: drop body-faithful evidence on hash drift / absence
   , downgradeStaleVerifiedSidecarIn -- HASH-PRE-ASYM: the same, against the module's own KeyEnv
+  , checkCacheEvidence           -- TRUST-GAP-KEY-1: every cached module's evidence, checked once at load
   , carryForwardTested            -- TRUST-REPORT-GATE-1: the tested records a SAFE write keeps
   , downgradeContradictedTiers    -- SIDECAR-ADMIT-1: drop a positive tier THIS RUN contradicts
   , positiveTier                  -- SIDECAR-ADMIT-1: the tier class whose backing is a body-faithful VC
@@ -1143,6 +1144,25 @@ extractSuppressions stmts = nubBy' [(n, r) | SWeaknessOk n r <- stmts]
 -- upgrade a tier. The entry module's own statuses are NOT revalidated here — the
 -- entry sidecar's staleness gate already ran upstream (Main.hs:1108) and is
 -- passed in via the 'sidecar' argument to 'buildTrustReport'.
+-- | TRUST-GAP-KEY-1: apply the read check to every cached module's own
+-- evidence, once, where the cache is loaded. The module loader merges each
+-- imported module's @.verified.json@ into 'meContractStatus' as written
+-- ('Module.loadModule'); it cannot apply the check itself, because this module
+-- imports 'LLMLL.Module'. Before this, the type checker seeded
+-- 'tcContractStatus' from that raw map, so the cross-module trust-gap warning
+-- read a @tested@ record whose @subject_key@ no longer matched as @tested@, and
+-- a @(trust f :level tested)@ declaration silenced it. The check only lowers a
+-- record, so applying it again (as 'collectAllContractStatus' and
+-- 'ProgramGraph' do) changes nothing.
+checkCacheEvidence :: ModuleCache -> ModuleCache
+checkCacheEvidence cache = Map.map check cache
+  where
+    check menv =
+      let (validated, _diags) = downgradeStaleVerifiedSidecarIn
+                                  cache (moduleKeyEnv cache menv)
+                                  (meStatements menv) (meContractStatus menv)
+      in menv { meContractStatus = validated }
+
 collectAllContractStatus :: ModuleCache -> [Statement] -> Map Name ContractStatus
 collectAllContractStatus cache entryStmts =
   let cacheCS = Map.foldlWithKey' (\acc path menv ->
