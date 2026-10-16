@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.0)
+<a id="Latest"></a>
+
+## v0.30.1: a trust declaration is a floor on the checked evidence; the trust-gap warning names the checked level (2026-10-16)
 
 ### `TRUST-LEVEL-FLOOR-1`: a `(trust f :level L)` declaration silences the trust gap only while the evidence covers `L`
 
@@ -50,7 +52,7 @@ The warning `Function lib.f has an unproven contract (level: …)` read an impor
 
 2330 examples, 0 failures (unchanged). Python: 313 passed; 510 with `LLMLL_BIN` set (+1), 5 skipped.
 
-<a id="Latest"></a>
+---
 
 ## v0.30.0: `verify --trust-report` and `--spec-coverage` run the solver; one `verify --json` document; `tested` and `verified-lean` evidence checked against the live source (2026-10-15)
 
