@@ -79,6 +79,9 @@ library:
     - LLMLL.CodegenHs
     - LLMLL.Diagnostic
     - LLMLL.Module
+    # XMOD-RUN-LOAD-1: the import-closure loader, shared by Main and PatchApply.
+    # Separate from Module because it applies TrustReport.checkCacheEvidence.
+    - LLMLL.LoadClosure
     - LLMLL.Hub
     - LLMLL.HubQuery
     # D4: liquid-fixpoint decoupled verification backend

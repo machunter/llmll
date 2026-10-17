@@ -1,0 +1,5 @@
+;; PBT-QUAL-1: the property reaches h only through f's body.
+(import helper)
+(open helper)
+(check "f adds one"
+  (for-all [n: int] (= (f n) (+ n 1))))

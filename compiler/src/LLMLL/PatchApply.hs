@@ -51,11 +51,12 @@ import GHC.Generics (Generic)
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, parsePointer)
 import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), CheckoutLock(..))
 import LLMLL.ParserJSON (parseJSONASTValue)
-import LLMLL.TypeCheck (typeCheck, emptyEnv)
+import LLMLL.TypeCheck (typeCheckWithCacheRet, emptyEnv)
+import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch, writeFileUtf8)
-import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), normalizeDefStmt)
+import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
-import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..), renderFallbackCause)
+import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), renderFallbackCause)
 import LLMLL.DiagnosticFQ (parseFQOutcome, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -483,16 +484,30 @@ applyPatchWithMode scopeMode requireProof mode fp pr = do
                           , reportSuccess     = False
                           , reportDiagnostics = map (rebaseToPatch opInfos) diags
                           }
-                        Right stmts -> do
-                          -- 6. Re-typecheck
-                          let report = typeCheck mode emptyEnv stmts
+                        Right stmts0 -> do
+                          -- 6. Re-typecheck against the import closure.
+                          -- XMOD-RUN-LOAD-1: this was `typeCheck mode emptyEnv`,
+                          -- so a call to an imported `lib.f` was an unknown name
+                          -- (a warning) and a fill such as (lib.f "x") reported
+                          -- PatchSuccess, which `check` then rejected. The closure
+                          -- comes from the patched statements' imports, resolved
+                          -- against the file's directory as `check` resolves them.
+                          loaded <- loadImportClosure mode fp stmts0
+                          let (stmts, report, cache, retTypes) = case loaded of
+                                Left diags -> (stmts0, DiagnosticReport
+                                  { reportPhase       = "patch"
+                                  , reportSuccess     = False
+                                  , reportDiagnostics = diags }, Map.empty, Map.empty)
+                                Right (ss, c, _) ->
+                                  let (r, rts) = typeCheckWithCacheRet mode c emptyEnv ss
+                                  in (ss, r, c, rts)
                           if reportSuccess report
                             then do
                               -- 6.5 Re-verify via SMT (if contracts present).
                               -- R8: slice to the patched function's body-VC; a patch
                               -- changes only that function's body (contracts never
                               -- change), so re-verifying {F} is sound and complete.
-                              verifyResult <- reVerify fp stmts (patchTargetFns (prPatch pr) stmts)
+                              verifyResult <- reVerify fp cache retTypes stmts (patchTargetFns (prPatch pr) stmts)
                               case verifyResult of
                                 -- PATCH-FAILOPEN-1: no verdict is not a pass. Don't
                                 -- write, preserve the lock so the same token can retry
@@ -640,14 +655,20 @@ patchTargetFns ops stmts =
 
 -- | R8: @bodyTargets@ slices the re-verify — @Just [F]@ emits only F's body-VC
 -- (the patched function); @Nothing@ re-verifies the whole module (fail-safe).
-reVerify :: FilePath -> [Statement] -> Maybe [Text]
+--
+-- XMOD-RUN-LOAD-1 amendment A1: the emitter gets the import closure and the
+-- checker's return types, as `verify` does ('emitFixpointWithCache'). It ran
+-- with neither, so a fill calling a contracted imported function fell back as
+-- "outside the fragment" here while `verify` proved the same file SAFE, and
+-- `patch --require-proof` refused a fill `verify` proves.
+reVerify :: FilePath -> ModuleCache -> Map.Map Text Type -> [Statement] -> Maybe [Text]
          -> IO (Either VerifyUnavailable (Either (DiagnosticReport, Maybe CalleePreUnmet) [PatchedFn]))
-reVerify fp stmts bodyTargets
+reVerify fp cache retTypes stmts bodyTargets
   | not (hasContracts stmts) = pure (Right (Right []))  -- no contracts → nothing to prove
   | otherwise = do
       -- Emit .fq constraints with body-faithful VCs (R8: sliced to bodyTargets)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True, emitBodyVCTargets = bodyTargets }
-      emitR <- emitFixpointWith emitOpts fp stmts
+      emitR <- emitFixpointWithCache emitOpts fp cache retTypes stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR
       -- Find liquid-fixpoint binary

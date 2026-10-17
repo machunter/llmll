@@ -57,6 +57,9 @@ import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
 import LLMLL.Contracts (evalExprStaticWith, FuncEnv, buildFuncEnv, maxFuel)
+import LLMLL.BuildScope (stripModuleQualifiers, longestModulePrefix)
+import LLMLL.CallGraph (extractRefs)
+import LLMLL.HoleAnalysis (extractCalls)
 
 -- ---------------------------------------------------------------------------
 -- Type-alias environment (OBLIG-PBT-2 / F-032)
@@ -150,21 +153,47 @@ data PBTResult = PBTResult
 --   * Imports come first, local stmts last — 'Map.fromList' right-bias gives
 --     local-shadows-import semantics matching the type-checker.
 --
--- Qualified-name resolution (@solution.plus-one@) is not done here. The
--- earlier reason (LLMLL.md §8.5: qualified names do not resolve at runtime)
--- stopped being true with XMOD-SCOPE R3: @check@ accepts @M.f@ for a direct
--- import, and 'CodegenHs.generateHaskellMulti' emits the bare name. The real
--- limit is this function: it forwards definitions of OPENED modules only and
--- does not strip qualifiers, so a property that calls @M.f@ without @open@
--- does not find @M.f@. Widening it is a follow-up row, not part of
--- XMOD-SCOPE (docs/design/xmod-scope-implementation-plan.md, risk 4).
+-- PBT-QUAL-1 widens this in three ways, so a property sees what the built
+-- program sees ('CodegenHs.generateHaskellMulti'):
+--
+--   * A direct @(import M)@ of a cached user module forwards each exported
+--     definition of M that the file names QUALIFIED, as @M.f@. Since
+--     XMOD-SCOPE R3 that call resolves with the import alone. An unqualified
+--     name still needs an open (M-08.2 pins that a name the selective open
+--     leaves out is not forwarded).
+--   * The helper closure: an unexported definition that a forwarded body or
+--     contract calls (transitively, across the cache) is forwarded too, or
+--     the forwarded body cannot reduce and its property is skipped. A helper
+--     no forwarded definition reaches stays out (M-08.3).
+--   * 'BuildScope.stripModuleQualifiers' rewrites @M.f@ to @f@ for every
+--     cached module path. R1 ('checkBuildScope') makes each top-level name
+--     unique in the closure, so the rewrite cannot capture a declaration.
 assembleTestStatements :: [Statement] -> ModuleCache -> [Statement]
 assembleTestStatements localStmts cache =
   let openSpecs   = [(openPath o, openNames o) | o@SOpen{} <- localStmts]
-      importedDLs = concatMap importedDefLogics openSpecs
-  in importedDLs ++ localStmts
+      paths       = Set.fromList (Map.keys cache)
+      imported    = Set.fromList
+                      [ path | SImport imp <- localStmts
+                             , let path = T.splitOn "." (importPath imp)
+                             , Map.member path cache ]
+      qualified   = Map.fromListWith (++)
+                      [ (m, [x]) | r <- concatMap localRefs localStmts
+                                 , Just (m, x) <- [longestModulePrefix paths r]
+                                 , Set.member m imported ]
+      importSpecs = [ (m, Just xs) | (m, xs) <- Map.toList qualified ]
+      strip       = stripModuleQualifiers paths
+      visible     = dedupDefs (strip (concatMap forwardedDefs (openSpecs ++ importSpecs)))
+      localNames  = Set.fromList (concatMap (maybe [] pure . testDefName) localStmts)
+      universe    = Map.fromList
+        [ (n, s) | menv <- Map.elems cache
+                 , s <- strip (meStatements menv)
+                 , Just n <- [testDefName s] ]
+      helpers     = helperClosure universe
+                      (localNames `Set.union` Set.fromList (concatMap (maybe [] pure . testDefName) visible))
+                      visible
+  in visible ++ helpers ++ strip localStmts
   where
-    importedDefLogics (path, mNames) =
+    forwardedDefs (path, mNames) =
       case Map.lookup path cache of
         Nothing   -> []
         Just menv ->
@@ -172,12 +201,64 @@ assembleTestStatements localStmts cache =
                 Nothing -> const True
                 Just ns -> let s = Set.fromList ns in (`Set.member` s)
               isExported n = Map.member n (meExports menv)
-          in [ s | s@SDefLogic{defLogicName = n} <- meStatements menv
+          in [ s | s <- meStatements menv, Just n <- [testDefName s]
                  , isExported n, nameFilter n ]
-             ++ [ s | s@SDef{defName = n} <- meStatements menv
-                    , isExported n, nameFilter n ]
-             ++ [ s | s@SDefShell{defShellName = n} <- meStatements menv
-                    , isExported n, nameFilter n ]
+
+-- | The names a local statement refers to, where a qualified @M.f@ can appear:
+-- a definition's body and contract, and a property's body.
+localRefs :: Statement -> [Name]
+localRefs s = case s of
+  SCheck p -> extractCalls (propBody p) ++ extractRefs (map fst (propBindings p)) (propBody p)
+  _        -> testDefRefs s
+
+-- | The name of a definition the PBT evaluator can call.
+testDefName :: Statement -> Maybe Name
+testDefName s = case s of
+  SDefLogic{defLogicName = n} -> Just n
+  SDef{defName = n}           -> Just n
+  SDefShell{defShellName = n} -> Just n
+  SLetrec{letrecName = n}     -> Just n
+  _                           -> Nothing
+
+-- | Every name a definition's body or contract refers to, as a call or as a
+-- value, less its own parameters.
+testDefRefs :: Statement -> [Name]
+testDefRefs s = case s of
+  SDefLogic _ ps _ c b   -> refs ps c [b]
+  SDef _ ps _ c b        -> refs ps c [b]
+  SDefShell _ ps _ c b _ -> refs ps c [b]
+  SLetrec _ ps _ c d b   -> refs ps c [d, b]
+  _                      -> []
+  where
+    refs ps c es =
+      let params = map fst ps
+          exprs  = es ++ maybe [] pure (contractPre c) ++ maybe [] pure (contractPost c)
+      -- extractRefs gives names used as values; extractCalls gives call heads.
+      in concatMap (\e -> extractCalls e ++ extractRefs params e) exprs
+
+-- | PBT-QUAL-1: the unexported definitions the forwarded ones need, found by
+-- following references through the whole cache. @known@ holds names already
+-- present (local and forwarded); a local name shadows, so it is never pulled.
+helperClosure :: Map Name Statement -> Set Name -> [Statement] -> [Statement]
+helperClosure universe known0 seeds = go known0 (concatMap testDefRefs seeds) []
+  where
+    go _ [] acc = reverse acc
+    go known (r:rs) acc
+      | Set.member r known = go known rs acc
+      | otherwise = case Map.lookup r universe of
+          Nothing -> go known rs acc
+          Just s  -> go (Set.insert r known) (testDefRefs s ++ rs) (s : acc)
+
+-- | Keep the first definition of each name; an open and an import of the same
+-- module forward the same statements.
+dedupDefs :: [Statement] -> [Statement]
+dedupDefs = go Set.empty
+  where
+    go _ [] = []
+    go seen (s:rest) = case testDefName s of
+      Just n | Set.member n seen -> go seen rest
+             | otherwise         -> s : go (Set.insert n seen) rest
+      Nothing                    -> s : go seen rest
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
@@ -757,12 +838,16 @@ pbtTrustWriteback subjectKeyOf localStmts cache result =
         [ (n, c) | SDefInvariant{defInvariantName=n, defInvariantContract=c} <- mergedStmts ]
       -- SCheck blocks stay with the owning module (assembleTestStatements
       -- comment line 124-126); property descriptions are local-only.
+      -- PBT-QUAL-1: read the properties from the merged list, where
+      -- 'assembleTestStatements' has stripped @M.f@ to @f@, so a qualified
+      -- subject resolves against the forwarded definitions. Only local SCheck
+      -- and interface blocks are in it; imports forward definitions only.
       propsByDesc = Map.fromList $
         [ (propDescription p, p)
-        | SCheck p <- localStmts
+        | SCheck p <- mergedStmts
         ] ++
         [ (ifName <> "_law_" <> T.pack (show idx), p)
-        | SDefInterface ifName _ laws <- localStmts
+        | SDefInterface ifName _ laws <- mergedStmts
         , (idx, p) <- zip [(1::Int)..] laws
         ]
       -- F-GATE-8: Functions whose body is a delegation hole (HDelegate or
@@ -937,7 +1022,13 @@ buildQualMap :: [Statement] -> ModuleCache -> Set Name -> Map Name Name
 buildQualMap localStmts cache localNames =
   Map.fromList
     [ (n, qual)
-    | SOpen{openPath = path, openNames = mNames} <- localStmts
+    -- PBT-QUAL-1: a direct (import M) reaches M's exported names as M.n, so
+    -- it qualifies the sidecar key the same way a full open does.
+    | (path, mNames) <- [ (openPath o, openNames o) | o@SOpen{} <- localStmts ]
+                        ++ [ (T.splitOn "." (importPath imp), Nothing) | SImport imp <- localStmts ]
+    -- A name the file does not reach qualified gets no writeback subject from
+    -- this map entry, because headContractedSubject finds subjects only among
+    -- the definitions 'assembleTestStatements' forwarded.
     , Just menv <- [Map.lookup path cache]
     , s <- meStatements menv
     , Just n <- [extractContractedName s]

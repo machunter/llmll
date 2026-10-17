@@ -1,0 +1,6 @@
+;; XMOD-RUN-LOAD-1 amendment A1: patch must prove a fill that calls proved.idf,
+;; as `verify` proves the patched file.
+(import proved)
+(def g [n: int] -> int
+  (post (= result n))
+  ?fill)

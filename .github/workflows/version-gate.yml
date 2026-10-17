@@ -612,6 +612,23 @@ jobs:
           grep -q ' 22 passed' "$RUNNER_TEMP/regex-capture-case.log" \
             || { echo "REGEX-CAPTURE-1: expected 22 passed cells"; exit 1; }
 
+      # XMOD-RUN-LOAD-1 / PBT-QUAL-1's end-to-end cells: test, run, patch, refine
+      # and repl on a program that imports a user module, and patch --require-proof
+      # on a fill calling a proved import (amendment A1). `run` builds with GHC,
+      # so this needs the toolchain. Every cell but P2 failed on the commit
+      # before the fix. Same skip and count guards as above.
+      - name: Run XMOD-RUN-LOAD-1 / PBT-QUAL-1 cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_xmod_run_load_1.py -v -rs \
+            | tee "$RUNNER_TEMP/xmod-run-load.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/xmod-run-load.log"; then
+            echo "an XMOD-RUN-LOAD-1 cell skipped; LLMLL_BIN must be set here"; exit 1
+          fi
+          grep -q ' 9 passed' "$RUNNER_TEMP/xmod-run-load.log" \
+            || { echo "XMOD-RUN-LOAD-1: expected 9 passed cells"; exit 1; }
+
       # HASH-PRE-ASYM and TRUST-AXIOM-1: a verified record is keyed by the live
       # source and survives every read that does not run the solver, and the
       # trust report names the axioms and lemmas a proof rests on. Both files

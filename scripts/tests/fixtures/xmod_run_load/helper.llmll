@@ -1,0 +1,5 @@
+;; PBT-QUAL-1: module helper exports f, and f calls the unexported h.
+(module helper
+  (export f)
+  (def-shell h [n: int] -> int (+ n 1))
+  (def-shell f [n: int] -> int (h n)))

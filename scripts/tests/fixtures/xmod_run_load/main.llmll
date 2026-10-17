@@ -1,0 +1,16 @@
+;; XMOD-RUN-LOAD-1 / PBT-QUAL-1: lib.f and lib.Ran reached through (import lib)
+;; alone. `run` prints 42; `test` evaluates the property over lib.f.
+(import wasi.io (capability stdout :deterministic false))
+(import lib)
+(def-shell code [c: lib.Ctl] -> int (match c ((Ran) 1) ((Stop) 2)))
+(def-shell total [n: int] -> int (+ (lib.f n) (code lib.Ran)))
+(check "the library f is the identity"
+  (for-all [n: int]
+    (= (lib.f n) n)))
+(def-shell step [s: int input: string _r: Response] -> (int, Command)
+  (pair s (wasi.io.stdout "")))
+(def-shell done [s: int] -> bool true)
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (string-concat (int-to-string (total 41)) "\n")))
+  :step step
+  :done? done)

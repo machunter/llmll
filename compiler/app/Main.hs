@@ -44,10 +44,10 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
-import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
-import LLMLL.BuildScope (closureOf, resolveQualifiedTypes)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.Module (topoSortedEnvs)
+import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
 import LLMLL.HoleAnalysis
@@ -63,7 +63,7 @@ import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson, writeFileUtf8
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
-  , mkReuseWarning, decodeSourceUtf8)
+  , mkReuseWarning, decodeSourceUtf8, importNeedsFile)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
@@ -84,7 +84,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, checkCacheEvidence, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -519,39 +519,17 @@ loadStatementsMulti json gm fp = do
   case mStmts of
     Left ()     -> pure (Left ())
     Right stmts -> do
-      let imports = [imp | SImport imp <- stmts]
-          srcRoot = takeDirectory fp
-      -- Build ModuleCache + load-order by post-order DFS over all imports
-      result <- foldM (loadOneImp json srcRoot) (Right (Map.empty, [])) imports
+      -- XMOD-RUN-LOAD-1: the import fold, the evidence-key read check and the
+      -- qualified-type resolution moved to LLMLL.LoadClosure, so PatchApply
+      -- loads the same closure. This wrapper keeps the printing.
+      result <- loadImportClosure gm fp stmts
       case result of
         Left diags -> do
-          mapM_ (emitDiag json fp) diags
+          mapM_ (emitDiag json) diags
           pure (Left ())
-        -- XMOD-SCOPE R2: the same load-time rewrite 'Module.loadFromFile'
-        -- applies to each dependency. Every caller of this loader (check,
-        -- test, build, verify, typecheck, checkout context, diverge-report)
-        -- gets the rewritten entry statements.
-        -- TRUST-GAP-KEY-1: every cached module's evidence passes the read
-        -- check here, before any caller type-checks against it, so the
-        -- trust-gap warning cannot read a record the source no longer matches.
-        Right (cache0, loadOrder) ->
-          let cache = checkCacheEvidence cache0
-          in pure (Right (resolveQualifiedTypes stmts (closureOf stmts cache), cache, loadOrder))
+        Right loaded -> pure (Right loaded)
   where
-    -- P1 fix: skip built-in capability namespace imports (wasi.*, haskell.*, c.*).
-    -- These are resolved by the codegen preamble, not by file-system lookup.
-    loadOneImp j srcRoot (Left e) _   = pure (Left e)
-    loadOneImp j srcRoot (Right (c, ord)) imp = do
-      let path = T.splitOn "." (importPath imp)
-      if isBuiltinImport path
-        then pure (Right (c, ord))
-        else do
-          res <- loadModule gm j srcRoot [] c [] path
-          case res of
-            Left diags         -> pure (Left diags)
-            Right (c', o', _)  -> pure (Right (c', ord ++ o'))
-
-    emitDiag j fp_ d
+    emitDiag j d
       | j         = TIO.putStrLn (formatDiagnosticJson d)
       | otherwise = TIO.putStrLn (formatDiagnostic d)
 
@@ -908,21 +886,26 @@ doRun json gm fp extraArgs = do
   tmpDir <- runDirFor <$> makeAbsolute fp
   let modName = T.unpack . T.pack $ takeBaseName fp
   -- Build into tmp dir (reuses doBuild logic via shared helpers)
-  bs <- BS.readFile fp                            -- TOOL-ENCODING-1
-  case decodeSourceUtf8 fp bs >>= parseSrc gm fp of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
+  -- XMOD-RUN-LOAD-1: load the import closure and generate the same Lib.hs as
+  -- `build` (typeCheckStrictWithCache, generateHaskellMulti). This path read
+  -- the one file and checked it with an empty cache, so `run` failed with
+  -- "call to unknown function 'lib.f'" on a program `build` accepted.
+  mResult <- loadStatementsMulti json gm fp
+  case mResult of
+    Left () -> exitFailure
+    Right (stmts, cache, loadOrder) -> do
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrict gm emptyEnv stmts
+      let tcReport = typeCheckStrictWithCache gm cache emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         printTypeCheckFailure json tcReport
         exitFailure
       let modNameT = T.pack modName
+          importedEnvs = topoSortedEnvs cache loadOrder
+          allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
+                             Map.empty cache
           -- v0.6.3: instrument contracts (BUG-2) — full mode for run
-          instrumentedStmts = instrumentContracts ContractsFull Map.empty stmts
-          result   = generateHaskell modNameT instrumentedStmts
+          instrumentedStmts = instrumentContracts ContractsFull allCS stmts
+          result   = generateHaskellMulti modNameT importedEnvs instrumentedStmts
           outDir   = tmpDir
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
@@ -1127,7 +1110,12 @@ replLoop gm _env = do
               TIO.putStrLn $ formatDiagnosticSExp (megaparsecToDiagnostic "<repl>" err)
             Right stmts -> do
               mapM_ (\stmt -> TIO.putStrLn $ T.pack (show stmt)) stmts
-              let report = typeCheck gm emptyEnv stmts
+              -- XMOD-RUN-LOAD-1: a line has no file to resolve an import against.
+              let report = case importNeedsFile "the repl" stmts of
+                    Just d  -> DiagnosticReport { reportPhase = "typecheck"
+                                                , reportSuccess = False
+                                                , reportDiagnostics = [d] }
+                    Nothing -> typeCheck gm emptyEnv stmts
               mapM_ (TIO.putStrLn . ("  type: " <>) . formatDiagnostic)
                     (reportDiagnostics report)
           replLoop gm _env

@@ -47,6 +47,8 @@ module LLMLL.Diagnostic
   , mkHttpUrlMalformed
   -- * REGEX-CAPTURE-1 / REGEX-CASE-1: the literal-pattern rule
   , mkInvalidRegex
+  -- * XMOD-RUN-LOAD-1: a surface with no file cannot load imports
+  , importNeedsFile
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
@@ -82,7 +84,7 @@ import Text.Megaparsec (ParseErrorBundle, errorBundlePretty, bundleErrors, attac
 import Text.Megaparsec.Error (errorOffset, ParseError(..), ErrorFancy(..))
 import qualified Data.Set as Set
 import Text.Megaparsec.Pos (unPos, sourceLine, sourceColumn)
-import LLMLL.Syntax (Span(..))
+import LLMLL.Syntax (Span(..), Statement(SImport), Import(importPath))
 import LLMLL.RegexPattern (RegexProblem(..))
 import GHC.Generics (Generic)
 
@@ -503,6 +505,25 @@ mkEnvNameMalformed lit rule =
        { diagKind       = Just "env-name-malformed"
        , diagSuggestion = Just suggestion
        }
+
+-- | XMOD-RUN-LOAD-1. A surface that receives source text with no file (serve's
+-- POST /typecheck and /sketch, a repl line) has no directory to resolve an
+-- @(import M)@ of a user module against. It used to check the text with an
+-- empty module cache, where @M.f@ is an unknown name and only a warning, so an
+-- ill-typed call reported success. It now refuses the import by name. A
+-- @wasi.*@ import is a host capability, not a module, and passes.
+importNeedsFile :: Text -> [Statement] -> Maybe Diagnostic
+importNeedsFile surface stmts =
+  case [ importPath i | SImport i <- stmts
+                      , not ("wasi." `T.isPrefixOf` importPath i || importPath i == "wasi") ] of
+    []      -> Nothing
+    (m : _) -> Just (mkError Nothing
+      ("(import " <> m <> ") needs a file: " <> surface <> " receives source text with no "
+       <> "location, so a module import cannot be resolved and its names cannot be checked."))
+      { diagKind       = Just "import-needs-file"
+      , diagSuggestion = Just ("Write the program to a file and run `llmll check FILE`; to "
+                               <> "edit a hole in it, use checkout and patch on that file.")
+      }
 
 -- | REGEX-CAPTURE-1 / REGEX-CASE-1. A regex pattern `check` can see (a string
 -- literal, or a nullary local definition whose whole body is one) that the

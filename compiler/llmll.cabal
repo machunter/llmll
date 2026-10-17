@@ -31,6 +31,7 @@ library
       LLMLL.CodegenHs
       LLMLL.Diagnostic
       LLMLL.Module
+      LLMLL.LoadClosure
       LLMLL.Hub
       LLMLL.HubQuery
       LLMLL.FixpointIR
