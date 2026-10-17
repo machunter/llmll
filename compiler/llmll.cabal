@@ -22,6 +22,7 @@ library
       LLMLL.AstEmit
       LLMLL.TypeAdmissibility
       LLMLL.BuildScope
+      LLMLL.RegexPattern
       LLMLL.TypeCheck
       LLMLL.HoleAnalysis
       LLMLL.RespFact
@@ -94,6 +95,7 @@ library
     , pretty-simple >=4.1
     , process >=1.6
     , random >=1.2
+    , regex-tdfa >=1.3
     , tar >=0.5
     , text >=2.0
     , time >=1.12
@@ -139,6 +141,7 @@ executable llmll
     , pretty-simple >=4.1
     , process >=1.6
     , random >=1.2
+    , regex-tdfa >=1.3
     , tar >=0.5
     , text >=2.0
     , time >=1.12
@@ -188,6 +191,7 @@ test-suite llmll-test
     , pretty-simple >=4.1
     , process >=1.6
     , random >=1.2
+    , regex-tdfa >=1.3
     , tar >=0.5
     , text >=2.0
     , time >=1.12

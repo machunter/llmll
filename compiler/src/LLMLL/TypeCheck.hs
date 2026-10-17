@@ -89,6 +89,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
+import LLMLL.RegexPattern (validatePattern)
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -153,6 +154,13 @@ builtinEnv = Map.fromList $
   , ("string-trim",     TFn [TString] TString)
   , ("string-concat-many", TFn [TList TString] TString)
   , ("regex-match",     TFn [TString, TString] TBool)
+  -- REGEX-CAPTURE-1 / REGEX-CASE-1 (docs/design/regex-capture-case-proposal.md).
+  -- Pattern first, as regex-match. Outside Sigma_auto: a caller falls back.
+  , ("regex-find",      TFn [TString, TString] (TList TString))
+  , ("regex-find-all",  TFn [TString, TString] (TList (TList TString)))
+  , ("regex-spans",     TFn [TString, TString] (TList (TPair TInt TInt)))
+  , ("string-lower",    TFn [TString] TString)
+  , ("string-upper",    TFn [TString] TString)
   , ("string-empty?",   TFn [TString] TBool)
   -- §13.7 Numeric utilities
   , ("int-to-string",  TFn [TInt] TString)
@@ -2592,6 +2600,29 @@ unknownName x fallback = do
     [] -> tcWarnOrError fallback
 
 -- | Infer the type of an expression.
+-- | REGEX-CAPTURE-1 / REGEX-CASE-1: the builtins whose first argument is a
+-- regex pattern.
+regexBuiltins :: [Name]
+regexBuiltins = ["regex-match", "regex-find", "regex-find-all", "regex-spans"]
+
+-- | The pattern a regex call passes, when `check` can see it: a string
+-- literal, or a call with no arguments to a local definition whose whole body
+-- is a string literal (answered with that definition's name). Anything else is
+-- computed and is left to the run-time compile.
+regexPatternSource :: [Statement] -> Expr -> Maybe (Text, Maybe Text)
+regexPatternSource _ (ELit (LitString p)) = Just (p, Nothing)
+regexPatternSource stmts (EApp f []) =
+  case [ b | s <- stmts, Just (n, [], b) <- [defShape s], n == f ] of
+    [ELit (LitString p)] -> Just (p, Just f)
+    _                    -> Nothing
+  where
+    defShape s = case s of
+      SDefLogic n ps _ _ b   -> Just (n, ps, b)
+      SDef n ps _ _ b        -> Just (n, ps, b)
+      SDefShell n ps _ _ b _ -> Just (n, ps, b)
+      _                      -> Nothing
+regexPatternSource _ _ = Nothing
+
 inferExpr :: Expr -> TC Type
 inferExpr (ELit lit) = pure (inferLiteral lit)
 
@@ -2792,6 +2823,21 @@ inferExpr (EApp func args) = do
       | not ("http://" `T.isPrefixOf` u || "https://" `T.isPrefixOf` u) ->
           modify $ \st -> st { tcErrors = tcErrors st ++ [mkHttpUrlMalformed u] }
     _ -> pure ()
+  -- REGEX-CAPTURE-1 / REGEX-CASE-1, the literal-pattern rule. Same placement
+  -- and reach as the two rules above, widened by one step: a call to a nullary
+  -- local definition whose whole body is a string literal, which is how
+  -- tools/doc-path-lint/pathlint.llmll names its patterns. A parameter or any
+  -- other computed pattern is not seen; Spec.hs RX-9 pins that limit.
+  when (func `elem` regexBuiltins) $ case args of
+    (patArg : _) -> do
+      stmts <- gets tcModuleStmts
+      case regexPatternSource stmts patArg of
+        Just (pat, via) -> case validatePattern (T.unpack pat) of
+          Left problem -> modify $ \st -> st
+            { tcErrors = tcErrors st ++ [mkInvalidRegex func pat via problem] }
+          Right () -> pure ()
+        Nothing -> pure ()
+    [] -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func
   -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module

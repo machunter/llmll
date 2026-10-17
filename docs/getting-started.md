@@ -910,7 +910,11 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
 | `string-char-at` | `string int → string` | Single character at index. Returns `""` for negative or out-of-bounds indices. |
-| `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total).  |
+| `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa`; a leading `(?i)` ignores case. An invalid literal pattern is the `check` error `invalid-regex`; a computed one returns `False` (total). |
+| `regex-find` | `string string → list[string]` | Leftmost match as `[whole, g1, …]`; `[]` for no match. Pattern first. |
+| `regex-find-all` | `string string → list[list[string]]` | Every match, each shaped as `regex-find`'s. |
+| `regex-spans` | `string string → list[(int, int)]` | `[start, end)` span of each match, for `string-slice`. |
+| `string-lower` / `string-upper` | `string → string` | Per-character case mapping; keeps the length. |
 | `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 shape. **Built entirely from the `sha1` stub below, so it is a stub too** — see LLMLL.md §13.11. Trust level is `asserted`. |
 | `sha1` | `bytes[20] → bytes[20]` | **Not SHA-1.** The preamble body is a polynomial rolling hash with no preimage or collision resistance — see LLMLL.md §13.11. Not fit for any security purpose. |
 

@@ -45,6 +45,8 @@ module LLMLL.Diagnostic
   , mkEnvNameMalformed
   -- * HTTP-GET-1: the literal-URL rule
   , mkHttpUrlMalformed
+  -- * REGEX-CAPTURE-1 / REGEX-CASE-1: the literal-pattern rule
+  , mkInvalidRegex
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
@@ -81,6 +83,7 @@ import Text.Megaparsec.Error (errorOffset, ParseError(..), ErrorFancy(..))
 import qualified Data.Set as Set
 import Text.Megaparsec.Pos (unPos, sourceLine, sourceColumn)
 import LLMLL.Syntax (Span(..))
+import LLMLL.RegexPattern (RegexProblem(..))
 import GHC.Generics (Generic)
 
 -- | Severity level.
@@ -500,6 +503,51 @@ mkEnvNameMalformed lit rule =
        { diagKind       = Just "env-name-malformed"
        , diagSuggestion = Just suggestion
        }
+
+-- | REGEX-CAPTURE-1 / REGEX-CASE-1. A regex pattern `check` can see (a string
+-- literal, or a nullary local definition whose whole body is one) that the
+-- run-time compile would reject, or that uses a letter escape regex-tdfa
+-- reads as the letter itself (amendment A1: @\\d@ matches the letter d). At
+-- run time either one answers False or [] for every subject, with no message.
+-- Same placement and reach as the ENV-READ-1 and HTTP-GET-1 rules; a pattern
+-- passed as a parameter is not seen, and Spec.hs RX-9 pins that limit.
+mkInvalidRegex
+  :: Text          -- ^ the builtin called (e.g. "regex-find")
+  -> Text          -- ^ the pattern, as the builtin receives it
+  -> Maybe Text    -- ^ the nullary definition that returned it, if any
+  -> RegexProblem
+  -> Diagnostic
+mkInvalidRegex func pat via problem =
+  let source = maybe "" (\d -> " (returned by " <> d <> ")") via
+      answer = if func == "regex-match" then "False" else "[]"
+      (what, suggestion) = case problem of
+        RxParse err ->
+          ( "cannot compile: " <> T.pack err
+          , "Patterns are POSIX ERE (LLMLL.md \167" <> "13.6). A leading (?i) is the only "
+            <> "inline flag; non-greedy *?, (?:...) and lookaround are not supported." )
+        RxEscape c ->
+          ( "uses \\" <> T.singleton c <> ", which POSIX ERE reads as the letter "
+            <> T.singleton c <> ", not a class or a control character"
+          , escapeHint c )
+      msg = "regex pattern " <> tshow pat <> source <> " " <> what
+            <> ". At run time " <> func <> " would answer " <> answer
+            <> " with no message."
+  in (mkError Nothing msg)
+       { diagKind       = Just "invalid-regex"
+       , diagSuggestion = Just suggestion
+       }
+  where
+    escapeHint c = case c of
+      'd' -> "Use [0-9] or [[:digit:]]."
+      'D' -> "Use [^0-9] or [^[:digit:]]."
+      'w' -> "Use [[:alnum:]_]."
+      'W' -> "Use [^[:alnum:]_]."
+      's' -> "Use [[:space:]]."
+      'S' -> "Use [^[:space:]]."
+      _ | c `elem` ("ntrfv" :: String) ->
+            "Write the character itself: in an LLMLL string literal \"\\n\" is a newline."
+        | otherwise ->
+            "Remove the backslash, or use a bracket expression. Patterns are POSIX ERE (LLMLL.md \167" <> "13.6)."
 
 -- | HTTP-GET-1. A LITERAL url passed to wasi.http.get that does not begin with
 -- http:// or https://. Sits beside the ENV-READ-1 rule in inferExpr and has the

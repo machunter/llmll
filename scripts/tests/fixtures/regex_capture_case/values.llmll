@@ -1,0 +1,55 @@
+;; REGEX-CAPTURE-1 / REGEX-CASE-1: one value per output line, keyed NAME=.
+;; Lists render as <a><b>...; a newline inside a value renders as \n so each
+;; cell stays on one line. Matching is newline-sensitive (regex-tdfa's default,
+;; which regex-match has always used): . and [^...] do not match a newline, and
+;; ^ and $ match at each line; E3 and NL1 pin that. Patterns that must be
+;; computed (T1, AG-*) arrive as parameters, so `check` cannot see them and only
+;; the run-time compile acts.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell esc [s: string] -> string
+  (let [(joined (list-fold (string-split "\n" s) ""
+                  (fn [acc: string p: string] (string-concat-many [acc "\\n" p]))))]
+    (string-slice joined 2 (string-length joined))))
+(def-shell q [xs: list[string]] -> string
+  (string-concat-many (list-map xs (fn [x: string] (string-concat-many ["<" (esc x) ">"])))))
+(def-shell qq [xss: list[list[string]]] -> string
+  (string-concat-many (list-map xss (fn [xs: list[string]] (string-concat-many ["[" (q xs) "]"])))))
+(def-shell sp [ps: list[(int, int)]] -> string
+  (string-concat-many (list-map ps (fn [p: (int, int)]
+    (string-concat-many ["(" (int-to-string (first p)) "," (int-to-string (second p)) ")"])))))
+(def-shell b [x: bool] -> string (if x "true" "false"))
+(def-shell body [] -> string "see `a/b.md` and `c\nd.hs` here")
+(def-shell slices-agree [s: string] -> bool
+  (= (list-map (regex-spans "`([^`]*)`" s)
+               (fn [p: (int, int)] (string-slice s (first p) (second p))))
+     (list-map (regex-find-all "`([^`]*)`" s) (fn [m: list[string]] (unwrap-or (list-head m) "")))))
+(def-shell find-p [p: string s: string] -> string (q (regex-find p s)))
+(def-shell all-p [p: string s: string] -> string (qq (regex-find-all p s)))
+(def-shell spans-p [p: string s: string] -> string (sp (regex-spans p s)))
+(def-shell match-p [p: string s: string] -> string (b (regex-match p s)))
+(def-shell lines [] -> string
+  (string-concat-many
+    [ "E1=" (q (regex-find "(?i)previously" "Previously seen")) "\n"
+      "E2=" (q (regex-find "([a-z]+)=([0-9]+)?" "x key= y")) "\n"
+      "E3=" (qq (regex-find-all "`([^`]*)`" (body))) "\n"
+      "E4=" (q (regex-find "(a|ab)(b?)" "ab")) "\n"
+      "E5A=" (qq (regex-find-all "a*" "baaab")) "\n"
+      "E5B=" (sp (regex-spans "a*" "baaab")) "\n"
+      "E9=" (b (string-contains (string-lower "See PREVIOUSLY") "previously")) "\n"
+      "E10=" (string-upper "straße") "|" (string-lower "İ") "|" (string-upper (string-lower "İ")) "\n"
+      "E11=" (string-lower "") "|" (string-upper "") "|" (q (regex-find "x" "")) "|" (qq (regex-find-all "a*" "")) "|" (sp (regex-spans "a*" "")) "\n"
+      "M1=" (b (regex-match "(?i)[a-z]+ly" "PREVIOUSLY")) "\n"
+      "M2=" (b (regex-match "^[a-f0-9]{64}$" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")) "\n"
+      "T1=" (find-p "(" "x") "|" (all-p "(" "x") "|" (spans-p "(" "x") "|" (match-p "(" "x") "\n"
+      "S1=" (b (slices-agree (body))) "\n"
+      "NL1=" (q (regex-find "a.b" "a\nb")) "|" (q (regex-find "a[^x]b" "a\nb")) "|" (q (regex-find "^b" "a\nb")) "\n"
+      "AG1=" (find-p "[0-9]+" "a12") "\n"
+      "AG2=" (find-p "(?i)abc" "xABC") "\n"
+      "AG3=" (find-p "a{2,1}" "aa") "\n"
+      "AG4=" (find-p "\\d" "1d") "\n"
+      "AG5=" (find-p "\\bfoo\\b" "a foo b") "\n"
+      "AG6=" (find-p "x(?i)y" "xy") "\n"
+      "AG7=" (find-p "[[:alpha:]]+" "12ab") "\n" ]))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (lines)))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

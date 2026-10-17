@@ -249,7 +249,13 @@ emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
   , "import Control.Monad (when)"
   , "import Data.Bits (xor)"
   , "import Data.Word (Word8)"
-  , "import Text.Regex.TDFA ((=~))"
+  -- REGEX-CAPTURE-1 / REGEX-CASE-1: qualified, so no name these modules export
+  -- joins the unqualified scope a user name can collide with (RESERVED-NAME-1's
+  -- hsImportedNames stays as it was). Data.Foldable's toList reads a MatchText,
+  -- which is a base Array, so the generated project needs no `array` entry.
+  , "import qualified Text.Regex.TDFA as LRX"
+  , "import qualified Data.Char as LChar"
+  , "import qualified Data.Foldable as LFold"
   , "import System.IO.Unsafe (unsafePerformIO)"
   -- CAP-PROC Phase 2. All four bodies are unconditional, so runtimePreamble
   -- stays a top-level CAF and the WASI-RT completeness guard in Spec.hs can
@@ -512,13 +518,61 @@ runtimePreamble =
   , "string_empty' s = null s"
   , ""
   , "-- | PREAMBLE COMPROMISE (v0.7): unsafePerformIO preserves the pure type"
-  , "-- String -> String -> Bool while catching invalid regex patterns at runtime."
+  , "-- of each regex builtin while catching invalid patterns at run time."
   , "-- Do NOT remove the try/evaluate wrapper — it prevents partiality."
+  , "--"
+  , "-- REGEX-CAPTURE-1: the wrapper forces the WHOLE result (the forcer is the"
+  , "-- builtin's esResultForcers entry) inside the try. evaluate alone reaches"
+  , "-- weak head normal form, and a pattern error found after the try returned"
+  , "-- would crash the program instead of answering the fallback."
+  , "llmll_rxTotal :: (a -> ()) -> a -> a -> a"
+  , "llmll_rxTotal force fallback v ="
+  , "  case unsafePerformIO (try (evaluate (force v `seq` v))) of"
+  , "    Right x -> x"
+  , "    Left e  -> const fallback (e :: SomeException)"
+  , ""
+  , "-- | REGEX-CASE-1: a leading (?i) compiles the rest without regard to case."
+  , "-- (?i) anywhere else stays in the pattern, where regex-tdfa rejects it."
+  , "-- LLMLL.RegexPattern.splitCaseFlag is the same rule at check time."
+  , "llmll_rxCompile :: String -> LRX.Regex"
+  , "llmll_rxCompile ('(':'?':'i':')':rest) ="
+  , "  LRX.makeRegexOpts LRX.defaultCompOpt { LRX.caseSensitive = False } LRX.defaultExecOpt rest"
+  , "llmll_rxCompile pattern ="
+  , "  LRX.makeRegexOpts LRX.defaultCompOpt LRX.defaultExecOpt pattern"
+  , ""
+  , "llmll_uP :: (a, b) -> ()"
+  , "llmll_uP (a, b) = a `seq` b `seq` ()"
+  , ""
   , "regex_match :: String -> String -> Bool"
   , "regex_match pattern subject ="
-  , "  case unsafePerformIO (try (evaluate (subject =~ pattern :: Bool)) :: IO (Either SomeException Bool)) of"
-  , "    Right b -> b"
-  , "    Left _  -> False"
+  , "  llmll_rxTotal llmll_uW False (LRX.matchTest (llmll_rxCompile pattern) subject)"
+  , ""
+  , "-- | The leftmost match as [whole, group 1 .. group N]; [] for no match. A"
+  , "-- group that took no part in the match reads \"\"."
+  , "regex_find :: String -> String -> [String]"
+  , "regex_find pattern subject = llmll_rxTotal (llmll_uL llmll_uS) [] $"
+  , "  case LRX.matchOnceText (llmll_rxCompile pattern) subject of"
+  , "    Nothing        -> []"
+  , "    Just (_, m, _) -> map fst (LFold.toList m)"
+  , ""
+  , "-- | Every non-overlapping match, left to right, each shaped as regex_find's."
+  , "regex_find_all :: String -> String -> [[String]]"
+  , "regex_find_all pattern subject = llmll_rxTotal (llmll_uL (llmll_uL llmll_uS)) [] $"
+  , "  map (map fst . LFold.toList) (LRX.matchAllText (llmll_rxCompile pattern) subject)"
+  , ""
+  , "-- | The (start, end) half-open character span of each regex_find_all match."
+  , "regex_spans :: String -> String -> [(Integer, Integer)]"
+  , "regex_spans pattern subject = llmll_rxTotal (llmll_uL llmll_uP) [] $"
+  , "  [ (fromIntegral o, fromIntegral (o + l))"
+  , "  | m <- LRX.matchAllText (llmll_rxCompile pattern) subject"
+  , "  , (_, (o, l)) <- take 1 (LFold.toList m) ]"
+  , ""
+  , "-- | REGEX-CASE-1: per-character simple case mapping; keeps the length."
+  , "string_lower :: String -> String"
+  , "string_lower = map LChar.toLower"
+  , ""
+  , "string_upper :: String -> String"
+  , "string_upper = map LChar.toUpper"
   , ""
   , "-- §13.7 Numeric (LT-INT v0.11: Class B — mathematical-integer semantics)"
   , "int_to_string :: Integer -> String"
@@ -2969,10 +3023,12 @@ hsPreambleNames =
   , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
   , "list_fold", "list_head", "list_length", "list_map", "list_nth"
   , "list_prepend", "list_tail", "map_empty", "map_get", "map_has", "map_put"
-  , "ok", "range", "regex_match", "seq_commands", "sha1_hash"
+  , "ok", "range", "regex_find", "regex_find_all", "regex_match"
+  , "regex_spans", "seq_commands", "sha1_hash"
   , "string_char_at", "string_concat", "string_concat_many"
   , "string_contains", "string_empty'", "string_length", "string_slice"
-  , "string_split", "string_to_int", "string_trim", "unwrap", "unwrap_or"
+  , "string_lower", "string_split", "string_to_int", "string_trim"
+  , "string_upper", "unwrap", "unwrap_or"
   , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"
   , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_mkdir", "wasi_fs_read"
   , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_stat", "wasi_fs_write"
@@ -3415,6 +3471,12 @@ esResultForcers =
   , ("string-char-at",     "llmll_uS")
   , ("string-trim",        "llmll_uS")
   , ("string-split",       "llmll_uL llmll_uS")
+  -- REGEX-CAPTURE-1 / REGEX-CASE-1.
+  , ("regex-find",         "llmll_uL llmll_uS")
+  , ("regex-find-all",     "llmll_uL (llmll_uL llmll_uS)")
+  , ("regex-spans",        "llmll_uL llmll_uP")
+  , ("string-lower",       "llmll_uS")
+  , ("string-upper",       "llmll_uS")
   , ("int-to-string",      "llmll_uS")
   , ("string-to-int",      "llmll_uE llmll_uW")
   , ("bytes-set",          "llmll_uS")

@@ -1,0 +1,7 @@
+;; REGEX-CAPTURE-1 V1: a function that calls a new builtin verifies without a
+;; crash and stays asserted, because the builtins are outside Sigma_auto.
+(def first-field [s: string] -> list[string]
+  (post (>= (list-length result) 0))
+  (regex-find "([a-z]+)=" s))
+(def-shell shout [s: string] -> string
+  (string-upper s))
