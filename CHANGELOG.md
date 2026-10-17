@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.1)
+<a id="Latest"></a>
+
+## v0.30.2: regex capture, scan and case builtins; a program that imports a module works in every command (2026-10-17)
 
 ### `REGEX-CAPTURE-1`, `REGEX-CASE-1`: capture, scan and case for text processing
 
@@ -47,8 +49,6 @@ and `repl` did not. Closes `PBT-QUAL-1` and `XMOD-RUN-LOAD-1`.
 2361 examples, 0 failures (+8). Python: 313 passed; 542 with `LLMLL_BIN` set (+9), 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.1: a trust declaration is a floor on the checked evidence; the trust-gap warning names the checked level (2026-10-16)
 
