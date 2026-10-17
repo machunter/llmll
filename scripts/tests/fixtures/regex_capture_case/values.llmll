@@ -27,29 +27,44 @@
 (def-shell all-p [p: string s: string] -> string (qq (regex-find-all p s)))
 (def-shell spans-p [p: string s: string] -> string (sp (regex-spans p s)))
 (def-shell match-p [p: string s: string] -> string (b (regex-match p s)))
-(def-shell lines [] -> string
+;; One line per cell, KEY=value. Built in groups of at most five cells so no
+;; list literal nests deeply: a [...] literal desugars to nested list-prepend
+;; calls, and SCHEMA-TRUTH-1 validates every tracked source's emitted JSON-AST,
+;; where a 60-element literal exceeded jsonschema's recursion limit.
+(def-shell ln [k: string v: string] -> string (string-concat-many [k "=" v "\n"]))
+(def-shell lines-0 [] -> string
   (string-concat-many
-    [ "E1=" (q (regex-find "(?i)previously" "Previously seen")) "\n"
-      "E2=" (q (regex-find "([a-z]+)=([0-9]+)?" "x key= y")) "\n"
-      "E3=" (qq (regex-find-all "`([^`]*)`" (body))) "\n"
-      "E4=" (q (regex-find "(a|ab)(b?)" "ab")) "\n"
-      "E5A=" (qq (regex-find-all "a*" "baaab")) "\n"
-      "E5B=" (sp (regex-spans "a*" "baaab")) "\n"
-      "E9=" (b (string-contains (string-lower "See PREVIOUSLY") "previously")) "\n"
-      "E10=" (string-upper "straße") "|" (string-lower "İ") "|" (string-upper (string-lower "İ")) "\n"
-      "E11=" (string-lower "") "|" (string-upper "") "|" (q (regex-find "x" "")) "|" (qq (regex-find-all "a*" "")) "|" (sp (regex-spans "a*" "")) "\n"
-      "M1=" (b (regex-match "(?i)[a-z]+ly" "PREVIOUSLY")) "\n"
-      "M2=" (b (regex-match "^[a-f0-9]{64}$" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")) "\n"
-      "T1=" (find-p "(" "x") "|" (all-p "(" "x") "|" (spans-p "(" "x") "|" (match-p "(" "x") "\n"
-      "S1=" (b (slices-agree (body))) "\n"
-      "NL1=" (q (regex-find "a.b" "a\nb")) "|" (q (regex-find "a[^x]b" "a\nb")) "|" (q (regex-find "^b" "a\nb")) "\n"
-      "AG1=" (find-p "[0-9]+" "a12") "\n"
-      "AG2=" (find-p "(?i)abc" "xABC") "\n"
-      "AG3=" (find-p "a{2,1}" "aa") "\n"
-      "AG4=" (find-p "\\d" "1d") "\n"
-      "AG5=" (find-p "\\bfoo\\b" "a foo b") "\n"
-      "AG6=" (find-p "x(?i)y" "xy") "\n"
-      "AG7=" (find-p "[[:alpha:]]+" "12ab") "\n" ]))
+    [(ln "E1" (q (regex-find "(?i)previously" "Previously seen")))
+    (ln "E2" (q (regex-find "([a-z]+)=([0-9]+)?" "x key= y")))
+    (ln "E3" (qq (regex-find-all "`([^`]*)`" (body))))
+    (ln "E4" (q (regex-find "(a|ab)(b?)" "ab")))
+    (ln "E5A" (qq (regex-find-all "a*" "baaab")))]))
+(def-shell lines-1 [] -> string
+  (string-concat-many
+    [(ln "E5B" (sp (regex-spans "a*" "baaab")))
+    (ln "E9" (b (string-contains (string-lower "See PREVIOUSLY") "previously")))
+    (ln "E10" (string-concat-many [(string-upper "straße") "|" (string-lower "İ") "|" (string-upper (string-lower "İ"))]))
+    (ln "E11" (string-concat-many [(string-lower "") "|" (string-upper "") "|" (q (regex-find "x" "")) "|" (qq (regex-find-all "a*" "")) "|" (sp (regex-spans "a*" ""))]))
+    (ln "M1" (b (regex-match "(?i)[a-z]+ly" "PREVIOUSLY")))]))
+(def-shell lines-2 [] -> string
+  (string-concat-many
+    [(ln "M2" (b (regex-match "^[a-f0-9]{64}$" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")))
+    (ln "T1" (string-concat-many [(find-p "(" "x") "|" (all-p "(" "x") "|" (spans-p "(" "x") "|" (match-p "(" "x")]))
+    (ln "S1" (b (slices-agree (body))))
+    (ln "NL1" (string-concat-many [(q (regex-find "a.b" "a\nb")) "|" (q (regex-find "a[^x]b" "a\nb")) "|" (q (regex-find "^b" "a\nb"))]))
+    (ln "AG1" (find-p "[0-9]+" "a12"))]))
+(def-shell lines-3 [] -> string
+  (string-concat-many
+    [(ln "AG2" (find-p "(?i)abc" "xABC"))
+    (ln "AG3" (find-p "a{2,1}" "aa"))
+    (ln "AG4" (find-p "\\d" "1d"))
+    (ln "AG5" (find-p "\\bfoo\\b" "a foo b"))
+    (ln "AG6" (find-p "x(?i)y" "xy"))]))
+(def-shell lines-4 [] -> string
+  (string-concat-many
+    [(ln "AG7" (find-p "[[:alpha:]]+" "12ab"))]))
+(def-shell lines [] -> string
+  (string-concat-many [(lines-0) (lines-1) (lines-2) (lines-3) (lines-4)]))
 (def-main :mode console
   :init (pair 0 (wasi.io.stdout (lines)))
   :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))
