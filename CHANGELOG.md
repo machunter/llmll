@@ -2,6 +2,31 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.1)
+
+### `REGEX-CAPTURE-1`, `REGEX-CASE-1`: capture, scan and case for text processing
+
+`regex-match` answered only `bool`, and a `(?i)` pattern silently answered `false`. Design:
+`docs/design/regex-capture-case-proposal.md` Rev 0, with amendments A1 and A2. Closes
+`REGEX-CAPTURE-1` and `REGEX-CASE-1`.
+
+- **`regex-find`, `regex-find-all`, `regex-spans`** (pattern first): the leftmost match as
+  `[whole, group 1, …]`, every match, and each match's `(start, end)` character span for
+  `string-slice`. An invalid pattern answers `[]` and never crashes the program.
+- **`string-lower`, `string-upper`**: per-character simple case mapping; the length never changes.
+- **A leading `(?i)`** matches without regard to case in all four regex builtins, `regex-match`
+  included.
+- **`check` error `invalid-regex`** for a literal pattern, or one returned by a nullary local
+  definition, that does not compile, or that escapes a letter POSIX ERE reads literally
+  (`\d`, `\w`, `\s`, `\n`), with the POSIX form as the hint. A computed pattern is not seen.
+- **Matching stays newline-sensitive**, as `regex-match` always was: `.` and `[^…]` do not match
+  a newline.
+- **Tests:** Spec.hs RX-1 to RX-12; pytest `test_regex_capture_case.py` (22 cells, new CI step).
+
+2353 examples, 0 failures (+17). Python: 313 passed; 533 with `LLMLL_BIN` set (+22), 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.1: a trust declaration is a floor on the checked evidence; the trust-gap warning names the checked level (2026-10-16)

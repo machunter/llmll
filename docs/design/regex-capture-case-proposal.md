@@ -1,13 +1,13 @@
 ---
 title: REGEX-CAPTURE-1 and REGEX-CASE-1 — capture, scan and case for text processing
-status: Rev 0, SETTLED 2026-10-17
+status: Rev 0, SETTLED 2026-10-17; amended 2026-10-17 after implementation (A1, A2)
 rows: REGEX-CAPTURE-1, REGEX-CASE-1 (G7)
 review: none (the user skipped the professor step)
 ---
 
 # REGEX-CAPTURE-1 and REGEX-CASE-1 — capture, scan and case for text processing
 
-**Status: Rev 0, SETTLED 2026-10-17.** The user put both rows in one pass on 2026-10-17, added `string-lower` and `string-upper` to the same phase, and sent the proposal to the compiler engineer without a professor review.
+**Status: Rev 0, SETTLED 2026-10-17.** The user put both rows in one pass on 2026-10-17, added `string-lower` and `string-upper` to the same phase, and sent the proposal to the compiler engineer without a professor review. Two amendments followed the implementation (`9175da47`, `d4557731`); see [Amendments after implementation](#amendments-after-implementation). Edge case 3 and Risk 2 are corrected in place, each marked.
 
 ## Restatement
 
@@ -100,6 +100,7 @@ check error: invalid-regex at p
 Evaluation, as spec text for §13.6:
 
 - Matching is POSIX ERE through `regex-tdfa`, leftmost-longest, including for capture groups. A group that took no part reads `""`.
+- Matching is newline-sensitive (A2): `.` and a negated bracket such as `[^`]` do not match a newline, and `^` and `$` match at the start and end of each line. This is `regex-tdfa`'s default, which `regex-match` has always used.
 - A non-empty `regex-find` result has length N+1, where N is the number of capture groups in the pattern.
 - `regex-find-all` and `regex-spans` follow `regex-tdfa`'s scan for every match. Empty matches are kept, and the scan moves one character forward after an empty match. The spec prints the measured `a*` / `baaab` result.
 - Indices count characters, as `string-length` and `string-slice` do. For each span, `0 ≤ start ≤ end ≤ (string-length s)`, and `(string-slice s start end)` equals group 0 of the matching `regex-find-all` element.
@@ -134,7 +135,7 @@ None. Builtins are ordinary application nodes; the schema version stays 0.12.0.
 
 1. **Positive witness for Check-RegexLit.** `(def f [s: string] (regex-find "(?i)prev(" s))`: `check` exits 1 with `invalid-regex`, naming the unclosed group. Control: `(regex-find "(?i)previously" s)` passes, and on `"Previously seen"` gives `["Previously"]`. Channel: type. Citation: Check-RegexLit; Context 13.
 2. **Positive witness for capture.** `(regex-find "([a-z]+)=([0-9]+)?" "x key= y")` gives `["key=", "key", ""]`. Channel: none (an executable result); pinned by a test. Citation: Context 13.
-3. **The citation scan behind `REGEX-CAPTURE-1`.** ``(regex-find-all "`([^`]*)`" body)`` on a body whose backtick span crosses a newline gives one element per span, with group 1 the text inside it. `[^`]` matches a newline under POSIX ERE, so the span is not cut. Acceptance: the 955-citation corpus comparison of TOOL-RFC-005 §4 gives zero disagreements.
+3. **The citation scan behind `REGEX-CAPTURE-1`.** *Corrected 2026-10-17 (A2).* ``(regex-find-all "`([^`]*)`" body)`` gives one element per backtick span on one line, with group 1 the text inside it. A span that crosses a newline is not matched: `[^`]` does not match a newline in `regex-tdfa`'s newline-sensitive mode. The Rev 0 text said it was matched, which was incorrect. Acceptance, measured 2026-10-17: the TOOL-RFC-005 citation pattern over the 262 living Markdown files gives 5,514 matches (2,221 citations with a slash) and zero disagreements with the retired Python reference. The reference's pattern cannot cross a newline either, so A2 does not change that result.
 4. **POSIX against PCRE.** `(regex-find "(a|ab)(b?)" "ab")` gives `["ab", "ab", ""]`; Python gives `["ab", "a", "b"]`. The spec is silent by design and prints the example, because agents expect PCRE.
 5. **Empty matches.** `(regex-find-all "a*" "baaab")` gives `[[""], ["aaa"], [""], [""]]`. The engineer measures the matching `regex-spans` list and the spec prints it. Silent by design; pinned by a test.
 6. **An invalid pattern that is not a literal.** `(regex-find (path-pat) s)` where `path-pat` returns `"("` gives `[]` at run time, with no message. Channel: a gap, flagged. Extending Check-RegexLit to a nullary `def` whose body is a literal covers the shape `pathlint.llmll` uses; the engineer measures the cost, and it is not required.
@@ -172,8 +173,26 @@ No new proof obligation.
 ## Risks
 
 1. **The check-time and run-time pattern compilers can differ.** (Soundness of the diagnostic.) The compiler builds on `compiler/stack.yaml`; a generated program builds on the stack project `llmll build` writes. If the resolvers pick different `regex-tdfa` versions, `check` can accept a pattern that fails at run time, or reject one that works. The engineer confirms one resolver and adds a test that fails when they differ. Complicates; does not block.
-2. **Agents expect PCRE.** (Verification ergonomics.) Non-greedy `*?`, `\d` and lookaround are not POSIX ERE. Each is a check error as a literal and a silent `[]` otherwise. Most patterns are literals, so Check-RegexLit catches most cases. §13.6 names the constructs that are not supported.
+2. **Agents expect PCRE.** (Verification ergonomics.) *Corrected 2026-10-17 (A1).* Non-greedy `*?`, `(?:…)` and lookaround are parse errors in `regex-tdfa`. The Rev 0 text put `\d` in the same list, which was incorrect: `\d`, `\w`, `\s` and `\n` compile and match the letters d, w, s and n. Amendment A1 makes each of them a check error as a literal. Every one of these constructs is still a silent `[]` or `False` when the pattern is computed. §13.6 names the constructs that are not supported.
 3. **Edge case 6, the silent failure of a pattern that is not a literal.** (Scope.) The in-tree tool `pathlint.llmll` has this shape. The nullary-def extension closes it, at a measured cost.
 4. **`regex-spans` is the only part that answers "where".** (Scope.) Without it, `REGEX-CAPTURE-1` closes for "what" only. It also makes a replace function possible with `string-slice` and `string-concat-many`. Kept in the catalog.
 
 No professor question survives the negative test. The POSIX-against-PCRE point was settled by measurement, and the result facts are deferred to demand.
+
+## Amendments after implementation
+
+Both amendments were found by measurement during implementation, on regex-tdfa 1.3.2.2 (LTS 22.43). The user approved A1 with the engineer plan on 2026-10-17. A2 keeps existing behaviour and is recorded here so the spec text states it.
+
+**A1. A letter escape that regex-tdfa reads as the letter is a check error.** `\d+` matches `ddd` and not `123`; `\w`, `\s` and `\n` behave the same way. Check-RegexLit therefore also rejects a backslash before an ASCII letter, outside a bracket expression, unless regex-tdfa gives the escape a meaning. The meaningful letters are `b` and `B` (word boundaries); `\<`, `\>`, `` \` `` and `\'` are also anchors. The diagnostic suggests the POSIX form: `[0-9]` or `[[:digit:]]` for `\d`, `[[:alnum:]_]` for `\w`, `[[:space:]]` for `\s`, and the literal character for `\n`. The allowed set is measured against the library by `Spec.hs` RX-7, not trusted.
+
+```
+p is a string literal, or the body of a nullary local definition
+validatePattern(p) = RxEscape c      (c an ASCII letter, c ∉ {b, B})
+───────────────────────────────────────────  (Check-RegexEscape)
+check error: invalid-regex at p
+```
+
+**A2. Matching is newline-sensitive.** `regex-tdfa` compiles with `multiline = True` by default. Under it, `.` and a negated bracket do not match a newline, and `^` and `$` match at each line. `regex-match` has always compiled this way, so the four builtins keep it and agree with each other. A pattern that must cross a line has no inline flag in this pass; it can split the subject with `string-split` first. Edge case 3 above is corrected to match.
+
+**Also measured.** The reach of Check-RegexLit includes a nullary local `def`, `def-logic` or `def-shell` whose whole body is a string literal (edge case 6), at about fifteen lines of type-checker code. `regex-spans "a*" "baaab"` gives `[(0,0), (1,4), (4,4), (5,5)]`, as edge case 5 expected.
+
