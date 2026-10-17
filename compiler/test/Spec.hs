@@ -14,7 +14,7 @@ import qualified Data.Text.Encoding as TE
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr, parseTopLevel)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckStrict, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 -- EFFECT-RESP: the type half of the sealed Response, paired with the value half
 -- in builtinEnv above.
@@ -22185,6 +22185,62 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           emitted = cgStackYaml (generateHaskell "m" [callWith "regex-find" (lit "a")])
       resolverOf emitted `shouldBe` resolverOf own
       resolverOf own `shouldSatisfy` isJust
+
+  -- -----------------------------------------------------------------------
+  -- CTOR-AS-VALUE (docs/design/ctor-as-value-proposal.md Rev 0; roadmap row
+  -- RESERVED-NAME-1 residue (4)). An unbound True, False, Success or Error in
+  -- expression position is constructor-as-value in BOTH strictness modes. On
+  -- v0.30.2 plain check warned "unbound variable 'True' (may be in scope at
+  -- runtime)" and build, verify and --strict rejected the same program.
+  -- -----------------------------------------------------------------------
+
+  describe "CTOR-AS-VALUE: a constructor of bool or Result is not a value" $ do
+
+    let parseOk src = case parseStatements GrammarCoreInversion "<cv>" src of
+          Left e   -> error ("CV fixture did not parse: " ++ show e)
+          Right ss -> ss
+        cvKinds report = [ k | Just k <- map diagKind (reportDiagnostics report)
+                             , k == "constructor-as-value" ]
+        plainKinds  = cvKinds . typeCheck GrammarCoreInversion builtinEnv
+        strictKinds = cvKinds . typeCheckStrict GrammarCoreInversion builtinEnv
+        ifSrc = "(def-shell f [n: int] -> bool (if (> n 0) True False))"
+
+    it "CV-1: True and False as values are errors, the same in plain and strict" $ do
+      let ss = parseOk ifSrc
+      plainKinds ss  `shouldBe` ["constructor-as-value", "constructor-as-value"]
+      strictKinds ss `shouldBe` plainKinds ss
+      reportSuccess (typeCheck GrammarCoreInversion builtinEnv ss) `shouldBe` False
+
+    it "CV-2: True as a value inside a contract clause is the same error" $
+      plainKinds (parseOk "(def-shell p [n: int] -> bool (post (= result True)) (> n 0))")
+        `shouldBe` ["constructor-as-value"]
+
+    it "CV-3: (True) and (False) as match patterns stay clean" $
+      plainKinds (parseOk "(def-shell h [b: bool] -> int (match b ((True) 1) ((False) 0)))")
+        `shouldBe` []
+
+    -- THE LIMIT, PINNED: the rule keys on an unbound name, not on a spelling.
+    it "CV-4: a parameter or let binding named True or False is not refused" $ do
+      plainKinds (parseOk "(def-shell q [True: int] -> int True)") `shouldBe` []
+      plainKinds (parseOk "(def-shell r [n: int] -> int (let [(False 2)] (+ n False)))") `shouldBe` []
+
+    it "CV-5: Success applied and a bare Error are errors naming ok and err" $ do
+      let ds src = [ d | d <- reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv (parseOk src))
+                       , diagKind d == Just "constructor-as-value" ]
+      map diagSuggestion (ds "(def-shell g [n: int] -> Result[int, string] (Success n))")
+        `shouldBe` [Just "Write (ok x) to build a Success value."]
+      map diagSuggestion (ds "(def-shell e [n: int] -> Result[int, string] Error)")
+        `shouldBe` [Just "Write (err e) to build an Error value."]
+
+    it "CV-6: the rule fires on a program read back from JSON-AST" $
+      case parseJSONAST GrammarCoreInversion "<cv>" (emitJsonAST (parseOk ifSrc)) of
+        Left d   -> expectationFailure ("JSON-AST did not parse: " ++ show d)
+        Right ss -> plainKinds ss `shouldBe` ["constructor-as-value", "constructor-as-value"]
+
+    it "CV-7: the message names the pattern and the value spelling" $ do
+      let msgs = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv (parseOk ifSrc))
+                                 , diagKind d == Just "constructor-as-value" ]
+      msgs `shouldSatisfy` any (\m -> "(True)" `T.isInfixOf` m && "`true`" `T.isInfixOf` m)
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
