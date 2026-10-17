@@ -34,7 +34,7 @@ import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterface
 import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers)
 import LLMLL.CodegenHs (generateHaskellMulti, cgHsSource)
 import LLMLL.TypeCheck (typeCheckWithCache)
-import LLMLL.Diagnostic (Diagnostic, DiagnosticReport)
+import LLMLL.Diagnostic (Diagnostic, DiagnosticReport, importNeedsFile)
 import qualified Data.Text.IO as TIO
 import Control.Monad (foldM)
 import LLMLL.PBT
@@ -664,6 +664,67 @@ moduleSpec = describe "Module System" $ do
   -- ("expected int, got PositiveInt"); the identical code in-module type-checks.
   -- Files: test/fixtures/xmod-alias/{core,use}.llmll
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- PBT-QUAL-1 / XMOD-RUN-LOAD-1: a property sees the definitions the built
+  -- program sees. A qualified M.f through a plain (import M) is forwarded,
+  -- the helpers forwarded definitions call come with them, and qualifiers are
+  -- stripped as generateHaskellMulti strips them. Before this, both the R3
+  -- property and the helper witness were PBTSkipped and `llmll test` exited 0.
+  -- -----------------------------------------------------------------------
+  describe "PBT-QUAL-1: qualified imports and helpers reach the PBT evaluator" $ do
+    let withPost n ps body = SDefLogic n ps (Just TInt)
+          (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
+                    Nothing Nothing [] [])
+          body
+        prop desc body = SCheck (Property desc [] body [])
+        idF  = defLogic "f" [("n", TInt)] (Just TInt) (EVar "n")
+        libEnv = mkEnv ["lib"] [idF]
+        importLib = SImport (Import "lib" Nothing Nothing)
+        statusOf merged = map pbtStatus . pbtResults <$> runPropertyTests merged
+
+    it "PQ-1: a property over lib.f with (import lib) alone is evaluated and passes" $ do
+      let local = [importLib, prop "id" (EOp "=" [EApp "lib.f" [ELit (LitInt 3)], ELit (LitInt 3)])]
+      statusOf (assembleTestStatements local (mkCache [libEnv])) >>= (`shouldBe` [PBTPassed])
+
+    it "PQ-2: a false property over lib.f fails rather than being skipped" $ do
+      let local = [importLib, prop "wrong" (EOp "=" [EApp "lib.f" [ELit (LitInt 3)], ELit (LitInt 4)])]
+      statusOf (assembleTestStatements local (mkCache [libEnv])) >>= (`shouldBe` [PBTFailed])
+
+    it "PQ-3: an exported f that calls an unexported helper h is evaluated (helper closure)" $ do
+      let h   = defLogic "h" [("n", TInt)] (Just TInt) (EOp "+" [EVar "n", ELit (LitInt 1)])
+          f   = defLogic "f" [("n", TInt)] (Just TInt) (EApp "h" [EVar "n"])
+          env = mkEnv ["hl"] [SExport ["f"], h, f]
+          local = [ SImport (Import "hl" Nothing Nothing), SOpen ["hl"] Nothing
+                  , prop "f is h" (EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 2)]) ]
+      statusOf (assembleTestStatements local (mkCache [env])) >>= (`shouldBe` [PBTPassed])
+
+    it "PQ-4: an unexported definition no forwarded body calls is still not forwarded" $ do
+      let h   = defLogic "h" [("n", TInt)] (Just TInt) (EVar "n")
+          env = mkEnv ["lib"] [SExport ["f"], idF, h]
+          local  = [importLib, prop "id" (EOp "=" [EApp "lib.f" [ELit (LitInt 1)], ELit (LitInt 1)])]
+          merged = assembleTestStatements local (mkCache [env])
+      [ n | SDefLogic{defLogicName = n} <- merged ] `shouldBe` ["f"]
+
+    it "PQ-5: writeback over a qualified, contracted lib.g keys the record lib.g" $ do
+      let g     = withPost "g" [("x", TInt)] (EVar "x")
+          env   = mkEnv ["lib"] [g]
+          local = [importLib, prop "g-nonneg" (EOp ">=" [EApp "lib.g" [ELit (LitInt 2)], ELit (LitInt 0)])]
+          result = PBTResult 1 1 0 0 [PBTRun "g-nonneg" PBTPassed 100 Nothing]
+          (m, _) = pbtTrustWriteback (const Nothing) local (mkCache [env]) result
+      Map.keys m `shouldBe` ["lib.g"]
+
+    it "PQ-6: a local definition still shadows an imported one of the same name" $ do
+      let localF = defLogic "f" [("n", TInt)] (Just TInt) (ELit (LitInt 0))
+          local  = [ importLib, SOpen ["lib"] Nothing, localF
+                   , prop "local wins" (EOp "=" [EApp "f" [ELit (LitInt 5)], ELit (LitInt 0)]) ]
+      statusOf (assembleTestStatements local (mkCache [libEnv])) >>= (`shouldBe` [PBTPassed])
+
+    it "SV-1: importNeedsFile refuses a user-module import by name" $
+      fmap diagKind (importNeedsFile "POST /typecheck" [importLib]) `shouldBe` Just (Just "import-needs-file")
+
+    it "SV-2: importNeedsFile lets a wasi.* capability import through" $
+      importNeedsFile "POST /typecheck" [SImport (Import "wasi.io" Nothing Nothing)] `shouldBe` Nothing
+
   describe "XMOD-ALIAS: imported refinement alias is int-compatible (on-disk)" $ do
     it "XA-DISK-1: loadModule of an importer doing >=/- on imported PositiveInt succeeds" $ do
       let srcRoot = "test/fixtures/xmod-alias"

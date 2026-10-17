@@ -25,6 +25,27 @@
 
 2353 examples, 0 failures (+17). Python: 313 passed; 533 with `LLMLL_BIN` set (+22), 5 skipped.
 
+### `PBT-QUAL-1`, `XMOD-RUN-LOAD-1`: a program that imports a module works in every command
+
+`check`, `build` and `verify` loaded a file's imported modules; `test`, `run`, `patch`, `refine`
+and `repl` did not. Closes `PBT-QUAL-1` and `XMOD-RUN-LOAD-1`.
+
+- **`llmll test`** evaluates a property that calls `lib.f` through `(import lib)` alone. It was
+  reported skipped and the command exited 0. The unexported helpers an imported function calls are
+  evaluated too, and a lifted `tested` record for such a subject is keyed `lib.f`.
+- **`llmll run`** builds a program with imports as `build` does. It failed with
+  `call to unknown function 'lib.f'`.
+- **`llmll patch` and `llmll refine`** check and re-verify a fill against the imported modules. An
+  ill-typed `(lib.f "x")` reported `PatchSuccess`, and `--require-proof` refused a fill `verify`
+  proves.
+- **`serve`'s `POST /typecheck` and `POST /sketch`, and `llmll repl`,** refuse a user-module import
+  with the error `import-needs-file`: they receive text with no file to resolve it against.
+  A `wasi.*` import is unaffected.
+- **Tests:** ModuleSpec PQ-1 to PQ-6, SV-1, SV-2; pytest `test_xmod_run_load_1.py` (9 cells, new
+  CI step).
+
+2361 examples, 0 failures (+8). Python: 313 passed; 542 with `LLMLL_BIN` set (+9), 5 skipped.
+
 ---
 
 <a id="Latest"></a>

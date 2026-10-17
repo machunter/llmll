@@ -1,0 +1,4 @@
+;; XMOD-RUN-LOAD-1 / PBT-QUAL-1 fixture: the imported module. f is the
+;; identity; Ctl gives main a qualified constructor to use.
+(type Ctl (| Ran) (| Stop))
+(def f [n: int] -> int n)

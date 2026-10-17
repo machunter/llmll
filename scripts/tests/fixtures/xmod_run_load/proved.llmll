@@ -1,0 +1,4 @@
+;; XMOD-RUN-LOAD-1 amendment A1: a contracted callee, verified before use.
+(def idf [n: int] -> int
+  (post (= result n))
+  n)

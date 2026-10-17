@@ -720,7 +720,7 @@ where `contractedNames(Σ)` is the set of names bound by any contracted statemen
 
 **Side conditions.**
 
-1. **Subject scoping.** `f` may be a name local to the source file or a name imported via `(open path …)` and resolved through the assembled test statement list (`compiler/src/LLMLL/PBT.hs` `assembleTestStatements`). Imported subjects are keyed in the local sidecar under their qualified name `lib.f` per the sidecar invariant at §4.4.4.
+1. **Subject scoping.** `f` may be a name local to the source file, a name imported via `(open path …)`, or a name the file writes qualified (`lib.f`) through `(import lib)`, resolved through the assembled test statement list (`compiler/src/LLMLL/PBT.hs` `assembleTestStatements`). The unexported helpers an imported definition calls are evaluated with it. Imported subjects are keyed in the local sidecar under their qualified name `lib.f` per the sidecar invariant at §4.4.4.
 2. **Multi-subject suppression (default path).** Properties whose head-position set contains two or more contracted callees, *without* explicit `:subject` / `:subjects` metadata, do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` / `:subjects` metadata; see the **Annotated-subject branch** below.
 3. **Skip and fail suppress the lift.** `PBTSkipped` (static-evaluator bottoms, QuickCheck-discard saturation) contributes zero evidence per §5.1's outcome table. `PBTFailed` runs are surfaced as user-facing diagnostics but record no `pbt_witnesses` and do not retract any prior `DLTested` evidence.
 4. **`PBTError` is treated as `PBTSkipped` for write-back.** Exceptions during QuickCheck propagate as user-facing diagnostics; the trust-report channel ignores them.
@@ -1456,6 +1456,8 @@ A qualified name `M.f`, `M.C` or `M.T` resolves when the current module imports 
 ```
 
 Codegen emits the bare Haskell name. That is safe because §8.5 makes every top-level name unique in the build. A qualified name whose module is in the build but is not imported by the current module is an error that says `add (import M)`. Per-module Haskell output remains the long-term path; when it ships, the one-scope-per-build rule can narrow to one scope per module plus its opened names.
+
+Every command that takes a file loads the modules it imports: `check`, `test`, `build`, `run`, `verify`, `checkout`, `patch` and `refine`. `llmll serve`'s `POST /typecheck` and `POST /sketch`, and `llmll repl`, receive source text with no file location, so they refuse an `(import M)` of a user module with the error `import-needs-file`. A `wasi.*` import is a capability, not a module, and they accept it.
 
 ### 8.6 `open` — Bare-Name Injection
 
@@ -2291,7 +2293,7 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 | `llmll patch <file.ast.json> <patch.json> [--require-proof]` | Apply patch + re-verify; `--require-proof` refuses a fill whose postcondition was only assumed |
 | `llmll refine <file.ast.json> <refine.json>` | Fill a hole + spawn contracted sub-holes, atomically |
 
-**HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
+**HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`. `POST /typecheck` and `POST /sketch` take source text with no file, so they refuse an `(import M)` of a user module with the error `import-needs-file` (§8.5.1); `/checkout` and `/patch` name a file and load its imports.
 
 > Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling; `refine` (below) is the one bounded extension — general AST mutation is planned for a future release.
 

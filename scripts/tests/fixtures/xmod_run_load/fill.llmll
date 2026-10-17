@@ -1,0 +1,3 @@
+;; XMOD-RUN-LOAD-1: patch and refine re-check a fill against lib.
+(import lib)
+(def-shell g [n: int] -> int (+ (lib.f n) ?fill))

@@ -1,0 +1,5 @@
+;; PBT-QUAL-1: a false property over a qualified import must fail, not skip.
+(import lib)
+(check "the library f adds one"
+  (for-all [n: int]
+    (= (lib.f n) (+ n 1))))

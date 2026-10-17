@@ -52,7 +52,7 @@ import LLMLL.Parser (parseStatements)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..))
+import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..), importNeedsFile)
 import LLMLL.Sketch (encodeSketchResult, SketchResult(..))
 import LLMLL.Syntax (Statement, GrammarMode(..))
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
@@ -162,6 +162,12 @@ respond400 :: T.Text -> Response
 respond400 msg = responseLBS status400 jsonCT
   (encode $ object ["error" .= ("bad-request" :: T.Text), "message" .= msg])
 
+-- | XMOD-RUN-LOAD-1: the refusal has the /typecheck failure shape, so a client
+-- that reads `success` and `diagnostics` reads it unchanged.
+respondImportNeedsFile :: Diagnostic -> Response
+respondImportNeedsFile d = respondOK $ encode $ object
+  [ "success" .= False, "diagnostics" .= [d] ]
+
 respond413 :: Response
 respond413 = responseLBS status413 jsonCT
   (encode $ object ["error" .= ("request-too-large" :: T.Text)])
@@ -188,7 +194,11 @@ handleTypecheck req = do
     Right raw ->
       case parseBody req raw of
         Left msg -> pure $ respond400 msg
-        Right stmts ->
+        Right stmts
+          -- XMOD-RUN-LOAD-1: a body that imports a user module is refused by
+          -- name; this endpoint has no file to resolve the import against.
+          | Just d <- importNeedsFile "POST /typecheck" stmts -> pure (respondImportNeedsFile d)
+          | otherwise ->
           -- Fresh TCState per request: stateless by construction (spec invariant 2)
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
           in pure $ respondOK $ encode $ object
@@ -205,7 +215,9 @@ handleSketch req = do
     Right raw ->
       case parseBody req raw of
         Left msg -> pure $ respond400 msg
-        Right stmts ->
+        Right stmts
+          | Just d <- importNeedsFile "POST /sketch" stmts -> pure (respondImportNeedsFile d)
+          | otherwise ->
           -- Fresh runSketch call per request; trivially concurrent (no shared state)
           let result = runSketch GrammarCoreInversion emptyEnv stmts defaultPatterns
           in pure $ respondOK (encodeSketchResult result)
