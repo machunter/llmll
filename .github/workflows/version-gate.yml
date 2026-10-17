@@ -594,6 +594,24 @@ jobs:
           grep -q ' 68 passed' "$RUNNER_TEMP/trust-report-gate.log" \
             || { echo "TRUST-REPORT-GATE-1: expected 68 passed cells"; exit 1; }
 
+      # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
+      # program with GHC (needs the toolchain), run `check` per agreement row,
+      # and run `verify` once (needs fixpoint), so they sit after the solver is
+      # installed. On v0.30.1 the program does not build, because the five
+      # builtins do not exist. Same skip and count guards as above: 14 value
+      # cells, 7 agreement cells, 1 verify cell.
+      - name: Run REGEX-CAPTURE-1 / REGEX-CASE-1 cells (pytest, needs the toolchain and the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_regex_capture_case.py -v -rs \
+            | tee "$RUNNER_TEMP/regex-capture-case.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/regex-capture-case.log"; then
+            echo "a REGEX-CAPTURE-1 cell skipped; LLMLL_BIN must be set here"; exit 1
+          fi
+          grep -q ' 22 passed' "$RUNNER_TEMP/regex-capture-case.log" \
+            || { echo "REGEX-CAPTURE-1: expected 22 passed cells"; exit 1; }
+
       # HASH-PRE-ASYM and TRUST-AXIOM-1: a verified record is keyed by the live
       # source and survives every read that does not run the solver, and the
       # trust report names the axioms and lemmas a proof rests on. Both files

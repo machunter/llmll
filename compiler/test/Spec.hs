@@ -73,6 +73,8 @@ import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWi
 import qualified System.Process as SP
 import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, (\\))
 import Data.Char (isAlphaNum, isLower)
+import LLMLL.RegexPattern (validatePattern, rxMeaningfulEscapes, RegexProblem(..))
+import qualified Text.Regex.TDFA as RX
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -17603,8 +17605,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- bodies, so both land in needsBinding: 70 -> 72.
       -- 103 -> 104 with HTTP-GET-1's wasi.http.get: a hand-written preamble
       -- body (in httpGetPreamble), so it lands in needsBinding: 72 -> 73.
-      Map.size builtinEnv      `shouldBe` 104
-      length needsBinding      `shouldBe` 73
+      -- 104 -> 109 with REGEX-CAPTURE-1 / REGEX-CASE-1's regex-find,
+      -- regex-find-all, regex-spans, string-lower and string-upper. All five
+      -- are hand-written preamble bodies in runtimePreamble, so all five land
+      -- in needsBinding: 73 -> 78.
+      Map.size builtinEnv      `shouldBe` 109
+      length needsBinding      `shouldBe` 78
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -22071,6 +22077,114 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Just m  -> do
             m `shouldSatisfy` T.isInfixOf "let !(s', cmd) = "
             m `shouldSatisfy` T.isInfixOf "let !(state0, initCmd) = "
+
+  -- -----------------------------------------------------------------------
+  -- REGEX-CAPTURE-1 / REGEX-CASE-1 (docs/design/regex-capture-case-proposal.md
+  -- Rev 0, plus implementation amendment A1). Five pure builtins, a leading
+  -- (?i) for the four regex builtins, and the check-time `invalid-regex` rule
+  -- for a pattern `check` can see. The run-time behaviour is pinned end to end
+  -- by scripts/tests/test_regex_capture_case.py; these cells pin the types,
+  -- the check rule and its stated limit, and the resolver agreement the rule
+  -- rests on.
+  -- -----------------------------------------------------------------------
+
+  describe "REGEX-CAPTURE-1 / REGEX-CASE-1: builtins and the literal-pattern rule" $ do
+
+    let noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        shellNamed n ps body = SDefShell
+          { defShellName = n, defShellParams = ps
+          , defShellReturn = Nothing, defShellContract = noContract
+          , defShellBody = body, defShellDecreases = [] }
+        callWith fn pat = shellNamed "f" [("s", TString)] (EApp fn [pat, EVar "s"])
+        lit = ELit . LitString
+        kindsOf stmts =
+          mapMaybe diagKind (reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts))
+        diagsOf stmts = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts)
+
+    it "RX-1: builtinEnv types the five builtins as the proposal states" $ do
+      Map.lookup "regex-find" builtinEnv `shouldBe` Just (TFn [TString, TString] (TList TString))
+      Map.lookup "regex-find-all" builtinEnv
+        `shouldBe` Just (TFn [TString, TString] (TList (TList TString)))
+      Map.lookup "regex-spans" builtinEnv
+        `shouldBe` Just (TFn [TString, TString] (TList (TPair TInt TInt)))
+      Map.lookup "string-lower" builtinEnv `shouldBe` Just (TFn [TString] TString)
+      Map.lookup "string-upper" builtinEnv `shouldBe` Just (TFn [TString] TString)
+
+    -- The positive witness: an invalid literal under (?i) is refused.
+    it "RX-2: an invalid literal pattern is refused with invalid-regex" $
+      kindsOf [callWith "regex-find" (lit "(?i)prev(")] `shouldContain` ["invalid-regex"]
+
+    it "RX-3: a valid (?i) literal is CLEAN" $
+      kindsOf [callWith "regex-find" (lit "(?i)previously")] `shouldNotContain` ["invalid-regex"]
+
+    it "RX-4: (?i) anywhere but the start is refused, regex-match included" $
+      kindsOf [callWith "regex-match" (lit "x(?i)y")] `shouldContain` ["invalid-regex"]
+
+    -- Amendment A1. regex-tdfa reads \d as the letter d, so a pattern an agent
+    -- writes for "a digit" matches the letter. The hint names the POSIX form.
+    it "RX-5: a letter escape regex-tdfa reads literally is refused, with the POSIX form" $ do
+      let ds = filter ((== Just "invalid-regex") . diagKind)
+                 (diagsOf [callWith "regex-find-all" (lit "\\d+")])
+      map diagKind ds `shouldBe` [Just "invalid-regex"]
+      (diagSuggestion =<< listToMaybe ds) `shouldBe` Just "Use [0-9] or [[:digit:]]."
+
+    it "RX-6: \\b, \\. and a POSIX class are CLEAN" $
+      mapM_ (\p -> kindsOf [callWith "regex-spans" (lit p)] `shouldNotContain` ["invalid-regex"])
+        ["\\bfoo\\b", "\\.", "[[:digit:]]+", "[\\d]"]
+
+    -- The allowed set is measured against the library, not trusted: for every
+    -- ASCII letter L, \L is in rxMeaningfulEscapes exactly when regex-tdfa
+    -- matches it differently from the plain letter L on some probe. A future
+    -- regex-tdfa that gives a letter a meaning fails here rather than letting
+    -- A1 refuse a pattern that works, or admit one that does not.
+    it "RX-7: rxMeaningfulEscapes is exactly the letters regex-tdfa gives a meaning" $ do
+      let probes c = [[c], "", " ", "x", "1", "a b", [c, c], "x" ++ [c] ++ " y"]
+          spans :: String -> String -> [(Int, Int)]
+          spans pat s = RX.getAllMatches (s RX.=~ pat :: RX.AllMatches [] (Int, Int))
+          meaningful c = any (\s -> spans ['\\', c] s /= spans [c] s) (probes c)
+          letters = ['a'..'z'] ++ ['A'..'Z']
+      filter meaningful letters `shouldBe` filter (`elem` rxMeaningfulEscapes) letters
+      validatePattern "\\w" `shouldBe` Left (RxEscape 'w')
+
+    -- The one-step widening: a nullary local definition whose whole body is a
+    -- literal is seen, which is how tools/doc-path-lint/pathlint.llmll names
+    -- its patterns.
+    it "RX-8: a pattern returned by a nullary local definition is checked" $ do
+      let pat = shellNamed "pat" [] (lit "(")
+          ds  = filter ((== Just "invalid-regex") . diagKind)
+                  (diagsOf [pat, callWith "regex-find" (EApp "pat" [])])
+      length ds `shouldBe` 1
+      T.isInfixOf "(returned by pat)" (diagMessage (head ds)) `shouldBe` True
+
+    -- THE STATED LIMIT, PINNED, on the ER-11 precedent. A computed pattern is
+    -- left to the run-time compile, where it answers [] or False. If this
+    -- starts to fire, the limit moved and the proposal's edge case 6 changes.
+    it "RX-9: a pattern passed as a parameter is NOT checked (the limit)" $
+      kindsOf [shellNamed "f" [("p", TString), ("s", TString)]
+                 (EApp "regex-find" [EVar "p", EVar "s"])]
+        `shouldNotContain` ["invalid-regex"]
+
+    it "RX-10: a user definition named string-lower is a builtin redefinition" $
+      kindsOf [shellNamed "string-lower" [("s", TString)] (EVar "s")]
+        `shouldContain` ["builtin-redefinition"]
+
+    it "RX-11: the rule fires on a program read from JSON-AST" $ do
+      let stmts = [callWith "regex-find" (lit "a{2,1}")]
+      case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
+        Left d    -> expectationFailure ("JSON-AST did not parse: " ++ show d)
+        Right ss  -> kindsOf ss `shouldContain` ["invalid-regex"]
+
+    -- The rule is only as true as the agreement between the regex-tdfa `check`
+    -- links and the one a built program links. Both come from the LTS resolver;
+    -- this fails if compiler/stack.yaml and the emitted stack.yaml diverge.
+    it "RX-12: the emitted stack.yaml pins the compiler's own resolver" $ do
+      own <- TIO.readFile "stack.yaml"
+      let resolverOf src = listToMaybe
+            [ w | l <- T.lines src, Just rest <- [T.stripPrefix "resolver:" l]
+                , w <- take 1 (T.words rest) ]
+          emitted = cgStackYaml (generateHaskell "m" [callWith "regex-find" (lit "a")])
+      resolverOf emitted `shouldBe` resolverOf own
+      resolverOf own `shouldSatisfy` isJust
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
