@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.2)
+<a id="Latest"></a>
+
+## v0.30.3: a constructor of bool or Result is not a value (2026-10-17)
 
 ### `RESERVED-NAME-1 residue (4)`: a constructor of bool or Result is not a value
 
@@ -28,8 +30,6 @@ value did the same. Design: `docs/design/ctor-as-value-proposal.md` Rev 0, rejec
 2368 examples, 0 failures (+7). Python unchanged: 542 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.2: regex capture, scan and case builtins; a program that imports a module works in every command (2026-10-17)
 
