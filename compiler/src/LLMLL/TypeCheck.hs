@@ -2597,9 +2597,16 @@ unknownName x fallback = do
              if dExported d0
                then "'" <> x <> "' is declared in " <> m <> "; add (open " <> m <> ") or write " <> m <> "." <> x
                else "'" <> x <> "' is declared in " <> m <> " and is not exported"
-    [] -> tcWarnOrError fallback
+    -- CTOR-AS-VALUE (RESERVED-NAME-1 residue (4)): True and False are bool's
+    -- patterns and Success and Error are Result's; none is ever bound as a
+    -- value, so "may be in scope at runtime" is false for them and `build`
+    -- rejected them while plain `check` warned. An error in both modes that
+    -- names the value spelling (true/false, ok/err). A bound name (a
+    -- parameter or let named True) never reaches this function.
+    [] | x `elem` (["True", "False", "Success", "Error"] :: [Name]) ->
+           modify $ \s -> s { tcErrors = tcErrors s ++ [mkCtorAsValue x] }
+       | otherwise -> tcWarnOrError fallback
 
--- | Infer the type of an expression.
 -- | REGEX-CAPTURE-1 / REGEX-CASE-1: the builtins whose first argument is a
 -- regex pattern.
 regexBuiltins :: [Name]
@@ -2623,6 +2630,7 @@ regexPatternSource stmts (EApp f []) =
       _                      -> Nothing
 regexPatternSource _ _ = Nothing
 
+-- | Infer the type of an expression.
 inferExpr :: Expr -> TC Type
 inferExpr (ELit lit) = pure (inferLiteral lit)
 

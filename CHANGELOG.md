@@ -2,6 +2,33 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.2)
+
+### `RESERVED-NAME-1 residue (4)`: a constructor of bool or Result is not a value
+
+`True` or `False` used as a value passed plain `check` with the warning `unbound variable 'True'
+(may be in scope at runtime)`, and `build` reported the same text as an error. `(Success n)` as a
+value did the same. Design: `docs/design/ctor-as-value-proposal.md` Rev 0, rejection. Closes
+`RESERVED-NAME-1 residue (4)`.
+
+- **`check` error `constructor-as-value`** for an unbound `True`, `False`, `Success` or `Error` in
+  expression position, in plain and strict `check`, naming the value spelling:
+
+  ```
+  error: 'True' is a constructor of bool, usable only as a match pattern (True); the value is `true`.
+    suggestion: Write true.
+  error: 'Success' is a constructor of Result, usable only as a match pattern (Success x); build the value with `(ok x)`.
+    suggestion: Write (ok x) to build a Success value.
+  ```
+- **Unchanged:** the patterns `(True)`, `(False)`, `(Success x)` and `(Error e)`; the values `true`,
+  `false`, `ok` and `err`; and a parameter or `let` binding named `True`. No program that built
+  before is rejected.
+- **Tests:** Spec.hs CV-1 to CV-7.
+
+2368 examples, 0 failures (+7). Python unchanged: 542 passed with `LLMLL_BIN` set, 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.2: regex capture, scan and case builtins; a program that imports a module works in every command (2026-10-17)

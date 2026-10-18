@@ -211,11 +211,12 @@ For unit-payload constructors (discouraged for new code; see "Idiomatic guidance
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
-**Reserved constructor names.** `Success` and `Error` are the constructors of `Result[t,e]` (§13.8), and `True` and `False` are the constructors of `bool`. A sum type may not declare a constructor with any of these four names; `check` rejects it with `reserved-constructor-name`. LLMLL has no qualified constructor names, so a user `Error` would make the pattern `(Error e)` ambiguous, and a user `True` would do the same to `(True)`. Rename the constructor, for example to `Errored` or `Succeeded`. `(True)` and `(False)` are the patterns of `bool` in `match`, and `check` checks a `match` on a `bool` for exhaustiveness as it does for any sum type:
+**Reserved constructor names.** `Success` and `Error` are the constructors of `Result[t,e]` (§13.8), and `True` and `False` are the constructors of `bool`. A sum type may not declare a constructor with any of these four names; `check` rejects it with `reserved-constructor-name`. LLMLL has no qualified constructor names, so a user `Error` would make the pattern `(Error e)` ambiguous, and a user `True` would do the same to `(True)`. Rename the constructor, for example to `Errored` or `Succeeded`. `(True)` and `(False)` are the patterns of `bool` in `match`, and `check` checks a `match` on a `bool` for exhaustiveness as it does for any sum type. In expression position an unbound `True` or `False` is the error `constructor-as-value`, in plain and strict `check`: the values are `true` and `false`. A parameter or `let` binding named `True` is not affected.
 
 ```
 error: constructor 'True' is reserved: True and False are the constructors of bool; rename it
 error: non-exhaustive match in 'f': type 'Bool' has unmatched constructors: False (covered: True)
+error: 'True' is a constructor of bool, usable only as a match pattern (True); the value is `true`.
 ```
 
 A constructor may not take a builtin's name either (§13). The `Response` constructors `RNone`, `RText`, `RCode`, `RErr` and `RList` are builtins, so a sum type that declares one is rejected with `builtin-redefinition`:
@@ -2805,7 +2806,7 @@ LLMLL distinguishes three syntactic surfaces for `Result[t, e]` values, each wit
 | **Match** | `(Success v)`, `(Error e)` | `match`-arm pattern position only | `compiler/src/LLMLL/CodegenHs.hs` (rewrites to Haskell `Right`/`Left`) |
 | **Test** | `(is-ok x)` | Boolean test in expression position | `compiler/src/LLMLL/TypeCheck.hs` |
 
-`Result.Ok` and `Result.Error` are **not** registered constructor names. Use `(ok x)` and `(err e)` for construction and `(Success v)` / `(Error e)` for match arms.
+`Result.Ok` and `Result.Error` are **not** registered constructor names. Use `(ok x)` and `(err e)` for construction and `(Success v)` / `(Error e)` for match arms. An unbound `Success` or `Error` in expression position is the `check` error `constructor-as-value`, which names `(ok x)` or `(err e)` (§3.3).
 
 ```lisp
 ;; Construct

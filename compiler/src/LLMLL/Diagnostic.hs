@@ -49,6 +49,8 @@ module LLMLL.Diagnostic
   , mkInvalidRegex
   -- * XMOD-RUN-LOAD-1: a surface with no file cannot load imports
   , importNeedsFile
+  -- * CTOR-AS-VALUE: a constructor of bool or Result is not a value
+  , mkCtorAsValue
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
@@ -503,6 +505,28 @@ mkEnvNameMalformed lit rule =
       suggestion = "Pass a name that can name a variable, e.g. \"HOME\"."
   in (mkError Nothing msg)
        { diagKind       = Just "env-name-malformed"
+       , diagSuggestion = Just suggestion
+       }
+
+-- | CTOR-AS-VALUE (docs/design/ctor-as-value-proposal.md). An unbound True,
+-- False, Success or Error in expression position: a constructor usable only
+-- as a match pattern. The message names the value spelling.
+mkCtorAsValue :: Text -> Diagnostic
+mkCtorAsValue x =
+  let (owner, pat, value) = case x of
+        "True"    -> ("bool", "(True)", "the value is `true`")
+        "False"   -> ("bool", "(False)", "the value is `false`")
+        "Success" -> ("Result", "(Success x)", "build the value with `(ok x)`")
+        _         -> ("Result", "(Error e)", "build the value with `(err e)`")
+      msg = "'" <> x <> "' is a constructor of " <> owner
+            <> ", usable only as a match pattern " <> pat <> "; " <> value <> "."
+      suggestion = case x of
+        "True"    -> "Write true."
+        "False"   -> "Write false."
+        "Success" -> "Write (ok x) to build a Success value."
+        _         -> "Write (err e) to build an Error value."
+  in (mkError Nothing msg)
+       { diagKind       = Just "constructor-as-value"
        , diagSuggestion = Just suggestion
        }
 
