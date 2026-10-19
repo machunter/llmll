@@ -1,0 +1,2 @@
+(import selfq)
+(def-shell h [n: int] -> int (selfq.a n))

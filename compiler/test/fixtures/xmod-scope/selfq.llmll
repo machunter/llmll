@@ -1,0 +1,5 @@
+;; XMOD-SIB-RESOLVE-1 control: a module naming itself, and a wasi call.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell a [n: int] -> int n)
+(def-shell b [n: int] -> int (selfq.a n))
+(def-shell say [] -> Command (wasi.io.stdout "x"))

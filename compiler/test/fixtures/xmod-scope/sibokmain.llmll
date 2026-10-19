@@ -1,0 +1,3 @@
+(import sibf)
+(import sibok)
+(def-shell h [n: int] -> int (+ (sibf.f n) (sibok.g2 n)))

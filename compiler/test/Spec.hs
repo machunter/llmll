@@ -4898,10 +4898,12 @@ main = hspec $ do
           , meBuiltinAxioms = Nothing
           }
         cache = DM.fromList [(modPath, modEnv)]
+        -- XMOD-SIB-RESOLVE-1: a caller reaches math only by importing it.
+        mathImp = SImport (Import "math" Nothing Nothing)
 
     it "emits trust-gap warning for unproven cross-module call" $ do
       let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)])]
-          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (mathImp : callerStmts)
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       length trustGaps `shouldSatisfy` (> 0)
 
@@ -4910,7 +4912,7 @@ main = hspec $ do
               [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)])]
-          report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv (mathImp : callerStmts)
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
 
@@ -4919,7 +4921,7 @@ main = hspec $ do
             [ STrust "math.safe-add" DLAsserted  -- acknowledge the assertion level
             , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)])
             ]
-          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (mathImp : callerStmts)
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
 
@@ -4951,6 +4953,8 @@ main = hspec $ do
         -- Module A: "auth.verify" with configurable contract status
         mkAuthModule cs = mkModuleEnvWith "auth.verify" cs
         authModPath     = ["auth", "verify"]
+        -- XMOD-SIB-RESOLVE-1: a caller reaches auth.verify only by importing it.
+        authImp         = SImport (Import "auth.verify" Nothing Nothing)
 
         -- Module B caller: calls "auth.verify.auth.verify" (qualified via cache seeding)
         mkCallerStmts = [SDefLogic "check-user" [("uid", TInt)] (Just TInt)
@@ -4965,28 +4969,28 @@ main = hspec $ do
     it "asserted contract in imported module emits trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : mkCallerStmts)
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : mkCallerStmts)
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : mkCallerStmts)
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : mkCallerStmts)
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       -- Should have exactly 1 gap (for the asserted postcondition)
       length gaps `shouldBe` 1
@@ -5001,7 +5005,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing [] [])
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
-          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : callerStmts)
       countTrustGaps report `shouldBe` 0
 
     -- Test 6 (TRUST-LEVEL-FLOOR-1): a declaration is a floor. Evidence stronger
@@ -5016,7 +5020,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing [] [])
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
-          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : callerStmts)
       countTrustGaps report `shouldBe` 0
 
     -- TRUST-LEVEL-FLOOR-1 positive witness: evidence weaker than the declared
@@ -5030,7 +5034,7 @@ main = hspec $ do
                     (Contract Nothing Nothing Nothing Nothing Nothing [] [])
                     (EApp "auth.verify.auth.verify" [EVar "uid"])
                 ]
-              report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+              report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (authImp : callerStmts)
           in [ diagMessage d | d <- reportDiagnostics report, diagKind d == Just "trust-gap" ]
 
     it "TRUST-LEVEL-FLOOR-1: trust at tested re-warns when the evidence is asserted" $ do
@@ -5085,7 +5089,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing [] [])
                 (EApp "crypto.hash" [EVar "s"])
             ]
-          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv (SImport (Import "math" Nothing Nothing) : SImport (Import "crypto" Nothing Nothing) : callerStmts)
           gaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       -- math.safe-add is proven → no gap
       -- crypto.hash is asserted → 1 gap (pre only, post is Nothing)
@@ -16203,7 +16207,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meBuiltinAxioms = Nothing
             }
           importerStmts =
-            [ SOpen ["core"] Nothing
+            [ SImport (Import "core" Nothing Nothing)
+            , SOpen ["core"] Nothing
             , adStmt ]
 
       it "AV-XM1 verified imported callee is ADMITTED across (open ...)" $ do

@@ -1,0 +1,3 @@
+;; XMOD-SIB-RESOLVE-1 fixture: declares a refinement alias.
+(type SibPos (where [x: int] (> x 0)))
+(def-shell one [] -> SibPos 1)

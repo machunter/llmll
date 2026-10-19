@@ -1,0 +1,2 @@
+;; XMOD-SIB-RESOLVE-1 fixture: calls sibf.f and does NOT import sibf.
+(def-shell g [n: int] -> int (sibf.f n))

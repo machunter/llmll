@@ -1,0 +1,4 @@
+;; XMOD-SIB-RESOLVE-1: sibdep is loaded first, then sibf.
+(import sibdep)
+(import sibf)
+(def-shell h [n: int] -> int (+ (sibf.f n) (sibdep.g n)))

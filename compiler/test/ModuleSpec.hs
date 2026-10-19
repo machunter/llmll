@@ -540,6 +540,29 @@ moduleSpec = describe "Module System" $ do
             Map.lookup "Box" (meExports env) `shouldBe` Just (TFn [TInt] (TCustom "Box"))
             [ dExported d | d <- Map.findWithDefault [] (NsType, "Box") (closureDecls (Map.singleton ["box"] env)) ]
               `shouldBe` [True]
+    describe "XMOD-SIB-RESOLVE-1: a dependency reaches only what it imports" $ do
+      let sibMsg = "sibdep uses 'sibf.f', and sibf is not imported there; add (import sibf) to sibdep"
+      it "SIB-1: sibdep calling sibf.f without importing it is one error when sibf loads first" $ do
+        r <- xsCheck False "sibmain"
+        xsKind "name-not-in-scope" r `shouldBe` [sibMsg]
+      it "SIB-1b: the same error when sibdep loads first" $ do
+        r <- xsCheck False "sibmain2"
+        xsKind "name-not-in-scope" r `shouldBe` [sibMsg]
+      it "SIB-2: sibdep checked alone keeps its two warnings and no error (the limit)" $ do
+        ss <- xsParse "sibdep"
+        let r = typeCheckWithCache GrammarCoreInversion Map.empty emptyEnv ss
+        map diagMessage (xsErrs r) `shouldBe` []
+        map diagMessage (xsWarns r) `shouldSatisfy` any (T.isInfixOf "call to unknown function 'sibf.f'")
+      it "SIB-3: a dependency no longer sees a type alias from a module it does not import" $ do
+        r <- xsLoad "sibalmain"
+        either (const True) (const False) r `shouldBe` True
+      it "SIB-4: a dependency that imports sibf may call sibf.f, in either load order" $ do
+        r1 <- xsCheck False "sibokmain"
+        r2 <- xsCheck False "sibokmain2"
+        map diagMessage (reportDiagnostics r1 ++ reportDiagnostics r2) `shouldBe` []
+      it "SIB-5: a module naming itself, and a wasi call, are not reported" $ do
+        r <- xsCheck False "selfqmain"
+        xsKind "name-not-in-scope" r `shouldBe` []
     describe "R2: a type's identity is its declaring module plus its name" $ do
       it "E8 (t14): lib.Ctl against the opened constructor Ran is accepted (strict)" $ do
         r <- xsCheck True "t14"
