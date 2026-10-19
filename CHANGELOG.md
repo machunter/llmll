@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.3)
+<a id="Latest"></a>
+
+## v0.30.4: path normalization, entry kinds, and a process specification (2026-10-18)
 
 ### `PATH-NORM-1`, `LIST-KIND-1`, `PROC-ENV-1`, `PROC-REDIRECT-1`: path normalization, entry kinds, and a process specification
 
@@ -38,8 +40,6 @@ Rev 0, with amendments A1 and A2. Closes all four rows.
 2393 examples, 0 failures (+25). Python: 560 passed with `LLMLL_BIN` set (+18), 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.3: a constructor of bool or Result is not a value (2026-10-17)
 
