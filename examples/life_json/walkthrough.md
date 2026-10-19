@@ -46,9 +46,13 @@ cd ../generated/life_json && stack build   # ✅ GHC 9.6.6 build succeeded
 ```
 
 The module pattern is `import → open → bare call`: both `world.ast.json` and
-`main.ast.json` need an `(open ...)` statement after their `(import ...)` —
-without it, bare calls to imported functions (`glider-grid`, `make-world`,
-`render-world`, `evolve`) fail with `unknown function`.
+`main.ast.json` have an `(open ...)` statement after their `(import ...)`.
+Without it, a bare call to an imported function is a `check` error that names
+both fixes:
+
+```
+error: 'glider-grid' is declared in world; add (open world) or write world.glider-grid
+```
 
 ---
 
@@ -71,23 +75,24 @@ and the glider moves one cell diagonally every four generations.
 
 ## Gotchas
 
-### Qualified names are not preserved through codegen
+### Qualified calls work without `open`
 
-Calling an imported function with a qualified name (`world.glider-grid`) parses
-and type-checks, but codegen merges all imported modules into a single flat
-module — qualified calls don't survive to the generated Haskell. Use the bare
-function name at call sites instead (`glider-grid`), even for functions imported
-from another module; the `(import world)` statement is still required for the
-resolver to load and merge the module.
+`import → qualified call` is the other pattern (`LLMLL.md` §8.5.1). With
+`(import world)` and no `open`, `main.ast.json` can call `world.glider-grid`,
+`world.make-world`, `world.render-world` and `world.evolve`; it checks, builds
+and prints the same output. Codegen emits the bare Haskell name, which is safe
+because every top-level name in a build is unique (§8.5).
 
-If you write a dotted call anyway, the compiler catches it with:
-`warning: dotted function name 'world.glider-grid' in app position is not
-supported; use (open <module-path>) and call the bare exported name.`
+If the prefix of a dotted call names no imported module, `check` warns:
+`warning: dotted function name 'wrld.evolve' names no imported module; add
+(import <module-path>) and call it qualified, or add (open <module-path>) as
+well and call the bare exported name.`
 
-### Import resolution is flat-directory-only
+### Imports resolve from the entry file's directory
 
-`(import world)` resolves to `world.ast.json` in the same directory as the
-importing file. Cross-directory imports aren't supported.
+`(import world)` resolves to `world.llmll` or `world.ast.json` in the entry
+file's directory. A dotted path maps to subdirectories: `(import game.world)`
+resolves to `world.ast.json` in a `game` subdirectory (§8.2).
 
 ---
 
