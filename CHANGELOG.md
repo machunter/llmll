@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.4)
+<a id="Latest"></a>
+
+## v0.30.5: an imported constructor named like its type, and a dependency's own imports (2026-10-19)
 
 ### `XMOD-CTOR-TYPE-NAME-1`, `XMOD-SIB-RESOLVE-1`: an imported constructor named like its type, and a dependency's own imports
 
@@ -27,8 +29,6 @@
 2403 examples, 0 failures (+10). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.4: path normalization, entry kinds, and a process specification (2026-10-18)
 
