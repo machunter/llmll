@@ -2,6 +2,32 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.4)
+
+### `XMOD-CTOR-TYPE-NAME-1`, `XMOD-SIB-RESOLVE-1`: an imported constructor named like its type, and a dependency's own imports
+
+- **XMOD-CTOR-TYPE-NAME-1**: a module declaring `(type Box (| Box int))` exports a
+  constructor its importer can apply, bare after `open` as `(Box n)` or qualified as
+  `(box.Box n)`. It was `'Box' is not a function`, because the type's entry replaced the
+  constructor's in the module's value exports.
+- **XMOD-SIB-RESOLVE-1**: each module in a build is checked against its own imports, not
+  against every module loaded before it. A dependency that calls `sib.f` without importing
+  `sib` is now a `name-not-in-scope` error in `check` and `build`, whatever the entry imports:
+  `error: dep uses 'sib.f', and sib is not imported there; add (import sib) to dep`.
+  It passed with warnings when the entry imported `sib` first.
+- **The dotted-name warning** no longer says a qualified call "is not supported". It fires
+  when the prefix names no imported module, and now says that:
+  `warning: dotted function name 'sib.f' names no imported module; add (import <module-path>) and call it qualified, or add (open <module-path>) as well and call the bare exported name.`
+- **Measured:** `check` output on all 473 tracked `.llmll` files is identical to v0.30.4,
+  except the warning's text in the two test files that print it.
+- **Tests:** ModuleSpec CTN-1 to CTN-3 and SIB-1 to SIB-5; one Spec.hs test for the warning.
+  Eight Spec.hs tests got the import their hand-built module set had been relying on the old
+  behaviour to supply.
+
+2403 examples, 0 failures (+10). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.4: path normalization, entry kinds, and a process specification (2026-10-18)
