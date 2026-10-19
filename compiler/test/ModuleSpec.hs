@@ -31,7 +31,7 @@ import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch, isBuiltinImport)
 -- XMOD-SCOPE: build-closure name scope
-import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers)
+import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers, closureDecls, Decl(..), Namespace(..))
 import LLMLL.CodegenHs (generateHaskellMulti, cgHsSource)
 import LLMLL.TypeCheck (typeCheckWithCache)
 import LLMLL.Diagnostic (Diagnostic, DiagnosticReport, importNeedsFile)
@@ -525,6 +525,21 @@ moduleSpec = describe "Module System" $ do
         map (either (const False) (const True)) [ra, rb] `shouldBe` [True, True]
         r <- xsCheck False "siblings"
         xsKind "duplicate-definition" r `shouldSatisfy` any (T.isInfixOf "'f': function declared in fa and in fb;")
+    describe "XMOD-CTOR-TYPE-NAME-1: an imported constructor named like its type is a value" $ do
+      it "CTN-1: (Box n), (box.Box n) and a match on (Box n) check with no diagnostic" $ do
+        r <- xsCheck False "e7b"
+        reportDiagnostics r `shouldBe` []
+      it "CTN-2: the same module has no error in strict mode" $ do
+        r <- xsCheck True "e7b"
+        map diagMessage (xsErrs r) `shouldBe` []
+      it "CTN-3: meExports holds the constructor's type at the shared key; the type stays exported" $ do
+        rl <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["box"]
+        case rl of
+          Left ds -> expectationFailure ("box failed to load: " ++ show (map diagMessage ds))
+          Right (_, _, env) -> do
+            Map.lookup "Box" (meExports env) `shouldBe` Just (TFn [TInt] (TCustom "Box"))
+            [ dExported d | d <- Map.findWithDefault [] (NsType, "Box") (closureDecls (Map.singleton ["box"] env)) ]
+              `shouldBe` [True]
     describe "R2: a type's identity is its declaring module plus its name" $ do
       it "E8 (t14): lib.Ctl against the opened constructor Ran is accepted (strict)" $ do
         r <- xsCheck True "t14"
