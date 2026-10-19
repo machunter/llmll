@@ -1,0 +1,6 @@
+;; XMOD-CTOR-TYPE-NAME-1: an imported constructor named like its own type is
+;; applied, bare after open and qualified, and still matched.
+(import box) (open box)
+(def-shell mk [n: int] -> Box (Box n))
+(def-shell mq [n: int] -> Box (box.Box n))
+(def-shell un [b: Box] -> int (match b ((Box n) n)))

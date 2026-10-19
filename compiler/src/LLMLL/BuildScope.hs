@@ -29,6 +29,7 @@ module LLMLL.BuildScope
   , checkBuildScope
   , resolveQualifiedTypes
   , unresolvedQualifiedTypes
+  , foreignQualifiedRefs
   , stripModuleQualifiers
   , longestModulePrefix
   ) where
@@ -308,6 +309,38 @@ longestModulePrefix paths n =
     (hit : _) -> Just hit
     []        -> Nothing
   where segs = T.splitOn "." n
+
+-- | XMOD-SIB-RESOLVE-1. A module M in the closure that names @P.x@, where P is
+-- another closure module (longest prefix) and M does not import P. Imports are
+-- non-transitive (LLMLL.md section 1, item 7), and M's own check cannot see P when
+-- P is not in M's closure; the module being checked here can, because P and M
+-- are both in its closure. @EVar@, the @EApp@ callee and @PConstructor@ names
+-- are read, the positions 'stripModuleQualifiers' rewrites. M naming itself
+-- (P = M) is left to M's own check. The statements being checked are not M:
+-- their own qualified names are 'qualifiedValueCheck's job. One diagnostic per
+-- (M, name), diagKind @name-not-in-scope@.
+foreignQualifiedRefs :: [Statement] -> ModuleCache -> [Diagnostic]
+foreignQualifiedRefs _ cl =
+  [ (mkError Nothing msg) { diagKind = Just "name-not-in-scope" }
+  | (m, menv) <- Map.toList cl
+  , let direct = Set.fromList (importsOf (meStatements menv))
+  , n <- nub (concatMap (getConst . travStmtExprs (Const . namesE)) (meStatements menv))
+  , Just (p, _) <- [longestModulePrefix paths n]
+  , p /= m
+  , not (p `Set.member` direct)
+  , let msg = dotted m <> " uses '" <> n <> "', and " <> dotted p
+              <> " is not imported there; add (import " <> dotted p <> ") to " <> dotted m
+  ]
+  where
+    paths = Map.keysSet cl
+    namesE e = case e of
+      EVar n       -> [n]
+      EApp f as    -> f : concatMap namesE as
+      EMatch sc as -> namesE sc ++ concat [ namesP p ++ namesE x | (p, x) <- as ]
+      _            -> getConst (descendExpr (Const . namesE) e)
+    namesP p = case p of
+      PConstructor c ps -> c : concatMap namesP ps
+      _                 -> []
 
 -- | R3. Rewrite @EVar@, the @EApp@ callee and @PConstructor@ names of the form
 -- @M.x@ to @x@ when M is in the set (longest prefix). R1 makes the bare name

@@ -1,0 +1,2 @@
+;; XMOD-SIB-RESOLVE-1 fixture: the module a dependency names without importing.
+(def-shell f [n: int] -> int (+ n 1))

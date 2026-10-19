@@ -31,7 +31,7 @@ import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch, isBuiltinImport)
 -- XMOD-SCOPE: build-closure name scope
-import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers)
+import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers, closureDecls, Decl(..), Namespace(..))
 import LLMLL.CodegenHs (generateHaskellMulti, cgHsSource)
 import LLMLL.TypeCheck (typeCheckWithCache)
 import LLMLL.Diagnostic (Diagnostic, DiagnosticReport, importNeedsFile)
@@ -525,6 +525,44 @@ moduleSpec = describe "Module System" $ do
         map (either (const False) (const True)) [ra, rb] `shouldBe` [True, True]
         r <- xsCheck False "siblings"
         xsKind "duplicate-definition" r `shouldSatisfy` any (T.isInfixOf "'f': function declared in fa and in fb;")
+    describe "XMOD-CTOR-TYPE-NAME-1: an imported constructor named like its type is a value" $ do
+      it "CTN-1: (Box n), (box.Box n) and a match on (Box n) check with no diagnostic" $ do
+        r <- xsCheck False "e7b"
+        reportDiagnostics r `shouldBe` []
+      it "CTN-2: the same module has no error in strict mode" $ do
+        r <- xsCheck True "e7b"
+        map diagMessage (xsErrs r) `shouldBe` []
+      it "CTN-3: meExports holds the constructor's type at the shared key; the type stays exported" $ do
+        rl <- loadModule GrammarCoreInversion False xsRoot [] Map.empty [] ["box"]
+        case rl of
+          Left ds -> expectationFailure ("box failed to load: " ++ show (map diagMessage ds))
+          Right (_, _, env) -> do
+            Map.lookup "Box" (meExports env) `shouldBe` Just (TFn [TInt] (TCustom "Box"))
+            [ dExported d | d <- Map.findWithDefault [] (NsType, "Box") (closureDecls (Map.singleton ["box"] env)) ]
+              `shouldBe` [True]
+    describe "XMOD-SIB-RESOLVE-1: a dependency reaches only what it imports" $ do
+      let sibMsg = "sibdep uses 'sibf.f', and sibf is not imported there; add (import sibf) to sibdep"
+      it "SIB-1: sibdep calling sibf.f without importing it is one error when sibf loads first" $ do
+        r <- xsCheck False "sibmain"
+        xsKind "name-not-in-scope" r `shouldBe` [sibMsg]
+      it "SIB-1b: the same error when sibdep loads first" $ do
+        r <- xsCheck False "sibmain2"
+        xsKind "name-not-in-scope" r `shouldBe` [sibMsg]
+      it "SIB-2: sibdep checked alone keeps its two warnings and no error (the limit)" $ do
+        ss <- xsParse "sibdep"
+        let r = typeCheckWithCache GrammarCoreInversion Map.empty emptyEnv ss
+        map diagMessage (xsErrs r) `shouldBe` []
+        map diagMessage (xsWarns r) `shouldSatisfy` any (T.isInfixOf "call to unknown function 'sibf.f'")
+      it "SIB-3: a dependency no longer sees a type alias from a module it does not import" $ do
+        r <- xsLoad "sibalmain"
+        either (const True) (const False) r `shouldBe` True
+      it "SIB-4: a dependency that imports sibf may call sibf.f, in either load order" $ do
+        r1 <- xsCheck False "sibokmain"
+        r2 <- xsCheck False "sibokmain2"
+        map diagMessage (reportDiagnostics r1 ++ reportDiagnostics r2) `shouldBe` []
+      it "SIB-5: a module naming itself, and a wasi call, are not reported" $ do
+        r <- xsCheck False "selfqmain"
+        xsKind "name-not-in-scope" r `shouldBe` []
     describe "R2: a type's identity is its declaring module plus its name" $ do
       it "E8 (t14): lib.Ctl against the opened constructor Ran is accepted (strict)" $ do
         r <- xsCheck True "t14"

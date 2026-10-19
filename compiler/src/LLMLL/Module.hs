@@ -285,8 +285,17 @@ buildModuleEnv path stmts retTypes _env =
       --
       -- Placed in allExports rather than after the filter, so an explicit
       -- (export ...) list governs constructors on the same terms as functions.
+      --
+      -- XMOD-CTOR-TYPE-NAME-1: the constructors go on the LEFT of the union, so
+      -- a constructor wins the one key clash this map can hold, a type and its
+      -- constructor of the same name (`(type Box (| Box int))`). Two value
+      -- names cannot clash here: that is R1's duplicate-definition error. The
+      -- map seeds the importer's VALUE env, so the value entry is the right one
+      -- to keep, and readers that test only membership (export status, the
+      -- (export ...) filter) see the key either way. With the type on the left,
+      -- `(Box n)` in an importer was "'Box' is not a function".
       ctorExports = Map.fromList (collectConstructors stmts)
-      allExports = Map.union (Map.fromList (mapMaybe toExport stmts)) ctorExports
+      allExports = Map.union ctorExports (Map.fromList (mapMaybe toExport stmts))
       ifaceMap   = Map.fromList
                      [(defInterfaceName s, defInterfaceFns s)
                       | s@SDefInterface{} <- stmts]

@@ -1459,7 +1459,13 @@ A qualified name `M.f`, `M.C` or `M.T` resolves when the current module imports 
 (app.auth.hash-password raw-str)
 ```
 
-Codegen emits the bare Haskell name. That is safe because §8.5 makes every top-level name unique in the build. A qualified name whose module is in the build but is not imported by the current module is an error that says `add (import M)`. Per-module Haskell output remains the long-term path; when it ships, the one-scope-per-build rule can narrow to one scope per module plus its opened names.
+Codegen emits the bare Haskell name. That is safe because §8.5 makes every top-level name unique in the build. A qualified name whose module is in the build but is not imported by the current module is an error that says `add (import M)`. The rule holds in every module of the build, not only the entry. A dependency reaches only the modules it imports itself (§1 item 7), whatever the entry imports:
+
+```
+error: dep uses 'sib.f', and sib is not imported there; add (import sib) to dep
+```
+
+Per-module Haskell output remains the long-term path; when it ships, the one-scope-per-build rule can narrow to one scope per module plus its opened names.
 
 Every command that takes a file loads the modules it imports: `check`, `test`, `build`, `run`, `verify`, `checkout`, `patch` and `refine`. `llmll serve`'s `POST /typecheck` and `POST /sketch`, and `llmll repl`, receive source text with no file location, so they refuse an `(import M)` of a user module with the error `import-needs-file`. A `wasi.*` import is a capability, not a module, and they accept it.
 

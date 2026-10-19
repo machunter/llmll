@@ -1,0 +1,2 @@
+;; XMOD-SIB-RESOLVE-1 fixture: uses SibPos arithmetically and does NOT import sibal.
+(def-shell inc [p: SibPos] -> int (+ p 1))

@@ -1,0 +1,3 @@
+;; XMOD-SIB-RESOLVE-1 control: a dependency that imports sibf may call sibf.f.
+(import sibf)
+(def-shell g2 [n: int] -> int (sibf.f n))

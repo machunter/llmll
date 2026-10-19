@@ -90,7 +90,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
-import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
+import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
 -- ---------------------------------------------------------------------------
@@ -1613,10 +1613,17 @@ typeCheckWithCacheModeRet'
   :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
   -> (DiagnosticReport, Map Name Type)
 typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
-  let -- Inject qualified names from all cached modules
-      seededEnv = Map.foldlWithKey' seedModule baseEnv cache
-      -- v0.3: merge contract status from all cached modules (qualified names)
-      seededCSImports = Map.foldlWithKey' seedStatus Map.empty cache
+  let -- XMOD-SIB-RESOLVE-1: every seed below reads this module's own build
+      -- closure ('cl'), never the whole cache. The loader checks a dependency
+      -- against every module loaded SO FAR (Module.loadFromFile), so seeding
+      -- from 'cache' let a dependency see a module it never imported whenever
+      -- the entry happened to load that module first: its names, its contract
+      -- status, its type aliases and its return types. For the entry the cache
+      -- IS its closure, so nothing changes there.
+      -- Inject qualified names from the closure's modules
+      seededEnv = Map.foldlWithKey' seedModule baseEnv cl
+      -- v0.3: merge contract status from the closure's modules (qualified names)
+      seededCSImports = Map.foldlWithKey' seedStatus Map.empty cl
       -- ADMIT-VERIFIED: the entry file's own bare-keyed evidence wins on a key
       -- clash (it is the live file's verdict).
       seededCS  = Map.union entryCS seededCSImports
@@ -1631,10 +1638,10 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- EFFECT-RESP: 'builtinAliases' goes UNDER the imported ones, so a
       -- cached module can never displace a sealed type. This site does not
       -- route through 'initialTCState', so it needs its own union.
-      seededAliases = Map.union (Map.foldl seedAliases Map.empty cache) builtinAliases
+      seededAliases = Map.union (Map.foldl seedAliases Map.empty cl) builtinAliases
       (_, st) = runState (checkStatements stmts)
         (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
-                 (fnResolveMap cache seededCS stmts)
+                 (fnResolveMap cl seededCS stmts)
                  (closureDecls cl)
                  (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ]))
       -- XMOD-SCOPE R1: one declaration for each top-level name in this
@@ -1645,7 +1652,12 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- XMOD-SCOPE R2: a qualified type the loader could not resolve, whose
       -- prefix is a module in the closure.
       cl = closureOf stmts cache
+      -- XMOD-SIB-RESOLVE-1: a module in the closure that names another closure
+      -- module it does not import ('sib.f' in dep, with sib imported only by
+      -- the entry). Codegen strips every build module's qualifier, so the
+      -- call would link; this is the only place that sees both modules.
       scopeDiags = checkBuildScope stmts cl ++ unresolvedQualifiedTypes stmts cl
+                   ++ foreignQualifiedRefs stmts cl
       diags = scopeDiags ++ tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
       -- RET-RESOLVE: the pass runs AFTER the report is taken, and every
@@ -1654,7 +1666,7 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
       -- and its diagnostic list cannot move. That is by construction and not by
       -- inspection, which is why 'PASS-1' asserts it directly.
       resolvedRet = resolveRetTypes gm strict seededEnv seededAliases seededCS
-                                    (qualifiedRetSeed cache) stmts (tcRetTypes st)
+                                    (qualifiedRetSeed cl) stmts (tcRetTypes st)
   in ( DiagnosticReport
          { reportPhase       = "typecheck"
          , reportDiagnostics = diags
@@ -2569,7 +2581,7 @@ checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected act
 --   * M is a direct import and declares x without exporting it: an error.
 --   * M is in the closure and is not a direct import: an error.
 --   * no closure module matches and the name is not @wasi.*@: in application
---     position, the S4 warning, unchanged.
+--     position, the S4 warning.
 --
 -- Answers True when it reported an error, so the caller does not add a second
 -- diagnostic for the same name.
@@ -2583,8 +2595,9 @@ qualifiedValueCheck appPos func
       case longestModulePrefix mods func of
         Nothing -> do
           when (appPos && not ("wasi." `T.isPrefixOf` func)) $
-            tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
-                   <> "use (open <module-path>) and call the bare exported name. "
+            tcWarn $ "dotted function name '" <> func <> "' names no imported module; "
+                   <> "add (import <module-path>) and call it qualified, or add "
+                   <> "(open <module-path>) as well and call the bare exported name. "
                    <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
           pure False
         Just (m, x)
