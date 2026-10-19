@@ -2581,7 +2581,7 @@ checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected act
 --   * M is a direct import and declares x without exporting it: an error.
 --   * M is in the closure and is not a direct import: an error.
 --   * no closure module matches and the name is not @wasi.*@: in application
---     position, the S4 warning, unchanged.
+--     position, the S4 warning.
 --
 -- Answers True when it reported an error, so the caller does not add a second
 -- diagnostic for the same name.
@@ -2595,8 +2595,9 @@ qualifiedValueCheck appPos func
       case longestModulePrefix mods func of
         Nothing -> do
           when (appPos && not ("wasi." `T.isPrefixOf` func)) $
-            tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
-                   <> "use (open <module-path>) and call the bare exported name. "
+            tcWarn $ "dotted function name '" <> func <> "' names no imported module; "
+                   <> "add (import <module-path>) and call it qualified, or add "
+                   <> "(open <module-path>) as well and call the bare exported name. "
                    <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
           pure False
         Just (m, x)

@@ -14650,6 +14650,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             any (\d -> "dotted function name" `T.isInfixOf` diagMessage d) warns
               `shouldBe` True
 
+      it "the warning says the prefix names no module and does not call qualified calls unsupported" $ do
+        let src = T.pack "(def-shell g [n: int] -> int (sibf.f n))"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> expectationFailure (show err)
+          Right stmts -> do
+            let report = typeCheck GrammarCoreInversion emptyEnv stmts
+                msgs   = [ diagMessage d | d <- reportDiagnostics report
+                                         , diagSeverity d == SevWarning
+                                         , "dotted function name" `T.isInfixOf` diagMessage d ]
+            msgs `shouldSatisfy` (not . null)
+            all ("'sibf.f' names no imported module" `T.isInfixOf`) msgs `shouldBe` True
+            any ("not supported" `T.isInfixOf`) msgs `shouldBe` False
+
     -- TC-EOP-1 (v0.10.7): EOp arity + arg-type-check fix at TypeCheck.hs:981.
     -- Pre-fix `inferExpr (EOp op _args)` ignored args entirely and returned the
     -- builtinEnv result type, so arity-bad and type-incorrect operator calls
