@@ -2,6 +2,40 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.3)
+
+### `PATH-NORM-1`, `LIST-KIND-1`, `PROC-ENV-1`, `PROC-REDIRECT-1`: path normalization, entry kinds, and a process specification
+
+A path with `..` could not be normalized, a listing did not say which entries were directories,
+nothing set an environment variable for a child, and `wasi.proc.run` took its three redirection
+paths as same-typed positional strings. Design: `docs/design/g7-tooling-builtins-proposal.md`
+Rev 0, with amendments A1 and A2. Closes all four rows.
+
+- **`path-normalize : string -> string`**: lexical POSIX normalization, Python's
+  `posixpath.normpath` except that a leading `//` becomes `/`. It reads no filesystem and is
+  callable from a `def`.
+- **`wasi.fs.list-kinds`**: a listing whose entries are `f`, `d`, `l` or `o`, a space, and the
+  name; a symlink is `l` and is not followed. A generated project depends on `unix` only when
+  its program calls it.
+- **`ProcSpec` and `wasi.proc.exec`**: a sealed type built by `proc-spec`, `proc-cwd`,
+  `proc-stdin`, `proc-stdout`, `proc-stderr`, `proc-stderr-to-stdout` and `proc-env`, all
+  `def-shell`-only. `proc-env` adds to the inherited environment, the later of two settings wins,
+  and the merge is an operation rather than a string-equality rule. A relative redirection path
+  resolves against the calling program's directory, not `proc-cwd`. `wasi.proc.run` is unchanged;
+  `LLMLL.md` §13.9 directs new code to `exec`.
+- **`check` errors `proc-env-name-malformed` and `proc-timeout-invalid`** for a literal name that
+  is empty or contains `=`, and a literal timeout below 1. A computed one answers `RErr` from
+  `wasi.proc.exec` before the child starts.
+- **`core-excluded-builtin`** names the opaque carrier, not IO, for a `def` that calls a
+  `proc-*` builder.
+- **`LLMLL.md` §13.9 corrections:** the stray "There is no `wasi.http.get`" is removed, and the
+  `wasi.fs.exists` row says it answers `"file"` for a FIFO, socket or device.
+- **Tests:** Spec.hs G7-1 to G7-15; pytest `test_g7_tooling_builtins.py` (18 cells, new CI step).
+
+2393 examples, 0 failures (+25). Python: 560 passed with `LLMLL_BIN` set (+18), 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.3: a constructor of bool or Result is not a value (2026-10-17)
