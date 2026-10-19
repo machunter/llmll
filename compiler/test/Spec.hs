@@ -22355,6 +22355,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "G7-14: wasi.fs.list-kinds without a wasi.fs import is a missing capability" $
       kindsG7 "(def-shell ls [p: string] -> Command (wasi.fs.list-kinds p))"
         `shouldContain` ["missing-capability"]
+
+    -- A ProcSpec builder is pure, so the IO reason the otherwise arm gives
+    -- would be false; it gets the opaque-carrier reason, as json-* does.
+    it "G7-15: a def calling a proc-* builder is told about the opaque carrier, not IO" $ do
+      let es = errorsStrict "(def mk [n: int] -> int (first (pair 1 (proc-spec n))))"
+      es `shouldSatisfy` any (T.isInfixOf "ProcSpec values are an opaque carrier")
+      es `shouldSatisfy` (not . any (T.isInfixOf "it performs IO"))
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------

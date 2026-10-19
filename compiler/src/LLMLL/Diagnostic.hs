@@ -756,6 +756,9 @@ mkCoreExcludedBuiltin defName callee =
   let why | "json-" `T.isPrefixOf` callee =
               "JSON values are an opaque carrier, so a body touching one cannot \
               \produce a body-faithful VC"
+          | "proc-" `T.isPrefixOf` callee =
+              "ProcSpec values are an opaque carrier, so a body touching one cannot \
+              \produce a body-faithful VC"
           | otherwise =
               "it performs IO, and effects are not admissible in a strict-core body"
       msg = "def '" <> defName <> "': callee '" <> callee
