@@ -1,0 +1,96 @@
+;; G7 tooling builtins, end-to-end fixture (scripts/tests/test_g7_tooling_builtins.py).
+;; Design: docs/design/g7-tooling-builtins-proposal.md Rev 0.
+;;
+;; A console program driven by ONE stdin line of tab-separated fields: a mode
+;; and its arguments. Step 0 issues the mode's command; step 1 prints what the
+;; command answered and halts. The normalization corpus arrives as a FILE the
+;; test writes, one path per line, so this source holds no long list literal.
+(import wasi.io   (capability stdout :deterministic false))
+(import wasi.fs   (capability read "/tmp" :deterministic false))
+(import wasi.proc (capability exec :deterministic false))
+(export)
+
+(def-shell field [parts: list[string] i: int] -> string
+  (unwrap-or (list-nth parts i) ""))
+
+;; One printed form per arm. RList entries are joined with a separator no
+;; entry name in the test contains, so a name holding a space or a newline
+;; comes back exactly.
+(def-shell show [r: Response] -> string
+  (match r
+    ((RNone)    "RNone")
+    ((RText t)  (string-concat "RText " t))
+    ((RCode n)  (string-concat "RCode " (int-to-string n)))
+    ((RErr e)   (string-concat "RErr " e))
+    ((RList es) (string-concat "RList "
+                  (list-fold es "" (fn [acc: string e: string]
+                    (string-concat acc (string-concat e "<<SEP>>"))))))))
+
+;; Every line of the corpus, normalized, one per output line.
+(def-shell norm-all [text: string] -> string
+  (list-fold (string-split "\n" text) ""
+    (fn [acc: string line: string]
+      (string-concat acc (string-concat (path-normalize line) "\n")))))
+
+(def-shell sh [script: string spec: ProcSpec] -> Command
+  (wasi.proc.exec "/bin/sh" ["-c" script] spec))
+
+;; The exec variants. `d` is a scratch directory the test owns. Output paths are
+;; absolute: a relative one is opened by THIS process before the child starts,
+;; so it resolves against this process's directory, not proc-cwd's.
+(def-shell exec-cmd [v: string d: string a: string] -> Command
+  (if (= v "env")
+      (sh "echo \"$LC_ALL|$PATH\""
+          (proc-env (proc-stdout (proc-cwd (proc-spec 10) d) (string-concat d "/out")) "LC_ALL" "C"))
+  (if (= v "env-twice")
+      (sh "echo \"$G7X\""
+          (proc-env (proc-env (proc-stdout (proc-cwd (proc-spec 10) d) (string-concat d "/out")) "G7X" "one") "G7X" "two"))
+  (if (= v "merge")
+      (sh "echo to-out; echo to-err 1>&2"
+          (proc-stderr-to-stdout (proc-stdout (proc-cwd (proc-spec 10) d) (string-concat d "/out"))))
+  (if (= v "unmerge")
+      (sh "echo to-out; echo to-err 1>&2"
+          (proc-stderr (proc-stderr-to-stdout (proc-stdout (proc-cwd (proc-spec 10) d) (string-concat d "/out")))
+                       (string-concat d "/err")))
+  (if (= v "defaults")
+      (sh "wc -c | tr -d ' ' > stdin-bytes; echo discarded; echo discarded 1>&2"
+          (proc-cwd (proc-spec 10) d))
+  (if (= v "stdin")
+      (sh "cat > got" (proc-stdin (proc-cwd (proc-spec 10) d) a))
+  (if (= v "timeout")
+      (sh "sleep 5" (proc-cwd (proc-spec 1) d))
+  (if (= v "bad-name")
+      (sh "touch started" (proc-env (proc-cwd (proc-spec 10) d) a "x"))
+  (if (= v "exit3")
+      (sh "exit 3" (proc-cwd (proc-spec 10) d))
+      (wasi.proc.exec (string-concat d "/no-such-executable") [] (proc-spec 10))))))))))))
+
+(def-shell first-cmd [line: string] -> Command
+  (let [(parts (string-split "\t" line))
+        (mode (field parts 0))]
+    (if (= mode "norm")  (wasi.fs.read (field parts 1))
+    (if (= mode "kinds") (wasi.fs.list-kinds (field parts 1))
+    (if (= mode "list")  (wasi.fs.list (field parts 1))
+        (exec-cmd (field parts 1) (field parts 2) (field parts 3)))))))
+
+(def-shell answer [mode: string r: Response] -> string
+  (if (= mode "norm")
+      (match r ((RText t) (norm-all t)) (_ (string-concat (show r) "\n")))
+      (string-concat (show r) "\n")))
+
+;; The harness does not perform the command of the step that reaches done?, so
+;; the print happens one step BEFORE the halting step: the test feeds three lines.
+(def-shell step [s: (int, string) input: string r: Response] -> ((int, string), Command)
+  (if (= (first s) 0)
+      (pair (pair 1 input) (first-cmd input))
+      (if (= (first s) 1)
+          (pair (pair 2 (second s))
+                (wasi.io.stdout (answer (field (string-split "\t" (second s)) 0) r)))
+          (pair (pair 3 (second s)) (wasi.io.stdout "")))))
+
+(def-shell done? [s: (int, string)] -> bool (>= (first s) 3))
+
+(def-main :mode console
+  :init (pair (pair 0 "") (wasi.io.stdout ""))
+  :step step
+  :done? done?)

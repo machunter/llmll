@@ -1865,7 +1865,7 @@ body-faithful VC
   suggestion: Replace (def read-cid ...) with (def-shell read-cid ...)
 ```
 
-The fix is always to change `def` to `def-shell`, never to verify the callee: a sealed builtin has no LLMLL body to verify. The same diagnostic covers every `wasi.*` effect.
+The fix is always to change `def` to `def-shell`, never to verify the callee: a sealed builtin has no LLMLL body to verify. The same diagnostic covers every `wasi.*` effect and every `ProcSpec` builder (`proc-spec`, `proc-env` and the rest, `LLMLL.md` §13.9).
 
 Accessors return `Result`, so match or use `unwrap-or`:
 

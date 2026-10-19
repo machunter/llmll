@@ -629,6 +629,25 @@ jobs:
           grep -q ' 9 passed' "$RUNNER_TEMP/xmod-run-load.log" \
             || { echo "XMOD-RUN-LOAD-1: expected 9 passed cells"; exit 1; }
 
+      # G7 tooling builtins (PATH-NORM-1, LIST-KIND-1, PROC-ENV-1,
+      # PROC-REDIRECT-1): path-normalize against posixpath.normpath, the four
+      # kinds of wasi.fs.list-kinds on a real directory (FIFO and dangling link
+      # included), and wasi.proc.exec's environment, redirections and timeout.
+      # The fixture builds with GHC, so this needs the toolchain. Every cell
+      # fails on v0.30.3, where none of the builtins exists. Same skip and
+      # count guards as above.
+      - name: Run G7 tooling builtin cells (pytest, needs the toolchain)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_g7_tooling_builtins.py -v -rs \
+            | tee "$RUNNER_TEMP/g7-tooling.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/g7-tooling.log"; then
+            echo "a G7 tooling cell skipped; LLMLL_BIN must be set here"; exit 1
+          fi
+          grep -q ' 18 passed' "$RUNNER_TEMP/g7-tooling.log" \
+            || { echo "G7 tooling: expected 18 passed cells"; exit 1; }
+
       # HASH-PRE-ASYM and TRUST-AXIOM-1: a verified record is keyed by the live
       # source and survives every read that does not run the solver, and the
       # trust report names the axioms and lemmas a proof rests on. Both files

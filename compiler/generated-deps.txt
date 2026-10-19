@@ -27,3 +27,7 @@ http-client
 http-client-tls
 http-types
 filepath
+# LIST-KIND-1, only for a program that calls wasi.fs.list-kinds (already in
+# every generated closure through directory and process, so the resolver does
+# not move; conditional so other programs do not become POSIX-only):
+unix

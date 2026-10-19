@@ -45,6 +45,13 @@ module LLMLL.CodegenHs
   , httpGetImports
   , httpGetDeps
   , usesHttpGet
+    -- * LIST-KIND-1: the second conditional block, gated the same way. It
+    -- needs `unix` (getSymbolicLinkStatus), which only a program that calls
+    -- wasi.fs.list-kinds pays for, so every other project stays portable.
+  , listKindsPreamble
+  , listKindsImports
+  , listKindsDeps
+  , usesListKinds
   , emitHole
     -- * Event Log (v0.3.1)
   , emitEventLogPreamble
@@ -132,10 +139,12 @@ generateHaskell modName stmts0 =
       -- package.yaml entries. generateHaskellMulti concatenates every module's
       -- statements before calling here, so a call in an imported module is seen.
       httpGet   = usesHttpGet stmts
+      -- LIST-KIND-1. Same single-predicate discipline as httpGet above.
+      listKinds = usesListKinds stmts
 
-      libHs     = emitLibHs modName hackageMs httpGet srcOf stmts
+      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
-      pkgYaml   = emitPackageYaml modName hasMain httpGet hackageMs
+      pkgYaml   = emitPackageYaml modName hasMain httpGet listKinds hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
       ffiFiles  = [(toHsModName lib, emitFfiStub lib imports) | lib <- cLibs]
       warnings  = concatMap stmtWarnings stmts
@@ -192,8 +201,8 @@ preludeHiding
   | null preludeClashes = "import Prelude"
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
-emitLibHs :: Text -> [Text] -> Bool -> Map Text Text -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
+emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> [Statement] -> Text
+emitLibHs _modName hackagePkgs httpGet listKinds srcOf stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -272,7 +281,7 @@ emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
   -- lookupEnv is ENV-READ-1's. It is the Maybe-returning lookup, NOT getEnv,
   -- and the difference is the whole point: getEnv throws on an unset name, and
   -- an unset name must arrive as RErr rather than as an exception.
-  , "import System.Environment (getArgs, lookupEnv)"
+  , "import System.Environment (getArgs, lookupEnv, getEnvironment)"
   , "import System.Timeout (timeout)"
   , "import GHC.Clock (getMonotonicTimeNSec)"
   , "import qualified Data.ByteString as BS"
@@ -284,6 +293,7 @@ emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
   -- generateHaskell). An unconditional import with a conditional dependency
   -- would not compile for every other program.
   (if httpGet then httpGetImports else []) ++
+  (if listKinds then listKindsImports else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -296,6 +306,7 @@ emitLibHs _modName hackagePkgs httpGet srcOf stmts = T.unlines $
   -- wasi.http.get pays for. The WASI-RT completeness fold in Spec.hs folds over
   -- runtimePreamble ++ httpGetPreamble, so the name stays covered.
   (if httpGet then httpGetPreamble else []) ++
+  (if listKinds then listKindsPreamble else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- Program"
@@ -573,6 +584,55 @@ runtimePreamble =
   , ""
   , "string_upper :: String -> String"
   , "string_upper = map LChar.toUpper"
+  , ""
+  -- PATH-NORM-1. Lexical POSIX normalization (posixpath.normpath), with one
+  -- stated difference: a leading "//" becomes "/". It never reads the
+  -- filesystem, so "a/link/../c" is "a/c" whatever link points to.
+  , "path_normalize :: String -> String"
+  , "path_normalize \"\" = \".\""
+  , "path_normalize p ="
+  , "  let absP = \"/\" `isPrefixOf` p"
+  , "      segs = filter (\\x -> x /= \"\" && x /= \".\") (llmll_splitSlash p)"
+  , "      step acc \"..\" = case acc of"
+  , "        (x:xs) | x /= \"..\" -> xs"
+  , "        _ | absP      -> acc"
+  , "          | otherwise -> \"..\" : acc"
+  , "      step acc x = x : acc"
+  , "      body = intercalate \"/\" (reverse (foldl' step [] segs))"
+  , "  in if absP then '/' : body else (if null body then \".\" else body)"
+  , ""
+  , "llmll_splitSlash :: String -> [String]"
+  , "llmll_splitSlash str = case break (== '/') str of"
+  , "  (a, [])       -> [a]"
+  , "  (a, _ : rest) -> a : llmll_splitSlash rest"
+  , ""
+  -- PROC-ENV-1 / PROC-REDIRECT-1. The sealed process specification. stderr is
+  -- Nothing (discarded), Just (Left ()) (merged into stdout) or Just (Right p).
+  -- A discarded stream writes to /dev/null rather than to a closed handle, so
+  -- a child that writes never sees EBADF. Every builder answers a new value.
+  , "data ProcSpec = ProcSpec"
+  , "  { llmll_psTimeout :: Integer"
+  , "  , llmll_psCwd     :: String"
+  , "  , llmll_psStdin   :: String"
+  , "  , llmll_psStdout  :: Maybe String"
+  , "  , llmll_psStderr  :: Maybe (Either () String)"
+  , "  , llmll_psEnv     :: [(String, String)]"
+  , "  } deriving (Eq, Show)"
+  , ""
+  , "proc_spec :: Integer -> ProcSpec"
+  , "proc_spec t = ProcSpec t \".\" \"/dev/null\" Nothing Nothing []"
+  , "proc_cwd :: ProcSpec -> String -> ProcSpec"
+  , "proc_cwd s d = s { llmll_psCwd = d }"
+  , "proc_stdin :: ProcSpec -> String -> ProcSpec"
+  , "proc_stdin s f = s { llmll_psStdin = f }"
+  , "proc_stdout :: ProcSpec -> String -> ProcSpec"
+  , "proc_stdout s f = s { llmll_psStdout = Just f }"
+  , "proc_stderr :: ProcSpec -> String -> ProcSpec"
+  , "proc_stderr s f = s { llmll_psStderr = Just (Right f) }"
+  , "proc_stderr_to_stdout :: ProcSpec -> ProcSpec"
+  , "proc_stderr_to_stdout s = s { llmll_psStderr = Just (Left ()) }"
+  , "proc_env :: ProcSpec -> String -> String -> ProcSpec"
+  , "proc_env s k v = s { llmll_psEnv = llmll_psEnv s ++ [(k, v)] }"
   , ""
   , "-- §13.7 Numeric (LT-INT v0.11: Class B — mathematical-integer semantics)"
   , "int_to_string :: Integer -> String"
@@ -1125,6 +1185,51 @@ runtimePreamble =
   , "    Just ExitSuccess     -> return (RCode 0)"
   , "    Just (ExitFailure c) -> return (RCode (fromIntegral c))"
   , ""
+  -- PROC-ENV-1 / PROC-REDIRECT-1. wasi.proc.run's lifecycle with the handles
+  -- and environment read from a ProcSpec. The environment is the parent's with
+  -- the overrides on top, last override winning: System.Process REPLACES the
+  -- environment when given one, so passing the overrides alone would take
+  -- PATH from the child (env-channel-proposal.md section 6). A name check and
+  -- a timeout check run first, so a computed bad value answers RErr before
+  -- any file is opened or any child starts.
+  , "wasi_proc_exec :: String -> [String] -> ProcSpec -> IO ()"
+  , "wasi_proc_exec exe args spec = llmll_publish_io $"
+  , "  case filter (\\(k, _) -> null k || '=' `elem` k) (llmll_psEnv spec) of"
+  , "    ((k, _) : _) -> return (RErr (\"wasi.proc.exec: \" ++ show k"
+  , "                                 ++ \" cannot name an environment variable\"))"
+  , "    [] | llmll_psTimeout spec < 1 ->"
+  , "           return (RErr (\"wasi.proc.exec: timeout must be at least 1 second (got \""
+  , "                         ++ show (llmll_psTimeout spec) ++ \")\"))"
+  , "       | otherwise -> do"
+  , "      parentEnv <- getEnvironment"
+  , "      let override envs (k, v) = filter ((/= k) . fst) envs ++ [(k, v)]"
+  , "          finalEnv = foldl' override parentEnv (llmll_psEnv spec)"
+  , "          secs     = llmll_psTimeout spec"
+  , "      outH <- openFile (maybe \"/dev/null\" id (llmll_psStdout spec)) WriteMode"
+  , "      errH <- case llmll_psStderr spec of"
+  , "                Just (Left ())  -> return outH"
+  , "                Just (Right f)  -> openFile f WriteMode `onException` hClose outH"
+  , "                Nothing         -> openFile \"/dev/null\" WriteMode `onException` hClose outH"
+  , "      inH  <- openFile (llmll_psStdin spec) ReadMode"
+  , "                `onException` (hClose outH >> hClose errH)"
+  , "      let closeAll = hClose outH >> hClose errH >> hClose inH"
+  , "      (_, _, _, ph) <- P.createProcess (P.proc exe args)"
+  , "                         { P.cwd     = Just (llmll_psCwd spec)"
+  , "                         , P.env     = Just finalEnv"
+  , "                         , P.std_in  = P.UseHandle inH"
+  , "                         , P.std_out = P.UseHandle outH"
+  , "                         , P.std_err = P.UseHandle errH"
+  , "                         } `onException` closeAll"
+  , "      finished <- timeout (fromIntegral (secs * 1000000)) (P.waitForProcess ph)"
+  , "      case finished of"
+  , "        Nothing -> do"
+  , "          P.terminateProcess ph"
+  , "          _ <- timeout 5000000 (P.waitForProcess ph)"
+  , "          return (RErr (\"wasi.proc.exec: \" ++ exe ++ \" exceeded \""
+  , "                        ++ show secs ++ \"s\"))"
+  , "        Just ExitSuccess     -> return (RCode 0)"
+  , "        Just (ExitFailure c) -> return (RCode (fromIntegral c))"
+  , ""
   -- No network runtime in this backend. A real body needs http-client plus TLS
   -- in every generated project's dependency set, which is a material expansion
   -- for a builtin with zero in-tree call sites. `error` would break the same
@@ -1549,6 +1654,49 @@ usesHttpGet = any (any (callsName "wasi.http.get") . stmtExprs)
 -- stack requires. filepath is a GHC boot package (takeDirectory).
 httpGetDeps :: [Text]
 httpGetDeps = ["http-client", "http-client-tls", "http-types", "filepath"]
+
+-- | LIST-KIND-1: does the program call wasi.fs.list-kinds? One predicate gates
+-- the import, the preamble block and the package.yaml entry, on the
+-- 'usesHttpGet' precedent: an unconditional import with a conditional
+-- dependency would not compile for every other program.
+usesListKinds :: [Statement] -> Bool
+usesListKinds = any (any (callsName "wasi.fs.list-kinds") . stmtExprs)
+
+-- | The one package.yaml entry a program that calls wasi.fs.list-kinds adds.
+-- Pinned against compiler/generated-deps.txt (Spec.hs HG-16).
+listKindsDeps :: [Text]
+listKindsDeps = ["unix"]
+
+listKindsImports :: [Text]
+listKindsImports = [ "import qualified System.Posix.Files as PF" ]
+
+-- | LIST-KIND-1. Each entry is classified by getSymbolicLinkStatus, which does
+-- NOT follow a link, so a dangling link is "l" and a FIFO is "o" (wasi.fs.exists
+-- answers "absent" and "file" for those two). Sorted by NAME before the prefix
+-- is added, so the order is wasi.fs.list's. Any IOException (the directory, or
+-- an entry removed between the listing and its lstat) answers RErr through
+-- llmll_publish_io, as wasi.fs.list does.
+listKindsPreamble :: [Text]
+listKindsPreamble =
+  [ ""
+  , "wasi_fs_list_kinds :: String -> IO ()"
+  , "wasi_fs_list_kinds path = llmll_publish_io $ do"
+  , "  entries <- listDirectory path"
+  , "  let dir = if not (null path) && last path == '/' then path else path ++ \"/\""
+  , "  kinds <- mapM (\\e -> do"
+  , "                  st <- PF.getSymbolicLinkStatus (dir ++ e)"
+  , "                  return (llmll_entryKind st : ' ' : e))"
+  , "                (sort entries)"
+  , "  _ <- evaluate (length (concat kinds))"
+  , "  return (RList kinds)"
+  , ""
+  , "llmll_entryKind :: PF.FileStatus -> Char"
+  , "llmll_entryKind st"
+  , "  | PF.isSymbolicLink st = 'l'"
+  , "  | PF.isDirectory st    = 'd'"
+  , "  | PF.isRegularFile st  = 'f'"
+  , "  | otherwise            = 'o'"
+  ]
 
 -- | HTTP-GET-1 imports. renameFile and openBinaryTempFile come from modules the
 -- unconditional header already imports (directory, base); they are imported
@@ -2744,8 +2892,8 @@ staleExecutables :: Text -> [FilePath] -> [FilePath]
 staleExecutables modName entries =
   [ e | e <- entries, T.pack e /= sanitizePkgName modName ]
 
-emitPackageYaml :: Text -> Bool -> Bool -> [Text] -> Text
-emitPackageYaml modName hasMain httpGet hackagePkgs =
+emitPackageYaml :: Text -> Bool -> Bool -> Bool -> [Text] -> Text
+emitPackageYaml modName hasMain httpGet listKinds hackagePkgs =
   let pkgName = packageNameFor modName
       exeName = sanitizePkgName modName
   in T.unlines $
@@ -2795,6 +2943,12 @@ emitPackageYaml modName hasMain httpGet hackagePkgs =
   -- are pinned against compiler/generated-deps.txt, which the CI Stack cache
   -- key hashes, so the cache learns this group (Spec.hs HG-16).
   (if httpGet then map ("  - " <>) httpGetDeps else []) ++
+  -- LIST-KIND-1. `unix` is already in every generated project's closure
+  -- (directory and process depend on it on POSIX; measured 33 packages either
+  -- way on lts-22.43), so this entry moves no resolver. It is conditional for
+  -- portability, not for build cost: FS-STAT-1 refused `unix` so a program
+  -- that does not ask for a lstat-level kind does not become POSIX-only.
+  (if listKinds then map ("  - " <>) listKindsDeps else []) ++
   -- No `unix`. src/Main.hs imported System.Posix.IO for the event-log capture
   -- harness until CAPTURE-PIPE-1 moved the capture from a pipe to a temporary
   -- file; getTemporaryDirectory and removeFile come from `directory`, listed
@@ -2986,7 +3140,7 @@ hsImportedNames =
   , "createDirectoryIfMissing", "copyFile", "getModificationTime"
   , "pathIsSymbolicLink", "isDoesNotExistError", "catchIOError", "UTCTime"
   , "getCurrentTime", "diffUTCTime", "when", "xor", "Word8"
-  , "unsafePerformIO", "getArgs", "lookupEnv", "timeout"
+  , "unsafePerformIO", "getArgs", "lookupEnv", "getEnvironment", "timeout"
   , "getMonotonicTimeNSec", "showHex"
   , "IOMode", "ReadMode", "WriteMode", "AppendMode", "ReadWriteMode"
   , "ExitCode", "ExitSuccess", "ExitFailure"
@@ -3004,13 +3158,14 @@ hsImportedNames =
   , "modifyIORef'", "hDuplicate", "hDuplicateTo", "getTemporaryDirectory" ]
 
 -- | Every top-level name the Lib.hs preamble defines ('runtimePreamble',
--- its 'jsonPreamble', and 'httpGetPreamble'), including the Response and Json
+-- its 'jsonPreamble', 'httpGetPreamble' and 'listKindsPreamble'), including the Response and Json
 -- types and constructors. The llmll_-prefixed ones are covered by the prefix
 -- rule in 'isReservedHsName' and are not repeated here.
 hsPreambleNames :: [Text]
 hsPreambleNames =
   [ "Response", "RNone", "RText", "RCode", "RErr", "RList"
   , "Json", "JNull", "JBool", "JNum", "JStr", "JArr", "JObj"
+  , "ProcSpec"
   , "bytes_get", "bytes_length", "bytes_set", "bytes_zero", "err", "hmac_sha1"
   , "int_to_string", "is_ok", "jsonHexVal", "jsonIsDigit", "jsonIsHex"
   , "jsonIsIntLexeme", "jsonLit", "jsonMaxDepth", "jsonNumOk", "jsonPArr"
@@ -3023,17 +3178,19 @@ hsPreambleNames =
   , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
   , "list_fold", "list_head", "list_length", "list_map", "list_nth"
   , "list_prepend", "list_tail", "map_empty", "map_get", "map_has", "map_put"
-  , "ok", "range", "regex_find", "regex_find_all", "regex_match"
+  , "ok", "path_normalize", "proc_cwd", "proc_env", "proc_spec", "proc_stderr"
+  , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
+  , "range", "regex_find", "regex_find_all", "regex_match"
   , "regex_spans", "seq_commands", "sha1_hash"
   , "string_char_at", "string_concat", "string_concat_many"
   , "string_contains", "string_empty'", "string_length", "string_slice"
   , "string_lower", "string_split", "string_to_int", "string_trim"
   , "string_upper", "unwrap", "unwrap_or"
   , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"
-  , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_mkdir", "wasi_fs_read"
+  , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_list_kinds", "wasi_fs_mkdir", "wasi_fs_read"
   , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_stat", "wasi_fs_write"
   , "wasi_http_get", "wasi_http_post", "wasi_http_response", "wasi_io_stderr"
-  , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_run" ]
+  , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_exec", "wasi_proc_run" ]
 
 -- | Every top-level name the Main.hs harness defines ('emitEventLogPreamble'
 -- and 'emitMainBody'), plus the two functions its @main@ binds in a @where@
@@ -3477,6 +3634,8 @@ esResultForcers =
   , ("regex-spans",        "llmll_uL llmll_uP")
   , ("string-lower",       "llmll_uS")
   , ("string-upper",       "llmll_uS")
+  -- PATH-NORM-1: a string result, forced like string-lower's.
+  , ("path-normalize",     "llmll_uS")
   , ("int-to-string",      "llmll_uS")
   , ("string-to-int",      "llmll_uE llmll_uW")
   , ("bytes-set",          "llmll_uS")

@@ -43,6 +43,8 @@ module LLMLL.Diagnostic
   , mkEnvDeterministicRefused
   , mkFsDeterministicRefused
   , mkEnvNameMalformed
+  , mkProcEnvNameMalformed
+  , mkProcTimeoutInvalid
   -- * HTTP-GET-1: the literal-URL rule
   , mkHttpUrlMalformed
   -- * REGEX-CAPTURE-1 / REGEX-CASE-1: the literal-pattern rule
@@ -508,6 +510,36 @@ mkEnvNameMalformed lit rule =
        , diagSuggestion = Just suggestion
        }
 
+-- | PROC-ENV-1 (docs/design/g7-tooling-builtins-proposal.md section 3). A
+-- literal proc-env name that is empty or contains "=" can never name a
+-- variable: wasi.proc.exec would answer RErr on every run. A computed name
+-- reaches that runtime check instead.
+mkProcEnvNameMalformed
+  :: Text         -- ^ the offending literal
+  -> Text         -- ^ which rule fired ("empty" or "contains-equals")
+  -> Diagnostic
+mkProcEnvNameMalformed lit rule =
+  let what = case rule of
+        "empty" -> "a literal proc-env variable name cannot be empty"
+        _       -> "a literal proc-env variable name cannot contain \"=\""
+      msg = what <> " (got " <> tshow lit <> "). wasi.proc.exec would answer "
+            <> "RErr for this specification on every run."
+      suggestion = "Pass the name and the value separately: (proc-env spec \"LC_ALL\" \"C\")."
+  in (mkError Nothing msg)
+       { diagKind       = Just "proc-env-name-malformed"
+       , diagSuggestion = Just suggestion
+       }
+
+-- | PROC-ENV-1: a literal proc-spec timeout below one second. A computed one
+-- reaches wasi.proc.exec, which answers RErr before the child starts.
+mkProcTimeoutInvalid :: Integer -> Diagnostic
+mkProcTimeoutInvalid n =
+  (mkError Nothing ("a proc-spec timeout must be at least 1 second (got "
+                    <> tshow n <> ")."))
+    { diagKind       = Just "proc-timeout-invalid"
+    , diagSuggestion = Just "Pass a positive number of seconds, e.g. (proc-spec 60)."
+    }
+
 -- | CTOR-AS-VALUE (docs/design/ctor-as-value-proposal.md). An unbound True,
 -- False, Success or Error in expression position: a constructor usable only
 -- as a match pattern. The message names the value spelling.
@@ -723,6 +755,9 @@ mkCoreExcludedBuiltin :: Text -> Text -> Diagnostic
 mkCoreExcludedBuiltin defName callee =
   let why | "json-" `T.isPrefixOf` callee =
               "JSON values are an opaque carrier, so a body touching one cannot \
+              \produce a body-faithful VC"
+          | "proc-" `T.isPrefixOf` callee =
+              "ProcSpec values are an opaque carrier, so a body touching one cannot \
               \produce a body-faithful VC"
           | otherwise =
               "it performs IO, and effects are not admissible in a strict-core body"
