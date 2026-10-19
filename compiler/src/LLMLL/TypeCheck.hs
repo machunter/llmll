@@ -84,7 +84,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -161,6 +161,12 @@ builtinEnv = Map.fromList $
   , ("regex-spans",     TFn [TString, TString] (TList (TPair TInt TInt)))
   , ("string-lower",    TFn [TString] TString)
   , ("string-upper",    TFn [TString] TString)
+  -- PATH-NORM-1 (docs/design/g7-tooling-builtins-proposal.md section 1).
+  -- Lexical POSIX normalization, pure and total. It reads no filesystem, so a
+  -- symlink before a ".." is not resolved; the spec says so. Not a wasi. name
+  -- and not proc-, so a `def` may call it and falls back to asserted, the
+  -- string-lower precedent.
+  , ("path-normalize",  TFn [TString] TString)
   , ("string-empty?",   TFn [TString] TBool)
   -- §13.7 Numeric utilities
   , ("int-to-string",  TFn [TInt] TString)
@@ -337,6 +343,30 @@ builtinEnv = Map.fromList $
   -- conflation those two catch; the limit is stated rather than hidden, and
   -- Spec.hs ER-14 pins it.
   , ("wasi.env.get",       TFn [TString] (TCustom "Command"))
+  -- LIST-KIND-1 (g7-tooling-builtins-proposal.md section 2). wasi.fs.list with a
+  -- kind per entry, on the EXISTING RList arm: "f ", "d ", "l " or "o " and the
+  -- name. A new Response arm would break every exhaustive match on Response.
+  -- The kind is decided WITHOUT following a symlink, so a dangling link is "l"
+  -- and a FIFO is "o" (wasi.fs.exists answers "absent" and "file" there).
+  , ("wasi.fs.list-kinds", TFn [TString] (TCustom "Command"))
+  -- PROC-ENV-1 / PROC-REDIRECT-1 (section 3). The settled env-channel rule
+  -- forbids an eighth positional on wasi.proc.run and an ambient wasi.env.set,
+  -- so the environment travels in a sealed ProcSpec beside the redirections.
+  -- wasi.proc.run is unchanged. Each redirection is set by NAME, so the
+  -- stdout/stderr permutation run admits is gone, and the merge is an
+  -- operation (proc-stderr-to-stdout) instead of string equality.
+  , ("wasi.proc.exec",     TFn [TString, TList TString, TCustom procSpecTypeName]
+                               (TCustom "Command"))
+  -- The seven ProcSpec builders. Pure: each answers a new value, so strict
+  -- immutability holds. All def-shell only, through the proc- prefix in
+  -- 'coreExcludedBuiltins', on the json- precedent.
+  , ("proc-spec",              TFn [TInt] (TCustom procSpecTypeName))
+  , ("proc-cwd",               TFn [TCustom procSpecTypeName, TString] (TCustom procSpecTypeName))
+  , ("proc-stdin",             TFn [TCustom procSpecTypeName, TString] (TCustom procSpecTypeName))
+  , ("proc-stdout",            TFn [TCustom procSpecTypeName, TString] (TCustom procSpecTypeName))
+  , ("proc-stderr",            TFn [TCustom procSpecTypeName, TString] (TCustom procSpecTypeName))
+  , ("proc-stderr-to-stdout",  TFn [TCustom procSpecTypeName] (TCustom procSpecTypeName))
+  , ("proc-env",               TFn [TCustom procSpecTypeName, TString, TString] (TCustom procSpecTypeName))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
   -- EFFECT-RESP (RC-1): the response channel's four constructors.
   --
@@ -1181,7 +1211,8 @@ trustedPrelude = Set.fromList
 -- it, and JSON-NOEQ ('inferExpr' EOp\/EApp) covers that separately.
 coreExcludedBuiltins :: Set.Set Name
 coreExcludedBuiltins =
-  Set.filter (\n -> "json-" `T.isPrefixOf` n || "wasi." `T.isPrefixOf` n)
+  Set.filter (\n -> "json-" `T.isPrefixOf` n || "wasi." `T.isPrefixOf` n
+                    || "proc-" `T.isPrefixOf` n)
              (Map.keysSet builtinEnv)
 
 -- | LT-INV (v0.11): under core mode, verify a callee is body-faithful or trusted-prelude.
@@ -2109,6 +2140,9 @@ checkStatement (STypeDef name body) = do
       <> if name == jsonTypeName
            then "it is an opaque carrier with no program-visible structure, and its \
                 \operations are sealed in §13.13"
+           else if name == procSpecTypeName
+           then "it is an opaque process specification built only by the proc-* \
+                \functions (§13.9)"
            else "its constructors are sealed because the response alphabet is a \
                 \function of the command alphabet"
   -- Check that dependent type constraints are well-formed
@@ -2817,6 +2851,22 @@ inferExpr (EApp func args) = do
       | "=" `T.isInfixOf` s ->
           modify $ \st -> st
             { tcErrors = tcErrors st ++ [mkEnvNameMalformed s "contains-equals"] }
+    _ -> pure ()
+  -- PROC-ENV-1, the literal rules (g7-tooling-builtins-proposal.md section 3).
+  -- Same placement and reach as the ENV-READ-1 rule above: a LITERAL argument
+  -- only. A computed bad name or timeout reaches wasi.proc.exec, which answers
+  -- RErr before the child starts.
+  when (func == "proc-env") $ case args of
+    [_, ELit (LitString s), _]
+      | T.null s ->
+          modify $ \st -> st { tcErrors = tcErrors st ++ [mkProcEnvNameMalformed s "empty"] }
+      | "=" `T.isInfixOf` s ->
+          modify $ \st -> st
+            { tcErrors = tcErrors st ++ [mkProcEnvNameMalformed s "contains-equals"] }
+    _ -> pure ()
+  when (func == "proc-spec") $ case args of
+    [ELit (LitInt n)] | n < 1 ->
+      modify $ \st -> st { tcErrors = tcErrors st ++ [mkProcTimeoutInvalid n] }
     _ -> pure ()
   -- HTTP-GET-1, the literal-URL rule (docs/design/http-get-1-proposal.md
   -- section 5). Same placement and same reach as the ENV-READ-1 rule above: a

@@ -505,8 +505,10 @@ primEffect n
   -- wasi.fs.stat below, a kind answer does not change with the clock.
   --
   -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below.
+  -- LIST-KIND-1 joins it too: a kind per entry is a listing plus the same
+  -- read the probe above makes, and grants nothing the read/list pair does not.
   | n == "wasi.fs.read"     || n == "wasi.fs.list"
-    || n == "wasi.fs.exists"                           = one EFsRead
+    || n == "wasi.fs.exists" || n == "wasi.fs.list-kinds" = one EFsRead
   -- FS-RMDIR-1 joins this EXISTING clause rather than taking an eighth label.
   -- Removing a directory is a filesystem mutation and grants no authority the
   -- write/delete pair does not already grant, so the catalog stays SEVEN-wide.
@@ -605,6 +607,10 @@ primEffect n
   --
   -- A test pins primEffect "wasi.proc.run" == Just Unbounded so a later
   -- refinement cannot silently narrow it.
+  --
+  -- wasi.proc.exec (PROC-ENV-1) reaches this line for the same reason and is
+  -- pinned the same way: it runs an arbitrary program, and a ProcSpec bounds
+  -- only where that program's handles and environment point.
   | "wasi." `T.isPrefixOf` n                           = Just Unbounded
   | otherwise                                          = Nothing
   where one x = Just (Caps (Set.singleton x))

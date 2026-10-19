@@ -193,6 +193,7 @@ module LLMLL.TypeAdmissibility
   , sealedTypeNames
   , opaqueSealedNames
   , jsonTypeName
+  , procSpecTypeName
   , mentionsJson
     -- * Normalization
   , resolveAliasTy
@@ -284,7 +285,13 @@ jsonTypeName = "Json"
 -- @Json@ undeclared, and @(type Json ...)@ would have shadowed the builtin
 -- silently.
 opaqueSealedNames :: [Name]
-opaqueSealedNames = [jsonTypeName]
+opaqueSealedNames = [jsonTypeName, procSpecTypeName]
+
+-- | PROC-ENV-1 / PROC-REDIRECT-1: the sealed process specification that
+-- wasi.proc.exec takes. Opaque on the Json precedent: no body, no
+-- constructors, built only by the proc-* builtins.
+procSpecTypeName :: Name
+procSpecTypeName = "ProcSpec"
 
 -- | Type names a program may not redefine.
 --

@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -17512,7 +17512,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- needs http-client, which only a fetching program pays for). This fold
     -- reads both lists, so the name stays covered; a body that moved out of
     -- BOTH would still fail below.
-    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble)
+    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble)
         wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
         -- Mangling mirrors CodegenHs's toHsIdent (CodegenHs.hs:2230-2236),
         -- which the module does not export. Keep these three cases in sync
@@ -17589,8 +17589,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- OUTSIDE runtimePreamble (in httpGetPreamble, spliced only for a program
     -- that calls it), which is why preambleText above and the per-name fold
     -- below read both lists.
-    it "builtinEnv declares exactly the nineteen wasi.* names this block covers" $
-      length wasiNames `shouldBe` 19
+    -- 19 -> 21 with LIST-KIND-1's wasi.fs.list-kinds (its body lives in
+    -- listKindsPreamble, spliced only for a program that calls it; the fold
+    -- below reads that list too) and PROC-ENV-1's wasi.proc.exec.
+    it "builtinEnv declares exactly the twenty-one wasi.* names this block covers" $
+      length wasiNames `shouldBe` 21
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -17609,8 +17612,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- regex-find-all, regex-spans, string-lower and string-upper. All five
       -- are hand-written preamble bodies in runtimePreamble, so all five land
       -- in needsBinding: 73 -> 78.
-      Map.size builtinEnv      `shouldBe` 109
-      length needsBinding      `shouldBe` 78
+      -- 109 -> 119 with the G7 tooling builtins: path-normalize,
+      -- wasi.fs.list-kinds, wasi.proc.exec and the seven ProcSpec builders. All
+      -- ten are hand-written preamble bodies, so all ten land in needsBinding:
+      -- 78 -> 88.
+      Map.size builtinEnv      `shouldBe` 119
+      length needsBinding      `shouldBe` 88
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -17662,7 +17669,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
         -- Both lists: see the preambleText note at the top of this block (HTTP-GET-1).
-        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble))
+        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble))
         if defined
           then defined `shouldBe` True
           else expectationFailure $
@@ -18886,8 +18893,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- lookupEnv, NOT getEnv. getEnv throws on an unset name, and an unset name
     -- must arrive as a VALUE on the response channel.
+    -- PROC-ENV-1 widened the list with getEnvironment (wasi.proc.exec merges
+    -- the overrides into the inherited environment).
     it "ER-16: the emitted import list carries lookupEnv" $
-      T.isInfixOf "import System.Environment (getArgs, lookupEnv)"
+      T.isInfixOf "import System.Environment (getArgs, lookupEnv, getEnvironment)"
         (cgHsSource (generateHaskell "m" [envImport False, getLit "HOME"]))
         `shouldBe` True
 
@@ -21928,15 +21937,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- step "Cache Stack global + project work"). This pin is what makes that
     -- key move exactly when the generated closure does: the set of names the
     -- codegen emits across both variants equals the file, and nothing else.
-    it "HG-16: the names emitPackageYaml emits, both variants, equal compiler/generated-deps.txt" $ do
+    -- LIST-KIND-1 adds a third variant: a program that calls
+    -- wasi.fs.list-kinds adds `unix`, so the pin is 15 names across three.
+    it "HG-16: the names emitPackageYaml emits, all three variants, equal compiler/generated-deps.txt" $ do
       raw <- readFile "generated-deps.txt"   -- stack test runs from compiler/
       let pinned  = [ T.strip l | l <- T.lines (T.pack raw)
                                 , not (T.null (T.strip l)), not ("#" `T.isPrefixOf` T.strip l) ]
           yBase   = cgPackageYaml (generateHaskell "m" [plain])
           yHttp   = cgPackageYaml (generateHaskell "m" [httpImport, getComputed])
-          emitted = nub (emittedDeps yBase ++ emittedDeps yHttp)
+          yKinds  = cgPackageYaml (generateHaskell "m"
+                      [shellWith (EApp "wasi.fs.list-kinds" [EVar "u"])])
+          emitted = nub (emittedDeps yBase ++ emittedDeps yHttp ++ emittedDeps yKinds)
       sort emitted `shouldBe` sort pinned
-      length pinned `shouldBe` 14
+      length pinned `shouldBe` 15
 
     -- Disclosure (proposal section 7): conditioned on a CALL, not on the
     -- harness mode, and additive beside the console entries.
@@ -22242,6 +22255,106 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                  , diagKind d == Just "constructor-as-value" ]
       msgs `shouldSatisfy` any (\m -> "(True)" `T.isInfixOf` m && "`true`" `T.isInfixOf` m)
 
+
+  -- -----------------------------------------------------------------------
+  -- G7 tooling builtins (docs/design/g7-tooling-builtins-proposal.md Rev 0;
+  -- roadmap rows PATH-NORM-1, LIST-KIND-1, PROC-ENV-1, PROC-REDIRECT-1).
+  -- Type, effect and codegen level. The runtime behaviour (normalization
+  -- against posixpath, kinds on a real directory, the environment reaching a
+  -- child) is settled by scripts/tests/test_g7_tooling_builtins.py.
+  -- -----------------------------------------------------------------------
+
+  describe "G7 tooling builtins: path-normalize, wasi.fs.list-kinds, ProcSpec, wasi.proc.exec" $ do
+
+    let parseG7 src = case parseStatements GrammarCoreInversion "<g7>" src of
+          Left e   -> error ("G7 fixture did not parse: " ++ show e)
+          Right ss -> ss
+        kindsG7 = mapMaybe diagKind . reportDiagnostics . typeCheck GrammarCoreInversion builtinEnv . parseG7
+        errorsStrict src = [ diagMessage d
+                           | d <- reportDiagnostics (typeCheckStrict GrammarCoreInversion emptyEnv (parseG7 src))
+                           , diagSeverity d == SevError ]
+        ps = TCustom "ProcSpec"
+        procImport = "(import wasi.proc (capability exec :deterministic false))\n"
+        fsImport   = "(import wasi.fs (capability read \"/tmp\" :deterministic false))\n"
+        execSrc spec = T.pack (procImport ++
+          "(def-shell run [n: string] -> Command (wasi.proc.exec \"/bin/echo\" [n] " ++ spec ++ "))")
+
+    it "G7-1: builtinEnv types the ten builtins as the proposal states" $ do
+      Map.lookup "path-normalize" builtinEnv `shouldBe` Just (TFn [TString] TString)
+      Map.lookup "wasi.fs.list-kinds" builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
+      Map.lookup "wasi.proc.exec" builtinEnv
+        `shouldBe` Just (TFn [TString, TList TString, ps] (TCustom "Command"))
+      Map.lookup "proc-spec" builtinEnv `shouldBe` Just (TFn [TInt] ps)
+      mapM_ (\n -> Map.lookup n builtinEnv `shouldBe` Just (TFn [ps, TString] ps))
+        ["proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"]
+      Map.lookup "proc-stderr-to-stdout" builtinEnv `shouldBe` Just (TFn [ps] ps)
+      Map.lookup "proc-env" builtinEnv `shouldBe` Just (TFn [ps, TString, TString] ps)
+
+    it "G7-2: a program may not declare a type named ProcSpec" $
+      kindsG7 "(type ProcSpec (| A) (| B))" `shouldContain` ["sealed-type-redefinition"]
+
+    -- The firing witness for the proc- prefix in coreExcludedBuiltins, and the
+    -- control that path-normalize is NOT excluded (the string-lower precedent).
+    it "G7-3: a def calling a proc-* builder is rejected; a def calling path-normalize is not" $ do
+      errorsStrict "(def mk [n: int] -> int (first (pair 1 (proc-spec n))))"
+        `shouldSatisfy` any (T.isInfixOf "def-shell-only builtin")
+      errorsStrict "(def norm [p: string] -> string (path-normalize p))"
+        `shouldSatisfy` (not . any (T.isInfixOf "def-shell-only builtin"))
+
+    it "G7-4: a literal proc-env name that is empty or contains = is an error" $ do
+      kindsG7 (execSrc "(proc-env (proc-spec 5) \"\" \"x\")") `shouldContain` ["proc-env-name-malformed"]
+      kindsG7 (execSrc "(proc-env (proc-spec 5) \"A=B\" \"x\")") `shouldContain` ["proc-env-name-malformed"]
+
+    it "G7-5: a computed proc-env name is not checked (the limit; exec answers RErr)" $
+      kindsG7 (execSrc "(proc-env (proc-spec 5) n \"x\")") `shouldNotContain` ["proc-env-name-malformed"]
+
+    it "G7-6: a literal proc-spec timeout below 1 is an error; a computed one is not" $ do
+      kindsG7 (execSrc "(proc-spec 0)")  `shouldContain` ["proc-timeout-invalid"]
+      kindsG7 (execSrc "(proc-spec -1)") `shouldContain` ["proc-timeout-invalid"]
+      kindsG7 (execSrc "(proc-spec (string-length n))") `shouldNotContain` ["proc-timeout-invalid"]
+
+    it "G7-7: wasi.fs.list-kinds carries the filesystem-read label, not the top" $ do
+      primEffect "wasi.fs.list-kinds" `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.list-kinds" `shouldNotBe` Just Unbounded
+
+    -- Amendment A1: exec runs an arbitrary program, so only the top is a sound
+    -- may-over-approximation, as for wasi.proc.run.
+    it "G7-8: wasi.proc.exec reaches the top, like wasi.proc.run" $
+      primEffect "wasi.proc.exec" `shouldBe` Just Unbounded
+
+    it "G7-9: the ProcSpec builders and path-normalize carry no effect" $
+      mapM_ (\n -> primEffect n `shouldBe` Nothing)
+        [ "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
+        , "proc-stderr-to-stdout", "proc-env", "path-normalize" ]
+
+    it "G7-10: a full exec specification type-checks clean" $
+      kindsG7 (execSrc "(proc-stderr-to-stdout (proc-env (proc-stdout (proc-cwd (proc-spec 30) \"/tmp\") \"o.log\") \"LC_ALL\" \"C\"))")
+        `shouldBe` []
+
+    it "G7-11: a program calling wasi.fs.list-kinds gets unix and the Posix.Files import" $ do
+      let r = generateHaskell "m" (parseG7 (T.pack (fsImport ++
+                "(def-shell ls [p: string] -> Command (wasi.fs.list-kinds p))")))
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` True
+      T.isInfixOf "import qualified System.Posix.Files as PF" (cgHsSource r) `shouldBe` True
+      T.isInfixOf "wasi_fs_list_kinds ::" (cgHsSource r) `shouldBe` True
+
+    -- The portability half: exec needs no unix, so a program that runs
+    -- processes and does not list kinds stays free of the dependency.
+    it "G7-12: a program calling wasi.proc.exec but not list-kinds gets no unix" $ do
+      let r = generateHaskell "m" (parseG7 (execSrc "(proc-spec 5)"))
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` False
+      T.isInfixOf "System.Posix" (cgHsSource r) `shouldBe` False
+      T.isInfixOf "wasi_proc_exec ::" (cgHsSource r) `shouldBe` True
+
+    it "G7-13: every new runtime name is reserved against user identifiers" $
+      mapM_ (\n -> isReservedHsName n `shouldBe` True)
+        [ "ProcSpec", "path_normalize", "proc_spec", "proc_cwd", "proc_stdin", "proc_stdout"
+        , "proc_stderr", "proc_stderr_to_stdout", "proc_env", "wasi_proc_exec"
+        , "wasi_fs_list_kinds" ]
+
+    it "G7-14: wasi.fs.list-kinds without a wasi.fs import is a missing capability" $
+      kindsG7 "(def-shell ls [p: string] -> Command (wasi.fs.list-kinds p))"
+        `shouldContain` ["missing-capability"]
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
