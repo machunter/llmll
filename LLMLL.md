@@ -159,14 +159,14 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
 | `Command` | An IO effect (see §9) | _(constructed via capability constructors only)_ |
 | `Response` | What performing a `Command` produced (see §9.7) | `(match r ((RText t) …))` |
-| `Json` | An opaque JSON value (see §13.13) | _(produced by `json-parse` or the `json-of-*` injections)_ |
+| `Json` | An opaque JSON value (see §13.13) | _(produced by the §13.13 operations: `json-parse`, the `json-of-*` injections, `json-object`, `json-set`)_ |
 | `ProcSpec` | How to run one child process (see §13.9) | _(produced by `proc-spec` and the `proc-*` builders)_ |
 
 > `Command` is opaque: it is only produced by the standard command constructors (§13.9), and is currently emitted as Haskell `IO ()`. Calling any `wasi.*` constructor requires that the module declare that namespace (§7).
 
 > `Response` is a builtin sum type with five arms (`RNone`, `RText string`, `RCode int`, `RErr string`, `RList list[string]`). Unlike `Command` it is transparent: a program matches on it to consume an effect's result. It is supplied by the console harness as the third argument to `:step` and is never constructed by user code.
 
-> `Json` is **sealed and opaque**: no program-visible structure, no constructors, no `match` form. It is produced only by `json-parse` and the `json-of-*` injections (§13.13), and a program may not redefine the name. Its fourteen operations are `def-shell`-only, and equality is not defined on it (§13.2).
+> `Json` is **sealed and opaque**: no program-visible structure, no constructors, no `match` form. It is produced only by the §13.13 operations: `json-parse`, the `json-of-*` injections, the empty object `json-object` and the functional update `json-set` build one, and `json-get` and `json-array` extract one from another. A program may not redefine the name. Its eighteen operations are `def-shell`-only, and equality is not defined on it (§13.2).
 
 > `ProcSpec` is **sealed and opaque** in the same way: no program-visible structure, no constructors, no `match` form, and a program may not redefine the name. It is produced only by `proc-spec` and changed only by the six `proc-*` builders (§13.9), all `def-shell`-only, and `wasi.proc.exec` is its one consumer.
 

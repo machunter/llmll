@@ -30,6 +30,9 @@ Rev 0, with amendments A1 and A2. Closes all four rows.
   `proc-*` builder.
 - **`LLMLL.md` §13.9 corrections:** the stray "There is no `wasi.http.get`" is removed, and the
   `wasi.fs.exists` row says it answers `"file"` for a FIFO, socket or device.
+- **`LLMLL.md` §3.2 correction:** the `Json` note counted fourteen operations where §13.13 has
+  eighteen, and said only `json-parse` and the `json-of-*` injections produce a `Json`;
+  `json-object` and `json-set` build one too.
 - **Tests:** Spec.hs G7-1 to G7-15; pytest `test_g7_tooling_builtins.py` (18 cells, new CI step).
 
 2393 examples, 0 failures (+25). Python: 560 passed with `LLMLL_BIN` set (+18), 5 skipped.
