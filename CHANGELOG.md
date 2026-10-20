@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.6)
+<a id="Latest"></a>
+
+## v0.30.7: the Unicode operator aliases work, and a parse diagnostic names its kind (2026-10-20)
 
 ### `ALIAS-LOWER-1`, `DIAG-KIND-SEXPR-1`: the Unicode operator aliases work, and a parse diagnostic names its kind
 
@@ -22,8 +24,6 @@
 2409 examples, 0 failures (+3). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.6: a `haskell.*` import is qualified (2026-10-19)
 
