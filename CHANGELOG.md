@@ -2,6 +2,21 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.8)
+
+### Filed: `AST-TYPE-ALIAS-1`; decided: `CTOR-FN-FIELD-1`
+
+- **Filed `AST-TYPE-ALIAS-1`.** A JSON-AST `type-decl` accepts only `where` and `sum` bodies, so
+  `build --emit` output for `(type Name string)` or `(type IntFn (fn [int] -> int))` does not
+  read back: `check` reports `unknown TypeBody kind: primitive` (or `fn-type`).
+- **`CTOR-FN-FIELD-1` decided, and widened.** `=` on two function values, or on two `Command`
+  values, also passes `check` and fails `build`. The fix, per
+  [`docs/design/equality-capable-types-proposal.md`](docs/design/equality-capable-types-proposal.md):
+  a type holding a function, `Command`, `Promise` or `Json` derives no `Eq` or `Show`, and `=`,
+  `!=` and `list-contains` at such a type become a `check` error, `equality-undefined`.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.8: a function-typed parameter builds, and the Tier 1 FFI design settles (2026-10-20)
