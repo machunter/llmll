@@ -4,6 +4,20 @@
 
 ## Unreleased (on `main` after v0.30.8)
 
+### `FFI-TIER1-1` Rev 3 settled; `FFI-CONV-1` narrowed; two rows filed
+
+- **[`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md) Rev 3** settled
+  after a third professor review. It adds boundary types valid only inside a `haskell.*`
+  interface entry: `hs-text` (callers see `string`), `hs-maybe[T]` (`Result[T, unit]`) and
+  `hs-int` in result position (`int`), each converted with an explicitly typed converter. It
+  refuses `bytes[n]` as an interface result and `hs-text` as a `map` key in an argument. With
+  it, most of `Data.Text` and `Data.Map.Strict.lookup`, `size` and `filter` become reachable;
+  `splitOn` and `replace` are partial on an empty argument.
+- **`FFI-CONV-1` narrowed** to these lossless conversions and moved from G7 to G3, to ship with
+  `FFI-TIER1-1`.
+- **Filed:** `FFI-NARROW-1` (`int` to `Int` at the boundary) and `FFI-OPAQUE-1` (sealed handle
+  types for `Day`, `Vector` and `Value`, which `time`, `vector` and `aeson` need).
+
 ### Filed: `AST-TYPE-ALIAS-1`; decided: `CTOR-FN-FIELD-1`
 
 - **Filed `AST-TYPE-ALIAS-1`.** A JSON-AST `type-decl` accepts only `where` and `sum` bodies, so
