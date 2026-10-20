@@ -2,6 +2,31 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.7)
+
+### `FFI-TIER1-1` design settled; eight rows filed
+
+- **[`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md) (Rev 2)** settled
+  after two professor reviews: a `haskell.*` interface entry becomes a forced, monomorphic
+  binding under a `LINE` pragma; `check` refuses names, types, effects and packages outside a
+  closed set; a misspelled export and a type the export does not instantiate stay `build`
+  errors; the trust report gains `ffi_assumptions`, with no new trust level and no
+  `trust_report_version` change. Only `filepath` and part of `containers` become reachable.
+- **Filed:** `FN-PARAM-PAREN-1`. A function-typed parameter prints without parentheses in the
+  generated Haskell, so `(def-shell apply-pred [f: (fn [string] -> bool) s: string] -> bool (f s))`
+  passes `check` and fails `build`.
+- **Filed:** `CTOR-FN-FIELD-1`. A constructor field holding a function passes `check` and fails
+  `build`: generated types derive `Eq` and `Show`.
+- **Filed:** `ALIAS-FN-APPLY-1`. A value whose type is an alias of a function type cannot be
+  applied: `check` reports `'f' is not a function`, while `LLMLL.md` §3 says aliases expand at
+  call sites.
+- **Filed:** `SAFE-HASKELL-CLAIM-1`. `LLMLL.md` §7 and §10 steps 4 and 7 claim Docker,
+  `seccomp-bpf` and `{-# LANGUAGE Safe #-}`; none applies to a built program.
+- **Filed** from the design: `FFI-SIG-TABLE-1`, `FFI-CONTRACT-1`, `FFI-CONV-1`,
+  `FFI-UNINTERP-1`. `FFI-TIER1-1` moves from DECIDE to PLAN.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.7: the Unicode operator aliases work, and a parse diagnostic names its kind (2026-10-20)
