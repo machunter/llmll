@@ -2,6 +2,27 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.6)
+
+### `ALIAS-LOWER-1`, `DIAG-KIND-SEXPR-1`: the Unicode operator aliases work, and a parse diagnostic names its kind
+
+- **The eight operator aliases `≥ ≤ ≠ ∧ ∨ ¬ ⇒ ⇔` are replaced by their ASCII names at parse
+  time**, so both spellings give identical AST nodes, as §2.4 says. Six warned `unknown
+  operator` in `check` and were refused by `verify`; `⇒` and `⇔` were parse errors.
+- **The unknown-operator arm checks its arguments before warning.** It reported OK over a body
+  it never checked. Only a JSON-AST `op` with an unknown name reaches it now.
+- **The S-expression parse diagnostic prints `:kind`** after `:phase parse` when the
+  diagnostic has one (`source-decode-error`, `json-parse-error`); a syntax error still has
+  none. A double quote in the file path is now escaped.
+- **`unicode-alias-token.llmll`** now expects `check-ok`, and its `KNOWN_INVALID` schema entry
+  is removed.
+- **Not as filed:** the row asked for `⇒`/`⇔` in `Lexer.hs`. Nothing on the parse path uses
+  `Lexer.hs`, so the parser handles all eight aliases and `Lexer.hs` is unchanged.
+
+2409 examples, 0 failures (+3). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.6: a `haskell.*` import is qualified (2026-10-19)

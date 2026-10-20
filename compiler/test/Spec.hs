@@ -34,7 +34,7 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp)
 import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
@@ -303,6 +303,24 @@ main = hspec $ do
       -- U+00A7 SECTION SIGN, U+2014 EM DASH, U+1F600 (astral, 4 bytes).
       decodes [0xC2,0xA7, 0xE2,0x80,0x94, 0xF0,0x9F,0x98,0x80]
         `shouldBe` Right "\167\8212\128512"
+
+    -- DIAG-KIND-SEXPR-1: the default channel carries diagKind, for two kinds
+    -- so the test shows the field discriminates, and omits it when absent.
+    it "DIAG-KIND-SEXPR-1: the S-expression parse diagnostic names its kind" $ do
+      case decodes [0xFF] of
+        Right _ -> expectationFailure "0xFF must not decode"
+        Left d  -> formatParseDiagSExp "a.llmll" d `shouldSatisfy`
+          T.isPrefixOf "(error :phase parse :kind \"source-decode-error\" :file \"a.llmll\" :line 1 :col 1 :message "
+      case parseJSONAST GrammarCoreInversion "b.ast.json" "{" of
+        Right _ -> expectationFailure "a truncated document must not parse"
+        Left d  -> formatParseDiagSExp "b.ast.json" d `shouldSatisfy`
+          T.isPrefixOf "(error :phase parse :kind \"json-parse-error\" :file \"b.ast.json\" :message "
+      case parseStatements GrammarCoreInversion "c.llmll" "(def f [] -> int" of
+        Right _ -> expectationFailure "an unclosed form must not parse"
+        Left err  -> do
+          let d = megaparsecToDiagnostic "c.llmll" err
+          diagKind d `shouldBe` Nothing
+          formatParseDiagSExp "c.llmll" d `shouldSatisfy` T.isPrefixOf "(error :phase parse :file \"c.llmll\""
 
     it "rejects a lone 0xFF and names the byte and position" $ do
       case decodes [0x61, 0xFF] of
@@ -962,20 +980,53 @@ main = hspec $ do
           -- ... and the emission GHC lexed as `p regex - match s` is gone.
           hs `shouldSatisfy` (not . T.isInfixOf "p regex-match s")
 
-    it "the six Unicode aliases still parse as EOp (ALIAS-LOWER-1 is a separate patch)" $ do
-      -- This patch must not silently absorb ALIAS-LOWER-1. After it, the
-      -- aliases are the ENTIRE remaining population of TypeCheck's
-      -- unknown-operator arm, which is that row's business and not this one's.
-      let binaries = ["\x2265", "\x2264", "\x2260", "\x2227", "\x2228"] :: [T.Text]
-      forM_ binaries $ \a ->
-        case parseExpr "<test>" ("(" <> a <> " x y)") of
-          Left err -> expectationFailure (show err)
-          Right (EOp op _) | op == a -> pure ()
-          Right other -> expectationFailure $ "Expected EOp for alias, got: " ++ show other
-      case parseExpr "<test>" "(\x00AC x)" of
+    -- ALIAS-LOWER-1: each alias becomes its ASCII name at parse time, so the
+    -- two spellings are one AST node (LLMLL.md 2.4) and no glyph reaches
+    -- TypeCheck's unknown-operator arm.
+    it "ALIAS-LOWER-1: each of the eight operator aliases parses to its ASCII node" $ do
+      let binaries = [ ("\x2265", ">="), ("\x2264", "<="), ("\x2260", "!=")
+                     , ("\x2227", "and"), ("\x2228", "or")
+                     , ("\x21D2", "=>"), ("\x21D4", "<=>") ] :: [(T.Text, T.Text)]
+      forM_ binaries $ \(g, a) ->
+        parseExpr "<test>" ("(" <> g <> " x y)") `shouldBe` parseExpr "<test>" ("(" <> a <> " x y)")
+      parseExpr "<test>" "(\x00AC x)" `shouldBe` parseExpr "<test>" "(not x)"
+      parseExpr "<test>" "(\x2265 x y)" `shouldSatisfy` either (const False) (== EOp ">=" [EVar "x", EVar "y"])
+
+    it "ALIAS-LOWER-1: the unicode-alias-token program checks clean and equals its ASCII form" $ do
+      let glyph = T.unlines
+            [ "(def clamp [n: int] -> int"
+            , "  (pre (\x2227 (\x2265 n 0) (\x2264 n 100)))"
+            , "  (post (\x00AC (\x2260 result n)))"
+            , "  n)"
+            , "(def imp [p: bool q: bool] -> bool (\x2227 (\x21D2 p q) (\x21D4 p q)))" ]
+          ascii = T.unlines
+            [ "(def clamp [n: int] -> int"
+            , "  (pre (and (>= n 0) (<= n 100)))"
+            , "  (post (not (!= result n)))"
+            , "  n)"
+            , "(def imp [p: bool q: bool] -> bool (and (=> p q) (<=> p q)))" ]
+      parseStatements GrammarCoreInversion "<test>" glyph `shouldBe` parseStatements GrammarCoreInversion "<test>" ascii
+      case parseStatements GrammarCoreInversion "<test>" glyph of
         Left err -> expectationFailure (show err)
-        Right (EOp "\x00AC" _) -> pure ()
-        Right other -> expectationFailure $ "Expected EOp for negation, got: " ++ show other
+        Right stmts ->
+          reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts) `shouldBe` []
+
+    -- ALIAS-LOWER-1, the second defect: the unknown-operator arm checked none
+    -- of its arguments, so an error inside them was hidden behind a warning.
+    -- Reachable from JSON-AST, whose op field takes any string.
+    it "ALIAS-LOWER-1: an unknown operator's arguments are still checked" $ do
+      let doc = BL.fromStrict (TE.encodeUtf8 (T.concat
+            [ "{\"schemaVersion\":\"", expectedSchemaVersion, "\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\","
+            , "\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],"
+            , "\"body\":{\"kind\":\"op\",\"op\":\"frob\",\"args\":[{\"kind\":\"app\",\"fn\":\"string-length\","
+            , "\"args\":[{\"kind\":\"var\",\"name\":\"n\"}]}]}}]}" ]))
+      case parseJSONAST GrammarCoreInversion "<test>" doc of
+        Left d -> expectationFailure (show d)
+        Right stmts -> do
+          let ds = reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+          [ () | d <- ds, diagSeverity d == SevWarning, "unknown operator 'frob'" `T.isInfixOf` diagMessage d ]
+            `shouldBe` [()]
+          [ () | d <- ds, diagSeverity d == SevError ] `shouldSatisfy` (not . null)
 
   -- -----------------------------------------------------------------------
   -- D1: Static match exhaustiveness check
