@@ -4,6 +4,19 @@
 
 ## Unreleased (on `main` after v0.30.7)
 
+### `FN-PARAM-PAREN-1`: a function-typed parameter builds
+
+- **Function types in argument position are parenthesised in the generated Haskell.**
+  `(def-shell twice [f: (fn [int] -> int) x: int] -> int (f (f x)))` passed `check` and failed
+  GHC at `build`; the same held for a function type inside `Result`, `map` or `Promise`, for
+  `Result[Command, …]`, and for an interface method taking a function. Every other generated
+  type is byte-identical: across the tracked corpus one line changed, in `shadow-param.llmll`,
+  which now builds.
+- A constructor field holding a function still fails `build` at `deriving`; that is
+  `CTOR-FN-FIELD-1`.
+
+2418 examples, 0 failures (+9). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
 ### `FFI-TIER1-1` design settled; eight rows filed
 
 - **[`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md) (Rev 2)** settled
