@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.7)
+<a id="Latest"></a>
+
+## v0.30.8: a function-typed parameter builds, and the Tier 1 FFI design settles (2026-10-20)
 
 ### `FN-PARAM-PAREN-1`: a function-typed parameter builds
 
@@ -39,8 +41,6 @@
   `FFI-UNINTERP-1`. `FFI-TIER1-1` moves from DECIDE to PLAN.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.7: the Unicode operator aliases work, and a parse diagnostic names its kind (2026-10-20)
 
