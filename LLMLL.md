@@ -2675,7 +2675,7 @@ These functions and operators are **always in scope**. They are provided by the 
 
 ### 13.2 Comparison & Equality Operators
 
-The `=` operator is **polymorphic structural equality** defined over all LLMLL types:
+The `=` operator is **polymorphic structural equality** defined over every type that contains no function, `Command` or `Promise` value:
 
 - **`int`, `float`, `bool`:** numeric/value equality.
 - **`string`:** byte-by-byte equality (UTF-8; locale-independent).
@@ -2683,7 +2683,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 - **`map[k,v]`:** equal if same key set and each value is `=`.
 - **`(a, b)` pairs:** equal if both components are `=`.
 - **ADT constructors:** equal if same constructor tag and payload is `=`.
-- **`Command`:** comparison is **not defined** — commands are opaque.
+- **Functions, `Command` and `Promise`:** comparison is **not defined**. `=`, `!=` and `list-contains` are *rejected* (`equality-undefined`) at any argument type containing one, including a user type with such a field; that type also derives no printing. Compare a field that has equality instead, for example after matching on the constructor.
 - **`Json`:** comparison is **not defined**, and `=`, `!=`, and `list-contains` are *rejected* at any argument type mentioning `Json` (including `list[Json]` and `Result[Json,string]`). Structural equality would make member order observable program behaviour; compare serializations instead: `(= (json-serialize a) (json-serialize b))`.
 
 | Operator | Signature | Notes |
