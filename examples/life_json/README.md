@@ -15,7 +15,7 @@ contracted variant is [`../conways_life_json_verifier/`](../conways_life_json_ve
 | `core.ast.json` | LifeCore | Cell transition rule; exports only `next-cell-state` |
 | `world.ast.json` | LifeWorld | Grid state, neighbor counting, `evolve`, rendering, glider seed |
 | `main.ast.json` | LifeMain | `def-main` console loop: redraws the board, one generation per step |
-| [`walkthrough.md`](walkthrough.md) | | Module pattern, gotchas (qualified names, flat-directory imports) |
+| [`walkthrough.md`](walkthrough.md) | | Module pattern, gotchas (qualified calls, import paths) |
 
 ## Build and run
 
