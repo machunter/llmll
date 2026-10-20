@@ -81,6 +81,7 @@ import qualified Data.Map.Strict as Map
 
 import LLMLL.Syntax
 import LLMLL.BuildScope (stripModuleQualifiers)
+import LLMLL.TypeAdmissibility (buildAliasMap, mentionsNoEq)
 import qualified Data.Set as Set
 import Data.Char (isUpper)
 
@@ -144,7 +145,14 @@ generateHaskell modName stmts0 =
       -- LIST-KIND-1. Same single-predicate discipline as httpGet above.
       listKinds = usesListKinds stmts
 
-      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf stmts
+      -- CTOR-FN-FIELD-1: the user sum types that hold a function, Command or
+      -- Promise somewhere. GHC cannot derive Eq or Show for them, so they are
+      -- emitted with no deriving clause; `check` refuses = on them
+      -- (equality-undefined). Computed over the whole program, which for a
+      -- multi-module build is every module's statements (generateHaskellMulti).
+      noEq      = let am = buildAliasMap stmts
+                  in Set.fromList [ n | STypeDef n body@(TSumType _) <- stmts, mentionsNoEq am body ]
+      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf noEq stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
       pkgYaml   = emitPackageYaml modName hasMain httpGet listKinds hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
@@ -203,8 +211,8 @@ preludeHiding
   | null preludeClashes = "import Prelude"
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
-emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet listKinds srcOf stmts = T.unlines $
+emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> Set.Set Name -> [Statement] -> Text
+emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -315,7 +323,7 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf stmts = T.unlines $
   , "-- ---------------------------------------------------------------------------"
   , ""
   ] ++
-  map (emitStmtRenamed srcOf) (filter (not . isDefMain) stmts)
+  map (emitStmtRenamed srcOf noEq) (filter (not . isDefMain) stmts)
 
 -- | Map haskell.<pkg> short names to their actual Haskell module paths.
 -- Unknown packages fall back to capitalize-and-join.
@@ -1845,25 +1853,31 @@ emitStmt (SWeaknessOk _ _)                = ""  -- weakness suppression (compile
 -- the source constructor name. @srcOf@ maps a renamed Haskell name to its
 -- unrenamed form; it is empty for a program with no collision, and then this
 -- is 'emitStmt' exactly.
-emitStmtRenamed :: Map Text Text -> Statement -> Text
-emitStmtRenamed srcOf (STypeDef name (TSumType ctors))
+--
+-- CTOR-FN-FIELD-1: a sum type in @noEq@ (it holds a function, Command or
+-- Promise) gets no deriving clause and no Show instance, renamed or not,
+-- because GHC has neither instance for its fields. @noEq@ is empty for a
+-- program with no such type, and then the output is unchanged.
+emitStmtRenamed :: Map Text Text -> Set.Set Name -> Statement -> Text
+emitStmtRenamed srcOf noEq (STypeDef name (TSumType ctors))
+  | name `Set.member` noEq = sumTypeDecl name ctors <> "\n"
   | any ((`Map.member` srcOf) . fst) ctors =
-      let fmtCtor (c, Nothing) = toHsIdent c
-          fmtCtor (c, Just t)  = toHsIdent c <> " " <> hsArg AppArg t
-          ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
-      in "data " <> toHsIdent name <> "\n  = " <> ctorStr
+      sumTypeDecl name ctors
          <> "\n  deriving (Eq)\n"
          <> emitShowInstance srcOf (toHsIdent name) ctors
-emitStmtRenamed _ stmt = emitStmt stmt
+emitStmtRenamed _ _ stmt = emitStmt stmt
+
+-- | The @data@ declaration of a sum type, without its deriving clause.
+sumTypeDecl :: Name -> [(Name, Maybe Type)] -> Text
+sumTypeDecl name ctors =
+  let fmtCtor (c, Nothing) = toHsIdent c
+      fmtCtor (c, Just t)  = toHsIdent c <> " " <> hsArg AppArg t
+  in "data " <> toHsIdent name <> "\n  = " <> T.intercalate "\n  | " (map fmtCtor ctors)
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text
 emitTypeDef name (TSumType ctors) =
-  let fmtCtor (c, Nothing) = toHsIdent c
-      fmtCtor (c, Just t)  = toHsIdent c <> " " <> hsArg AppArg t
-      ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
-  in "data " <> toHsIdent name <> "\n  = " <> ctorStr
-     <> "\n  deriving (Eq, Show)\n"
+  sumTypeDecl name ctors <> "\n  deriving (Eq, Show)\n"
 emitTypeDef name (TCustom body)
   -- Sum type from ParserJSON (legacy path — should not reach here after refactor,
   -- kept as fallback for any TCustom that still contains a pipe-separated list).

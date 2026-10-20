@@ -195,6 +195,8 @@ module LLMLL.TypeAdmissibility
   , jsonTypeName
   , procSpecTypeName
   , mentionsJson
+  , mentionsNoEq
+  , noEqWitness
     -- * Normalization
   , resolveAliasTy
   , normalizeTy
@@ -215,6 +217,7 @@ module LLMLL.TypeAdmissibility
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as T
 import Data.Maybe (isJust)
 
 import LLMLL.Syntax
@@ -331,6 +334,47 @@ mentionsJson am = go Set.empty
       TFn args ret     -> any (go seen) args || go seen ret
       TSumType ctors   -> any (maybe False (go seen) . snd) ctors
       _                -> False
+
+-- | CTOR-FN-FIELD-1: does a type contain a value with no equality anywhere?
+-- A function (including the zero-parameter @() -> t@), @Command@ (@IO ()@) and
+-- @Promise[T]@ (@Async@, whose 'Eq' is thread identity) have none, so a type
+-- holding one can neither derive 'Eq'/'Show' in the generated Haskell nor be
+-- compared with @=@ (docs/design/equality-capable-types-proposal.md).
+--
+-- @Json@ is NOT counted here: the generated @Json@ type derives both instances,
+-- and 'mentionsJson' already denies equality on it at @check@ with its own
+-- message.
+--
+-- Same cycle-guarded walk as 'mentionsJson': a recursive type with no such
+-- component returns False (greatest fixpoint), so @Tree@ stays comparable. A
+-- qualified name (@lib.Ops@) that misses the map is looked up bare, because
+-- imported aliases are bare-keyed.
+mentionsNoEq :: AliasMap -> Type -> Bool
+mentionsNoEq am = isJust . noEqWitness am
+
+-- | The first component of a type that has no equality, for the diagnostic.
+noEqWitness :: AliasMap -> Type -> Maybe Type
+noEqWitness am = go Set.empty
+  where
+    go seen t = case t of
+      TFn _ _               -> Just t
+      TPromise _            -> Just t
+      TCustom "Command"     -> Just t
+      TCustom n
+        | n `Set.member` seen -> Nothing                     -- Norm-Stuck
+        | otherwise           -> lookupAlias n >>= go (Set.insert n seen)
+      TDependent _ b _ -> go seen b
+      TList a          -> go seen a
+      TMap k v         -> firstOf [k, v]
+      TResult a b      -> firstOf [a, b]
+      TPair a b        -> firstOf [a, b]
+      TSumType ctors   -> firstOf [p | (_, Just p) <- ctors]
+      _                -> Nothing
+      where firstOf = foldr (\x r -> maybe r Just (go seen x)) Nothing
+    lookupAlias n = case Map.lookup n am of
+      Just b  -> Just b
+      Nothing -> let bare = snd (T.breakOnEnd "." n)
+                 in if bare /= n && not (T.null bare) then Map.lookup bare am else Nothing
 
 -- ---------------------------------------------------------------------------
 -- Normalization

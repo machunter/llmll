@@ -84,7 +84,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -1330,6 +1330,35 @@ checkJsonNoEq name subst =
         <> "': equality on a sealed JSON value would expose member order as "
         <> "observable behaviour. Compare serializations instead: "
         <> "(= (json-serialize a) (json-serialize b))"
+
+-- | CTOR-FN-FIELD-1: equality is undefined at a type that contains a function,
+-- @Command@ or @Promise@ (docs/design/equality-capable-types-proposal.md).
+-- Generalizes 'checkJsonNoEq' over the same three consumers and the same
+-- per-call-site substitution. Before this check, @(= f g)@ on two functions
+-- passed @check@ and failed GHC with @No instance for Eq@.
+--
+-- A substitution that mentions @Json@ is left to 'checkJsonNoEq', so that case
+-- keeps its single existing error and message. The two kinds stay separate
+-- because @json-equality-denied@ is a shipped message.
+checkEqDefined :: Name -> Map.Map Name Type -> TC ()
+checkEqDefined name subst =
+  when (name `Set.member` jsonEqConsumers) $ do
+    am <- gets tcAliasMap
+    let tys = Map.elems subst
+    unless (any (mentionsJson am) tys) $
+      case [ (ty, w) | ty <- tys, Just w <- [noEqWitness am ty] ] of
+        []          -> pure ()
+        ((ty, w):_) ->
+          tcErrorK "equality-undefined" $
+            "'" <> name <> "' is not defined at type '" <> typeLabel ty
+            <> "': it contains " <> describe w
+            <> "; functions, Command and Promise values have no equality. "
+            <> "Match on the constructor and compare a field that has one."
+  where
+    describe w = case w of
+      TCustom "Command" -> "a Command"
+      TPromise _        -> "a Promise (" <> typeLabel w <> ")"
+      _                 -> "a function (" <> typeLabel w <> ")"
 
 -- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
 -- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
@@ -2980,6 +3009,7 @@ inferExpr (EApp func args) = do
               structuralUnify func subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       checkJsonNoEq func finalSubst   -- JSON-NOEQ: list-contains
+      checkEqDefined func finalSubst  -- CTOR-FN-FIELD-1
       pure (applySubst finalSubst retType)
     Just (TCustom n)
       -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a
@@ -3024,6 +3054,7 @@ inferExpr (EOp op args) = do
               structuralUnify op subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       checkJsonNoEq op finalSubst     -- JSON-NOEQ: = and !=
+      checkEqDefined op finalSubst    -- CTOR-FN-FIELD-1
       pure (applySubst finalSubst retType)
     Just other -> do
       tcError $ "operator '" <> op <> "' has non-function type "
