@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.5)
+<a id="Latest"></a>
+
+## v0.30.6: a `haskell.*` import is qualified (2026-10-19)
 
 ### `RESERVED-NAME-1 residue (1)`, `residue (3)`: a `haskell.*` import is qualified
 
@@ -24,8 +26,6 @@
 2406 examples, 0 failures (+3). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.5: an imported constructor named like its type, and a dependency's own imports (2026-10-19)
 
