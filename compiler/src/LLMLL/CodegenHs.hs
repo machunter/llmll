@@ -102,7 +102,7 @@ data CodegenResult = CodegenResult
 -- ---------------------------------------------------------------------------
 
 data ImportKind
-  = HackageImport Text   -- ^ haskell.<pkg> → import Data.<Pkg>
+  = HackageImport Text   -- ^ haskell.<pkg> → import qualified Data.<Pkg>
   | CLibImport    Text   -- ^ c.<lib>       → foreign import ccall stubs
   | WasiImport           -- ^ wasi.*        → stdlib preamble handles it
   | UnknownImport
@@ -330,11 +330,15 @@ hackageModuleMap = Map.fromList
   , ("process",     "System.Process")
   ]
 
+-- | RESERVED-NAME-1 residue (1): qualified, so the module's exports cannot
+-- collide with a user name or with the runtime preamble's own uses of
+-- Prelude names (Data.Map.Strict.map, Data.Text.elem). No LLMLL program can
+-- name an unqualified export, so nothing reachable is lost.
 hackageImportLine :: Text -> Text
 hackageImportLine pkg =
   case Map.lookup pkg hackageModuleMap of
-    Just modPath -> "import " <> modPath
-    Nothing      -> "import " <> pkgToModule pkg  -- fallback: capitalize segments
+    Just modPath -> "import qualified " <> modPath
+    Nothing      -> "import qualified " <> pkgToModule pkg  -- fallback: capitalize segments
   where
     pkgToModule p = T.intercalate "." (map capitalise (T.splitOn "." p))
     capitalise t  = case T.uncons t of

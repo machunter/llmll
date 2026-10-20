@@ -7610,20 +7610,32 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- =========================================================================
   describe "Aeson FFI Codegen" $ do
 
-    it "haskell.aeson generates 'import Data.Aeson' in Lib.hs" $ do
+    it "haskell.aeson generates 'import qualified Data.Aeson' in Lib.hs" $ do
       let stmts = [SImport (Import "haskell.aeson" Nothing Nothing)]
           result = generateHaskell "test" stmts
-      cgHsSource result `shouldSatisfy` T.isInfixOf "import Data.Aeson"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "import qualified Data.Aeson"
 
     it "haskell.aeson adds aeson to package.yaml dependencies" $ do
       let stmts = [SImport (Import "haskell.aeson" Nothing Nothing)]
           result = generateHaskell "test" stmts
       cgPackageYaml result `shouldSatisfy` T.isInfixOf "aeson"
 
-    it "unknown haskell.foo falls back to 'import Foo'" $ do
+    it "unknown haskell.foo falls back to 'import qualified Foo'" $ do
       let stmts = [SImport (Import "haskell.foo" Nothing Nothing)]
           result = generateHaskell "test" stmts
-      cgHsSource result `shouldSatisfy` T.isInfixOf "import Foo"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "import qualified Foo"
+
+    -- RESERVED-NAME-1 residue (1): never an unqualified whole-module import.
+    it "haskell.containers emits 'import qualified Data.Map.Strict' and no unqualified import of it" $ do
+      let ls = T.lines (cgHsSource (generateHaskell "test" [SImport (Import "haskell.containers" Nothing Nothing)]))
+      ls `shouldSatisfy` elem "import qualified Data.Map.Strict"
+      ls `shouldSatisfy` notElem "import Data.Map.Strict"
+
+    it "a haskell.* import with an interface list is qualified too" $ do
+      let iface = [("take-extension", TFn [TString] TString)]
+          ls = T.lines (cgHsSource (generateHaskell "test" [SImport (Import "haskell.filepath" (Just iface) Nothing)]))
+      ls `shouldSatisfy` elem "import qualified System.FilePath"
+      ls `shouldSatisfy` notElem "import System.FilePath"
 
     it "classifyImport recognizes haskell.aeson as HackageImport" $ do
       classifyImport (Import "haskell.aeson" Nothing Nothing) `shouldBe` HackageImport "aeson"
@@ -21774,6 +21786,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "(def-shell get [m: Maybe] -> int (match m ((Some n) n) ((None) 0)))" ]
           "(int-to-string (+ (get (Some 4)) (get None)))")
           "4"
+
+      -- RESERVED-NAME-1 residue (1): a haskell.* import is qualified, so a
+      -- user findFile does not meet System.Directory.findFile, and the
+      -- preamble's own map, filter and elem do not meet Data.Map.Strict's or
+      -- Data.Text's. Each of the three imports failed the build on v0.30.5.
+      it "haskell.containers, haskell.text and haskell.directory beside a user findFile" $
+        runExpect "rn7" (T.unlines
+          [ "(import haskell.containers)", "(import haskell.text)", "(import haskell.directory)"
+          , cliProg [ "(def-shell findFile [n: int] -> int (* 2 n))" ] "(int-to-string (findFile 21))" ])
+          "42"
 
       -- Main.hs binds `loop` and `settle` in main's `where` clause, in scope
       -- where it emits the :step and :done? references; before they were in R
