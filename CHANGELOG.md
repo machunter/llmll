@@ -4,6 +4,30 @@
 
 ## Unreleased (on `main` after v0.30.8)
 
+### `CTOR-FN-FIELD-1`: a type holding a function builds, and equality on one is a `check` error
+
+- **A sum type holding a function, `Command` or `Promise` builds.** `(type Ops (| Ops
+  list[(fn [int] -> int)]))` failed GHC at `deriving (Eq, Show)`; such a type now derives
+  nothing. Design: [`docs/design/equality-capable-types-proposal.md`](docs/design/equality-capable-types-proposal.md).
+- **`=`, `!=` and `list-contains` at a type containing a function, `Command` or `Promise` are a
+  `check` error, `equality-undefined`.** They passed `check` and failed GHC at `build`, with or
+  without a user type (`(= f g)` on two functions). `=` on `Promise`, which built as thread
+  identity, is now refused. `Json` keeps `json-equality-denied`. `LLMLL.md` §13.2 states the rule.
+- **Filed `XMOD-TYPE-QUAL-1`:** a qualified type name in a constructor field (`lib.Ops`) is
+  printed `lib_Ops` in the generated Haskell and cannot build.
+
+### `ALIAS-FN-APPLY-1`: a function-type alias can be applied
+
+- **A value whose type is an alias of a function type can be called.** With
+  `(type IntFn (fn [int] -> int))`, `(def-shell use [f: IntFn x: int] -> int (f x))` failed
+  `check` with `'f' is not a function (nullary constructor / value of type IntFn)`. The
+  callee's type now has its head alias expanded before the call is checked, as `LLMLL.md` §3
+  says; this covers an alias of an alias, a returned alias bound by `let`, and an alias with
+  named parameters. A call with the wrong argument count now gets the arity error. Messages
+  for a sum-type or refinement-alias value are unchanged.
+
+2449 examples, 0 failures (+31 since v0.30.8). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
 ### `FFI-TIER1-1` Rev 3 settled; `FFI-CONV-1` narrowed; two rows filed
 
 - **[`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md) Rev 3** settled
