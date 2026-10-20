@@ -21759,6 +21759,116 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           (out, err) `shouldBe` ("41 42 43", "")
           code `shouldBe` ExitSuccess
 
+  describe "CTOR-FN-FIELD-1" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("CTOR-FN-FIELD-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        kinds = map fst . errs
+        libOf = cgHsSource . generateHaskell "cf" . parsed
+        op    = "(type Op (| Op (fn [int] -> int)))"
+        ops   = "(type Ops (| Ops list[(fn [int] -> int)]))"
+        undef = Just "equality-undefined"
+    -- check: = / != / list-contains at a type with no equality
+    it "= on a sum type holding a function is equality-undefined" $
+      kinds [op, "(def-shell same [a: Op b: Op] -> bool (= a b))"] `shouldBe` [undef]
+    it "= on two functions is equality-undefined, and the message names the function" $
+      errs ["(def-shell same [f: (fn [int] -> int) g: (fn [int] -> int)] -> bool (= f g))"]
+        `shouldBe` [(undef, "'=' is not defined at type 'fn[1 args] -> int': it contains a function (fn[1 args] -> int); functions, Command and Promise values have no equality. Match on the constructor and compare a field that has one.")]
+    it "= on two Command values is equality-undefined" $
+      kinds ["(def-shell same [a: Command b: Command] -> bool (= a b))"] `shouldBe` [undef]
+    it "= on two Promise values is equality-undefined" $
+      kinds ["(def-shell same [p: Promise[int] q: Promise[int]] -> bool (= p q))"] `shouldBe` [undef]
+    it "list-contains over functions is equality-undefined" $
+      kinds ["(def-shell has [hs: list[(fn [int] -> int)] h: (fn [int] -> int)] -> bool (list-contains hs h))"]
+        `shouldBe` [undef]
+    it "= on a Result holding a function is equality-undefined" $
+      kinds ["(def-shell same [a: Result[(fn [int] -> int), string] b: Result[(fn [int] -> int), string]] -> bool (= a b))"]
+        `shouldBe` [undef]
+    it "!= on a sum type holding a list of functions is equality-undefined" $
+      kinds [ops, "(def-shell same [a: Ops b: Ops] -> bool (!= a b))"] `shouldBe` [undef]
+    it "= on a map with function values is equality-undefined" $
+      kinds ["(def-shell same [a: map[string, (fn [int] -> int)] b: map[string, (fn [int] -> int)]] -> bool (= a b))"]
+        `shouldBe` [undef]
+    it "= on a pair holding such a sum type is equality-undefined" $
+      kinds [op, "(def-shell same [a: (Op, int) b: (Op, int)] -> bool (= a b))"] `shouldBe` [undef]
+    it "= inside a post clause is refused the same way" $
+      kinds [op, "(def-shell k [a: Op b: Op] -> int (post (= a b)) 1)"] `shouldBe` [undef]
+    it "= on a recursive type with no function, and on a plain enum, still checks" $
+      errs [ "(type Tree (| Leaf int) (| Node (Tree, Tree)))", "(type Color (| Red) (| Green))"
+           , "(def-shell s1 [a: Tree b: Tree] -> bool (= a b))"
+           , "(def-shell s2 [a: Color b: Color] -> bool (= a b))" ] `shouldBe` []
+    it "= on a type holding Json keeps its single json-equality-denied error" $
+      kinds ["(type J (| J Json))", "(def-shell same [a: J b: J] -> bool (= a b))"]
+        `shouldBe` [Just "json-equality-denied"]
+    -- codegen: no deriving for a type with no equality; every other type unchanged
+    it "a sum type holding a list of functions derives nothing" $
+      libOf [ops] `shouldSatisfy` T.isInfixOf "data Ops\n  = Ops [Integer -> Integer]\n\n"
+    it "a sum type wrapping such a type derives nothing either" $
+      libOf [ops, "(type Wrap (| Wrap Ops))"] `shouldSatisfy` T.isInfixOf "data Wrap\n  = Wrap Ops\n\n"
+    it "Promise and Command fields derive nothing" $ do
+      let lib = libOf ["(type P (| P Promise[int]))", "(type Cmd (| Run Command))"]
+      lib `shouldSatisfy` T.isInfixOf "data P\n  = P (Async.Async Integer)\n\n"
+      lib `shouldSatisfy` T.isInfixOf "data Cmd\n  = Run (IO ())\n\n"
+    it "a renamed sum type holding a function gets no deriving and no Show instance" $ do
+      let lib = libOf ["(type Opt (| Just (fn [int] -> int)) (| Nothing))"]
+      lib `shouldSatisfy` T.isInfixOf "data Opt\n  = Just_u1 (Integer -> Integer)\n  | Nothing_u1\n\n"
+      lib `shouldNotSatisfy` T.isInfixOf "instance Show Opt"
+    it "a recursive type, a Json-holding type and a plain enum keep deriving (Eq, Show)" $ do
+      let lib = libOf [ "(type Tree (| Leaf int) (| Node (Tree, Tree)))", "(type J (| J Json))"
+                      , "(type Color (| Red) (| Green))" ]
+      lib `shouldSatisfy` T.isInfixOf "data Tree\n  = Leaf Integer\n  | Node (Tree, Tree)\n  deriving (Eq, Show)\n"
+      lib `shouldSatisfy` T.isInfixOf "data J\n  = J Json\n  deriving (Eq, Show)\n"
+      lib `shouldSatisfy` T.isInfixOf "data Color\n  = Red\n  | Green\n  deriving (Eq, Show)\n"
+    it "a recursive type with a function component derives nothing" $
+      libOf ["(type T (| Leaf) (| Node (T, (fn [int] -> int))))"]
+        `shouldSatisfy` T.isInfixOf "data T\n  = Leaf\n  | Node (T, Integer -> Integer)\n\n"
+    it "multi-module: a type from an imported module, referenced bare or qualified, is seen" $ do
+      let imported = ModuleEnv
+            { meExports        = Map.empty
+            , meStatements     = parsed [ops]
+            , meInterfaces     = Map.empty
+            , meAliasMap       = Map.empty
+            , mePath           = ["lib"]
+            , meContractStatus = Map.empty
+            , meContracts      = Map.empty
+            , meRetTypes       = Map.empty
+            , meBuiltinAxioms  = Nothing
+            }
+          entry = [ STypeDef "Wrap" (TSumType [("Wrap", Just (TCustom "Ops"))])
+                  , STypeDef "QWrap" (TSumType [("QWrap", Just (TCustom "lib.Ops"))])
+                  , STypeDef "Plain" (TSumType [("Plain", Just TInt)]) ]
+          lib = cgHsSource (generateHaskellMulti "cf" [imported] entry)
+      lib `shouldSatisfy` T.isInfixOf "data Ops\n  = Ops [Integer -> Integer]\n\n"
+      lib `shouldSatisfy` T.isInfixOf "data Wrap\n  = Wrap Ops\n\n"
+      -- the qualified field: only that the declaration carries no deriving clause
+      fst (T.breakOn "\n\n" (snd (T.breakOn "data QWrap" lib))) `shouldNotSatisfy` T.isInfixOf "deriving"
+      lib `shouldSatisfy` T.isInfixOf "data Plain\n  = Plain Integer\n  deriving (Eq, Show)\n"
+    it "end to end: a dispatch table of handlers builds and runs" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(type Handler (| Handler (string, (fn [int] -> int))))"
+            , "(type Wrap (| Wrap Handler))"
+            , "(type Opt (| Just (fn [int] -> int)) (| Nothing))"
+            , "(def-shell add1 [n: int] -> int (+ n 1))"
+            , "(def-shell dbl [n: int] -> int (* n 2))"
+            , "(def-shell pick [h: Handler name: string] -> Opt (match h ((Handler p) (if (= (first p) name) (Just (second p)) (Nothing)))))"
+            , "(def-shell pick-any [hs: list[Handler] name: string] -> Opt (match (list-head hs) ((Success h) (pick h name)) ((Error e) (Nothing))))"
+            , "(def-shell run-opt [o: Opt x: int d: int] -> int (match o ((Just f) (f x)) ((Nothing) d)))"
+            , "(def-shell unwrap-h [w: Wrap] -> Handler (match w ((Wrap h) h)))"
+            , "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+            , "(def-shell fin [s: int] -> bool (>= s 1))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout (string-concat-many [(int-to-string (run-opt (pick-any [(Handler (pair \"inc\" add1))] \"inc\") 10 0)) \" \" (int-to-string (run-opt (pick (unwrap-h (Wrap (Handler (pair \"dbl\" dbl)))) \"dbl\") 10 0)) \" \" (int-to-string (run-opt (pick (Handler (pair \"inc\" add1)) \"zzz\") 10 7))]))) :step st :done? fin)"
+            ]
+      res <- buildAndRun "cff1" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, err, _) -> do
+          (out, err) `shouldBe` ("11 20 7", "")
+          code `shouldBe` ExitSuccess
+
   describe "RESERVED-NAME-1" $ do
     let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
           Left err -> error ("RESERVED-NAME-1 test source failed to parse: " ++ show err)
