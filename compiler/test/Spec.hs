@@ -21701,6 +21701,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           (out, err) `shouldBe` ("42 43 44", "")
           code `shouldBe` ExitSuccess
 
+  describe "ALIAS-FN-APPLY-1" $ do
+    let errsOf src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("ALIAS-FN-APPLY-1 test source failed to parse: " ++ show err)
+          Right ss -> [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv ss)
+                                      , diagSeverity d == SevError ]
+        intFn = "(type IntFn (fn [int] -> int))"
+        inc   = "(def-shell inc [n: int] -> int (+ n 1))"
+    it "a parameter whose type is a function alias can be applied" $
+      errsOf [intFn, "(def-shell use [f: IntFn x: int] -> int (f x))"] `shouldBe` []
+    it "a returned function alias bound by let can be applied" $
+      errsOf [intFn, inc, "(def-shell mk [k: int] -> IntFn inc)"
+             , "(def-shell u [x: int] -> int (let [[g (mk 1)]] (g x)))"] `shouldBe` []
+    it "an alias of a function alias can be applied" $
+      errsOf [intFn, "(type IntFn2 IntFn)", "(def-shell use [f: IntFn2 x: int] -> int (f x))"]
+        `shouldBe` []
+    it "a function alias with a named parameter can be applied" $
+      errsOf ["(type F (fn [x: int] -> int))", "(def-shell use [f: F x: int] -> int (f x))"]
+        `shouldBe` []
+    it "an alias-typed parameter re-bound by let can be applied" $
+      errsOf [intFn, "(def-shell u2 [f: IntFn x: int] -> int (let [[g f]] (g x)))"] `shouldBe` []
+    it "a lambda passed to an alias-typed parameter is applied in the callee" $
+      errsOf [intFn, "(def-shell use2 [f: IntFn x: int] -> int (f x))"
+             , "(def-shell pass [x: int] -> int (use2 (fn [y: int] (+ y 1)) x))"] `shouldBe` []
+    it "applying a value of a sum type still reports the nullary-constructor error" $
+      errsOf ["(type Color (| Red) (| Green))"
+             , "(def-shell bad [x: int] -> int (let [[r Red]] (r 1)))"]
+        `shouldSatisfy` elem "'r' is not a function (nullary constructor / value of type Color) but is applied to 1 arg(s)"
+    it "nullary and payload constructors, and an alias of a sum, still construct" $
+      errsOf ["(type Color (| Red) (| Green))", "(type Box (| Box int))", "(type Shape Color)"
+             , "(def-shell c [x: int] -> Color (Red))", "(def-shell b [x: int] -> Box (Box x))"
+             , "(def-shell s [x: int] -> Shape (Green))"] `shouldBe` []
+    it "applying a value of a refinement alias of a base type keeps its message" $
+      errsOf ["(type Pos (where [n: int] (>= n 0)))", "(def-shell bad [p: Pos] -> int (p 1))"]
+        `shouldBe` ["'p' is not a function (nullary constructor / value of type Pos) but is applied to 1 arg(s)"]
+    it "a function alias applied with the wrong arity reports the arity" $
+      errsOf [intFn, "(def-shell bad [f: IntFn x: int] -> int (f x x))"]
+        `shouldSatisfy` elem "function 'f' expects 1 args, got 2"
+    it "end to end: function aliases are applied, build and run" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(type IntFn (fn [int] -> int))"
+            , "(type IntFn2 IntFn)"
+            , "(def-shell inc [n: int] -> int (+ n 1))"
+            , "(def-shell use [f: IntFn x: int] -> int (f x))"
+            , "(def-shell mk [k: int] -> IntFn inc)"
+            , "(def-shell via-let [x: int] -> int (let [[g (mk 1)]] (g x)))"
+            , "(def-shell use2 [f: IntFn2 x: int] -> int (f x))"
+            , "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+            , "(def-shell fin [s: int] -> bool (>= s 1))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout (string-concat-many [(int-to-string (use inc 40)) \" \" (int-to-string (via-let 41)) \" \" (int-to-string (use2 (fn [y: int] (+ y 1)) 42))]))) :step st :done? fin)"
+            ]
+      res <- buildAndRun "afa1" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, err, _) -> do
+          (out, err) `shouldBe` ("41 42 43", "")
+          code `shouldBe` ExitSuccess
+
   describe "RESERVED-NAME-1" $ do
     let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
           Left err -> error ("RESERVED-NAME-1 test source failed to parse: " ++ show err)

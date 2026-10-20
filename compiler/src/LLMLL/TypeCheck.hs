@@ -73,7 +73,7 @@ import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
 import Data.List (nub, (\\))
 import qualified Data.Set as Set
-import Control.Monad (forM_, forM, foldM, when, unless, void, join)
+import Control.Monad (forM_, forM, foldM, when, unless, void, join, (>=>))
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
 
@@ -2920,7 +2920,9 @@ inferExpr (EApp func args) = do
   -- can never collide with an unrelated leaked TVar or another call's
   -- instantiation of the same signature. See freshenFnType.
   mFuncTyRaw <- tcLookup func
-  mFuncTy    <- traverse freshenFnType mFuncTyRaw
+  -- ALIAS-FN-APPLY-1: a value whose type is an alias of a function type is
+  -- applied through the alias (LLMLL.md §3: aliases expand at call sites).
+  mFuncTy    <- traverse (expandFnHead >=> freshenFnType) mFuncTyRaw
   let nArgs = length args
   -- D2: warn when a def-logic calls itself recursively without :decreases (GrammarLegacy only).
   -- Under GrammarCoreInversion: def-shell self-calls are correct (no warning); def self-calls
@@ -3796,6 +3798,27 @@ expandAlias t0 = go Set.empty t0
                               ctors
       TDependent n b c   -> (\b' -> TDependent n b' c) <$> go seen b
       _                  -> pure t   -- TInt/TFloat/TString/TBool/TUnit/TBytes/TVar/TDelegationError
+
+-- | ALIAS-FN-APPLY-1: follow the alias chain at the HEAD of a callee's type,
+-- looking through TDependent, and keep the result only when it is a function
+-- type. Anything else (a sum type, a refinement of a base type, an unknown
+-- name) returns the input unchanged, so the not-a-function arms of
+-- 'inferExpr (EApp ...)' keep their messages. Head-only: the function's own
+-- parameter and return types keep their alias names for later diagnostics.
+expandFnHead :: Type -> TC Type
+expandFnHead t0 = go Set.empty t0
+  where
+    go :: Set.Set Name -> Type -> TC Type
+    go seen t = case stripDep t of
+      fn@(TFn _ _) -> pure fn
+      TCustom n
+        | n `Set.member` seen -> pure t0   -- alias cycle: stop
+        | otherwise -> do
+            am <- gets tcAliasMap
+            case Map.lookup n am of
+              Nothing   -> pure t0
+              Just body -> go (Set.insert n seen) body
+      _ -> pure t0
 
 unify :: Name -> Type -> Type -> TC ()
 unify ctx expected actual = do
