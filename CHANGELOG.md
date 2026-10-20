@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.8)
+<a id="Latest"></a>
+
+## v0.30.9: equality-capable types, callable function aliases, and FFI Rev 3 settled (2026-10-20)
 
 ### `CTOR-FN-FIELD-1`: a type holding a function builds, and equality on one is a `check` error
 
@@ -54,8 +56,6 @@
   `!=` and `list-contains` at such a type become a `check` error, `equality-undefined`.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.8: a function-typed parameter builds, and the Tier 1 FFI design settles (2026-10-20)
 
