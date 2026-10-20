@@ -34,6 +34,8 @@ module LLMLL.CodegenHs
   , emitOp   -- BUILTIN-BODY-1: lets the test fold separate operator routing from hand-written equations exactly
   , wrap     -- BUILTIN-BODY-1: same purpose, for the generic fallthrough form
   , toHsType
+  , hsArg    -- FN-PARAM-PAREN-1
+  , HsArgPos(..)
   , mapLlmllPrimType
   , runtimePreamble
     -- * HTTP-GET-1: the one conditional preamble block, its imports, its
@@ -1847,7 +1849,7 @@ emitStmtRenamed :: Map Text Text -> Statement -> Text
 emitStmtRenamed srcOf (STypeDef name (TSumType ctors))
   | any ((`Map.member` srcOf) . fst) ctors =
       let fmtCtor (c, Nothing) = toHsIdent c
-          fmtCtor (c, Just t)  = toHsIdent c <> " " <> toHsType t
+          fmtCtor (c, Just t)  = toHsIdent c <> " " <> hsArg AppArg t
           ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
       in "data " <> toHsIdent name <> "\n  = " <> ctorStr
          <> "\n  deriving (Eq)\n"
@@ -1858,7 +1860,7 @@ emitStmtRenamed _ stmt = emitStmt stmt
 emitTypeDef :: Name -> Type -> Text
 emitTypeDef name (TSumType ctors) =
   let fmtCtor (c, Nothing) = toHsIdent c
-      fmtCtor (c, Just t)  = toHsIdent c <> " " <> toHsType t
+      fmtCtor (c, Just t)  = toHsIdent c <> " " <> hsArg AppArg t
       ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
   in "data " <> toHsIdent name <> "\n  = " <> ctorStr
      <> "\n  deriving (Eq, Show)\n"
@@ -1904,7 +1906,7 @@ emitDataCtor t =
   in case ws of
     []     -> "_Unknown"
     [c]    -> toHsIdent c
-    (c:ts) -> toHsIdent c <> " " <> T.unwords (map (toHsType . TCustom) ts)
+    (c:ts) -> toHsIdent c <> " " <> T.unwords (map (hsArg AppArg . TCustom) ts)
 
 -- | Emit a def-interface as a Haskell typeclass + law properties.
 emitInterface :: Name -> [(Name, Type)] -> [Property] -> Text
@@ -1923,7 +1925,7 @@ emitLaw :: Name -> (Int, Property) -> [Text]
 emitLaw ifaceName (idx, Property _desc bindings body _subjects) =
   let propName = "prop_" <> toHsIdent ifaceName <> "_law_" <> tshow idx
       paramNames = T.unwords (map (toHsIdent . fst) bindings)
-      paramTypes = map (toHsType . snd) bindings
+      paramTypes = map (hsArg ArrowArg . snd) bindings
       sig = propName <> " :: " <> T.intercalate " -> " (paramTypes ++ ["Bool"])
       def = propName <> " " <> paramNames <> " = " <> emitExpr body
   in [ "-- " <> toHsIdent ifaceName <> " law " <> tshow idx
@@ -1937,7 +1939,7 @@ emitLaw ifaceName (idx, Property _desc bindings body _subjects) =
 
 emitFnType :: Type -> Text
 emitFnType (TFn args ret) =
-  T.intercalate " -> " (map toHsType args ++ [toHsType ret])
+  T.intercalate " -> " (map (hsArg ArrowArg) args ++ [toHsType ret])
 emitFnType t = toHsType t
 
 -- | Emit a def-logic as a Haskell function.
@@ -1960,7 +1962,7 @@ emitDefLogic name params mRet contract body = T.unlines $
     -- EVAL-STRICT-1 (LLMLL.md §4): a zero-parameter definition is a function of
     -- (), so a call `(k)` evaluates its body there and a bare `k` evaluates
     -- nothing. A Haskell top-level value would be one term for both.
-    paramTys = if null params then ["()"] else map (toHsType . snd) params
+    paramTys = if null params then ["()"] else map (hsArg ArrowArg . snd) params
     paramNames = if null params then " ()"
                  else " " <> T.unwords (map (toHsIdent . fst) params)
     -- Wrap body in a pre-condition assertion using seq (purely functional).
@@ -2019,7 +2021,7 @@ emitCheck :: Property -> Text
 emitCheck prop = T.unlines
   [ "-- check: " <> propDescription prop
   , "prop_" <> sanitizeCheckLabel (propDescription prop)
-    <> " :: " <> T.intercalate " -> " (map (toHsType . snd) (propBindings prop) ++ ["Bool"])
+    <> " :: " <> T.intercalate " -> " (map (hsArg ArrowArg . snd) (propBindings prop) ++ ["Bool"])
   , "prop_" <> sanitizeCheckLabel (propDescription prop)
     <> " " <> T.unwords (map (toHsIdent . fst) (propBindings prop))
     <> " = " <> emitExpr (propBody prop)
@@ -2300,13 +2302,13 @@ toHsType TBool             = "Bool"
 toHsType TUnit             = "()"
 toHsType (TBytes _)        = "[Word8]"
 toHsType (TList t)         = "[" <> toHsType t <> "]"
-toHsType (TMap k v)        = "(Map.Map " <> toHsType k <> " " <> toHsType v <> ")"
-toHsType (TResult t e)     = "(Either " <> toHsType e <> " " <> toHsType t <> ")"
+toHsType (TMap k v)        = "(Map.Map " <> hsArg AppArg k <> " " <> hsArg AppArg v <> ")"
+toHsType (TResult t e)     = "(Either " <> hsArg AppArg e <> " " <> hsArg AppArg t <> ")"
 toHsType (TPair a b)       = "(" <> toHsType a <> ", " <> toHsType b <> ")"  -- PR 1: pair tuple
-toHsType (TPromise t)      = "(Async.Async " <> toHsType t <> ")"
+toHsType (TPromise t)      = "(Async.Async " <> hsArg AppArg t <> ")"
 toHsType (TFn [] ret)      = "(() -> " <> toHsType ret <> ")"  -- EVAL-STRICT-1: zero-parameter function
 toHsType (TFn args ret)    =
-  T.intercalate " -> " (map toHsType args ++ [toHsType ret])
+  T.intercalate " -> " (map (hsArg ArrowArg) args ++ [toHsType ret])
 toHsType (TDependent _ b _)  = toHsType b
 toHsType TDelegationError  = "String"
 toHsType (TVar n)          = T.toLower n
@@ -2317,6 +2319,22 @@ toHsType (TCustom n)       = toHsIdent n
 -- (e.g. as a constructor payload referencing an anonymous sum) emit the
 -- constructor names joined as a type variable (should not arise in practice).
 toHsType (TSumType ctors)  = T.intercalate "_or_" (map (toHsIdent . fst) ctors)
+
+-- | Where a printed type is used: to the left of an arrow, or as an argument
+-- of a type application ('Map.Map', 'Either', 'Async.Async', a constructor).
+data HsArgPos = ArrowArg | AppArg deriving Eq
+
+-- | FN-PARAM-PAREN-1: 'toHsType' for a type used as an argument, parenthesised
+-- where Haskell needs it. A function type needs parentheses in both positions
+-- (@(a -> b) -> c@, @Either e (a -> b)@); 'Command' prints two words, @IO ()@,
+-- so it needs them in an application only. Every other type is one token or
+-- already bracketed, and prints as 'toHsType' prints it, so a type that was
+-- correct before prints the same bytes.
+hsArg :: HsArgPos -> Type -> Text
+hsArg pos (TDependent _ b _)                  = hsArg pos b
+hsArg _   t@(TFn (_:_) _)                     = "(" <> toHsType t <> ")"
+hsArg AppArg t@(TCustom "Command")            = "(" <> toHsType t <> ")"
+hsArg _   t                                   = toHsType t
 
 -- ---------------------------------------------------------------------------
 -- Event Log helpers emitted into generated Main.hs (v0.3.1)

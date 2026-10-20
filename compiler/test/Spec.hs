@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -21642,6 +21642,65 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- builtin's name, and True/False join Success/Error as reserved
   -- constructors.
   -- -----------------------------------------------------------------------
+  -- FN-PARAM-PAREN-1: a function type used as an argument printed without
+  -- parentheses, so `(fn [string] -> bool)` as a parameter gave the signature
+  -- `String -> Bool -> String -> Bool` and the program passed check and
+  -- failed GHC at build. 'hsArg' parenthesises exactly where Haskell needs it;
+  -- a type that printed correctly before prints the same bytes.
+  describe "FN-PARAM-PAREN-1" $ do
+    let fnII = TFn [TInt] TInt
+        libOf src = case parseStatements GrammarCoreInversion "<test>" src of
+          Left err -> error ("FN-PARAM-PAREN-1 test source failed to parse: " ++ show err)
+          Right ss -> cgHsSource (generateHaskell "fpp" ss)
+    it "a function-typed parameter is parenthesised" $
+      toHsType (TFn [TFn [TString] TBool, TString] TBool)
+        `shouldBe` "(String -> Bool) -> String -> Bool"
+    it "a function parameter whose own parameter is a function nests its parentheses" $
+      toHsType (TFn [TFn [fnII, TInt] TInt, TInt] TInt)
+        `shouldBe` "((Integer -> Integer) -> Integer -> Integer) -> Integer -> Integer"
+    it "a function type inside Either, Map.Map and Async.Async is parenthesised" $ do
+      toHsType (TResult fnII TString) `shouldBe` "(Either String (Integer -> Integer))"
+      toHsType (TMap TString fnII) `shouldBe` "(Map.Map String (Integer -> Integer))"
+      toHsType (TPromise fnII) `shouldBe` "(Async.Async (Integer -> Integer))"
+    it "Command inside Either is parenthesised, and a Command parameter is not" $ do
+      toHsType (TResult (TCustom "Command") TString) `shouldBe` "(Either String (IO ()))"
+      toHsType (TFn [TCustom "Command"] TInt) `shouldBe` "IO () -> Integer"
+    it "a dependent function type is parenthesised like its base" $
+      hsArg ArrowArg (TDependent "f" fnII (ELit (LitBool True))) `shouldBe` "(Integer -> Integer)"
+    it "types that printed correctly before print the same bytes" $ do
+      toHsType (TList fnII) `shouldBe` "[Integer -> Integer]"
+      toHsType (TPair fnII TBool) `shouldBe` "(Integer -> Integer, Bool)"
+      toHsType (TFn [] TInt) `shouldBe` "(() -> Integer)"
+      toHsType (TFn [TInt] fnII) `shouldBe` "Integer -> Integer -> Integer"
+      toHsType (TFn [TFn [] TInt] TInt) `shouldBe` "(() -> Integer) -> Integer"
+      toHsType (TMap TString (TList TInt)) `shouldBe` "(Map.Map String [Integer])"
+    it "a def-interface method and a def-shell signature parenthesise a function argument" $ do
+      let lib = libOf (T.unlines
+            [ "(def-interface Mapper [map-it (fn [(fn [int] -> int) int] -> int)])"
+            , "(def-shell twice [f: (fn [int] -> int) x: int] -> int (f (f x)))" ])
+      lib `shouldSatisfy` T.isInfixOf "map_it :: t -> (Integer -> Integer) -> Integer -> Integer"
+      lib `shouldSatisfy` T.isInfixOf "twice :: (Integer -> Integer) -> Integer -> Integer"
+    it "a type alias to a function type is unchanged" $
+      libOf "(type IntFn (fn [int] -> int))" `shouldSatisfy` T.isInfixOf "type IntFn = Integer -> Integer"
+    it "end to end: function-typed parameters build and run" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell inc [n: int] -> int (+ n 1))"
+            , "(def-shell twice [f: (fn [int] -> int) x: int] -> int (f (f x)))"
+            , "(def-shell hof2 [g: (fn [(fn [int] -> int) int] -> int) x: int] -> int (g inc x))"
+            , "(def-shell use-res [r: Result[(fn [int] -> int), string] x: int] -> int"
+            , "  (match r ((Success f) (f x)) ((Error e) 0)))"
+            , "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+            , "(def-shell fin [s: int] -> bool (>= s 1))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout (string-concat-many [(int-to-string (twice inc 40)) \" \" (int-to-string (hof2 twice 41)) \" \" (int-to-string (use-res (ok inc) 43))]))) :step st :done? fin)"
+            ]
+      res <- buildAndRun "fpp1" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, err, _) -> do
+          (out, err) `shouldBe` ("42 43 44", "")
+          code `shouldBe` ExitSuccess
+
   describe "RESERVED-NAME-1" $ do
     let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
           Left err -> error ("RESERVED-NAME-1 test source failed to parse: " ++ show err)
