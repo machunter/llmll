@@ -2,6 +2,29 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.5)
+
+### `RESERVED-NAME-1 residue (1)`, `residue (3)`: a `haskell.*` import is qualified
+
+- **`haskell.*` imports are emitted as `import qualified <Module>`.** An unqualified import
+  broke `build` two ways, both after a passing `check`: a user name matching an export
+  (`findFile` with `haskell.directory`: `Ambiguous occurrence ‘findFile’`), and, with no user
+  name involved, `haskell.containers` or `haskell.text` alone, whose `map`, `filter` and
+  `elem` met the generated runtime's own uses of the Prelude names.
+- **Residue (3) closed by measurement:** neither parser produces the pipe-text sum-type form
+  it described (`unknown TypeBody kind: named` in JSON-AST; no S-expression spelling), so the
+  `_u<k>` output it predicted cannot occur. No code change.
+- **`examples/life_json/walkthrough.md`** no longer says qualified calls fail in codegen or
+  that imports are same-directory only; it quotes the current error and warning.
+- **Filed `FFI-TIER1-1`:** the documented Tier 1 interface form passes `check` and fails
+  `build`, so no `haskell.*` export is reachable from a program.
+- **Tests:** two Aeson FFI codegen expectations updated; three new, including a build-and-run
+  test that fails with the old import line.
+
+2406 examples, 0 failures (+3). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.5: an imported constructor named like its type, and a dependency's own imports (2026-10-19)

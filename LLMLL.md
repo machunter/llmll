@@ -1299,7 +1299,7 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup**. The compiler c
 
 | Tier | Prefix | Mechanism | Stub generated? |
 |------|--------|-----------|----------------|
-| **1 — Hackage** | `haskell.*` | Regular GHC `import`; package added to `package.yaml`. No stub generated. | No |
+| **1 — Hackage** | `haskell.*` | Qualified GHC `import` (`import qualified <Module>`); package added to `package.yaml`. No stub generated. | No |
 | **2 — C libraries** | `c.*` | GHC `foreign import ccall`; compiler generates `src/FFI/<lib>.hs` with typed stub. | Yes |
 
 > There is no `rust.*` namespace. The Haskell backend uses Tier 1 Hackage imports (e.g. `haskell.aeson`, `haskell.warp`) as direct replacements with no stub required.
@@ -1307,7 +1307,7 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup**. The compiler c
 **Tier 1 example — zero developer action:**
 
 ```lisp
-;; Resolves to: import Data.Aeson — no stub file generated
+;; Resolves to: import qualified Data.Aeson — no stub file generated
 (import haskell.aeson (interface [
   [json-decode (fn [s: string] -> Result[TodoList, string])]
   [json-encode (fn [td: TodoList] -> string)]
@@ -3096,7 +3096,7 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
      [json-encode (fn [td: TodoList] -> string)]
    ]))
    ```
-   This resolves to `import Data.Aeson`. The developer writes a `FromJSON`/`ToJSON` instance for the LLMLL type in a thin Haskell bridge file.
+   This resolves to `import qualified Data.Aeson`. The developer writes a `FromJSON`/`ToJSON` instance for the LLMLL type in a thin Haskell bridge file.
 
 4. **Atomic File Writes:**
    The built-in `wasi.fs.write` does not guarantee atomicity. For ACID-like atomic writes, use the Tier 1 Hackage FFI:
