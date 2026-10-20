@@ -55,10 +55,7 @@ NO_EMIT: dict[str, str] = {}
 
 # Emitted documents the schema rejects because the COMPILER is wrong, each with
 # its open roadmap row and a fragment of the message it must keep failing with.
-KNOWN_INVALID = {
-    "scripts/doc-claims/unicode-alias-token.llmll":
-        ("ALIAS-LOWER-1", "is not one of"),
-}
+KNOWN_INVALID: dict[str, tuple[str, str]] = {}
 
 # MODE-HTTP-1 defect (iii), the proposal's section 7.2 witness. The emitter used
 # to write "http:9000", which the schema rejected. MODE-HTTP-1 removed the mode,

@@ -61,7 +61,7 @@ import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
-  , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson, writeFileUtf8
+  , formatDiagnostic, formatDiagnosticSExp, formatParseDiagSExp, formatDiagnosticJson, writeFileUtf8
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
   , mkReuseWarning, decodeSourceUtf8, importNeedsFile)
 -- D4: liquid-fixpoint verification backend
@@ -492,18 +492,7 @@ loadStatements json gm fp
 emitParseDiag :: Bool -> FilePath -> Diagnostic -> IO ()
 emitParseDiag json fp d
   | json      = TIO.putStrLn (formatDiagnosticJson d)
-  | otherwise = TIO.putStrLn $
-      "(error :phase parse"
-      <> " :file \"" <> T.pack fp <> "\""
-      <> locPart
-      <> " :message " <> quote (diagMessage d)
-      <> maybe "" (\h -> " :hint " <> quote h) (diagSuggestion d)
-      <> ")"
-  where
-    locPart = case diagSpan d of
-      Nothing -> ""
-      Just sp -> " :line " <> tshow (spanLine sp) <> " :col " <> tshow (spanCol sp)
-    quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
+  | otherwise = TIO.putStrLn (formatParseDiagSExp fp d)
 
 -- ---------------------------------------------------------------------------
 -- Multi-file loader (Phase 2a)

@@ -935,13 +935,19 @@ pFuncName :: Parser Name
 pFuncName = lexeme' $ choice
   [ try (string "<=>") , try (string "=>")  -- IMPL-SUGAR: maximal munch before "<=" and single "="
   , try (string ">=") , try (string "<=") , try (string "!=") , try (string "->")
-  -- Unicode comparison aliases
-  , try (string "\x2265") -- ≥
-  , try (string "\x2264") -- ≤
-  , try (string "\x2260") -- ≠
+  -- ALIAS-LOWER-1: a Unicode alias is replaced by its ASCII name here, before
+  -- the node is built, so both spellings give identical AST nodes (LLMLL.md
+  -- §2.4) and no glyph reaches TypeCheck, emitted JSON-AST or checkout/patch.
+  , ">="  <$ char '\x2265'  -- ≥
+  , "<="  <$ char '\x2264'  -- ≤
+  , "!="  <$ char '\x2260'  -- ≠
+  , "and" <$ char '\x2227'  -- ∧
+  , "or"  <$ char '\x2228'  -- ∨
+  , "not" <$ char '\x00AC'  -- ¬
+  , "=>"  <$ char '\x21D2'  -- ⇒
+  , "<=>" <$ char '\x21D4'  -- ⇔
   , try (string "\x2192") -- →
-  -- Unicode single-char operator aliases
-  , T.singleton <$> oneOf ("><=+-*/\x2227\x2228\x00AC" :: String)  -- ∧ ∨ ¬
+  , T.singleton <$> oneOf ("><=+-*/" :: String)
   , do
       first <- letterChar <|> char '_'
       rest <- T.pack <$> many (alphaNumChar <|> char '-' <|> char '_' <|> char '?' <|> char '.')
@@ -970,16 +976,12 @@ pFuncName = lexeme' $ choice
 -- entry, no callers. As an 'EApp' it now fails `check` (exit 1) instead of
 -- warning and exiting 0 about a program that could never work.
 --
--- The six Unicode aliases stay: they are not in builtinEnv either, so they are
--- rejected at TypeCheck before emitOp is consulted, and their normalization is
--- ALIAS-LOWER-1's patch and not this one.
+-- The Unicode aliases are not listed: pFuncName replaces each with its ASCII
+-- name before this is consulted (ALIAS-LOWER-1).
 isOperator :: Name -> Bool
 isOperator n = n `elem`
   ["+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=",
-   "and", "or", "not", "=>", "<=>",
-   -- Unicode aliases map to the same operator semantics:
-   "\x2265", "\x2264", "\x2260",  -- ≥ ≤ ≠
-   "\x2227", "\x2228", "\x00AC"   -- ∧ ∨ ¬
+   "and", "or", "not", "=>", "<=>"
   ]
 
 -- ---------------------------------------------------------------------------

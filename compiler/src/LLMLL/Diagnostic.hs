@@ -14,6 +14,7 @@ module LLMLL.Diagnostic
   , mkErrorAt
   , formatDiagnostic
   , formatDiagnosticSExp
+  , formatParseDiagSExp
   , formatDiagnosticJson
   , formatReportJson
   , megaparsecToDiagnostic
@@ -808,6 +809,24 @@ formatDiagnosticSExp d =
     sevStr SevWarning = "warning"
     sevStr SevInfo    = "info"
 
+    quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
+
+-- | The default (non-JSON) rendering of a parse-phase diagnostic, as
+-- `llmll check` prints it. DIAG-KIND-SEXPR-1: @:kind@ follows @:phase@
+-- whenever the diagnostic carries one, so this channel tells a decode
+-- failure (source-decode-error, json-decode-error) from a parse failure
+-- (json-parse-error) without reading the message. Additive: a consumer
+-- matching "(error :phase parse" or a :message substring is unaffected.
+formatParseDiagSExp :: FilePath -> Diagnostic -> Text
+formatParseDiagSExp fp d =
+  "(error :phase parse"
+  <> maybe "" (\k -> " :kind " <> quote k) (diagKind d)
+  <> " :file " <> quote (T.pack fp)
+  <> maybe "" (\sp -> " :line " <> tshow (spanLine sp) <> " :col " <> tshow (spanCol sp)) (diagSpan d)
+  <> " :message " <> quote (diagMessage d)
+  <> maybe "" (\h -> " :hint " <> quote h) (diagSuggestion d)
+  <> ")"
+  where
     quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
 
 -- ---------------------------------------------------------------------------

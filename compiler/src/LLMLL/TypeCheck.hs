@@ -3028,6 +3028,10 @@ inferExpr (EOp op args) = do
                 <> typeLabel other
       pure TBool
     Nothing -> do
+      -- ALIAS-LOWER-1: check the arguments anyway, as TC-EOP-1 did for the
+      -- arm above, so an error inside them is not hidden behind this warning.
+      mapM_ (\(j, a) -> withSegment "args" $ withSegment (tshow (j :: Int)) $ inferExpr a)
+            (zip [0 ..] args)
       tcWarnOrError $ "unknown operator '" <> op <> "'"
       pure TBool
 
