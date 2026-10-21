@@ -2,6 +2,88 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.9)
+
+### `FFI-TIER1-1`: Tier 1 Hackage imports work
+
+- **A `haskell.*` interface entry builds to a forced, typed binding.**
+  `(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))` and a
+  call to `take-extension` passed `check` and failed `build` with `Variable not in scope:
+  take_extension`, so no Hackage export was reachable. Each entry now becomes one binding in
+  `Lib.hs` that calls `System.FilePath.takeExtension` and forces its whole result at the first
+  demand. Design: [`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md) Rev 3.
+- **`check` refuses an entry the emitter cannot bind, with four new error kinds.**
+  `ffi-name-unmappable` (a name with `?`, `!`, `'` or `.`), `ffi-type-unsupported` (a user or
+  refinement type, a type variable, or a function or `bytes[n]` in the result),
+  `ffi-effect-refused` (`Command` or `Promise` anywhere) and `ffi-unknown-package` (outside the
+  nine packages; `haskell.warp` and `haskell.unix` among them). An entry named like a builtin is
+  `builtin-redefinition`; two entries of one name at different types in one module are
+  `duplicate-definition`. A `def` that calls an entry keeps `core-membership-violation`, with a
+  message that names the Hackage boundary.
+- **A misspelled export or a wrong type is a GHC error at the `.llmll` import line.** `check`
+  cannot see either (`FFI-SIG-TABLE-1`). A `LINE` pragma before each binding line makes GHC
+  report `typo.llmll:2:42`; the column counts generated text. A JSON-AST program has no source
+  line, so its error points at `Lib.hs`.
+- **The trust report lists each function's Hackage assumptions in `ffi_assumptions`:**
+  `{origin, package, export}` rows, own and inherited across modules, in the JSON report. The
+  trust level does not change, and `trust_report_version` stays `1.10.0`.
+
+### `FFI-CONV-1`: boundary types `hs-text`, `hs-maybe[T]` and `hs-int`
+
+- **Boundary types `hs-text`, `hs-maybe[T]` and `hs-int` reach most of `Data.Text` and
+  `Data.Map.Strict.lookup`/`size`.** They are valid only inside a `haskell.*` interface entry;
+  callers see `string`, `Result[T, unit]` and `int`. Each converter carries an explicit Haskell
+  type, so GHC checks the declared boundary type against the export.
+  [`compiler/test/fixtures/ffi-tier1/boundary.llmll`](compiler/test/fixtures/ffi-tier1/boundary.llmll)
+  builds and prints `HI 3 5 2 none 2`.
+- **Refused with `ffi-type-unsupported`:** `hs-int` as an argument (narrowing is
+  `FFI-NARROW-1`), a boundary type inside a function-typed parameter, `hs-text` in the key of a
+  `map` argument (`pack` replaces a lone surrogate with U+FFFD, so two keys could merge), a bare
+  `hs-maybe`, and a boundary type outside an interface entry.
+- **`Data.Text.splitOn` and `Data.Text.replace` are partial.** An empty delimiter or needle
+  passes `check`, and the program exits 1 with `Data.Text.splitOn: empty input`. `LLMLL.md` §7
+  names both; `FFI-CONTRACT-1` would let the entry carry the guard.
+
+### `AST-TYPE-ALIAS-1`: a JSON-AST `type-decl` may be a plain alias; schemaVersion 0.13.0
+
+- **A JSON-AST `type-decl` may be a plain alias.** `build --emit` output for
+  `(type Name string)` or `(type IntFn (fn [int] -> int))` did not read back (`unknown TypeBody
+  kind: primitive`, or `fn-type`); it now checks.
+- **Schema 0.13.0** covers this and the three boundary kinds (`hs-text`, `hs-int`, `hs-maybe`
+  with `inner`). Documents at 0.12.0 and older still read. `LLMLL.md` §12 now states the
+  plain-alias `type-body`, the bracketed `interface` list and `hs-maybe[T]`.
+
+### Filed: `FFI-XMOD-DUP-1`, `UNKNOWN-TYPE-1`
+
+- **`FFI-XMOD-DUP-1`:** an interface entry and another top-level name of the same name in two
+  modules pass `check`; `build` emits two bindings and GHC fails with `Multiple declarations`.
+  Identical entries in two modules build.
+- **`UNKNOWN-TYPE-1`:** a type name that names no type, such as `(def-shell f [x: Foo] -> int 1)`,
+  passes `check`; GHC fails with `Not in scope: type constructor or class ‘Foo’`.
+
+### `FFI-E20-CASCADE-1`, `FFI-TRUST-TEXT-1`, `FFI-TRUST-OBLIG-1`: three follow-ups
+
+- **A boundary type outside a `haskell.*` interface entry gives E20 alone.**
+  `(def-shell f [s: hs-text] -> string s)` also reported `type mismatch in 'f': expected string,
+  got hs-text`; the checker now continues on the lowered LLMLL type. An unrelated error in the
+  same module is still reported.
+- **The text trust report lists each Hackage export a verdict rests on,** one line per
+  `ffi_assumptions` row: `≈ assumes haskell.filepath export takeExtension (ASSUMED, not proved:
+  …)` for an export the function calls, `≈ inherits haskell.filepath export takeExtension via
+  pa.ext-of (…)` for one reached through a callee. The JSON output is unchanged.
+- **Obligation trust channels carry `ffi-assumption` rows.** `trust_channel.assumptions` gains
+  a fourth kind, `{kind: "ffi-assumption", origin, package, export}`, after the
+  `builtin-axiom`, `inherited-axiom` and `ground-fact` rows. Obligation report
+  `schema_version` 0.12.4 → **0.12.5**; `trust_report_version` is unchanged. The rule is the D9
+  addendum of [`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md).
+- **Filed `RESP-FACT-OBLIG-1`:** a declared response fact (`assumed_facts`, `RESP-FACT-1`) is on
+  the trust entry but not in the obligation trust channel, so a hole in such a function reports
+  `assumptions: []`.
+
+2512 examples, 0 failures (+63 since v0.30.9). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+
+---
+
 <a id="Latest"></a>
 
 ## v0.30.9: equality-capable types, callable function aliases, and FFI Rev 3 settled (2026-10-20)
