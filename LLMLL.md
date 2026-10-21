@@ -680,6 +680,8 @@ Use `--trust-report --json` for machine-readable JSON output suitable for CI or 
 
 **`unbounded_entry_loop`: the `cli` harness loop.** A program whose `def-main` is `:mode cli` runs until `:done?` holds, and nothing checks that it does (§9.5). Its report carries the top-level `unbounded_entry_loop: true` (only-on-true), and the text report prints `Entry loop: :mode cli runs until :done? holds; its termination is not checked (unbounded_entry_loop).` under its heading. It is not a `partial_fns` entry: that list names call-graph cycle members and `termination_assumed_fns` derives its callers from it, while the `cli` loop lives in the harness. Like `termination_unverified` it is derived at report-build time, never persisted, and does not feed `evidenceMeet`, the effective level or strict-core admission. The same report lists the three EFFECT-RESP harness assumptions under `harness_assumptions` with the prefix `cli harness`, because the `cli` harness delivers responses as the console harness does. `unbounded_entry_loop` arrived at `trust_report_version` `1.9.0`.
 
+**`ffi_assumptions`: Hackage functions a verdict rests on.** An entry whose function calls a `haskell.*` interface entry, directly or through callees in any module, lists `{origin, package, export}` rows under `ffi_assumptions` (JSON only; omitted when empty). It does not change the trust level. §7 states the rule.
+
 **`body_fallback` — the body-refusal marker.** A function whose body the emitter refused carries a per-entry `body_fallback` object with two fields: `cause`, one value of the closed `fallback_reason` vocabulary, and `constructs`, a closed label set naming what refused the body. In the text report it sits on the post line, as `post: asserted   [body_fallback: body-outside-fragment; match-wildcard-payload]`. It exists because `asserted` alone merges two different states: *`verify` ran and the emitter refused this body* and *nothing ever examined this function*. The lattice has no element for the first state, so the marker reports it.
 
 Like `refuted` / `termination_unverified` it is an **orthogonal informational marker**, not a `DisplayLevel` element: it never feeds `evidenceMeet`, the effective level, `refutedClosure` or strict-core admission, and it is never persisted to the sidecar. Two properties need stating because they are easy to assume wrongly.
@@ -1286,32 +1288,112 @@ Capabilities can carry the `:deterministic` flag. The flag is **reserved**: the 
 > environment is replayable in its control flow and is **not** replayable in that value, because a
 > replayed run reads the live environment.
 
-**External Bridge (FFI):** To use existing Haskell packages or C libraries, define a Verified Wrapper using the `haskell.*` or `c.*` prefix:
+**External Bridge (FFI):** A program reaches existing Haskell packages or C libraries through a **declared interface**: an `import` with the `haskell.*` or `c.*` prefix whose `interface` list gives each function an LLMLL name and an LLMLL type. The program calls the function by that name.
 
 ```lisp
-(import haskell.aeson (interface [
-  [json-decode (fn [s: string] -> Result[TodoList, string])]
-  [json-encode (fn [td: TodoList] -> string)]
+(import haskell.filepath (interface [
+  [take-extension    (fn [p: string] -> string)]
+  [replace-extension (fn [p: string e: string] -> string)]
 ]))
+
+(def-shell retarget [p: string] -> string
+  (if (= (take-extension p) ".txt") (replace-extension p "md") p))
 ```
 
 In LLMLL, FFI imports are resolved through a **two-tier lookup**. The compiler checks each tier in order:
 
 | Tier | Prefix | Mechanism | Stub generated? |
 |------|--------|-----------|----------------|
-| **1 — Hackage** | `haskell.*` | Qualified GHC `import` (`import qualified <Module>`); package added to `package.yaml`. No stub generated. | No |
+| **1 — Hackage** | `haskell.*` | Qualified GHC `import` of the package's module (`import qualified System.FilePath`); package added to `package.yaml`; each interface entry becomes one forced, typed binding in `Lib.hs`. | No |
 | **2 — C libraries** | `c.*` | GHC `foreign import ccall`; compiler generates `src/FFI/<lib>.hs` with typed stub. | Yes |
 
-> There is no `rust.*` namespace. The Haskell backend uses Tier 1 Hackage imports (e.g. `haskell.aeson`, `haskell.warp`) as direct replacements with no stub required.
+> There is no `rust.*` namespace. Tier 1 accepts the nine Hackage packages below and no other.
 
-**Tier 1 example — zero developer action:**
+**Tier 1 packages.** Each package is read from one module: `aeson` (`Data.Aeson`), `bytestring` (`Data.ByteString`), `containers` (`Data.Map.Strict`), `directory` (`System.Directory`), `filepath` (`System.FilePath`), `process` (`System.Process`), `text` (`Data.Text`), `time` (`Data.Time`) and `vector` (`Data.Vector`). Any other `haskell.*` package is `ffi-unknown-package`. Versions come from the generated `stack.yaml` resolver, `lts-22.43`.
+
+**Tier 1 names.** An entry name maps to its export from kebab-case to camelCase: `take-extension` binds `System.FilePath.takeExtension`. A name containing `?`, `!`, `'` or `.` has no Haskell name and is `ffi-name-unmappable`, so symbolic operators are unreachable. An entry name is a top-level name of its module: a builtin's name is `builtin-redefinition`, and a name that another top-level definition of the module uses is `duplicate-definition`. Identical entries (same name, package and type) count once, and identical entries in two modules give one binding. The same name at two types, or from two packages, in two different modules is not yet a `check` error; GHC rejects the build with `Multiple declarations` (`FFI-XMOD-DUP-1`). Interface names are not exported: each module that calls an entry declares it.
+
+**Tier 1 types.** An entry's parameters and result may use `int`, `float`, `string`, `bool`, `unit`, `list[T]`, `map[K,V]`, pairs and `Result[T,E]` over these, and the boundary types below. A parameter may also be `bytes[n]` or a function type over these. `ffi-type-unsupported` refuses a user type (a sum type or a `where` refinement alias) and any other type name; a function type anywhere in the result (write a curried result as more parameters); and `bytes[n]` anywhere in the result, because nothing checks the length of bytes a Haskell function returns. On the Haskell side `int` is `Integer` and `string` is `String`.
+
+**Tier 1 effects.** `Command` or `Promise` anywhere in an entry's type is `ffi-effect-refused`: a Tier 1 entry is a pure function, and effects go through the `wasi.*` builtins. A `def` that calls an entry is `core-membership-violation`, because a Hackage function has no body to verify. Call it from a `def-shell`.
+
+**The generated binding.** Each entry becomes one binding in `Lib.hs`, applied to all its arguments, whose result is forced in full by a forcer chosen from the result type:
+
+```haskell
+-- haskell.text interface entry to-upper
+{-# LINE 5 "/abs/path/boundary.llmll" #-}
+to_upper :: String -> String
+{-# LINE 5 "/abs/path/boundary.llmll" #-}
+to_upper a1 = llmll_full llmll_uS ((Data.Text.unpack :: Data.Text.Text -> String) (Data.Text.toUpper ((Data.Text.pack :: String -> Data.Text.Text) a1)))
+```
+
+`llmll_full` forces the whole result when the result is first demanded. LLMLL is call-by-value (§4.7), so that demand is the nearest enclosing argument, `let` binding or `do` step. A failure inside a library result appears there, not later at an unrelated site.
+
+**Boundary types.** Three type names are valid only inside a `haskell.*` interface entry. Each states the Haskell type an export needs; the caller sees an ordinary LLMLL type.
+
+| Boundary type | Haskell type | Caller sees | Where it may appear |
+|---|---|---|---|
+| `hs-text` | `Data.Text.Text` (strict) | `string` | arguments and result |
+| `hs-maybe[T]` | `Maybe T` | `Result[T, unit]` | arguments and result |
+| `hs-int` | `Int` | `int` | result only |
 
 ```lisp
-;; Resolves to: import qualified Data.Aeson — no stub file generated
-(import haskell.aeson (interface [
-  [json-decode (fn [s: string] -> Result[TodoList, string])]
-  [json-encode (fn [td: TodoList] -> string)]
+(import haskell.text (interface [
+  [to-upper (fn [s: hs-text] -> hs-text)]
+  [strip    (fn [s: hs-text] -> hs-text)]
+  [length   (fn [s: hs-text] -> hs-int)]
 ]))
+(import haskell.containers (interface [
+  [lookup (fn [k: string m: map[string, int]] -> hs-maybe[int])]
+]))
+
+(def-shell normalise [s: string] -> string (to-upper (strip s)))
+(def-shell count-or-zero [k: string m: map[string, int]] -> int
+  (match (lookup k m)
+    ((Success n) n)
+    ((Error u) 0)))
+```
+
+Callers see `length : (fn [string] -> int)` and `lookup : (fn [string map[string, int]] -> Result[int, unit])`. Every converter the binding emits carries an explicit Haskell type, such as `(Data.Text.pack :: String -> Data.Text.Text)` or `(toInteger :: Int -> Integer)`, so GHC checks the declared boundary type against the export. Boundary types nest inside `list`, `map`, pairs, `Result` and `hs-maybe`. `ffi-type-unsupported` refuses `hs-int` as an argument (narrowing `int` to `Int` wraps outside ±2^63; `FFI-NARROW-1`), any boundary type inside a function-typed parameter, `hs-text` in the key type of a `map` argument, and a bare `hs-maybe`. Both front ends parse the three names anywhere; outside an interface entry `check` reports `unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry` (`ffi-type-unsupported`). [`compiler/test/fixtures/ffi-tier1/boundary.llmll`](compiler/test/fixtures/ffi-tier1/boundary.llmll) is a complete program.
+
+**Lone surrogates.** Converting a `string` to `hs-text` (`Data.Text.pack`) replaces each lone surrogate (U+D800–U+DFFF) with U+FFFD. GHC decodes argv and directory listings with the file-system encoding, which maps an undecodable byte to a lone surrogate, so a `string` from `wasi.proc.args` or `wasi.fs.list` can change at the boundary. The conversion is total, so this is not a precondition. A changed argument shows in the result. Two `map` keys that differ only by a lone surrogate would merge and lose a value with no signal, so `hs-text` is refused in the key of a `map` argument; a result key goes through `unpack`, which is injective.
+
+**What `check` cannot see.** `check` does not run GHC, so two questions are decided at `build`:
+
+1. **Export existence.** A misspelled export such as `[take-extention (fn [p: string] -> string)]` passes `check`.
+2. **Type agreement.** The declared type, after conversion, must be an instance of the export's type, which is often polymorphic: `Data.Map.Strict.insert :: Ord k => k -> a -> Map k a -> Map k a` accepts a declaration at `string` and `int`. A declaration the export does not instantiate passes `check`.
+
+Both fail closed, and the `LINE` pragmas make GHC report both at the `.llmll` import line:
+
+```
+typo.llmll:2:42: error: [GHC-76037]
+    Not in scope: ‘System.FilePath.takeExtention’
+    NB: the module ‘System.FilePath’ does not export ‘takeExtention’.
+```
+
+The line is correct; the column counts characters in the generated Haskell, not in the source. A JSON-AST program has no source line: its binding carries a comment (`-- haskell.filepath interface entry take-extention (no source line: read from JSON-AST)`) instead of a pragma, and its GHC error points at `Lib.hs`. `FFI-SIG-TABLE-1` moves both questions into `check`.
+
+**Reach.** Rows marked M were measured with `ghci :t` in the `lts-22.43` snapshot; the rest follow from the type rules and were not measured export by export. Exports marked P are **partial**: they call `error` on some inputs that pass `check`.
+
+| Package | Module | Reach | Still unreachable, and why |
+|---|---|---|---|
+| filepath | `System.FilePath` | most named functions: `takeExtension`, `takeFileName`, `takeDirectory`, `replaceExtension`, `splitPath`, `joinPath`, `normalise`, `isAbsolute` | symbolic operators have no entry name |
+| containers | `Data.Map.Strict` | `insert`, `delete`, `member`, `union`, `fromList`, `toList`, `keys`, `elems`, `findWithDefault`, `filter`, `insertWith`; `lookup` and `lookupMin` through `hs-maybe`, `size` through `hs-int` (M) | a callback that needs a boundary type; `!` has no entry name |
+| text | `Data.Text` | through `hs-text`: `toUpper`, `toLower`, `strip`, `splitOn` (P), `replace` (P), `isInfixOf`, `isPrefixOf`, `words`, `lines`, `intercalate`, `length` (M) | `Char` arguments (`map`, `filter`, `cons`); `Int` arguments (`take`, `justifyLeft`) need `FFI-NARROW-1` |
+| bytestring | `Data.ByteString` | none | needs an unsized byte type (`BYTES-READ-1`) |
+| time | `Data.Time` | none (M: `Day` is abstract) | `FFI-OPAQUE-1` |
+| aeson | `Data.Aeson` | none (M: lazy `ByteString`, `Value`, type classes) | `FFI-OPAQUE-1`; the native `Json` operations (§13.13) cover the common case |
+| vector | `Data.Vector` | none (M: `Vector` is abstract) | `FFI-OPAQUE-1` |
+| directory | `System.Directory` | none | every export is IO |
+| process | `System.Process` | none | every export is IO |
+
+`Data.Text.splitOn` calls `error` when the delimiter is empty, and `Data.Text.replace` calls `error` when the needle is empty. Both pass `check`. The failure appears at the first use of the result, and the program exits 1 with `Data.Text.splitOn: empty input` (or the `replace` equivalent). Guard the argument in the calling `def-shell` until `FFI-CONTRACT-1` lets the entry carry a `pre`.
+
+**Trust report.** In the JSON trust report, every entry whose function calls an interface entry, directly or through its callees, carries an `ffi_assumptions` list. Each row `{origin, package, export}` means: this verdict assumes `<package>.<export>` is total and has no hidden effects at the declared type. `origin` is the function itself for a direct call, or the callee through which the assumption arrives; rows cross module boundaries. The key is omitted when the list is empty. The trust level does not change, and the text report does not print the list. Design record: [`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md).
+
+```json
+{ "name": "ma.exta",
+  "ffi_assumptions": [ { "export": "takeExtension", "origin": "ma.exta", "package": "filepath" } ] }
 ```
 
 **Tier 2 example — C FFI stub generated:**
@@ -1378,7 +1460,7 @@ If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precede
 > with a `removed-construct` diagnostic (exit 1) under **all** grammar modes —
 > def-logic is not a valid construct. `{"kind": "letrec"}` produces a
 > `core-grammar-violation` (exit 1) under `GrammarCoreInversion`. Hub publishers
-> must ship `schemaVersion 0.11.0` modules using `def`/`def-shell` node kinds (`0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` are still accepted by the reader).
+> must ship `schemaVersion 0.13.0` modules using `def`/`def-shell` node kinds (`0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` are still accepted by the reader).
 >
 > `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
 > file and are exempt from grammar-mode checking.
@@ -2414,7 +2496,7 @@ module-decl = "(" "module" IDENT { import } { statement } ")" ;
 (* ============================================================ *)
 import      = "(" "import" qual-ident
                 [ "(" "capability" STRING { kv } ")" ]
-                [ "(" "interface" { iface-fn } ")" ]
+                [ "(" "interface" "[" { iface-fn } "]" ")" ]
               ")" ;
 kv          = ":" IDENT ( STRING | INT | "true" | "false" | IDENT ) ;
 
@@ -2448,11 +2530,12 @@ type-decl   = "(" "type" IDENT type-body ")" ;
 
 type-body   = where-type                             (* refinement type alias *)
             | { "(" "|" IDENT type ")" }            (* sum type / ADT *)
+            | type                                   (* plain alias; AST-TYPE-ALIAS-1 for JSON-AST *)
             ;
 
 type        = primitive | list-type | map-type | result-type
             | promise-type | bytes-type | fn-type | where-type
-            | pair-type | command-type | IDENT ;
+            | pair-type | command-type | hs-maybe-type | IDENT ;
 
 primitive   = "int" | "float" | "string" | "bool" | "unit" ;
 list-type   = "list" "[" type "]" ;
@@ -2462,6 +2545,9 @@ promise-type= "Promise" "[" type "]" ;
 bytes-type  = "bytes" "[" INT "]" ;
 pair-type   = "(" type "," type ")" ;
 command-type= "Command" ;
+hs-maybe-type = "hs-maybe" "[" type "]" ;
+              (* Boundary type: valid only inside a haskell.* interface entry (§7). *)
+              (* hs-text and hs-int are IDENTs that the checker reads as boundary types. *)
 
 fn-type     = "(" "fn" "[" { fn-param } "]" ARROW type ")" ;
 fn-param    = type | typed-param ;   (* named param is doc-only *)
@@ -3067,45 +3153,44 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 
 ### 13.11a Building Services (FAQ)
 
-When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solutions to common patterns. All examples use the Haskell FFI model.
+When building practical services (CLIs, file tools) in LLMLL, here are solutions to common patterns. A Tier 1 Hackage entry (§7) is a pure function; every effect goes through a `wasi.*` builtin.
 
 1. **HTTP Requests (Input):**
-   LLMLL does not have a built-in `HttpRequest` sum type with headers and paths. If your service requires routing or header inspection, use the Tier 1 Hackage FFI:
-   ```lisp
-   (import haskell.warp (interface [
-     [parse-request (fn [s: string] -> Result[HttpRequest, string])]
-   ]))
-   ```
-   This resolves to `import Network.Wai` — no stub generated.
+   LLMLL has no HTTP server. `def-main` runs in `console` or `cli` mode (§9.5), and no Tier 1 package serves or parses requests: `haskell.warp` is `ffi-unknown-package`. To fetch a URL, use `wasi.http.get` (§13.9).
 
 2. **CLI Arguments:**
-   For structured argument parsing (e.g., `--port 8080 --file data.json`), you have two options:
-   - Write a naive string-splitting parser in pure LLMLL S-expressions.
-   - Use the Tier 1 Hackage FFI:
-   ```lisp
-   (import haskell.optparse-applicative (interface [
-     [parse-args (fn [s: string] -> Result[CliArgs, string])]
-   ]))
-   ```
+   `wasi.proc.args` (§13.9) delivers the argument vector as an `RList list[string]` response. Parse it with the string builtins (§13.6), for example `string-split`. No Tier 1 package parses options: `haskell.optparse-applicative` is `ffi-unknown-package`.
 
 3. **JSON Parsing & Serialization:**
-   Use the Tier 1 Hackage FFI — no stub file generated:
-   ```lisp
-   (import haskell.aeson (interface [
-     [json-decode (fn [s: string] -> Result[TodoList, string])]
-     [json-encode (fn [td: TodoList] -> string)]
-   ]))
-   ```
-   This resolves to `import qualified Data.Aeson`. The developer writes a `FromJSON`/`ToJSON` instance for the LLMLL type in a thin Haskell bridge file.
+   Use the native `Json` operations (§13.13). `haskell.aeson` is an accepted package but reaches nothing: its exports use `Value` and lazy `ByteString`, which have no LLMLL type (`FFI-OPAQUE-1`), and a user type such as `TodoList` is `ffi-type-unsupported` at the boundary.
 
 4. **Atomic File Writes:**
-   The built-in `wasi.fs.write` does not guarantee atomicity. For ACID-like atomic writes, use the Tier 1 Hackage FFI:
+   The built-in `wasi.fs.write` does not guarantee atomicity, and Tier 1 cannot help: an entry may not return `Command` (`ffi-effect-refused`), and `haskell.unix` is `ffi-unknown-package`.
+
+5. **Path Manipulation:**
+   Use Tier 1 `haskell.filepath`:
    ```lisp
-   (import haskell.unix (interface [
-     [atomic-write (fn [path: string content: string] -> bool)]
+   (import haskell.filepath (interface [
+     [take-extension    (fn [p: string] -> string)]
+     [replace-extension (fn [p: string e: string] -> string)]
    ]))
+
+   (def-shell retarget [p: string] -> string
+     (if (= (take-extension p) ".txt") (replace-extension p "md") p))
    ```
-   This resolves to `import System.Posix.Files` and `atomicWriteFile` — no stub required.
+   This binds `System.FilePath.takeExtension` and `replaceExtension`. `(retarget "notes/a.txt")` is `"notes/a.md"`.
+
+6. **Text Operations:**
+   Use Tier 1 `haskell.text` with the boundary type `hs-text` (§7):
+   ```lisp
+   (import haskell.text (interface [
+     [to-upper (fn [s: hs-text] -> hs-text)]
+     [strip    (fn [s: hs-text] -> hs-text)]
+   ]))
+
+   (def-shell normalise [s: string] -> string (to-upper (strip s)))
+   ```
+   Callers pass and receive `string`. `(normalise "  héllo ")` is `"HÉLLO"`. `Data.Text.splitOn` and `Data.Text.replace` are partial on an empty delimiter or needle (§7).
 
 ### 13.11 Cryptographic Operations
 
