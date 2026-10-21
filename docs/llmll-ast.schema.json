@@ -442,7 +442,7 @@
       "description": "Any LLMLL type expression. Corresponds to EBNF 'type'.",
       "type": "object",
       "required": ["kind"],
-      "properties": { "kind": { "type": "string", "enum": ["primitive", "list", "map", "result", "promise", "bytes", "fn-type", "where", "pair-type", "command", "named"] } },
+      "properties": { "kind": { "type": "string", "enum": ["primitive", "list", "map", "result", "promise", "bytes", "fn-type", "where", "pair-type", "command", "named", "hs-text", "hs-int", "hs-maybe"] } },
       "allOf": [
         {
           "if": { "properties": { "kind": { "const": "primitive" } } },
@@ -483,6 +483,18 @@
         {
           "if": { "properties": { "kind": { "const": "command" } } },
           "then": { "$ref": "#/$defs/TypeCommand" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "hs-text" } } },
+          "then": { "$ref": "#/$defs/TypeHsText" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "hs-int" } } },
+          "then": { "$ref": "#/$defs/TypeHsInt" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "hs-maybe" } } },
+          "then": { "$ref": "#/$defs/TypeHsMaybe" }
         },
         {
           "if": { "properties": { "kind": { "const": "named" } } },
@@ -601,6 +613,37 @@
       "additionalProperties": false,
       "properties": {
         "kind": { "type": "string", "const": "command" }
+      }
+    },
+
+    "TypeHsText": {
+      "description": "FFI-CONV-1: the Tier 1 boundary type for Haskell's strict Data.Text.Text; callers see string. Valid only inside a haskell.* interface entry: the schema accepts it anywhere, and the type checker refuses it elsewhere (ffi-type-unsupported).",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "hs-text" }
+      }
+    },
+
+    "TypeHsInt": {
+      "description": "FFI-CONV-1: the Tier 1 boundary type for Haskell's Int, in a result position only; callers see int. Valid only inside a haskell.* interface entry: the schema accepts it anywhere, and the type checker refuses it elsewhere (ffi-type-unsupported).",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "hs-int" }
+      }
+    },
+
+    "TypeHsMaybe": {
+      "description": "FFI-CONV-1: the Tier 1 boundary type for Haskell's Maybe T; callers see Result[T, unit]. Valid only inside a haskell.* interface entry: the schema accepts it anywhere, and the type checker refuses it elsewhere (ffi-type-unsupported).",
+      "type": "object",
+      "required": ["kind", "inner"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "hs-maybe" },
+        "inner": { "$ref": "#/$defs/Type" }
       }
     },
 

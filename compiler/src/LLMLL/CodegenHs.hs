@@ -82,7 +82,7 @@ import qualified Data.Map.Strict as Map
 import LLMLL.Syntax
 import LLMLL.BuildScope (stripModuleQualifiers)
 import LLMLL.TypeAdmissibility (buildAliasMap, mentionsNoEq)
-import LLMLL.Ffi (ffiPackageModules, FfiEntry(..), ffiEntriesOf, ffiEntryNames, camelName, forcerFor)
+import LLMLL.Ffi (ffiPackageModules, FfiEntry(..), ffiEntriesOf, ffiEntryNames, camelName, forcerFor, lowerFfiType, convIn, convOut)
 import qualified Data.Set as Set
 import Data.Char (isUpper)
 
@@ -375,9 +375,15 @@ emitFfiBindings renameMap stmts = case entries of
           lhsArgs  = case feType e of
                        TFn [] _ -> ["_"]
                        _        -> args
-          call     = T.unwords ((feModule e <> "." <> camelName (feName e)) : args)
-          sig      = hsN <> " :: " <> toHsType (feType e)
-          defn     = T.unwords (hsN : lhsArgs) <> " = llmll_full " <> forcerFor r <> " (" <> call <> ")"
+          -- FFI-CONV-1 (D10): convert each argument in and the result out; an
+          -- id converter emits nothing, so an entry with no boundary type is
+          -- the plain Rev 2 binding. The signature and the forcer read the
+          -- LOWERED type, the type the program sees.
+          argIn (p, a) = maybe a (\c -> "(" <> c <> " " <> a <> ")") (convIn p)
+          call0    = T.unwords ((feModule e <> "." <> camelName (feName e)) : map argIn (zip ps args))
+          call     = maybe call0 (\c -> c <> " (" <> call0 <> ")") (convOut r)
+          sig      = hsN <> " :: " <> toHsType (lowerFfiType (feType e))
+          defn     = T.unwords (hsN : lhsArgs) <> " = llmll_full " <> forcerFor (lowerFfiType r) <> " (" <> call <> ")"
           pragma   = case feSrc e of
                        Just (f, l) -> ["{-# LINE " <> T.pack (show l) <> " " <> hsString f <> " #-}"]
                        Nothing     -> []

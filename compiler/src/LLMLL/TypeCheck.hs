@@ -90,7 +90,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
-import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..))
+import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..), lowerFfiType, ffiBoundaryMisuse)
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -1909,6 +1909,10 @@ checkDuplicateTopLevel stmts = do
           <> T.pack (show (countOf ns n))
           <> " times in this module; a name is bound once per scope (LLMLL.md §1.1)"
   forM_ (dupesOf fnNames) (report "function" fnNames)
+  -- FFI-CONV-1 (E20): a boundary type outside a haskell.* interface entry.
+  forM_ (ffiBoundaryMisuse stmts) $ \n ->
+    tcErrorK "ffi-type-unsupported" $
+      "unknown type '" <> n <> "': boundary types are valid only inside a haskell.* interface entry"
   forM_ (dupesOf tyNames) (report "type" tyNames)
   -- RESERVED-NAME-1: a top-level definition may not take a builtin's name.
   -- Before this check `(def string-concat [x: int] -> int x)` passed silently,
@@ -2246,7 +2250,9 @@ checkStatement (SImport imp) = do
   case importInterface imp of
     Nothing -> pure ()
     Just fns -> forM_ fns $ \(fname, ftype) ->
-      modify $ \s -> s { tcEnv = Map.insert fname ftype (tcEnv s) }
+      -- FFI-CONV-1 (D10): callers see the lowered type (hs-text is string,
+      -- hs-maybe[T] is Result[T, unit], hs-int is int).
+      modify $ \s -> s { tcEnv = Map.insert fname (lowerFfiType ftype) (tcEnv s) }
 
 -- | SOpen: inject exported names from the referenced module as bare names.
 -- Qualified names (module.path.f) must already be in the env via typeCheckWithCache.

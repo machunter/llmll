@@ -42,7 +42,7 @@ import qualified System.Directory as SD
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
-import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName)
+import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
@@ -22054,6 +22054,79 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Nothing -> pendingWith "stack not on PATH"
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` (".gz yes 2 no", "")
+          code `shouldBe` ExitSuccess
+
+  describe "FFI-CONV-1" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("FFI-CONV-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        kinds = map fst . errs
+        lib = cgHsSource . generateHaskell "conv" . parsed
+        unsup = Just "ffi-type-unsupported"
+    -- check: D10
+    it "E18 hs-int as an argument is refused: narrowing needs FFI-NARROW-1" $
+      errs ["(import haskell.text (interface [[take (fn [n: hs-int s: hs-text] -> hs-text)]]))"]
+        `shouldBe` [(unsup, "interface entry 'take' of haskell.text: hs-int as an argument: narrowing int to Int needs FFI-NARROW-1")]
+    it "E19 a boundary type inside a function-typed parameter is refused" $
+      kinds ["(import haskell.text (interface [[f (fn [g: (fn [x: int] -> hs-int)] -> int)]]))"] `shouldBe` [unsup]
+    it "E20 a boundary type outside a haskell.* interface entry is refused" $
+      errs ["(def-shell g [s: hs-text] -> int 1)"]
+        `shouldSatisfy` elem (unsup, "unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry")
+    it "E21 hs-text in the key of a map argument is refused" $
+      kinds ["(import haskell.containers (interface [[lookup (fn [k: hs-text m: map[hs-text, int]] -> hs-maybe[int])]]))"]
+        `shouldBe` [unsup]
+    it "E21b hs-text as a map key in the result is allowed" $
+      kinds ["(import haskell.containers (interface [[to-list (fn [m: map[string, int]] -> list[(hs-text, int)])] [f (fn [x: int] -> map[hs-text, int])]]))"]
+        `shouldBe` []
+    it "E22 nested hs-maybe lowers to a nested Result for callers" $
+      kinds [ "(import haskell.containers (interface [[f (fn [x: int] -> hs-maybe[hs-maybe[int]])]]))"
+            , "(def-shell g [x: int] -> Result[Result[int, unit], unit] (f x))" ] `shouldBe` []
+    it "a bare hs-maybe with no element type is refused" $
+      kinds ["(import haskell.containers (interface [[f (fn [x: hs-maybe] -> int)]]))"] `shouldBe` [unsup]
+    it "callers see the lowered type" $
+      errs [ "(import haskell.containers (interface [[f (fn [x: int] -> hs-maybe[int])]]))"
+           , "(def-shell g [x: int] -> int (f x))" ]
+        `shouldSatisfy` (elem "type mismatch in 'g': expected int, got Result[int,unit]" . map snd)
+    it "a boundary type prints in its source spelling" $
+      map typeLabel [TResult TInt (TCustom "hs-maybe"), TCustom "hs-text"] `shouldBe` ["hs-maybe[int]", "hs-text"]
+    it "lowerFfiType maps each boundary type to what callers see" $
+      lowerFfiType (TFn [TCustom "hs-text"] (TList (TResult (TCustom "hs-int") (TCustom "hs-maybe"))))
+        `shouldBe` TFn [TString] (TList (TResult TInt TUnit))
+    -- codegen: converters
+    it "E25 every converter that is not id carries an explicit type" $ do
+      (convIn (TCustom "hs-text"), convOut (TCustom "hs-text"), convOut (TCustom "hs-int"))
+        `shouldBe` ( Just "(Data.Text.pack :: String -> Data.Text.Text)"
+                   , Just "(Data.Text.unpack :: Data.Text.Text -> String)"
+                   , Just "(toInteger :: Int -> Integer)" )
+      convOut (TResult TInt (TCustom "hs-maybe")) `shouldBe` Just "(maybe (Left ()) (Right . id))"
+      convOut (TMap (TCustom "hs-text") TInt)
+        `shouldBe` Just "(Map.fromList . map (\\(k, v) -> ((Data.Text.unpack :: Data.Text.Text -> String) k, id v)) . Map.toList)"
+      (convIn TString, convOut (TList TInt)) `shouldBe` (Nothing, Nothing)
+    it "the bindings convert in and out, and the signature is the lowered type" $ do
+      let l = lib ["(import haskell.text (interface [[split-on (fn [sep: hs-text s: hs-text] -> list[hs-text])] [len (fn [s: hs-text] -> hs-int)]]))"]
+      l `shouldSatisfy` T.isInfixOf "split_on :: String -> String -> [String]"
+      l `shouldSatisfy` T.isInfixOf "split_on a1 a2 = llmll_full (llmll_uL llmll_uS) ((map (Data.Text.unpack :: Data.Text.Text -> String)) (Data.Text.splitOn ((Data.Text.pack :: String -> Data.Text.Text) a1) ((Data.Text.pack :: String -> Data.Text.Text) a2)))"
+      l `shouldSatisfy` T.isInfixOf "len a1 = llmll_full llmll_uW ((toInteger :: Int -> Integer) (Data.Text.len ((Data.Text.pack :: String -> Data.Text.Text) a1)))"
+    it "E23 an entry with no boundary type gets the plain binding" $
+      lib ["(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))"]
+        `shouldSatisfy` T.isInfixOf "take_extension a1 = llmll_full llmll_uS (System.FilePath.takeExtension a1)"
+    -- JSON-AST
+    it "the three boundary types round-trip through JSON-AST" $ do
+      let stmts = parsed ["(import haskell.containers (interface [[f (fn [s: hs-text] -> hs-maybe[hs-int])]]))"]
+          js = emitJsonAST stmts
+      BLC.unpack js `shouldSatisfy` (\t -> all (`isInfixOf` t) ["\"hs-text\"", "\"hs-maybe\"", "\"hs-int\"", "\"inner\""])
+      parseJSONAST GrammarCoreInversion "<rt>" js `shouldBe` Right stmts
+    -- build
+    it "end to end: text and containers exports through boundary types build and run" $ do
+      src <- TIO.readFile "test/fixtures/ffi-tier1/boundary.llmll"
+      res <- buildAndRun "ffi2" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, err, _) -> do
+          (out, err) `shouldBe` ("HI 3 5 2 none 2", "")
           code `shouldBe` ExitSuccess
 
   describe "RESERVED-NAME-1" $ do

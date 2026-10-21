@@ -233,6 +233,8 @@ typeToJson TUnit             = object ["kind" .= ("primitive" :: Text), "name" .
 typeToJson (TBytes n)        = object ["kind" .= ("bytes" :: Text),     "length" .= n]
 typeToJson (TList t)         = object ["kind" .= ("list" :: Text),      "elem_type" .= typeToJson t]
 typeToJson (TMap k v)        = object ["kind" .= ("map" :: Text),       "key_type" .= typeToJson k, "val_type" .= typeToJson v]
+-- FFI-CONV-1 (D10): the boundary types, valid only inside a haskell.* interface entry.
+typeToJson (TResult t (TCustom "hs-maybe")) = object ["kind" .= ("hs-maybe" :: Text), "inner" .= typeToJson t]
 typeToJson (TResult t e)     = object ["kind" .= ("result" :: Text),    "ok_type" .= typeToJson t,  "err_type" .= typeToJson e]
 -- PR 1: pair-type schema ($def already present in llmll-ast.schema.json lines 388-398)
 typeToJson (TPair a b)       = object
@@ -255,6 +257,8 @@ typeToJson (TDependent bindName base constraint) = object
 typeToJson TDelegationError  = object ["kind" .= ("named" :: Text), "name" .= ("DelegationError" :: Text)]
 typeToJson (TVar n)          = object ["kind" .= ("named" :: Text), "name" .= n]
 typeToJson (TCustom "Command") = object ["kind" .= ("command" :: Text)]
+typeToJson (TCustom "hs-text") = object ["kind" .= ("hs-text" :: Text)]
+typeToJson (TCustom "hs-int")  = object ["kind" .= ("hs-int" :: Text)]
 typeToJson (TCustom n)       = object ["kind" .= ("named" :: Text), "name" .= n]
 -- TSumType in inline type position (rare) — emit as named for round-trip safety.
 typeToJson (TSumType ctors)  = object ["kind" .= ("named" :: Text), "name" .= T.intercalate " | " (map fst ctors)]

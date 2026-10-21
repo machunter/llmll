@@ -15,10 +15,15 @@ module LLMLL.Ffi
   , ffiImportErrors
   , camelName
   , forcerFor
+  , lowerFfiType
+  , ffiBoundaryMisuse
+  , convIn
+  , convOut
   ) where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.List (nub)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -107,33 +112,54 @@ entryErrors pkg (n, t)
     (params, result) = case t of
       TFn as r -> (as, r)
       _        -> ([], t)
-    typeProblem = firstJust (map paramProblem params ++ [resultProblem result])
-    paramProblem p = unsupported True p
+    typeProblem = firstJust (map (allowed CArg False) params ++ [resultProblem result])
     resultProblem r
       | mentionsFn r    = Just "the result contains a function type; write a curried result as more parameters"
       | mentionsBytes r = Just "the result contains bytes[n]; nothing checks the length of bytes a Haskell function returns"
-      | otherwise       = unsupported False r
+      | otherwise       = allowed CRes False r
 
--- | The first type in a parameter or result position that D3 does not allow.
--- A function type is allowed as a parameter, over the same types.
-unsupported :: Bool -> Type -> Maybe Text
-unsupported inParam ty = case ty of
+-- | Where a type sits in an entry: an argument (LLMLL to Haskell), the result
+-- (Haskell to LLMLL), or anywhere inside a function-typed parameter.
+data Ctx = CArg | CRes | CFn deriving Eq
+
+-- | The first problem D3 and D10 find in a type at a position, or Nothing.
+-- The flag is set inside the key type of a map.
+allowed :: Ctx -> Bool -> Type -> Maybe Text
+allowed c inKey ty = case ty of
   TInt        -> Nothing
   TFloat      -> Nothing
   TString     -> Nothing
   TBool       -> Nothing
   TUnit       -> Nothing
   TBytes _
-    | inParam   -> Nothing
-  TList a     -> unsupported inParam a
-  TMap k v    -> firstJust [unsupported inParam k, unsupported inParam v]
-  TPair a b   -> firstJust [unsupported inParam a, unsupported inParam b]
-  TResult a b -> firstJust [unsupported inParam a, unsupported inParam b]
+    | c /= CRes -> Nothing
+  -- FFI-CONV-1 (D10): the boundary types and the direction rule.
+  TCustom "hs-text"
+    | c == CFn  -> inFn
+    | c == CArg && inKey ->
+        Just "hs-text in the key type of a map argument: pack is not injective on map keys \
+             \(two keys that differ only by a lone surrogate would merge); use string"
+    | otherwise -> Nothing
+  TCustom "hs-int"
+    | c == CFn  -> inFn
+    | c == CArg -> Just "hs-int as an argument: narrowing int to Int needs FFI-NARROW-1"
+    | otherwise -> Nothing
+  TResult t (TCustom "hs-maybe")
+    | c == CFn  -> inFn
+    | otherwise -> allowed c inKey t
+  TCustom "hs-maybe" -> Just "hs-maybe needs an element type: write hs-maybe[T]"
+  TList a     -> allowed c inKey a
+  TMap k v    -> firstJust [allowed c True k, allowed c inKey v]
+  TPair a b   -> firstJust [allowed c inKey a, allowed c inKey b]
+  TResult a b -> firstJust [allowed c inKey a, allowed c inKey b]
   TFn as r
-    | inParam   -> firstJust (map (unsupported True) as ++ [unsupported True r])
+    | c /= CRes -> firstJust (map (allowed CFn False) as ++ [allowed CFn False r])
   _           -> Just ("type '" <> typeLabel ty <> "' is not allowed at the Tier 1 boundary; "
                        <> "allowed: int, float, string, bool, unit, list, map, pairs, Result, "
+                       <> "hs-text, hs-maybe[T], hs-int (result only), "
                        <> "and as parameters bytes[n] and fn types over these")
+  where
+    inFn = Just "a boundary type inside a function-typed parameter is not supported"
 
 hasEffect :: Type -> Bool
 hasEffect = anyType isEffect
@@ -168,6 +194,102 @@ firstJust :: [Maybe a] -> Maybe a
 firstJust ms = case [ x | Just x <- ms ] of
   (x : _) -> Just x
   []      -> Nothing
+
+-- | FFI-CONV-1 (D10): the LLMLL type a program sees for a declared type.
+lowerFfiType :: Type -> Type
+lowerFfiType ty = case ty of
+  TCustom "hs-text"              -> TString
+  TCustom "hs-int"               -> TInt
+  TResult t (TCustom "hs-maybe") -> TResult (lowerFfiType t) TUnit
+  TList a                        -> TList (lowerFfiType a)
+  TMap k v                       -> TMap (lowerFfiType k) (lowerFfiType v)
+  TPair a b                      -> TPair (lowerFfiType a) (lowerFfiType b)
+  TResult a b                    -> TResult (lowerFfiType a) (lowerFfiType b)
+  TFn as r                       -> TFn (map lowerFfiType as) (lowerFfiType r)
+  _                              -> ty
+
+-- | E20: the boundary type names used outside a haskell.* interface entry.
+ffiBoundaryMisuse :: [Statement] -> [Name]
+ffiBoundaryMisuse stmts = nub (concatMap (boundaryNames . snd) (concatMap typesOf stmts))
+  where
+    typesOf st = case st of
+      SImport imp
+        | "haskell." `T.isPrefixOf` importPath imp -> []
+        | otherwise -> map (\(n, t) -> (n, t)) (fromMaybe [] (importInterface imp))
+      STypeDef n body -> [(n, body)]
+      SDefInterface _ fns _ -> fns
+      SCheck p -> propBindings p ++ exprTypes (propBody p)
+      SLetrec n ps r _ d b -> sig n ps r ++ exprTypes d ++ exprTypes b
+      _ -> case normalizeDefStmt st of
+             Just (n, ps, r, _, b) -> sig n ps r ++ exprTypes b
+             Nothing               -> []
+    sig n ps r = ps ++ [ (n, t) | Just t <- [r] ]
+    exprTypes e = case e of
+      ELet bs b      -> [ ("let", t) | (_, Just t, _) <- bs ] ++ concat [ exprTypes x | (_, _, x) <- bs ] ++ exprTypes b
+      ELambda ps b   -> ps ++ exprTypes b
+      EMatch x arms  -> exprTypes x ++ concatMap (exprTypes . snd) arms
+      EDo steps      -> concat [ exprTypes x | DoStep _ x _ <- steps ]
+      EApp _ as      -> concatMap exprTypes as
+      EOp _ as       -> concatMap exprTypes as
+      EIf c t f      -> exprTypes c ++ exprTypes t ++ exprTypes f
+      EPair a b      -> exprTypes a ++ exprTypes b
+      EAwait x       -> exprTypes x
+      _              -> []
+    boundaryNames ty = case ty of
+      TCustom n | n `elem` ["hs-text", "hs-int", "hs-maybe"] -> [n]
+      TResult t (TCustom "hs-maybe") -> "hs-maybe" : boundaryNames t
+      TList a          -> boundaryNames a
+      TMap k v         -> boundaryNames k ++ boundaryNames v
+      TPair a b        -> boundaryNames a ++ boundaryNames b
+      TResult a b      -> boundaryNames a ++ boundaryNames b
+      TFn as r         -> concatMap boundaryNames as ++ boundaryNames r
+      TPromise a       -> boundaryNames a
+      TDependent _ b _ -> boundaryNames b
+      TSumType cs      -> concat [ boundaryNames t | (_, Just t) <- cs ]
+      _                -> []
+
+-- | FFI-CONV-1 (D10): the converter from the LLMLL value to the Haskell
+-- argument, or Nothing for @id@. Every converter that is not @id@ carries an
+-- explicit Haskell type, so GHC checks the declared boundary type against the
+-- export (E25). An @hs-int@ or an @hs-text@ map key never reaches here: the
+-- checker refuses both in an argument.
+convIn :: Type -> Maybe Text
+convIn ty = case ty of
+  TCustom "hs-text" -> Just "(Data.Text.pack :: String -> Data.Text.Text)"
+  TResult t (TCustom "hs-maybe") ->
+    Just ("(either (const Nothing) (Just . " <> orId (convIn t) <> "))")
+  TList a  -> (\c -> "(map " <> c <> ")") <$> convIn a
+  TMap _ v -> (\c -> "(Map.map " <> c <> ")") <$> convIn v
+  TPair a b -> pairConv (convIn a) (convIn b)
+  TResult a b -> resultConv (convIn a) (convIn b)
+  _ -> Nothing
+
+-- | FFI-CONV-1 (D10): the converter from the Haskell result to the LLMLL
+-- value, or Nothing for @id@.
+convOut :: Type -> Maybe Text
+convOut ty = case ty of
+  TCustom "hs-text" -> Just "(Data.Text.unpack :: Data.Text.Text -> String)"
+  TCustom "hs-int"  -> Just "(toInteger :: Int -> Integer)"
+  TResult t (TCustom "hs-maybe") ->
+    Just ("(maybe (Left ()) (Right . " <> orId (convOut t) <> "))")
+  TList a  -> (\c -> "(map " <> c <> ")") <$> convOut a
+  TMap k v -> case (convOut k, convOut v) of
+    (Nothing, Nothing) -> Nothing
+    (ck, cv) -> Just ("(Map.fromList . map (\\(k, v) -> (" <> orId ck <> " k, " <> orId cv <> " v)) . Map.toList)")
+  TPair a b -> pairConv (convOut a) (convOut b)
+  TResult a b -> resultConv (convOut a) (convOut b)
+  _ -> Nothing
+
+orId :: Maybe Text -> Text
+orId = fromMaybe "id"
+
+pairConv :: Maybe Text -> Maybe Text -> Maybe Text
+pairConv Nothing Nothing = Nothing
+pairConv ca cb = Just ("(\\(x, y) -> (" <> orId ca <> " x, " <> orId cb <> " y))")
+
+resultConv :: Maybe Text -> Maybe Text -> Maybe Text
+resultConv Nothing Nothing = Nothing
+resultConv ct ce = Just ("(either (Left . " <> orId ce <> ") (Right . " <> orId ct <> "))")
 
 -- | D1: the forcer for a binding's result type, built from the type. The
 -- existing 'esResultForcers' table is keyed by builtin name and stays as it is.

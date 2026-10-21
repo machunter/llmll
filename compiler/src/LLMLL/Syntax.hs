@@ -165,6 +165,7 @@ typeLabel TUnit           = "unit"
 typeLabel (TBytes n)      = "bytes[" <> tshow n <> "]"
 typeLabel (TList t)       = "list[" <> typeLabel t <> "]"
 typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
+typeLabel (TResult t (TCustom "hs-maybe")) = "hs-maybe[" <> typeLabel t <> "]"  -- FFI-CONV-1: its source spelling
 typeLabel (TResult t e)   = "Result[" <> typeLabel t <> "," <> typeLabel e <> "]"
 typeLabel (TPair a b)     = "(" <> typeLabel a <> ", " <> typeLabel b <> ")"
 typeLabel (TFn args ret)  = "fn[" <> tshow (length args) <> " args] -> " <> typeLabel ret

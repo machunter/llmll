@@ -615,8 +615,18 @@ pType = choice
   , try pPromiseType
   , try pFnType
   , try pWhereType
+  , try pHsMaybeType
   , resolveNamedType <$> pIdent
   ]
+
+-- | FFI-CONV-1 (D10): @hs-maybe[T]@, a boundary type valid only inside a
+-- haskell.* interface entry (the checker refuses it elsewhere). Encoded as
+-- @Result[T, hs-maybe]@; the checker lowers it to @Result[T, unit]@.
+pHsMaybeType :: Parser Type
+pHsMaybeType = do
+  _ <- symbol "hs-maybe"
+  t <- brackets pType
+  pure (TResult t (TCustom "hs-maybe"))
 
 -- | Resolve well-known type names to their built-in constructors.
 -- Anything not in this list stays as TCustom.

@@ -1,0 +1,17 @@
+;; FFI-TIER1-1 + FFI-CONV-1 (docs/design/ffi-tier1-proposal.md Rev 3 D10): Hackage
+;; exports reached through the boundary types hs-text, hs-maybe[T] and hs-int.
+;; Built and run by compiler/test/Spec.hs ("FFI-CONV-1"); prints "HI 3 5 2 none 2".
+(import wasi.io (capability stdout))
+(import haskell.text (interface [[split-on (fn [sep: hs-text s: hs-text] -> list[hs-text])] [to-upper (fn [s: hs-text] -> hs-text)] [length (fn [s: hs-text] -> hs-int)]]))
+(import haskell.containers (interface [[insert (fn [k: string v: int m: map[string, int]] -> map[string, int])] [lookup (fn [k: string m: map[string, int]] -> hs-maybe[int])] [size (fn [m: map[string, int]] -> hs-int)]]))
+(def-shell report [u: unit] -> string
+  (let [[m (insert "b" 2 (insert "a" 1 (map-empty)))]
+        [parts (split-on "," "x,y,z")]]
+    (string-concat-many
+      [(to-upper "hi") " " (int-to-string (list-length parts)) " " (int-to-string (length "hello")) " "
+       (match (lookup "b" m) ((Success v) (int-to-string v)) ((Error e) "none")) " "
+       (match (lookup "zz" m) ((Success v) (int-to-string v)) ((Error e) "none")) " "
+       (int-to-string (size m))])))
+(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout "x")))
+(def-shell fin [s: int] -> bool (>= s 1))
+(def-main :mode cli :init (pair 0 (wasi.io.stdout (report ()))) :step st :done? fin)

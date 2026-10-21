@@ -620,6 +620,11 @@ parseType = withObject "Type" $ \o -> do
       snd_ <- o .: "snd" >>= parseType
       pure $ TPair fst_ snd_
     "command"   -> pure $ TCustom "Command"
+    -- FFI-CONV-1 (D10): boundary types; the checker refuses them outside a
+    -- haskell.* interface entry (E20).
+    "hs-text"   -> pure $ TCustom "hs-text"
+    "hs-int"    -> pure $ TCustom "hs-int"
+    "hs-maybe"  -> (\t -> TResult t (TCustom "hs-maybe")) <$> (o .: "inner" >>= parseType)
     "named"     -> do
       n <- o .: "name" :: Parser Text
       pure $ resolveNamedType n
