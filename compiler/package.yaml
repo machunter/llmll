@@ -71,6 +71,9 @@ library:
     # REGEX-CAPTURE-1 / REGEX-CASE-1: the pattern rules `check` applies to a
     # literal regex pattern. Leaf over regex-tdfa; imported by TypeCheck.
     - LLMLL.RegexPattern
+    # FFI-TIER1-1: the Tier 1 Hackage boundary rules, shared by the type
+    # checker, the emitter and the trust report. Leaf over LLMLL.Syntax.
+    - LLMLL.Ffi
     - LLMLL.TypeCheck
     - LLMLL.HoleAnalysis
     - LLMLL.RespFact

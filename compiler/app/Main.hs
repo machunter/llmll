@@ -44,7 +44,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
+import LLMLL.Syntax (Statement(..), Import(..), Span(..), ModuleCache, ModulePath, ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (topoSortedEnvs)
 import LLMLL.LoadClosure (loadImportClosure)
@@ -600,6 +600,20 @@ doHoles json gm fp deps mDepsOut = do
 -- test
 -- ---------------------------------------------------------------------------
 
+-- | FFI-TIER1-1: make each import's recorded source path absolute before
+-- codegen writes it into a LINE pragma. GHC prints a relative pragma path
+-- relative to the generated project, which is not where the source is.
+absImportSrc :: [ModuleEnv] -> [Statement] -> IO ([ModuleEnv], [Statement])
+absImportSrc envs stmts = do
+  envs'  <- mapM (\m -> (\ss -> m { meStatements = ss }) <$> mapM absStmt (meStatements m)) envs
+  stmts' <- mapM absStmt stmts
+  pure (envs', stmts')
+  where
+    absStmt (SImport imp) | Just (f, l) <- importSrc imp = do
+      f' <- makeAbsolute f
+      pure (SImport imp { importSrc = Just (f', l) })
+    absStmt st = pure st
+
 doTest :: Bool -> GrammarMode -> FilePath -> Bool -> IO ()
 doTest json gm fp emitOnly = do
   -- MOD-PBT-1: use loadStatementsMulti so PBT FuncEnv can see imported
@@ -746,10 +760,11 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
               allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
                                 Map.empty cache
               instrumentedStmts = instrumentContracts contractsMode allCS stmts
-              result       = generateHaskellMulti modName importedEnvs instrumentedStmts
               outDir       = case mOutDir of
                                Just d  -> d
                                Nothing -> "generated/" <> T.unpack modName
+          (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+          let result       = generateHaskellMulti modName envsA stmtsA
           -- Write Haskell source + optional Main.hs
           createDirectoryIfMissing True (outDir <> "/src")
           writeFileUtf8 (outDir <> "/src/Lib.hs")     (cgHsSource result)
@@ -827,10 +842,11 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
           allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
                             Map.empty cache
           instrumentedStmts = instrumentContracts contractsMode allCS stmts
-          result  = generateHaskellMulti modName importedEnvs instrumentedStmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
+      (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+      let result  = generateHaskellMulti modName envsA stmtsA
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
       writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)
@@ -894,8 +910,9 @@ doRun json gm fp extraArgs = do
                              Map.empty cache
           -- v0.6.3: instrument contracts (BUG-2) — full mode for run
           instrumentedStmts = instrumentContracts ContractsFull allCS stmts
-          result   = generateHaskellMulti modNameT importedEnvs instrumentedStmts
           outDir   = tmpDir
+      (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+      let result   = generateHaskellMulti modNameT envsA stmtsA
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
       writeFileUtf8 (outDir <> "/package.yaml")  (cgPackageYaml result)

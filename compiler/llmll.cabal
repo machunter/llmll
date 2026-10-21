@@ -23,6 +23,7 @@ library
       LLMLL.TypeAdmissibility
       LLMLL.BuildScope
       LLMLL.RegexPattern
+      LLMLL.Ffi
       LLMLL.TypeCheck
       LLMLL.HoleAnalysis
       LLMLL.RespFact

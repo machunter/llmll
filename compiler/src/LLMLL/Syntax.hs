@@ -1,4 +1,5 @@
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- |
 -- Module      : LLMLL.Syntax
 -- Description : Core AST and type definitions for the LLMLL language.
@@ -35,7 +36,7 @@ module LLMLL.Syntax
     -- * Statements (Top-Level Forms)
   , Statement(..)
   , Module(..)
-  , Import(..)
+  , Import(ImportAt, Import, importPath, importInterface, importCapability, importSrc)
   , Capability(..)
   , CapabilityKind(..)
   , DeterministicFlag
@@ -164,6 +165,7 @@ typeLabel TUnit           = "unit"
 typeLabel (TBytes n)      = "bytes[" <> tshow n <> "]"
 typeLabel (TList t)       = "list[" <> typeLabel t <> "]"
 typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
+typeLabel (TResult t (TCustom "hs-maybe")) = "hs-maybe[" <> typeLabel t <> "]"  -- FFI-CONV-1: its source spelling
 typeLabel (TResult t e)   = "Result[" <> typeLabel t <> "," <> typeLabel e <> "]"
 typeLabel (TPair a b)     = "(" <> typeLabel a <> ", " <> typeLabel b <> ")"
 typeLabel (TFn args ret)  = "fn[" <> tshow (length args) <> " args] -> " <> typeLabel ret
@@ -1023,11 +1025,28 @@ data Module = Module
 -- Imports & Capabilities
 -- ---------------------------------------------------------------------------
 
-data Import = Import
+data Import = ImportAt
   { importPath        :: Name                  -- ^ e.g. "wasi.filesystem"
   , importInterface   :: Maybe [(Name, Type)]  -- ^ Optional interface spec
   , importCapability  :: Maybe Capability      -- ^ Required capability grant
-  } deriving (Show, Eq, Generic)
+  -- | FFI-TIER1-1: the source file and line of the @(import ...)@ form, so a
+  -- @haskell.*@ interface binding can carry a GHC LINE pragma pointing back at
+  -- it. The S-expression parser fills it; JSON-AST has no positions and leaves
+  -- it Nothing. It is a location, not part of the program: 'Eq' ignores it, so
+  -- the same program read from either front end still compares equal.
+  , importSrc         :: Maybe (FilePath, Int)
+  } deriving (Show, Generic)
+
+instance Eq Import where
+  a == b = (importPath a, importInterface a, importCapability a)
+        == (importPath b, importInterface b, importCapability b)
+
+-- | An import with no source location: the three-field form every builder
+-- outside the S-expression parser uses.
+pattern Import :: Name -> Maybe [(Name, Type)] -> Maybe Capability -> Import
+pattern Import p i c <- ImportAt p i c _
+  where Import p i c = ImportAt p i c Nothing
+{-# COMPLETE Import #-}
 
 -- | Whether a capability uses deterministic logging.
 type DeterministicFlag = Bool
