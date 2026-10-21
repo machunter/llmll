@@ -42,6 +42,7 @@ import qualified System.Directory as SD
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
+import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
@@ -57,7 +58,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.TrustReport (markBuiltinAxioms, markGroundFacts, markInheritedAxioms, trustAssumptionRows,
-                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
+                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), FfiAssumption(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
 import LLMLL.ProofArtifact
 import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields, nestedReportKeys, verifyJsonVersion)
 import Data.Either (isLeft, isRight)
@@ -5533,6 +5534,7 @@ main = hspec $ do
             , teBuiltinAxioms      = []       -- TRUST-AXIOM: not exercised in TP-* tests
             , teInheritedAxioms    = []       -- TRUST-AXIOM: not exercised in TP-* tests
             , teGroundFacts        = []       -- TRUST-AXIOM family C: not exercised here
+            , teFfiAssumptions     = []       -- FFI-TIER1-1: not exercised here
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -12621,7 +12623,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] [] []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -21867,6 +21869,191 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Nothing -> pendingWith "stack not on PATH"
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` ("11 20 7", "")
+          code `shouldBe` ExitSuccess
+
+  describe "FFI-TIER1-1" $ do
+    let parsedAt fp src = case parseStatements GrammarCoreInversion fp (T.unlines src) of
+          Left err -> error ("FFI-TIER1-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        parsed = parsedAt "<test>"
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        kinds = map fst . errs
+        libLines fp = T.lines . cgHsSource . generateHaskell "ffi" . parsedAt fp
+        fp1 = "(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))"
+        kindsOfIface pkg entries = map fst (ffiImportErrors (Import pkg (Just entries) Nothing))
+        -- Build a generated project and return stack's exit code and stderr.
+        buildOnly name fp src = do
+          mStack <- findExecutable "stack"
+          case mStack of
+            Nothing -> pure Nothing
+            Just stackExe -> do
+              tmpRoot <- getTemporaryDirectory
+              let dir = tmpRoot </> ("llmll-ffi-" <> name)
+                  r   = generateHaskell (T.pack name) (parsedAt fp src)
+                  put f t = BL.writeFile f (BL.fromStrict (TE.encodeUtf8 t))
+              exists <- doesDirectoryExist dir
+              when exists $ removeDirectoryRecursive dir
+              createDirectoryIfMissing True (dir </> "src")
+              put (dir </> "src" </> "Lib.hs") (cgHsSource r)
+              put (dir </> "package.yaml") (cgPackageYaml r)
+              put (dir </> "stack.yaml") (cgStackYaml r)
+              env0 <- getEnvironment
+              let childEnv = [ kv | kv@(k, _) <- env0
+                             , k `notElem` ["GHC_PACKAGE_PATH", "GHC_ENVIRONMENT", "HASKELL_DIST_DIR", "STACK_EXE"]
+                             , not ("HASKELL_PACKAGE_SANDBOX" `isPrefixOf` k) ]
+              (bc, bout, berr) <- readCreateProcessWithExitCode
+                ((proc stackExe ["build"]) { SP.cwd = Just dir, SP.env = Just childEnv }) ""
+              removeDirectoryRecursive dir
+              pure (Just (bc, bout <> berr))
+    -- check: D2-D6
+    it "E1 an entry returning Command is ffi-effect-refused" $
+      kinds ["(import haskell.directory (interface [[remove-file (fn [p: string] -> Command)]]))"]
+        `shouldBe` [Just "ffi-effect-refused"]
+    it "an entry mentioning Promise is ffi-effect-refused" $
+      kindsOfIface "haskell.text" [("f", TFn [TPromise TInt] TInt)] `shouldBe` ["ffi-effect-refused"]
+    it "E2 an entry named like a builtin is builtin-redefinition" $
+      kinds ["(import haskell.text (interface [[string-length (fn [s: string] -> int)]]))"]
+        `shouldBe` [Just "builtin-redefinition"]
+    it "E3 a package outside the nine is ffi-unknown-package" $
+      kinds ["(import haskell.optparse-applicative (interface [[foo (fn [s: string] -> int)]]))"]
+        `shouldBe` [Just "ffi-unknown-package"]
+    it "E4 a user type, a type variable or a refinement is ffi-type-unsupported" $ do
+      kinds ["(type Opts (| Opts int))", "(import haskell.text (interface [[parse (fn [s: string] -> Opts)]]))"]
+        `shouldBe` [Just "ffi-type-unsupported"]
+      kindsOfIface "haskell.text" [("g", TFn [TVar "a"] TInt)] `shouldBe` ["ffi-type-unsupported"]
+      kindsOfIface "haskell.text" [("g", TFn [TDependent "n" TInt (ELit (LitBool True))] TInt)]
+        `shouldBe` ["ffi-type-unsupported"]
+    it "D2 a name with ?, !, ' or . is ffi-name-unmappable" $
+      [ kindsOfIface "haskell.text" [(n, TFn [TString] TBool)] | n <- ["is-x?", "go!", "f'", "a.b"] ]
+        `shouldBe` replicate 4 ["ffi-name-unmappable"]
+    it "E11 and E11b a function in the result is ffi-type-unsupported" $ do
+      kinds ["(import haskell.text (interface [[f (fn [x: int] -> (fn [y: int] -> int))]]))"]
+        `shouldBe` [Just "ffi-type-unsupported"]
+      kinds ["(import haskell.text (interface [[f (fn [x: int] -> list[(fn [y: int] -> int)])]]))"]
+        `shouldBe` [Just "ffi-type-unsupported"]
+    it "E16 bytes[n] in the result is refused; a bytes[n] or fn parameter is allowed" $ do
+      kinds ["(import haskell.text (interface [[f (fn [x: int] -> bytes[32])]]))"]
+        `shouldBe` [Just "ffi-type-unsupported"]
+      kinds ["(import haskell.containers (interface [[f (fn [b: bytes[4] p: (fn [v: int] -> bool)] -> int)]]))"]
+        `shouldBe` []
+    it "E8 the same name at two types is duplicate-definition; identical entries are one name" $ do
+      kinds [ "(import haskell.text (interface [[f (fn [x: int] -> int)]]))"
+            , "(import haskell.text (interface [[f (fn [x: string] -> int)]]))" ]
+        `shouldBe` [Just "duplicate-definition"]
+      kinds [ "(import haskell.text (interface [[f (fn [x: int] -> int)]]))"
+            , "(import haskell.text (interface [[f (fn [x: int] -> int)]]))" ]
+        `shouldBe` []
+    it "an entry and a def-shell of the same name are duplicate-definition" $
+      kinds [fp1, "(def-shell take-extension [p: string] -> string p)"] `shouldBe` [Just "duplicate-definition"]
+    it "E9 a def calling an entry is refused with a Hackage-specific message" $
+      errs [fp1, "(def f [p: string] -> string (take-extension p))"]
+        `shouldBe` [(Just "core-membership-violation", "def 'f': callee 'take-extension' is a haskell.* interface entry; a Hackage function has no body to verify, so it is not admissible in a strict-core body")]
+    it "a def-shell calling an entry checks" $
+      kinds [fp1, "(def-shell f [p: string] -> string (take-extension p))"] `shouldBe` []
+    -- codegen: D1
+    it "forcerFor follows the D1 table" $
+      map forcerFor [TInt, TFloat, TBool, TUnit, TString, TList TString, TMap TString TInt, TPair TString TInt, TResult TInt TString]
+        `shouldBe` [ "llmll_uW", "llmll_uW", "llmll_uW", "llmll_uW", "llmll_uS", "(llmll_uL llmll_uS)"
+                   , "(llmll_uM llmll_uS llmll_uW)", "(llmll_uP2 llmll_uS llmll_uW)", "(llmll_uEi llmll_uS llmll_uW)" ]
+    it "camelName maps a dashed name to the Haskell export name" $
+      map camelName ["take-extension", "to-list", "insert"] `shouldBe` ["takeExtension", "toList", "insert"]
+    it "an entry becomes a forced binding with a LINE pragma before both lines" $
+      libLines "/src/f1.llmll" ["", fp1] `shouldSatisfy` T.isInfixOf (T.unlines
+        [ "-- haskell.filepath interface entry take-extension"
+        , "{-# LINE 2 \"/src/f1.llmll\" #-}"
+        , "take_extension :: String -> String"
+        , "{-# LINE 2 \"/src/f1.llmll\" #-}"
+        , "take_extension a1 = llmll_full llmll_uS (System.FilePath.takeExtension a1)" ]) . T.unlines
+    it "an import with no source line (JSON-AST) gets a comment and no pragma" $ do
+      let ls = T.lines (cgHsSource (generateHaskell "ffi"
+                 [SImport (Import "haskell.filepath" (Just [("take-extension", TFn [TString] TString)]) Nothing)]))
+      ls `shouldSatisfy` elem "-- haskell.filepath interface entry take-extension (no source line: read from JSON-AST)"
+      filter ("{-# LINE" `T.isPrefixOf`) ls `shouldBe` []
+    it "the S-expression parser records the import's location, and Eq ignores it" $ do
+      case parsedAt "/src/a.llmll" ["", fp1] of
+        [SImport imp] -> do
+          importSrc imp `shouldBe` Just ("/src/a.llmll", 2)
+          imp `shouldBe` Import "haskell.filepath" (Just [("take-extension", TFn [TString] TString)]) Nothing
+        other -> expectationFailure ("expected one import, got " ++ show other)
+    it "E7 an entry named like a Prelude function is renamed, at the binding and the call" $ do
+      let src = [ "(import haskell.containers (interface [[filter (fn [p: (fn [v: int] -> bool) m: map[string, int]] -> map[string, int])] [lookup (fn [k: string m: map[string, int]] -> int)]]))"
+                , "(def-shell g [m: map[string, int]] -> int (lookup \"a\" (filter (fn [v: int] (> v 1)) m)))" ]
+          lib = T.unlines (libLines "<test>" src)
+      lib `shouldSatisfy` T.isInfixOf "filter_u1 a1 a2 = llmll_full (llmll_uM llmll_uS llmll_uW) (Data.Map.Strict.filter a1 a2)"
+      lib `shouldSatisfy` T.isInfixOf "lookup_u1 :: String -> (Map.Map String Integer) -> Integer"
+      lib `shouldSatisfy` T.isInfixOf "(lookup_u1 (\"a\")"
+    it "an entry named show is bound as show_u1 calling the module's show" $
+      T.unlines (libLines "<test>" ["(import haskell.text (interface [[show (fn [n: int] -> string)]]))"])
+        `shouldSatisfy` T.isInfixOf "show_u1 a1 = llmll_full llmll_uS (Data.Text.show a1)"
+    it "identical entries in two imports give one binding" $
+      length (filter ("take_extension ::" `T.isPrefixOf`) (libLines "<test>" [fp1, fp1])) `shouldBe` 1
+    it "a program with no haskell.* interface emits no binding block" $
+      libLines "<test>" ["(def-shell f [x: int] -> int x)"]
+        `shouldSatisfy` notElem "-- haskell.* interface bindings (FFI-TIER1-1)"
+    -- trust: D9
+    it "E12 a caller inherits the rows of a callee that has no contract" $ do
+      let stmts = parsed [ fp1
+                         , "(def-shell main-step [p: string] -> string (take-extension p))"
+                         , "(def-shell run [p: string] -> string (main-step p))"
+                         , "(def-shell guarded [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (string-length (run \"a.b\")))" ]
+          rows n = [ teFfiAssumptions e | e <- trEntries (buildTrustReport Map.empty stmts Map.empty), teName e == n ]
+          row = FfiAssumption "main-step" "filepath" "takeExtension"
+      rows "main-step" `shouldBe` [[row]]
+      rows "run" `shouldBe` [[row]]
+      rows "guarded" `shouldBe` [[row]]
+    it "E14 a row crosses a module boundary with the callee's qualified name" $ do
+      let pathsStmts = parsed [fp1, "(def-shell ext-of [p: string] -> string (take-extension p))"]
+          cache = Map.fromList [(["paths"], buildModuleEnv ["paths"] pathsStmts Map.empty emptyEnv)]
+          entry = [SImport (Import "paths" Nothing Nothing), SDefShell "run" [("p", TString)] (Just TString)
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) []]
+          rows n = [ teFfiAssumptions e | e <- trEntries (buildTrustReport cache entry Map.empty), teName e == n ]
+      rows "run" `shouldBe` [[FfiAssumption "paths.ext-of" "filepath" "takeExtension"]]
+    it "ffi_assumptions renders only when present" $ do
+      let stmts = parsed [fp1, "(def-shell f [p: string] -> string (take-extension p))", "(def-shell g [x: int] -> int x)"]
+          js = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
+      js `shouldSatisfy` T.isInfixOf "ffi_assumptions"
+      js `shouldSatisfy` T.isInfixOf "takeExtension"
+      length (T.breakOnAll "ffi_assumptions" js) `shouldBe` 1
+    -- build
+    it "E5b a misspelled export is a GHC error at the .llmll import line" $ do
+      res <- buildOnly "e5b" "/llmll-src/e5b.llmll"
+               [ "(import haskell.filepath (interface [[take-extention (fn [p: string] -> string)]]))"
+               , "(def-shell f [p: string] -> string (take-extention p))" ]
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, err) -> do
+          code `shouldNotBe` ExitSuccess
+          err `shouldSatisfy` isInfixOf "/llmll-src/e5b.llmll:1:"
+          err `shouldSatisfy` isInfixOf "Not in scope: \8216System.FilePath.takeExtention\8217"
+    it "E5 a type the export does not instantiate is a GHC error at the .llmll import line" $ do
+      res <- buildOnly "e5" "/llmll-src/e5.llmll"
+               [ "", "(import haskell.filepath (interface [[take-extension (fn [p: string] -> int)]]))"
+               , "(def-shell f [p: string] -> int (take-extension p))" ]
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, err) -> do
+          code `shouldNotBe` ExitSuccess
+          err `shouldSatisfy` isInfixOf "/llmll-src/e5.llmll:2:"
+    it "end to end: filepath and containers entries build and run" $ do
+      let src = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , fp1
+            , "(import haskell.containers (interface [[insert (fn [k: string v: int m: map[string, int]] -> map[string, int])] [member (fn [k: string m: map[string, int]] -> bool)] [to-list (fn [m: map[string, int]] -> list[(string, int)])] [filter (fn [p: (fn [v: int] -> bool) m: map[string, int]] -> map[string, int])]]))"
+            , "(def-shell report [u: unit] -> string"
+            , "  (let [[m (insert \"b\" 2 (insert \"a\" 1 (map-empty)))]]"
+            , "    (string-concat-many [(take-extension \"a/b.tar.gz\") \" \" (if (member \"a\" m) \"yes\" \"no\") \" \""
+            , "      (int-to-string (list-length (to-list m))) \" \" (if (member \"a\" (filter (fn [v: int] (> v 1)) m)) \"yes\" \"no\")])))"
+            , "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"x\")))"
+            , "(def-shell fin [s: int] -> bool (>= s 1))"
+            , "(def-main :mode cli :init (pair 0 (wasi.io.stdout (report ()))) :step st :done? fin)"
+            ]
+      res <- buildAndRun "ffi1" src (const (pure ()))
+      case res of
+        Nothing -> pendingWith "stack not on PATH"
+        Just (code, out, err, _) -> do
+          (out, err) `shouldBe` (".gz yes 2 no", "")
           code `shouldBe` ExitSuccess
 
   describe "RESERVED-NAME-1" $ do

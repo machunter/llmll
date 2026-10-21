@@ -82,6 +82,7 @@ import qualified Data.Map.Strict as Map
 import LLMLL.Syntax
 import LLMLL.BuildScope (stripModuleQualifiers)
 import LLMLL.TypeAdmissibility (buildAliasMap, mentionsNoEq)
+import LLMLL.Ffi (ffiPackageModules, FfiEntry(..), ffiEntriesOf, ffiEntryNames, camelName, forcerFor)
 import qualified Data.Set as Set
 import Data.Char (isUpper)
 
@@ -152,7 +153,11 @@ generateHaskell modName stmts0 =
       -- multi-module build is every module's statements (generateHaskellMulti).
       noEq      = let am = buildAliasMap stmts
                   in Set.fromList [ n | STypeDef n body@(TSumType _) <- stmts, mentionsNoEq am body ]
-      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf noEq stmts
+      -- FFI-TIER1-1 (D1): one forced, typed binding per haskell.* interface
+      -- entry, read from the statements BEFORE the rename (the camel-cased
+      -- Haskell export name comes from the LLMLL name) and named by the map.
+      ffiLines  = emitFfiBindings renameMap stmts0
+      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf noEq ffiLines stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
       pkgYaml   = emitPackageYaml modName hasMain httpGet listKinds hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
@@ -211,8 +216,8 @@ preludeHiding
   | null preludeClashes = "import Prelude"
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
-emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> Set.Set Name -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq stmts = T.unlines $
+emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> Set.Set Name -> [Text] -> [Statement] -> Text
+emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -323,22 +328,73 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq stmts = T.unlines $
   , "-- ---------------------------------------------------------------------------"
   , ""
   ] ++
-  map (emitStmtRenamed srcOf noEq) (filter (not . isDefMain) stmts)
+  map (emitStmtRenamed srcOf noEq) (filter (not . isDefMain) stmts) ++
+  -- FFI-TIER1-1: the bindings are the LAST block, so their LINE pragmas need
+  -- no pragma after them returning attribution to Lib.hs.
+  ffiLines
+
+-- | FFI-TIER1-1 (D1): the haskell.* interface bindings. Each is eta-expanded
+-- to its parameters, calls the export by its qualified Haskell name, and wraps
+-- the result in 'llmll_full' with the forcer for its type, so a bottom inside
+-- a library result surfaces where the result is first demanded (EVAL-STRICT-1).
+-- A LINE pragma before each of the two lines makes GHC report a missing export
+-- or a type the export does not instantiate at the .llmll import line (D7). An
+-- import read from JSON-AST has no line, and gets a comment instead. Identical
+-- entries from two modules give one binding (D6).
+emitFfiBindings :: Map Name Text -> [Statement] -> [Text]
+emitFfiBindings renameMap stmts = case entries of
+  [] -> []
+  es -> [ "", "-- haskell.* interface bindings (FFI-TIER1-1)" ] ++ ffiForcers ++ concatMap bind es
+  where
+    -- The forcers 'forcerFor' names beyond the preamble's. Emitted only with
+    -- a binding, so a program with no haskell.* interface is byte-identical.
+    -- Data.Map.Strict forces values to WHNF only, so a nested structure inside
+    -- a value still needs the walk.
+    ffiForcers =
+      [ "llmll_uM :: (k -> ()) -> (v -> ()) -> Map.Map k v -> ()"
+      , "llmll_uM rk rv m = Map.foldrWithKey (\\k v acc -> rk k `seq` rv v `seq` acc) () m"
+      , ""
+      , "llmll_uP2 :: (a -> ()) -> (b -> ()) -> (a, b) -> ()"
+      , "llmll_uP2 ra rb (a, b) = ra a `seq` rb b"
+      , ""
+      , "llmll_uEi :: (e -> ()) -> (t -> ()) -> Either e t -> ()"
+      , "llmll_uEi re _ (Left e) = re e"
+      , "llmll_uEi _ rt (Right t) = rt t"
+      , "" ]
+    entries = nubOn (\e -> (feName e, fePackage e, feType e)) (ffiEntriesOf stmts)
+    nubOn f = go []
+      where go _ [] = []
+            go seen (x:xs) | f x `elem` seen = go seen xs
+                           | otherwise       = x : go (f x : seen) xs
+    bind e =
+      let hsN      = Map.findWithDefault (toHsIdent (feName e)) (feName e) renameMap
+          (ps, r)  = case feType e of
+                       TFn as r' -> (as, r')
+                       t         -> ([], t)
+          args     = [ "a" <> T.pack (show i) | i <- [1 .. length ps] ]
+          lhsArgs  = case feType e of
+                       TFn [] _ -> ["_"]
+                       _        -> args
+          call     = T.unwords ((feModule e <> "." <> camelName (feName e)) : args)
+          sig      = hsN <> " :: " <> toHsType (feType e)
+          defn     = T.unwords (hsN : lhsArgs) <> " = llmll_full " <> forcerFor r <> " (" <> call <> ")"
+          pragma   = case feSrc e of
+                       Just (f, l) -> ["{-# LINE " <> T.pack (show l) <> " " <> hsString f <> " #-}"]
+                       Nothing     -> []
+          note     = case feSrc e of
+                       Just _  -> ""
+                       Nothing -> " (no source line: read from JSON-AST)"
+      in ("-- haskell." <> fePackage e <> " interface entry " <> feName e <> note)
+         : pragma ++ [sig] ++ pragma ++ [defn]
+    hsString f = "\"" <> T.concatMap esc (T.pack f) <> "\""
+    esc '"'  = "\\\""
+    esc '\\' = "\\\\"
+    esc c    = T.singleton c
 
 -- | Map haskell.<pkg> short names to their actual Haskell module paths.
 -- Unknown packages fall back to capitalize-and-join.
 hackageModuleMap :: Map Text Text
-hackageModuleMap = Map.fromList
-  [ ("aeson",       "Data.Aeson")
-  , ("text",        "Data.Text")
-  , ("bytestring",  "Data.ByteString")
-  , ("containers",  "Data.Map.Strict")
-  , ("vector",      "Data.Vector")
-  , ("time",        "Data.Time")
-  , ("directory",   "System.Directory")
-  , ("filepath",    "System.FilePath")
-  , ("process",     "System.Process")
-  ]
+hackageModuleMap = ffiPackageModules  -- FFI-TIER1-1: one table, shared with the checker (D5)
 
 -- | RESERVED-NAME-1 residue (1): qualified, so the module's exports cannot
 -- collide with a user name or with the runtime preamble's own uses of
@@ -3034,8 +3090,6 @@ hackagePkgNames = nub . map toPkg
   where
     toPkg "aeson"    = "aeson"
     toPkg "text"     = "text"
-    toPkg "warp"     = "warp"
-    toPkg "wai"      = "wai"
     toPkg p          = T.intercalate "-" (T.splitOn "." p)
 
 -- ---------------------------------------------------------------------------
@@ -3278,6 +3332,8 @@ userBoundNames stmts = Set.unions (map stmtNames stmts)
       SCheck p                   -> propNames p
       SExpr e                    -> exprBinders e
       SDefMain{}                 -> Set.unions (map exprBinders (stmtExprs s))
+      -- FFI-TIER1-1: a haskell.* interface entry binds a top-level name.
+      SImport _                  -> Set.fromList (ffiEntryNames [s])
       _                          -> Set.empty
     defNames n ps c es = Set.insert n (Set.fromList (map fst ps))
       <> Set.unions (map exprBinders (es ++ catMaybes [contractPre c, contractPost c]))
@@ -3369,6 +3425,7 @@ renameStatements m stmts
       [ n | s <- stmts, Just n <- [defNameOf s] ]
       ++ [ c | STypeDef _ body <- stmts, c <- typeDefCtors body ]
       ++ [ f | SDefInterface _ fns _ <- stmts, (f, _) <- fns ]
+      ++ ffiEntryNames stmts  -- FFI-TIER1-1: a call to an entry takes its binding's name
     topTypes = Set.fromList $
       [ n | STypeDef n _ <- stmts ] ++ [ n | SDefInterface n _ _ <- stmts ]
     defNameOf s = case s of

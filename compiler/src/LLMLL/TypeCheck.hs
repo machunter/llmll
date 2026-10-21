@@ -90,6 +90,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
+import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..))
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -1288,6 +1289,7 @@ checkCalleeAdmissibility func = do
       -- ("verify it first") is unreachable for a sealed builtin.
       let localDefs = Set.fromList [ n | st <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt st] ]
           d | excluded                     = mkCoreExcludedBuiltin enclosing func
+            | func `elem` ffiEntryNames stmts = mkCoreFfiCallee enclosing func
             | Set.member func localDefs    = mkCoreMembershipViolationLocal enclosing func isRec
             | Just via <- viaTA            = mkCoreTerminationAssumed enclosing func via
             | otherwise                    = mkCoreMembershipViolation enclosing func
@@ -1891,7 +1893,12 @@ checkStatements stmts = do
 -- duplicate, and never reaches this pass.
 checkDuplicateTopLevel :: [Statement] -> TC ()
 checkDuplicateTopLevel stmts = do
-  let fnNames = mapMaybe fnNameOf stmts
+  -- FFI-TIER1-1 (D6): a haskell.* interface entry is a top-level name. The
+  -- same entry of the same package declared twice at the same type is one
+  -- binding, so identical entries count once; the same name at two types, or
+  -- from two packages, is a duplicate.
+  let ffiNames = [ n | (n, _, _) <- nub [ (feName e, fePackage e, feType e) | e <- ffiEntriesOf stmts ] ]
+      fnNames = mapMaybe fnNameOf stmts ++ ffiNames
       tyNames = [n | STypeDef n _ <- stmts] ++ [n | SDefInterface n _ _ <- stmts]
       mains   = length [() | SDefMain{} <- stmts]
       dupesOf ns   = nub (ns \\ nub ns)
@@ -2232,6 +2239,9 @@ checkStatement (SImport imp) = do
           modify $ \s -> s
             { tcErrors = tcErrors s ++ [mkFsDeterministicRefused (importPath imp)] }
     _ -> pure ()
+  -- FFI-TIER1-1 (D2-D5): a haskell.* import's package and interface entries
+  -- must be ones the emitter can bind. Each refusal names its own kind.
+  forM_ (ffiImportErrors imp) (uncurry tcErrorK)
   -- Register imported interface functions if specified
   case importInterface imp of
     Nothing -> pure ()

@@ -400,12 +400,15 @@ pForAll = parens $ do
 -- (import foo.bar.baz (capability ...))
 pImportStmt :: Parser Statement
 pImportStmt = do
+  pos <- getSourcePos
   _ <- try (symbol "(" *> symbol "import")
   path <- pDottedIdent
   iface <- optional (try pInterfaceSpec)
   cap <- optional (try pCapabilitySpec)
   _ <- symbol ")"
-  pure $ SImport (Import path iface cap)
+  -- FFI-TIER1-1: record where the import is, for the LINE pragmas codegen
+  -- puts on a haskell.* interface binding.
+  pure $ SImport (ImportAt path iface cap (Just (sourceName pos, unPos (sourceLine pos))))
 
 -- | Parse (open foo.bar) or (open foo.bar (f g h)) — v0.2.
 -- Pulls all or named exports of a module into the current bare scope.

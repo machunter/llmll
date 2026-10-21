@@ -57,6 +57,7 @@ module LLMLL.Diagnostic
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
+  , mkCoreFfiCallee
   , mkCoreMembershipViolationLocal
   , mkCoreTerminationAssumed
   , mkCoreExcludedBuiltin
@@ -700,6 +701,19 @@ mkCoreMembershipViolation defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
+       }
+
+-- | FFI-TIER1-1 (E9): the same violation when the callee is a haskell.*
+-- interface entry. "Verify it first" cannot help: a Hackage function has no
+-- LLMLL body to verify. Same 'diagKind' as 'mkCoreMembershipViolation'.
+mkCoreFfiCallee :: Text -> Text -> Diagnostic
+mkCoreFfiCallee defName callee =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is a haskell.* interface entry; a Hackage function has no body to verify, "
+            <> "so it is not admissible in a strict-core body"
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("Call '" <> callee <> "' from a def-shell instead (admitting Hackage functions to the strict core is FFI-UNINTERP-1)")
        }
 
 -- | HEADLINE-TERM-1 item (4): the same violation when the callee is defined in
