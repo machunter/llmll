@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.9)
+<a id="Latest"></a>
+
+## v0.30.10: Tier 1 Hackage imports, lossless boundary types, and FFI trust disclosure (2026-10-21)
 
 ### `FFI-TIER1-1`: Tier 1 Hackage imports work
 
@@ -83,8 +85,6 @@
 2512 examples, 0 failures (+63 since v0.30.9). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
-
-<a id="Latest"></a>
 
 ## v0.30.9: equality-capable types, callable function aliases, and FFI Rev 3 settled (2026-10-20)
 
