@@ -24,6 +24,8 @@ module LLMLL.TrustReport
   , markInheritedAxioms         -- TRUST-AXIOM: per-entry transitive-callee axiom setter
   , markGroundFacts             -- TRUST-AXIOM family C: per-entry ground-fact-family setter
   , InheritedAxiom(..)          -- TRUST-AXIOM: one inherited row
+  , FfiAssumption(..)           -- FFI-TIER1-1 (D9): one Hackage-assumption row
+  , markFfiAssumptions          -- FFI-TIER1-1 (D9): the rows, own and inherited
   , inheritedAxiomJson          -- TRUST-AXIOM: its JSON shape
   , builtinAxiomJson            -- TRUST-AXIOM: its JSON shape
   , trustAssumptionRows         -- TRUST-CH-HOLE-1: the entry's assumptions, kind-discriminated
@@ -89,7 +91,8 @@ import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotation
 import LLMLL.AstEmit (exprToJson)
 -- PARTIAL-FNS-GRAPH-1: 'partial_fns' reads the module-qualified graph, the
 -- same one 'termination_assumed_fns' reads ('LLMLL.ProgramGraph').
-import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers)
+import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, extractRefs)
+import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.EvidenceKey (evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM
 
 -- ---------------------------------------------------------------------------
@@ -165,6 +168,22 @@ data TrustEntry = TrustEntry
   -- the sealed-builtin posts, no obligation discharges either, and both ride
   -- 'codegen_semantics_version'. Populated by 'markGroundFacts' post-emit.
   , teGroundFacts        :: [Name]
+  -- FFI-TIER1-1 (D9): the haskell.* interface functions this function's
+  -- verdict assumes total and free of hidden effects at the declared type, its
+  -- own calls and those it reaches through its callees, in any module. The
+  -- trust LEVEL does not change. Populated by 'markFfiAssumptions' on every
+  -- report path. Additive JSON key 'ffi_assumptions', only-when-present, no
+  -- 'trust_report_version' change (the 'harness_assumptions' precedent).
+  , teFfiAssumptions     :: [FfiAssumption]
+  } deriving (Show, Eq)
+
+-- | FFI-TIER1-1 (D9): one row. 'faOrigin' is the function that calls the
+-- Hackage export directly: the entry itself for its own call, or the callee
+-- through which the assumption arrives.
+data FfiAssumption = FfiAssumption
+  { faOrigin  :: Name
+  , faPackage :: Text
+  , faExport  :: Text
   } deriving (Show, Eq)
 
 -- | TRUST-AXIOM: one inherited sealed-builtin axiom, or one callee whose
@@ -616,7 +635,8 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- as "no rows"; entry names are bare, matching 'buildModuleEntries ""'.
       assumedRows  = rpDisclosures (respFactPlanOrEmpty
                        (analyzeRespFacts (cacheAwareAliasMap entryStmts cache) entryStmts))
-      markedEntries = markAssumedFacts assumedRows (markCallerObligations progGraph declaredReqs jointMarked)
+      markedEntries = markFfiAssumptions cache entryStmts progGraph
+                        (markAssumedFacts assumedRows (markCallerObligations progGraph declaredReqs jointMarked))
       -- Compute summary
       summary = computeSummary markedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
@@ -1373,7 +1393,44 @@ mkEntry qname contract body allCS =
        , teBuiltinAxioms      = []       -- TRUST-AXIOM: filled by markBuiltinAxioms post-emit
        , teInheritedAxioms    = []       -- TRUST-AXIOM: filled by markInheritedAxioms post-emit
        , teGroundFacts        = []       -- TRUST-AXIOM family C: filled by markGroundFacts post-emit
+       , teFfiAssumptions     = []       -- FFI-TIER1-1 (D9): filled by markFfiAssumptions
        }
+
+-- | FFI-TIER1-1 (D9): stamp each entry with the Hackage functions its verdict
+-- assumes. The direct rows come from each module's own source: a function
+-- calls, or uses as a value, a name its module's haskell.* interface binds.
+-- The inherited rows follow the module-qualified call graph
+-- ('qualifiedCallGraph', which also keeps callees that carry no contract), not
+-- 'teDeps', which holds only callees with a contract status. Modules come from
+-- the cache's parsed statements, so every report path sees the same rows and
+-- no sidecar is read: which interface names a function calls is fixed by its
+-- source.
+markFfiAssumptions :: ModuleCache -> [Statement] -> Map Name [Name] -> [TrustEntry] -> [TrustEntry]
+markFfiAssumptions cache entryStmts graph entries = map stamp entries
+  where
+    direct :: Map Name [FfiAssumption]
+    direct = Map.fromList $ concat $
+      directFor "" entryStmts
+      : [ directFor (T.intercalate "." p <> ".") (meStatements m) | (p, m) <- Map.toList cache ]
+    directFor prefix stmts =
+      let ffi = Map.fromList [ (feName e, (fePackage e, camelName (feName e))) | e <- ffiEntriesOf stmts ]
+      in if Map.null ffi then [] else
+         [ (q, rows)
+         | (f, ps, body) <- defBodies stmts
+         , let q = prefix <> f
+               used = nub (extractCalls body ++ extractRefs ps body)
+               rows = [ FfiAssumption q pkg ex | n <- used, Just (pkg, ex) <- [Map.lookup n ffi] ]
+         , not (null rows) ]
+    defBodies stmts =
+      [ (n, map fst ps, b) | st <- stmts, Just (n, ps, _, _, b) <- [normalizeDefStmt st] ]
+      ++ [ (n, map fst ps, b) | SLetrec n ps _ _ _ b <- stmts ]
+    reach = transitiveClose graph
+    stamp e =
+      let n     = teName e
+          own   = Map.findWithDefault [] n direct
+          via   = concat [ Map.findWithDefault [] c direct
+                         | c <- Set.toList (Map.findWithDefault Set.empty n reach), c /= n ]
+      in e { teFfiAssumptions = nub (own ++ via) }
 
 -- | Extract all function call names from an expression (recursive walk).
 extractCalls :: Expr -> [Name]
@@ -1893,6 +1950,13 @@ trustAssumptionRows e =
       ]
 
 -- | RESP-FACT-1: the JSON shape of one assumed-fact row.
+-- | FFI-TIER1-1 (D9): one @ffi_assumptions@ row.
+ffiAssumptionJson :: FfiAssumption -> Value
+ffiAssumptionJson a = object
+  [ "origin"  .= faOrigin a
+  , "package" .= faPackage a
+  , "export"  .= faExport a ]
+
 assumedFactJson :: AssumedFact -> Value
 assumedFactJson a = object
   [ "tag"       .= afTag a
@@ -2353,6 +2417,9 @@ formatTrustReportJsonWith discarded report =
       -- TRUST-AXIOM family C: additive, only-when-present, same rule.
       [ "ground_fact_families" .= teGroundFacts e
       | not (null (teGroundFacts e)) ] ++
+      -- FFI-TIER1-1 (D9): additive, only-when-present, same rule.
+      [ "ffi_assumptions" .= map ffiAssumptionJson (teFfiAssumptions e)
+      | not (null (teFfiAssumptions e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

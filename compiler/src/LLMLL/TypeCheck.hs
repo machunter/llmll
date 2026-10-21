@@ -90,6 +90,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
+import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..), lowerFfiType, ffiBoundaryMisuse)
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -1288,6 +1289,7 @@ checkCalleeAdmissibility func = do
       -- ("verify it first") is unreachable for a sealed builtin.
       let localDefs = Set.fromList [ n | st <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt st] ]
           d | excluded                     = mkCoreExcludedBuiltin enclosing func
+            | func `elem` ffiEntryNames stmts = mkCoreFfiCallee enclosing func
             | Set.member func localDefs    = mkCoreMembershipViolationLocal enclosing func isRec
             | Just via <- viaTA            = mkCoreTerminationAssumed enclosing func via
             | otherwise                    = mkCoreMembershipViolation enclosing func
@@ -1891,7 +1893,12 @@ checkStatements stmts = do
 -- duplicate, and never reaches this pass.
 checkDuplicateTopLevel :: [Statement] -> TC ()
 checkDuplicateTopLevel stmts = do
-  let fnNames = mapMaybe fnNameOf stmts
+  -- FFI-TIER1-1 (D6): a haskell.* interface entry is a top-level name. The
+  -- same entry of the same package declared twice at the same type is one
+  -- binding, so identical entries count once; the same name at two types, or
+  -- from two packages, is a duplicate.
+  let ffiNames = [ n | (n, _, _) <- nub [ (feName e, fePackage e, feType e) | e <- ffiEntriesOf stmts ] ]
+      fnNames = mapMaybe fnNameOf stmts ++ ffiNames
       tyNames = [n | STypeDef n _ <- stmts] ++ [n | SDefInterface n _ _ <- stmts]
       mains   = length [() | SDefMain{} <- stmts]
       dupesOf ns   = nub (ns \\ nub ns)
@@ -1902,6 +1909,10 @@ checkDuplicateTopLevel stmts = do
           <> T.pack (show (countOf ns n))
           <> " times in this module; a name is bound once per scope (LLMLL.md §1.1)"
   forM_ (dupesOf fnNames) (report "function" fnNames)
+  -- FFI-CONV-1 (E20): a boundary type outside a haskell.* interface entry.
+  forM_ (ffiBoundaryMisuse stmts) $ \n ->
+    tcErrorK "ffi-type-unsupported" $
+      "unknown type '" <> n <> "': boundary types are valid only inside a haskell.* interface entry"
   forM_ (dupesOf tyNames) (report "type" tyNames)
   -- RESERVED-NAME-1: a top-level definition may not take a builtin's name.
   -- Before this check `(def string-concat [x: int] -> int x)` passed silently,
@@ -2232,11 +2243,16 @@ checkStatement (SImport imp) = do
           modify $ \s -> s
             { tcErrors = tcErrors s ++ [mkFsDeterministicRefused (importPath imp)] }
     _ -> pure ()
+  -- FFI-TIER1-1 (D2-D5): a haskell.* import's package and interface entries
+  -- must be ones the emitter can bind. Each refusal names its own kind.
+  forM_ (ffiImportErrors imp) (uncurry tcErrorK)
   -- Register imported interface functions if specified
   case importInterface imp of
     Nothing -> pure ()
     Just fns -> forM_ fns $ \(fname, ftype) ->
-      modify $ \s -> s { tcEnv = Map.insert fname ftype (tcEnv s) }
+      -- FFI-CONV-1 (D10): callers see the lowered type (hs-text is string,
+      -- hs-maybe[T] is Result[T, unit], hs-int is int).
+      modify $ \s -> s { tcEnv = Map.insert fname (lowerFfiType ftype) (tcEnv s) }
 
 -- | SOpen: inject exported names from the referenced module as bare names.
 -- Qualified names (module.path.f) must already be in the env via typeCheckWithCache.

@@ -70,8 +70,12 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- plain string enum ["console", "cli"] and the {"kind": "http", "port": N}
 -- object is removed. A cli step now takes (State, Response). No tracked
 -- document used http, so every older version stays accepted for reading.
+-- AST-TYPE-ALIAS-1 + FFI-CONV-1: bumped 0.12.0 → 0.13.0, once for both. A
+-- type-decl body may be any Type (a plain alias), and Type gains the boundary
+-- kinds hs-text, hs-int and hs-maybe. Both are additive: every 0.12.0 document
+-- is a valid 0.13.0 one, so the older versions stay accepted for reading.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.12.0"
+expectedSchemaVersion = "0.13.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -91,7 +95,7 @@ expectedSchemaVersion = "0.12.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -439,7 +443,9 @@ parseTypeBody = withObject "TypeBody" $ \o -> do
     "sum" -> do
       variants <- o .: "variants" >>= mapM parseVariant
       pure $ TSumType variants
-    _ -> fail $ "unknown TypeBody kind: " ++ T.unpack kind
+    -- AST-TYPE-ALIAS-1: any other body is a plain alias, as the S-expression
+    -- pTypeBody's fallback to pType reads it and as AstEmit writes it.
+    _ -> parseType (Object o)
 
 parseVariant :: Value -> Parser (Name, Maybe Type)
 parseVariant = withObject "Variant" $ \o -> do
@@ -620,6 +626,11 @@ parseType = withObject "Type" $ \o -> do
       snd_ <- o .: "snd" >>= parseType
       pure $ TPair fst_ snd_
     "command"   -> pure $ TCustom "Command"
+    -- FFI-CONV-1 (D10): boundary types; the checker refuses them outside a
+    -- haskell.* interface entry (E20).
+    "hs-text"   -> pure $ TCustom "hs-text"
+    "hs-int"    -> pure $ TCustom "hs-int"
+    "hs-maybe"  -> (\t -> TResult t (TCustom "hs-maybe")) <$> (o .: "inner" >>= parseType)
     "named"     -> do
       n <- o .: "name" :: Parser Text
       pure $ resolveNamedType n

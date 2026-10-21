@@ -224,6 +224,18 @@
           }
         },
         "ground_fact_families": { "type": "array", "items": { "type": "string" }, "description": "TRUST-AXIOM family C: ground-fact families this function's proof uses. Present only when non-empty." },
+        "ffi_assumptions": {
+          "type": "array",
+          "description": "FFI-TIER1-1 (D9): the haskell.* interface functions this function's verdict assumes total and free of hidden effects at the declared type, its own calls and those reached through its callees in any module. `origin` is the function that calls the export directly. The trust level does not change. Present only when non-empty.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["origin", "package", "export"],
+            "properties": {
+              "origin": { "type": "string" }, "package": { "type": "string" }, "export": { "type": "string" }
+            }
+          }
+        },
         "body_fallback": {
           "type": "object",
           "required": ["cause", "constructs"],
