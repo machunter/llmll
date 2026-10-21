@@ -17,10 +17,13 @@ module LLMLL.Ffi
   , forcerFor
   , lowerFfiType
   , ffiBoundaryMisuse
+  , lowerBoundaryMisuse
   , convIn
   , convOut
   ) where
 
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.List (nub)
@@ -196,6 +199,10 @@ firstJust ms = case [ x | Just x <- ms ] of
   []      -> Nothing
 
 -- | FFI-CONV-1 (D10): the LLMLL type a program sees for a declared type.
+-- FFI-E20-CASCADE-1: the 'TPromise', 'TDependent' and 'TSumType' arms make it
+-- cover the same constructors as the E20 collector, so a misused boundary type
+-- is lowered wherever E20 finds it. No interface entry reaches these arms: D10
+-- refuses all three in an entry before lowering.
 lowerFfiType :: Type -> Type
 lowerFfiType ty = case ty of
   TCustom "hs-text"              -> TString
@@ -206,35 +213,67 @@ lowerFfiType ty = case ty of
   TPair a b                      -> TPair (lowerFfiType a) (lowerFfiType b)
   TResult a b                    -> TResult (lowerFfiType a) (lowerFfiType b)
   TFn as r                       -> TFn (map lowerFfiType as) (lowerFfiType r)
+  TPromise a                     -> TPromise (lowerFfiType a)
+  TDependent n b p               -> TDependent n (lowerFfiType b) p
+  TSumType cs                    -> TSumType [ (c, fmap lowerFfiType t) | (c, t) <- cs ]
   _                              -> ty
+
+-- | FFI-E20-CASCADE-1: the one traversal over every type position that is not
+-- inside a @haskell.*@ interface entry. E20 collects through it
+-- ('ffiBoundaryMisuse') and the checker's recovery lowers through it
+-- ('lowerBoundaryMisuse'), so the positions E20 reports and the positions the
+-- lowering repairs cannot differ. Visited: non-@haskell.*@ import interfaces,
+-- type-def bodies, def-interface signatures, check bindings and bodies, and
+-- the parameters, return type and body of every def form (the decreases of a
+-- letrec too; not contracts). Inside an expression: let annotations and
+-- lambda parameters. Every other position is returned unchanged.
+traverseNonFfiTypes :: Applicative f => (Type -> f Type) -> Statement -> f Statement
+traverseNonFfiTypes f st = case st of
+  SImport imp
+    | "haskell." `T.isPrefixOf` importPath imp -> pure st
+    | otherwise -> case importInterface imp of
+        Nothing  -> pure st
+        Just ifc -> (\ifc' -> SImport imp { importInterface = Just ifc' }) <$> traverse binding ifc
+  STypeDef n body -> STypeDef n <$> f body
+  SDefInterface n fns laws -> (\fns' -> SDefInterface n fns' laws) <$> traverse binding fns
+  SCheck p -> (\bs b -> SCheck p { propBindings = bs, propBody = b })
+                <$> traverse binding (propBindings p) <*> expr (propBody p)
+  SLetrec n ps r c d b -> (\ps' r' d' b' -> SLetrec n ps' r' c d' b')
+                <$> traverse binding ps <*> traverse f r <*> expr d <*> expr b
+  SDefLogic n ps r c b -> (\ps' r' b' -> SDefLogic n ps' r' c b')
+                <$> traverse binding ps <*> traverse f r <*> expr b
+  SDef n ps r c b -> (\ps' r' b' -> SDef n ps' r' c b')
+                <$> traverse binding ps <*> traverse f r <*> expr b
+  SDefShell n ps r c b ds -> (\ps' r' b' -> SDefShell n ps' r' c b' ds)
+                <$> traverse binding ps <*> traverse f r <*> expr b
+  SDefInvariant n ps r c b -> (\ps' r' b' -> SDefInvariant n ps' r' c b')
+                <$> traverse binding ps <*> traverse f r <*> expr b
+  _ -> pure st
+  where
+    binding (n, t) = (,) n <$> f t
+    -- A let visits every annotation before every bound expression, the order
+    -- the E20 collector reported in before this traversal existed.
+    expr e = case e of
+      ELet bs b ->
+        (\ts xs b' -> ELet (zipWith3 (\(p, _, _) t x -> (p, t, x)) bs ts xs) b')
+          <$> traverse (\(_, t, _) -> traverse f t) bs
+          <*> traverse (\(_, _, x) -> expr x) bs
+          <*> expr b
+      ELambda ps b  -> ELambda <$> traverse binding ps <*> expr b
+      EMatch x arms -> EMatch <$> expr x <*> traverse (\(p, a) -> (,) p <$> expr a) arms
+      EDo steps     -> EDo <$> traverse (\s -> (\x -> s { dsExpr = x }) <$> expr (dsExpr s)) steps
+      EApp g as     -> EApp g <$> traverse expr as
+      EOp o as      -> EOp o <$> traverse expr as
+      EIf c t e'    -> EIf <$> expr c <*> expr t <*> expr e'
+      EPair a b     -> EPair <$> expr a <*> expr b
+      EAwait x      -> EAwait <$> expr x
+      _             -> pure e
 
 -- | E20: the boundary type names used outside a haskell.* interface entry.
 ffiBoundaryMisuse :: [Statement] -> [Name]
-ffiBoundaryMisuse stmts = nub (concatMap (boundaryNames . snd) (concatMap typesOf stmts))
+ffiBoundaryMisuse stmts =
+  nub (concatMap (getConst . traverseNonFfiTypes (Const . boundaryNames)) stmts)
   where
-    typesOf st = case st of
-      SImport imp
-        | "haskell." `T.isPrefixOf` importPath imp -> []
-        | otherwise -> map (\(n, t) -> (n, t)) (fromMaybe [] (importInterface imp))
-      STypeDef n body -> [(n, body)]
-      SDefInterface _ fns _ -> fns
-      SCheck p -> propBindings p ++ exprTypes (propBody p)
-      SLetrec n ps r _ d b -> sig n ps r ++ exprTypes d ++ exprTypes b
-      _ -> case normalizeDefStmt st of
-             Just (n, ps, r, _, b) -> sig n ps r ++ exprTypes b
-             Nothing               -> []
-    sig n ps r = ps ++ [ (n, t) | Just t <- [r] ]
-    exprTypes e = case e of
-      ELet bs b      -> [ ("let", t) | (_, Just t, _) <- bs ] ++ concat [ exprTypes x | (_, _, x) <- bs ] ++ exprTypes b
-      ELambda ps b   -> ps ++ exprTypes b
-      EMatch x arms  -> exprTypes x ++ concatMap (exprTypes . snd) arms
-      EDo steps      -> concat [ exprTypes x | DoStep _ x _ <- steps ]
-      EApp _ as      -> concatMap exprTypes as
-      EOp _ as       -> concatMap exprTypes as
-      EIf c t f      -> exprTypes c ++ exprTypes t ++ exprTypes f
-      EPair a b      -> exprTypes a ++ exprTypes b
-      EAwait x       -> exprTypes x
-      _              -> []
     boundaryNames ty = case ty of
       TCustom n | n `elem` ["hs-text", "hs-int", "hs-maybe"] -> [n]
       TResult t (TCustom "hs-maybe") -> "hs-maybe" : boundaryNames t
@@ -247,6 +286,15 @@ ffiBoundaryMisuse stmts = nub (concatMap (boundaryNames . snd) (concatMap typesO
       TDependent _ b _ -> boundaryNames b
       TSumType cs      -> concat [ boundaryNames t | (_, Just t) <- cs ]
       _                -> []
+
+-- | FFI-E20-CASCADE-1: the statements with every boundary type that E20
+-- reports replaced by its lowered LLMLL type. The checker reports E20 on the
+-- source statements and type-checks this copy, so a misused @hs-text@ gives
+-- E20 alone and no follow-on @type-mismatch@. It is the identity on a program
+-- with no E20: @ffiBoundaryMisuse ss == []@ implies
+-- @lowerBoundaryMisuse ss == ss@.
+lowerBoundaryMisuse :: [Statement] -> [Statement]
+lowerBoundaryMisuse = map (runIdentity . traverseNonFfiTypes (Identity . lowerFfiType))
 
 -- | FFI-CONV-1 (D10): the converter from the LLMLL value to the Haskell
 -- argument, or Nothing for @id@. Every converter that is not @id@ carries an

@@ -90,7 +90,7 @@ import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
-import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..), lowerFfiType, ffiBoundaryMisuse)
+import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..), lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -1736,7 +1736,17 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
 
 -- | Build top-level environment from definitions, then check each statement.
 checkStatements :: [Statement] -> TC ()
-checkStatements stmts = do
+checkStatements rawStmts = do
+  -- FFI-CONV-1 (E20): a boundary type outside a haskell.* interface entry,
+  -- reported on the source statements.
+  -- FFI-E20-CASCADE-1: the rest of the check runs on a copy with each misused
+  -- boundary type lowered to its LLMLL type, so E20 is the only error the
+  -- misuse causes (no follow-on type-mismatch from an opaque TCustom). The
+  -- lowering is the identity on a program with no E20.
+  forM_ (ffiBoundaryMisuse rawStmts) $ \n ->
+    tcErrorK "ffi-type-unsupported" $
+      "unknown type '" <> n <> "': boundary types are valid only inside a haskell.* interface entry"
+  let stmts = lowerBoundaryMisuse rawStmts
   -- First pass: collect all top-level function and type names
   -- RET-RESOLVE: 'collectTopLevel' seeds every unannotated head at 'TVar "?"'
   -- on every run, so a later round of the Kleene pass cannot see an earlier
@@ -1909,10 +1919,6 @@ checkDuplicateTopLevel stmts = do
           <> T.pack (show (countOf ns n))
           <> " times in this module; a name is bound once per scope (LLMLL.md §1.1)"
   forM_ (dupesOf fnNames) (report "function" fnNames)
-  -- FFI-CONV-1 (E20): a boundary type outside a haskell.* interface entry.
-  forM_ (ffiBoundaryMisuse stmts) $ \n ->
-    tcErrorK "ffi-type-unsupported" $
-      "unknown type '" <> n <> "': boundary types are valid only inside a haskell.* interface entry"
   forM_ (dupesOf tyNames) (report "type" tyNames)
   -- RESERVED-NAME-1: a top-level definition may not take a builtin's name.
   -- Before this check `(def string-concat [x: int] -> int x)` passed silently,

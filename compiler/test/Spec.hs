@@ -42,7 +42,7 @@ import qualified System.Directory as SD
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
-import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType)
+import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
@@ -22077,7 +22077,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       kinds ["(import haskell.text (interface [[f (fn [g: (fn [x: int] -> hs-int)] -> int)]]))"] `shouldBe` [unsup]
     it "E20 a boundary type outside a haskell.* interface entry is refused" $
       errs ["(def-shell g [s: hs-text] -> int 1)"]
-        `shouldSatisfy` elem (unsup, "unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry")
+        `shouldBe` [(unsup, "unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry")]
+    -- FFI-E20-CASCADE-1: E20 is the only error a misused boundary type causes.
+    let e20Text = [(unsup, "unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry")]
+    it "FFI-E20-CASCADE-1 a misused return type gives E20 alone" $
+      errs ["(def-shell g [s: int] -> hs-text \"x\")"] `shouldBe` e20Text
+    it "FFI-E20-CASCADE-1 a misused parameter used as a string gives E20 alone" $
+      errs ["(def-shell g [s: hs-text] -> int (string-length s))"] `shouldBe` e20Text
+    it "FFI-E20-CASCADE-1 a misused type does not cascade into a caller" $
+      errs [ "(def-shell g [s: hs-text] -> hs-text s)"
+           , "(def-shell h [x: int] -> string (g \"a\"))" ] `shouldBe` e20Text
+    it "FFI-E20-CASCADE-1 a misused lambda parameter gives E20 alone" $
+      errs ["(def-shell g [s: int] -> int (let [[f (fn [x: hs-text] (string-length x))]] (f \"a\")))"]
+        `shouldBe` e20Text
+    it "FFI-E20-CASCADE-1 a genuine second error survives the lowering" $
+      map snd (errs ["(def-shell g [s: hs-text] -> int (string-length 5))"])
+        `shouldBe` [ "unknown type 'hs-text': boundary types are valid only inside a haskell.* interface entry"
+                   , "type mismatch in 'string-length': expected string, got int" ]
+    it "FFI-E20-CASCADE-1 a sum-type payload and a check binding give E20 alone" $ do
+      errs ["(type T (| A hs-text))", "(def-shell g [t: T] -> int (match t ((A s) (string-length s))))"]
+        `shouldBe` e20Text
+      errs ["(check \"p\" (for-all [x: hs-int] (= (+ x 1) (+ 1 x))))"]
+        `shouldBe` [(unsup, "unknown type 'hs-int': boundary types are valid only inside a haskell.* interface entry")]
+    it "FFI-E20-CASCADE-1 the lowering is the identity without E20 and removes every E20 position" $ do
+      let corpus =
+            [ ["(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))"
+              , "(def-shell main-step [p: string] -> string (take-extension p))"
+              , "(def-shell run [p: string] -> string (main-step p))" ]
+            , ["(import haskell.containers (interface [[filter (fn [p: (fn [v: int] -> bool) m: map[string, int]] -> map[string, int])] [lookup (fn [k: string m: map[string, int]] -> int)]]))"
+              , "(def-shell g [m: map[string, int]] -> int (lookup \"a\" (filter (fn [v: int] (> v 1)) m)))" ]
+            , ["(import haskell.text (interface [[take (fn [n: hs-int s: hs-text] -> hs-text)]]))"]
+            , ["(import haskell.text (interface [[f (fn [g: (fn [x: int] -> hs-int)] -> int)]]))"]
+            , ["(import haskell.containers (interface [[to-list (fn [m: map[string, int]] -> list[(hs-text, int)])] [f (fn [x: int] -> map[hs-text, int])]]))"]
+            , [ "(import haskell.containers (interface [[f (fn [x: int] -> hs-maybe[hs-maybe[int]])]]))"
+              , "(def-shell g [x: int] -> Result[Result[int, unit], unit] (f x))" ]
+            , ["(import haskell.text (interface [[split-on (fn [sep: hs-text s: hs-text] -> list[hs-text])] [len (fn [s: hs-text] -> hs-int)]]))"]
+            , ["(def-shell g [s: hs-text] -> int 1)"]
+            , ["(def-shell g [s: int] -> hs-text \"x\")"]
+            , ["(def-shell g [s: hs-text] -> hs-text s)", "(def-shell h [x: int] -> string (g \"a\"))"]
+            , ["(def-shell g [s: int] -> int (let [[f (fn [x: hs-text] (string-length x))]] (f \"a\")))"]
+            , ["(def-shell g [s: int] -> hs-maybe[int] (ok 1))"]
+            , ["(type T (| A hs-text))"]
+            , ["(check \"p\" (for-all [x: hs-int] (= x x)))"]
+            ]
+          -- A let annotation has no S-expression spelling (JSON-AST only).
+          letAnn = [SDefShell "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] [])
+                      (ELet [(PVar "y", Just (TCustom "hs-int"), EVar "x")] (EVar "y")) []]
+          lists = map parsed corpus ++ [letAnn]
+      ffiBoundaryMisuse letAnn `shouldBe` ["hs-int"]
+      forM_ lists $ \ss ->
+        if null (ffiBoundaryMisuse ss)
+          then lowerBoundaryMisuse ss `shouldBe` ss
+          else ffiBoundaryMisuse (lowerBoundaryMisuse ss) `shouldBe` []
+      length [ () | ss <- lists, not (null (ffiBoundaryMisuse ss)) ] `shouldBe` 8
     it "E21 hs-text in the key of a map argument is refused" $
       kinds ["(import haskell.containers (interface [[lookup (fn [k: hs-text m: map[hs-text, int]] -> hs-maybe[int])]]))"]
         `shouldBe` [unsup]
