@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.12/ast.schema.json",
-  "title": "LLMLL v0.12 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.12.0' (MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; was 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
+  "$id": "https://llmll.dev/schemas/v0.13/ast.schema.json",
+  "title": "LLMLL v0.13 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.13.0' (AST-TYPE-ALIAS-1 + FFI-CONV-1: a type-decl body may be any Type, and Type gains the boundary kinds hs-text, hs-int and hs-maybe; was 0.12.0 for MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "The compiler emits '0.12.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "The compiler emits '0.13.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.13.0 lets a type-decl body be any Type, a plain alias (AST-TYPE-ALIAS-1), and adds the Tier 1 boundary type kinds hs-text, hs-int and hs-maybe (FFI-CONV-1); both are additive. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "enum": ["0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+          "enum": ["0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -263,7 +263,7 @@
     },
 
     "TypeDecl": {
-      "description": "A user-defined type: either a refinement type alias (where) or a sum type (ADT). Corresponds to EBNF 'type-decl'.",
+      "description": "A user-defined type: a refinement type alias (where), a sum type (ADT), or a plain alias of any other Type (AST-TYPE-ALIAS-1, 0.13.0). Corresponds to EBNF 'type-decl'.",
       "type": "object",
       "required": ["kind", "name", "body"],
       "additionalProperties": false,
@@ -271,22 +271,24 @@
         "kind": { "type": "string", "const": "type-decl" },
         "name": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
         "body": {
-          "oneOf": [
-            { "$ref": "#/$defs/TypeWhere", "description": "Refinement type alias: (where [x: base] predicate)" },
-            {
-              "description": "Sum type / ADT: list of (| Constructor payload) arms",
-              "type": "object",
-              "required": ["kind", "variants"],
-              "additionalProperties": false,
-              "properties": {
-                "kind": { "type": "string", "const": "sum" },
-                "variants": {
-                  "type": "array",
-                  "items": { "$ref": "#/$defs/Variant" }
-                }
+          "description": "Dispatches on kind: 'sum' is a sum type / ADT; any other kind is a Type, which covers the refinement alias (where [x: base] predicate) and, since 0.13.0, a plain alias such as a primitive or fn-type (AST-TYPE-ALIAS-1).",
+          "type": "object",
+          "required": ["kind"],
+          "if": { "properties": { "kind": { "const": "sum" } } },
+          "then": {
+            "description": "Sum type / ADT: list of (| Constructor payload) arms",
+            "type": "object",
+            "required": ["kind", "variants"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string", "const": "sum" },
+              "variants": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/Variant" }
               }
             }
-          ]
+          },
+          "else": { "$ref": "#/$defs/Type" }
         }
       },
       "examples": [

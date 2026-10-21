@@ -1996,16 +1996,17 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.12.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.13.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
       -- MODE-CLI-1 + MODE-HTTP-1: retargeted 0.11.0 -> 0.12.0 (def-main mode enum).
+      -- AST-TYPE-ALIAS-1 + FFI-CONV-1: retargeted 0.12.0 -> 0.13.0 (alias bodies, boundary types).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.12.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.13.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -19097,10 +19098,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- Emit/read symmetry. Bumping the stamp without extending the accepted list
     -- makes the compiler emit a document it then refuses to read.
     -- MODE-CLI-1 + MODE-HTTP-1 moved the emitted stamp to 0.12.0; 0.11.0, the
-    -- PROC-BOUNDARY-1 stamp, must still be read.
+    -- PROC-BOUNDARY-1 stamp, must still be read. AST-TYPE-ALIAS-1 + FFI-CONV-1
+    -- moved it to 0.13.0, and 0.12.0 must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.12.0"
+      expectedSchemaVersion `shouldBe` "0.13.0"
       acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+      acceptedSchemaVersions `shouldContain` ["0.12.0"]
       acceptedSchemaVersions `shouldContain` ["0.11.0"]
       acceptedSchemaVersions `shouldContain` ["0.10.0"]
 
@@ -22128,6 +22131,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` ("HI 3 5 2 none 2", "")
           code `shouldBe` ExitSuccess
+
+  describe "AST-TYPE-ALIAS-1" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("AST-TYPE-ALIAS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        roundTrip src = parseJSONAST GrammarCoreInversion "<rt>" (emitJsonAST (parsed src))
+    it "a plain alias of a primitive round-trips through JSON-AST" $
+      roundTrip ["(type Name string)", "(def-shell f [n: Name] -> Name n)"]
+        `shouldBe` Right (parsed ["(type Name string)", "(def-shell f [n: Name] -> Name n)"])
+    it "a function-type alias round-trips through JSON-AST and checks" $ do
+      let src = ["(type IntFn (fn [int] -> int))", "(def-shell use [f: IntFn x: int] -> int (f x))"]
+      roundTrip src `shouldBe` Right (parsed src)
+      case roundTrip src of
+        Right ss -> [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv ss)
+                                    , diagSeverity d == SevError ] `shouldBe` []
+        Left d   -> expectationFailure (show d)
+    it "where and sum bodies still read as before" $
+      roundTrip ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"]
+        `shouldBe` Right (parsed ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"])
+    it "a 0.12.0 document still reads, and the stamp is 0.13.0" $ do
+      let doc12 = BLC.pack "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"type-decl\",\"name\":\"Name\",\"body\":{\"kind\":\"primitive\",\"name\":\"string\"}}]}"
+      parseJSONAST GrammarCoreInversion "<test>" doc12 `shouldBe` Right [STypeDef "Name" TString]
+      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.13.0\""
 
   describe "RESERVED-NAME-1" $ do
     let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
