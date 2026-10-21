@@ -1920,30 +1920,38 @@ builtinAxiomJson a = object
 --
 -- A PROJECTION, NOT AN ANALYSIS. Every row here is already on the entry:
 -- 'teBuiltinAxioms' and 'teInheritedAxioms' are what TRUST-AXIOM stamped
--- post-emit, 'teGroundFacts' is family C. This function only flattens the three
--- into one array and marks each row with the family it came from, because a
--- reader that sees them flat cannot otherwise tell a sealed-builtin axiom from
--- an inherited one from a ground-fact family.
+-- post-emit, 'teGroundFacts' is family C, 'teFfiAssumptions' is what
+-- FFI-TIER1-1 (D9) stamped. This function only flattens the four into one
+-- array and marks each row with the family it came from, because a reader
+-- that sees them flat cannot otherwise tell a sealed-builtin axiom from an
+-- inherited one from a ground-fact family from a Hackage export.
 --
--- ONE RENDERER PER ROW. The builtin and inherited rows go through
--- 'builtinAxiomJson' / 'inheritedAxiomJson' — the same functions the trust
--- report's own JSON calls — with the @kind@ key added on top. A second renderer
--- here could disagree with the trust report about a row's fields; this one
--- cannot. In particular the unrecorded case of 'iaBuiltin' (@Nothing@: the
--- callee's sidecar predates the disclosure, so its assumed set is unknown, not
--- empty) survives into the channel exactly as LLMLL.md §13.12 requires.
+-- ONE RENDERER PER ROW. The builtin, inherited and FFI rows go through
+-- 'builtinAxiomJson' / 'inheritedAxiomJson' / 'ffiAssumptionJson' — the same
+-- functions the trust report's own JSON calls — with the @kind@ key added on
+-- top. A second renderer here could disagree with the trust report about a
+-- row's fields; this one cannot. In particular the unrecorded case of
+-- 'iaBuiltin' (@Nothing@: the callee's sidecar predates the disclosure, so its
+-- assumed set is unknown, not empty) survives into the channel exactly as
+-- LLMLL.md §13.12 requires.
 --
--- Order: builtin, then inherited, then ground fact; each group keeps the order
--- the entry carries. An entry with none of the three yields @[]@.
+-- FFI-TRUST-OBLIG-1: one kind, @ffi-assumption@, for an own and an inherited
+-- Hackage row. The row is the entry's own when its @origin@ is the channel's
+-- function, and inherited through that callee otherwise.
+--
+-- Order: builtin, then inherited, then ground fact, then FFI (last, so an
+-- array that carried the first three keeps its prefix); each group keeps the
+-- order the entry carries. An entry with none of the four yields @[]@.
 trustAssumptionRows :: TrustEntry -> [Value]
 trustAssumptionRows e =
      map (withKind "builtin-axiom" . builtinAxiomJson) (teBuiltinAxioms e)
   ++ map (withKind "inherited-axiom" . inheritedAxiomJson) (teInheritedAxioms e)
   ++ map groundFactRow (teGroundFacts e)
+  ++ map (withKind "ffi-assumption" . ffiAssumptionJson) (teFfiAssumptions e)
   where
     withKind :: Text -> Value -> Value
     withKind k (Object o) = Object (KM.insert "kind" (String k) o)
-    withKind _ v          = v   -- unreachable: both renderers build an object
+    withKind _ v          = v   -- unreachable: every renderer builds an object
     groundFactRow f = object
       [ "kind"   .= ("ground-fact" :: Text)
       , "family" .= f

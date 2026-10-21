@@ -13078,12 +13078,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       [ () | v <- branchObjs, Just _ <- [objLookup "contract_channel" v] ] `shouldBe` []
       [ () | v <- branchObjs, Nothing <- [objLookup "parent_id" v] ] `shouldBe` []
 
-    it "OCH-5: the obligation report's schema_version reads 0.12.4" $ do
+    it "OCH-5: the obligation report's schema_version reads 0.12.5" $ do
       let stmts = parse bankingWtSrc
       emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" stmts
       let reportJson = assembleReport "test.llmll" stmts Map.empty emitR (Just FQSafe)
                          (buildTrustReport Map.empty stmts Map.empty)
-      T.isInfixOf "\"schema_version\":\"0.12.4\"" reportJson `shouldBe` True
+      T.isInfixOf "\"schema_version\":\"0.12.5\"" reportJson `shouldBe` True
 
     -- =====================================================================
     -- TRUST-CH-HOLE-1: the trust channel had a field it never filled, and two
@@ -22221,6 +22221,101 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` ("HI 3 5 2 none 2", "")
           code `shouldBe` ExitSuccess
+
+  describe "FFI-TRUST-OBLIG-1" $ do
+    -- The obligation trust channel carries the D9 Hackage rows as a fourth
+    -- assumptions kind, "ffi-assumption", after the three TRUST-CH-HOLE-1 kinds.
+    let parsedO src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("FFI-TRUST-OBLIG-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        fpO = "(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))"
+        decodeV t = decode (BLC.pack (T.unpack t)) :: Maybe Value
+        lk k (Object o) = KM.lookup k o
+        lk _ _          = Nothing
+        str k v = case lk k v of Just (String x) -> Just x; _ -> Nothing
+        arr v = case v of Just (Array xs) -> foldr (:) [] xs; _ -> []
+        -- The obligation report for a module, its trust report built over the
+        -- same cache, exactly as 'verify --obligation-report' assembles it.
+        reportOf cache ss = do
+          emitR <- emitFixpointWithCache (EmitOptions True Nothing) "<test>" cache Map.empty ss
+          let rpt = buildTrustReport cache ss Map.empty
+          pure (rpt, assembleReport "test.llmll" ss cache emitR Nothing rpt)
+        obligsOf json = arr (decodeV json >>= lk "obligations")
+        holeOf h json = [ o | o <- obligsOf json, str "kind" o == Just "hole-obligation"
+                            , maybe False (T.isInfixOf h) (str "id" o) ]
+        assumptionsOf o = arr (lk "trust_channel" o >>= lk "assumptions")
+        ffiRows o = [ r | r <- assumptionsOf o, str "kind" r == Just "ffi-assumption" ]
+        row origin = object [ "kind" .= ("ffi-assumption" :: T.Text), "origin" .= origin
+                            , "package" .= ("filepath" :: T.Text), "export" .= ("takeExtension" :: T.Text) ]
+        dropKind (Object o) = Object (KM.delete "kind" o)
+        dropKind v          = v
+        -- W6: the channel's FFI rows, without kind, are the trust report's
+        -- ffi_assumptions for the same function, as a multiset.
+        parity rpt json = do
+          let trustRows = case decodeV (formatTrustReportJson rpt) of
+                Just tj -> [ (n, arr (lk "ffi_assumptions" e))
+                           | e <- arr (lk "entries" tj), Just n <- [str "name" e] ]
+                Nothing -> []
+              withChannel = [ o | o <- obligsOf json, Just _ <- [lk "trust_channel" o] ]
+              key = BLC.unpack . encode
+          null withChannel `shouldBe` False
+          forM_ withChannel $ \o -> do
+            let fn = fromMaybe "" (str "function" o)
+            sort (map (key . dropKind) (ffiRows o))
+              `shouldBe` sort (map key (fromMaybe [] (lookup fn trustRows)))
+    it "W1 an own Hackage row reaches the hole obligation's trust channel" $ do
+      (_, json) <- reportOf Map.empty (parsedO
+        [ fpO, "(def-shell run [p: string] -> string (string-concat (take-extension p) ?suffix))" ])
+      map assumptionsOf (holeOf "?suffix" json) `shouldBe` [[row ("run" :: T.Text)]]
+    it "W2 a row inherited through a callee names the callee as origin" $ do
+      (_, json) <- reportOf Map.empty (parsedO
+        [ fpO, "(def-shell main-step [p: string] -> string (take-extension p))"
+        , "(def-shell run [p: string] -> string (string-concat (main-step p) ?suffix))" ])
+      map assumptionsOf (holeOf "?suffix" json) `shouldBe` [[row ("main-step" :: T.Text)]]
+    it "W3 a row crosses a module boundary with the callee's qualified name" $ do
+      let pathsStmts = parsedO [fpO, "(def-shell ext-of [p: string] -> string (take-extension p))"]
+          cache = Map.fromList [(["paths"], buildModuleEnv ["paths"] pathsStmts Map.empty emptyEnv)]
+          entry = parsedO [ "(import paths)"
+                          , "(def-shell run [p: string] -> string (string-concat (paths.ext-of p) ?suffix))" ]
+      (_, json) <- reportOf cache entry
+      map assumptionsOf (holeOf "?suffix" json) `shouldBe` [[row ("paths.ext-of" :: T.Text)]]
+    it "W4 an own and an inherited row together, own first" $ do
+      (rpt, json) <- reportOf Map.empty (parsedO
+        [ fpO, "(def-shell main-step [p: string] -> string (take-extension p))"
+        , "(def-shell run [p: string] -> string (string-concat (take-extension p) (string-concat (main-step p) ?suffix)))" ])
+      map assumptionsOf (holeOf "?suffix" json)
+        `shouldBe` [[row ("run" :: T.Text), row ("main-step" :: T.Text)]]
+      parity rpt json
+    it "W5 a module with no haskell.* interface gains no row; the schema reads 0.12.5" $ do
+      let ss = parsedO [ "(def rd [b: bytes[8] i: int] -> int"
+                       , "  (pre  (and (>= i 0) (< i 8)))"
+                       , "  (post (and (>= result 0) (<= result 255)))"
+                       , "  (bytes-get b i))"
+                       , "(def-shell run [x: int] -> int (+ x ?h))" ]
+      emitR <- emitFixpointWith (EmitOptions True Nothing) "<test>" ss
+      let rpt  = markGroundFacts (erGroundFactFamilies emitR)
+                   (markBuiltinAxioms (erBuiltinAxioms emitR) (buildTrustReport Map.empty ss Map.empty))
+          json = assembleReport "test.llmll" ss Map.empty emitR (Just FQSafe) rpt
+          rows = concatMap assumptionsOf (obligsOf json)
+      (decodeV json >>= str "schema_version") `shouldBe` Just "0.12.5"
+      -- positive control: the three older kinds still render
+      [ str "builtin" r | r <- rows, str "kind" r == Just "builtin-axiom" ] `shouldSatisfy` elem (Just "bytes-get")
+      [ () | r <- rows, str "kind" r == Just "ffi-assumption" ] `shouldBe` []
+      -- every entry's projection is the three-kind projection it was before
+      forM_ (trEntries rpt) $ \e ->
+        map (BLC.unpack . encode) (trustAssumptionRows e)
+          `shouldBe` map (BLC.unpack . encode)
+               [ r | r <- trustAssumptionRows e { teFfiAssumptions = [] } ]
+      map assumptionsOf (holeOf "?h" json) `shouldBe` [[]]
+    it "W6 every trust channel's FFI rows equal the trust report's ffi_assumptions" $ do
+      let fns = [ fpO
+                , "(def-shell main-step [p: string] -> string (take-extension p))"
+                , "(def-shell mid [p: string] -> string (pre (> (string-length p) 0)) (main-step p))"
+                , "(def-shell run [p: string] -> string (post (>= (string-length result) 0)) (string-concat (mid p) ?suffix))"
+                , "(def-shell other [x: int] -> int (+ x ?k))" ]
+      (rpt, json) <- reportOf Map.empty (parsedO fns)
+      parity rpt json
+      sum (map (length . ffiRows) (obligsOf json)) `shouldSatisfy` (> 0)
 
   describe "AST-TYPE-ALIAS-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
