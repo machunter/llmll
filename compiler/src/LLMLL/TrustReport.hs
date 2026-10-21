@@ -2219,8 +2219,22 @@ formatEntry bodyFallback e =
             [ "    ≈ assumes ground facts [" <> T.intercalate ", " (teGroundFacts e)
                 <> "; codegen-determined; stamp: codegen_semantics_version]"
                 <> " (ASSUMED, not proved: it rides codegen_semantics_version)" ]
+      -- FFI-TRUST-TEXT-1 (D9): one line per Hackage export the verdict rests
+      -- on, the rows the JSON renderer emits as @ffi_assumptions@. The verbs
+      -- follow the axiom rows: "assumes" for an export this body calls,
+      -- "inherits ... via" for one reached through a callee. The @haskell.@
+      -- prefix repeats the import spelling, so the export does not read as an
+      -- LLMLL module function.
+      ffiNote = " (ASSUMED, not proved: a Hackage export, taken as total with no hidden effects at the declared type)"
+      ffiLines = map renderFfi (teFfiAssumptions e)
+      renderFfi a
+        | faOrigin a == teName e =
+            "    ≈ assumes haskell." <> faPackage a <> " export " <> faExport a <> ffiNote
+        | otherwise =
+            "    ≈ inherits haskell." <> faPackage a <> " export " <> faExport a
+              <> " via " <> faOrigin a <> ffiNote
   in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
-       ++ axiomLines ++ inheritedLines ++ groundLine
+       ++ axiomLines ++ inheritedLines ++ groundLine ++ ffiLines
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =

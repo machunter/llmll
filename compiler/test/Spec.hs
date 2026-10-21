@@ -22019,6 +22019,44 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       js `shouldSatisfy` T.isInfixOf "ffi_assumptions"
       js `shouldSatisfy` T.isInfixOf "takeExtension"
       length (T.breakOnAll "ffi_assumptions" js) `shouldBe` 1
+    -- FFI-TRUST-TEXT-1: the text report renders the same rows.
+    let e12 = parsed [ fp1
+                     , "(def-shell main-step [p: string] -> string (take-extension p))"
+                     , "(def-shell run [p: string] -> string (main-step p))" ]
+        -- The lines of one entry's block in the text report, header included.
+        blockOf n txt = case dropWhile (/= ("  " <> n <> ":")) (T.lines txt) of
+          (h : rest) -> h : takeWhile ("    " `T.isPrefixOf`) rest
+          []         -> []
+        ffiNoteT = " (ASSUMED, not proved: a Hackage export, taken as total with no hidden effects at the declared type)"
+        isFfiLine l = any (`T.isPrefixOf` l) ["    ≈ assumes haskell.", "    ≈ inherits haskell."]
+    it "FFI-TRUST-TEXT-1 E12 the text report names the export as own and inherited" $ do
+      let txt = formatTrustReport (buildTrustReport Map.empty e12 Map.empty)
+      filter isFfiLine (blockOf "main-step" txt)
+        `shouldBe` ["    ≈ assumes haskell.filepath export takeExtension" <> ffiNoteT]
+      filter isFfiLine (blockOf "run" txt)
+        `shouldBe` ["    ≈ inherits haskell.filepath export takeExtension via main-step" <> ffiNoteT]
+    it "FFI-TRUST-TEXT-1 E14 the text report names the qualified callee across a module" $ do
+      let pathsStmts = parsed [fp1, "(def-shell ext-of [p: string] -> string (take-extension p))"]
+          cache = Map.fromList [(["paths"], buildModuleEnv ["paths"] pathsStmts Map.empty emptyEnv)]
+          entry = [SImport (Import "paths" Nothing Nothing), SDefShell "run" [("p", TString)] (Just TString)
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) []]
+      filter isFfiLine (blockOf "run" (formatTrustReport (buildTrustReport cache entry Map.empty)))
+        `shouldBe` ["    ≈ inherits haskell.filepath export takeExtension via paths.ext-of" <> ffiNoteT]
+    it "FFI-TRUST-TEXT-1 a program with no haskell.* interface renders no FFI line" $ do
+      let txt = formatTrustReport (buildTrustReport Map.empty (parsed ["(def-shell g [x: int] -> int x)"]) Map.empty)
+      blockOf "g" txt `shouldBe` ["  g:", "    pre:  —  |  post: —"]
+      txt `shouldSatisfy` (not . T.isInfixOf "haskell.")
+    it "FFI-TRUST-TEXT-1 the text lines and the JSON rows agree per entry" $ do
+      let rep = buildTrustReport Map.empty e12 Map.empty
+          txt = formatTrustReport rep
+          jsonRows = case decode (BL.fromStrict (TE.encodeUtf8 (formatTrustReportJson rep))) of
+            Just (Object o) | Just (Array es) <- KM.lookup "entries" o ->
+              [ (n, maybe 0 (\v -> case v of Array rs -> length rs; _ -> -1) (KM.lookup "ffi_assumptions" eo))
+              | Object eo <- foldr (:) [] es, Just (String n) <- [KM.lookup "name" eo] ]
+            _ -> []
+      map fst jsonRows `shouldBe` ["main-step", "run"]
+      forM_ jsonRows $ \(n, k) -> length (filter isFfiLine (blockOf n txt)) `shouldBe` k
+      sum (map snd jsonRows) `shouldBe` 2
     -- build
     it "E5b a misspelled export is a GHC error at the .llmll import line" $ do
       res <- buildOnly "e5b" "/llmll-src/e5b.llmll"
