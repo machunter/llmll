@@ -1254,7 +1254,11 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         -- obligations, and path_condition + postcondition_goal on a branch
         -- obligation). The 0.12.3 step was taken BEFORE these keys landed, so
         -- it under-declared the shape a consumer sees.
-        { orSchemaVersion = "0.12.4"
+        -- FFI-TRUST-OBLIG-1: 0.12.4 -> 0.12.5 (additive: a fourth
+        -- trust_channel.assumptions kind, "ffi-assumption", carrying the
+        -- entry's ffi_assumptions rows {origin, package, export}, own and
+        -- inherited, after the builtin, inherited and ground-fact rows).
+        { orSchemaVersion = "0.12.5"
         , orSourceFile    = T.pack fp
         , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls
