@@ -3,7 +3,7 @@
 **Status:** Pre-Phase-3-launch. The cross-language harness is implemented at `experiments/repair-loop/` (the historical directory name; the harness matured from repair-loop apparatus validation into the cross-language harness over Phase 1 / Phase 2). This file is the experiment-lead's tracking surface for items routed to the role but blocked on trigger conditions that have not yet fired. Phase-3 launch readiness is addressed by in-place extension of `experiments/repair-loop/`, not by greenfield bootstrap of a new directory.
 **Date opened:** 2026-05-15.
 **Locus rationale:** Single file at the `experiments/` root. The cross-language harness at `experiments/repair-loop/` is the launch home; this backlog file is the experiment-lead's pre-Phase-3 tracking surface and lives at the root rather than inside `experiments/repair-loop/` to keep it visible as cross-cutting work (it lists items that span the harness, the design doc, and the methodology surface). It can later move into `experiments/repair-loop/BACKLOG.md` via `git mv` if cross-cutting visibility ceases to matter; the cost of the move is small and decoupled from Phase-3 launch.
-**Source for both entries:** Language-team adjudication 2026-05-15, routed from professor's three assignments. Methodology-discipline bundle (A1 immutability extension + A2-spec `prediction_match` field + A3 documentation-scope footnote) landed in the same turn at `docs/design/language-comparison-experiments.md` §"Experimental Controls" #7a, §"Target Adapter Shape", §"Reporting Output", §"Open Design Questions" #3.
+**Source for B-1 and B-2:** Language-team adjudication 2026-05-15, routed from professor's three assignments. **Source for B-3:** `docs/design/multilangbench-scope-evaluation.md` Rev 2, settled 2026-10-20. Methodology-discipline bundle (A1 immutability extension + A2-spec `prediction_match` field + A3 documentation-scope footnote) landed in the same turn at `docs/design/language-comparison-experiments.md` §"Experimental Controls" #7a, §"Target Adapter Shape", §"Reporting Output", §"Open Design Questions" #3.
 
 ---
 
@@ -69,6 +69,62 @@ A side-arm postmortem produces a per-target signal comparable in shape to the la
 - **Discipline-guide authoring.** The trigger's third conjunct — a non-trivial design task that must land before the side-arm runs. The authoring is itself the experiment-lead's scope when the time comes; B-2 registers the side-arm shape, not the guide's content.
 - **Problem selection.** Depends on launch outcomes; cannot be pre-pinned.
 - **Cost envelope and agent rotation.** Side-arm-planning-time decisions; depend on launch cost record and post-launch budget availability.
+
+---
+
+## B-3 · MultiLangBench longitudinal track (LLMLL only)
+
+**Status:** Registered, blocked on trigger.
+**Routed from:** [`docs/design/multilangbench-scope-evaluation.md`](../docs/design/multilangbench-scope-evaluation.md) Rev 2, SETTLED 2026-10-20 (language-team, two professor passes, user-approved). §3 and §4 of that record are the source for this entry. Where this entry and the record disagree, the record is correct.
+
+### What it measures
+
+OpenAI's MultiLangBench (github.com/openai/MultiLangBench, Apache-2.0) asks an agent to implement SQLite 3.40.1 from its documentation only. The program gets the database path as an argument and the SQL on standard input. Real SQLite then runs a validation query on the file. The canonical subset is 272 tests, with a 60-second limit for each test.
+
+The track runs the same model and the same harness on successive LLMLL versions. It measures LLMLL and `LLMLL.md` together, because LLMLL ships them together. Every report states this.
+
+**No cross-language reading.** The track makes no comparison with another language, including OpenAI's published GPT numbers and any baseline we run ourselves. SQLite implementations are in every frontier model's pretraining data, and that difference cannot be controlled. B-2 tests documentation symmetry across languages in the Phase-3 harness. B-3 is a different question and does not feed B-2.
+
+### Trigger
+
+All three items have shipped: `BYTES-READ-1`, `BYTES-WRITE-1` and `CHAR-CODE-1` (`docs/compiler-team-roadmap.md`, G7). Phase 3 is not a precondition.
+
+**Why.** On 2026-10-20 the engineer's feasibility read built two test programs with llmll v0.30.8. In `:mode cli`, argv, standard input and an in-place overwrite all worked. `wasi.fs.read` on a real 8192-byte SQLite database returned `RErr … hGetContents: invalid argument (cannot decode byte sequence starting from 153)`. No program can read or write the SQLite file format until the byte-I/O items ship.
+
+### Deliverable when triggered
+
+1. **Run plan, written before the first run** and kept unchanged afterwards (`docs/design/language-comparison-experiments.md` Control #7a precedent). It states the hypothesis, the success, failure and null definitions, and the items below.
+2. **Controls.**
+   - Pin one dated model snapshot for the whole series. Do not use a model alias that the provider can update.
+   - Record the hash of `LLMLL.md` and the `llmll version` output for each run.
+   - Pre-register at least 5 seeds for each measurement point.
+   - Report a bootstrap interval on the pass rate of the 272-test subset.
+   - Fix the total budget before the first run. Each seed costs one full agent session.
+   - Report API cost next to the pass rate, as the MultiLangBench README defines it.
+3. **Harness rules.** The runner enforces these. The compiler cannot, because it checks capabilities by namespace only (CAP-1-REAL).
+   - Reject any `haskell.*` import. A Hackage SQLite binding would pass the tests and break the benchmark's purity rule.
+   - Reject a `wasi.proc` import with any capability other than `args`.
+   - Rebuild from the `.llmll` source in a clean directory, and grade only that build. An agent with a shell could otherwise edit the Haskell source in the generated package.
+4. **Harness locus.** Decide at trigger time whether the runner extends `experiments/repair-loop/` or gets its own directory. It is one problem with an external test suite, not a matrix of problems, so its own directory is the likely choice.
+5. **Optional Assurance tuple.** If the runner collects the trust report, report it next to the pass rate (Control #9). The codec contracts verify only after `SIGMA-CONST-ARITH-1` ships (`docs/compiler-team-roadmap.md`, G1). Before that, they report `nonlinear:` and fall back.
+
+### Cadence and use
+
+- **When to measure.** Measure at each minor version (v0.31.0, v0.32.0, and so on), not at patch versions. A run can also be requested after a change aimed at general usability.
+- **Descriptive, never a release gate.** Every release gate is deterministic and runs in CI. This measurement is paid, stochastic and several hours long, and it depends on a provider's availability.
+- **Finding trigger.** If the interval of a new point does not overlap the interval of the previous point, file a finding. This applies to a decrease and to an increase.
+- **Finding content.** The diff between the two `LLMLL.md` hashes. The list of releases between the two points. The three most frequent failure categories, grouped by the SQLite test file each failed test came from. Route the finding to the language-team and the compiler-engineer.
+- **No trigger.** A change inside the interval files nothing. A non-overlap from one seed set, with no rerun, files the finding and marks it "unreplicated".
+
+### Acceptance
+
+The first point is on record with n seeds, the model snapshot identifier, the `LLMLL.md` hash, the `llmll version`, the harness SHA, the bootstrap interval and the API cost. A reader can rerun it from the plan. Later points use the same plan unchanged.
+
+### Out of scope
+
+- **Any comparison with another language**, for the reason above.
+- **The byte-I/O and character-code designs.** These belong to the language-team and the compiler-engineer.
+- **The COBOL migration eval in the same release.** Its tests are hidden, so it cannot be run.
 
 ---
 
