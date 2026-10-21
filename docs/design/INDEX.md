@@ -150,6 +150,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [env-read-1-implementation-plan.md](env-read-1-implementation-plan.md) | Engineer plan and measurements for `wasi.env.get` and its three refusals | **SHIPPED v0.15.0**: filed `EVENT-CAPTURE-1`, §10a specifying a capture the compiler does not implement; Σ_eff widened six to seven |
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
+| [multilangbench-scope-evaluation.md](multilangbench-scope-evaluation.md) | OpenAI's SQLite benchmark as an LLMLL-only longitudinal track, never cross-language | **Rev 2, SETTLED 2026-10-20**; filed `CHAR-CODE-1` (G7), `SIGMA-CONST-ARITH-1` (G1); two professor passes folded as the appendix |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
 
 ---
