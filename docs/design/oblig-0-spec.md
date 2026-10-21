@@ -40,7 +40,7 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 
 ```json
 {
-  "schema_version": "0.12.2",
+  "schema_version": "0.12.5",
   "source_file": "withdraw.llmll",
   "cross_module": "single-file",
   "obligations": [ ... ],
@@ -50,7 +50,7 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 }
 ```
 
-**`effect_summary` (Bundle B0, shipped `b2d9c1a`).** A top-level array, one entry per function (name-sorted): `{ "function": <name>, "effects": <X> }`, where `<X>` is either a sorted array of coarse capability labels — `stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`, `env.read` — or the string `"unbounded"` (⊤: "may exercise any capability, including outside the catalog"). It is a sound **may-over-approximation** of the capabilities a function may reach through its call graph; ⊤ is reached at opaque boundaries (`?delegate` / `?delegate-async` / `?delegate-pending` / `?scaffold` holes, `haskell.*` / `c.*` FFI, unrecognized `wasi.*`). **Informational** — it never affects a function's trust tier, `EvidenceRecord`, or `verified` / `--strict-verified-core` admissibility (authority ⊥ trust). Added at `schema_version` `0.12.0` (`0.11.0` → `0.12.0`); the report now emits `0.12.2`. **Rev 9 correction, measured at [`ObligationAssembly.hs:419-425`](../../compiler/src/LLMLL/ObligationAssembly.hs#L419-L425):** the catalog is **seven** labels, not six. Rev 8 listed `random`, which is spelled **`nondet`** in the emitter, and **`env.read`** was added by `ENV-READ-1` at v0.15.0. The emitter own comment at `:428` still reads "the full 6-set" and is stale by exactly that addition; that is compiler surface and is left for the engineer rather than edited from a design doc. See [`bundle-b0-effect-summary-proposal.md`](../archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
+**`effect_summary` (Bundle B0, shipped `b2d9c1a`).** A top-level array, one entry per function (name-sorted): `{ "function": <name>, "effects": <X> }`, where `<X>` is either a sorted array of coarse capability labels — `stdout`, `fs.read`, `fs.write`, `net.http`, `nondet`, `crypto`, `env.read` — or the string `"unbounded"` (⊤: "may exercise any capability, including outside the catalog"). It is a sound **may-over-approximation** of the capabilities a function may reach through its call graph; ⊤ is reached at opaque boundaries (`?delegate` / `?delegate-async` / `?delegate-pending` / `?scaffold` holes, `haskell.*` / `c.*` FFI, unrecognized `wasi.*`). **Informational** — it never affects a function's trust tier, `EvidenceRecord`, or `verified` / `--strict-verified-core` admissibility (authority ⊥ trust). Added at `schema_version` `0.12.0` (`0.11.0` → `0.12.0`); the report now emits `0.12.5`. **Rev 9 correction, measured at [`ObligationAssembly.hs:419-425`](../../compiler/src/LLMLL/ObligationAssembly.hs#L419-L425):** the catalog is **seven** labels, not six. Rev 8 listed `random`, which is spelled **`nondet`** in the emitter, and **`env.read`** was added by `ENV-READ-1` at v0.15.0. The emitter own comment at `:428` still reads "the full 6-set" and is stale by exactly that addition; that is compiler surface and is left for the engineer rather than edited from a design doc. See [`bundle-b0-effect-summary-proposal.md`](../archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
 ### 2.2 Single Obligation Object
 
@@ -447,7 +447,7 @@ guardToPredPresentation :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe 
 ### 4.3 Trust Channel
 
 Sources `teEffectiveLevel`, `erBodyFaithful` and, since Rev 10, the TRUST-AXIOM fields on the
-function's `TrustEntry`. The channel is carried by `hole-obligation`, `contract-obligation` and
+function's `TrustEntry`, and, since FFI-TRUST-OBLIG-1, its `teFfiAssumptions`. The channel is carried by `hole-obligation`, `contract-obligation` and
 `precondition-obligation` (§2.3). On a precondition obligation it describes the **caller**, whose
 evidence the reader is judging.
 
@@ -458,9 +458,15 @@ evidence the reader is judging.
 | `builtin-axiom` | `teBuiltinAxioms` | `builtin`, `predicate`, `conjuncts`, `category`, `stamp` |
 | `inherited-axiom` | `teInheritedAxioms` | `origin`, and `builtin` when recorded |
 | `ground-fact` | `teGroundFacts` | `family` |
+| `ffi-assumption` | `teFfiAssumptions` | `origin`, `package`, `export` |
 
-Rows are ordered builtin, inherited, ground-fact. A function that assumes none of the three emits
-`[]`, and that empty array now means "assumes nothing", not "nobody filled this in".
+Rows are ordered builtin, inherited, ground-fact, ffi-assumption; each group keeps the entry's
+order, so a function's own `ffi-assumption` rows come before inherited ones. An `ffi-assumption`
+row is the function's own when `origin` is that function, and is inherited through `origin`
+otherwise (FFI-TRUST-OBLIG-1, schema 0.12.5). A function that carries none of the four emits `[]`,
+and that empty array means it assumes no builtin axiom, inherited axiom, ground fact or Hackage
+export, not "nobody filled this in". A declared response fact (`assumed_facts`, RESP-FACT-1) is
+not projected into this channel; whether it should be is `RESP-FACT-OBLIG-1`.
 
 **`conjuncts` splits the definition from the theorem.** A sealed builtin's assumed post can be a
 conjunction of parts with different characters: the reflection conjunct **defines** the builtin's

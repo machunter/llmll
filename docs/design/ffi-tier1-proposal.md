@@ -243,6 +243,8 @@ Both fail closed. With the D1 pragmas, GHC reports both at the `.llmll` import l
 
 This differs from builtin axioms on purpose. Axiom sets depend on the emitter, so they come from the `.verified.json` sidecar and can be unrecorded. FFI rows have no unrecorded state, because the source is always present. No sidecar key and no `Nothing` row are needed.
 
+**D9 addendum (2026-10-21, FFI-TRUST-OBLIG-1).** D9 names the trust report, but its rule is per verdict: every verdict that rests on a Hackage export says so wherever that verdict is reported. The obligation report's `trust_channel` is such a place. `oblig-0-spec.md` §4.3 defines it as a projection of the function's `TrustEntry` assumption fields, and it gives `assumptions: []` the meaning "assumes nothing". The channel therefore carries each `teFfiAssumptions` row as `{ "kind": "ffi-assumption", "origin", "package", "export" }`, rendered by `ffiAssumptionJson`, after the ground-fact rows. A row is the function's own when `origin` is the channel's function, and is inherited through `origin` otherwise. This is the same rule the text report uses for `≈ assumes` and `≈ inherits … via`. The obligation report's `schema_version` changes from 0.12.4 to 0.12.5. `trust_report_version` does not change, and the trust level does not change.
+
 ### D10. Boundary types (Rev 3)
 
 **Surface.** Three type names are valid only inside a `haskell.*` interface entry. Anywhere else each one is `unknown type`.

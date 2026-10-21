@@ -61,7 +61,26 @@
 - **`UNKNOWN-TYPE-1`:** a type name that names no type, such as `(def-shell f [x: Foo] -> int 1)`,
   passes `check`; GHC fails with `Not in scope: type constructor or class ‘Foo’`.
 
-2495 examples, 0 failures (+46 since v0.30.9). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
+### `FFI-E20-CASCADE-1`, `FFI-TRUST-TEXT-1`, `FFI-TRUST-OBLIG-1`: three follow-ups
+
+- **A boundary type outside a `haskell.*` interface entry gives E20 alone.**
+  `(def-shell f [s: hs-text] -> string s)` also reported `type mismatch in 'f': expected string,
+  got hs-text`; the checker now continues on the lowered LLMLL type. An unrelated error in the
+  same module is still reported.
+- **The text trust report lists each Hackage export a verdict rests on,** one line per
+  `ffi_assumptions` row: `≈ assumes haskell.filepath export takeExtension (ASSUMED, not proved:
+  …)` for an export the function calls, `≈ inherits haskell.filepath export takeExtension via
+  pa.ext-of (…)` for one reached through a callee. The JSON output is unchanged.
+- **Obligation trust channels carry `ffi-assumption` rows.** `trust_channel.assumptions` gains
+  a fourth kind, `{kind: "ffi-assumption", origin, package, export}`, after the
+  `builtin-axiom`, `inherited-axiom` and `ground-fact` rows. Obligation report
+  `schema_version` 0.12.4 → **0.12.5**; `trust_report_version` is unchanged. The rule is the D9
+  addendum of [`docs/design/ffi-tier1-proposal.md`](docs/design/ffi-tier1-proposal.md).
+- **Filed `RESP-FACT-OBLIG-1`:** a declared response fact (`assumed_facts`, `RESP-FACT-1`) is on
+  the trust entry but not in the obligation trust channel, so a hole in such a function reports
+  `assumptions: []`.
+
+2512 examples, 0 failures (+63 since v0.30.9). Python: 560 passed with `LLMLL_BIN` set, 5 skipped.
 
 ---
 
