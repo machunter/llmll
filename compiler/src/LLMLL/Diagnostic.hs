@@ -67,6 +67,8 @@ module LLMLL.Diagnostic
     -- SHELL-FALLBACK-SILENT-1
   , mkBodyFallbackWarning
   , mkMatchWildcardPayloadWarning
+    -- DECREASES-LEN-1
+  , mkDecreasesUndischarged
   -- * TOOL-ENCODING-1: source decoding pinned to UTF-8
   , decodeSourceUtf8
   , writeFileUtf8
@@ -305,6 +307,25 @@ mkBodyFallbackWarning fnName cause labels wildCtors =
   in (mkWarning Nothing msg)
        { diagCode = Just "W-BODY-FALLBACK"
        , diagKind = Just "body-fallback-cause"
+       }
+
+-- | DECREASES-LEN-1 (W-DECREASES-UNDISCHARGED): a self-recursive def-shell
+-- declares a (decreases …) measure, but its body fell back, so no descent
+-- obligation reached the solver. Descent is emitted inside the body VC only, so
+-- a fallback drops the declared measure; before this warning it did so with no
+-- statement naming the clause. The function stays termination_unverified.
+mkDecreasesUndischarged :: Text    -- ^ function name
+                        -> Text    -- ^ rendered fallback cause
+                        -> Int     -- ^ statement index (JSON Pointer)
+                        -> Diagnostic
+mkDecreasesUndischarged fnName cause stmtIdx =
+  let msg = "W-DECREASES-UNDISCHARGED: '" <> fnName <> "' declares a decreases "
+            <> "measure, but its body fell back from body-faithful verification ("
+            <> cause <> "), so no descent obligation was emitted and termination "
+            <> "is not proved. The function stays termination_unverified."
+  in (mkWarning Nothing msg)
+       { diagCode    = Just "W-DECREASES-UNDISCHARGED"
+       , diagPointer = Just ("/statements/" <> T.pack (show stmtIdx) <> "/decreases")
        }
 
 -- | SHELL-FALLBACK-SILENT-1 (W-MATCH-WILDCARD-PAYLOAD): a match arm writes a

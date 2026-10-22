@@ -146,7 +146,7 @@ import LLMLL.Syntax
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
-import LLMLL.Diagnostic (Diagnostic, mkWarning, mkBodyFallbackWarning)
+import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
@@ -972,17 +972,33 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       bfallback' = bfallback
                 ++ [ (n, FallbackUnboundSymbols)
                    | n <- Set.toList routed, n `notElem` map fst bfallback ]
+      -- DECREASES-LEN-1 (DX): the guard's warnings carry a code in the JSON
+      -- diagnostic, as W-BODY-FALLBACK does, so an agent can key on them.
+      freeVarDiag t = (mkWarning Nothing t) { diagCode = Just "W-FQ-FREEVAR" }
       guardDiags =
-           [ mkWarning Nothing $ "W-FQ-FREEVAR: '" <> n
+           [ freeVarDiag $ "W-FQ-FREEVAR: '" <> n
                <> "' emitted a constraint naming " <> T.intercalate ", " (Set.toList syms)
                <> ", which the constraint's own environment does not declare."
                <> " Its body VC is withdrawn and its post is assumed."
            | (n, syms) <- Map.toList freeByFn ]
-        ++ [ mkWarning Nothing $ "W-FQ-FREEVAR: constraint " <> T.pack (show cid)
+        ++ [ freeVarDiag $ "W-FQ-FREEVAR: constraint " <> T.pack (show cid)
                <> " names " <> T.intercalate ", " syms
                <> ", which its own environment does not declare, and no origin"
                <> " attributes the constraint to a function."
            | (cid, syms) <- orphans ]
+      -- DECREASES-LEN-1: descent is emitted inside the body VC only, so a
+      -- self-recursive def-shell that declares a measure and ends in the
+      -- fallback set (any cause, including the FREEVAR routing just above) had
+      -- its measure dropped with nothing naming the clause. Say so, fail-closed:
+      -- the function stays termination_unverified (descentDischargedFns reads
+      -- the body-faithful set).
+      measuredIdx = Map.fromList
+        [ (n, i) | (i, SDefShell n _ _ _ _ dec) <- zip [0 :: Int ..] stmts, not (null dec) ]
+      undischargedDiags =
+        [ mkDecreasesUndischarged n (renderFallbackCause cause) i
+        | (n, cause) <- bfallback'
+        , n `Set.member` recursiveNames
+        , Just i <- [Map.lookup n measuredIdx] ]
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -992,7 +1008,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erBodyFallback      = map fst bfallback'
     , erBodyFallbackCauses = bfallback'
     , erFallbackConstructs = fbConstructs
-    , erDiagnostics       = diags ++ guardDiags
+    , erDiagnostics       = diags ++ guardDiags ++ undischargedDiags
     -- A routed function emitted nothing that survived, so it must leave these
     -- four lists too. `erCallPreFns` prints "call-pre obligations: <fn>", and
     -- leaving a routed function there claims an obligation the .fq no longer
@@ -1157,6 +1173,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         [ maybe Set.empty measureArgVars (contractPre contract)
         , maybe Set.empty measureArgVars (contractPost contract)
         , maybe Set.empty measureArgVars mBody
+        -- DECREASES-LEN-1: the (decreases …) measure is scanned too. A
+        -- `(list-length xs)` / `(string-length s)` measure whose argument the
+        -- contract and body never name otherwise left `xs` unbound, so the
+        -- well-foundedness constraint named a free symbol, FQ-FREEVAR-GUARD-1
+        -- withdrew the whole function, and a measure that does not decrease was
+        -- never refuted. A def-shell's tuple comes from 'measureMap'; a
+        -- letrec's single measure from 'mDec'.
+        , Set.unions (map measureArgVars
+            (maybe [] snd (Map.lookup name measureMap) ++ maybeToList mDec))
         -- F-NIW-2: carrier vars passed as arguments to a measure-refined callee
         -- param need binding too, so the emitted call-pre obligation references
         -- an in-scope symbol (intro-side).
