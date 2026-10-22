@@ -2,6 +2,28 @@
 
 ---
 
+## Unreleased (on `main` after v0.30.10)
+
+### Documentation: real-program probe rows and three spec corrections
+
+- **Filed twenty-three roadmap rows** from a probe of three CLI tools written from the docs on
+  v0.30.10 (a CSV reporter, a log analyser, a duplicate-file finder) and its engineering
+  follow-ups: `PBT-EVAL-PARITY-1`, `PBT-GEN-NEG-1`, `PBT-COMPILED-1`, `LIST-LEN-AXIOM-1`,
+  `LAMBDA-CLOSURE-1`, `PBT-CODEGEN-REFINE-1`, `DECREASES-IF-GUARD-1`, `LIST-TAIL-MATCH-1` and
+  `VERIFY-JSON-TERM-ASSUMED-1` (G1); `FLOAT-LIT-1`, `FALLBACK-ATTRIB-1`, `TEST-JSON-STDOUT-1`,
+  `BUILD-EXE-REPORT-1` and `DECREASES-LEN-1` (G3);
+  `STR-ORDER-1`, `LIST-SORT-1`, `MAP-ITER-1`, `REGEX-REPLACE-1`, `FS-SIZE-1`, `DECIMAL-1`,
+  `STR-TO-INT-STRICT-1`, `STR-INDEX-LINEAR-1` and `LIST-APPEND-COST-1` (G7). `FLOAT-OPS-1` is
+  trigger-gated. Designs: [`docs/design/collect-order-1-proposal.md`](docs/design/collect-order-1-proposal.md)
+  and [`docs/design/decimal-numbers-proposal.md`](docs/design/decimal-numbers-proposal.md), both Rev 0.
+- **`LLMLL.md` §7:** the reach table said `time` reaches nothing. `Data.Time.isLeapYear` builds
+  and runs; everything over `Day` still needs `FFI-OPAQUE-1`, and `Int` arguments need
+  `FFI-NARROW-1`.
+- **`LLMLL.md` §9.5:** `check` warns in two `:status` cases, not three. The warning for `:status`
+  on a `cli` or `http` program was removed at `MODE-CLI-1`, and `http` mode no longer exists.
+- **`LLMLL.md` §10:** `check`/`for-all` blocks run in the compiler's static evaluator, not against
+  the built binary.
+
 <a id="Latest"></a>
 
 ## v0.30.10: Tier 1 Hackage imports, lossless boundary types, and FFI trust disclosure (2026-10-21)
