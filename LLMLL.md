@@ -1381,7 +1381,7 @@ The line is correct; the column counts characters in the generated Haskell, not 
 | containers | `Data.Map.Strict` | `insert`, `delete`, `member`, `union`, `fromList`, `toList`, `keys`, `elems`, `findWithDefault`, `filter`, `insertWith`; `lookup` and `lookupMin` through `hs-maybe`, `size` through `hs-int` (M) | a callback that needs a boundary type; `!` has no entry name |
 | text | `Data.Text` | through `hs-text`: `toUpper`, `toLower`, `strip`, `splitOn` (P), `replace` (P), `isInfixOf`, `isPrefixOf`, `words`, `lines`, `intercalate`, `length` (M) | `Char` arguments (`map`, `filter`, `cons`); `Int` arguments (`take`, `justifyLeft`) need `FFI-NARROW-1` |
 | bytestring | `Data.ByteString` | none | needs an unsized byte type (`BYTES-READ-1`) |
-| time | `Data.Time` | none (M: `Day` is abstract) | `FFI-OPAQUE-1` |
+| time | `Data.Time` | `isLeapYear` (`Year` is `Integer`); nothing that takes or returns a `Day` (M: `Day` is abstract) | `Day` needs `FFI-OPAQUE-1`; `Int` arguments (`gregorianMonthLength`) need `FFI-NARROW-1` |
 | aeson | `Data.Aeson` | none (M: lazy `ByteString`, `Value`, type classes) | `FFI-OPAQUE-1`; the native `Json` operations (§13.13) cover the common case |
 | vector | `Data.Vector` | none (M: `Vector` is abstract) | `FFI-OPAQUE-1` |
 | directory | `System.Directory` | none | every export is IO |
@@ -1940,11 +1940,11 @@ automatically (§5.3.3). Without it, nothing constrains the projection: a `:stat
 truncates to 44, and one returning 256 exits **0 and reports success**. The refinement is the only
 thing standing between the program and that outcome, and it binds only where it is written.
 
-`llmll check` warns in three cases, none of them an error: `:status` declared on a `cli` or `http`
-mode, which perform no `Command` and have no terminal state to project; `:status` declared with no
-`:done?`, where the settle path is unreachable and the projection is dead code (the author asked for
-an exit status and will silently get 0 on every run); and a named function whose return position is
-not `int`.
+`llmll check` warns in two cases, neither of them an error: `:status` declared with no `:done?` in
+`console` mode, where the settle path is unreachable and the projection is dead code (the author
+asked for an exit status and will silently get 0 on every run); and a named function whose return
+position is not `int`. In `cli` mode a missing `:done?` is already the error
+`def-main-done-required`, so the first case cannot arise there.
 
 **70 is not reserved from the program.** A `:status` may return 70 deliberately, so a shell can tell
 that neither outcome is success but cannot separate exhaustion from a deliberate 70. Reserving it was
@@ -2134,7 +2134,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 3. **Human/Lead-AI Review:** Holes and sensitive `Command` effects (e.g., `wasi.fs.delete`) are resolved/approved via Chat/CLI.
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
-6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
+6. **Contract & Property Testing:** `pre`/`post` contracts run as runtime assertions in the built binary (`build --contracts`). `llmll test` does not run the binary: it evaluates each `check`/`for-all` block in the compiler's static evaluator (§5.1), and a property that reaches a term the evaluator does not reduce is reported `skip`. Failures are reported as JSON diagnostics.
 7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities. WASM-WASI is planned as a future replacement.
 8. **Event-Log Replay:** A `:mode console` program records its turns, and `llmll replay` reports whether a re-run on the same inputs gives the same output (§10a). Replay detects a change in observable behavior. It does not reproduce a run.
 
