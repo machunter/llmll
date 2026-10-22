@@ -487,7 +487,16 @@ evalC cs fe fuel env (EPair a b) = do
   vb <- evalC cs fe fuel env b
   pure (EPair va vb)
 
-evalC _ _ _ _ lam@(ELambda _ _) = Just lam
+-- LAMBDA-CLOSURE-1: a lambda is a closure. Its free variables take their
+-- values from the environment it is evaluated in, by substitution, so the
+-- value carries them. 'applyLambda' evaluates a body in an environment of the
+-- parameters alone, and before this a body that read an outer name (the
+-- documented (fn [i] (string-char-at s i)) shape) never reduced. A parameter
+-- shadows an outer name of the same spelling, so it is removed from the
+-- substitution. Environment values are reduced values, closed, and each
+-- re-evaluates to itself, so the substitution captures nothing.
+evalC _ _ _ env (ELambda ps body) =
+  Just (ELambda ps (substValues (foldr (Map.delete . fst) env ps) body))
 
 evalC _ _ _ _ _ = Nothing
 
@@ -507,6 +516,11 @@ evalC _ _ _ _ _ = Nothing
 -- expect EApp ConstructorName).
 evalBuiltinApp :: Set Name -> FuncEnv -> Int -> Name -> [Expr] -> Maybe Expr
 -- Result constructors (already canonical to Success/Error tags for match)
+-- LAMBDA-CLOSURE-1: Success / Error are also the VALUES ok / err reduce to.
+-- A closure's substitution can put one back into a body, where it is
+-- evaluated again, so each reduces to itself.
+evalBuiltinApp _ _ _ "Success" [val] = Just (EApp "Success" [val])
+evalBuiltinApp _ _ _ "Error"   [val] = Just (EApp "Error" [val])
 evalBuiltinApp _ _ _ "ok"  [val] = Just (EApp "Success" [val])
 evalBuiltinApp _ _ _ "err" [val] = Just (EApp "Error" [val])
 evalBuiltinApp _ _ _ "is-ok" [EApp "Success" _] = Just (ELit (LitBool True))
@@ -876,6 +890,42 @@ stringConcatMany :: Expr -> Maybe Text
 stringConcatMany (EApp "nil"  [])                       = Just T.empty
 stringConcatMany (EApp "cons" [ELit (LitString s), tl]) = (s <>) <$> stringConcatMany tl
 stringConcatMany _                                      = Nothing
+
+-- | LAMBDA-CLOSURE-1: replace each free occurrence of a name in the map by its
+-- value. Binders shadow: a let binding, a match pattern variable, a lambda
+-- parameter and a do-step name each remove their name for the scope they
+-- open. A call head is a function name, not a variable, and is left alone.
+-- A delegate hole is left alone (its fallback is evaluated where it stands).
+substValues :: Map Name Expr -> Expr -> Expr
+substValues m0 = go m0
+  where
+    go m e | Map.null m = e
+    go m e = case e of
+      EVar n          -> Map.findWithDefault e n m
+      ELit _          -> e
+      ELet bs body    ->
+        let step (acc, out) (p, t, x) =
+              (foldr Map.delete acc (patternVars p), (p, t, go acc x) : out)
+            (m', bs') = foldl step (m, []) bs
+        in ELet (reverse bs') (go m' body)
+      EIf c t f       -> EIf (go m c) (go m t) (go m f)
+      EMatch x arms   -> EMatch (go m x)
+                           [ (p, go (foldr Map.delete m (patternVars p)) b) | (p, b) <- arms ]
+      EApp f as       -> EApp f (map (go m) as)
+      EOp o as        -> EOp o (map (go m) as)
+      EPair a b       -> EPair (go m a) (go m b)
+      EAwait x        -> EAwait (go m x)
+      ELambda ps b    -> ELambda ps (go (foldr (Map.delete . fst) m ps) b)
+      EDo steps       ->
+        let step (acc, out) st =
+              ( maybe acc (`Map.delete` acc) (dsName st)
+              , st { dsExpr = go acc (dsExpr st) } : out )
+        in EDo (reverse (snd (foldl step (m, []) steps)))
+      EHole _         -> e
+    patternVars p = case p of
+      PVar v            -> [v]
+      PConstructor _ ps -> concatMap patternVars ps
+      _                 -> []
 
 -- | Apply a lambda to argument values via beta reduction. Fuel-decremented
 -- per call so recursive use under higher-order builtins terminates.

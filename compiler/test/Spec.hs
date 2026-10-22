@@ -14595,6 +14595,71 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- STR-INDEX-LINEAR-1: string_char_at and string_slice read a cached array
     -- past index 32. The answers must equal the list-walk definitions they
     -- replaced, and the decomposition idiom must be linear.
+    -- LAMBDA-CLOSURE-1: an evaluated lambda captures the values of its free
+    -- variables, so a body that reads an outer name reduces under list-map,
+    -- list-fold and list-filter. A parameter or inner binder shadows.
+    describe "LAMBDA-CLOSURE-1 evaluator lambdas capture outer variables" $ do
+      let lint   = ELit . LitInt
+          lstr   = ELit . LitString
+          consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+          env    = Map.fromList
+          lam ps = ELambda [ (p, TInt) | p <- ps ]
+
+      it "a lambda reads an outer variable (the documented char decomposition)" $
+        evalExprStatic (env [("s", lstr "abc")])
+          (EApp "list-map" [ EApp "range" [lint 0, EApp "string-length" [EVar "s"]]
+                           , lam ["i"] (EApp "string-char-at" [EVar "s", EVar "i"]) ])
+          `shouldBe` Just (consOf [lstr "a", lstr "b", lstr "c"])
+
+      it "nested lambdas capture both the outer variable and the enclosing parameter" $
+        evalExprStatic (env [("k", lint 100)])
+          (EApp "list-map" [ consOf [lint 1, lint 2]
+                           , lam ["x"] (EApp "list-map" [ consOf [lint 10]
+                                                        , lam ["y"] (EOp "+" [EVar "x", EOp "+" [EVar "y", EVar "k"]]) ]) ])
+          `shouldBe` Just (consOf [consOf [lint 111], consOf [lint 112]])
+
+      it "a parameter shadows an outer name of the same spelling" $
+        evalExprStatic (env [("x", lint 100)])
+          (EApp "list-map" [consOf [lint 1, lint 2], lam ["x"] (EOp "+" [EVar "x", lint 1])])
+          `shouldBe` Just (consOf [lint 2, lint 3])
+
+      it "a let binding and a match pattern inside the body shadow an outer name" $
+        evalExprStatic (env [("n", lint 5)])
+          (EApp "list-map" [ consOf [lint 1]
+                           , lam ["x"] (EOp "+"
+                               [ ELet [(PVar "n", Nothing, lint 20)] (EVar "n")
+                               , EMatch (EApp "ok" [lint 300]) [(PConstructor "Success" [PVar "n"], EVar "n")] ]) ])
+          `shouldBe` Just (consOf [lint 320])
+
+      it "list-fold captures an outer variable" $
+        evalExprStatic (env [("k", lint 10)])
+          (EApp "list-fold" [ consOf [lint 1, lint 2, lint 3], lint 0
+                            , lam ["acc", "x"] (EOp "+" [EVar "acc", EOp "*" [EVar "x", EVar "k"]]) ])
+          `shouldBe` Just (lint 60)
+
+      it "list-filter captures an outer variable" $
+        evalExprStatic (env [("t", lint 1)])
+          (EApp "list-filter" [consOf [lint 0, lint 1, lint 2, lint 3], lam ["x"] (EOp ">" [EVar "x", EVar "t"])])
+          `shouldBe` Just (consOf [lint 2, lint 3])
+
+      it "a captured Result value re-evaluates to itself inside the body" $
+        evalExprStatic (env [("r", EApp "Success" [lint 7]), ("e", EApp "Error" [lstr "no"])])
+          (EApp "list-map" [ consOf [lint 0]
+                           , lam ["x"] (EPair (EApp "unwrap-or" [EVar "r", EVar "x"]) (EApp "unwrap-or" [EVar "e", EVar "x"])) ])
+          `shouldBe` Just (consOf [EPair (lint 7) (lint 0)])
+
+      it "the csv-report chars-of def-shell reduces in a property" $ do
+        let src = T.unlines
+              [ "(def-shell chars-of [s: string] -> list[string]"
+              , "  (list-map (range 0 (string-length s)) (fn [i: int] (string-char-at s i))))"
+              , "(check \"chars\" (for-all [s: string] (= (list-length (chars-of s)) (string-length s))))"
+              , "(check \"lit\" (for-all [x: int] (= (chars-of \"ab\") [\"a\" \"b\"])))" ]
+        case parseStatements GrammarCoreInversion "<t>" src of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            r <- runPropertyTests stmts
+            map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed]
+
     describe "STR-INDEX-LINEAR-1 linear string indexing" $ do
       let idxs s i = [i, -1, 0, 31, 32, 33, length s - 1, length s, length s + 1]
 
