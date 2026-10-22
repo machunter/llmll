@@ -2237,6 +2237,94 @@ main = hspec $ do
         && T.isInfixOf "\"kind\":\"termination-obligation\"" reportJson
         && T.isInfixOf "\"refuted_fns\":[]" reportJson) `shouldBe` True
 
+    -- DECREASES-LEN-1: a length measure in (decreases …) names a list/string
+    -- param that the contract and body may not name. The NIW carrier seed must
+    -- bind it, or FQ-FREEVAR-GUARD-1 withdraws the whole function and a measure
+    -- that does not decrease is never refuted. A body fallback that drops the
+    -- measure says so with W-DECREASES-UNDISCHARGED.
+    let dlEmit s = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" (parseOrFail s)
+        dlSolve er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/decreases-len-spec.fq"
+          TIO.writeFile fqPath (erFQText er)
+          a <- findExecutable "liquid-fixpoint"
+          mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              pure (Just (T.pack out))
+        dlDiags tag er = [ d | d <- erDiagnostics er, tag `T.isPrefixOf` diagMessage d ]
+        dlListBad  = "(def-shell g [n: int xs: list[int]] -> int (pre (>= n 0)) (post (>= result 0)) (decreases (list-length xs)) (if (= n 0) 0 (+ 1 (g (- n 1) xs))))"
+        dlStrBad   = "(def-shell g [n: int s: string] -> int (pre (>= n 0)) (post (>= result 0)) (decreases (string-length s)) (if (= n 0) 0 (+ 1 (g (- n 1) s))))"
+        dlListGood = "(def-shell g [n: int xs: list[int]] -> int (pre (>= n 0)) (post (>= result 0)) (decreases (+ n (list-length xs))) (if (= n 0) 0 (+ 1 (g (- n 1) xs))))"
+        dlMatch    = "(def-shell count [xs: list[int]] -> int (pre true) (post (>= result 0)) (decreases (list-length xs)) (match (list-tail xs) ((Success t) (+ 1 (count t))) ((Error e) 0)))"
+
+    it "DL-1: a list-length measure that does not decrease stays body-faithful, emits 'descent', and the solver refutes it" $ do
+      er <- dlEmit dlListBad
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
+      ("descent" `elem` clausesOf er) `shouldBe` True
+      mOut <- dlSolve er
+      case mOut of
+        Nothing  -> pendingWith "liquid-fixpoint not on PATH"
+        Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+    it "DL-2: a string-length measure that does not decrease is refuted the same way" $ do
+      er <- dlEmit dlStrBad
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
+      ("descent" `elem` clausesOf er) `shouldBe` True
+      mOut <- dlSolve er
+      case mOut of
+        Nothing  -> pendingWith "liquid-fixpoint not on PATH"
+        Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+    it "DL-3: a decreasing measure (+ n (list-length xs)) proves SAFE with no workaround pre, and the function is measured" $ do
+      er <- dlEmit dlListGood
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
+      erMeasuredFns er `shouldSatisfy` elem "g"
+      (("descent" `elem` clausesOf er) && ("decreases" `elem` clausesOf er)) `shouldBe` True
+      mOut <- dlSolve er
+      case mOut of
+        Nothing  -> pendingWith "liquid-fixpoint not on PATH"
+        Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+    it "DL-4: a length measure no longer trips W-FQ-FREEVAR, and the carrier binder is declared" $ do
+      er <- dlEmit dlListBad
+      map diagMessage (dlDiags "W-FQ-FREEVAR" er) `shouldBe` []
+      erBodyFallback er `shouldNotSatisfy` elem "g"
+      erFQText er `shouldSatisfy` T.isInfixOf "xs : { v : Lst | true }"
+
+    it "DL-5: a measured recursion whose body falls back emits W-DECREASES-UNDISCHARGED at the decreases pointer" $ do
+      er <- dlEmit dlMatch
+      erBodyFallback er `shouldSatisfy` elem "count"
+      ("descent" `elem` clausesOf er) `shouldBe` False
+      case dlDiags "W-DECREASES-UNDISCHARGED" er of
+        [d] -> do
+          diagCode d    `shouldBe` Just "W-DECREASES-UNDISCHARGED"
+          diagPointer d `shouldBe` Just "/statements/0/decreases"
+        ds  -> expectationFailure ("expected one W-DECREASES-UNDISCHARGED, got " ++ show (length ds))
+
+    it "DL-6: the seed is scoped to measure arguments: an int measure binds no list carrier" $ do
+      er <- dlEmit "(def-shell g [n: int xs: list[int]] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) 0 (+ 1 (g (- n 1) xs))))"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "xs :"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "listLen"
+      map diagMessage (dlDiags "W-DECREASES-UNDISCHARGED" er) `shouldBe` []
+
+    it "DL-7: W-FQ-FREEVAR carries its code in the JSON diagnostic" $ do
+      er <- dlEmit "(type Tree (| Leaf) (| Node Result[Tree, string])) (def mk [n: int] -> Tree (post (= result (Node (ok Leaf)))) (Node (ok Leaf)))"
+      case dlDiags "W-FQ-FREEVAR" er of
+        [] -> expectationFailure "expected a W-FQ-FREEVAR witness"
+        ds -> map diagCode ds `shouldSatisfy` all (== Just "W-FQ-FREEVAR")
+
+    it "DL-8: a letrec :decreases (list-length xs) binds the carrier through the mDec path" $ do
+      let stmts = case parseStatements GrammarLegacy "<test>" (T.pack "(letrec g [n: int xs: list[int]] :decreases (list-length xs) (if (= n 0) 0 (g (- n 1) xs)))") of
+                    Left e -> error (show e)
+                    Right ss -> ss
+      er <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      map diagMessage (dlDiags "W-FQ-FREEVAR" er) `shouldBe` []
+      erFQText er `shouldSatisfy` T.isInfixOf "xs : { v : Lst | true }"
+      ("decreases" `elem` clausesOf er) `shouldBe` True
+
     -- REC-DESCENT Phase 3: discharge feedback (mark-drop) + measure-in-hash.
     it "RD3-1: markDescentDischarged drops a discharged member from partial_fns" $ do
       let stmts = parseOrFail "(def-shell cd [x: int] -> int (pre (>= x 0)) (post (= result 0)) (decreases x) (if (= x 0) 0 (cd (- x 1))))"
