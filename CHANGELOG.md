@@ -4,7 +4,78 @@
 
 ## Unreleased (on `main` after v0.30.10)
 
-### Documentation: real-program probe rows and three spec corrections
+### `DECREASES-LEN-1`: a length measure is checked
+
+- **A `(decreases …)` measure over `list-length` or `string-length` is checked.** The measure's
+  carrier variable got no binder, so `FQ-FREEVAR-GUARD-1` withdrew the whole function
+  (`W-FQ-FREEVAR`): `(decreases (string-length s))` on a recursion that left `s` unchanged
+  reported `SAFE … partial`, exit 0. The carrier is now bound from the `def-shell` measure tuple
+  and the `letrec` measure. A non-decreasing length measure is refuted (`descent-condition …
+  not verified`, exit 1, pointer `/statements/<i>/decreases`); a decreasing one earns
+  `termination_verified`. Termination was disclosed as unverified before, and no false
+  `verified` was issued.
+- **`W-DECREASES-UNDISCHARGED`:** a measured recursive `def-shell` whose body falls back emits no
+  descent obligation, and `verify` now says so, with a code and the `decreases` pointer in
+  `--json verify`. `W-FQ-FREEVAR` gains a code. Most length recursions through `if` or a
+  `match` on `list-tail` still fall back (`DECREASES-IF-GUARD-1`, `LIST-TAIL-MATCH-1`).
+- The tracked corpus's `.fq` files are byte-identical (518 of 518). No schema change.
+
+### `PBT-EVAL-PARITY-1`, `TEST-JSON-STDOUT-1`: `llmll test` evaluates the pure builtins
+
+- **21 more pure builtins evaluate in `llmll test`:** `mod`, `abs`, `min`, `max`,
+  `string-concat`, `string-contains`, `string-slice`, `string-char-at`, `string-split`,
+  `string-trim`, `string-lower`, `string-upper`, `path-normalize`, `string-to-int`,
+  `regex-match`, `regex-find`, `regex-find-all`, `regex-spans`, `range` (capped at 10,000
+  elements), `list-nth` and `list-contains`, with user constructors, `Response` arms and
+  structural `=`/`!=`. A property over any of them was `PBTSkipped` and earned no evidence. The
+  definitions are shared with the codegen preamble through
+  [`compiler/src/LLMLL/RuntimePure.hs`](compiler/src/LLMLL/RuntimePure.hs); an hspec region test
+  keeps the two equal, and a coverage gate requires every pure builtin to be modelled or on a
+  reviewed exclusion list.
+- **`--json test` prints one JSON document.** QuickCheck's `*** Gave up!` lines reached stdout
+  ahead of the object. Each result gains an additive `skip_reason`, which names the unmodelled
+  builtin or the Tier 1 export reached; text mode prints it. A property that calls a Tier 1
+  export still skips (`PBT-COMPILED-1`).
+
+### `STR-INDEX-LINEAR-1`: the character-decomposition idiom is linear
+
+- **`string-char-at` and `string-slice` read a cached array past index 31.** The idiom
+  `(list-map (range 0 (string-length s)) (fn [i: int] (string-char-at s i)))` was quadratic,
+  because each call walked the `String`. Indices below 32 still walk the list; beyond that the
+  generated code reads an array of the string from a 4-entry cache keyed by `StableName`
+  (`GHC.Arr`, base only). Results are identical; `codegen_semantics_version` is unchanged. The
+  CSV reporter of the 2026-10-21 probe went from 49.2 s to 1.25 s on a 197 KB input.
+  `list-append` is still O(n) (`LIST-APPEND-COST-1`).
+
+### `PBT-GEN-NEG-1`: a signed, refinement-respecting, reproducible generator
+
+- **`int` draws are signed.** `llmll test` drew every `int` from `NonNegative`, so
+  `(for-all [x: int] (>= x 0))` passed and a false post could earn `tested`. Draws now mix the
+  `LLMLL.md` §5.1 boundary values (`0`, `±1`, `2³¹ − 1`, `−2³¹`, `2³²`, `2⁶³ − 1`, `−2⁶³`) with
+  small, size-scaled and large signed values.
+- **Refinement-typed bindings are drawn by §5.2 rejection sampling,** with a budget of 10,000
+  attempts per property; a generation failure is `skip`, with no evidence. A `Neg` binding was
+  drawn as `5`.
+- **Seeds are deterministic.** Each property's seed derives from its body hash, and
+  `llmll test --seed N` overrides it. A failing `int` counterexample is shrunk toward `0` and
+  printed with its seed, `x = -1 (seed 780609065608821682)`; `--json test` gains an additive
+  `seed`.
+- **Evidence from the old generator is downgraded once.** The witness hash folds the generator
+  tag `gen2`, so a `tested` record written before this change renders `asserted` until
+  `llmll test` runs again. `verified` is unaffected.
+
+**Tests:** hspec 2512 → 2581, 0 failures; Python 564 passed, 5 skipped (560 at v0.30.10).
+
+### `LAMBDA-CLOSURE-1`: `llmll test` evaluates lambdas that read outer variables
+
+- **A callback such as `(fn [i] (string-char-at s i))` reduces instead of skipping the property.**
+  The evaluator applied a lambda with only its own parameters bound, so a `list-map`,
+  `list-fold` or `list-filter` callback that read a parameter, a `let`, `match` or `do` binding,
+  or an outer lambda parameter never reduced, and the property was `PBTSkipped`. Shadowing
+  follows the language's scoping. Test-path evaluator only (`llmll test` and `DivergenceCheck`
+  probing); codegen and verification are unchanged. No schema change.
+
+### Documentation: real-program probe rows and spec corrections
 
 - **Filed twenty-three roadmap rows** from a probe of three CLI tools written from the docs on
   v0.30.10 (a CSV reporter, a log analyser, a duplicate-file finder) and its engineering
@@ -23,6 +94,17 @@
   on a `cli` or `http` program was removed at `MODE-CLI-1`, and `http` mode no longer exists.
 - **`LLMLL.md` §10:** `check`/`for-all` blocks run in the compiler's static evaluator, not against
   the built binary.
+- **Closed** `DECREASES-LEN-1`, `PBT-EVAL-PARITY-1`, `TEST-JSON-STDOUT-1`, `STR-INDEX-LINEAR-1`,
+  `PBT-GEN-NEG-1` and `LAMBDA-CLOSURE-1`. **Filed** `PBT-VACUITY-1` (G1, DECIDE: `tested` counts vacuous samples,
+  §5.1.1) and `INT-INDEX-WRAP-1` (G2, DECIDE: an index past `Int64` wraps in the Class A shims, so
+  `(list-nth xs 18446744073709551616)` answers `Success`).
+- **`LLMLL.md` §4.2, §5.3.3:** a length measure is checked, and a measured function whose body
+  falls back reports `W-DECREASES-UNDISCHARGED`. **§5.1, §5.2:** the generator's boundary values,
+  seeds, `--seed`, shrinking, `skip_reason` and the per-property sampling budget. **§4.4.5, §7:**
+  a property that reaches a Tier 1 FFI call is skipped with a named reason, and the generator tag
+  in the witness hash. **README:** `llmll test [--seed N]`. **`getting-started.md`:** `llmll test`
+  evaluates a qualified call in a check body (`PBT-QUAL-1` shipped at v0.30.2); two sentences
+  said it skipped.
 
 <a id="Latest"></a>
 

@@ -1019,8 +1019,8 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 > `lib.Ran`, `lib.Ctl`) resolves with `(import …)` alone and builds: codegen emits the bare
 > Haskell name, which is unique because a build's top-level names share one scope (`LLMLL.md`
 > §8.5). The qualified name must be exported by its module, and the module must be imported by
-> the module that uses the name. `llmll test` does not yet evaluate a `(check ...)` body that
-> uses a qualified call; such a check reports `Skipped` (`PBT-QUAL-1`).
+> the module that uses the name. `llmll test` evaluates a qualified call inside a `(check ...)`
+> body (`PBT-QUAL-1`, v0.30.2).
 
 #### `open` — pull names into local scope
 
@@ -1098,7 +1098,7 @@ Property-based tests can call functions defined in imported modules, provided th
     (= (plus-one n) (+ n 1))))
 ```
 
-Without `(open ...)`, the PBT static evaluator cannot resolve the cross-module call: the property body fails to reduce to a literal Bool and `llmll test` reports the check as `Skipped` rather than `Passed` or `Failed`. The fix is always to add `(open imported)`. Qualified references (`imported.plus-one ...`) build and run, but `llmll test` does not yet evaluate them inside a check body and reports such a check `Skipped` (`PBT-QUAL-1`).
+Without `(open ...)`, a bare `plus-one` is a `check` error (`'plus-one' is declared in imported; add (open imported) or write imported.plus-one`), and `llmll test` reports the property `Skipped` rather than `Passed` or `Failed`. Either add `(open imported)` or write the qualified name: `llmll test` evaluates `imported.plus-one` inside a check body (`PBT-QUAL-1`, v0.30.2).
 
 If `imported` declares `(export ...)`, only the listed names are visible to the test module's PBT evaluator (consistent with the type-checker's behavior).
 
