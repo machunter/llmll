@@ -110,6 +110,10 @@ import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-
 -- PBT-EVAL-PARITY-1
 import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
 import LLMLL.PBT (unreducedReason, ctorNamesOf)
+import LLMLL.PBT (runPropertyTestsWithSeed, generateSamplesPure, propertySeed, pbtGeneratorTag, intBoundaries, maxRefineAttempts)
+import LLMLL.TrustReport (liveCheckHashes)
+import qualified Crypto.Hash.SHA256 as GNSHA
+import qualified Numeric as GNNum
 import qualified LLMLL.RuntimePure as RP
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
@@ -13993,6 +13997,119 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- OBLIG-PBT-2 / F-032: static-evaluator coverage for EPair and the
     -- list/fold builtins that PBT requires. Each test pins the reduction of
     -- a specific AST shape to its expected literal.
+    -- PBT-GEN-NEG-1: the int generator is signed, draws the §5.1 boundary
+    -- values, is deterministic per property, respects refinement types by
+    -- rejection sampling (§5.2), and shrinks a counterexample toward 0.
+    describe "PBT-GEN-NEG-1 signed, seeded, refinement-respecting generator" $ do
+      let gnLit (ELit (LitInt n)) = Just n
+          gnLit _                 = Nothing
+          gnInts key envs = [ n | env <- envs, Just v <- [Map.lookup key env], Just n <- [gnLit v] ]
+          gnRun stmts = do
+            r <- runPropertyTests stmts
+            case pbtResults r of
+              [run] -> pure run
+              rs    -> error ("expected one run, got " ++ show (length rs))
+          gnNonNeg = Property "every int is non-negative" [("x", TInt)]
+                       (EOp ">=" [EVar "x", ELit (LitInt 0)]) []
+          gnNat = STypeDef "Nat" (TDependent "n" TInt (EOp ">=" [EVar "n", ELit (LitInt 0)]))
+          gnNeg = STypeDef "Neg" (TDependent "n" TInt (EOp "<" [EVar "n", ELit (LitInt 0)]))
+          gnCons = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+
+      it "GN-1: (for-all [x: int] (>= x 0)) now FAILS" $ do
+        run <- gnRun [SCheck gnNonNeg]
+        pbtStatus run `shouldBe` PBTFailed
+
+      it "GN-2: its counterexample is shrunk to x = -1 and names the seed" $ do
+        run <- gnRun [SCheck gnNonNeg]
+        pbtCounterexample run `shouldSatisfy` maybe False (T.isPrefixOf "x = -1 (seed ")
+        pbtSeed run `shouldBe` Just (propertySeed (propBody gnNonNeg))
+
+      it "GN-3: a Neg-refined binding draws only negatives, so (< n 0) PASSES (it failed under the old generator)" $ do
+        run <- gnRun [gnNeg, SCheck (Property "neg" [("n", TCustom "Neg")] (EOp "<" [EVar "n", ELit (LitInt 0)]) [])]
+        pbtStatus run `shouldBe` PBTPassed
+
+      it "GN-4: every Nat sample satisfies the refinement, and 100 samples are drawn" $ do
+        let (envs, _) = generateSamplesPure 42 [gnNat] [("n", TCustom "Nat")] 100
+        length envs `shouldBe` 100
+        gnInts "n" envs `shouldSatisfy` all (>= 0)
+        length (gnInts "n" envs) `shouldBe` 100
+
+      it "GN-5: an unsatisfiable refinement SKIPS with a generation failure after the attempt cap (no pass, no evidence)" $ do
+        let never = STypeDef "Never" (TDependent "n" TInt
+                      (EOp "and" [ EOp ">" [EVar "n", ELit (LitInt 0)], EOp "<" [EVar "n", ELit (LitInt 0)] ]))
+        run <- gnRun [never, SCheck (Property "never" [("n", TCustom "Never")] (ELit (LitBool True)) [])]
+        pbtStatus run `shouldBe` PBTSkipped
+        pbtCounterexample run `shouldSatisfy` maybe False (T.isInfixOf "generation failure")
+        let (envs, used) = generateSamplesPure 1 [never] [("n", TCustom "Never")] 100
+        (length envs, used) `shouldBe` (0, maxRefineAttempts)
+
+      it "GN-6: the same seed draws the same samples; a different seed draws different ones; --seed overrides" $ do
+        let draw s = fst (generateSamplesPure s [] [("x", TInt), ("y", TInt)] 100)
+        draw 7 `shouldBe` draw 7
+        draw 7 `shouldNotBe` draw 8
+        r1 <- runPropertyTests [SCheck gnNonNeg]
+        r2 <- runPropertyTests [SCheck gnNonNeg]
+        map pbtCounterexample (pbtResults r1) `shouldBe` map pbtCounterexample (pbtResults r2)
+        r3 <- runPropertyTestsWithSeed (Just 12345) [] [SCheck gnNonNeg]
+        map pbtSeed (pbtResults r3) `shouldBe` [Just 12345]
+
+      it "GN-7: every §5.1 boundary value is drawn (0, ±1, ±2^31, 2^32, ±2^63)" $ do
+        let xs = gnInts "x" (fst (generateSamplesPure 3 [] [("x", TInt)] 1000))
+        intBoundaries `shouldSatisfy` all (`elem` xs)
+        xs `shouldSatisfy` any (< 0)
+
+      it "GN-8: list[int] elements include negatives; list[Nat] elements never do" $ do
+        let elems key envs = [ n | env <- envs, Just v <- [Map.lookup key env], n <- go v ]
+            go (EApp "cons" [ELit (LitInt n), rest]) = n : go rest
+            go _ = []
+            (ints, _) = generateSamplesPure 5 [] [("xs", TList TInt)] 100
+            (nats, _) = generateSamplesPure 5 [gnNat] [("xs", TList (TCustom "Nat"))] 100
+        elems "xs" ints `shouldSatisfy` any (< 0)
+        elems "xs" nats `shouldSatisfy` all (>= 0)
+        elems "xs" nats `shouldSatisfy` (not . null)
+
+      it "GN-9: the witness hash folds in the generator tag, so a gen1 witness is no longer live" $ do
+        let body     = propBody gnNonNeg
+            hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
+            gen1Hash = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (canonicalExpr body))))
+            gen2Hash = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (pbtGeneratorTag <> ":" <> canonicalExpr body))))
+            live     = liveCheckHashes Map.empty [SCheck gnNonNeg]
+        canonicalPropBodyHash body `shouldBe` gen2Hash
+        Set.member gen1Hash live `shouldBe` False
+        Set.member gen2Hash live `shouldBe` True
+
+      it "GN-10: a false post `(>= result 0)` on the identity no longer earns `tested`" $ do
+        let ident = SDefLogic "ident" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
+                      (EVar "x")
+            prop  = Property "ident is non-negative" [("x", TInt)]
+                      (EOp ">=" [EApp "ident" [EVar "x"], ELit (LitInt 0)]) ["ident"]
+            stmts = [ident, SCheck prop]
+        result <- runPropertyTests stmts
+        map pbtStatus (pbtResults result) `shouldBe` [PBTFailed]
+        let (cs, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
+        Map.null cs `shouldBe` True
+
+      -- Risk 1 of the plan: the PARITY clauses on negative inputs answer the
+      -- runtime's value or Nothing, never a fabricated one.
+      it "GN-11: PARITY clauses on negative ints match the runtime" $ do
+        let ev = evalExprStaticWithCtors builtinCtorNames Map.empty maxFuel Map.empty
+            i  = ELit . LitInt
+            s  = ELit . LitString
+        ev (EApp "list-nth" [gnCons [i 1, i 2], i (-1)]) `shouldSatisfy` \case
+          Just (EApp "Error" _) -> True
+          _                     -> False
+        ev (EApp "string-slice" [s "abc", i (-1), i 1]) `shouldBe` Just (s "a")
+        ev (EApp "string-char-at" [s "abc", i (-1)])     `shouldBe` Just (s "")
+        ev (EApp "mod" [i (-7), i 3])                    `shouldBe` Just (i 2)
+        ev (EApp "mod" [i 7, i (-3)])                    `shouldBe` Just (i (-2))
+        ev (EApp "mod" [i 7, i 0])                       `shouldBe` Nothing
+        ev (EApp "abs" [i (-5)])                         `shouldBe` Just (i 5)
+        ev (EApp "min" [i (-5), i 3])                    `shouldBe` Just (i (-5))
+        ev (EApp "max" [i (-5), i (-3)])                 `shouldBe` Just (i (-3))
+        ev (EApp "range" [i 3, i (-2)])                  `shouldBe` Just (EApp "nil" [])
+        ev (EApp "range" [i (-2), i 1])                  `shouldBe` Just (gnCons [i (-2), i (-1), i 0])
+
     describe "OBLIG-PBT-2 static evaluator extensions" $ do
       it "evalExprStaticWith reduces EPair element-wise" $ do
         let e = EPair (ELit (LitInt 1)) (ELit (LitInt 2))
@@ -14448,7 +14565,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
               (EVar "x")
-          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- E2: same function in multiple head-positions in one body — lift once.
       it "E2 same function in multiple head positions lifts once" $ do
@@ -14580,7 +14697,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             stmts     = [f, SCheck propPass, SCheck propFail]
             result    = PBTResult 2 1 1 0
                          [ passedRun "f-pass" 100
-                         , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9")
+                         , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9") Nothing
                          ]
             (m, ds)   = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
@@ -14683,7 +14800,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         Nothing Nothing Nothing [] [])
               (EVar "x")
-          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- S1: :subject f singleton is sugar for :subjects [f]
       it "S1 :subject f singleton lifts as :subjects [f]" $ do
@@ -14853,7 +14970,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
               (EVar "x")
-          passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- J1: pure joint lift (:subjects [f g]) — both demoted out of scalar
       -- tested; grouped emit lists both subjects under one hash.
@@ -16990,6 +17107,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -17016,6 +17134,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, _diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -17040,6 +17159,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -17067,6 +17187,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -17092,6 +17213,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
