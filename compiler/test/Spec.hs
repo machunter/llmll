@@ -107,6 +107,13 @@ import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
+-- PBT-EVAL-PARITY-1
+import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
+import LLMLL.PBT (unreducedReason, ctorNamesOf)
+import qualified LLMLL.RuntimePure as RP
+import qualified System.IO as SIO
+import qualified GHC.IO.Handle as GIOH
+import Test.QuickCheck (property)
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -14153,6 +14160,233 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- to DLTested n with pbt_witnesses provenance; multi-subject / skip / fail
     -- produce diagnostics, no lift. See docs/design/oblig-pbt-3-proposal.md
     -- §12 for the edge-case matrix this block pins.
+    -- PBT-EVAL-PARITY-1: the evaluator answers the pure builtins with the
+    -- definitions the generated program runs (LLMLL.RuntimePure), pinned to
+    -- runtimePreamble block by block.
+    describe "PBT-EVAL-PARITY-1 evaluator parity with the runtime" $ do
+      let ev       = evalExprStatic Map.empty
+          lstr     = ELit . LitString . T.pack
+          lint     = ELit . LitInt
+          norm s   = T.unpack (T.pack s)   -- the generator packs samples into Text
+          consOf   = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+          strList  = consOf . map lstr
+          eitherOf f r = case r of
+            Left m  -> EApp "Error" [lstr m]
+            Right v -> EApp "Success" [f v]
+          pats     = ["a", "^a", "[0-9]+", "(a)(b)?", "(?i)ab", "x*", "[", ""]
+
+      it "every RuntimePure block is in the preamble verbatim" $ do
+        src <- TIO.readFile "src/LLMLL/RuntimePure.hs"
+        let ls      = T.lines src
+            region  = takeWhile (/= "-- END RUNTIME-PURE")
+                        (drop 1 (dropWhile (/= "-- BEGIN RUNTIME-PURE") ls))
+            blocks  = filter (not . null) (splitOnBlank region)
+            pre     = T.lines (T.unlines runtimePreamble)
+            inPre b = any (\k -> take (length b) (drop k pre) == b) [0 .. length pre - 1]
+            splitOnBlank xs = case break T.null xs of
+              (b, [])       -> [b]
+              (b, _ : rest) -> b : splitOnBlank rest
+        length blocks `shouldSatisfy` (>= 25)
+        [ head b | b <- blocks, not (inPre b) ] `shouldBe` []
+
+      it "every pure builtin is modeled or excluded with a reason (coverage gate)" $ do
+        let excluded =
+              -- Json values have no evaluator form and no generator.
+              [ "json-parse", "json-serialize", "json-get", "json-get-string", "json-get-int"
+              , "json-get-bool", "json-get-number", "json-array", "json-as-string", "json-as-int"
+              , "json-as-bool", "json-as-number", "json-set", "json-of-string", "json-of-int"
+              , "json-of-bool", "json-of-list"
+              -- bytes[20] digests over the override-chain bytes model: deferred.
+              , "sha1", "hmac-sha1"
+              -- Builders that only feed a Command.
+              , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
+              , "proc-stderr-to-stdout", "proc-env", "seq-commands"
+              -- Response constructors: values via builtinCtorNames, not builtins.
+              , "RText", "RCode", "RErr", "RList" ]
+            fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
+        sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
+
+      it "mod matches Haskell mod, and a zero divisor discards" $ property $ \a b ->
+        ev (EApp "mod" [lint a, lint b]) == (if b == 0 then Nothing else Just (lint (a `mod` b)))
+
+      it "abs matches the runtime" $ property $ \a ->
+        ev (EApp "abs" [lint a]) == Just (lint (RP.llmll_abs a))
+
+      it "min matches the runtime" $ property $ \a b ->
+        ev (EApp "min" [lint a, lint b]) == Just (lint (RP.llmll_min a b))
+
+      it "max matches the runtime" $ property $ \a b ->
+        ev (EApp "max" [lint a, lint b]) == Just (lint (RP.llmll_max a b))
+
+      it "string-concat matches the runtime" $ property $ \a0 b0 ->
+        let (a, b) = (norm a0, norm b0)
+        in ev (EApp "string-concat" [lstr a, lstr b]) == Just (lstr (RP.string_concat a b))
+
+      it "string-contains matches the runtime (haystack first)" $ property $ \a0 b0 ->
+        let (a, b) = (norm a0, norm b0)
+        in ev (EApp "string-contains" [lstr a, lstr b]) == Just (ELit (LitBool (RP.string_contains a b)))
+           && ev (EApp "string-contains" [lstr (a ++ b), lstr b]) == Just (ELit (LitBool True))
+
+      it "string-slice matches the runtime, including the Int narrowing" $ property $ \s0 f t ->
+        let s = norm s0
+            big = [f, t, f + 2 ^ (64 :: Int), t - 2 ^ (64 :: Int)] :: [Integer]
+        in and [ ev (EApp "string-slice" [lstr s, lint x, lint y])
+                   == Just (lstr (RP.string_slice s (fromIntegral x) (fromIntegral y)))
+               | x <- big, y <- big ]
+
+      it "string-char-at matches the runtime, including the Int narrowing" $ property $ \s0 i ->
+        let s = norm s0
+        in all (\x -> ev (EApp "string-char-at" [lstr s, lint x])
+                        == Just (lstr (RP.string_char_at s (fromIntegral x))))
+               ([i, i + 2 ^ (64 :: Int), -1, 0] :: [Integer])
+
+      it "string-split matches the runtime (separator first)" $ property $ \sep0 s0 ->
+        let (sep, s) = (norm sep0, norm s0)
+        in ev (EApp "string-split" [lstr sep, lstr s]) == Just (strList (RP.string_split sep s))
+           && ev (EApp "string-split" [lstr ",", lstr s]) == Just (strList (RP.string_split "," s))
+
+      it "string-trim matches the runtime (space, tab, newline, CR only)" $ property $ \s0 ->
+        let s = norm s0
+        in ev (EApp "string-trim" [lstr s]) == Just (lstr (RP.string_trim s))
+           && ev (EApp "string-trim" [lstr ("\v" ++ s ++ " ")]) == Just (lstr (RP.string_trim ("\v" ++ s ++ " ")))
+
+      it "string-lower matches the runtime" $ property $ \s0 ->
+        let s = norm s0 in ev (EApp "string-lower" [lstr s]) == Just (lstr (RP.string_lower s))
+
+      it "string-upper matches the runtime" $ property $ \s0 ->
+        let s = norm s0 in ev (EApp "string-upper" [lstr s]) == Just (lstr (RP.string_upper s))
+
+      it "path-normalize matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in ev (EApp "path-normalize" [lstr s]) == Just (lstr (RP.path_normalize s))
+           && ev (EApp "path-normalize" [lstr ("/a/" ++ s ++ "/../b")])
+                == Just (lstr (RP.path_normalize ("/a/" ++ s ++ "/../b")))
+
+      it "string-to-int matches the runtime's reads, Success and Error" $ property $ \s0 n ->
+        let s = norm s0
+            chk x = ev (EApp "string-to-int" [lstr x]) == Just (eitherOf lint (RP.string_to_int x))
+        in chk s && chk (show (n :: Integer)) && chk (" " ++ show n) && chk ("(" ++ show n ++ ")")
+
+      it "regex-match matches the runtime, invalid patterns included" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-match" [lstr p, lstr s]) == Just (ELit (LitBool (RP.regex_match p s)))
+               | p <- pats ]
+
+      it "regex-find matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-find" [lstr p, lstr s]) == Just (strList (RP.regex_find p s)) | p <- pats ]
+
+      it "regex-find-all matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-find-all" [lstr p, lstr s])
+                   == Just (consOf (map strList (RP.regex_find_all p s))) | p <- pats ]
+
+      it "regex-spans matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+            span' (a, b) = EPair (lint a) (lint b)
+        in and [ ev (EApp "regex-spans" [lstr p, lstr s])
+                   == Just (consOf (map span' (RP.regex_spans p s))) | p <- pats ]
+
+      it "range matches the runtime" $ property $ \a b ->
+        let (x, y) = (a `mod` 50, b `mod` 50) :: (Integer, Integer)
+        in ev (EApp "range" [lint x, lint y]) == Just (consOf (map lint (RP.range x y)))
+
+      it "a range past the cap discards instead of building it" $
+        ev (EApp "range" [lint 0, lint 20000]) `shouldBe` Nothing
+
+      it "list-nth matches the runtime, Success and Error" $ property $ \xs i ->
+        all (\x -> ev (EApp "list-nth" [consOf (map lint xs), lint x])
+                     == Just (eitherOf id (RP.list_nth (map lint xs) (fromIntegral x))))
+            ([i, -1, 0, fromIntegral (length xs)] :: [Integer])
+
+      it "list-contains matches the runtime" $ property $ \xs x ->
+        ev (EApp "list-contains" [consOf (map lint xs), lint x])
+          == Just (ELit (LitBool (RP.list_contains xs (x :: Integer))))
+
+      it "list-contains compares structured elements and declines on a map" $ do
+        let pr a = EPair (lint a) (lstr "k")
+        ev (EApp "list-contains" [consOf [pr 1, pr 2], pr 2]) `shouldBe` Just (ELit (LitBool True))
+        ev (EApp "list-contains" [consOf [EApp "map-empty" []], EApp "map-empty" []]) `shouldBe` Nothing
+
+      it "= and != compare structured values (Result, list, pair)" $ do
+        ev (EOp "=" [EApp "ok" [lint 1], EApp "ok" [lint 1]]) `shouldBe` Just (ELit (LitBool True))
+        ev (EOp "=" [EApp "ok" [lint 1], EApp "err" [lint 1]]) `shouldBe` Just (ELit (LitBool False))
+        ev (EOp "=" [consOf [lint 1], consOf [lint 1, lint 2]]) `shouldBe` Just (ELit (LitBool False))
+        ev (EOp "!=" [EPair (lint 1) (lint 2), EPair (lint 1) (lint 3)]) `shouldBe` Just (ELit (LitBool True))
+
+      it "= declines on a map chain, whose encoding is not canonical" $
+        ev (EOp "=" [EApp "map-empty" [], EApp "map-empty" []]) `shouldBe` Nothing
+
+      it "a payload constructor and a nullary constructor are values under the constructor set" $ do
+        let cs = Set.fromList ["Box", "Red"]
+            fe = Map.fromList [("unbox", (["c"], EMatch (EVar "c")
+                    [ (PConstructor "Red" [], lint 0)
+                    , (PConstructor "Box" [PVar "n"], EVar "n") ]))]
+        evalExprStaticWithCtors cs fe maxFuel Map.empty (EApp "unbox" [EApp "Box" [lint 7]])
+          `shouldBe` Just (lint 7)
+        evalExprStaticWithCtors cs fe maxFuel Map.empty (EApp "unbox" [EVar "Red"])
+          `shouldBe` Just (lint 0)
+
+      it "evalExprStaticWith (no constructor set) is unchanged: a constructor does not reduce" $
+        evalExprStaticWith Map.empty maxFuel Map.empty (EApp "Box" [lint 7]) `shouldBe` Nothing
+
+      it "ctorNamesOf collects sum-type constructors and the Response arms" $ do
+        let stmts = [STypeDef "Color" (TSumType [("Red", Nothing), ("Box", Just TInt)])]
+        ctorNamesOf stmts `shouldBe` Set.union builtinCtorNames (Set.fromList ["Red", "Box"])
+        Set.member "RNone" builtinCtorNames `shouldBe` True
+
+      it "a property over a string-slice def runs instead of skipping (probe repro)" $ do
+        let src = T.unlines
+              [ "(def-shell sl [s: string] -> string (string-slice s 0 1))"
+              , "(check \"slice\" (for-all [s: string] (<= (string-length (sl s)) 1)))"
+              , "(type Color (| Red) (| Box int))"
+              , "(def-shell unbox [c: Color] -> int (match c ((Red) 0) ((Box n) n)))"
+              , "(check \"ctor\" (for-all [x: int] (= (unbox (Box x)) x)))"
+              , "(check \"eq\" (for-all [x: int] (= (string-to-int (int-to-string x)) (ok x))))" ]
+        case parseStatements GrammarCoreInversion "<t>" src of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            r <- runPropertyTests stmts
+            map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed, PBTPassed]
+
+      it "a skip names the Tier 1 FFI export a def-shell reaches" $ do
+        let src = T.unlines
+              [ "(import haskell.containers (interface [[keys (fn [m: map[string, int]] -> list[string])]]))"
+              , "(def-shell ks [m: map[string, int]] -> list[string] (keys m))"
+              , "(check \"ffi\" (for-all [x: int] (= (list-length (ks (map-empty))) 0)))" ]
+        case parseStatements GrammarCoreInversion "<t>" src of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            r <- runPropertyTests stmts
+            case pbtResults r of
+              [run] -> do
+                pbtStatus run `shouldBe` PBTSkipped
+                pbtCounterexample run `shouldSatisfy`
+                  maybe False (\t -> "Tier 1 FFI export keys (haskell.containers, Data.Map.Strict.keys) via ks" `T.isInfixOf` t)
+              rs -> expectationFailure ("expected one run, got " ++ show (length rs))
+
+      it "the skip reason names an unmodeled builtin and ignores bound names" $ do
+        let body = EApp "list-map" [EVar "xs", ELambda [("f", TInt)] (EApp "sha1" [EApp "f" []])]
+        unreducedReason Set.empty [] Map.empty ["xs"] body
+          `shouldBe` Just "calls sha1, which the test evaluator does not model"
+        unreducedReason Set.empty [] Map.empty [] (EApp "string-slice" [EVar "s", lint 0, lint 1])
+          `shouldBe` Nothing
+
+      it "runPropertyTests writes nothing to stdout (QuickCheck chatty = False)" $ do
+        tmp <- getTemporaryDirectory
+        let path = tmp ++ "/pbt-eval-parity-1-stdout.txt"
+            stmts = [ SCheck (Property "never-reduces" [("x", TInt)]
+                        (EOp "=" [EApp "no-such-builtin" [EVar "x"], ELit (LitInt 0)]) []) ]
+        h <- SIO.openFile path SIO.WriteMode
+        saved <- GIOH.hDuplicate SIO.stdout
+        SIO.hFlush SIO.stdout
+        GIOH.hDuplicateTo h SIO.stdout
+        r <- runPropertyTests stmts `CE.finally` (SIO.hFlush SIO.stdout >> GIOH.hDuplicateTo saved SIO.stdout >> SIO.hClose h)
+        out <- readFile path
+        length out `seq` removeFile path
+        map pbtStatus (pbtResults r) `shouldBe` [PBTSkipped]
+        out `shouldBe` ""
+
     describe "OBLIG-PBT-3 PBT-to-trust-report write-back" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)

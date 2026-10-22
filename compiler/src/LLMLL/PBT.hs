@@ -13,7 +13,10 @@
 module LLMLL.PBT
   ( -- * Entry Points
     runPropertyTests
+  , runPropertyTestsWithFfi
   , runPropertyTestsIO
+  , unreducedReason
+  , ctorNamesOf
 
     -- * Driver helpers
   , assembleTestStatements
@@ -49,14 +52,15 @@ import Numeric (showHex)
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck
   ( Gen, generate, vectorOf, arbitrary, choose
-  , Arbitrary(..), quickCheckResult, Result(..)
+  , Arbitrary(..), quickCheckWithResult, stdArgs, Args(..), Result(..)
   , counterexample, forAll, NonNegative(..))
 import Control.Exception (try, SomeException)
 import Data.IORef (IORef, newIORef, modifyIORef', readIORef)
 import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
-import LLMLL.Contracts (evalExprStaticWith, FuncEnv, buildFuncEnv, maxFuel)
+import LLMLL.Contracts (evalExprStaticWithCtors, FuncEnv, buildFuncEnv, maxFuel, modeledBuiltins, builtinCtorNames)
+import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.BuildScope (stripModuleQualifiers, longestModulePrefix)
 import LLMLL.CallGraph (extractRefs)
 import LLMLL.HoleAnalysis (extractCalls)
@@ -266,9 +270,17 @@ dedupDefs = go Set.empty
 
 -- | Run all check blocks and interface laws in a list of statements (pure, symbolic evaluation).
 runPropertyTests :: [Statement] -> IO PBTResult
-runPropertyTests stmts = do
+runPropertyTests stmts = runPropertyTestsWithFfi (ffiEntriesOf stmts) stmts
+
+-- | PBT-EVAL-PARITY-1: as 'runPropertyTests', with the Tier 1 FFI entries the
+-- skip reason may name. 'Main.doTest' passes the entries of the entry module
+-- AND of every cached module, because 'assembleTestStatements' forwards an
+-- imported definition without the import that declares its FFI callee.
+runPropertyTestsWithFfi :: [FfiEntry] -> [Statement] -> IO PBTResult
+runPropertyTestsWithFfi ffi stmts = do
   let funcEnv     = buildFuncEnv stmts
       aliasEnv    = buildTypeAliasEnv stmts
+      ctors       = ctorNamesOf stmts
       checks      = [prop | SCheck prop <- stmts]
       -- v0.6.2: extract interface laws as properties (auto-numbered descriptions)
       lawProps    = [ prop { propDescription = ifName <> "_law_" <> T.pack (show idx) }
@@ -276,7 +288,7 @@ runPropertyTests stmts = do
                     , (idx, prop) <- zip [(1::Int)..] laws
                     ]
       allProps    = checks ++ lawProps
-  runs <- mapM (runPropertyWith funcEnv aliasEnv) allProps
+  runs <- mapM (runPropertyWith ctors ffi funcEnv aliasEnv) allProps
   let passed  = length [() | r <- runs, pbtStatus r == PBTPassed]
       failed  = length [() | r <- runs, pbtStatus r == PBTFailed]
       skipped = length [() | r <- runs, pbtStatus r == PBTSkipped]
@@ -301,8 +313,8 @@ runPropertyTestsIO = runPropertyTests
 -- OBLIG-PBT-2 / F-032: takes a 'TypeAliasEnv' so 'generateValue' can resolve
 -- @TCustom@ aliases declared via @(type Foo (..))@ in the same module
 -- (or imported via 'assembleTestStatements').
-runPropertyWith :: FuncEnv -> TypeAliasEnv -> LLMLL.Syntax.Property -> IO PBTRun
-runPropertyWith funcEnv aliasEnv prop = do
+runPropertyWith :: Set Name -> [FfiEntry] -> FuncEnv -> TypeAliasEnv -> LLMLL.Syntax.Property -> IO PBTRun
+runPropertyWith ctors ffi funcEnv aliasEnv prop = do
   let bindings = propBindings prop
       body     = propBody prop
       desc     = propDescription prop
@@ -310,7 +322,7 @@ runPropertyWith funcEnv aliasEnv prop = do
 
   -- Generate sample environments and evaluate the property body
   samples <- generateSamples aliasEnv bindings nSamples
-  let results = map (\env -> evalPropertyBodyWith funcEnv env body) samples
+  let results = map (\env -> evalPropertyBodyWith ctors funcEnv env body) samples
 
   case sequence results of
     -- All evaluations returned concrete booleans
@@ -326,8 +338,14 @@ runPropertyWith funcEnv aliasEnv prop = do
     -- generator (post F-032) makes this path productive on most well-formed
     -- properties rather than the previous TInt|TBool-only whitelist.
     Nothing ->
-      case tryQuickCheck funcEnv aliasEnv bindings body of
-        Just qcResult -> qcResult >>= \r -> pure $ PBTRun desc (qcStatus r) (qcSamples r) (qcCounterex r)
+      case tryQuickCheck ctors funcEnv aliasEnv bindings body of
+        Just qcResult -> qcResult >>= \r ->
+          -- PBT-EVAL-PARITY-1: a skip names what stopped the reduction.
+          let cx = case (qcStatus r, unreducedReason ctors ffi funcEnv (map fst bindings) body) of
+                     (PBTSkipped, Just why) ->
+                       Just (maybe why (\d -> d <> " — " <> why) (qcCounterex r))
+                     _ -> qcCounterex r
+          in pure $ PBTRun desc (qcStatus r) (qcSamples r) cx
         Nothing       ->
           let reason
                 | bodyMentionsCommand body =
@@ -338,9 +356,9 @@ runPropertyWith funcEnv aliasEnv prop = do
 
 -- | Evaluate a property body in a given binding environment.
 -- Returns Just True/False for concrete results, Nothing for non-evaluable.
-evalPropertyBodyWith :: FuncEnv -> Map Name Expr -> Expr -> Maybe Bool
-evalPropertyBodyWith funcEnv env body =
-  case evalExprStaticWith funcEnv maxFuel env body of
+evalPropertyBodyWith :: Set Name -> FuncEnv -> Map Name Expr -> Expr -> Maybe Bool
+evalPropertyBodyWith ctors funcEnv env body =
+  case evalExprStaticWithCtors ctors funcEnv maxFuel env body of
     Just (ELit (LitBool b)) -> Just b
     _                       -> Nothing
 
@@ -474,8 +492,8 @@ bodyMentionsCommand expr = go expr
 -- 'Just' — fallback is universal; the only previous role of returning
 -- 'Nothing' was to gate on simple-type bindings, which is no longer the
 -- discriminator.
-tryQuickCheck :: FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> Maybe (IO QCRun)
-tryQuickCheck funcEnv aliasEnv bindings body = Just (runQC funcEnv aliasEnv bindings body)
+tryQuickCheck :: Set Name -> FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> Maybe (IO QCRun)
+tryQuickCheck ctors funcEnv aliasEnv bindings body = Just (runQC ctors funcEnv aliasEnv bindings body)
 
 data QCRun = QCRun
   { qcStatus     :: PBTStatus
@@ -483,8 +501,8 @@ data QCRun = QCRun
   , qcCounterex  :: Maybe Text
   } deriving (Show)
 
-runQC :: FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> IO QCRun
-runQC funcEnv aliasEnv bindings body = do
+runQC :: Set Name -> FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> IO QCRun
+runQC ctors funcEnv aliasEnv bindings body = do
   -- Pre-generate sample environments in IO using the same generator used by
   -- the static-eval path, then drive QuickCheck over the pre-built batch.
   -- This keeps the generator implementation single-source (no Gen-monad
@@ -498,7 +516,7 @@ runQC funcEnv aliasEnv bindings body = do
   -- safe and correct.
   bodyDiscardCount <- newIORef (0 :: Int)
   let prop :: Map Name Expr -> QC.Property
-      prop env = case evalExprStaticWith funcEnv maxFuel env body of
+      prop env = case evalExprStaticWithCtors ctors funcEnv maxFuel env body of
         Just (ELit (LitBool b)) -> QC.property b
         _                       -> QC.ioProperty $ do
                                       modifyIORef' bodyDiscardCount (+1)
@@ -511,7 +529,10 @@ runQC funcEnv aliasEnv bindings body = do
         i <- choose (0, length preSamples - 1)
         pure (preSamples !! i)
 
-  result <- (try (quickCheckResult (forAll genIdx prop)) :: IO (Either SomeException Result))
+  -- PBT-EVAL-PARITY-1: chatty = False. The default printed "*** Gave up!"
+  -- and "+++ OK" lines to stdout, ahead of `llmll --json test`'s document,
+  -- so the output did not parse as JSON. The Result carries everything.
+  result <- (try (quickCheckWithResult stdArgs { chatty = False } (forAll genIdx prop)) :: IO (Either SomeException Result))
   bodyDiscards <- readIORef bodyDiscardCount
   case result of
     Left ex -> pure $ QCRun (PBTError (T.pack (show ex))) 0 Nothing
@@ -541,6 +562,61 @@ gaveUpDiag bodyDiscards samplesRun
       <> " evaluated, 0 returned bool — likely unmodeled builtin or unreduced callee body in property body)"
   | otherwise =
       "QuickCheck gave up — too many precondition failures"
+
+-- ---------------------------------------------------------------------------
+-- PBT-EVAL-PARITY-1: constructors and the skip reason
+-- ---------------------------------------------------------------------------
+
+-- | The constructor names the evaluator treats as values: every sum-type
+-- constructor the statements declare, plus the sealed 'Response' arms.
+ctorNamesOf :: [Statement] -> Set Name
+ctorNamesOf stmts = Set.union builtinCtorNames $ Set.fromList
+  [ c | STypeDef _ body <- stmts, TSumType cs <- [body], (c, _) <- cs ]
+
+-- | Why a property body cannot reduce, found statically: the first call, in
+-- depth-first order through the definitions the body reaches, that the
+-- evaluator cannot answer. A Tier 1 FFI export is named with its Haskell
+-- origin; any other name is reported as unmodeled. The walk sees what is
+-- REACHABLE, not what a sample took, so the reason is a diagnosis attached
+-- to a skip and never a reason to skip.
+unreducedReason :: Set Name -> [FfiEntry] -> FuncEnv -> [Name] -> Expr -> Maybe Text
+unreducedReason ctors ffi fe bound0 body0 = go Set.empty [] (Set.fromList bound0) body0
+  where
+    ffiMap = Map.fromList [ (feName e, e) | e <- ffi ]
+    evaluatorOnly = Set.fromList
+      ["cons", "nil", "some", "none", "is-some", "list-is-empty?", "Success", "Error"]
+    go seen via bound e = firstJust (map (classify seen via bound') (extractCalls e))
+      where bound' = Set.union bound (Set.fromList (boundNames e))
+    classify seen via bound n
+      | Just fe' <- Map.lookup n ffiMap =
+          Just ("calls Tier 1 FFI export " <> n <> " (haskell." <> fePackage fe'
+                <> ", " <> feModule fe' <> "." <> camelName n <> ")" <> viaText via
+                <> "; the test evaluator cannot run Haskell code")
+      | Just (ps, b) <- Map.lookup n fe =
+          if n `Set.member` seen then Nothing
+          else go (Set.insert n seen) (via ++ [n]) (Set.fromList ps) b
+      | n `Set.member` bound || n `Set.member` ctors
+        || n `Set.member` modeledBuiltins || n `Set.member` evaluatorOnly = Nothing
+      | otherwise =
+          Just ("calls " <> n <> viaText via <> ", which the test evaluator does not model")
+    viaText [] = ""
+    viaText vs = " via " <> T.intercalate " -> " vs
+    firstJust xs = case [ x | Just x <- xs ] of
+      (x:_) -> Just x
+      []    -> Nothing
+    boundNames ex = case ex of
+      ELambda ps b    -> map fst ps ++ boundNames b
+      ELet bs b       -> [ v | (PVar v, _, _) <- bs ] ++ concatMap (\(_, _, x) -> boundNames x) bs ++ boundNames b
+      EMatch x arms   -> boundNames x ++ concatMap (\(p, a) -> patVars p ++ boundNames a) arms
+      EIf c t f       -> boundNames c ++ boundNames t ++ boundNames f
+      EApp _ as'      -> concatMap boundNames as'
+      EOp _ as'       -> concatMap boundNames as'
+      EPair a b       -> boundNames a ++ boundNames b
+      _               -> []
+    patVars p = case p of
+      PVar v             -> [v]
+      PConstructor _ ps  -> concatMap patVars ps
+      _                  -> []
 
 -- ---------------------------------------------------------------------------
 -- Formatting

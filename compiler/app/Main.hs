@@ -56,7 +56,8 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings, isNonLinear)
-import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.Ffi (ffiEntriesOf)
+import LLMLL.PBT (runPropertyTestsWithFfi, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
@@ -640,7 +641,11 @@ doTest json gm fp emitOnly = do
               TIO.putStrLn    "   (stack test skipped — --emit-only)"
           exitSuccess
         else do
-          result <- runPropertyTests mergedStmts
+          -- PBT-EVAL-PARITY-1: the FFI entries of the entry module and of
+          -- every cached module, so a skip can name an export that a
+          -- forwarded imported definition calls.
+          let ffi = ffiEntriesOf stmts ++ concatMap (ffiEntriesOf . meStatements) (Map.elems cache)
+          result <- runPropertyTestsWithFfi ffi mergedStmts
           -- TRUST-REPORT-GATE-1 (§3.5): stamp each tested record with its
           -- subject's evidence key (plain variant), computed with the KeyEnv
           -- the record's module is read with. An entry-module subject uses the
@@ -691,6 +696,10 @@ printPbtResult fp r = do
       PBTFailed -> do
         TIO.putStrLn $ "  ❌  \"" <> pbtDescription run <> "\""
         mapM_ (\cx -> TIO.putStrLn $ "     counterexample: " <> cx) (pbtCounterexample run)
+      -- PBT-EVAL-PARITY-1: a skip says why, in text mode too.
+      PBTSkipped ->
+        mapM_ (\why -> TIO.putStrLn $ "  ⚠️  \"" <> pbtDescription run <> "\": " <> why)
+              (pbtCounterexample run)
       _ -> pure ()
 
 pbtResultJson :: FilePath -> PBTResult -> [T.Text] -> T.Text
@@ -711,6 +720,9 @@ pbtResultJson fp r writebackDiags =
       , "status"        .= (show (pbtStatus run) :: String)
       , "samples_run"   .= pbtSamplesRun run
       , "counterexample".= pbtCounterexample run
+      -- PBT-EVAL-PARITY-1: additive. The reason a property was skipped; the
+      -- counterexample key keeps carrying it for existing consumers.
+      , "skip_reason"   .= (if pbtStatus run == PBTSkipped then pbtCounterexample run else Nothing)
       ]
 -- ---------------------------------------------------------------------------
 -- build (Haskell codegen + optional WASM)

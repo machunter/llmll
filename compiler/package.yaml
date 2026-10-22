@@ -71,6 +71,10 @@ library:
     # REGEX-CAPTURE-1 / REGEX-CASE-1: the pattern rules `check` applies to a
     # literal regex pattern. Leaf over regex-tdfa; imported by TypeCheck.
     - LLMLL.RegexPattern
+    # PBT-EVAL-PARITY-1: the pure runtime builtins, compiled, so the PBT
+    # evaluator runs the code the generated program runs. Leaf module; a
+    # Spec.hs test pins each block to runtimePreamble verbatim.
+    - LLMLL.RuntimePure
     # FFI-TIER1-1: the Tier 1 Hackage boundary rules, shared by the type
     # checker, the emitter and the trust report. Leaf over LLMLL.Syntax.
     - LLMLL.Ffi
