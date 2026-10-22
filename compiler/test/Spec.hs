@@ -103,10 +103,21 @@ import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
 import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
-import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
+import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
+-- PBT-EVAL-PARITY-1
+import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
+import LLMLL.PBT (unreducedReason, ctorNamesOf)
+import LLMLL.PBT (runPropertyTestsWithSeed, generateSamplesPure, propertySeed, pbtGeneratorTag, intBoundaries, maxRefineAttempts)
+import LLMLL.TrustReport (liveCheckHashes)
+import qualified Crypto.Hash.SHA256 as GNSHA
+import qualified Numeric as GNNum
+import qualified LLMLL.RuntimePure as RP
+import qualified System.IO as SIO
+import qualified GHC.IO.Handle as GIOH
+import Test.QuickCheck (property)
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -14074,6 +14085,119 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- OBLIG-PBT-2 / F-032: static-evaluator coverage for EPair and the
     -- list/fold builtins that PBT requires. Each test pins the reduction of
     -- a specific AST shape to its expected literal.
+    -- PBT-GEN-NEG-1: the int generator is signed, draws the §5.1 boundary
+    -- values, is deterministic per property, respects refinement types by
+    -- rejection sampling (§5.2), and shrinks a counterexample toward 0.
+    describe "PBT-GEN-NEG-1 signed, seeded, refinement-respecting generator" $ do
+      let gnLit (ELit (LitInt n)) = Just n
+          gnLit _                 = Nothing
+          gnInts key envs = [ n | env <- envs, Just v <- [Map.lookup key env], Just n <- [gnLit v] ]
+          gnRun stmts = do
+            r <- runPropertyTests stmts
+            case pbtResults r of
+              [run] -> pure run
+              rs    -> error ("expected one run, got " ++ show (length rs))
+          gnNonNeg = Property "every int is non-negative" [("x", TInt)]
+                       (EOp ">=" [EVar "x", ELit (LitInt 0)]) []
+          gnNat = STypeDef "Nat" (TDependent "n" TInt (EOp ">=" [EVar "n", ELit (LitInt 0)]))
+          gnNeg = STypeDef "Neg" (TDependent "n" TInt (EOp "<" [EVar "n", ELit (LitInt 0)]))
+          gnCons = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+
+      it "GN-1: (for-all [x: int] (>= x 0)) now FAILS" $ do
+        run <- gnRun [SCheck gnNonNeg]
+        pbtStatus run `shouldBe` PBTFailed
+
+      it "GN-2: its counterexample is shrunk to x = -1 and names the seed" $ do
+        run <- gnRun [SCheck gnNonNeg]
+        pbtCounterexample run `shouldSatisfy` maybe False (T.isPrefixOf "x = -1 (seed ")
+        pbtSeed run `shouldBe` Just (propertySeed (propBody gnNonNeg))
+
+      it "GN-3: a Neg-refined binding draws only negatives, so (< n 0) PASSES (it failed under the old generator)" $ do
+        run <- gnRun [gnNeg, SCheck (Property "neg" [("n", TCustom "Neg")] (EOp "<" [EVar "n", ELit (LitInt 0)]) [])]
+        pbtStatus run `shouldBe` PBTPassed
+
+      it "GN-4: every Nat sample satisfies the refinement, and 100 samples are drawn" $ do
+        let (envs, _) = generateSamplesPure 42 [gnNat] [("n", TCustom "Nat")] 100
+        length envs `shouldBe` 100
+        gnInts "n" envs `shouldSatisfy` all (>= 0)
+        length (gnInts "n" envs) `shouldBe` 100
+
+      it "GN-5: an unsatisfiable refinement SKIPS with a generation failure after the attempt cap (no pass, no evidence)" $ do
+        let never = STypeDef "Never" (TDependent "n" TInt
+                      (EOp "and" [ EOp ">" [EVar "n", ELit (LitInt 0)], EOp "<" [EVar "n", ELit (LitInt 0)] ]))
+        run <- gnRun [never, SCheck (Property "never" [("n", TCustom "Never")] (ELit (LitBool True)) [])]
+        pbtStatus run `shouldBe` PBTSkipped
+        pbtCounterexample run `shouldSatisfy` maybe False (T.isInfixOf "generation failure")
+        let (envs, used) = generateSamplesPure 1 [never] [("n", TCustom "Never")] 100
+        (length envs, used) `shouldBe` (0, maxRefineAttempts)
+
+      it "GN-6: the same seed draws the same samples; a different seed draws different ones; --seed overrides" $ do
+        let draw s = fst (generateSamplesPure s [] [("x", TInt), ("y", TInt)] 100)
+        draw 7 `shouldBe` draw 7
+        draw 7 `shouldNotBe` draw 8
+        r1 <- runPropertyTests [SCheck gnNonNeg]
+        r2 <- runPropertyTests [SCheck gnNonNeg]
+        map pbtCounterexample (pbtResults r1) `shouldBe` map pbtCounterexample (pbtResults r2)
+        r3 <- runPropertyTestsWithSeed (Just 12345) [] [SCheck gnNonNeg]
+        map pbtSeed (pbtResults r3) `shouldBe` [Just 12345]
+
+      it "GN-7: every §5.1 boundary value is drawn (0, ±1, ±2^31, 2^32, ±2^63)" $ do
+        let xs = gnInts "x" (fst (generateSamplesPure 3 [] [("x", TInt)] 1000))
+        intBoundaries `shouldSatisfy` all (`elem` xs)
+        xs `shouldSatisfy` any (< 0)
+
+      it "GN-8: list[int] elements include negatives; list[Nat] elements never do" $ do
+        let elems key envs = [ n | env <- envs, Just v <- [Map.lookup key env], n <- go v ]
+            go (EApp "cons" [ELit (LitInt n), rest]) = n : go rest
+            go _ = []
+            (ints, _) = generateSamplesPure 5 [] [("xs", TList TInt)] 100
+            (nats, _) = generateSamplesPure 5 [gnNat] [("xs", TList (TCustom "Nat"))] 100
+        elems "xs" ints `shouldSatisfy` any (< 0)
+        elems "xs" nats `shouldSatisfy` all (>= 0)
+        elems "xs" nats `shouldSatisfy` (not . null)
+
+      it "GN-9: the witness hash folds in the generator tag, so a gen1 witness is no longer live" $ do
+        let body     = propBody gnNonNeg
+            hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
+            gen1Hash = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (canonicalExpr body))))
+            gen2Hash = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (pbtGeneratorTag <> ":" <> canonicalExpr body))))
+            live     = liveCheckHashes Map.empty [SCheck gnNonNeg]
+        canonicalPropBodyHash body `shouldBe` gen2Hash
+        Set.member gen1Hash live `shouldBe` False
+        Set.member gen2Hash live `shouldBe` True
+
+      it "GN-10: a false post `(>= result 0)` on the identity no longer earns `tested`" $ do
+        let ident = SDefLogic "ident" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
+                      (EVar "x")
+            prop  = Property "ident is non-negative" [("x", TInt)]
+                      (EOp ">=" [EApp "ident" [EVar "x"], ELit (LitInt 0)]) ["ident"]
+            stmts = [ident, SCheck prop]
+        result <- runPropertyTests stmts
+        map pbtStatus (pbtResults result) `shouldBe` [PBTFailed]
+        let (cs, _) = pbtTrustWriteback (const Nothing) stmts Map.empty result
+        Map.null cs `shouldBe` True
+
+      -- Risk 1 of the plan: the PARITY clauses on negative inputs answer the
+      -- runtime's value or Nothing, never a fabricated one.
+      it "GN-11: PARITY clauses on negative ints match the runtime" $ do
+        let ev = evalExprStaticWithCtors builtinCtorNames Map.empty maxFuel Map.empty
+            i  = ELit . LitInt
+            s  = ELit . LitString
+        ev (EApp "list-nth" [gnCons [i 1, i 2], i (-1)]) `shouldSatisfy` \case
+          Just (EApp "Error" _) -> True
+          _                     -> False
+        ev (EApp "string-slice" [s "abc", i (-1), i 1]) `shouldBe` Just (s "a")
+        ev (EApp "string-char-at" [s "abc", i (-1)])     `shouldBe` Just (s "")
+        ev (EApp "mod" [i (-7), i 3])                    `shouldBe` Just (i 2)
+        ev (EApp "mod" [i 7, i (-3)])                    `shouldBe` Just (i (-2))
+        ev (EApp "mod" [i 7, i 0])                       `shouldBe` Nothing
+        ev (EApp "abs" [i (-5)])                         `shouldBe` Just (i 5)
+        ev (EApp "min" [i (-5), i 3])                    `shouldBe` Just (i (-5))
+        ev (EApp "max" [i (-5), i (-3)])                 `shouldBe` Just (i (-3))
+        ev (EApp "range" [i 3, i (-2)])                  `shouldBe` Just (EApp "nil" [])
+        ev (EApp "range" [i (-2), i 1])                  `shouldBe` Just (gnCons [i (-2), i (-1), i 0])
+
     describe "OBLIG-PBT-2 static evaluator extensions" $ do
       it "evalExprStaticWith reduces EPair element-wise" $ do
         let e = EPair (ELit (LitInt 1)) (ELit (LitInt 2))
@@ -14241,13 +14365,295 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- to DLTested n with pbt_witnesses provenance; multi-subject / skip / fail
     -- produce diagnostics, no lift. See docs/design/oblig-pbt-3-proposal.md
     -- §12 for the edge-case matrix this block pins.
+    -- PBT-EVAL-PARITY-1: the evaluator answers the pure builtins with the
+    -- definitions the generated program runs (LLMLL.RuntimePure), pinned to
+    -- runtimePreamble block by block.
+    describe "PBT-EVAL-PARITY-1 evaluator parity with the runtime" $ do
+      let ev       = evalExprStatic Map.empty
+          lstr     = ELit . LitString . T.pack
+          lint     = ELit . LitInt
+          norm s   = T.unpack (T.pack s)   -- the generator packs samples into Text
+          consOf   = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+          strList  = consOf . map lstr
+          eitherOf f r = case r of
+            Left m  -> EApp "Error" [lstr m]
+            Right v -> EApp "Success" [f v]
+          pats     = ["a", "^a", "[0-9]+", "(a)(b)?", "(?i)ab", "x*", "[", ""]
+
+      it "every RuntimePure block is in the preamble verbatim" $ do
+        src <- TIO.readFile "src/LLMLL/RuntimePure.hs"
+        let ls      = T.lines src
+            region  = takeWhile (/= "-- END RUNTIME-PURE")
+                        (drop 1 (dropWhile (/= "-- BEGIN RUNTIME-PURE") ls))
+            blocks  = filter (not . null) (splitOnBlank region)
+            pre     = T.lines (T.unlines runtimePreamble)
+            inPre b = any (\k -> take (length b) (drop k pre) == b) [0 .. length pre - 1]
+            splitOnBlank xs = case break T.null xs of
+              (b, [])       -> [b]
+              (b, _ : rest) -> b : splitOnBlank rest
+        length blocks `shouldSatisfy` (>= 25)
+        [ head b | b <- blocks, not (inPre b) ] `shouldBe` []
+
+      it "every pure builtin is modeled or excluded with a reason (coverage gate)" $ do
+        let excluded =
+              -- Json values have no evaluator form and no generator.
+              [ "json-parse", "json-serialize", "json-get", "json-get-string", "json-get-int"
+              , "json-get-bool", "json-get-number", "json-array", "json-as-string", "json-as-int"
+              , "json-as-bool", "json-as-number", "json-set", "json-of-string", "json-of-int"
+              , "json-of-bool", "json-of-list"
+              -- bytes[20] digests over the override-chain bytes model: deferred.
+              , "sha1", "hmac-sha1"
+              -- Builders that only feed a Command.
+              , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
+              , "proc-stderr-to-stdout", "proc-env", "seq-commands"
+              -- Response constructors: values via builtinCtorNames, not builtins.
+              , "RText", "RCode", "RErr", "RList" ]
+            fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
+        sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
+
+      it "mod matches Haskell mod, and a zero divisor discards" $ property $ \a b ->
+        ev (EApp "mod" [lint a, lint b]) == (if b == 0 then Nothing else Just (lint (a `mod` b)))
+
+      it "abs matches the runtime" $ property $ \a ->
+        ev (EApp "abs" [lint a]) == Just (lint (RP.llmll_abs a))
+
+      it "min matches the runtime" $ property $ \a b ->
+        ev (EApp "min" [lint a, lint b]) == Just (lint (RP.llmll_min a b))
+
+      it "max matches the runtime" $ property $ \a b ->
+        ev (EApp "max" [lint a, lint b]) == Just (lint (RP.llmll_max a b))
+
+      it "string-concat matches the runtime" $ property $ \a0 b0 ->
+        let (a, b) = (norm a0, norm b0)
+        in ev (EApp "string-concat" [lstr a, lstr b]) == Just (lstr (RP.string_concat a b))
+
+      it "string-contains matches the runtime (haystack first)" $ property $ \a0 b0 ->
+        let (a, b) = (norm a0, norm b0)
+        in ev (EApp "string-contains" [lstr a, lstr b]) == Just (ELit (LitBool (RP.string_contains a b)))
+           && ev (EApp "string-contains" [lstr (a ++ b), lstr b]) == Just (ELit (LitBool True))
+
+      it "string-slice matches the runtime, including the Int narrowing" $ property $ \s0 f t ->
+        let s = norm s0
+            big = [f, t, f + 2 ^ (64 :: Int), t - 2 ^ (64 :: Int)] :: [Integer]
+        in and [ ev (EApp "string-slice" [lstr s, lint x, lint y])
+                   == Just (lstr (RP.string_slice s (fromIntegral x) (fromIntegral y)))
+               | x <- big, y <- big ]
+
+      it "string-char-at matches the runtime, including the Int narrowing" $ property $ \s0 i ->
+        let s = norm s0
+        in all (\x -> ev (EApp "string-char-at" [lstr s, lint x])
+                        == Just (lstr (RP.string_char_at s (fromIntegral x))))
+               ([i, i + 2 ^ (64 :: Int), -1, 0] :: [Integer])
+
+      it "string-split matches the runtime (separator first)" $ property $ \sep0 s0 ->
+        let (sep, s) = (norm sep0, norm s0)
+        in ev (EApp "string-split" [lstr sep, lstr s]) == Just (strList (RP.string_split sep s))
+           && ev (EApp "string-split" [lstr ",", lstr s]) == Just (strList (RP.string_split "," s))
+
+      it "string-trim matches the runtime (space, tab, newline, CR only)" $ property $ \s0 ->
+        let s = norm s0
+        in ev (EApp "string-trim" [lstr s]) == Just (lstr (RP.string_trim s))
+           && ev (EApp "string-trim" [lstr ("\v" ++ s ++ " ")]) == Just (lstr (RP.string_trim ("\v" ++ s ++ " ")))
+
+      it "string-lower matches the runtime" $ property $ \s0 ->
+        let s = norm s0 in ev (EApp "string-lower" [lstr s]) == Just (lstr (RP.string_lower s))
+
+      it "string-upper matches the runtime" $ property $ \s0 ->
+        let s = norm s0 in ev (EApp "string-upper" [lstr s]) == Just (lstr (RP.string_upper s))
+
+      it "path-normalize matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in ev (EApp "path-normalize" [lstr s]) == Just (lstr (RP.path_normalize s))
+           && ev (EApp "path-normalize" [lstr ("/a/" ++ s ++ "/../b")])
+                == Just (lstr (RP.path_normalize ("/a/" ++ s ++ "/../b")))
+
+      it "string-to-int matches the runtime's reads, Success and Error" $ property $ \s0 n ->
+        let s = norm s0
+            chk x = ev (EApp "string-to-int" [lstr x]) == Just (eitherOf lint (RP.string_to_int x))
+        in chk s && chk (show (n :: Integer)) && chk (" " ++ show n) && chk ("(" ++ show n ++ ")")
+
+      it "regex-match matches the runtime, invalid patterns included" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-match" [lstr p, lstr s]) == Just (ELit (LitBool (RP.regex_match p s)))
+               | p <- pats ]
+
+      it "regex-find matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-find" [lstr p, lstr s]) == Just (strList (RP.regex_find p s)) | p <- pats ]
+
+      it "regex-find-all matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+        in and [ ev (EApp "regex-find-all" [lstr p, lstr s])
+                   == Just (consOf (map strList (RP.regex_find_all p s))) | p <- pats ]
+
+      it "regex-spans matches the runtime" $ property $ \s0 ->
+        let s = norm s0
+            span' (a, b) = EPair (lint a) (lint b)
+        in and [ ev (EApp "regex-spans" [lstr p, lstr s])
+                   == Just (consOf (map span' (RP.regex_spans p s))) | p <- pats ]
+
+      it "range matches the runtime" $ property $ \a b ->
+        let (x, y) = (a `mod` 50, b `mod` 50) :: (Integer, Integer)
+        in ev (EApp "range" [lint x, lint y]) == Just (consOf (map lint (RP.range x y)))
+
+      it "a range past the cap discards instead of building it" $
+        ev (EApp "range" [lint 0, lint 20000]) `shouldBe` Nothing
+
+      it "list-nth matches the runtime, Success and Error" $ property $ \xs i ->
+        all (\x -> ev (EApp "list-nth" [consOf (map lint xs), lint x])
+                     == Just (eitherOf id (RP.list_nth (map lint xs) (fromIntegral x))))
+            ([i, -1, 0, fromIntegral (length xs)] :: [Integer])
+
+      it "list-contains matches the runtime" $ property $ \xs x ->
+        ev (EApp "list-contains" [consOf (map lint xs), lint x])
+          == Just (ELit (LitBool (RP.list_contains xs (x :: Integer))))
+
+      it "list-contains compares structured elements and declines on a map" $ do
+        let pr a = EPair (lint a) (lstr "k")
+        ev (EApp "list-contains" [consOf [pr 1, pr 2], pr 2]) `shouldBe` Just (ELit (LitBool True))
+        ev (EApp "list-contains" [consOf [EApp "map-empty" []], EApp "map-empty" []]) `shouldBe` Nothing
+
+      it "= and != compare structured values (Result, list, pair)" $ do
+        ev (EOp "=" [EApp "ok" [lint 1], EApp "ok" [lint 1]]) `shouldBe` Just (ELit (LitBool True))
+        ev (EOp "=" [EApp "ok" [lint 1], EApp "err" [lint 1]]) `shouldBe` Just (ELit (LitBool False))
+        ev (EOp "=" [consOf [lint 1], consOf [lint 1, lint 2]]) `shouldBe` Just (ELit (LitBool False))
+        ev (EOp "!=" [EPair (lint 1) (lint 2), EPair (lint 1) (lint 3)]) `shouldBe` Just (ELit (LitBool True))
+
+      it "= declines on a map chain, whose encoding is not canonical" $
+        ev (EOp "=" [EApp "map-empty" [], EApp "map-empty" []]) `shouldBe` Nothing
+
+      it "a payload constructor and a nullary constructor are values under the constructor set" $ do
+        let cs = Set.fromList ["Box", "Red"]
+            fe = Map.fromList [("unbox", (["c"], EMatch (EVar "c")
+                    [ (PConstructor "Red" [], lint 0)
+                    , (PConstructor "Box" [PVar "n"], EVar "n") ]))]
+        evalExprStaticWithCtors cs fe maxFuel Map.empty (EApp "unbox" [EApp "Box" [lint 7]])
+          `shouldBe` Just (lint 7)
+        evalExprStaticWithCtors cs fe maxFuel Map.empty (EApp "unbox" [EVar "Red"])
+          `shouldBe` Just (lint 0)
+
+      it "evalExprStaticWith (no constructor set) is unchanged: a constructor does not reduce" $
+        evalExprStaticWith Map.empty maxFuel Map.empty (EApp "Box" [lint 7]) `shouldBe` Nothing
+
+      it "ctorNamesOf collects sum-type constructors and the Response arms" $ do
+        let stmts = [STypeDef "Color" (TSumType [("Red", Nothing), ("Box", Just TInt)])]
+        ctorNamesOf stmts `shouldBe` Set.union builtinCtorNames (Set.fromList ["Red", "Box"])
+        Set.member "RNone" builtinCtorNames `shouldBe` True
+
+      it "a property over a string-slice def runs instead of skipping (probe repro)" $ do
+        let src = T.unlines
+              [ "(def-shell sl [s: string] -> string (string-slice s 0 1))"
+              , "(check \"slice\" (for-all [s: string] (<= (string-length (sl s)) 1)))"
+              , "(type Color (| Red) (| Box int))"
+              , "(def-shell unbox [c: Color] -> int (match c ((Red) 0) ((Box n) n)))"
+              , "(check \"ctor\" (for-all [x: int] (= (unbox (Box x)) x)))"
+              , "(check \"eq\" (for-all [x: int] (= (string-to-int (int-to-string x)) (ok x))))" ]
+        case parseStatements GrammarCoreInversion "<t>" src of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            r <- runPropertyTests stmts
+            map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed, PBTPassed]
+
+      it "a skip names the Tier 1 FFI export a def-shell reaches" $ do
+        let src = T.unlines
+              [ "(import haskell.containers (interface [[keys (fn [m: map[string, int]] -> list[string])]]))"
+              , "(def-shell ks [m: map[string, int]] -> list[string] (keys m))"
+              , "(check \"ffi\" (for-all [x: int] (= (list-length (ks (map-empty))) 0)))" ]
+        case parseStatements GrammarCoreInversion "<t>" src of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            r <- runPropertyTests stmts
+            case pbtResults r of
+              [run] -> do
+                pbtStatus run `shouldBe` PBTSkipped
+                pbtCounterexample run `shouldSatisfy`
+                  maybe False (\t -> "Tier 1 FFI export keys (haskell.containers, Data.Map.Strict.keys) via ks" `T.isInfixOf` t)
+              rs -> expectationFailure ("expected one run, got " ++ show (length rs))
+
+      it "the skip reason names an unmodeled builtin and ignores bound names" $ do
+        let body = EApp "list-map" [EVar "xs", ELambda [("f", TInt)] (EApp "sha1" [EApp "f" []])]
+        unreducedReason Set.empty [] Map.empty ["xs"] body
+          `shouldBe` Just "calls sha1, which the test evaluator does not model"
+        unreducedReason Set.empty [] Map.empty [] (EApp "string-slice" [EVar "s", lint 0, lint 1])
+          `shouldBe` Nothing
+
+      it "runPropertyTests writes nothing to stdout (QuickCheck chatty = False)" $ do
+        tmp <- getTemporaryDirectory
+        let path = tmp ++ "/pbt-eval-parity-1-stdout.txt"
+            stmts = [ SCheck (Property "never-reduces" [("x", TInt)]
+                        (EOp "=" [EApp "no-such-builtin" [EVar "x"], ELit (LitInt 0)]) []) ]
+        h <- SIO.openFile path SIO.WriteMode
+        saved <- GIOH.hDuplicate SIO.stdout
+        SIO.hFlush SIO.stdout
+        GIOH.hDuplicateTo h SIO.stdout
+        r <- runPropertyTests stmts `CE.finally` (SIO.hFlush SIO.stdout >> GIOH.hDuplicateTo saved SIO.stdout >> SIO.hClose h)
+        out <- readFile path
+        length out `seq` removeFile path
+        map pbtStatus (pbtResults r) `shouldBe` [PBTSkipped]
+        out `shouldBe` ""
+
+    -- STR-INDEX-LINEAR-1: string_char_at and string_slice read a cached array
+    -- past index 32. The answers must equal the list-walk definitions they
+    -- replaced, and the decomposition idiom must be linear.
+    describe "STR-INDEX-LINEAR-1 linear string indexing" $ do
+      let idxs s i = [i, -1, 0, 31, 32, 33, length s - 1, length s, length s + 1]
+
+      it "string_char_at equals the list-walk reference" $ property $ \s i ->
+        all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) (idxs s i)
+
+      it "string_char_at equals the reference on long strings, every index" $ property $ \c k ->
+        let s = take (40 + k `mod` 60) (cycle (c : "ab,\"\n"))
+        in all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) [-2 .. length s + 2]
+
+      it "string_slice equals the list-walk reference" $ property $ \s f t ->
+        let s' = s ++ replicate 40 'x'
+        in and [ RP.string_slice s' x y == RP.string_slice_ref s' x y
+               | x <- idxs s' f, y <- idxs s' t ]
+
+      it "two strings indexed alternately keep their own answers" $ do
+        let a = take 200 (cycle "abcdefg")
+            b = take 150 (cycle "XYZ")
+        concat [ RP.string_char_at a i ++ RP.string_char_at b i | i <- [0 .. 199] ]
+          `shouldBe` concat [ RP.string_char_at_ref a i ++ RP.string_char_at_ref b i | i <- [0 .. 199] ]
+
+      it "six strings rotating through the four-entry cache keep their own answers" $ do
+        let ss = [ replicate (50 + k) (toEnum (fromEnum 'a' + k)) | k <- [0 .. 5] ]
+        and [ RP.string_char_at s i == RP.string_char_at_ref s i
+            | _ <- [1 .. 3 :: Int], s <- ss, i <- [30 .. 60] ] `shouldBe` True
+
+      it "the decomposition idiom is linear: 4x the input costs far less than 16x" $ do
+        let decompose n = do
+              let s = take n (cycle "abc,def\n\"x\"")
+              _ <- CE.evaluate (length s)
+              t0 <- getCurrentTime
+              _ <- CE.evaluate (sum [ fromEnum c | i <- [0 .. n - 1], c <- RP.string_char_at s i ])
+              t1 <- getCurrentTime
+              pure (realToFrac (diffUTCTime t1 t0) :: Double)
+        _  <- decompose 2000
+        t1 <- decompose 20000
+        t4 <- decompose 80000
+        -- linear gives about 4; the list walk gave about 16 (measured 0.48 s
+        -- at 20000, 1.84 s at 40000). A floor keeps a sub-millisecond run
+        -- from failing on timer noise.
+        (t4 / max t1 0.002) `shouldSatisfy` (< 8)
+
+      it "the emitted string_char_at no longer indexes the list with !!" $ do
+        let body = [ l | l <- runtimePreamble, "string_char_at s" `T.isPrefixOf` l || "  |" `T.isPrefixOf` l ]
+        any ("!!" `T.isInfixOf`) (filter ("string_char_at" `T.isInfixOf`) body) `shouldBe` False
+        any ("llmll_strIx s" `T.isInfixOf`) runtimePreamble `shouldBe` True
+
+      it "the cache uses base modules only: no `array` entry in the generated package" $ do
+        let r = generateHaskell "strix" [SCheck (Property "p" [] (ELit (LitBool True)) [])]
+        T.isInfixOf "import qualified GHC.Arr as LArr" (cgHsSource r) `shouldBe` True
+        T.isInfixOf "- array" (cgPackageYaml r) `shouldBe` False
+
     describe "OBLIG-PBT-3 PBT-to-trust-report write-back" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
               (EVar "x")
-          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- E2: same function in multiple head-positions in one body — lift once.
       it "E2 same function in multiple head positions lifts once" $ do
@@ -14379,7 +14785,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             stmts     = [f, SCheck propPass, SCheck propFail]
             result    = PBTResult 2 1 1 0
                          [ passedRun "f-pass" 100
-                         , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9")
+                         , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9") Nothing
                          ]
             (m, ds)   = pbtTrustWriteback (const Nothing) stmts Map.empty result
         Map.size m `shouldBe` 1
@@ -14482,7 +14888,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         Nothing Nothing Nothing [] [])
               (EVar "x")
-          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- S1: :subject f singleton is sugar for :subjects [f]
       it "S1 :subject f singleton lifts as :subjects [f]" $ do
@@ -14652,7 +15058,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                         (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
               (EVar "x")
-          passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+          passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing Nothing
 
       -- J1: pure joint lift (:subjects [f g]) — both demoted out of scalar
       -- tested; grouped emit lists both subjects under one hash.
@@ -16789,6 +17195,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -16815,6 +17222,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, _diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -16839,6 +17247,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -16866,6 +17275,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -16891,6 +17301,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
+            , pbtSeed           = Nothing
             }
           pbtResult = PBTResult 1 1 0 0 [run]
       let (csMap, diags) = pbtTrustWriteback (const Nothing) stmts Map.empty pbtResult
@@ -20390,9 +20801,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               path = dir </> "SliceProbe.hs"
           createDirectoryIfMissing True dir
           TIO.writeFile path . T.unlines $
-            [ "module Main where", "" ]
+            -- STR-INDEX-LINEAR-1: past index 32 both builtins read the cached
+            -- array, so the probe carries the cache blocks and their imports.
+            [ "module Main where", ""
+            , "import System.IO.Unsafe (unsafePerformIO)"
+            , "import qualified GHC.Arr as LArr"
+            , "import qualified System.Mem.StableName as LSN"
+            , "import qualified Data.IORef as LRef", "" ]
             ++ preambleBlock "string_slice"   ++ [""]
             ++ preambleBlock "string_char_at" ++ [""]
+            ++ preambleBlock "llmll_strCache" ++ [""]
+            ++ preambleBlock "llmll_strIx"    ++ [""]
             ++ [ "main :: IO ()"
                , "main = mapM_ putStrLn"
                , "  [ show (string_slice \"abc\" (-1) 1)"
@@ -20407,6 +20826,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                , "  , show (string_char_at \"abc\" (-1))"
                , "  , show (string_char_at \"abc\" 3)"
                , "  , show (string_char_at \"abc\" 0)"
+               , "  , show (string_char_at (replicate 40 'a' ++ \"xyz\") 41)"
+               , "  , show (string_slice (replicate 40 'a' ++ \"xyz\") 40 100)"
+               , "  , show (string_slice (replicate 40 'a' ++ \"xyz\") 39 (-1))"
                , "  ]"
                ]
           (code, out, err) <- readProcessWithExitCode runghcExe [path] ""
@@ -20429,6 +20851,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "\"\""      -- string_char_at: negative index, the convention
                 , "\"\""      -- string_char_at: index == length
                 , "\"a\""     -- string_char_at: in range
+                , "\"y\""     -- STR-INDEX-LINEAR-1: cached path, in range
+                , "\"xyz\""   -- cached path, `to` clamps to n
+                , "\"\""      -- cached path, transposed pair
                 ]
 
   -- -----------------------------------------------------------------------

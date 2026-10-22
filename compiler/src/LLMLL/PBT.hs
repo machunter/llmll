@@ -13,7 +13,17 @@
 module LLMLL.PBT
   ( -- * Entry Points
     runPropertyTests
+  , runPropertyTestsWithFfi
+  , runPropertyTestsWithSeed
   , runPropertyTestsIO
+    -- * PBT-GEN-NEG-1: deterministic, signed, refinement-respecting samples
+  , generateSamplesPure
+  , propertySeed
+  , pbtGeneratorTag
+  , intBoundaries
+  , maxRefineAttempts
+  , unreducedReason
+  , ctorNamesOf
 
     -- * Driver helpers
   , assembleTestStatements
@@ -48,15 +58,18 @@ import Numeric (showHex)
 
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck
-  ( Gen, generate, vectorOf, arbitrary, choose
-  , Arbitrary(..), quickCheckResult, Result(..)
-  , counterexample, forAll, NonNegative(..))
+  ( Gen, vectorOf, arbitrary, choose
+  , Arbitrary(..), quickCheckWithResult, stdArgs, Args(..), Result(..)
+  , counterexample, forAll)
+import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import Control.Exception (try, SomeException)
 import Data.IORef (IORef, newIORef, modifyIORef', readIORef)
 import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
-import LLMLL.Contracts (evalExprStaticWith, FuncEnv, buildFuncEnv, maxFuel)
+import LLMLL.Contracts (evalExprStaticWithCtors, FuncEnv, buildFuncEnv, maxFuel, modeledBuiltins, builtinCtorNames)
+import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.BuildScope (stripModuleQualifiers, longestModulePrefix)
 import LLMLL.CallGraph (extractRefs)
 import LLMLL.HoleAnalysis (extractCalls)
@@ -118,6 +131,7 @@ data PBTRun = PBTRun
   , pbtStatus        :: PBTStatus
   , pbtSamplesRun    :: Int
   , pbtCounterexample :: Maybe Text  -- ^ Concrete counterexample if failed
+  , pbtSeed          :: Maybe Int   -- ^ PBT-GEN-NEG-1: the seed the samples came from
   } deriving (Show, Eq)
 
 -- | Aggregate results across all check blocks.
@@ -266,9 +280,24 @@ dedupDefs = go Set.empty
 
 -- | Run all check blocks and interface laws in a list of statements (pure, symbolic evaluation).
 runPropertyTests :: [Statement] -> IO PBTResult
-runPropertyTests stmts = do
+runPropertyTests stmts = runPropertyTestsWithFfi (ffiEntriesOf stmts) stmts
+
+-- | PBT-EVAL-PARITY-1: as 'runPropertyTests', with the Tier 1 FFI entries the
+-- skip reason may name. 'Main.doTest' passes the entries of the entry module
+-- AND of every cached module, because 'assembleTestStatements' forwards an
+-- imported definition without the import that declares its FFI callee.
+runPropertyTestsWithFfi :: [FfiEntry] -> [Statement] -> IO PBTResult
+runPropertyTestsWithFfi = runPropertyTestsWithSeed Nothing
+
+-- | PBT-GEN-NEG-1: as 'runPropertyTestsWithFfi', with an optional seed
+-- override (`llmll test --seed N`). With no override each property draws
+-- from its own deterministic seed ('propertySeed'), so a run is reproducible
+-- and a reported counterexample replays with `--seed <the printed seed>`.
+runPropertyTestsWithSeed :: Maybe Int -> [FfiEntry] -> [Statement] -> IO PBTResult
+runPropertyTestsWithSeed mSeed ffi stmts = do
   let funcEnv     = buildFuncEnv stmts
       aliasEnv    = buildTypeAliasEnv stmts
+      ctors       = ctorNamesOf stmts
       checks      = [prop | SCheck prop <- stmts]
       -- v0.6.2: extract interface laws as properties (auto-numbered descriptions)
       lawProps    = [ prop { propDescription = ifName <> "_law_" <> T.pack (show idx) }
@@ -276,7 +305,7 @@ runPropertyTests stmts = do
                     , (idx, prop) <- zip [(1::Int)..] laws
                     ]
       allProps    = checks ++ lawProps
-  runs <- mapM (runPropertyWith funcEnv aliasEnv) allProps
+  runs <- mapM (runPropertyWith mSeed ctors ffi funcEnv aliasEnv) allProps
   let passed  = length [() | r <- runs, pbtStatus r == PBTPassed]
       failed  = length [() | r <- runs, pbtStatus r == PBTFailed]
       skipped = length [() | r <- runs, pbtStatus r == PBTSkipped]
@@ -301,67 +330,199 @@ runPropertyTestsIO = runPropertyTests
 -- OBLIG-PBT-2 / F-032: takes a 'TypeAliasEnv' so 'generateValue' can resolve
 -- @TCustom@ aliases declared via @(type Foo (..))@ in the same module
 -- (or imported via 'assembleTestStatements').
-runPropertyWith :: FuncEnv -> TypeAliasEnv -> LLMLL.Syntax.Property -> IO PBTRun
-runPropertyWith funcEnv aliasEnv prop = do
+--
+-- PBT-GEN-NEG-1: the samples come from one deterministic seed per property,
+-- refinement-typed bindings are drawn by rejection sampling (LLMLL.md §5.2),
+-- and a failing sample is shrunk toward 0 before it is reported.
+runPropertyWith :: Maybe Int -> Set Name -> [FfiEntry] -> FuncEnv -> TypeAliasEnv -> LLMLL.Syntax.Property -> IO PBTRun
+runPropertyWith mSeed ctors ffi funcEnv aliasEnv prop = do
   let bindings = propBindings prop
       body     = propBody prop
       desc     = propDescription prop
       nSamples = 100  -- number of random samples
+      seed     = maybe (propertySeed body) id mSeed
+      gctx     = GenCtx aliasEnv ctors funcEnv
+      (samples, used) = generateSamplesWith gctx seed bindings nSamples
+      evalEnv env = evalPropertyBodyWith ctors funcEnv env body
+      withSeed t = t <> " (seed " <> T.pack (show seed) <> ")"
+      failRun env = PBTRun desc PBTFailed nSamples
+                      (Just (withSeed (formatBinding (shrinkFailing gctx bindings evalEnv env))))
+                      (Just seed)
 
-  -- Generate sample environments and evaluate the property body
-  samples <- generateSamples aliasEnv bindings nSamples
-  let results = map (\env -> evalPropertyBodyWith funcEnv env body) samples
+  if length samples < nSamples
+    -- PBT-GEN-NEG-1: rejection sampling ran out of attempts. Fail closed: a
+    -- skip, never a pass, so no `tested` evidence is written.
+    then pure $ PBTRun desc PBTSkipped 0
+           (Just ("generation failure: the refinement types of the for-all bindings accepted "
+                  <> T.pack (show (length samples)) <> " of " <> T.pack (show nSamples)
+                  <> " samples within " <> T.pack (show used)
+                  <> " attempts (LLMLL.md §5.2 rejection sampling, cap "
+                  <> T.pack (show maxRefineAttempts) <> ")"))
+           (Just seed)
+    else do
+      let results = map evalEnv samples
+      case sequence results of
+        -- All evaluations returned concrete booleans
+        Just bools ->
+          case [i | (i, False) <- zip [(0::Int)..] bools] of
+            []    -> pure $ PBTRun desc PBTPassed nSamples Nothing (Just seed)
+            (i:_) -> pure (failRun (samples !! i))
 
-  case sequence results of
-    -- All evaluations returned concrete booleans
-    Just bools ->
-      case [i | (i, False) <- zip [(0::Int)..] bools] of
-        [] -> pure $ PBTRun desc PBTPassed nSamples Nothing
-        (i:_) ->
-          let counterex = formatBinding (samples !! i)
-          in pure $ PBTRun desc PBTFailed nSamples (Just counterex)
-
-    -- Some could not be evaluated statically: fall back to QuickCheck so
-    -- shrinking can produce a minimised counterexample. The broadened
-    -- generator (post F-032) makes this path productive on most well-formed
-    -- properties rather than the previous TInt|TBool-only whitelist.
-    Nothing ->
-      case tryQuickCheck funcEnv aliasEnv bindings body of
-        Just qcResult -> qcResult >>= \r -> pure $ PBTRun desc (qcStatus r) (qcSamples r) (qcCounterex r)
-        Nothing       ->
-          let reason
-                | bodyMentionsCommand body =
-                    "Property body produces a Command value — Command expressions require full runtime evaluation (not statically evaluable)"
-                | otherwise =
-                    "Property contains non-constant expressions — requires full runtime evaluation"
-          in pure $ PBTRun desc PBTSkipped 0 (Just reason)
+        -- Some could not be evaluated statically: fall back to QuickCheck so
+        -- the discard accounting (F-033) classifies the skip. The broadened
+        -- generator (post F-032) makes this path productive on most well-formed
+        -- properties rather than the previous TInt|TBool-only whitelist.
+        Nothing ->
+          case tryQuickCheck seed samples ctors funcEnv body of
+            Just qcResult -> qcResult >>= \r ->
+              case qcStatus r of
+                -- PBT-GEN-NEG-1: report the first failing sample of the same
+                -- batch, shrunk, instead of QuickCheck's text of an index.
+                PBTFailed | (env:_) <- [ e | e <- samples, evalEnv e == Just False ] ->
+                  pure (failRun env) { pbtSamplesRun = qcSamples r }
+                _ ->
+                  -- PBT-EVAL-PARITY-1: a skip names what stopped the reduction.
+                  let cx = case (qcStatus r, unreducedReason ctors ffi funcEnv (map fst bindings) body) of
+                             (PBTSkipped, Just why) ->
+                               Just (maybe why (\d -> d <> " — " <> why) (qcCounterex r))
+                             _ -> qcCounterex r
+                  in pure $ PBTRun desc (qcStatus r) (qcSamples r) cx (Just seed)
+            Nothing       ->
+              let reason
+                    | bodyMentionsCommand body =
+                        "Property body produces a Command value — Command expressions require full runtime evaluation (not statically evaluable)"
+                    | otherwise =
+                        "Property contains non-constant expressions — requires full runtime evaluation"
+              in pure $ PBTRun desc PBTSkipped 0 (Just reason) (Just seed)
 
 -- | Evaluate a property body in a given binding environment.
 -- Returns Just True/False for concrete results, Nothing for non-evaluable.
-evalPropertyBodyWith :: FuncEnv -> Map Name Expr -> Expr -> Maybe Bool
-evalPropertyBodyWith funcEnv env body =
-  case evalExprStaticWith funcEnv maxFuel env body of
+evalPropertyBodyWith :: Set Name -> FuncEnv -> Map Name Expr -> Expr -> Maybe Bool
+evalPropertyBodyWith ctors funcEnv env body =
+  case evalExprStaticWithCtors ctors funcEnv maxFuel env body of
     Just (ELit (LitBool b)) -> Just b
     _                       -> Nothing
 
 -- ---------------------------------------------------------------------------
--- Sample Generation (Symbolic)
+-- Sample Generation (PBT-GEN-NEG-1)
 -- ---------------------------------------------------------------------------
 
--- | Generate N random binding environments for the given typed bindings.
-generateSamples :: TypeAliasEnv -> [(Name, Type)] -> Int -> IO [Map Name Expr]
-generateSamples aliasEnv bindings n =
-  mapM (\_ -> generateBinding aliasEnv bindings) [1..n]
+-- | PBT-GEN-NEG-1: the generator identity, folded into the property-body
+-- witness hash ('canonicalPropBodyHash'). A `tested` record earned under an
+-- earlier generator carries a witness the live hash no longer matches, so
+-- 'TrustReport' downgrades it once instead of carrying it forward. "gen2" is
+-- the signed, refinement-respecting generator; the unnamed "gen1" drew every
+-- int from 'NonNegative' and ignored refinements. Change it whenever the
+-- sample distribution changes in a way a passed property's evidence rests on.
+pbtGeneratorTag :: Text
+pbtGeneratorTag = "gen2"
 
--- | Generate a single random binding environment.
-generateBinding :: TypeAliasEnv -> [(Name, Type)] -> IO (Map Name Expr)
-generateBinding aliasEnv bindings = do
-  pairs <- mapM genForType bindings
-  pure (Map.fromList pairs)
+-- | LLMLL.md §5.2: rejection sampling reports a generation failure after
+-- 10,000 attempts. An attempt is one base-type candidate tested against a
+-- refinement predicate; the budget is per property.
+maxRefineAttempts :: Int
+maxRefineAttempts = 10000
+
+-- | QuickCheck size parameter for every draw. Bounds strings and the
+-- size-scaled int bucket.
+genSize :: Int
+genSize = 30
+
+-- | LLMLL.md §5.1: the edge cases a primitive int generator targets. 2^32
+-- is the RFC 1982 serial-space bound; ±2^31 and ±2^63 are the Int32 and
+-- Int64 boundaries the Class A shims narrow to (LLMLL.md §13.5/§13.6).
+intBoundaries :: [Integer]
+intBoundaries =
+  [ 0, 1, -1
+  , 2 ^ (31 :: Int) - 1, negate (2 ^ (31 :: Int))
+  , 2 ^ (32 :: Int)
+  , 2 ^ (63 :: Int) - 1, negate (2 ^ (63 :: Int)) ]
+
+-- | Signed int draws: boundary values, a small-value bias, the size-scaled
+-- signed range, and occasional large magnitudes past Int64.
+genInt :: Gen Integer
+genInt = QC.frequency
+  [ (1, QC.elements intBoundaries)
+  , (3, choose (-16, 16))
+  , (5, QC.resize 1000 arbitrary)
+  , (1, choose (negate (2 ^ (64 :: Int)), 2 ^ (64 :: Int))) ]
+
+-- | The default seed of a property: the leading 60 bits of its body hash, so
+-- the same property draws the same samples on every run.
+propertySeed :: Expr -> Int
+propertySeed body =
+  let hex = T.take 15 (T.drop (T.length ("sha256:" :: Text)) (canonicalPropBodyHash body))
+  in foldl' (\acc c -> acc * 16 + hexVal c) 0 (T.unpack hex)
   where
-    genForType (name, ty) = do
-      val <- generateValue aliasEnv maxGenDepth ty
-      pure (name, val)
+    hexVal c
+      | c >= '0' && c <= '9' = fromEnum c - fromEnum '0'
+      | c >= 'a' && c <= 'f' = fromEnum c - fromEnum 'a' + 10
+      | otherwise            = 0
+
+-- | What generation needs beyond the type: the alias map, and the evaluator
+-- inputs that decide a refinement predicate.
+data GenCtx = GenCtx
+  { gcAliases :: TypeAliasEnv
+  , gcCtors   :: Set Name
+  , gcFuncEnv :: FuncEnv
+  }
+
+-- | A generator threading the remaining refinement budget. 'Nothing' means
+-- the budget ran out.
+type RGen a = Int -> Gen (Maybe a, Int)
+
+-- | Generate up to N binding environments from one seed. Returns the
+-- samples and the refinement attempts used. Fewer than N samples means the
+-- budget ran out (a generation failure).
+generateSamplesWith :: GenCtx -> Int -> [(Name, Type)] -> Int -> ([Map Name Expr], Int)
+generateSamplesWith gctx seed bindings n =
+  let (envs, left) = unGen (go n [] maxRefineAttempts) (mkQCGen seed) genSize
+  in (envs, maxRefineAttempts - left)
+  where
+    go 0 acc budget = pure (reverse acc, budget)
+    go k acc budget = do
+      (mEnv, budget') <- genBinding gctx bindings budget
+      case mEnv of
+        Nothing  -> pure (reverse acc, budget')
+        Just env -> go (k - 1) (env : acc) budget'
+
+-- | 'generateSamplesWith' from the module statements' environments; for tests.
+generateSamplesPure :: Int -> [Statement] -> [(Name, Type)] -> Int -> ([Map Name Expr], Int)
+generateSamplesPure seed stmts =
+  generateSamplesWith (GenCtx (buildTypeAliasEnv stmts) (ctorNamesOf stmts) (buildFuncEnv stmts)) seed
+
+-- | Generate a single binding environment.
+genBinding :: GenCtx -> [(Name, Type)] -> RGen (Map Name Expr)
+genBinding gctx bindings budget0 = go bindings [] budget0
+  where
+    go [] acc b = pure (Just (Map.fromList (reverse acc)), b)
+    go ((name, ty) : rest) acc b = do
+      (mv, b') <- generateValue gctx maxGenDepth ty b
+      case mv of
+        Nothing -> pure (Nothing, b')
+        Just v  -> go rest ((name, v) : acc) b'
+
+-- | Lift a plain draw into 'RGen'.
+pureG :: Gen Expr -> RGen Expr
+pureG g b = (\v -> (Just v, b)) <$> g
+
+-- | Run draws in sequence, stopping on the first budget failure.
+seqG :: [RGen Expr] -> RGen [Expr]
+seqG [] b = pure (Just [], b)
+seqG (g : gs) b = do
+  (mv, b') <- g b
+  case mv of
+    Nothing -> pure (Nothing, b')
+    Just v  -> do
+      (mvs, b'') <- seqG gs b'
+      pure ((v :) <$> mvs, b'')
+
+-- | Does a refinement predicate hold of a candidate? A predicate the evaluator
+-- cannot reduce is treated as false (reject), so an undecidable refinement
+-- exhausts the budget and the property skips rather than passes.
+refinementHolds :: GenCtx -> Name -> Expr -> Expr -> Bool
+refinementHolds gctx binder predE v =
+  evalPropertyBodyWith (gcCtors gctx) (gcFuncEnv gctx) (Map.singleton binder v) predE == Just True
 
 -- | Generate a random sample expression of the given LLMLL type.
 --
@@ -371,72 +532,110 @@ generateBinding aliasEnv bindings = do
 -- pattern-match. Recursion depth is bounded by 'maxGenDepth' to guarantee
 -- termination on self-referential aliases; 'TCustom' is resolved via
 -- 'expandAliasPure' against the supplied 'TypeAliasEnv'.
-generateValue :: TypeAliasEnv -> Int -> Type -> IO Expr
-generateValue _ _ TInt         = ELit . LitInt . getNonNeg <$> generate (arbitrary :: Gen (NonNegative Integer))
-generateValue _ _ TFloat       = ELit . LitFloat <$> generate (arbitrary :: Gen Double)
-generateValue _ _ TString      = ELit . LitString . T.pack <$> generate (arbitrary :: Gen String)
-generateValue _ _ TBool        = ELit . LitBool <$> generate (arbitrary :: Gen Bool)
-generateValue _ _ TUnit        = pure (ELit LitUnit)
-generateValue _ _ (TBytes _)   = ELit . LitString . T.pack <$> generate (arbitrary :: Gen String)
-generateValue aliases depth (TDependent _ base _) =
-  -- ignore the refinement constraint for generation; tracked as a future
-  -- improvement (filter-and-retry) outside F-032 scope.
-  generateValue aliases depth base
+--
+-- PBT-GEN-NEG-1: ints are signed ('genInt'), and a 'TDependent' is drawn by
+-- rejection sampling against its predicate, at any depth.
+generateValue :: GenCtx -> Int -> Type -> RGen Expr
+generateValue _ _ TInt         = pureG (ELit . LitInt <$> genInt)
+generateValue _ _ TFloat       = pureG (ELit . LitFloat <$> (arbitrary :: Gen Double))
+generateValue _ _ TString      = pureG (ELit . LitString . T.pack <$> (arbitrary :: Gen String))
+generateValue _ _ TBool        = pureG (ELit . LitBool <$> (arbitrary :: Gen Bool))
+generateValue _ _ TUnit        = pureG (pure (ELit LitUnit))
+generateValue _ _ (TBytes _)   = pureG (ELit . LitString . T.pack <$> (arbitrary :: Gen String))
+generateValue gctx depth (TDependent binder base predE) = loop
+  where
+    -- LLMLL.md §5.2 rejection sampling: draw from the base type, keep the
+    -- candidate only when the predicate reduces to true.
+    loop b
+      | b <= 0    = pure (Nothing, b)
+      | otherwise = do
+          (mv, b') <- generateValue gctx depth base (b - 1)
+          case mv of
+            Nothing -> pure (Nothing, b')
+            Just v
+              | refinementHolds gctx binder predE v -> pure (Just v, b')
+              | otherwise                           -> loop b'
 
 -- Complex types
-generateValue aliases depth (TPair a b) = do
-  va <- generateValue aliases (depth - 1) a
-  vb <- generateValue aliases (depth - 1) b
-  pure (EPair va vb)
-generateValue aliases depth (TList elt)
-  | depth <= 0 = pure (EApp "nil" [])
-  | otherwise  = do
-      len <- generate (choose (0, listMaxLen))
-      elts <- mapM (\_ -> generateValue aliases (depth - 1) elt) [1..(len :: Int)]
-      pure (foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" []) elts)
-generateValue aliases depth (TResult okTy errTy)
-  | depth <= 0 = pure (EApp "Error" [ELit LitUnit])
-  | otherwise = do
-      tag <- generate (arbitrary :: Gen Bool)
-      if tag
-        then do v <- generateValue aliases (depth - 1) okTy
-                pure (EApp "Success" [v])
-        else do v <- generateValue aliases (depth - 1) errTy
-                pure (EApp "Error" [v])
-generateValue aliases depth (TSumType ctors)
-  | null ctors = pure (ELit LitUnit)  -- empty sum is unreachable; surface a unit
+generateValue gctx depth (TPair a b) = \bud -> do
+  (mvs, bud') <- seqG [ generateValue gctx (depth - 1) a
+                      , generateValue gctx (depth - 1) b ] bud
+  pure (case mvs of Just [va, vb] -> Just (EPair va vb); _ -> Nothing, bud')
+generateValue gctx depth (TList elt)
+  | depth <= 0 = pureG (pure (EApp "nil" []))
+  | otherwise  = \bud -> do
+      len <- choose (0, listMaxLen)
+      (mvs, bud') <- seqG (replicate len (generateValue gctx (depth - 1) elt)) bud
+      pure (foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" []) <$> mvs, bud')
+generateValue gctx depth (TResult okTy errTy)
+  | depth <= 0 = pureG (pure (EApp "Error" [ELit LitUnit]))
+  | otherwise = \bud -> do
+      tag <- arbitrary :: Gen Bool
+      let (ctor, ty) = if tag then ("Success", okTy) else ("Error", errTy)
+      (mv, bud') <- generateValue gctx (depth - 1) ty bud
+      pure ((\v -> EApp ctor [v]) <$> mv, bud')
+generateValue gctx depth (TSumType ctors)
+  | null ctors = pureG (pure (ELit LitUnit))  -- empty sum is unreachable; surface a unit
   | depth <= 0 =
       -- prefer nullary constructors at depth-cap to guarantee termination on
       -- recursive ADTs; if none exist, emit a unit-payload placeholder.
       case [c | (c, Nothing) <- ctors] of
-        (nullaryName : _) -> pure (EApp nullaryName [])
-        []                -> pure (ELit LitUnit)
-  | otherwise = do
-      idx <- generate (choose (0, length ctors - 1))
+        (nullaryName : _) -> pureG (pure (EApp nullaryName []))
+        []                -> pureG (pure (ELit LitUnit))
+  | otherwise = \bud -> do
+      idx <- choose (0, length ctors - 1)
       let (cname, mPayload) = ctors !! idx
       case mPayload of
-        Nothing       -> pure (EApp cname [])
+        Nothing        -> pure (Just (EApp cname []), bud)
         Just payloadTy -> do
-          v <- generateValue aliases (depth - 1) payloadTy
-          pure (EApp cname [v])
-generateValue aliases depth (TCustom n)
+          (mv, bud') <- generateValue gctx (depth - 1) payloadTy bud
+          pure ((\v -> EApp cname [v]) <$> mv, bud')
+generateValue gctx depth (TCustom n)
   -- Resolve through the alias env. If it resolves to itself (cycle or
   -- unknown), fall back to an int so generation does not loop.
-  | depth <= 0 = ELit . LitInt . getNonNeg <$> generate (arbitrary :: Gen (NonNegative Integer))
+  | depth <= 0 = pureG (ELit . LitInt <$> genInt)
   | otherwise =
-      case expandAliasPure aliases (TCustom n) of
-        TCustom m | m == n -> ELit . LitInt . getNonNeg <$> generate (arbitrary :: Gen (NonNegative Integer))
-        resolved          -> generateValue aliases (depth - 1) resolved
+      case expandAliasPure (gcAliases gctx) (TCustom n) of
+        TCustom m | m == n -> pureG (ELit . LitInt <$> genInt)
+        resolved          -> generateValue gctx (depth - 1) resolved
 
 -- Catch-all: TFn / TPromise / TVar / TDelegationError / TMap. These types do
 -- not have natural value generators (functions cannot be randomly synthesized
 -- here; promises and free type variables would require unification). Fall back
--- to a non-negative int and let downstream evaluation skip if the body can't
+-- to a signed int and let downstream evaluation skip if the body can't
 -- reduce. Tracked outside F-032 scope.
-generateValue _ _ _ = ELit . LitInt <$> generate (arbitrary :: Gen Integer)
+generateValue _ _ _ = pureG (ELit . LitInt <$> genInt)
 
-getNonNeg :: NonNegative Integer -> Integer
-getNonNeg (NonNegative n) = n
+-- | PBT-GEN-NEG-1: shrink a failing sample greedily, one top-level int
+-- binding at a time, toward 0 ('QC.shrinkIntegral'). A candidate is kept only
+-- when the property still evaluates to false on it AND the binding's
+-- refinement (when its type is one) still holds, so the reported
+-- counterexample is a legal input. Other shapes are reported as drawn.
+shrinkFailing :: GenCtx -> [(Name, Type)] -> (Map Name Expr -> Maybe Bool) -> Map Name Expr -> Map Name Expr
+shrinkFailing gctx bindings evalEnv = go (1000 :: Int)
+  where
+    go 0 env = env
+    go k env = case firstStep env of
+      Nothing   -> env
+      Just env' -> go (k - 1) env'
+    firstStep env = listToMaybe'
+      [ env'
+      | (name, ty) <- bindings
+      , Just (ELit (LitInt v)) <- [Map.lookup name env]
+      , c <- QC.shrinkIntegral v
+      , let cand = ELit (LitInt c)
+      , legal ty cand
+      , let env' = Map.insert name cand env
+      , evalEnv env' == Just False ]
+    legal ty cand = case resolveTop ty of
+      TDependent binder _ predE -> refinementHolds gctx binder predE cand
+      _                         -> True
+    resolveTop ty = case ty of
+      TCustom _ -> case expandAliasPure (gcAliases gctx) ty of
+                     t@(TDependent {}) -> t
+                     _                 -> ty
+      _         -> ty
+    listToMaybe' xs = case xs of { (x:_) -> Just x; [] -> Nothing }
 
 -- | Heuristic: does the expression contain a call to a function that is
 -- known to return Command (wasi.* imports, or any function whose name
@@ -474,8 +673,8 @@ bodyMentionsCommand expr = go expr
 -- 'Just' — fallback is universal; the only previous role of returning
 -- 'Nothing' was to gate on simple-type bindings, which is no longer the
 -- discriminator.
-tryQuickCheck :: FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> Maybe (IO QCRun)
-tryQuickCheck funcEnv aliasEnv bindings body = Just (runQC funcEnv aliasEnv bindings body)
+tryQuickCheck :: Int -> [Map Name Expr] -> Set Name -> FuncEnv -> Expr -> Maybe (IO QCRun)
+tryQuickCheck seed samples ctors funcEnv body = Just (runQC seed samples ctors funcEnv body)
 
 data QCRun = QCRun
   { qcStatus     :: PBTStatus
@@ -483,13 +682,11 @@ data QCRun = QCRun
   , qcCounterex  :: Maybe Text
   } deriving (Show)
 
-runQC :: FuncEnv -> TypeAliasEnv -> [(Name, Type)] -> Expr -> IO QCRun
-runQC funcEnv aliasEnv bindings body = do
-  -- Pre-generate sample environments in IO using the same generator used by
-  -- the static-eval path, then drive QuickCheck over the pre-built batch.
-  -- This keeps the generator implementation single-source (no Gen-monad
-  -- duplicate) while still letting QuickCheck report sample counts.
-  preSamples <- generateSamples aliasEnv bindings 100
+-- | PBT-GEN-NEG-1: QuickCheck drives the SAME batch the static path drew
+-- (no second generation), and its index choice replays from the property's
+-- seed, so the verdict is deterministic.
+runQC :: Int -> [Map Name Expr] -> Set Name -> FuncEnv -> Expr -> IO QCRun
+runQC seed preSamples ctors funcEnv body = do
   -- F-033: count body-evaluator discards out of band so PBTSkipped can
   -- distinguish "body never reduced to a bool" (likely an unmodeled
   -- builtin in the property body) from "precondition kept failing"
@@ -498,7 +695,7 @@ runQC funcEnv aliasEnv bindings body = do
   -- safe and correct.
   bodyDiscardCount <- newIORef (0 :: Int)
   let prop :: Map Name Expr -> QC.Property
-      prop env = case evalExprStaticWith funcEnv maxFuel env body of
+      prop env = case evalExprStaticWithCtors ctors funcEnv maxFuel env body of
         Just (ELit (LitBool b)) -> QC.property b
         _                       -> QC.ioProperty $ do
                                       modifyIORef' bodyDiscardCount (+1)
@@ -511,7 +708,12 @@ runQC funcEnv aliasEnv bindings body = do
         i <- choose (0, length preSamples - 1)
         pure (preSamples !! i)
 
-  result <- (try (quickCheckResult (forAll genIdx prop)) :: IO (Either SomeException Result))
+  -- PBT-EVAL-PARITY-1: chatty = False. The default printed "*** Gave up!"
+  -- and "+++ OK" lines to stdout, ahead of `llmll --json test`'s document,
+  -- so the output did not parse as JSON. The Result carries everything.
+  -- PBT-GEN-NEG-1: replay from the property seed.
+  let args = stdArgs { chatty = False, replay = Just (mkQCGen seed, genSize) }
+  result <- (try (quickCheckWithResult args (forAll genIdx prop)) :: IO (Either SomeException Result))
   bodyDiscards <- readIORef bodyDiscardCount
   case result of
     Left ex -> pure $ QCRun (PBTError (T.pack (show ex))) 0 Nothing
@@ -541,6 +743,61 @@ gaveUpDiag bodyDiscards samplesRun
       <> " evaluated, 0 returned bool — likely unmodeled builtin or unreduced callee body in property body)"
   | otherwise =
       "QuickCheck gave up — too many precondition failures"
+
+-- ---------------------------------------------------------------------------
+-- PBT-EVAL-PARITY-1: constructors and the skip reason
+-- ---------------------------------------------------------------------------
+
+-- | The constructor names the evaluator treats as values: every sum-type
+-- constructor the statements declare, plus the sealed 'Response' arms.
+ctorNamesOf :: [Statement] -> Set Name
+ctorNamesOf stmts = Set.union builtinCtorNames $ Set.fromList
+  [ c | STypeDef _ body <- stmts, TSumType cs <- [body], (c, _) <- cs ]
+
+-- | Why a property body cannot reduce, found statically: the first call, in
+-- depth-first order through the definitions the body reaches, that the
+-- evaluator cannot answer. A Tier 1 FFI export is named with its Haskell
+-- origin; any other name is reported as unmodeled. The walk sees what is
+-- REACHABLE, not what a sample took, so the reason is a diagnosis attached
+-- to a skip and never a reason to skip.
+unreducedReason :: Set Name -> [FfiEntry] -> FuncEnv -> [Name] -> Expr -> Maybe Text
+unreducedReason ctors ffi fe bound0 body0 = go Set.empty [] (Set.fromList bound0) body0
+  where
+    ffiMap = Map.fromList [ (feName e, e) | e <- ffi ]
+    evaluatorOnly = Set.fromList
+      ["cons", "nil", "some", "none", "is-some", "list-is-empty?", "Success", "Error"]
+    go seen via bound e = firstJust (map (classify seen via bound') (extractCalls e))
+      where bound' = Set.union bound (Set.fromList (boundNames e))
+    classify seen via bound n
+      | Just fe' <- Map.lookup n ffiMap =
+          Just ("calls Tier 1 FFI export " <> n <> " (haskell." <> fePackage fe'
+                <> ", " <> feModule fe' <> "." <> camelName n <> ")" <> viaText via
+                <> "; the test evaluator cannot run Haskell code")
+      | Just (ps, b) <- Map.lookup n fe =
+          if n `Set.member` seen then Nothing
+          else go (Set.insert n seen) (via ++ [n]) (Set.fromList ps) b
+      | n `Set.member` bound || n `Set.member` ctors
+        || n `Set.member` modeledBuiltins || n `Set.member` evaluatorOnly = Nothing
+      | otherwise =
+          Just ("calls " <> n <> viaText via <> ", which the test evaluator does not model")
+    viaText [] = ""
+    viaText vs = " via " <> T.intercalate " -> " vs
+    firstJust xs = case [ x | Just x <- xs ] of
+      (x:_) -> Just x
+      []    -> Nothing
+    boundNames ex = case ex of
+      ELambda ps b    -> map fst ps ++ boundNames b
+      ELet bs b       -> [ v | (PVar v, _, _) <- bs ] ++ concatMap (\(_, _, x) -> boundNames x) bs ++ boundNames b
+      EMatch x arms   -> boundNames x ++ concatMap (\(p, a) -> patVars p ++ boundNames a) arms
+      EIf c t f       -> boundNames c ++ boundNames t ++ boundNames f
+      EApp _ as'      -> concatMap boundNames as'
+      EOp _ as'       -> concatMap boundNames as'
+      EPair a b       -> boundNames a ++ boundNames b
+      _               -> []
+    patVars p = case p of
+      PVar v             -> [v]
+      PConstructor _ ps  -> concatMap patVars ps
+      _                  -> []
 
 -- ---------------------------------------------------------------------------
 -- Formatting
@@ -655,7 +912,9 @@ collectHeadOps = go
 -- downgrade stale 'DLTested n' entries to 'DLAsserted' (proposal §7).
 canonicalPropBodyHash :: Expr -> Text
 canonicalPropBodyHash e =
-  let bytes = SHA256.hash (TE.encodeUtf8 (canonicalExpr e))
+  -- PBT-GEN-NEG-1: the generator tag is part of the preimage, so a witness
+  -- written under an earlier generator no longer matches ('pbtGeneratorTag').
+  let bytes = SHA256.hash (TE.encodeUtf8 (pbtGeneratorTag <> ":" <> canonicalExpr e))
       hex   = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
                                  (BS.unpack bytes)
   in "sha256:" <> hex

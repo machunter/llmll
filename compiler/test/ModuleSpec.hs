@@ -441,7 +441,7 @@ moduleSpec = describe "Module System" $ do
                         ["f", "g"])
             ]
           cache  = mkCache [importedEnv]
-          result = PBTResult 1 1 0 0 [PBTRun "cross-mod" PBTPassed 100 Nothing]
+          result = PBTResult 1 1 0 0 [PBTRun "cross-mod" PBTPassed 100 Nothing Nothing]
           (m, _ds) = pbtTrustWriteback (const Nothing) localStmts cache result
       Map.size m `shouldBe` 2
       Map.member "f" m         `shouldBe` True   -- bare-local
@@ -747,7 +747,7 @@ moduleSpec = describe "Module System" $ do
       let g     = withPost "g" [("x", TInt)] (EVar "x")
           env   = mkEnv ["lib"] [g]
           local = [importLib, prop "g-nonneg" (EOp ">=" [EApp "lib.g" [ELit (LitInt 2)], ELit (LitInt 0)])]
-          result = PBTResult 1 1 0 0 [PBTRun "g-nonneg" PBTPassed 100 Nothing]
+          result = PBTResult 1 1 0 0 [PBTRun "g-nonneg" PBTPassed 100 Nothing Nothing]
           (m, _) = pbtTrustWriteback (const Nothing) local (mkCache [env]) result
       Map.keys m `shouldBe` ["lib.g"]
 

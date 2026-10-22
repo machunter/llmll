@@ -56,7 +56,8 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings, isNonLinear)
-import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.Ffi (ffiEntriesOf)
+import LLMLL.PBT (runPropertyTestsWithSeed, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
@@ -118,7 +119,7 @@ import qualified Data.Map.Strict as Map
 data Command
   = CmdCheck    FilePath Bool                                -- file, --strict
   | CmdHoles    FilePath Bool (Maybe FilePath)  -- file, --deps, --deps-out
-  | CmdTest     FilePath Bool                               -- file, --emit-only
+  | CmdTest     FilePath Bool (Maybe Int)                   -- file, --emit-only, PBT-GEN-NEG-1 --seed
   | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool ContractsMode  -- file, outdir, --wasm, --emit-json-ast, --emit-only, --contracts
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool ContractsMode  -- file, outdir, --emit-only, contracts mode
   | CmdRun      FilePath [String]                           -- file, extra args
@@ -277,6 +278,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
     testCmd = CmdTest
       <$> fileArg
       <*> switch (long "emit-only" <> help "Generate QuickCheck Haskell but skip running stack test (avoids Stack lock deadlock)")
+      <*> optional (option auto (long "seed" <> metavar "N" <> help
+            "Draw every property's samples from seed N (default: a per-property seed derived from its body, printed with each counterexample)"))
 
     runCmd = CmdRun
       <$> fileArg
@@ -426,7 +429,7 @@ main = do
   case optCommand opts of
     CmdCheck fp strict            -> doCheck  json gm fp strict
     CmdHoles fp deps mDepsOut     -> doHoles  json gm fp deps mDepsOut
-    CmdTest  fp emitOnly          -> doTest   json gm fp emitOnly
+    CmdTest  fp emitOnly mSeed    -> doTest   json gm fp emitOnly mSeed
     CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json gm fp mOut wasm emitJson emitOnly contracts
     CmdBuildFromJson fp mOut emitOnly contracts -> doBuildFromJson json gm fp mOut emitOnly contracts
     CmdRun   fp args              -> doRun    json gm fp args
@@ -614,8 +617,8 @@ absImportSrc envs stmts = do
       pure (SImport imp { importSrc = Just (f', l) })
     absStmt st = pure st
 
-doTest :: Bool -> GrammarMode -> FilePath -> Bool -> IO ()
-doTest json gm fp emitOnly = do
+doTest :: Bool -> GrammarMode -> FilePath -> Bool -> Maybe Int -> IO ()
+doTest json gm fp emitOnly mSeed = do
   -- MOD-PBT-1: use loadStatementsMulti so PBT FuncEnv can see imported
   -- def-logic via assembleTestStatements (F-018 closure).
   mResult <- loadStatementsMulti json gm fp
@@ -640,7 +643,11 @@ doTest json gm fp emitOnly = do
               TIO.putStrLn    "   (stack test skipped — --emit-only)"
           exitSuccess
         else do
-          result <- runPropertyTests mergedStmts
+          -- PBT-EVAL-PARITY-1: the FFI entries of the entry module and of
+          -- every cached module, so a skip can name an export that a
+          -- forwarded imported definition calls.
+          let ffi = ffiEntriesOf stmts ++ concatMap (ffiEntriesOf . meStatements) (Map.elems cache)
+          result <- runPropertyTestsWithSeed mSeed ffi mergedStmts
           -- TRUST-REPORT-GATE-1 (§3.5): stamp each tested record with its
           -- subject's evidence key (plain variant), computed with the KeyEnv
           -- the record's module is read with. An entry-module subject uses the
@@ -691,6 +698,10 @@ printPbtResult fp r = do
       PBTFailed -> do
         TIO.putStrLn $ "  ❌  \"" <> pbtDescription run <> "\""
         mapM_ (\cx -> TIO.putStrLn $ "     counterexample: " <> cx) (pbtCounterexample run)
+      -- PBT-EVAL-PARITY-1: a skip says why, in text mode too.
+      PBTSkipped ->
+        mapM_ (\why -> TIO.putStrLn $ "  ⚠️  \"" <> pbtDescription run <> "\": " <> why)
+              (pbtCounterexample run)
       _ -> pure ()
 
 pbtResultJson :: FilePath -> PBTResult -> [T.Text] -> T.Text
@@ -711,6 +722,12 @@ pbtResultJson fp r writebackDiags =
       , "status"        .= (show (pbtStatus run) :: String)
       , "samples_run"   .= pbtSamplesRun run
       , "counterexample".= pbtCounterexample run
+      -- PBT-EVAL-PARITY-1: additive. The reason a property was skipped; the
+      -- counterexample key keeps carrying it for existing consumers.
+      , "skip_reason"   .= (if pbtStatus run == PBTSkipped then pbtCounterexample run else Nothing)
+      -- PBT-GEN-NEG-1: additive. The seed the samples came from; pass it to
+      -- `llmll test --seed` to replay the run.
+      , "seed"          .= pbtSeed run
       ]
 -- ---------------------------------------------------------------------------
 -- build (Haskell codegen + optional WASM)
