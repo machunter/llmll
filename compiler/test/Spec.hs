@@ -103,7 +103,7 @@ import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
 import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
-import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
+import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
@@ -14387,6 +14387,61 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         map pbtStatus (pbtResults r) `shouldBe` [PBTSkipped]
         out `shouldBe` ""
 
+    -- STR-INDEX-LINEAR-1: string_char_at and string_slice read a cached array
+    -- past index 32. The answers must equal the list-walk definitions they
+    -- replaced, and the decomposition idiom must be linear.
+    describe "STR-INDEX-LINEAR-1 linear string indexing" $ do
+      let idxs s i = [i, -1, 0, 31, 32, 33, length s - 1, length s, length s + 1]
+
+      it "string_char_at equals the list-walk reference" $ property $ \s i ->
+        all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) (idxs s i)
+
+      it "string_char_at equals the reference on long strings, every index" $ property $ \c k ->
+        let s = take (40 + k `mod` 60) (cycle (c : "ab,\"\n"))
+        in all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) [-2 .. length s + 2]
+
+      it "string_slice equals the list-walk reference" $ property $ \s f t ->
+        let s' = s ++ replicate 40 'x'
+        in and [ RP.string_slice s' x y == RP.string_slice_ref s' x y
+               | x <- idxs s' f, y <- idxs s' t ]
+
+      it "two strings indexed alternately keep their own answers" $ do
+        let a = take 200 (cycle "abcdefg")
+            b = take 150 (cycle "XYZ")
+        concat [ RP.string_char_at a i ++ RP.string_char_at b i | i <- [0 .. 199] ]
+          `shouldBe` concat [ RP.string_char_at_ref a i ++ RP.string_char_at_ref b i | i <- [0 .. 199] ]
+
+      it "six strings rotating through the four-entry cache keep their own answers" $ do
+        let ss = [ replicate (50 + k) (toEnum (fromEnum 'a' + k)) | k <- [0 .. 5] ]
+        and [ RP.string_char_at s i == RP.string_char_at_ref s i
+            | _ <- [1 .. 3 :: Int], s <- ss, i <- [30 .. 60] ] `shouldBe` True
+
+      it "the decomposition idiom is linear: 4x the input costs far less than 16x" $ do
+        let decompose n = do
+              let s = take n (cycle "abc,def\n\"x\"")
+              _ <- CE.evaluate (length s)
+              t0 <- getCurrentTime
+              _ <- CE.evaluate (sum [ fromEnum c | i <- [0 .. n - 1], c <- RP.string_char_at s i ])
+              t1 <- getCurrentTime
+              pure (realToFrac (diffUTCTime t1 t0) :: Double)
+        _  <- decompose 2000
+        t1 <- decompose 20000
+        t4 <- decompose 80000
+        -- linear gives about 4; the list walk gave about 16 (measured 0.48 s
+        -- at 20000, 1.84 s at 40000). A floor keeps a sub-millisecond run
+        -- from failing on timer noise.
+        (t4 / max t1 0.002) `shouldSatisfy` (< 8)
+
+      it "the emitted string_char_at no longer indexes the list with !!" $ do
+        let body = [ l | l <- runtimePreamble, "string_char_at s" `T.isPrefixOf` l || "  |" `T.isPrefixOf` l ]
+        any ("!!" `T.isInfixOf`) (filter ("string_char_at" `T.isInfixOf`) body) `shouldBe` False
+        any ("llmll_strIx s" `T.isInfixOf`) runtimePreamble `shouldBe` True
+
+      it "the cache uses base modules only: no `array` entry in the generated package" $ do
+        let r = generateHaskell "strix" [SCheck (Property "p" [] (ELit (LitBool True)) [])]
+        T.isInfixOf "import qualified GHC.Arr as LArr" (cgHsSource r) `shouldBe` True
+        T.isInfixOf "- array" (cgPackageYaml r) `shouldBe` False
+
     describe "OBLIG-PBT-3 PBT-to-trust-report write-back" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)
@@ -20536,9 +20591,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               path = dir </> "SliceProbe.hs"
           createDirectoryIfMissing True dir
           TIO.writeFile path . T.unlines $
-            [ "module Main where", "" ]
+            -- STR-INDEX-LINEAR-1: past index 32 both builtins read the cached
+            -- array, so the probe carries the cache blocks and their imports.
+            [ "module Main where", ""
+            , "import System.IO.Unsafe (unsafePerformIO)"
+            , "import qualified GHC.Arr as LArr"
+            , "import qualified System.Mem.StableName as LSN"
+            , "import qualified Data.IORef as LRef", "" ]
             ++ preambleBlock "string_slice"   ++ [""]
             ++ preambleBlock "string_char_at" ++ [""]
+            ++ preambleBlock "llmll_strCache" ++ [""]
+            ++ preambleBlock "llmll_strIx"    ++ [""]
             ++ [ "main :: IO ()"
                , "main = mapM_ putStrLn"
                , "  [ show (string_slice \"abc\" (-1) 1)"
@@ -20553,6 +20616,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                , "  , show (string_char_at \"abc\" (-1))"
                , "  , show (string_char_at \"abc\" 3)"
                , "  , show (string_char_at \"abc\" 0)"
+               , "  , show (string_char_at (replicate 40 'a' ++ \"xyz\") 41)"
+               , "  , show (string_slice (replicate 40 'a' ++ \"xyz\") 40 100)"
+               , "  , show (string_slice (replicate 40 'a' ++ \"xyz\") 39 (-1))"
                , "  ]"
                ]
           (code, out, err) <- readProcessWithExitCode runghcExe [path] ""
@@ -20575,6 +20641,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "\"\""      -- string_char_at: negative index, the convention
                 , "\"\""      -- string_char_at: index == length
                 , "\"a\""     -- string_char_at: in range
+                , "\"y\""     -- STR-INDEX-LINEAR-1: cached path, in range
+                , "\"xyz\""   -- cached path, `to` clamps to n
+                , "\"\""      -- cached path, transposed pair
                 ]
 
   -- -----------------------------------------------------------------------

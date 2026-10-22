@@ -27,6 +27,9 @@ import qualified Data.Char as LChar
 import qualified Data.Foldable as LFold
 import Control.Exception (try, evaluate, SomeException)
 import System.IO.Unsafe (unsafePerformIO)
+import qualified GHC.Arr as LArr
+import qualified System.Mem.StableName as LSN
+import qualified Data.IORef as LRef
 
 -- BEGIN RUNTIME-PURE
 llmll_uW :: a -> ()
@@ -72,14 +75,54 @@ string_slice :: String -> Int -> Int -> String
 -- `take (to - from) (drop from s)` fed a negative `from` into the take
 -- count while `drop` no-opped on it, so string_slice "abc" (-1) 1
 -- returned "ab" -- two characters for a one-character window.
-string_slice s from to =
-  let n  = length s
-      lo = min n (max 0 from)
-      hi = min n (max 0 to)
-  in if hi <= lo then "" else take (hi - lo) (drop lo s)
+-- STR-INDEX-LINEAR-1: a window that starts at 32 or later reads the cached
+-- array of s (llmll_strIx below), so a scan of windows over one string is
+-- linear rather than quadratic. Same result as the list walk for every input.
+string_slice s from to
+  | max 0 from < 32 =
+      let n  = length s
+          lo = min n (max 0 from)
+          hi = min n (max 0 to)
+      in if hi <= lo then "" else take (hi - lo) (drop lo s)
+  | otherwise =
+      let (a, n) = llmll_strIx s
+          lo = min n (max 0 from)
+          hi = min n (max 0 to)
+      in if hi <= lo then "" else [ a LArr.! k | k <- [lo .. hi - 1] ]
 
+-- STR-INDEX-LINEAR-1: an index below 32 walks the list, which costs i steps
+-- and allocates nothing; a larger index reads the cached array of s. The
+-- documented decomposition (list-map (range 0 n) (fn [i] (string-char-at s i)))
+-- was quadratic through `s !! i` and is linear now.
 string_char_at :: String -> Int -> String
-string_char_at s i = if i >= 0 && i < length s then [s !! i] else ""
+string_char_at s i
+  | i < 0     = ""
+  | i < 32    = case drop i s of { (c:_) -> [c]; [] -> "" }
+  | otherwise = let (a, n) = llmll_strIx s in if i < n then [a LArr.! i] else ""
+
+-- STR-INDEX-LINEAR-1. A random-access copy of each of the last four strings
+-- indexed past 32, keyed by StableName. Equal StableNames are one heap object,
+-- so the cached array always holds that string's characters: a hit cannot
+-- answer for a different string, and a miss only costs one O(n) copy. The
+-- answer never depends on the cache, so the builtin stays a pure function and
+-- codegen_semantics_version does not change. EVAL-STRICT-1 has already forced
+-- s to a value, which is what keeps its StableName stable across calls.
+llmll_strCache :: LRef.IORef [(LSN.StableName String, LArr.Array Int Char, Int)]
+llmll_strCache = unsafePerformIO (LRef.newIORef [])
+{-# NOINLINE llmll_strCache #-}
+
+llmll_strIx :: String -> (LArr.Array Int Char, Int)
+llmll_strIx s = unsafePerformIO $ do
+  sn <- LSN.makeStableName $! s
+  es <- LRef.readIORef llmll_strCache
+  case [ (a, n) | (sn', a, n) <- es, sn' == sn ] of
+    (hit : _) -> return hit
+    [] -> do
+      let n = length s
+          a = LArr.listArray (0, n - 1) s
+      a `seq` LRef.atomicModifyIORef' llmll_strCache (\cur -> (take 4 ((sn, a, n) : cur), ()))
+      return (a, n)
+{-# NOINLINE llmll_strIx #-}
 
 string_split :: String -> String -> [String]
 string_split _   []  = [""]
@@ -189,3 +232,16 @@ llmll_min = min
 llmll_max :: Integer -> Integer -> Integer
 llmll_max = max
 -- END RUNTIME-PURE
+
+-- STR-INDEX-LINEAR-1: the list-walk definitions the cached ones replaced. Not
+-- emitted; Spec.hs checks the emitted definitions against these with
+-- QuickCheck, so the cache cannot change an answer unnoticed.
+string_slice_ref :: String -> Int -> Int -> String
+string_slice_ref s from to =
+  let n  = length s
+      lo = min n (max 0 from)
+      hi = min n (max 0 to)
+  in if hi <= lo then "" else take (hi - lo) (drop lo s)
+
+string_char_at_ref :: String -> Int -> String
+string_char_at_ref s i = if i >= 0 && i < length s then [s !! i] else ""
