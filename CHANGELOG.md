@@ -64,8 +64,6 @@
   tag `gen2`, so a `tested` record written before this change renders `asserted` until
   `llmll test` runs again. `verified` is unaffected.
 
-**Tests:** hspec 2512 → 2581, 0 failures; Python 564 passed, 5 skipped (560 at v0.30.10).
-
 ### `LAMBDA-CLOSURE-1`: `llmll test` evaluates lambdas that read outer variables
 
 - **A callback such as `(fn [i] (string-char-at s i))` reduces instead of skipping the property.**
@@ -74,6 +72,39 @@
   or an outer lambda parameter never reduced, and the property was `PBTSkipped`. Shadowing
   follows the language's scoping. Test-path evaluator only (`llmll test` and `DivergenceCheck`
   probing); codegen and verification are unchanged. No schema change.
+
+### `COLLECT-ORDER-1`: string order, sort, map iteration, regex replacement and file size
+
+Design: [`docs/design/collect-order-1-proposal.md`](docs/design/collect-order-1-proposal.md) Rev 0.
+
+- **`STR-ORDER-1`: `string-compare : string string -> int`** answers -1, 0 or 1 by Unicode code
+  point: locale-free, case-sensitive, a proper prefix first. It is UTF-8 byte order for strings
+  without a lone surrogate, not UTF-16 order (U+FFFF sorts before U+10000). `<` stays `int` only.
+- **`LIST-SORT-1`: `list-sort`, `list-sort-by` and `list-reverse`.** `(list-sort-by xs key)` takes
+  the list first and a key function, not a comparator as Haskell's `sortBy` does, and is stable.
+  Both sort at an ordered type: `int`, `string`, `bool` and pairs of them, aliases expanded.
+  Any other type is the `check` error **`order-undefined`**, which names a key to sort by instead.
+  A probe program's hand-written insertion sort was `termination_unverified` and spread that flag
+  to six callers; a builtin call is in no recursive cycle.
+- **`MAP-ITER-1`: `map-keys` and `map-entries`** list a map's keys and `(key, value)` pairs in
+  ascending key order, so two maps that are `=` list alike. The `checkout` brief renders
+  `map[k,v]`.
+- **`REGEX-REPLACE-1`: `regex-replace-all pattern subject replacement`.** Matching is
+  `regex-spans`' (`(regex-replace-all "a*" "baaab" "X")` is `"XbXXbX"`); the replacement is
+  literal text. A computed invalid pattern answers the subject unchanged, and the literal
+  `invalid-regex` message says so. A literal replacement holding a backslash and a digit is the new
+  warning kind **`regex-replacement-literal`**.
+- **`FS-SIZE-1`: `wasi.fs.size path`** answers a regular file's size in bytes on `RCode`, with the
+  codegen-determined declared fact `v >= 0`, disclosed in the trust report. It follows a symlink;
+  anything else is `RErr`. It never opens the file, so a FIFO cannot block it, and a file at mode
+  000 has a size. Effect `fs.read`; a program that calls it adds `unix` to its generated
+  `package.yaml`. This replaces the duplicate-file finder's one `wc -c` process per file.
+- **Eight names are now reserved** under `builtin-redefinition`: `string-compare`, `list-sort`,
+  `list-sort-by`, `list-reverse`, `map-keys`, `map-entries`, `regex-replace-all` and
+  `wasi.fs.size`. A program that defines one at the top level fails `check` and is asked to rename
+  it.
+- None of the seven pure builtins reaches the solver: a body that calls one falls back
+  (`Refused by: app:<name>`). JSON-AST `schemaVersion` stays 0.13.0.
 
 ### Documentation: real-program probe rows and spec corrections
 
@@ -105,6 +136,16 @@
   in the witness hash. **README:** `llmll test [--seed N]`. **`getting-started.md`:** `llmll test`
   evaluates a qualified call in a check body (`PBT-QUAL-1` shipped at v0.30.2); two sentences
   said it skipped.
+- **Closed** `STR-ORDER-1`, `LIST-SORT-1`, `MAP-ITER-1`, `REGEX-REPLACE-1`, `FS-SIZE-1` and
+  `LIST-APPEND-COST-1`; **filed** `AMBIG-TVAR-1` (G3, DECIDE: an unconstrained element type under
+  `Ord` or `Eq`, as in `(list-length (list-sort (list-empty)))`, passes `check` and fails GHC).
+- **`LLMLL.md`:** §13.2 string `=` is code-point-wise, not "byte-by-byte"; §13.5 states that
+  `list-append` is O(n) and names prepend-then-`list-reverse`; the eight new names in §13.5,
+  §13.6, §13.9 (with a Declared-facts row) and §13.12; the ordered types; `RCode` producers in
+  §9.7; the seven pure names in the §5.3.3 uninterpreted list. **`getting-started.md` §4.5:** the
+  new builtins and a pair-key sorting idiom.
+
+**Tests:** hspec 2512 → 2642, 0 failures; Python 589 passed, 5 skipped (560 at v0.30.10).
 
 <a id="Latest"></a>
 

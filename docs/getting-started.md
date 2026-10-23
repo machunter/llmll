@@ -914,9 +914,23 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `regex-find` | `string string → list[string]` | Leftmost match as `[whole, g1, …]`; `[]` for no match. Pattern first. |
 | `regex-find-all` | `string string → list[list[string]]` | Every match, each shaped as `regex-find`'s. |
 | `regex-spans` | `string string → list[(int, int)]` | `[start, end)` span of each match, for `string-slice`. |
+| `regex-replace-all` | `string string string → string` | Pattern, subject, replacement. The replacement is literal text (no `\1`). |
+| `string-compare` | `string string → int` | `-1`, `0` or `1` by code point; `<` is `int` only. |
+| `list-sort` / `list-sort-by` | `list[a] → list[a]` / `list[a] (fn [a] → k) → list[a]` | Ascending; `list-sort-by` takes a key function and is stable. The element or key type must be `int`, `string`, `bool` or a pair of them (`order-undefined`). |
+| `list-reverse` | `list[a] → list[a]` | O(n). Build a list with `list-prepend` in a fold, then reverse once; `list-append` is O(n) per call. |
+| `map-keys` / `map-entries` | `map[k,v] → list[k]` / `map[k,v] → list[(k, v)]` | Ascending key order. |
 | `string-lower` / `string-upper` | `string → string` | Per-character case mapping; keeps the length. |
 | `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 shape. **Built entirely from the `sha1` stub below, so it is a stub too** — see LLMLL.md §13.11. Trust level is `asserted`. |
 | `sha1` | `bytes[20] → bytes[20]` | **Not SHA-1.** The preamble body is a polynomial rolling hash with no preimage or collision resistance — see LLMLL.md §13.11. Not fit for any security purpose. |
+
+**Sorting by two keys.** Sort by a pair key. Size descending, then name ascending:
+
+```lisp
+(list-sort-by files (fn [f: (string, int)] (pair (- 0 (second f)) (first f))))
+;; [("b.txt" 10) ("a.txt" 10) ("c.txt" 99)]  =>  [("c.txt" 99) ("a.txt" 10) ("b.txt" 10)]
+```
+
+Negating an `int` key reverses its order. A string key cannot be negated: for descending order on a string, sort ascending and apply `list-reverse`.
 
 > [!NOTE]
 > `sha256` is **not** in this table. It ships as the command constructor `wasi.fs.sha256`
