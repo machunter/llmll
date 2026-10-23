@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, posixFsPreamble, usesPosixFs, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
@@ -72,7 +72,7 @@ import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDi
 import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
 import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
 import qualified System.Process as SP
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, (\\))
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\))
 import Data.Char (isAlphaNum, isLower)
 import LLMLL.RegexPattern (validatePattern, rxMeaningfulEscapes, RegexProblem(..))
 import qualified Text.Regex.TDFA as RX
@@ -101,7 +101,7 @@ import LLMLL.CDP
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageJsonWith, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
-import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
+import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson, noOrdWitness)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -115,6 +115,7 @@ import LLMLL.TrustReport (liveCheckHashes)
 import qualified Crypto.Hash.SHA256 as GNSHA
 import qualified Numeric as GNNum
 import qualified LLMLL.RuntimePure as RP
+import qualified LLMLL.ProgramGraph as PG
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property)
@@ -10472,7 +10473,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             intEs   = arrayOpFuncEntries Map.empty [TInt, TString]
             aliasEs = arrayOpFuncEntries (Map.fromList [("Buf", TBytes 8)]) [TCustom "Buf"]
         map entryName bytesEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
-        map entryName mapEs   `shouldBe` ["map-has", "map-get", "map-put", "map-empty"]
+        map entryName mapEs   `shouldBe` ["map-has", "map-get", "map-put", "map-empty", "map-keys", "map-entries"]
         map entryName intEs   `shouldBe` []
         map entryName aliasEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
         [ entryPre e | e <- bytesEs, entryName e == "bytes-get" ]
@@ -18160,7 +18161,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- needs http-client, which only a fetching program pays for). This fold
     -- reads both lists, so the name stays covered; a body that moved out of
     -- BOTH would still fail below.
-    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble)
+    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble ++ posixFsPreamble)
         wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
         -- Mangling mirrors CodegenHs's toHsIdent (CodegenHs.hs:2230-2236),
         -- which the module does not export. Keep these three cases in sync
@@ -18238,10 +18239,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- that calls it), which is why preambleText above and the per-name fold
     -- below read both lists.
     -- 19 -> 21 with LIST-KIND-1's wasi.fs.list-kinds (its body lives in
-    -- listKindsPreamble, spliced only for a program that calls it; the fold
+    -- posixFsPreamble, spliced only for a program that calls it; the fold
     -- below reads that list too) and PROC-ENV-1's wasi.proc.exec.
-    it "builtinEnv declares exactly the twenty-one wasi.* names this block covers" $
-      length wasiNames `shouldBe` 21
+    -- 21 -> 22 with FS-SIZE-1's wasi.fs.size (its body lives in the same
+    -- posixFsPreamble, which list-kinds' block was generalized into).
+    it "builtinEnv declares exactly the twenty-two wasi.* names this block covers" $
+      length wasiNames `shouldBe` 22
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -18264,8 +18267,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- wasi.fs.list-kinds, wasi.proc.exec and the seven ProcSpec builders. All
       -- ten are hand-written preamble bodies, so all ten land in needsBinding:
       -- 78 -> 88.
-      Map.size builtinEnv      `shouldBe` 119
-      length needsBinding      `shouldBe` 88
+      -- 119 -> 120 with STR-ORDER-1's string-compare: a preamble body reached
+      -- by the generic emission, so it lands in needsBinding: 88 -> 89.
+      -- 120 -> 123 with LIST-SORT-1's list-sort, list-sort-by and
+      -- list-reverse, all three generic: 89 -> 92.
+      -- 123 -> 125 with MAP-ITER-1's map-keys and map-entries, both generic
+      -- (inferArrayOp types them; emission is the plain call): 92 -> 94.
+      -- 125 -> 126 with REGEX-REPLACE-1's regex-replace-all, generic: 94 -> 95.
+      -- 126 -> 127 with FS-SIZE-1's wasi.fs.size: a hand-written preamble body
+      -- (in posixFsPreamble), so it lands in needsBinding: 95 -> 96.
+      Map.size builtinEnv      `shouldBe` 127
+      length needsBinding      `shouldBe` 96
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -18317,7 +18329,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
         -- Both lists: see the preambleText note at the top of this block (HTTP-GET-1).
-        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble))
+        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble ++ posixFsPreamble))
         if defined
           then defined `shouldBe` True
           else expectationFailure $
@@ -21357,8 +21369,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         witnessLike pre = prog [hdr, ranStep pre, stepWith bootHttp ranCall, tailMain]
 
     describe "the fact table (§6, §8 item 12) and the runtime it rests on" $ do
-      it "RF-T1 declares exactly two facts, and (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
-        Map.size respFactTable `shouldBe` 2
+      -- 2 -> 3 with FS-SIZE-1's (wasi.fs.size, RCode), pinned by RF-T1i.
+      it "RF-T1 declares exactly three facts, and (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
+        Map.size respFactTable `shouldBe` 3
         case Map.lookup ("wasi.http.response", "RCode") respFactTable of
           Just f -> do
             rfCategory f `shouldBe` FactProgram 0
@@ -21418,6 +21431,38 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               `shouldBe` [("age-step", "Probed", "wasi.fs.stat", "RCode",
                            "codegen-determined", "codegen:wasi.fs.stat")]
             -- An axiom has no argument to prove, so the premise-site list is empty.
+            rpPremises plan `shouldBe` []
+
+      -- FS-SIZE-1. The third row, and the second codegen-determined fact. It
+      -- is pinned by content for the same reason as RF-T1b: a wrong row is the
+      -- single unsound direction of the design.
+      it "RF-T1i (wasi.fs.size, RCode) is codegen-determined with v >= 0" $
+        case Map.lookup ("wasi.fs.size", "RCode") respFactTable of
+          Just f -> do
+            rfCategory f `shouldBe` FactCodegen
+            rfBinder f `shouldBe` "v"
+            rfPredicate f `shouldBe` EOp ">=" [EVar "v", ELit (LitInt 0)]
+          Nothing -> expectationFailure "the wasi.fs.size/RCode row is missing"
+
+      it "RF-T1j fs-size-fact: no RESP-FACT error, and the fact reaches size-step's Response binder" $ do
+        src <- fixture "fs-size-fact"
+        respErrs src `shouldBe` []
+        respWarns src `shouldBe` []
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan ->
+            [ (d, x) | (d, es) <- Map.toList (rpRefEnvs plan), (x, _) <- es ]
+              `shouldBe` [("size-step", "x$RCode")]
+
+      it "RF-T1k fs-size-fact: the disclosure names the axiom, and no premise site is emitted" $ do
+        src <- fixture "fs-size-fact"
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan -> do
+            map (\a -> (afDef a, afTag a, afBuiltin a, afArm a, afCategory a, afPremise a))
+                (rpDisclosures plan)
+              `shouldBe` [("size-step", "Sized", "wasi.fs.size", "RCode",
+                           "codegen-determined", "codegen:wasi.fs.size")]
             rpPremises plan `shouldBe` []
 
       it "RF-T1h fs-exists-nofact: a tag bound to wasi.fs.exists warns W-RESP-FACT-NONE" $ do
@@ -21662,6 +21707,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         src <- fixture "fs-exists-refutes"
         er <- emitSrc src
         solverSays "fs-exists-refutes" er "Unsafe"
+      -- FS-SIZE-1. The same pair for wasi.fs.size: the fact discharges the post
+      -- (fs-exists-refutes above is the control without the fact), and a body
+      -- that answers (- n 1) is refuted, so the fact is v >= 0 and not stronger.
+      it "RF-M4c fs-size-fact: the codegen-determined fact discharges the post, SAFE" $ do
+        src <- fixture "fs-size-fact"
+        er <- emitSrc src
+        originTags er `shouldNotSatisfy` elem "call-pre:wasi.fs.size"
+        solverSays "fs-size-fact" er "Safe"
+      it "RF-M4d fs-size-refutes: a body answering (- n 1) under the same fact is UNSAFE" $ do
+        src <- fixture "fs-size-refutes"
+        er <- emitSrc src
+        solverSays "fs-size-refutes" er "Unsafe"
       it "RF-M5 closed-false call-pre is KEPT and refuted (§8 item 21)" $ do
         src <- fixture "closed-false"
         er <- emitSrc src
@@ -22341,6 +22398,289 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` ("41 42 43", "")
           code `shouldBe` ExitSuccess
+
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md): string-compare,
+  -- -1 / 0 / 1 in code-point order, answered in the evaluator by the same
+  -- definition the generated program runs.
+  describe "STR-ORDER-1 string-compare" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("STR-ORDER-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        ev   = evalExprStatic Map.empty
+        lstr = ELit . LitString . T.pack
+        norm s = T.unpack (T.pack s)
+        cmpE a b = ev (EApp "string-compare" [lstr a, lstr b])
+    it "SO-1 string-compare types as int, and a non-string argument is a mismatch" $ do
+      errs ["(def-shell c [a: string b: string] -> int (string-compare a b))"] `shouldBe` []
+      errs ["(def-shell c [a: int b: string] -> int (string-compare a b))"] `shouldSatisfy` (not . null)
+    it "SO-2 the evaluator answers string-compare with the runtime definition" $ property $ \a0 b0 ->
+      let (a, b) = (norm a0, norm b0)
+      in cmpE a b == Just (ELit (LitInt (RP.string_compare a b)))
+    it "SO-3 prefix, case and code-point witnesses (not collation, not UTF-16)" $ do
+      cmpE "" "a" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "ab" "abc" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "abc" "abc" `shouldBe` Just (ELit (LitInt 0))
+      cmpE "Z" "a" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "\x00E9" "z" `shouldBe` Just (ELit (LitInt 1))
+      cmpE "\xFFFF" "\x10000" `shouldBe` Just (ELit (LitInt (-1)))
+    it "SO-4 the result is in {-1,0,1} and antisymmetric" $ property $ \a b ->
+      let r = RP.string_compare a b
+      in r `elem` [-1, 0, 1] && r == negate (RP.string_compare b a)
+    it "SO-5 the = law is evaluated by llmll test and passes (not PBTSkipped)" $ do
+      let src = T.unlines
+            [ "(check \"cmp-eq\" (for-all [a: string b: string] (= (= (string-compare a b) 0) (= a b))))"
+            , "(check \"cmp-refl\" (for-all [a: string] (= (string-compare a a) 0)))" ]
+      case parseStatements GrammarCoreInversion "<t>" src of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed]
+    it "SO-6 a top-level string-compare is builtin-redefinition" $
+      map fst (errs ["(def-shell string-compare [a: string b: string] -> int 0)"])
+        `shouldBe` [Just "builtin-redefinition"]
+    it "SO-7 codegen calls the preamble's string_compare" $ do
+      let lib = cgHsSource (generateHaskell "so" (parsed ["(def-shell c [a: string b: string] -> int (string-compare a b))"]))
+      lib `shouldSatisfy` T.isInfixOf "string_compare :: String -> String -> Integer"
+      lib `shouldSatisfy` T.isInfixOf "(string_compare (a) (b))"
+    it "SO-8 a lone surrogate (U+DC80, an undecodable byte) sorts by its code point, after U+00E9" $
+      RP.string_compare "\xDC80" "\x00E9" `shouldBe` 1
+
+  -- LIST-SORT-1 (docs/design/collect-order-1-proposal.md): list-sort,
+  -- list-sort-by and list-reverse; the ordered types O and order-undefined.
+  describe "LIST-SORT-1 list-sort, list-sort-by, list-reverse" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("LIST-SORT-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        kinds = map fst . errs
+        undef = Just "order-undefined"
+        ev    = evalExprStatic Map.empty
+        lint  = ELit . LitInt
+        lstr  = ELit . LitString . T.pack
+        consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        pr a b = EPair (lint a) (lstr b)
+        am    = Map.fromList [ ("Rec", TPair TInt TString), ("Pos", TDependent "v" TInt (ELit (LitBool True)))
+                             , ("Color", TSumType [("Red", Nothing)]), ("Loop", TCustom "Loop") ]
+        emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        runProps src = case parseStatements GrammarCoreInversion "<t>" (T.unlines src) of
+          Left e      -> error (show e)
+          Right stmts -> map pbtStatus . pbtResults <$> runPropertyTests stmts
+    it "LS-1 noOrdWitness admits int, string, bool, pairs, an alias of a pair and a refined int" $
+      map (noOrdWitness am) [TInt, TString, TBool, TPair TInt (TPair TBool TString), TCustom "Rec", TCustom "Pos", TVar "a"]
+        `shouldBe` replicate 7 Nothing
+    it "LS-2 noOrdWitness refuses everything outside O, an alias cycle included" $
+      map (isJust . noOrdWitness am)
+          [ TFloat, TUnit, TBytes 4, TList TInt, TMap TInt TInt, TResult TInt TString
+          , TFn [TInt] TInt, TPromise TInt, TCustom "Command", TCustom "Json", TCustom "ProcSpec"
+          , TCustom "Color", TCustom "Loop", TPair TInt TFloat ]
+        `shouldBe` replicate 14 True
+    it "LS-3 list-sort over list[list[int]] is order-undefined, and the message names the type" $
+      errs ["(def-shell f [xs: list[list[int]]] -> list[list[int]] (list-sort xs))"]
+        `shouldBe` [(undef, "'list-sort' is not defined at type 'list[int]'. Only int, string, bool and pairs of them are ordered. Sort by a key in that set: (list-sort-by xs (fn [x: T] key)).")]
+    it "LS-4 list-sort over float, Json and a user sum type is order-undefined" $ do
+      kinds ["(def-shell f [xs: list[float]] -> list[float] (list-sort xs))"] `shouldBe` [undef]
+      kinds ["(def-shell f [xs: list[Json]] -> list[Json] (list-sort xs))"] `shouldBe` [undef]
+      kinds ["(type Color (| Red) (| Green))", "(def-shell f [xs: list[Color]] -> list[Color] (list-sort xs))"]
+        `shouldBe` [undef]
+      kinds ["(def-shell f [xs: list[(int, float)]] -> list[(int, float)] (list-sort xs))"] `shouldBe` [undef]
+    it "LS-5 a Json key is order-undefined at the key type" $
+      errs ["(def-shell f [xs: list[Json]] -> list[Json] (list-sort-by xs (fn [j: Json] j)))"]
+        `shouldSatisfy` (\es -> map fst es == [undef] && all (T.isInfixOf "at key type 'Json'" . snd) es)
+    it "LS-6 the elements of list-sort-by need no order; only the key does" $
+      errs [ "(type Color (| Red) (| Green))"
+           , "(def-shell rank [c: Color] -> int (match c ((Red) 0) ((Green) 1)))"
+           , "(def-shell f [xs: list[Color]] -> list[Color] (list-sort-by xs (fn [c: Color] (rank c))))" ]
+        `shouldBe` []
+    it "LS-7 the three builtins type, in O and at an alias of a pair, and arity is checked" $ do
+      errs [ "(type Rec (int, string))"
+           , "(def-shell a [xs: list[int]] -> list[int] (list-sort xs))"
+           , "(def-shell b [xs: list[Rec]] -> list[Rec] (list-sort xs))"
+           , "(def-shell c [xs: list[(int, string)]] -> list[(int, string)] (list-sort-by xs (fn [p: (int, string)] (pair (- 0 (first p)) (second p)))))"
+           , "(def-shell d [xs: list[Json]] -> list[Json] (list-reverse xs))" ]
+        `shouldBe` []
+      errs ["(def-shell e [xs: list[int]] -> list[int] (list-reverse xs xs))"] `shouldSatisfy` (not . null)
+    it "LS-8 the evaluator sorts ints and pairs as the runtime does" $ property $ \xs ys ->
+      let ps = zip (xs :: [Integer]) (map (\y -> T.unpack (T.pack y)) (ys :: [String]))
+      in ev (EApp "list-sort" [consOf (map lint xs)]) == Just (consOf (map lint (RP.list_sort xs)))
+         && ev (EApp "list-sort" [consOf [ pr a b | (a, b) <- ps ]])
+              == Just (consOf [ pr a b | (a, b) <- RP.list_sort ps ])
+    it "LS-9 the probe's multi-key witness, duplicates kept, negatives ordered" $ do
+      let key = ELambda [("g", TPair TInt TString)]
+                  (EApp "pair" [EOp "-" [lint 0, EApp "first" [EVar "g"]], EApp "second" [EVar "g"]])
+      ev (EApp "list-sort-by" [consOf [pr 10 "b", pr 20 "a", pr 10 "a"], key])
+        `shouldBe` Just (consOf [pr 20 "a", pr 10 "a", pr 10 "b"])
+      ev (EApp "list-sort" [consOf (map lint [3, 1, 3])]) `shouldBe` Just (consOf (map lint [1, 3, 3]))
+      ev (EApp "list-sort" [consOf (map lint [-1, -10, 5])]) `shouldBe` Just (consOf (map lint [-10, -1, 5]))
+      ev (EApp "list-sort" [consOf [pr 2 "b", pr 1 "z", pr 2 "a"]]) `shouldBe` Just (consOf [pr 1 "z", pr 2 "a", pr 2 "b"])
+      ev (EApp "list-sort" [consOf []]) `shouldBe` Just (consOf [])
+    it "LS-10 list-sort-by is stable: a constant key returns the input" $ property $ \xs ->
+      ev (EApp "list-sort-by" [consOf (map lint xs), ELambda [("x", TInt)] (lint 0)])
+        == Just (consOf (map lint (xs :: [Integer])))
+    it "LS-11 list-sort-by matches the runtime with a computed key" $ property $ \xs ->
+      let key = ELambda [("x", TInt)] (EApp "mod" [EVar "x", lint 3])
+      in ev (EApp "list-sort-by" [consOf (map lint xs), key])
+           == Just (consOf (map lint (RP.list_sort_by (xs :: [Integer]) (`mod` 3))))
+    it "LS-12 list-reverse matches the runtime" $ property $ \xs ->
+      ev (EApp "list-reverse" [consOf (map lint xs)]) == Just (consOf (map lint (reverse (xs :: [Integer]))))
+    it "LS-13 reverse twice, and prepend-then-reverse, are evaluated by llmll test and pass" $ do
+      st <- runProps
+        [ "(check \"rev-rev\" (for-all [xs: list[int]] (= (list-reverse (list-reverse xs)) xs)))"
+        , "(check \"prepend-rev\" (for-all [xs: list[int]] (= (list-reverse (list-fold xs (list-empty) (fn [acc: list[int] x: int] (list-prepend x acc)))) (list-fold xs (list-empty) (fn [acc: list[int] x: int] (list-append acc x))))))"
+        , "(check \"sort-idem\" (for-all [xs: list[int]] (= (list-sort (list-sort xs)) (list-sort xs))))" ]
+      st `shouldBe` [PBTPassed, PBTPassed, PBTPassed]
+    it "LS-14 a length post over list-sort falls back, Refused by app:list-sort (LIST-LEN-AXIOM-1 witness)" $ do
+      er <- emitFC "(def srt [xs: list[int]] -> list[int] (post (= (list-length result) (list-length xs))) (list-sort xs))"
+      lookup "srt" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+      lookup "srt" (erFallbackConstructs er) `shouldBe` Just ["app:list-sort"]
+    it "LS-15 a lambda key that calls a non-terminating def-shell puts the caller in the termination-assumed closure" $ do
+      let stmts = parsed
+            [ "(def-shell spin [x: int] -> int (spin x))"
+            , "(def-shell srt [xs: list[int]] -> list[int] (list-sort-by xs (fn [x: int] (spin x))))"
+            , "(def-shell plain [xs: list[int]] -> list[int] (list-sort xs))" ]
+          g       = PG.qualifiedCallGraph Map.empty stmts
+          closure = PG.callerClosure g (PG.undischargedCycleMembers g Set.empty)
+      Map.lookup "srt" closure `shouldBe` Just "spin"
+      Map.member "plain" closure `shouldBe` False
+    it "LS-16 the emitted call is wrapped in the list forcer" $ do
+      emitExpr (EApp "list-sort" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_sort "
+      emitExpr (EApp "list-reverse" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_reverse "
+
+  -- MAP-ITER-1 (docs/design/collect-order-1-proposal.md): map-keys and
+  -- map-entries, in ascending key order; D2's brief rendering.
+  describe "MAP-ITER-1 map-keys, map-entries" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("MAP-ITER-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        ev     = evalExprStatic Map.empty
+        lint   = ELit . LitInt
+        lstr   = ELit . LitString . T.pack
+        consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        put m k v = EApp "map-put" [m, k, v]
+        e0     = EApp "map-empty" []
+        emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+    it "MI-1 both builtins type over int and string keys" $
+      errs [ "(def-shell a [m: map[string, int]] -> list[string] (map-keys m))"
+           , "(def-shell b [m: map[int, string]] -> list[(int, string)] (map-entries m))"
+           , "(def-shell c [m: map[string, int]] -> int (list-length (map-keys m)))" ]
+        `shouldBe` []
+    it "MI-2 a bool key is the map-key diagnostic on the operation, and arity is checked" $ do
+      errs ["(def-shell a [m: map[bool, int]] -> list[bool] (map-keys m))"]
+        `shouldSatisfy` any (T.isInfixOf "map operation 'map-keys' requires int or string keys" . snd)
+      errs ["(def-shell a [m: map[int, int]] -> list[int] (map-keys m 1))"] `shouldSatisfy` (not . null)
+      errs ["(def-shell a [xs: list[int]] -> list[int] (map-keys xs))"] `shouldSatisfy` (not . null)
+    it "MI-3 extensionality: two insert orders list the same keys" $ do
+      let m1 = put (put e0 (lstr "b") (lint 1)) (lstr "a") (lint 2)
+          m2 = put (put e0 (lstr "a") (lint 2)) (lstr "b") (lint 1)
+      ev (EApp "map-keys" [m1]) `shouldBe` Just (consOf [lstr "a", lstr "b"])
+      ev (EApp "map-keys" [m2]) `shouldBe` Just (consOf [lstr "a", lstr "b"])
+      ev (EApp "map-entries" [m1]) `shouldBe` ev (EApp "map-entries" [m2])
+      ev (EApp "map-keys" [e0]) `shouldBe` Just (consOf [])
+    it "MI-4 an overwrite lists one entry with the last value; int keys order numerically" $ do
+      ev (EApp "map-entries" [put (put e0 (lstr "a") (lint 1)) (lstr "a") (lint 2)])
+        `shouldBe` Just (consOf [EPair (lstr "a") (lint 2)])
+      ev (EApp "map-keys" [put (put (put e0 (lint 10) (lint 0)) (lint 9) (lint 0)) (lint (-5)) (lint 0)])
+        `shouldBe` Just (consOf (map lint [-5, 9, 10]))
+    it "MI-5 map-entries is map-keys paired with map-get, and agrees with the runtime" $ property $ \kvs ->
+      let m   = foldl (\acc (k, v) -> put acc (lint k) (lint v)) e0 (kvs :: [(Integer, Integer)])
+          ref = Map.toAscList (Map.fromList kvs)
+      in ev (EApp "map-entries" [m]) == Just (consOf [ EPair (lint k) (lint v) | (k, v) <- ref ])
+         && ev (EApp "map-keys" [m]) == Just (consOf (map (lint . fst) ref))
+         && ref == RP.map_entries (Map.fromList kvs)
+    it "MI-6 llmll test evaluates a property over map-keys (not PBTSkipped)" $
+      case parseStatements GrammarCoreInversion "<t>" (T.unlines
+             [ "(check \"keys-order\" (for-all [a: int b: int] (= (map-keys (map-put (map-put (map-empty) a 0) b 0)) (map-keys (map-put (map-put (map-empty) b 0) a 0)))))" ]) of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTPassed]
+    it "MI-7 neither builtin is reflected: a body mixing map-keys and map-get falls back whole" $ do
+      er <- emitFC (unlines
+        [ "(def-shell k [m: map[string, int]] -> int"
+        , "  (pre (map-has m \"a\"))"
+        , "  (post (>= result 0))"
+        , "  (+ (list-length (map-keys m)) (map-get m \"a\")))" ])
+      lookup "k" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+      er2 <- emitFC (unlines
+        [ "(def-shell ks [m: map[string, int]] -> list[string]"
+        , "  (post (>= (list-length result) 0))"
+        , "  (map-keys m))"
+        , "(def-shell es [m: map[string, int]] -> list[(string, int)]"
+        , "  (post (>= (list-length result) 0))"
+        , "  (map-entries m))" ])
+      lookup "ks" (erFallbackConstructs er2) `shouldBe` Just ["app:map-keys"]
+      lookup "es" (erFallbackConstructs er2) `shouldBe` Just ["app:map-entries"]
+    it "MI-8 D2: no brief entry renders the int-only key, and the keys are k" $ do
+      let entryParams (FuncEntry _ ps _ _ _ _ _) = ps
+          entryRet    (FuncEntry _ _ r _ _ _ _) = r
+          es = arrayOpFuncEntries Map.empty [TMap TString TInt]
+          rendered = concatMap (\e -> entryRet e : map snd (entryParams e)) es
+      filter (T.isInfixOf "map[int") rendered `shouldBe` []
+      [ entryRet e | e <- es ] `shouldBe` ["bool", "v", "map[k,v]", "map[k,v]", "list[k]", "list[(k, v)]"]
+
+  -- REGEX-REPLACE-1 (docs/design/collect-order-1-proposal.md, settled
+  -- decision 1): regex-replace-all pattern subject replacement, literal
+  -- replacement, built on regex_spans.
+  describe "REGEX-REPLACE-1 regex-replace-all" $ do
+    let noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        shell body = SDefShell
+          { defShellName = "f", defShellParams = [("s", TString)]
+          , defShellReturn = Just TString, defShellContract = noContract
+          , defShellBody = body, defShellDecreases = [] }
+        lit     = ELit . LitString
+        repl p r = shell (EApp "regex-replace-all" [p, EVar "s", r])
+        diagsOf stmts = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts)
+        kindsOf = mapMaybe diagKind . diagsOf
+        ev   = evalExprStatic Map.empty
+        lstr = ELit . LitString . T.pack
+        norm x = T.unpack (T.pack x)
+        rr p sj r = ev (EApp "regex-replace-all" [lstr p, lstr sj, lstr r])
+        pats = ["a", "^a", "[0-9]+", "(a)(b)?", "(?i)ab", "x*", "[", "a|ab"]
+    it "RR-1 builtinEnv types it as three strings to a string, and arity is checked" $ do
+      Map.lookup "regex-replace-all" builtinEnv `shouldBe` Just (TFn [TString, TString, TString] TString)
+      kindsOf [repl (lit "a") (lit "b")] `shouldBe` []
+      diagsOf [shell (EApp "regex-replace-all" [lit "a", EVar "s"])] `shouldSatisfy` any ((== SevError) . diagSeverity)
+    it "RR-2 an invalid literal pattern is invalid-regex, and the message says the subject comes back" $ do
+      let ds = [ d | d <- diagsOf [repl (lit "[0-9]\\d") (lit "")], diagKind d == Just "invalid-regex" ]
+      length ds `shouldBe` 1
+      map diagMessage ds `shouldSatisfy` all (T.isInfixOf "would answer the subject unchanged")
+      kindsOf [repl (lit "") (lit "x")] `shouldContain` ["invalid-regex"]
+    it "RR-3 a literal replacement with a backslash and a digit is the regex-replacement-literal warning" $ do
+      let ds = [ d | d <- diagsOf [repl (lit "([0-9]+)") (lit "<\\1>")]
+                   , diagKind d == Just "regex-replacement-literal" ]
+      map diagSeverity ds `shouldBe` [SevWarning]
+    it "RR-4 no warning for a backslash and a letter, or for a computed replacement" $ do
+      kindsOf [repl (lit "a") (lit "\\n")] `shouldNotContain` ["regex-replacement-literal"]
+      kindsOf [repl (lit "a") (EVar "s")] `shouldNotContain` ["regex-replacement-literal"]
+    it "RR-5 the evaluator answers with the runtime definition, invalid patterns included" $ property $ \s0 r0 ->
+      let (sj, r) = (norm s0, norm r0)
+      in and [ rr p sj r == Just (lstr (RP.regex_replace_all p sj r)) | p <- pats ]
+    it "RR-6 the design's witnesses: empty matches, POSIX leftmost-longest, no match, literal text" $ do
+      rr "a*" "baaab" "X" `shouldBe` Just (lstr "XbXXbX")
+      rr "a|ab" "abc" "X" `shouldBe` Just (lstr "Xc")
+      rr "q" "abc" "X" `shouldBe` Just (lstr "abc")
+      rr "([0-9]+)" "a12b3" "<\\1>" `shouldBe` Just (lstr "a<\\1>b<\\1>")
+      rr "(?i)ab" "xAbyaB" "-" `shouldBe` Just (lstr "x-y-")
+    it "RR-7 a computed invalid pattern answers the subject unchanged" $ property $ \s0 ->
+      let sj = norm s0 in RP.regex_replace_all "[" sj "X" == sj
+    it "RR-8 the replacement fold is the spec's: slices between spans, the replacement at each" $ property $ \s0 ->
+      let sj = norm s0
+          spec p = let sp = RP.regex_spans p sj
+                       pieces = zip (0 : map snd sp) (map fst sp ++ [fromIntegral (length sj)])
+                       slice (a, b) = RP.string_slice sj (fromIntegral a) (fromIntegral b)
+                   in intercalate "#" (map slice pieces)
+      in and [ RP.regex_replace_all p sj "#" == spec p | p <- ["a", "[0-9]+", "x*", "b|bc"] ]
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
@@ -23729,6 +24069,72 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let es = errorsStrict "(def mk [n: int] -> int (first (pair 1 (proc-spec n))))"
       es `shouldSatisfy` any (T.isInfixOf "ProcSpec values are an opaque carrier")
       es `shouldSatisfy` (not . any (T.isInfixOf "it performs IO"))
+
+  -- -----------------------------------------------------------------------
+  -- FS-SIZE-1 (collect-order-1-proposal.md): wasi.fs.size. The fact row and
+  -- its fixtures are pinned in the RESP-FACT block (RF-T1i..k, RF-M4c/d); the
+  -- runtime behaviour against os.stat is scripts/tests/test_fs_size_1.py.
+  -- -----------------------------------------------------------------------
+
+  describe "FS-SIZE-1: wasi.fs.size" $ do
+
+    let parseFS src = case parseStatements GrammarCoreInversion "<fs-size>" src of
+          Left e   -> error ("FS-SIZE fixture did not parse: " ++ show e)
+          Right ss -> ss
+        kindsFS = mapMaybe diagKind . reportDiagnostics . typeCheck GrammarCoreInversion builtinEnv . parseFS
+        fsImport = "(import wasi.fs (capability read \"/tmp\" :deterministic false))\n"
+        sizeSrc  = T.pack (fsImport ++ "(def-shell sz [p: string] -> Command (wasi.fs.size p))")
+
+    it "FS-1: builtinEnv types wasi.fs.size as string -> Command" $
+      Map.lookup "wasi.fs.size" builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
+
+    it "FS-2: wasi.fs.size without a wasi.fs import is a missing capability; with one it is clean" $ do
+      kindsFS "(def-shell sz [p: string] -> Command (wasi.fs.size p))"
+        `shouldContain` ["missing-capability"]
+      kindsFS sizeSrc `shouldBe` []
+
+    -- The negative is pinned, not only the positive: under the `wasi.`
+    -- fallthrough the builtin would report the top and every transitive
+    -- caller's effect_summary would go vacuous (the rmdir precedent).
+    it "FS-3: wasi.fs.size carries the filesystem-read label alone, not the top and not nondet" $ do
+      primEffect "wasi.fs.size" `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.size" `shouldNotBe` Just Unbounded
+
+    -- F1 of the engineer plan: the proposal's edge case 5 says {fs.read}; sha256
+    -- also carries crypto, so the joined summary is {fs.read, crypto}.
+    it "FS-4: a def calling size, list-kinds and sha256 summarizes to {fs.read, crypto}" $ do
+      let stmts = parseFS (T.pack (fsImport ++
+                    "(def-shell three [p: string] -> Command (seq-commands (seq-commands (wasi.fs.size p) (wasi.fs.list-kinds p)) (wasi.fs.sha256 p)))"))
+      lookup "three" (computeEffectSummary Map.empty stmts)
+        `shouldBe` Just (Caps (Set.fromList [EFsRead, ECrypto]))
+
+    it "FS-5: a program calling wasi.fs.size alone gets unix, the Posix.Files import and the body" $ do
+      let r = generateHaskell "m" (parseFS sizeSrc)
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` True
+      T.isInfixOf "import qualified System.Posix.Files as PF" (cgHsSource r) `shouldBe` True
+      T.isInfixOf "wasi_fs_size ::" (cgHsSource r) `shouldBe` True
+      usesPosixFs (parseFS sizeSrc) `shouldBe` True
+
+    it "FS-6: a program calling neither POSIX builtin gets no unix and no wasi_fs_size body" $ do
+      let src = T.pack (fsImport ++ "(def-shell rd [p: string] -> Command (wasi.fs.read p))")
+          r   = generateHaskell "m" (parseFS src)
+      usesPosixFs (parseFS src) `shouldBe` False
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` False
+      T.isInfixOf "wasi_fs_size ::" (cgHsSource r) `shouldBe` False
+
+    -- The body is where the RespFact row's truth lives: only a regular file's
+    -- size may reach RCode. Pin the guard's shape, so that a later edit that
+    -- answers a directory's st_size cannot drop it unnoticed.
+    it "FS-7: the wasi_fs_size body refuses a non-regular target before reading the size" $ do
+      let body = T.unlines posixFsPreamble
+      T.isInfixOf "wasi_fs_size path = llmll_publish_io $ do" body `shouldBe` True
+      T.isInfixOf "PF.getFileStatus path" body `shouldBe` True
+      T.isInfixOf "if PF.isRegularFile st" body `shouldBe` True
+      T.isInfixOf "is not a regular file" body `shouldBe` True
+
+    it "FS-8: wasi_fs_size is reserved against user identifiers" $
+      isReservedHsName "wasi_fs_size" `shouldBe` True
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------

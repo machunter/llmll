@@ -165,6 +165,14 @@ respFactTable = Map.fromList
   -- Changing that codegen branch INVALIDATES this row.
   , ( ("wasi.fs.stat", "RCode")
     , RespFact FactCodegen "v" (EOp ">=" [EVar "v", ELit (LitInt 0)]) )
+  -- FS-SIZE-1. The size is the FILESYSTEM's, so the category is 'FactCodegen'.
+  --
+  -- THE FACT HOLDS BECAUSE ONLY A REGULAR FILE REACHES THIS ARM. The emitted
+  -- 'wasi_fs_size' answers RErr unless isRegularFile holds, and a regular
+  -- file's st_size is never negative. Changing that codegen branch (for example
+  -- answering a directory's or a device's st_size) INVALIDATES this row.
+  , ( ("wasi.fs.size", "RCode")
+    , RespFact FactCodegen "v" (EOp ">=" [EVar "v", ELit (LitInt 0)]) )
   ]
 
 -- | Every @(arm, fact)@ the table declares for one builtin.

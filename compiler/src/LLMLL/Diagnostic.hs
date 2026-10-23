@@ -50,6 +50,7 @@ module LLMLL.Diagnostic
   , mkHttpUrlMalformed
   -- * REGEX-CAPTURE-1 / REGEX-CASE-1: the literal-pattern rule
   , mkInvalidRegex
+  , mkRegexReplacementLiteral
   -- * XMOD-RUN-LOAD-1: a surface with no file cannot load imports
   , importNeedsFile
   -- * CTOR-AS-VALUE: a constructor of bool or Result is not a value
@@ -619,7 +620,11 @@ mkInvalidRegex
   -> Diagnostic
 mkInvalidRegex func pat via problem =
   let source = maybe "" (\d -> " (returned by " <> d <> ")") via
-      answer = if func == "regex-match" then "False" else "[]"
+      -- REGEX-REPLACE-1 (F5): regex-replace-all answers its subject unchanged.
+      answer = case func of
+        "regex-match"       -> "False"
+        "regex-replace-all" -> "the subject unchanged"
+        _                   -> "[]"
       (what, suggestion) = case problem of
         RxParse err ->
           ( "cannot compile: " <> T.pack err
@@ -648,6 +653,22 @@ mkInvalidRegex func pat via problem =
             "Write the character itself: in an LLMLL string literal \"\\n\" is a newline."
         | otherwise ->
             "Remove the backslash, or use a bracket expression. Patterns are POSIX ERE (LLMLL.md \167" <> "13.6)."
+
+
+-- | REGEX-REPLACE-1. A literal replacement that holds a backslash and a digit.
+-- regex-replace-all inserts the replacement as written, so @\1@ is two
+-- characters and not group 1. A warning, not an error: the text may be meant.
+mkRegexReplacementLiteral :: Text -> Diagnostic
+mkRegexReplacementLiteral r =
+  (mkWarning Nothing
+     ("regex-replace-all replacement " <> T.pack (show r) <> " holds a backslash and a digit. "
+      <> "The replacement is literal text: it is inserted as written, and there are no "
+      <> "group references such as \\1 or $1."))
+    { diagKind       = Just "regex-replacement-literal"
+    , diagSuggestion = Just ("To use a group, take the match with regex-find-all or "
+                             <> "regex-spans and build the text with string-slice and "
+                             <> "string-concat (LLMLL.md \167" <> "13.6).")
+    }
 
 -- | HTTP-GET-1. A LITERAL url passed to wasi.http.get that does not begin with
 -- http:// or https://. Sits beside the ENV-READ-1 rule in inferExpr and has the

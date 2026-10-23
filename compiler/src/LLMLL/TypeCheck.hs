@@ -72,6 +72,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
 import Data.List (nub, (\\))
+import Data.Char (isDigit)
 import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void, join, (>=>))
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
@@ -84,7 +85,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -145,6 +146,14 @@ builtinEnv = Map.fromList $
   , ("list-fold",     TFn [TList (TVar "a"), TVar "b", TFn [TVar "b", TVar "a"] (TVar "b")] (TVar "b"))
   , ("list-nth",      TFn [TList (TVar "a"), TInt] (TResult (TVar "a") TString))
   , ("range",         TFn [TInt, TInt] (TList TInt))
+  -- LIST-SORT-1 (docs/design/collect-order-1-proposal.md). The sorted type is
+  -- in O (int, string, bool, closed under pairs) or the call is the `check`
+  -- error order-undefined ('checkOrdDefined'). list-sort-by takes a KEY
+  -- function, list first as list-map, and is stable; Haskell's sortBy takes a
+  -- comparator. No length axiom (LIST-LEN-AXIOM-1): a caller falls back.
+  , ("list-sort",     TFn [TList (TVar "a")] (TList (TVar "a")))
+  , ("list-sort-by",  TFn [TList (TVar "a"), TFn [TVar "a"] (TVar "k")] (TList (TVar "a")))
+  , ("list-reverse",  TFn [TList (TVar "a")] (TList (TVar "a")))
   -- §13.6 String operations
   , ("string-length",   TFn [TString] TInt)
   , ("string-contains", TFn [TString, TString] TBool)
@@ -160,8 +169,17 @@ builtinEnv = Map.fromList $
   , ("regex-find",      TFn [TString, TString] (TList TString))
   , ("regex-find-all",  TFn [TString, TString] (TList (TList TString)))
   , ("regex-spans",     TFn [TString, TString] (TList (TPair TInt TInt)))
+  -- REGEX-REPLACE-1 (docs/design/collect-order-1-proposal.md, settled
+  -- decision 1): pattern, subject, replacement. The regex rule (pattern
+  -- first, subject second) with the replacement last. The replacement is
+  -- literal text, and a computed invalid pattern answers the subject.
+  , ("regex-replace-all", TFn [TString, TString, TString] TString)
   , ("string-lower",    TFn [TString] TString)
   , ("string-upper",    TFn [TString] TString)
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md). -1, 0 or 1 in
+  -- code-point order. `<` stays int-only: a string `<` would hand FixpointEmit
+  -- a QF-LIA operator at sort Str. Outside Sigma_auto: a caller falls back.
+  , ("string-compare",  TFn [TString, TString] TInt)
   -- PATH-NORM-1 (docs/design/g7-tooling-builtins-proposal.md section 1).
   -- Lexical POSIX normalization, pure and total. It reads no filesystem, so a
   -- symlink before a ".." is not resolved; the spec says so. Not a wasi. name
@@ -350,6 +368,18 @@ builtinEnv = Map.fromList $
   -- The kind is decided WITHOUT following a symlink, so a dangling link is "l"
   -- and a FIFO is "o" (wasi.fs.exists answers "absent" and "file" there).
   , ("wasi.fs.list-kinds", TFn [TString] (TCustom "Command"))
+  -- FS-SIZE-1 (collect-order-1-proposal.md). A regular file's size in BYTES, on
+  -- the RCode arm. It FOLLOWS a symlink (getFileStatus, not the lstat that
+  -- list-kinds uses), so a link to a file answers the target's size and a
+  -- dangling link answers RErr. A target that is not a regular file (a
+  -- directory, a FIFO, a device) answers RErr: it is never opened, so a FIFO
+  -- cannot block. It needs search permission on the parent only, not read
+  -- permission on the file.
+  --
+  -- Its RCode payload declares {v : int | v >= 0} in LLMLL.RespFact
+  -- (codegen-determined). The fact holds because only a regular file's size
+  -- reaches the arm, and that is never negative; it is DISCLOSED, not proved.
+  , ("wasi.fs.size",       TFn [TString] (TCustom "Command"))
   -- PROC-ENV-1 / PROC-REDIRECT-1 (section 3). The settled env-channel rule
   -- forbids an eighth positional on wasi.proc.run and an ambient wasi.env.set,
   -- so the environment travels in a sealed ProcSpec beside the redirections.
@@ -401,7 +431,7 @@ builtinEnv = Map.fromList $
   , ("sha1",               TFn [TBytes 20] (TBytes 20))
   -- §13.12 Bytes / map operations (Lever A stage A0).
   -- Typing is special-cased in inferArrayOp (a bytes[n] length is an Int, not
-  -- a type variable, and map keys carry the v1 int-only gate — neither is
+  -- a type variable, and map keys carry the {int,string} key gate — neither is
   -- expressible as a TVar signature). These entries serve name-membership
   -- (callee admissibility, brief/report vocabulary) and map-empty's fully
   -- generic constructor path. Verification-inert at this stage: none of these
@@ -415,6 +445,11 @@ builtinEnv = Map.fromList $
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
   , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
   , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
+  -- MAP-ITER-1 (docs/design/collect-order-1-proposal.md): typed by
+  -- inferArrayOp like the three above. Outside mapOpNames, so a body that
+  -- calls either falls back whole (never partly reflected).
+  , ("map-keys",     TFn [TMap (TVar "k") (TVar "v")] (TList (TVar "k")))
+  , ("map-entries",  TFn [TMap (TVar "k") (TVar "v")] (TList (TPair (TVar "k") (TVar "v"))))
   -- §13.13 JSON (JSON-1). Thirteen operations over a SEALED OPAQUE carrier.
   --
   -- 'Json' is TCustom jsonTypeName with NO builtinAliases entry, deliberately:
@@ -1361,6 +1396,33 @@ checkEqDefined name subst =
       TCustom "Command" -> "a Command"
       TPromise _        -> "a Promise (" <> typeLabel w <> ")"
       _                 -> "a function (" <> typeLabel w <> ")"
+
+-- | LIST-SORT-1: the sorted type of @list-sort@ (its element type) and of
+-- @list-sort-by@ (its key's result type) must be in the ordered types O
+-- (docs/design/collect-order-1-proposal.md). Reads the call's FRESHENED
+-- parameter types under the call-site substitution, so the test does not
+-- depend on the spelling 'freshenFnType' gives a type variable. Before this
+-- check, a list of a user sum type passed @check@ and failed GHC with
+-- @No instance for Ord@, because codegen derives no Ord.
+checkOrdDefined :: Name -> [Type] -> Map.Map Name Type -> TC ()
+checkOrdDefined name paramTypes subst =
+  case (name, map (applySubst subst) paramTypes) of
+    ("list-sort",    TList e : _)         -> refuse "type" e sortHint
+    ("list-sort-by", _ : TFn _ k : _)     -> refuse "key type" k keyHint
+    _                                     -> pure ()
+  where
+    refuse what ty hint = do
+      am <- gets tcAliasMap
+      case noOrdWitness am ty of
+        Nothing -> pure ()
+        Just w  ->
+          tcErrorK "order-undefined" $
+            "'" <> name <> "' is not defined at " <> what <> " '" <> typeLabel ty <> "'"
+            <> (if w == ty then "" else ": it contains '" <> typeLabel w <> "'")
+            <> ". Only int, string, bool and pairs of them are ordered. " <> hint
+    sortHint = "Sort by a key in that set: (list-sort-by xs (fn [x: T] key))."
+    keyHint  = "Return a key of type int, string, bool or a pair of them, "
+               <> "for example (pair (- 0 n) name)."
 
 -- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
 -- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
@@ -2708,7 +2770,16 @@ unknownName x fallback = do
 -- | REGEX-CAPTURE-1 / REGEX-CASE-1: the builtins whose first argument is a
 -- regex pattern.
 regexBuiltins :: [Name]
-regexBuiltins = ["regex-match", "regex-find", "regex-find-all", "regex-spans"]
+regexBuiltins = ["regex-match", "regex-find", "regex-find-all", "regex-spans", "regex-replace-all"]
+
+-- | REGEX-REPLACE-1: a backslash followed by a digit, the group-reference
+-- spelling of Python, PCRE and sed.
+looksLikeGroupRef :: Text -> Bool
+looksLikeGroupRef r = go (T.unpack r)
+  where
+    go ('\\' : c : rest) = isDigit c || go rest
+    go (_ : rest)         = go rest
+    go []                 = False
 
 -- | The pattern a regex call passes, when `check` can see it: a string
 -- literal, or a call with no arguments to a local definition whose whole body
@@ -2960,6 +3031,14 @@ inferExpr (EApp func args) = do
           Right () -> pure ()
         Nothing -> pure ()
     [] -> pure ()
+  -- REGEX-REPLACE-1: the replacement is literal. A literal replacement that
+  -- holds a backslash and a digit looks like a group reference (Python's \1)
+  -- and is inserted as written, so `check` says so. A computed replacement is
+  -- not seen.
+  when (func == "regex-replace-all") $ case args of
+    [_, _, ELit (LitString r)] | looksLikeGroupRef r ->
+      modify $ \st -> st { tcErrors = tcErrors st ++ [mkRegexReplacementLiteral r] }
+    _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func
   -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module
@@ -2996,7 +3075,7 @@ inferExpr (EApp func args) = do
          emitTrustGap func trusts (fmap erDisplayLevel (csPost cs))
   -- LEVER-A0: bytes/map builtins are typed by inferArrayOp, ahead of the
   -- generic builtinEnv path — a bytes[n] length is an Int (not a TVar) and
-  -- map ops carry the v1 int-only key gate, neither expressible as a
+  -- map ops carry the {int,string} key gate, neither expressible as a
   -- polymorphic signature. map-empty is NOT intercepted: its
   -- TFn [] (TMap k v) entry types fully generically (list-empty precedent).
   if func `elem` arrayOpNames
@@ -3032,6 +3111,7 @@ inferExpr (EApp func args) = do
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       checkJsonNoEq func finalSubst   -- JSON-NOEQ: list-contains
       checkEqDefined func finalSubst  -- CTOR-FN-FIELD-1
+      checkOrdDefined func paramTypes finalSubst  -- LIST-SORT-1
       pure (applySubst finalSubst retType)
     Just (TCustom n)
       -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a
@@ -3479,12 +3559,12 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 arrayOpNames :: [Name]
 arrayOpNames =
   [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
-  , "map-has", "map-get", "map-put" ]
+  , "map-has", "map-get", "map-put", "map-keys", "map-entries" ]
 
 -- | LEVER-A0: dedicated typing for the array/map operation family (proposal
 -- data-scope-lever-a-arrays-proposal.md §3). Enforces:
 --   * first-argument structure (bytes[n] / map[k,v], alias-expanded);
---   * the v1 int-only map-key gate (F2 disposition) — a diagnostic on the
+--   * the map-key gate, {int,string} since A2.2-string (F2 disposition) — a diagnostic on the
 --     OPERATION, the type former stays unrestricted;
 --   * bytes-set's length-preserving result type (bytes[n] in, bytes[n] out);
 --   * bytes-zero's determining-context rule — v1 admits it only as the full
@@ -3523,6 +3603,16 @@ inferArrayOp func args = case func of
     checkArity 2
     (_, vt) <- mapArgAndKey
     pure vt
+  -- MAP-ITER-1: ascending key order, by the order on the key class (int,
+  -- string), so two = maps list alike. The key gate is mapArg's.
+  "map-keys" -> do
+    checkArity 1
+    (kt, _) <- mapArg
+    pure (TList kt)
+  "map-entries" -> do
+    checkArity 1
+    (kt, vt) <- mapArg
+    pure (TList (TPair kt vt))
   "map-put" -> do
     checkArity 3
     (kt, vt) <- mapArgAndKey
@@ -3565,9 +3655,11 @@ inferArrayOp func args = case func of
     -- {int} to {int, string} — string keys reflect via the STRLIT interned
     -- constants + ground distinctness (Lever A §3 v1.5, delivered); other key
     -- sorts stay deferred.
-    mapArgAndKey = do
+    -- MAP-ITER-1: the first-argument half, shared by map-keys and
+    -- map-entries, which take no key argument.
+    mapArg = do
       t <- argAt 0
-      (kt, vt) <- case t of
+      case t of
         TMap kt vt -> do
           ktE <- expandAlias kt
           case ktE of
@@ -3583,6 +3675,8 @@ inferArrayOp func args = case func of
           tcError $ "function '" <> func <> "' expects map[k,v] as argument 1, got "
                     <> typeLabel other
           pure (TVar "?", TVar "?")
+    mapArgAndKey = do
+      (kt, vt) <- mapArg
       kArgTy <- argAt 1
       case kt of
         TInt -> do

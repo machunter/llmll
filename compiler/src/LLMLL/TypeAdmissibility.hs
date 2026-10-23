@@ -197,6 +197,7 @@ module LLMLL.TypeAdmissibility
   , mentionsJson
   , mentionsNoEq
   , noEqWitness
+  , noOrdWitness
     -- * Normalization
   , resolveAliasTy
   , normalizeTy
@@ -371,10 +372,46 @@ noEqWitness am = go Set.empty
       TSumType ctors   -> firstOf [p | (_, Just p) <- ctors]
       _                -> Nothing
       where firstOf = foldr (\x r -> maybe r Just (go seen x)) Nothing
-    lookupAlias n = case Map.lookup n am of
-      Just b  -> Just b
-      Nothing -> let bare = snd (T.breakOnEnd "." n)
-                 in if bare /= n && not (T.null bare) then Map.lookup bare am else Nothing
+    lookupAlias = lookupAliasBare am
+
+-- | An alias body by name. A qualified name (@lib.Ops@) that misses the map is
+-- looked up bare, because imported aliases are bare-keyed.
+lookupAliasBare :: AliasMap -> Name -> Maybe Type
+lookupAliasBare am n = case Map.lookup n am of
+  Just b  -> Just b
+  Nothing -> let bare = snd (T.breakOnEnd "." n)
+             in if bare /= n && not (T.null bare) then Map.lookup bare am else Nothing
+
+-- | LIST-SORT-1 (docs/design/collect-order-1-proposal.md): the first component
+-- of a type outside the ordered types O, for the @order-undefined@ diagnostic.
+-- O is the smallest set holding @int@, @string@ and @bool@ and closed under
+-- pairs; an alias is in O when its expansion is.
+--
+-- A LEAST fixpoint, unlike 'noEqWitness': an alias cycle is not ordered, so
+-- the walk answers the stuck name instead of 'Nothing'. A user sum type is
+-- refused by its name because codegen derives no 'Ord' for it
+-- ('LLMLL.CodegenHs.emitTypeDef' derives Eq and Show only), and because the
+-- spec, not constructor declaration order, defines the order. An opaque or
+-- unbound name (@Json@, @ProcSpec@, @Command@) has no body and is refused.
+-- An unresolved 'TVar' (a hole, or an unconstrained @list-empty@) is lenient,
+-- on the generic path's wildcard discipline.
+noOrdWitness :: AliasMap -> Type -> Maybe Type
+noOrdWitness am = go Set.empty
+  where
+    go seen t = case t of
+      TInt             -> Nothing
+      TString          -> Nothing
+      TBool            -> Nothing
+      TVar _           -> Nothing
+      TPair a b        -> maybe (go seen b) Just (go seen a)
+      TDependent _ b _ -> go seen b
+      TCustom n
+        | n `Set.member` seen -> Just t
+        | otherwise -> case lookupAliasBare am n of
+            Just (TSumType _) -> Just t
+            Just b            -> go (Set.insert n seen) b
+            Nothing           -> Just t
+      _                -> Just t
 
 -- ---------------------------------------------------------------------------
 -- Normalization

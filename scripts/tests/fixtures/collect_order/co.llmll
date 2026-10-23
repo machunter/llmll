@@ -1,0 +1,85 @@
+;; COLLECT-ORDER-1, end-to-end fixture (scripts/tests/test_collect_order_1.py).
+;; Design: docs/design/collect-order-1-proposal.md Rev 0.
+;;
+;; A console program driven by ONE stdin line of tab-separated fields: a mode
+;; and a corpus file. Step 0 reads the file; step 1 prints the mode's answer
+;; over its lines and halts. The corpus arrives as a FILE the test writes, so
+;; this source holds no long list literal.
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(export)
+
+(def-shell field [parts: list[string] i: int] -> string
+  (unwrap-or (list-nth parts i) ""))
+
+(def-shell lines-of [text: string] -> list[string]
+  (string-split "\n" text))
+
+(def-shell join-lines [xs: list[string]] -> string
+  (list-fold xs "" (fn [acc: string x: string] (string-concat acc (string-concat x "\n")))))
+
+;; STR-ORDER-1: string-compare of each line with the next one.
+(def-shell cmp-adjacent [xs: list[string]] -> string
+  (join-lines
+    (list-map (range 0 (- (list-length xs) 1))
+      (fn [i: int] (int-to-string (string-compare (field xs i) (field xs (+ i 1))))))))
+
+;; LIST-SORT-1. A "sortby" line is "<int> <word>"; the probe's order is size
+;; descending, then word ascending, as one pair key.
+(def-shell size-of [line: string] -> int
+  (unwrap-or (string-to-int (field (string-split " " line) 0)) 0))
+
+(def-shell by-size-then-word [xs: list[string]] -> list[string]
+  (list-sort-by xs (fn [l: string] (pair (- 0 (size-of l)) (field (string-split " " l) 1)))))
+
+;; MAP-ITER-1. A word count; map-entries lists it in ascending key order.
+(def-shell bump [m: map[string, int] w: string] -> map[string, int]
+  (if (map-has m w) (map-put m w (+ (map-get m w) 1)) (map-put m w 1)))
+
+(def-shell counts [xs: list[string]] -> map[string, int]
+  (list-fold xs (map-empty) (fn [m: map[string, int] w: string] (bump m w))))
+
+(def-shell show-entry [e: (string, int)] -> string
+  (string-concat (first e) (string-concat "=" (int-to-string (second e)))))
+
+;; REGEX-REPLACE-1. Line 0 is the pattern, line 1 the replacement, and each
+;; later line is a subject, replaced on its own.
+(def-shell replace-each [xs: list[string]] -> string
+  (let [(pat (field xs 0))
+        (rep (field xs 1))]
+    (join-lines
+      (list-map (range 2 (list-length xs))
+        (fn [i: int] (regex-replace-all pat (field xs i) rep))))))
+
+(def-shell answer [mode: string text: string] -> string
+  (let [(xs (lines-of text))]
+    (if (= mode "cmp")    (cmp-adjacent xs)
+    (if (= mode "sort")   (join-lines (list-sort xs))
+    (if (= mode "sortby") (join-lines (by-size-then-word xs))
+    (if (= mode "stable") (join-lines (list-sort-by xs (fn [l: string] (string-length l))))
+    (if (= mode "rev")    (join-lines (list-reverse xs))
+    (if (= mode "keys")    (join-lines (map-keys (counts xs)))
+    (if (= mode "entries") (join-lines (list-map (map-entries (counts xs)) (fn [e: (string, int)] (show-entry e))))
+    (if (= mode "replace") (replace-each xs)
+    (if (= mode "nums")   (join-lines (list-map (list-sort (list-map xs (fn [l: string] (unwrap-or (string-to-int l) 0))))
+                                                (fn [n: int] (int-to-string n))))
+        (string-concat "unknown mode " mode))))))))))))
+
+(def-shell step [s: (int, string) input: string r: Response] -> ((int, string), Command)
+  (if (= (first s) 0)
+      (pair (pair 1 input) (wasi.fs.read (field (string-split "\t" input) 1)))
+      (if (= (first s) 1)
+          (pair (pair 2 (second s))
+                (wasi.io.stdout
+                  (match r
+                    ((RText t) (answer (field (string-split "\t" (second s)) 0) t))
+                    ((RErr e)  (string-concat "RErr " e))
+                    (_         "unexpected response"))))
+          (pair (pair 3 (second s)) (wasi.io.stdout "")))))
+
+(def-shell done? [s: (int, string)] -> bool (>= (first s) 3))
+
+(def-main :mode console
+  :init (pair (pair 0 "") (wasi.io.stdout ""))
+  :step step
+  :done? done?)

@@ -676,6 +676,9 @@ evalBuiltinApp _ _ _ "string-trim"    [s] = strE . RP.string_trim    <$> strV s
 evalBuiltinApp _ _ _ "string-lower"   [s] = strE . RP.string_lower   <$> strV s
 evalBuiltinApp _ _ _ "string-upper"   [s] = strE . RP.string_upper   <$> strV s
 evalBuiltinApp _ _ _ "path-normalize" [s] = strE . RP.path_normalize <$> strV s
+-- STR-ORDER-1.
+evalBuiltinApp _ _ _ "string-compare" [a, b] =
+  ELit . LitInt <$> (RP.string_compare <$> strV a <*> strV b)
 evalBuiltinApp _ _ _ "string-to-int" [s] =
   eitherE (ELit . LitInt) . RP.string_to_int <$> strV s
 evalBuiltinApp _ _ _ "regex-match" [p, s] =
@@ -684,6 +687,8 @@ evalBuiltinApp _ _ _ "regex-find" [p, s] =
   strListE <$> (RP.regex_find <$> strV p <*> strV s)
 evalBuiltinApp _ _ _ "regex-find-all" [p, s] =
   listE . map strListE <$> (RP.regex_find_all <$> strV p <*> strV s)
+evalBuiltinApp _ _ _ "regex-replace-all" [p, s, r] =
+  strE <$> (RP.regex_replace_all <$> strV p <*> strV s <*> strV r)
 evalBuiltinApp _ _ _ "regex-spans" [p, s] =
   listE . map (\(a, b) -> EPair (ELit (LitInt a)) (ELit (LitInt b)))
     <$> (RP.regex_spans <$> strV p <*> strV s)
@@ -702,6 +707,28 @@ evalBuiltinApp _ _ _ "list-contains" [xs, x] = do
   elts <- consToList xs
   hits <- mapM (valueEq x) elts
   pure (boolE (or hits))
+-- LIST-SORT-1. The order is the runtime's: 'OrdK' derives Ord, which on one
+-- constructor is the Ord of Integer, String, Bool and pairs that the generated
+-- program's list_sort uses. An element outside O (or not yet a value) does
+-- not reduce. list-sort-by applies the key lambda once per element, under
+-- mapCons' fuel discipline, and sorts with the runtime's stable sortOn.
+evalBuiltinApp _ _ _ "list-sort" [xs] = do
+  ks <- mapM ordKeyOf =<< consToList xs
+  pure (listE (map fromOrdK (RP.list_sort ks)))
+evalBuiltinApp cs fe fuel "list-sort-by" [xs, fn] = do
+  elts <- consToList xs
+  keys <- consToList =<< mapCons cs fe fuel xs fn
+  ks   <- mapM ordKeyOf keys
+  pure (listE (map snd (RP.list_sort_by (zip ks elts) fst)))
+evalBuiltinApp _ _ _ "list-reverse" [xs] = listE . RP.list_reverse <$> consToList xs
+-- MAP-ITER-1. The store-chain is made canonical (one entry per key, last
+-- writer wins) as a Data.Map keyed by 'OrdK', and the runtime's map_keys /
+-- map_entries list it. So two maps built in different orders list alike, the
+-- extensionality that map = has and that 'valueEq' cannot see on a chain.
+evalBuiltinApp _ _ _ "map-keys" [m] =
+  listE . map fromOrdK . RP.map_keys <$> mapChainToMap m
+evalBuiltinApp _ _ _ "map-entries" [m] =
+  listE . map snd . RP.map_entries <$> mapChainToMap m
 
 evalBuiltinApp _ _ _ _ _ = Nothing
 
@@ -720,6 +747,8 @@ modeledBuiltins = Set.fromList
   , "string-split", "string-trim", "string-concat-many", "regex-match", "regex-find"
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
+  , "string-compare", "list-sort", "list-sort-by", "list-reverse"
+  , "map-keys", "map-entries", "regex-replace-all"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"
@@ -753,6 +782,23 @@ strListE = listE . map strE
 eitherE :: (a -> Expr) -> Either String a -> Expr
 eitherE _ (Left m)  = EApp "Error" [strE m]
 eitherE f (Right v) = EApp "Success" [f v]
+
+-- | LIST-SORT-1: a reduced value of a type in the ordered types O.
+data OrdK = OKInt Integer | OKStr String | OKBool Bool | OKPair OrdK OrdK
+  deriving (Eq, Ord)
+
+ordKeyOf :: Expr -> Maybe OrdK
+ordKeyOf (ELit (LitInt n))    = Just (OKInt n)
+ordKeyOf (ELit (LitString t)) = Just (OKStr (T.unpack t))
+ordKeyOf (ELit (LitBool b))   = Just (OKBool b)
+ordKeyOf (EPair a b)          = OKPair <$> ordKeyOf a <*> ordKeyOf b
+ordKeyOf _                    = Nothing
+
+fromOrdK :: OrdK -> Expr
+fromOrdK (OKInt n)    = ELit (LitInt n)
+fromOrdK (OKStr s)    = strE s
+fromOrdK (OKBool b)   = boolE b
+fromOrdK (OKPair a b) = EPair (fromOrdK a) (fromOrdK b)
 
 consToList :: Expr -> Maybe [Expr]
 consToList (EApp "nil"  [])      = Just []
@@ -788,6 +834,19 @@ mapChainHas (EApp "map-put" [inner, k', _]) k
   | k' == k   = True
   | otherwise = mapChainHas inner k
 mapChainHas _ _ = False
+
+-- | MAP-ITER-1: the chain as a Data.Map from the ordered key to the entry's
+-- (key, value) pair expression, so map-keys and map-entries read one
+-- structure. Built from the 'map-empty' base
+-- outward, so a later 'map-put' overwrites an earlier one. Nothing on a base
+-- that is not 'map-empty' (an unresolved map) or a key outside O.
+mapChainToMap :: Expr -> Maybe (Map OrdK Expr)
+mapChainToMap (EApp "map-empty" []) = Just Map.empty
+mapChainToMap (EApp "map-put" [inner, k, v]) = do
+  m  <- mapChainToMap inner
+  ok <- ordKeyOf k
+  pure (Map.insert ok (EPair k v) m)
+mapChainToMap _ = Nothing
 
 -- | Value at key 'k', last-writer-wins (outermost 'map-put' first). Nothing on
 -- an absent key or the 'map-empty' base — the 'map-has' precondition is

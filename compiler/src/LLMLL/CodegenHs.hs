@@ -47,13 +47,14 @@ module LLMLL.CodegenHs
   , httpGetImports
   , httpGetDeps
   , usesHttpGet
-    -- * LIST-KIND-1: the second conditional block, gated the same way. It
-    -- needs `unix` (getSymbolicLinkStatus), which only a program that calls
-    -- wasi.fs.list-kinds pays for, so every other project stays portable.
-  , listKindsPreamble
-  , listKindsImports
-  , listKindsDeps
-  , usesListKinds
+    -- * LIST-KIND-1 / FS-SIZE-1: the second conditional block (POSIX file
+    -- status), gated the same way. It needs `unix` (getSymbolicLinkStatus,
+    -- getFileStatus), which only a program that calls wasi.fs.list-kinds or
+    -- wasi.fs.size pays for, so every other project stays portable.
+  , posixFsPreamble
+  , posixFsImports
+  , posixFsDeps
+  , usesPosixFs
   , emitHole
     -- * Event Log (v0.3.1)
   , emitEventLogPreamble
@@ -143,8 +144,9 @@ generateHaskell modName stmts0 =
       -- package.yaml entries. generateHaskellMulti concatenates every module's
       -- statements before calling here, so a call in an imported module is seen.
       httpGet   = usesHttpGet stmts
-      -- LIST-KIND-1. Same single-predicate discipline as httpGet above.
-      listKinds = usesListKinds stmts
+      -- LIST-KIND-1 / FS-SIZE-1. Same single-predicate discipline as httpGet
+      -- above.
+      posixFs = usesPosixFs stmts
 
       -- CTOR-FN-FIELD-1: the user sum types that hold a function, Command or
       -- Promise somewhere. GHC cannot derive Eq or Show for them, so they are
@@ -157,9 +159,9 @@ generateHaskell modName stmts0 =
       -- entry, read from the statements BEFORE the rename (the camel-cased
       -- Haskell export name comes from the LLMLL name) and named by the map.
       ffiLines  = emitFfiBindings renameMap stmts0
-      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf noEq ffiLines stmts
+      libHs     = emitLibHs modName hackageMs httpGet posixFs srcOf noEq ffiLines stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
-      pkgYaml   = emitPackageYaml modName hasMain httpGet listKinds hackageMs
+      pkgYaml   = emitPackageYaml modName hasMain httpGet posixFs hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
       ffiFiles  = [(toHsModName lib, emitFfiStub lib imports) | lib <- cLibs]
       warnings  = concatMap stmtWarnings stmts
@@ -217,7 +219,7 @@ preludeHiding
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
 emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> Set.Set Name -> [Text] -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.unlines $
+emitLibHs _modName hackagePkgs httpGet posixFs srcOf noEq ffiLines stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -280,6 +282,9 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   , "import qualified Text.Regex.TDFA as LRX"
   , "import qualified Data.Char as LChar"
   , "import qualified Data.Foldable as LFold"
+  -- LIST-SORT-1: sort and sortOn, qualified on the same rule, so sortOn does
+  -- not join the unqualified scope.
+  , "import qualified Data.List as LList"
   , "import System.IO.Unsafe (unsafePerformIO)"
   -- STR-INDEX-LINEAR-1: string_char_at / string_slice read a cached array past
   -- index 32. All three are base modules and all three are qualified, so no
@@ -315,7 +320,7 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   -- generateHaskell). An unconditional import with a conditional dependency
   -- would not compile for every other program.
   (if httpGet then httpGetImports else []) ++
-  (if listKinds then listKindsImports else []) ++
+  (if posixFs then posixFsImports else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -328,7 +333,7 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   -- wasi.http.get pays for. The WASI-RT completeness fold in Spec.hs folds over
   -- runtimePreamble ++ httpGetPreamble, so the name stays covered.
   (if httpGet then httpGetPreamble else []) ++
-  (if listKinds then listKindsPreamble else []) ++
+  (if posixFs then posixFsPreamble else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- Program"
@@ -502,6 +507,18 @@ runtimePreamble =
   , "range :: Integer -> Integer -> [Integer]"  -- LT-INT (v0.11): Class B value-shape
   , "range from to = [from .. to - 1]"
   , ""
+  -- LIST-SORT-1. Ord on Integer, String (code points), Bool (False < True)
+  -- and tuples (lexicographic) IS the order on O, so the derived instances
+  -- carry the spec. sortOn computes each key once and is stable.
+  , "list_sort :: Ord a => [a] -> [a]"
+  , "list_sort = LList.sort"
+  , ""
+  , "list_sort_by :: Ord k => [a] -> (a -> k) -> [a]"
+  , "list_sort_by xs key = LList.sortOn key xs"
+  , ""
+  , "list_reverse :: [a] -> [a]"
+  , "list_reverse = reverse"
+  , ""
   , "-- §13.12 Bytes / map operations (Lever A stage A0)."
   , "-- Builtin contracts fire here as runtime assertions (the §5.3.4 backstop);"
   , "-- verify-time discharge of the same obligations is stage A1/A2."
@@ -535,6 +552,14 @@ runtimePreamble =
   , ""
   , "map_empty :: Map.Map k v"
   , "map_empty = Map.empty"
+  , ""
+  -- MAP-ITER-1. Ascending key order: Map.keys and Map.toAscList walk the tree
+  -- in Ord order, which on Integer and String is the order on O.
+  , "map_keys :: Map.Map k v -> [k]"
+  , "map_keys = Map.keys"
+  , ""
+  , "map_entries :: Map.Map k v -> [(k, v)]"
+  , "map_entries = Map.toAscList"
   , ""
   , "-- §13.6 String"
   , "string_length :: String -> Int"
@@ -701,12 +726,33 @@ runtimePreamble =
   , "  | m <- LRX.matchAllText (llmll_rxCompile pattern) subject"
   , "  , (_, (o, l)) <- take 1 (LFold.toList m) ]"
   , ""
+  -- REGEX-REPLACE-1. Built on regex_spans, so matching (leftmost-longest
+  -- POSIX ERE, the (?i) rule, empty matches) and totality cannot diverge from
+  -- it: an invalid pattern gives no spans and the subject comes back. One
+  -- walk over the subject, so the cost is linear in it plus the matches.
+  , "regex_replace_all :: String -> String -> String -> String"
+  , "regex_replace_all pattern subject replacement = go 0 subject (regex_spans pattern subject)"
+  , "  where"
+  , "    go _ rest [] = rest"
+  , "    go pos rest ((s, e) : more) ="
+  , "      let (kept, rest') = splitAt (fromIntegral (s - pos)) rest"
+  , "      in kept ++ replacement ++ go e (drop (fromIntegral (e - s)) rest') more"
+  , ""
   , "-- | REGEX-CASE-1: per-character simple case mapping; keeps the length."
   , "string_lower :: String -> String"
   , "string_lower = map LChar.toLower"
   , ""
   , "string_upper :: String -> String"
   , "string_upper = map LChar.toUpper"
+  , ""
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md). Lexicographic by
+  -- code point: `compare` on String compares Chars, which are code points.
+  -- Equal to UTF-8 byte order on text with no lone surrogate.
+  , "string_compare :: String -> String -> Integer"
+  , "string_compare a b = case compare a b of"
+  , "  LT -> -1"
+  , "  EQ -> 0"
+  , "  GT -> 1"
   , ""
   -- PATH-NORM-1. Lexical POSIX normalization (posixpath.normpath), with one
   -- stated difference: a leading "//" becomes "/". It never reads the
@@ -1778,20 +1824,27 @@ usesHttpGet = any (any (callsName "wasi.http.get") . stmtExprs)
 httpGetDeps :: [Text]
 httpGetDeps = ["http-client", "http-client-tls", "http-types", "filepath"]
 
--- | LIST-KIND-1: does the program call wasi.fs.list-kinds? One predicate gates
+-- | LIST-KIND-1 / FS-SIZE-1: does the program call a builtin whose body needs
+-- POSIX file status (wasi.fs.list-kinds or wasi.fs.size)? One predicate gates
 -- the import, the preamble block and the package.yaml entry, on the
 -- 'usesHttpGet' precedent: an unconditional import with a conditional
 -- dependency would not compile for every other program.
-usesListKinds :: [Statement] -> Bool
-usesListKinds = any (any (callsName "wasi.fs.list-kinds") . stmtExprs)
+usesPosixFs :: [Statement] -> Bool
+usesPosixFs stmts =
+  any (\n -> any (any (callsName n) . stmtExprs) stmts) posixFsBuiltins
 
--- | The one package.yaml entry a program that calls wasi.fs.list-kinds adds.
+-- | The builtins whose bodies live in 'posixFsPreamble'.
+posixFsBuiltins :: [Name]
+posixFsBuiltins = ["wasi.fs.list-kinds", "wasi.fs.size"]
+
+-- | The one package.yaml entry a program that calls a POSIX file-status
+-- builtin adds.
 -- Pinned against compiler/generated-deps.txt (Spec.hs HG-16).
-listKindsDeps :: [Text]
-listKindsDeps = ["unix"]
+posixFsDeps :: [Text]
+posixFsDeps = ["unix"]
 
-listKindsImports :: [Text]
-listKindsImports = [ "import qualified System.Posix.Files as PF" ]
+posixFsImports :: [Text]
+posixFsImports = [ "import qualified System.Posix.Files as PF" ]
 
 -- | LIST-KIND-1. Each entry is classified by getSymbolicLinkStatus, which does
 -- NOT follow a link, so a dangling link is "l" and a FIFO is "o" (wasi.fs.exists
@@ -1799,8 +1852,8 @@ listKindsImports = [ "import qualified System.Posix.Files as PF" ]
 -- is added, so the order is wasi.fs.list's. Any IOException (the directory, or
 -- an entry removed between the listing and its lstat) answers RErr through
 -- llmll_publish_io, as wasi.fs.list does.
-listKindsPreamble :: [Text]
-listKindsPreamble =
+posixFsPreamble :: [Text]
+posixFsPreamble =
   [ ""
   , "wasi_fs_list_kinds :: String -> IO ()"
   , "wasi_fs_list_kinds path = llmll_publish_io $ do"
@@ -1819,6 +1872,18 @@ listKindsPreamble =
   , "  | PF.isDirectory st    = 'd'"
   , "  | PF.isRegularFile st  = 'f'"
   , "  | otherwise            = 'o'"
+  -- FS-SIZE-1. getFileStatus FOLLOWS a symlink. A missing path or a dangling
+  -- link throws IOException, which llmll_publish_io answers as RErr. A target
+  -- that is not a regular file is refused BEFORE the size is read, so only a
+  -- regular file's st_size reaches RCode: that is what makes the RespFact row
+  -- {v >= 0} true. The file is never opened, so a FIFO does not block.
+  , ""
+  , "wasi_fs_size :: String -> IO ()"
+  , "wasi_fs_size path = llmll_publish_io $ do"
+  , "  st <- PF.getFileStatus path"
+  , "  if PF.isRegularFile st"
+  , "    then return (RCode (fromIntegral (PF.fileSize st)))"
+  , "    else ioError (userError (\"wasi.fs.size: \" ++ path ++ \" is not a regular file\"))"
   ]
 
 -- | HTTP-GET-1 imports. renameFile and openBinaryTempFile come from modules the
@@ -3038,7 +3103,7 @@ staleExecutables modName entries =
   [ e | e <- entries, T.pack e /= sanitizePkgName modName ]
 
 emitPackageYaml :: Text -> Bool -> Bool -> Bool -> [Text] -> Text
-emitPackageYaml modName hasMain httpGet listKinds hackagePkgs =
+emitPackageYaml modName hasMain httpGet posixFs hackagePkgs =
   let pkgName = packageNameFor modName
       exeName = sanitizePkgName modName
   in T.unlines $
@@ -3088,12 +3153,12 @@ emitPackageYaml modName hasMain httpGet listKinds hackagePkgs =
   -- are pinned against compiler/generated-deps.txt, which the CI Stack cache
   -- key hashes, so the cache learns this group (Spec.hs HG-16).
   (if httpGet then map ("  - " <>) httpGetDeps else []) ++
-  -- LIST-KIND-1. `unix` is already in every generated project's closure
+  -- LIST-KIND-1 / FS-SIZE-1 (one predicate, usesPosixFs). `unix` is already in every generated project's closure
   -- (directory and process depend on it on POSIX; measured 33 packages either
   -- way on lts-22.43), so this entry moves no resolver. It is conditional for
   -- portability, not for build cost: FS-STAT-1 refused `unix` so a program
   -- that does not ask for a lstat-level kind does not become POSIX-only.
-  (if listKinds then map ("  - " <>) listKindsDeps else []) ++
+  (if posixFs then map ("  - " <>) posixFsDeps else []) ++
   -- No `unix`. src/Main.hs imported System.Posix.IO for the event-log capture
   -- harness until CAPTURE-PIPE-1 moved the capture from a pipe to a temporary
   -- file; getTemporaryDirectory and removeFile come from `directory`, listed
@@ -3301,7 +3366,7 @@ hsImportedNames =
   , "modifyIORef'", "hDuplicate", "hDuplicateTo", "getTemporaryDirectory" ]
 
 -- | Every top-level name the Lib.hs preamble defines ('runtimePreamble',
--- its 'jsonPreamble', 'httpGetPreamble' and 'listKindsPreamble'), including the Response and Json
+-- its 'jsonPreamble', 'httpGetPreamble' and 'posixFsPreamble'), including the Response and Json
 -- types and constructors. The llmll_-prefixed ones are covered by the prefix
 -- rule in 'isReservedHsName' and are not repeated here.
 hsPreambleNames :: [Text]
@@ -3320,18 +3385,19 @@ hsPreambleNames =
   , "json_of_list", "json_of_string", "json_parse", "json_serialize"
   , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
   , "list_fold", "list_head", "list_length", "list_map", "list_nth"
-  , "list_prepend", "list_tail", "map_empty", "map_get", "map_has", "map_put"
+  , "list_prepend", "list_reverse", "list_sort", "list_sort_by", "list_tail"
+  , "map_empty", "map_entries", "map_get", "map_has", "map_keys", "map_put"
   , "ok", "path_normalize", "proc_cwd", "proc_env", "proc_spec", "proc_stderr"
   , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
   , "range", "regex_find", "regex_find_all", "regex_match"
-  , "regex_spans", "seq_commands", "sha1_hash"
+  , "regex_replace_all", "regex_spans", "seq_commands", "sha1_hash"
   , "string_char_at", "string_concat", "string_concat_many"
-  , "string_contains", "string_empty'", "string_length", "string_slice"
+  , "string_compare", "string_contains", "string_empty'", "string_length", "string_slice"
   , "string_lower", "string_split", "string_to_int", "string_trim"
   , "string_upper", "unwrap", "unwrap_or"
   , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"
   , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_list_kinds", "wasi_fs_mkdir", "wasi_fs_read"
-  , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_stat", "wasi_fs_write"
+  , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_size", "wasi_fs_stat", "wasi_fs_write"
   , "wasi_http_get", "wasi_http_post", "wasi_http_response", "wasi_io_stderr"
   , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_exec", "wasi_proc_run" ]
 
@@ -3766,6 +3832,13 @@ esResultForcers =
   , ("list-map",           "llmll_uL llmll_uW")
   , ("list-filter",        "llmll_uL llmll_uW")
   , ("range",              "llmll_uL llmll_uW")
+  -- LIST-SORT-1: list results over forced elements, forced like list-filter's.
+  , ("list-sort",          "llmll_uL llmll_uW")
+  , ("list-sort-by",       "llmll_uL llmll_uW")
+  , ("list-reverse",       "llmll_uL llmll_uW")
+  -- MAP-ITER-1.
+  , ("map-keys",           "llmll_uL llmll_uW")
+  , ("map-entries",        "llmll_uL llmll_uP")
   , ("list-head",          "llmll_uE llmll_uW")
   , ("list-tail",          "llmll_uE llmll_uW")
   , ("list-nth",           "llmll_uE llmll_uW")
@@ -3778,6 +3851,7 @@ esResultForcers =
   , ("regex-find",         "llmll_uL llmll_uS")
   , ("regex-find-all",     "llmll_uL (llmll_uL llmll_uS)")
   , ("regex-spans",        "llmll_uL llmll_uP")
+  , ("regex-replace-all",  "llmll_uS")  -- REGEX-REPLACE-1
   , ("string-lower",       "llmll_uS")
   , ("string-upper",       "llmll_uS")
   -- PATH-NORM-1: a string result, forced like string-lower's.

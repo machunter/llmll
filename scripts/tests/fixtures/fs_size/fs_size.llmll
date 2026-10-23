@@ -1,0 +1,37 @@
+;; FS-SIZE-1, end-to-end fixture (scripts/tests/test_fs_size_1.py).
+;; Design: docs/design/collect-order-1-proposal.md Rev 0.
+;;
+;; A console program driven by ONE stdin line: a path. Step 0 issues
+;; (wasi.fs.size path); step 1 prints what the command answered and halts.
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(export)
+
+;; The only function that calls wasi.fs.size, so its effect_summary is the
+;; builtin's own label set.
+(def-shell size-cmd [p: string] -> Command
+  (wasi.fs.size p))
+
+(def-shell show [r: Response] -> string
+  (match r
+    ((RNone)    "RNone")
+    ((RText t)  (string-concat "RText " t))
+    ((RCode n)  (string-concat "RCode " (int-to-string n)))
+    ((RErr e)   (string-concat "RErr " e))
+    ((RList es) "RList")))
+
+;; The harness does not perform the command of the step that reaches done?, so
+;; the print happens one step BEFORE the halting step: the test feeds three lines.
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (if (= s 0)
+      (pair 1 (size-cmd input))
+      (if (= s 1)
+          (pair 2 (wasi.io.stdout (show r)))
+          (pair 3 (wasi.io.stdout "")))))
+
+(def-shell done? [s: int] -> bool (>= s 3))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout ""))
+  :step step
+  :done? done?)

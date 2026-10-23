@@ -17,7 +17,7 @@
 -- (LLMLL.md §4.4.5). An evaluator that disagreed with the built program would
 -- write evidence about a program nobody runs.
 --
--- The imports use the preamble's qualified aliases (LRX, LChar, LFold) so the
+-- The imports use the preamble's qualified aliases (LRX, LChar, LFold, LList, Map) so the
 -- region is the preamble's text exactly. Leaf module: no LLMLL imports.
 module LLMLL.RuntimePure where
 
@@ -25,6 +25,8 @@ import Data.List (isPrefixOf, intercalate, foldl')
 import qualified Text.Regex.TDFA as LRX
 import qualified Data.Char as LChar
 import qualified Data.Foldable as LFold
+import qualified Data.List as LList
+import qualified Data.Map.Strict as Map
 import Control.Exception (try, evaluate, SomeException)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified GHC.Arr as LArr
@@ -52,6 +54,21 @@ list_nth xs i
 
 range :: Integer -> Integer -> [Integer]
 range from to = [from .. to - 1]
+
+list_sort :: Ord a => [a] -> [a]
+list_sort = LList.sort
+
+list_sort_by :: Ord k => [a] -> (a -> k) -> [a]
+list_sort_by xs key = LList.sortOn key xs
+
+list_reverse :: [a] -> [a]
+list_reverse = reverse
+
+map_keys :: Map.Map k v -> [k]
+map_keys = Map.keys
+
+map_entries :: Map.Map k v -> [(k, v)]
+map_entries = Map.toAscList
 
 string_contains :: String -> String -> Bool
 string_contains haystack needle = any (needle `isPrefixOf`) (tails haystack)
@@ -193,12 +210,26 @@ regex_spans pattern subject = llmll_rxTotal (llmll_uL llmll_uP) [] $
   | m <- LRX.matchAllText (llmll_rxCompile pattern) subject
   , (_, (o, l)) <- take 1 (LFold.toList m) ]
 
+regex_replace_all :: String -> String -> String -> String
+regex_replace_all pattern subject replacement = go 0 subject (regex_spans pattern subject)
+  where
+    go _ rest [] = rest
+    go pos rest ((s, e) : more) =
+      let (kept, rest') = splitAt (fromIntegral (s - pos)) rest
+      in kept ++ replacement ++ go e (drop (fromIntegral (e - s)) rest') more
+
 -- | REGEX-CASE-1: per-character simple case mapping; keeps the length.
 string_lower :: String -> String
 string_lower = map LChar.toLower
 
 string_upper :: String -> String
 string_upper = map LChar.toUpper
+
+string_compare :: String -> String -> Integer
+string_compare a b = case compare a b of
+  LT -> -1
+  EQ -> 0
+  GT -> 1
 
 path_normalize :: String -> String
 path_normalize "" = "."
