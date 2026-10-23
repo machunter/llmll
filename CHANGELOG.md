@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.30.10)
+<a id="Latest"></a>
+
+## v0.31.0: Eight collection and file builtins, property tests that reach the pure builtins, and checked length measures (2026-10-23)
 
 ### `DECREASES-LEN-1`: a length measure is checked
 
@@ -146,8 +148,6 @@ Design: [`docs/design/collect-order-1-proposal.md`](docs/design/collect-order-1-
   new builtins and a pair-key sorting idiom.
 
 **Tests:** hspec 2512 → 2642, 0 failures; Python 589 passed, 5 skipped (560 at v0.30.10).
-
-<a id="Latest"></a>
 
 ## v0.30.10: Tier 1 Hackage imports, lossless boundary types, and FFI trust disclosure (2026-10-21)
 
