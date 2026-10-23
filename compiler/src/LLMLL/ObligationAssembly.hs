@@ -507,8 +507,12 @@ primEffect n
   -- THIS CLAUSE MUST STAY ABOVE THE `wasi.` FALLTHROUGH below.
   -- LIST-KIND-1 joins it too: a kind per entry is a listing plus the same
   -- read the probe above makes, and grants nothing the read/list pair does not.
+  -- FS-SIZE-1 joins it as well: a size is one stat of a path, the same read the
+  -- probe makes. EFsRead ALONE, as for exists: a size does not change with the
+  -- clock.
   | n == "wasi.fs.read"     || n == "wasi.fs.list"
-    || n == "wasi.fs.exists" || n == "wasi.fs.list-kinds" = one EFsRead
+    || n == "wasi.fs.exists" || n == "wasi.fs.list-kinds"
+    || n == "wasi.fs.size"                              = one EFsRead
   -- FS-RMDIR-1 joins this EXISTING clause rather than taking an eighth label.
   -- Removing a directory is a filesystem mutation and grants no authority the
   -- write/delete pair does not already grant, so the catalog stays SEVEN-wide.

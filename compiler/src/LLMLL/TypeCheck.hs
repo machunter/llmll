@@ -368,6 +368,18 @@ builtinEnv = Map.fromList $
   -- The kind is decided WITHOUT following a symlink, so a dangling link is "l"
   -- and a FIFO is "o" (wasi.fs.exists answers "absent" and "file" there).
   , ("wasi.fs.list-kinds", TFn [TString] (TCustom "Command"))
+  -- FS-SIZE-1 (collect-order-1-proposal.md). A regular file's size in BYTES, on
+  -- the RCode arm. It FOLLOWS a symlink (getFileStatus, not the lstat that
+  -- list-kinds uses), so a link to a file answers the target's size and a
+  -- dangling link answers RErr. A target that is not a regular file (a
+  -- directory, a FIFO, a device) answers RErr: it is never opened, so a FIFO
+  -- cannot block. It needs search permission on the parent only, not read
+  -- permission on the file.
+  --
+  -- Its RCode payload declares {v : int | v >= 0} in LLMLL.RespFact
+  -- (codegen-determined). The fact holds because only a regular file's size
+  -- reaches the arm, and that is never negative; it is DISCLOSED, not proved.
+  , ("wasi.fs.size",       TFn [TString] (TCustom "Command"))
   -- PROC-ENV-1 / PROC-REDIRECT-1 (section 3). The settled env-channel rule
   -- forbids an eighth positional on wasi.proc.run and an ambient wasi.env.set,
   -- so the environment travels in a sealed ProcSpec beside the redirections.

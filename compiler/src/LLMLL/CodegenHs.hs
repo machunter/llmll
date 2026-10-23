@@ -47,13 +47,14 @@ module LLMLL.CodegenHs
   , httpGetImports
   , httpGetDeps
   , usesHttpGet
-    -- * LIST-KIND-1: the second conditional block, gated the same way. It
-    -- needs `unix` (getSymbolicLinkStatus), which only a program that calls
-    -- wasi.fs.list-kinds pays for, so every other project stays portable.
-  , listKindsPreamble
-  , listKindsImports
-  , listKindsDeps
-  , usesListKinds
+    -- * LIST-KIND-1 / FS-SIZE-1: the second conditional block (POSIX file
+    -- status), gated the same way. It needs `unix` (getSymbolicLinkStatus,
+    -- getFileStatus), which only a program that calls wasi.fs.list-kinds or
+    -- wasi.fs.size pays for, so every other project stays portable.
+  , posixFsPreamble
+  , posixFsImports
+  , posixFsDeps
+  , usesPosixFs
   , emitHole
     -- * Event Log (v0.3.1)
   , emitEventLogPreamble
@@ -143,8 +144,9 @@ generateHaskell modName stmts0 =
       -- package.yaml entries. generateHaskellMulti concatenates every module's
       -- statements before calling here, so a call in an imported module is seen.
       httpGet   = usesHttpGet stmts
-      -- LIST-KIND-1. Same single-predicate discipline as httpGet above.
-      listKinds = usesListKinds stmts
+      -- LIST-KIND-1 / FS-SIZE-1. Same single-predicate discipline as httpGet
+      -- above.
+      posixFs = usesPosixFs stmts
 
       -- CTOR-FN-FIELD-1: the user sum types that hold a function, Command or
       -- Promise somewhere. GHC cannot derive Eq or Show for them, so they are
@@ -157,9 +159,9 @@ generateHaskell modName stmts0 =
       -- entry, read from the statements BEFORE the rename (the camel-cased
       -- Haskell export name comes from the LLMLL name) and named by the map.
       ffiLines  = emitFfiBindings renameMap stmts0
-      libHs     = emitLibHs modName hackageMs httpGet listKinds srcOf noEq ffiLines stmts
+      libHs     = emitLibHs modName hackageMs httpGet posixFs srcOf noEq ffiLines stmts
       mainHs    = if hasMain then Just (emitMainHs modName stmts) else Nothing
-      pkgYaml   = emitPackageYaml modName hasMain httpGet listKinds hackageMs
+      pkgYaml   = emitPackageYaml modName hasMain httpGet posixFs hackageMs
       ffiMod    = if hasFfi then Just (emitFfiModHs cLibs) else Nothing
       ffiFiles  = [(toHsModName lib, emitFfiStub lib imports) | lib <- cLibs]
       warnings  = concatMap stmtWarnings stmts
@@ -217,7 +219,7 @@ preludeHiding
   | otherwise = "import Prelude hiding (" <> T.intercalate ", " preludeClashes <> ")"
 
 emitLibHs :: Text -> [Text] -> Bool -> Bool -> Map Text Text -> Set.Set Name -> [Text] -> [Statement] -> Text
-emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.unlines $
+emitLibHs _modName hackagePkgs httpGet posixFs srcOf noEq ffiLines stmts = T.unlines $
   [ "{-# LANGUAGE ScopedTypeVariables #-}"
   -- EVAL-STRICT-1: bindings and arguments are forced with bang patterns.
   , "{-# LANGUAGE BangPatterns #-}"
@@ -318,7 +320,7 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   -- generateHaskell). An unconditional import with a conditional dependency
   -- would not compile for every other program.
   (if httpGet then httpGetImports else []) ++
-  (if listKinds then listKindsImports else []) ++
+  (if posixFs then posixFsImports else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -331,7 +333,7 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   -- wasi.http.get pays for. The WASI-RT completeness fold in Spec.hs folds over
   -- runtimePreamble ++ httpGetPreamble, so the name stays covered.
   (if httpGet then httpGetPreamble else []) ++
-  (if listKinds then listKindsPreamble else []) ++
+  (if posixFs then posixFsPreamble else []) ++
   [ ""
   , "-- ---------------------------------------------------------------------------"
   , "-- Program"
@@ -1822,20 +1824,27 @@ usesHttpGet = any (any (callsName "wasi.http.get") . stmtExprs)
 httpGetDeps :: [Text]
 httpGetDeps = ["http-client", "http-client-tls", "http-types", "filepath"]
 
--- | LIST-KIND-1: does the program call wasi.fs.list-kinds? One predicate gates
+-- | LIST-KIND-1 / FS-SIZE-1: does the program call a builtin whose body needs
+-- POSIX file status (wasi.fs.list-kinds or wasi.fs.size)? One predicate gates
 -- the import, the preamble block and the package.yaml entry, on the
 -- 'usesHttpGet' precedent: an unconditional import with a conditional
 -- dependency would not compile for every other program.
-usesListKinds :: [Statement] -> Bool
-usesListKinds = any (any (callsName "wasi.fs.list-kinds") . stmtExprs)
+usesPosixFs :: [Statement] -> Bool
+usesPosixFs stmts =
+  any (\n -> any (any (callsName n) . stmtExprs) stmts) posixFsBuiltins
 
--- | The one package.yaml entry a program that calls wasi.fs.list-kinds adds.
+-- | The builtins whose bodies live in 'posixFsPreamble'.
+posixFsBuiltins :: [Name]
+posixFsBuiltins = ["wasi.fs.list-kinds", "wasi.fs.size"]
+
+-- | The one package.yaml entry a program that calls a POSIX file-status
+-- builtin adds.
 -- Pinned against compiler/generated-deps.txt (Spec.hs HG-16).
-listKindsDeps :: [Text]
-listKindsDeps = ["unix"]
+posixFsDeps :: [Text]
+posixFsDeps = ["unix"]
 
-listKindsImports :: [Text]
-listKindsImports = [ "import qualified System.Posix.Files as PF" ]
+posixFsImports :: [Text]
+posixFsImports = [ "import qualified System.Posix.Files as PF" ]
 
 -- | LIST-KIND-1. Each entry is classified by getSymbolicLinkStatus, which does
 -- NOT follow a link, so a dangling link is "l" and a FIFO is "o" (wasi.fs.exists
@@ -1843,8 +1852,8 @@ listKindsImports = [ "import qualified System.Posix.Files as PF" ]
 -- is added, so the order is wasi.fs.list's. Any IOException (the directory, or
 -- an entry removed between the listing and its lstat) answers RErr through
 -- llmll_publish_io, as wasi.fs.list does.
-listKindsPreamble :: [Text]
-listKindsPreamble =
+posixFsPreamble :: [Text]
+posixFsPreamble =
   [ ""
   , "wasi_fs_list_kinds :: String -> IO ()"
   , "wasi_fs_list_kinds path = llmll_publish_io $ do"
@@ -1863,6 +1872,18 @@ listKindsPreamble =
   , "  | PF.isDirectory st    = 'd'"
   , "  | PF.isRegularFile st  = 'f'"
   , "  | otherwise            = 'o'"
+  -- FS-SIZE-1. getFileStatus FOLLOWS a symlink. A missing path or a dangling
+  -- link throws IOException, which llmll_publish_io answers as RErr. A target
+  -- that is not a regular file is refused BEFORE the size is read, so only a
+  -- regular file's st_size reaches RCode: that is what makes the RespFact row
+  -- {v >= 0} true. The file is never opened, so a FIFO does not block.
+  , ""
+  , "wasi_fs_size :: String -> IO ()"
+  , "wasi_fs_size path = llmll_publish_io $ do"
+  , "  st <- PF.getFileStatus path"
+  , "  if PF.isRegularFile st"
+  , "    then return (RCode (fromIntegral (PF.fileSize st)))"
+  , "    else ioError (userError (\"wasi.fs.size: \" ++ path ++ \" is not a regular file\"))"
   ]
 
 -- | HTTP-GET-1 imports. renameFile and openBinaryTempFile come from modules the
@@ -3082,7 +3103,7 @@ staleExecutables modName entries =
   [ e | e <- entries, T.pack e /= sanitizePkgName modName ]
 
 emitPackageYaml :: Text -> Bool -> Bool -> Bool -> [Text] -> Text
-emitPackageYaml modName hasMain httpGet listKinds hackagePkgs =
+emitPackageYaml modName hasMain httpGet posixFs hackagePkgs =
   let pkgName = packageNameFor modName
       exeName = sanitizePkgName modName
   in T.unlines $
@@ -3132,12 +3153,12 @@ emitPackageYaml modName hasMain httpGet listKinds hackagePkgs =
   -- are pinned against compiler/generated-deps.txt, which the CI Stack cache
   -- key hashes, so the cache learns this group (Spec.hs HG-16).
   (if httpGet then map ("  - " <>) httpGetDeps else []) ++
-  -- LIST-KIND-1. `unix` is already in every generated project's closure
+  -- LIST-KIND-1 / FS-SIZE-1 (one predicate, usesPosixFs). `unix` is already in every generated project's closure
   -- (directory and process depend on it on POSIX; measured 33 packages either
   -- way on lts-22.43), so this entry moves no resolver. It is conditional for
   -- portability, not for build cost: FS-STAT-1 refused `unix` so a program
   -- that does not ask for a lstat-level kind does not become POSIX-only.
-  (if listKinds then map ("  - " <>) listKindsDeps else []) ++
+  (if posixFs then map ("  - " <>) posixFsDeps else []) ++
   -- No `unix`. src/Main.hs imported System.Posix.IO for the event-log capture
   -- harness until CAPTURE-PIPE-1 moved the capture from a pipe to a temporary
   -- file; getTemporaryDirectory and removeFile come from `directory`, listed
@@ -3345,7 +3366,7 @@ hsImportedNames =
   , "modifyIORef'", "hDuplicate", "hDuplicateTo", "getTemporaryDirectory" ]
 
 -- | Every top-level name the Lib.hs preamble defines ('runtimePreamble',
--- its 'jsonPreamble', 'httpGetPreamble' and 'listKindsPreamble'), including the Response and Json
+-- its 'jsonPreamble', 'httpGetPreamble' and 'posixFsPreamble'), including the Response and Json
 -- types and constructors. The llmll_-prefixed ones are covered by the prefix
 -- rule in 'isReservedHsName' and are not repeated here.
 hsPreambleNames :: [Text]
@@ -3376,7 +3397,7 @@ hsPreambleNames =
   , "string_upper", "unwrap", "unwrap_or"
   , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"
   , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_list_kinds", "wasi_fs_mkdir", "wasi_fs_read"
-  , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_stat", "wasi_fs_write"
+  , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_size", "wasi_fs_stat", "wasi_fs_write"
   , "wasi_http_get", "wasi_http_post", "wasi_http_response", "wasi_io_stderr"
   , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_exec", "wasi_proc_run" ]
 

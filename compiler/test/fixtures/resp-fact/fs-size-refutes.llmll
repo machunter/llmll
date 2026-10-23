@@ -1,0 +1,24 @@
+;; @expect: FS-SIZE-1 REFUTING BODY. The tag binds to wasi.fs.size, so the fact {v >= 0} reaches the
+;; @expect: RCode binder, but the body answers (- n 1). The fact admits n = 0, so result = -1 and
+;; @expect: (post (>= result 0)) is REFUTED: the fact is v >= 0 and NOT stronger. verify UNSAFE.
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(import wasi.io (capability stdout :deterministic false))
+(export)
+(type Ctl (| Boot) (| Sized) (| Halt))
+(def-shell go [r: int p: Ctl c: Command] -> ((int, Ctl), Command)
+  (pair (pair r p) c))
+(def-shell size-step [p: Ctl x: Response] -> int
+  (pre (= p Sized))
+  (post (>= result 0))
+  (match x ((RCode n) (- n 1)) (_ 0)))
+(def-shell step [s: (int, Ctl) input: string x: Response] -> ((int, Ctl), Command)
+  (match (second s)
+    ((Boot)  (go (first s) Sized (wasi.fs.size "/tmp/x")))
+    ((Sized) (go (size-step Sized x) Halt (wasi.io.stdout "done")))
+    ((Halt)  (go (first s) Halt (wasi.io.stdout "")))))
+(def-shell done? [s: (int, Ctl)] -> bool
+  (match (second s) ((Halt) true) ((Boot) false) ((Sized) false)))
+(def-main :mode console
+  :init (pair (pair 0 Boot) (wasi.io.stdout "start"))
+  :step step
+  :done? done?)

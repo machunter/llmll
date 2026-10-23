@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, listKindsPreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, posixFsPreamble, usesPosixFs, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
@@ -18161,7 +18161,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- needs http-client, which only a fetching program pays for). This fold
     -- reads both lists, so the name stays covered; a body that moved out of
     -- BOTH would still fail below.
-    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble)
+    let preambleText = T.unlines (runtimePreamble ++ httpGetPreamble ++ posixFsPreamble)
         wasiNames    = [ n | n <- Map.keys builtinEnv, T.isPrefixOf "wasi." n ]
         -- Mangling mirrors CodegenHs's toHsIdent (CodegenHs.hs:2230-2236),
         -- which the module does not export. Keep these three cases in sync
@@ -18239,10 +18239,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- that calls it), which is why preambleText above and the per-name fold
     -- below read both lists.
     -- 19 -> 21 with LIST-KIND-1's wasi.fs.list-kinds (its body lives in
-    -- listKindsPreamble, spliced only for a program that calls it; the fold
+    -- posixFsPreamble, spliced only for a program that calls it; the fold
     -- below reads that list too) and PROC-ENV-1's wasi.proc.exec.
-    it "builtinEnv declares exactly the twenty-one wasi.* names this block covers" $
-      length wasiNames `shouldBe` 21
+    -- 21 -> 22 with FS-SIZE-1's wasi.fs.size (its body lives in the same
+    -- posixFsPreamble, which list-kinds' block was generalized into).
+    it "builtinEnv declares exactly the twenty-two wasi.* names this block covers" $
+      length wasiNames `shouldBe` 22
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -18272,8 +18274,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- 123 -> 125 with MAP-ITER-1's map-keys and map-entries, both generic
       -- (inferArrayOp types them; emission is the plain call): 92 -> 94.
       -- 125 -> 126 with REGEX-REPLACE-1's regex-replace-all, generic: 94 -> 95.
-      Map.size builtinEnv      `shouldBe` 126
-      length needsBinding      `shouldBe` 95
+      -- 126 -> 127 with FS-SIZE-1's wasi.fs.size: a hand-written preamble body
+      -- (in posixFsPreamble), so it lands in needsBinding: 95 -> 96.
+      Map.size builtinEnv      `shouldBe` 127
+      length needsBinding      `shouldBe` 96
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -18325,7 +18329,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     forM_ needsBinding $ \n ->
       it ("preamble defines a top-level binding for " <> T.unpack n) $ do
         -- Both lists: see the preambleText note at the top of this block (HTTP-GET-1).
-        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble ++ listKindsPreamble))
+        let defined = any (T.isPrefixOf (mangle n <> " ")) (map T.stripStart (runtimePreamble ++ httpGetPreamble ++ posixFsPreamble))
         if defined
           then defined `shouldBe` True
           else expectationFailure $
@@ -21365,8 +21369,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         witnessLike pre = prog [hdr, ranStep pre, stepWith bootHttp ranCall, tailMain]
 
     describe "the fact table (§6, §8 item 12) and the runtime it rests on" $ do
-      it "RF-T1 declares exactly two facts, and (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
-        Map.size respFactTable `shouldBe` 2
+      -- 2 -> 3 with FS-SIZE-1's (wasi.fs.size, RCode), pinned by RF-T1i.
+      it "RF-T1 declares exactly three facts, and (wasi.http.response, RCode) is program-determined at argument 0 with v >= 100" $ do
+        Map.size respFactTable `shouldBe` 3
         case Map.lookup ("wasi.http.response", "RCode") respFactTable of
           Just f -> do
             rfCategory f `shouldBe` FactProgram 0
@@ -21426,6 +21431,38 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               `shouldBe` [("age-step", "Probed", "wasi.fs.stat", "RCode",
                            "codegen-determined", "codegen:wasi.fs.stat")]
             -- An axiom has no argument to prove, so the premise-site list is empty.
+            rpPremises plan `shouldBe` []
+
+      -- FS-SIZE-1. The third row, and the second codegen-determined fact. It
+      -- is pinned by content for the same reason as RF-T1b: a wrong row is the
+      -- single unsound direction of the design.
+      it "RF-T1i (wasi.fs.size, RCode) is codegen-determined with v >= 0" $
+        case Map.lookup ("wasi.fs.size", "RCode") respFactTable of
+          Just f -> do
+            rfCategory f `shouldBe` FactCodegen
+            rfBinder f `shouldBe` "v"
+            rfPredicate f `shouldBe` EOp ">=" [EVar "v", ELit (LitInt 0)]
+          Nothing -> expectationFailure "the wasi.fs.size/RCode row is missing"
+
+      it "RF-T1j fs-size-fact: no RESP-FACT error, and the fact reaches size-step's Response binder" $ do
+        src <- fixture "fs-size-fact"
+        respErrs src `shouldBe` []
+        respWarns src `shouldBe` []
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan ->
+            [ (d, x) | (d, es) <- Map.toList (rpRefEnvs plan), (x, _) <- es ]
+              `shouldBe` [("size-step", "x$RCode")]
+
+      it "RF-T1k fs-size-fact: the disclosure names the axiom, and no premise site is emitted" $ do
+        src <- fixture "fs-size-fact"
+        case analyze src of
+          Left errs -> expectationFailure ("analysis failed: " <> show errs)
+          Right plan -> do
+            map (\a -> (afDef a, afTag a, afBuiltin a, afArm a, afCategory a, afPremise a))
+                (rpDisclosures plan)
+              `shouldBe` [("size-step", "Sized", "wasi.fs.size", "RCode",
+                           "codegen-determined", "codegen:wasi.fs.size")]
             rpPremises plan `shouldBe` []
 
       it "RF-T1h fs-exists-nofact: a tag bound to wasi.fs.exists warns W-RESP-FACT-NONE" $ do
@@ -21670,6 +21707,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         src <- fixture "fs-exists-refutes"
         er <- emitSrc src
         solverSays "fs-exists-refutes" er "Unsafe"
+      -- FS-SIZE-1. The same pair for wasi.fs.size: the fact discharges the post
+      -- (fs-exists-refutes above is the control without the fact), and a body
+      -- that answers (- n 1) is refuted, so the fact is v >= 0 and not stronger.
+      it "RF-M4c fs-size-fact: the codegen-determined fact discharges the post, SAFE" $ do
+        src <- fixture "fs-size-fact"
+        er <- emitSrc src
+        originTags er `shouldNotSatisfy` elem "call-pre:wasi.fs.size"
+        solverSays "fs-size-fact" er "Safe"
+      it "RF-M4d fs-size-refutes: a body answering (- n 1) under the same fact is UNSAFE" $ do
+        src <- fixture "fs-size-refutes"
+        er <- emitSrc src
+        solverSays "fs-size-refutes" er "Unsafe"
       it "RF-M5 closed-false call-pre is KEPT and refuted (§8 item 21)" $ do
         src <- fixture "closed-false"
         er <- emitSrc src
@@ -24020,6 +24069,72 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let es = errorsStrict "(def mk [n: int] -> int (first (pair 1 (proc-spec n))))"
       es `shouldSatisfy` any (T.isInfixOf "ProcSpec values are an opaque carrier")
       es `shouldSatisfy` (not . any (T.isInfixOf "it performs IO"))
+
+  -- -----------------------------------------------------------------------
+  -- FS-SIZE-1 (collect-order-1-proposal.md): wasi.fs.size. The fact row and
+  -- its fixtures are pinned in the RESP-FACT block (RF-T1i..k, RF-M4c/d); the
+  -- runtime behaviour against os.stat is scripts/tests/test_fs_size_1.py.
+  -- -----------------------------------------------------------------------
+
+  describe "FS-SIZE-1: wasi.fs.size" $ do
+
+    let parseFS src = case parseStatements GrammarCoreInversion "<fs-size>" src of
+          Left e   -> error ("FS-SIZE fixture did not parse: " ++ show e)
+          Right ss -> ss
+        kindsFS = mapMaybe diagKind . reportDiagnostics . typeCheck GrammarCoreInversion builtinEnv . parseFS
+        fsImport = "(import wasi.fs (capability read \"/tmp\" :deterministic false))\n"
+        sizeSrc  = T.pack (fsImport ++ "(def-shell sz [p: string] -> Command (wasi.fs.size p))")
+
+    it "FS-1: builtinEnv types wasi.fs.size as string -> Command" $
+      Map.lookup "wasi.fs.size" builtinEnv `shouldBe` Just (TFn [TString] (TCustom "Command"))
+
+    it "FS-2: wasi.fs.size without a wasi.fs import is a missing capability; with one it is clean" $ do
+      kindsFS "(def-shell sz [p: string] -> Command (wasi.fs.size p))"
+        `shouldContain` ["missing-capability"]
+      kindsFS sizeSrc `shouldBe` []
+
+    -- The negative is pinned, not only the positive: under the `wasi.`
+    -- fallthrough the builtin would report the top and every transitive
+    -- caller's effect_summary would go vacuous (the rmdir precedent).
+    it "FS-3: wasi.fs.size carries the filesystem-read label alone, not the top and not nondet" $ do
+      primEffect "wasi.fs.size" `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.size" `shouldNotBe` Just Unbounded
+
+    -- F1 of the engineer plan: the proposal's edge case 5 says {fs.read}; sha256
+    -- also carries crypto, so the joined summary is {fs.read, crypto}.
+    it "FS-4: a def calling size, list-kinds and sha256 summarizes to {fs.read, crypto}" $ do
+      let stmts = parseFS (T.pack (fsImport ++
+                    "(def-shell three [p: string] -> Command (seq-commands (seq-commands (wasi.fs.size p) (wasi.fs.list-kinds p)) (wasi.fs.sha256 p)))"))
+      lookup "three" (computeEffectSummary Map.empty stmts)
+        `shouldBe` Just (Caps (Set.fromList [EFsRead, ECrypto]))
+
+    it "FS-5: a program calling wasi.fs.size alone gets unix, the Posix.Files import and the body" $ do
+      let r = generateHaskell "m" (parseFS sizeSrc)
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` True
+      T.isInfixOf "import qualified System.Posix.Files as PF" (cgHsSource r) `shouldBe` True
+      T.isInfixOf "wasi_fs_size ::" (cgHsSource r) `shouldBe` True
+      usesPosixFs (parseFS sizeSrc) `shouldBe` True
+
+    it "FS-6: a program calling neither POSIX builtin gets no unix and no wasi_fs_size body" $ do
+      let src = T.pack (fsImport ++ "(def-shell rd [p: string] -> Command (wasi.fs.read p))")
+          r   = generateHaskell "m" (parseFS src)
+      usesPosixFs (parseFS src) `shouldBe` False
+      T.isInfixOf "  - unix" (cgPackageYaml r) `shouldBe` False
+      T.isInfixOf "wasi_fs_size ::" (cgHsSource r) `shouldBe` False
+
+    -- The body is where the RespFact row's truth lives: only a regular file's
+    -- size may reach RCode. Pin the guard's shape, so that a later edit that
+    -- answers a directory's st_size cannot drop it unnoticed.
+    it "FS-7: the wasi_fs_size body refuses a non-regular target before reading the size" $ do
+      let body = T.unlines posixFsPreamble
+      T.isInfixOf "wasi_fs_size path = llmll_publish_io $ do" body `shouldBe` True
+      T.isInfixOf "PF.getFileStatus path" body `shouldBe` True
+      T.isInfixOf "if PF.isRegularFile st" body `shouldBe` True
+      T.isInfixOf "is not a regular file" body `shouldBe` True
+
+    it "FS-8: wasi_fs_size is reserved against user identifiers" $
+      isReservedHsName "wasi_fs_size" `shouldBe` True
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
