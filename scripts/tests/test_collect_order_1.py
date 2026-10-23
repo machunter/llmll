@@ -85,3 +85,38 @@ def test_so_cmp_agrees_with_python_str_order(exe, tmp_path):
     got = _run(exe, tmp_path, "cmp", corpus)
     want = [str(_cmp(a, b)) for a, b in zip(corpus, corpus[1:])]
     assert got == want
+
+
+# --- LIST-SORT-1: list-sort, list-sort-by, list-reverse ---------------------
+
+def test_ls_sort_agrees_with_python_sorted(exe, tmp_path):
+    corpus = _words(300, seed=12) + ["", "a", "a", "\U00010000", "\uffff"]
+    assert _run(exe, tmp_path, "sort", corpus) == sorted(corpus)
+
+
+def test_ls_sort_keeps_duplicates_and_orders_ints_numerically(exe, tmp_path):
+    rng = random.Random(13)
+    nums = [rng.randint(-1000, 1000) for _ in range(200)] + [3, 1, 3, -1, -10, 5]
+    got = _run(exe, tmp_path, "nums", [str(n) for n in nums])
+    assert got == [str(n) for n in sorted(nums)]
+
+
+def test_ls_sortby_pair_key_is_the_probe_order(exe, tmp_path):
+    rng = random.Random(14)
+    lines = [f"{rng.choice([10, 20, 30])} {rng.choice(['a', 'b', 'c', 'Z'])}" for _ in range(100)]
+    lines += ["10 b", "20 a", "10 a"]
+    def key(l):
+        n, w = l.split(" ")
+        return (-int(n), w)
+    assert _run(exe, tmp_path, "sortby", lines) == sorted(lines, key=key)
+
+
+def test_ls_sortby_is_stable(exe, tmp_path):
+    corpus = _words(300, seed=15)
+    corpus = [w for w in corpus if w != ""]
+    assert _run(exe, tmp_path, "stable", corpus) == sorted(corpus, key=len)
+
+
+def test_ls_reverse(exe, tmp_path):
+    corpus = _words(50, seed=16) + ["x"]
+    assert _run(exe, tmp_path, "rev", corpus) == list(reversed(corpus))

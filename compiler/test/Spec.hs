@@ -101,7 +101,7 @@ import LLMLL.CDP
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageJsonWith, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
-import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson)
+import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson, noOrdWitness)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -115,6 +115,7 @@ import LLMLL.TrustReport (liveCheckHashes)
 import qualified Crypto.Hash.SHA256 as GNSHA
 import qualified Numeric as GNNum
 import qualified LLMLL.RuntimePure as RP
+import qualified LLMLL.ProgramGraph as PG
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property)
@@ -18266,8 +18267,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- 78 -> 88.
       -- 119 -> 120 with STR-ORDER-1's string-compare: a preamble body reached
       -- by the generic emission, so it lands in needsBinding: 88 -> 89.
-      Map.size builtinEnv      `shouldBe` 120
-      length needsBinding      `shouldBe` 89
+      -- 120 -> 123 with LIST-SORT-1's list-sort, list-sort-by and
+      -- list-reverse, all three generic: 89 -> 92.
+      Map.size builtinEnv      `shouldBe` 123
+      length needsBinding      `shouldBe` 92
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -22392,6 +22395,110 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       lib `shouldSatisfy` T.isInfixOf "(string_compare (a) (b))"
     it "SO-8 a lone surrogate (U+DC80, an undecodable byte) sorts by its code point, after U+00E9" $
       RP.string_compare "\xDC80" "\x00E9" `shouldBe` 1
+
+  -- LIST-SORT-1 (docs/design/collect-order-1-proposal.md): list-sort,
+  -- list-sort-by and list-reverse; the ordered types O and order-undefined.
+  describe "LIST-SORT-1 list-sort, list-sort-by, list-reverse" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("LIST-SORT-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        kinds = map fst . errs
+        undef = Just "order-undefined"
+        ev    = evalExprStatic Map.empty
+        lint  = ELit . LitInt
+        lstr  = ELit . LitString . T.pack
+        consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        pr a b = EPair (lint a) (lstr b)
+        am    = Map.fromList [ ("Rec", TPair TInt TString), ("Pos", TDependent "v" TInt (ELit (LitBool True)))
+                             , ("Color", TSumType [("Red", Nothing)]), ("Loop", TCustom "Loop") ]
+        emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        runProps src = case parseStatements GrammarCoreInversion "<t>" (T.unlines src) of
+          Left e      -> error (show e)
+          Right stmts -> map pbtStatus . pbtResults <$> runPropertyTests stmts
+    it "LS-1 noOrdWitness admits int, string, bool, pairs, an alias of a pair and a refined int" $
+      map (noOrdWitness am) [TInt, TString, TBool, TPair TInt (TPair TBool TString), TCustom "Rec", TCustom "Pos", TVar "a"]
+        `shouldBe` replicate 7 Nothing
+    it "LS-2 noOrdWitness refuses everything outside O, an alias cycle included" $
+      map (isJust . noOrdWitness am)
+          [ TFloat, TUnit, TBytes 4, TList TInt, TMap TInt TInt, TResult TInt TString
+          , TFn [TInt] TInt, TPromise TInt, TCustom "Command", TCustom "Json", TCustom "ProcSpec"
+          , TCustom "Color", TCustom "Loop", TPair TInt TFloat ]
+        `shouldBe` replicate 14 True
+    it "LS-3 list-sort over list[list[int]] is order-undefined, and the message names the type" $
+      errs ["(def-shell f [xs: list[list[int]]] -> list[list[int]] (list-sort xs))"]
+        `shouldBe` [(undef, "'list-sort' is not defined at type 'list[int]'. Only int, string, bool and pairs of them are ordered. Sort by a key in that set: (list-sort-by xs (fn [x: T] key)).")]
+    it "LS-4 list-sort over float, Json and a user sum type is order-undefined" $ do
+      kinds ["(def-shell f [xs: list[float]] -> list[float] (list-sort xs))"] `shouldBe` [undef]
+      kinds ["(def-shell f [xs: list[Json]] -> list[Json] (list-sort xs))"] `shouldBe` [undef]
+      kinds ["(type Color (| Red) (| Green))", "(def-shell f [xs: list[Color]] -> list[Color] (list-sort xs))"]
+        `shouldBe` [undef]
+      kinds ["(def-shell f [xs: list[(int, float)]] -> list[(int, float)] (list-sort xs))"] `shouldBe` [undef]
+    it "LS-5 a Json key is order-undefined at the key type" $
+      errs ["(def-shell f [xs: list[Json]] -> list[Json] (list-sort-by xs (fn [j: Json] j)))"]
+        `shouldSatisfy` (\es -> map fst es == [undef] && all (T.isInfixOf "at key type 'Json'" . snd) es)
+    it "LS-6 the elements of list-sort-by need no order; only the key does" $
+      errs [ "(type Color (| Red) (| Green))"
+           , "(def-shell rank [c: Color] -> int (match c ((Red) 0) ((Green) 1)))"
+           , "(def-shell f [xs: list[Color]] -> list[Color] (list-sort-by xs (fn [c: Color] (rank c))))" ]
+        `shouldBe` []
+    it "LS-7 the three builtins type, in O and at an alias of a pair, and arity is checked" $ do
+      errs [ "(type Rec (int, string))"
+           , "(def-shell a [xs: list[int]] -> list[int] (list-sort xs))"
+           , "(def-shell b [xs: list[Rec]] -> list[Rec] (list-sort xs))"
+           , "(def-shell c [xs: list[(int, string)]] -> list[(int, string)] (list-sort-by xs (fn [p: (int, string)] (pair (- 0 (first p)) (second p)))))"
+           , "(def-shell d [xs: list[Json]] -> list[Json] (list-reverse xs))" ]
+        `shouldBe` []
+      errs ["(def-shell e [xs: list[int]] -> list[int] (list-reverse xs xs))"] `shouldSatisfy` (not . null)
+    it "LS-8 the evaluator sorts ints and pairs as the runtime does" $ property $ \xs ys ->
+      let ps = zip (xs :: [Integer]) (map (\y -> T.unpack (T.pack y)) (ys :: [String]))
+      in ev (EApp "list-sort" [consOf (map lint xs)]) == Just (consOf (map lint (RP.list_sort xs)))
+         && ev (EApp "list-sort" [consOf [ pr a b | (a, b) <- ps ]])
+              == Just (consOf [ pr a b | (a, b) <- RP.list_sort ps ])
+    it "LS-9 the probe's multi-key witness, duplicates kept, negatives ordered" $ do
+      let key = ELambda [("g", TPair TInt TString)]
+                  (EApp "pair" [EOp "-" [lint 0, EApp "first" [EVar "g"]], EApp "second" [EVar "g"]])
+      ev (EApp "list-sort-by" [consOf [pr 10 "b", pr 20 "a", pr 10 "a"], key])
+        `shouldBe` Just (consOf [pr 20 "a", pr 10 "a", pr 10 "b"])
+      ev (EApp "list-sort" [consOf (map lint [3, 1, 3])]) `shouldBe` Just (consOf (map lint [1, 3, 3]))
+      ev (EApp "list-sort" [consOf (map lint [-1, -10, 5])]) `shouldBe` Just (consOf (map lint [-10, -1, 5]))
+      ev (EApp "list-sort" [consOf [pr 2 "b", pr 1 "z", pr 2 "a"]]) `shouldBe` Just (consOf [pr 1 "z", pr 2 "a", pr 2 "b"])
+      ev (EApp "list-sort" [consOf []]) `shouldBe` Just (consOf [])
+    it "LS-10 list-sort-by is stable: a constant key returns the input" $ property $ \xs ->
+      ev (EApp "list-sort-by" [consOf (map lint xs), ELambda [("x", TInt)] (lint 0)])
+        == Just (consOf (map lint (xs :: [Integer])))
+    it "LS-11 list-sort-by matches the runtime with a computed key" $ property $ \xs ->
+      let key = ELambda [("x", TInt)] (EApp "mod" [EVar "x", lint 3])
+      in ev (EApp "list-sort-by" [consOf (map lint xs), key])
+           == Just (consOf (map lint (RP.list_sort_by (xs :: [Integer]) (`mod` 3))))
+    it "LS-12 list-reverse matches the runtime" $ property $ \xs ->
+      ev (EApp "list-reverse" [consOf (map lint xs)]) == Just (consOf (map lint (reverse (xs :: [Integer]))))
+    it "LS-13 reverse twice, and prepend-then-reverse, are evaluated by llmll test and pass" $ do
+      st <- runProps
+        [ "(check \"rev-rev\" (for-all [xs: list[int]] (= (list-reverse (list-reverse xs)) xs)))"
+        , "(check \"prepend-rev\" (for-all [xs: list[int]] (= (list-reverse (list-fold xs (list-empty) (fn [acc: list[int] x: int] (list-prepend x acc)))) (list-fold xs (list-empty) (fn [acc: list[int] x: int] (list-append acc x))))))"
+        , "(check \"sort-idem\" (for-all [xs: list[int]] (= (list-sort (list-sort xs)) (list-sort xs))))" ]
+      st `shouldBe` [PBTPassed, PBTPassed, PBTPassed]
+    it "LS-14 a length post over list-sort falls back, Refused by app:list-sort (LIST-LEN-AXIOM-1 witness)" $ do
+      er <- emitFC "(def srt [xs: list[int]] -> list[int] (post (= (list-length result) (list-length xs))) (list-sort xs))"
+      lookup "srt" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+      lookup "srt" (erFallbackConstructs er) `shouldBe` Just ["app:list-sort"]
+    it "LS-15 a lambda key that calls a non-terminating def-shell puts the caller in the termination-assumed closure" $ do
+      let stmts = parsed
+            [ "(def-shell spin [x: int] -> int (spin x))"
+            , "(def-shell srt [xs: list[int]] -> list[int] (list-sort-by xs (fn [x: int] (spin x))))"
+            , "(def-shell plain [xs: list[int]] -> list[int] (list-sort xs))" ]
+          g       = PG.qualifiedCallGraph Map.empty stmts
+          closure = PG.callerClosure g (PG.undischargedCycleMembers g Set.empty)
+      Map.lookup "srt" closure `shouldBe` Just "spin"
+      Map.member "plain" closure `shouldBe` False
+    it "LS-16 the emitted call is wrapped in the list forcer" $ do
+      emitExpr (EApp "list-sort" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_sort "
+      emitExpr (EApp "list-reverse" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_reverse "
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of

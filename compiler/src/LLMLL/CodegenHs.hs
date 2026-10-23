@@ -280,6 +280,9 @@ emitLibHs _modName hackagePkgs httpGet listKinds srcOf noEq ffiLines stmts = T.u
   , "import qualified Text.Regex.TDFA as LRX"
   , "import qualified Data.Char as LChar"
   , "import qualified Data.Foldable as LFold"
+  -- LIST-SORT-1: sort and sortOn, qualified on the same rule, so sortOn does
+  -- not join the unqualified scope.
+  , "import qualified Data.List as LList"
   , "import System.IO.Unsafe (unsafePerformIO)"
   -- STR-INDEX-LINEAR-1: string_char_at / string_slice read a cached array past
   -- index 32. All three are base modules and all three are qualified, so no
@@ -501,6 +504,18 @@ runtimePreamble =
   , ""
   , "range :: Integer -> Integer -> [Integer]"  -- LT-INT (v0.11): Class B value-shape
   , "range from to = [from .. to - 1]"
+  , ""
+  -- LIST-SORT-1. Ord on Integer, String (code points), Bool (False < True)
+  -- and tuples (lexicographic) IS the order on O, so the derived instances
+  -- carry the spec. sortOn computes each key once and is stable.
+  , "list_sort :: Ord a => [a] -> [a]"
+  , "list_sort = LList.sort"
+  , ""
+  , "list_sort_by :: Ord k => [a] -> (a -> k) -> [a]"
+  , "list_sort_by xs key = LList.sortOn key xs"
+  , ""
+  , "list_reverse :: [a] -> [a]"
+  , "list_reverse = reverse"
   , ""
   , "-- §13.12 Bytes / map operations (Lever A stage A0)."
   , "-- Builtin contracts fire here as runtime assertions (the §5.3.4 backstop);"
@@ -3329,7 +3344,8 @@ hsPreambleNames =
   , "json_of_list", "json_of_string", "json_parse", "json_serialize"
   , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
   , "list_fold", "list_head", "list_length", "list_map", "list_nth"
-  , "list_prepend", "list_tail", "map_empty", "map_get", "map_has", "map_put"
+  , "list_prepend", "list_reverse", "list_sort", "list_sort_by", "list_tail"
+  , "map_empty", "map_get", "map_has", "map_put"
   , "ok", "path_normalize", "proc_cwd", "proc_env", "proc_spec", "proc_stderr"
   , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
   , "range", "regex_find", "regex_find_all", "regex_match"
@@ -3775,6 +3791,10 @@ esResultForcers =
   , ("list-map",           "llmll_uL llmll_uW")
   , ("list-filter",        "llmll_uL llmll_uW")
   , ("range",              "llmll_uL llmll_uW")
+  -- LIST-SORT-1: list results over forced elements, forced like list-filter's.
+  , ("list-sort",          "llmll_uL llmll_uW")
+  , ("list-sort-by",       "llmll_uL llmll_uW")
+  , ("list-reverse",       "llmll_uL llmll_uW")
   , ("list-head",          "llmll_uE llmll_uW")
   , ("list-tail",          "llmll_uE llmll_uW")
   , ("list-nth",           "llmll_uE llmll_uW")

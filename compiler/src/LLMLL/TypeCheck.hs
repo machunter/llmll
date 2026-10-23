@@ -84,7 +84,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -145,6 +145,14 @@ builtinEnv = Map.fromList $
   , ("list-fold",     TFn [TList (TVar "a"), TVar "b", TFn [TVar "b", TVar "a"] (TVar "b")] (TVar "b"))
   , ("list-nth",      TFn [TList (TVar "a"), TInt] (TResult (TVar "a") TString))
   , ("range",         TFn [TInt, TInt] (TList TInt))
+  -- LIST-SORT-1 (docs/design/collect-order-1-proposal.md). The sorted type is
+  -- in O (int, string, bool, closed under pairs) or the call is the `check`
+  -- error order-undefined ('checkOrdDefined'). list-sort-by takes a KEY
+  -- function, list first as list-map, and is stable; Haskell's sortBy takes a
+  -- comparator. No length axiom (LIST-LEN-AXIOM-1): a caller falls back.
+  , ("list-sort",     TFn [TList (TVar "a")] (TList (TVar "a")))
+  , ("list-sort-by",  TFn [TList (TVar "a"), TFn [TVar "a"] (TVar "k")] (TList (TVar "a")))
+  , ("list-reverse",  TFn [TList (TVar "a")] (TList (TVar "a")))
   -- §13.6 String operations
   , ("string-length",   TFn [TString] TInt)
   , ("string-contains", TFn [TString, TString] TBool)
@@ -1365,6 +1373,33 @@ checkEqDefined name subst =
       TCustom "Command" -> "a Command"
       TPromise _        -> "a Promise (" <> typeLabel w <> ")"
       _                 -> "a function (" <> typeLabel w <> ")"
+
+-- | LIST-SORT-1: the sorted type of @list-sort@ (its element type) and of
+-- @list-sort-by@ (its key's result type) must be in the ordered types O
+-- (docs/design/collect-order-1-proposal.md). Reads the call's FRESHENED
+-- parameter types under the call-site substitution, so the test does not
+-- depend on the spelling 'freshenFnType' gives a type variable. Before this
+-- check, a list of a user sum type passed @check@ and failed GHC with
+-- @No instance for Ord@, because codegen derives no Ord.
+checkOrdDefined :: Name -> [Type] -> Map.Map Name Type -> TC ()
+checkOrdDefined name paramTypes subst =
+  case (name, map (applySubst subst) paramTypes) of
+    ("list-sort",    TList e : _)         -> refuse "type" e sortHint
+    ("list-sort-by", _ : TFn _ k : _)     -> refuse "key type" k keyHint
+    _                                     -> pure ()
+  where
+    refuse what ty hint = do
+      am <- gets tcAliasMap
+      case noOrdWitness am ty of
+        Nothing -> pure ()
+        Just w  ->
+          tcErrorK "order-undefined" $
+            "'" <> name <> "' is not defined at " <> what <> " '" <> typeLabel ty <> "'"
+            <> (if w == ty then "" else ": it contains '" <> typeLabel w <> "'")
+            <> ". Only int, string, bool and pairs of them are ordered. " <> hint
+    sortHint = "Sort by a key in that set: (list-sort-by xs (fn [x: T] key))."
+    keyHint  = "Return a key of type int, string, bool or a pair of them, "
+               <> "for example (pair (- 0 n) name)."
 
 -- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
 -- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
@@ -3036,6 +3071,7 @@ inferExpr (EApp func args) = do
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       checkJsonNoEq func finalSubst   -- JSON-NOEQ: list-contains
       checkEqDefined func finalSubst  -- CTOR-FN-FIELD-1
+      checkOrdDefined func paramTypes finalSubst  -- LIST-SORT-1
       pure (applySubst finalSubst retType)
     Just (TCustom n)
       -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a

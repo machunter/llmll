@@ -24,10 +24,24 @@
     (list-map (range 0 (- (list-length xs) 1))
       (fn [i: int] (int-to-string (string-compare (field xs i) (field xs (+ i 1))))))))
 
+;; LIST-SORT-1. A "sortby" line is "<int> <word>"; the probe's order is size
+;; descending, then word ascending, as one pair key.
+(def-shell size-of [line: string] -> int
+  (unwrap-or (string-to-int (field (string-split " " line) 0)) 0))
+
+(def-shell by-size-then-word [xs: list[string]] -> list[string]
+  (list-sort-by xs (fn [l: string] (pair (- 0 (size-of l)) (field (string-split " " l) 1)))))
+
 (def-shell answer [mode: string text: string] -> string
   (let [(xs (lines-of text))]
-    (if (= mode "cmp") (cmp-adjacent xs)
-        (string-concat "unknown mode " mode))))
+    (if (= mode "cmp")    (cmp-adjacent xs)
+    (if (= mode "sort")   (join-lines (list-sort xs))
+    (if (= mode "sortby") (join-lines (by-size-then-word xs))
+    (if (= mode "stable") (join-lines (list-sort-by xs (fn [l: string] (string-length l))))
+    (if (= mode "rev")    (join-lines (list-reverse xs))
+    (if (= mode "nums")   (join-lines (list-map (list-sort (list-map xs (fn [l: string] (unwrap-or (string-to-int l) 0))))
+                                                (fn [n: int] (int-to-string n))))
+        (string-concat "unknown mode " mode)))))))))
 
 (def-shell step [s: (int, string) input: string r: Response] -> ((int, string), Command)
   (if (= (first s) 0)

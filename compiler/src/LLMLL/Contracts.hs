@@ -705,6 +705,20 @@ evalBuiltinApp _ _ _ "list-contains" [xs, x] = do
   elts <- consToList xs
   hits <- mapM (valueEq x) elts
   pure (boolE (or hits))
+-- LIST-SORT-1. The order is the runtime's: 'OrdK' derives Ord, which on one
+-- constructor is the Ord of Integer, String, Bool and pairs that the generated
+-- program's list_sort uses. An element outside O (or not yet a value) does
+-- not reduce. list-sort-by applies the key lambda once per element, under
+-- mapCons' fuel discipline, and sorts with the runtime's stable sortOn.
+evalBuiltinApp _ _ _ "list-sort" [xs] = do
+  ks <- mapM ordKeyOf =<< consToList xs
+  pure (listE (map fromOrdK (RP.list_sort ks)))
+evalBuiltinApp cs fe fuel "list-sort-by" [xs, fn] = do
+  elts <- consToList xs
+  keys <- consToList =<< mapCons cs fe fuel xs fn
+  ks   <- mapM ordKeyOf keys
+  pure (listE (map snd (RP.list_sort_by (zip ks elts) fst)))
+evalBuiltinApp _ _ _ "list-reverse" [xs] = listE . RP.list_reverse <$> consToList xs
 
 evalBuiltinApp _ _ _ _ _ = Nothing
 
@@ -723,7 +737,7 @@ modeledBuiltins = Set.fromList
   , "string-split", "string-trim", "string-concat-many", "regex-match", "regex-find"
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
-  , "string-compare"
+  , "string-compare", "list-sort", "list-sort-by", "list-reverse"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"
@@ -757,6 +771,23 @@ strListE = listE . map strE
 eitherE :: (a -> Expr) -> Either String a -> Expr
 eitherE _ (Left m)  = EApp "Error" [strE m]
 eitherE f (Right v) = EApp "Success" [f v]
+
+-- | LIST-SORT-1: a reduced value of a type in the ordered types O.
+data OrdK = OKInt Integer | OKStr String | OKBool Bool | OKPair OrdK OrdK
+  deriving (Eq, Ord)
+
+ordKeyOf :: Expr -> Maybe OrdK
+ordKeyOf (ELit (LitInt n))    = Just (OKInt n)
+ordKeyOf (ELit (LitString t)) = Just (OKStr (T.unpack t))
+ordKeyOf (ELit (LitBool b))   = Just (OKBool b)
+ordKeyOf (EPair a b)          = OKPair <$> ordKeyOf a <*> ordKeyOf b
+ordKeyOf _                    = Nothing
+
+fromOrdK :: OrdK -> Expr
+fromOrdK (OKInt n)    = ELit (LitInt n)
+fromOrdK (OKStr s)    = strE s
+fromOrdK (OKBool b)   = boolE b
+fromOrdK (OKPair a b) = EPair (fromOrdK a) (fromOrdK b)
 
 consToList :: Expr -> Maybe [Expr]
 consToList (EApp "nil"  [])      = Just []
