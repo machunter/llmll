@@ -72,7 +72,7 @@ import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDi
 import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
 import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
 import qualified System.Process as SP
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, (\\))
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\))
 import Data.Char (isAlphaNum, isLower)
 import LLMLL.RegexPattern (validatePattern, rxMeaningfulEscapes, RegexProblem(..))
 import qualified Text.Regex.TDFA as RX
@@ -18271,8 +18271,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- list-reverse, all three generic: 89 -> 92.
       -- 123 -> 125 with MAP-ITER-1's map-keys and map-entries, both generic
       -- (inferArrayOp types them; emission is the plain call): 92 -> 94.
-      Map.size builtinEnv      `shouldBe` 125
-      length needsBinding      `shouldBe` 94
+      -- 125 -> 126 with REGEX-REPLACE-1's regex-replace-all, generic: 94 -> 95.
+      Map.size builtinEnv      `shouldBe` 126
+      length needsBinding      `shouldBe` 95
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -22578,6 +22579,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           rendered = concatMap (\e -> entryRet e : map snd (entryParams e)) es
       filter (T.isInfixOf "map[int") rendered `shouldBe` []
       [ entryRet e | e <- es ] `shouldBe` ["bool", "v", "map[k,v]", "map[k,v]", "list[k]", "list[(k, v)]"]
+
+  -- REGEX-REPLACE-1 (docs/design/collect-order-1-proposal.md, settled
+  -- decision 1): regex-replace-all pattern subject replacement, literal
+  -- replacement, built on regex_spans.
+  describe "REGEX-REPLACE-1 regex-replace-all" $ do
+    let noContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
+        shell body = SDefShell
+          { defShellName = "f", defShellParams = [("s", TString)]
+          , defShellReturn = Just TString, defShellContract = noContract
+          , defShellBody = body, defShellDecreases = [] }
+        lit     = ELit . LitString
+        repl p r = shell (EApp "regex-replace-all" [p, EVar "s", r])
+        diagsOf stmts = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts)
+        kindsOf = mapMaybe diagKind . diagsOf
+        ev   = evalExprStatic Map.empty
+        lstr = ELit . LitString . T.pack
+        norm x = T.unpack (T.pack x)
+        rr p sj r = ev (EApp "regex-replace-all" [lstr p, lstr sj, lstr r])
+        pats = ["a", "^a", "[0-9]+", "(a)(b)?", "(?i)ab", "x*", "[", "a|ab"]
+    it "RR-1 builtinEnv types it as three strings to a string, and arity is checked" $ do
+      Map.lookup "regex-replace-all" builtinEnv `shouldBe` Just (TFn [TString, TString, TString] TString)
+      kindsOf [repl (lit "a") (lit "b")] `shouldBe` []
+      diagsOf [shell (EApp "regex-replace-all" [lit "a", EVar "s"])] `shouldSatisfy` any ((== SevError) . diagSeverity)
+    it "RR-2 an invalid literal pattern is invalid-regex, and the message says the subject comes back" $ do
+      let ds = [ d | d <- diagsOf [repl (lit "[0-9]\\d") (lit "")], diagKind d == Just "invalid-regex" ]
+      length ds `shouldBe` 1
+      map diagMessage ds `shouldSatisfy` all (T.isInfixOf "would answer the subject unchanged")
+      kindsOf [repl (lit "") (lit "x")] `shouldContain` ["invalid-regex"]
+    it "RR-3 a literal replacement with a backslash and a digit is the regex-replacement-literal warning" $ do
+      let ds = [ d | d <- diagsOf [repl (lit "([0-9]+)") (lit "<\\1>")]
+                   , diagKind d == Just "regex-replacement-literal" ]
+      map diagSeverity ds `shouldBe` [SevWarning]
+    it "RR-4 no warning for a backslash and a letter, or for a computed replacement" $ do
+      kindsOf [repl (lit "a") (lit "\\n")] `shouldNotContain` ["regex-replacement-literal"]
+      kindsOf [repl (lit "a") (EVar "s")] `shouldNotContain` ["regex-replacement-literal"]
+    it "RR-5 the evaluator answers with the runtime definition, invalid patterns included" $ property $ \s0 r0 ->
+      let (sj, r) = (norm s0, norm r0)
+      in and [ rr p sj r == Just (lstr (RP.regex_replace_all p sj r)) | p <- pats ]
+    it "RR-6 the design's witnesses: empty matches, POSIX leftmost-longest, no match, literal text" $ do
+      rr "a*" "baaab" "X" `shouldBe` Just (lstr "XbXXbX")
+      rr "a|ab" "abc" "X" `shouldBe` Just (lstr "Xc")
+      rr "q" "abc" "X" `shouldBe` Just (lstr "abc")
+      rr "([0-9]+)" "a12b3" "<\\1>" `shouldBe` Just (lstr "a<\\1>b<\\1>")
+      rr "(?i)ab" "xAbyaB" "-" `shouldBe` Just (lstr "x-y-")
+    it "RR-7 a computed invalid pattern answers the subject unchanged" $ property $ \s0 ->
+      let sj = norm s0 in RP.regex_replace_all "[" sj "X" == sj
+    it "RR-8 the replacement fold is the spec's: slices between spans, the replacement at each" $ property $ \s0 ->
+      let sj = norm s0
+          spec p = let sp = RP.regex_spans p sj
+                       pieces = zip (0 : map snd sp) (map fst sp ++ [fromIntegral (length sj)])
+                       slice (a, b) = RP.string_slice sj (fromIntegral a) (fromIntegral b)
+                   in intercalate "#" (map slice pieces)
+      in and [ RP.regex_replace_all p sj "#" == spec p | p <- ["a", "[0-9]+", "x*", "b|bc"] ]
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of

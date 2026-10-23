@@ -210,6 +210,14 @@ regex_spans pattern subject = llmll_rxTotal (llmll_uL llmll_uP) [] $
   | m <- LRX.matchAllText (llmll_rxCompile pattern) subject
   , (_, (o, l)) <- take 1 (LFold.toList m) ]
 
+regex_replace_all :: String -> String -> String -> String
+regex_replace_all pattern subject replacement = go 0 subject (regex_spans pattern subject)
+  where
+    go _ rest [] = rest
+    go pos rest ((s, e) : more) =
+      let (kept, rest') = splitAt (fromIntegral (s - pos)) rest
+      in kept ++ replacement ++ go e (drop (fromIntegral (e - s)) rest') more
+
 -- | REGEX-CASE-1: per-character simple case mapping; keeps the length.
 string_lower :: String -> String
 string_lower = map LChar.toLower

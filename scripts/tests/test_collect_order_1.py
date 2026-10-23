@@ -14,6 +14,7 @@ order, which is the order the design chose, so the oracle is exact.
 import glob
 import os
 import random
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -136,3 +137,34 @@ def test_mi_entries_are_the_word_count_in_key_order(exe, tmp_path):
         counts[w] = counts.get(w, 0) + 1
     want = [f"{k}={counts[k]}" for k in sorted(counts)]
     assert _run(exe, tmp_path, "entries", corpus) == want
+
+
+# --- REGEX-REPLACE-1: regex-replace-all --------------------------------------
+
+def _subjects(seed: int) -> list[str]:
+    rng = random.Random(seed)
+    alphabet = ["a", "b", "1", "2", " ", "\t", "x", "\u00e9"]
+    return ["".join(rng.choice(alphabet) for _ in range(rng.randint(0, 12))) for _ in range(150)]
+
+
+# Patterns where POSIX leftmost-longest and Python's leftmost-first agree, so
+# Python is an exact oracle. The replacement is passed as a function so Python
+# treats it as literal text, as regex-replace-all does.
+AGREE = [("[0-9]+", "<N>"), ("a*", "X"), ("[ \t]+", "_"), ("b", ""), ("x", "\\1")]
+
+
+@pytest.mark.parametrize("pat,rep", AGREE, ids=[p for p, _ in AGREE])
+def test_rr_agrees_with_python_re_sub_literal(exe, tmp_path, pat, rep):
+    subjects = _subjects(seed=19)
+    got = _run(exe, tmp_path, "replace", [pat, rep] + subjects)
+    assert got == [re.sub(pat, lambda m: rep, s) for s in subjects]
+
+
+def test_rr_posix_leftmost_longest_alternation(exe, tmp_path):
+    # Python answers "Xbc" here; POSIX takes the longest alternative.
+    assert _run(exe, tmp_path, "replace", ["a|ab", "X", "abc"]) == ["Xc"]
+
+
+def test_rr_computed_invalid_pattern_answers_the_subject(exe, tmp_path):
+    subjects = ["abc", "", "[["]
+    assert _run(exe, tmp_path, "replace", ["[", "X"] + subjects) == subjects

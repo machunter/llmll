@@ -42,6 +42,15 @@
 (def-shell show-entry [e: (string, int)] -> string
   (string-concat (first e) (string-concat "=" (int-to-string (second e)))))
 
+;; REGEX-REPLACE-1. Line 0 is the pattern, line 1 the replacement, and each
+;; later line is a subject, replaced on its own.
+(def-shell replace-each [xs: list[string]] -> string
+  (let [(pat (field xs 0))
+        (rep (field xs 1))]
+    (join-lines
+      (list-map (range 2 (list-length xs))
+        (fn [i: int] (regex-replace-all pat (field xs i) rep))))))
+
 (def-shell answer [mode: string text: string] -> string
   (let [(xs (lines-of text))]
     (if (= mode "cmp")    (cmp-adjacent xs)
@@ -51,9 +60,10 @@
     (if (= mode "rev")    (join-lines (list-reverse xs))
     (if (= mode "keys")    (join-lines (map-keys (counts xs)))
     (if (= mode "entries") (join-lines (list-map (map-entries (counts xs)) (fn [e: (string, int)] (show-entry e))))
+    (if (= mode "replace") (replace-each xs)
     (if (= mode "nums")   (join-lines (list-map (list-sort (list-map xs (fn [l: string] (unwrap-or (string-to-int l) 0))))
                                                 (fn [n: int] (int-to-string n))))
-        (string-concat "unknown mode " mode)))))))))))
+        (string-concat "unknown mode " mode))))))))))))
 
 (def-shell step [s: (int, string) input: string r: Response] -> ((int, string), Command)
   (if (= (first s) 0)

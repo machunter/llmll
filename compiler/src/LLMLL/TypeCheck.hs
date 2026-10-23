@@ -72,6 +72,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
 import Data.List (nub, (\\))
+import Data.Char (isDigit)
 import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void, join, (>=>))
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
@@ -168,6 +169,11 @@ builtinEnv = Map.fromList $
   , ("regex-find",      TFn [TString, TString] (TList TString))
   , ("regex-find-all",  TFn [TString, TString] (TList (TList TString)))
   , ("regex-spans",     TFn [TString, TString] (TList (TPair TInt TInt)))
+  -- REGEX-REPLACE-1 (docs/design/collect-order-1-proposal.md, settled
+  -- decision 1): pattern, subject, replacement. The regex rule (pattern
+  -- first, subject second) with the replacement last. The replacement is
+  -- literal text, and a computed invalid pattern answers the subject.
+  , ("regex-replace-all", TFn [TString, TString, TString] TString)
   , ("string-lower",    TFn [TString] TString)
   , ("string-upper",    TFn [TString] TString)
   -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md). -1, 0 or 1 in
@@ -2752,7 +2758,16 @@ unknownName x fallback = do
 -- | REGEX-CAPTURE-1 / REGEX-CASE-1: the builtins whose first argument is a
 -- regex pattern.
 regexBuiltins :: [Name]
-regexBuiltins = ["regex-match", "regex-find", "regex-find-all", "regex-spans"]
+regexBuiltins = ["regex-match", "regex-find", "regex-find-all", "regex-spans", "regex-replace-all"]
+
+-- | REGEX-REPLACE-1: a backslash followed by a digit, the group-reference
+-- spelling of Python, PCRE and sed.
+looksLikeGroupRef :: Text -> Bool
+looksLikeGroupRef r = go (T.unpack r)
+  where
+    go ('\\' : c : rest) = isDigit c || go rest
+    go (_ : rest)         = go rest
+    go []                 = False
 
 -- | The pattern a regex call passes, when `check` can see it: a string
 -- literal, or a call with no arguments to a local definition whose whole body
@@ -3004,6 +3019,14 @@ inferExpr (EApp func args) = do
           Right () -> pure ()
         Nothing -> pure ()
     [] -> pure ()
+  -- REGEX-REPLACE-1: the replacement is literal. A literal replacement that
+  -- holds a backslash and a digit looks like a group reference (Python's \1)
+  -- and is inserted as written, so `check` says so. A computed replacement is
+  -- not seen.
+  when (func == "regex-replace-all") $ case args of
+    [_, _, ELit (LitString r)] | looksLikeGroupRef r ->
+      modify $ \st -> st { tcErrors = tcErrors st ++ [mkRegexReplacementLiteral r] }
+    _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
   checkCalleeAdmissibility func
   -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module

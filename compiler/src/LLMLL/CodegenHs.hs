@@ -724,6 +724,18 @@ runtimePreamble =
   , "  | m <- LRX.matchAllText (llmll_rxCompile pattern) subject"
   , "  , (_, (o, l)) <- take 1 (LFold.toList m) ]"
   , ""
+  -- REGEX-REPLACE-1. Built on regex_spans, so matching (leftmost-longest
+  -- POSIX ERE, the (?i) rule, empty matches) and totality cannot diverge from
+  -- it: an invalid pattern gives no spans and the subject comes back. One
+  -- walk over the subject, so the cost is linear in it plus the matches.
+  , "regex_replace_all :: String -> String -> String -> String"
+  , "regex_replace_all pattern subject replacement = go 0 subject (regex_spans pattern subject)"
+  , "  where"
+  , "    go _ rest [] = rest"
+  , "    go pos rest ((s, e) : more) ="
+  , "      let (kept, rest') = splitAt (fromIntegral (s - pos)) rest"
+  , "      in kept ++ replacement ++ go e (drop (fromIntegral (e - s)) rest') more"
+  , ""
   , "-- | REGEX-CASE-1: per-character simple case mapping; keeps the length."
   , "string_lower :: String -> String"
   , "string_lower = map LChar.toLower"
@@ -3357,7 +3369,7 @@ hsPreambleNames =
   , "ok", "path_normalize", "proc_cwd", "proc_env", "proc_spec", "proc_stderr"
   , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
   , "range", "regex_find", "regex_find_all", "regex_match"
-  , "regex_spans", "seq_commands", "sha1_hash"
+  , "regex_replace_all", "regex_spans", "seq_commands", "sha1_hash"
   , "string_char_at", "string_concat", "string_concat_many"
   , "string_compare", "string_contains", "string_empty'", "string_length", "string_slice"
   , "string_lower", "string_split", "string_to_int", "string_trim"
@@ -3818,6 +3830,7 @@ esResultForcers =
   , ("regex-find",         "llmll_uL llmll_uS")
   , ("regex-find-all",     "llmll_uL (llmll_uL llmll_uS)")
   , ("regex-spans",        "llmll_uL llmll_uP")
+  , ("regex-replace-all",  "llmll_uS")  -- REGEX-REPLACE-1
   , ("string-lower",       "llmll_uS")
   , ("string-upper",       "llmll_uS")
   -- PATH-NORM-1: a string result, forced like string-lower's.

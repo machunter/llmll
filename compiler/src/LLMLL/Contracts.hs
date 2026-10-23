@@ -687,6 +687,8 @@ evalBuiltinApp _ _ _ "regex-find" [p, s] =
   strListE <$> (RP.regex_find <$> strV p <*> strV s)
 evalBuiltinApp _ _ _ "regex-find-all" [p, s] =
   listE . map strListE <$> (RP.regex_find_all <$> strV p <*> strV s)
+evalBuiltinApp _ _ _ "regex-replace-all" [p, s, r] =
+  strE <$> (RP.regex_replace_all <$> strV p <*> strV s <*> strV r)
 evalBuiltinApp _ _ _ "regex-spans" [p, s] =
   listE . map (\(a, b) -> EPair (ELit (LitInt a)) (ELit (LitInt b)))
     <$> (RP.regex_spans <$> strV p <*> strV s)
@@ -746,7 +748,7 @@ modeledBuiltins = Set.fromList
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
   , "string-compare", "list-sort", "list-sort-by", "list-reverse"
-  , "map-keys", "map-entries"
+  , "map-keys", "map-entries", "regex-replace-all"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"
