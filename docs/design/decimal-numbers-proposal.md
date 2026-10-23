@@ -1,19 +1,122 @@
 ---
 title: DECIMAL-1 — a numeric surface for non-integer numbers
-status: Rev 0 draft, 2026-10-21 (user-approved direction; not yet reviewed)
+status: Rev 1 draft, 2026-10-23 (FLOAT-LIT-1 decisions settled for the engineer; Rev 0 direction user-approved 2026-10-21; not yet reviewed)
 rows: DECIMAL-1 (G7, PLAN, after SIGMA-CONST-ARITH-1); FLOAT-LIT-1 (G3, PLAN, independent); FLOAT-OPS-1 (G7, DECIDE, trigger-gated); STR-TO-INT-STRICT-1 (G7, DECIDE)
 review: none (no professor pass)
 ---
 
 # DECIMAL-1: a numeric surface for non-integer numbers
 
-**Status: Rev 0 draft, 2026-10-21.** The language-team wrote this proposal on 2026-10-21 from a real-program probe. The user approved the direction the same day. No professor pass was made. There is no earlier numeric, decimal or float proposal in this folder, so this is the base draft.
+**Status: Rev 1 draft, 2026-10-23.** Rev 1 settles three `FLOAT-LIT-1` decisions that Rev 0 left open, from the engineer's measurements. See "Rev 0 → Rev 1" below. Nothing else in Rev 0 changes.
+
+**Rev 0, 2026-10-21.** The language-team wrote this proposal on 2026-10-21 from a real-program probe. The user approved the direction the same day. No professor pass was made. There is no earlier numeric, decimal or float proposal in this folder, so this is the base draft.
 
 **User decisions recorded with Rev 0.**
 
 - `DECIMAL-1` is sequenced after `SIGMA-CONST-ARITH-1`.
 - `FLOAT-LIT-1` proceeds independently.
 - `FLOAT-OPS-1` and `STR-TO-INT-STRICT-1` stay DECIDE.
+
+### Rev 0 → Rev 1 (2026-10-23)
+
+Source: the compiler-engineer's `FLOAT-LIT-1` measurements on `b8691124`. The compiler source is unchanged since then, at `2628c5fc` (v0.31.0). The user asked the language-team to settle three decisions before implementation.
+
+| Change | Why | Where |
+|---|---|---|
+| The literal `-0.0` denotes `+0.0` in both front ends | JSON already reads `-0.0` as `0.0`, and the Layer 2 canonical-zero rule wants one zero | Decision R1-1 |
+| Pattern key `literal_kind` (`int` or `float`) is added; the schema goes from 0.13.0 to 0.14.0, additive | aeson cannot tell `2` from `2.0`, so a float pattern `2.0` round-trips as an int pattern | Decision R1-2 |
+| A literal pattern whose type is incompatible with the scrutinee is a check error; it was a warning | LLMLL has no implicit `int` to `float` conversion in expressions, so patterns must not have one either | Decision R1-2 |
+| A lexical definition of FLOAT for §12, the RFC 8259 number grammar without the sign, that must have a fraction or an exponent | §12 names FLOAT and does not define it; the parser accepts `00.5` and `1e+3` and refuses `1.` and `.5` | Decision R1-3 |
+| New drift D7: an exponent is read as a bounded `Int`, so `1e18446744073709551617` compiles as `10.0` | Measured by the engineer in both front ends; the exponent wraps | Drift list, R1-3 |
+| New drift D8: codegen emits a negative float literal bare, so the pattern `(Box -0.5)` fails in GHC | Measured by the engineer | Drift list, R1-1 |
+| `float-literal-range` is reported by `llmll check` in phase `parse` | The decision needs the literal text, which only the parser has | R1-3 |
+| `JSON-INT-UNBOUNDED-1` is outside `FLOAT-LIT-1` | It concerns `int`, not `float` | R1-4 |
+
+#### Decision R1-1: the literal `-0.0` denotes `+0.0`
+
+The alternatives were to reject `-0.0`, or to keep IEEE negative zero.
+
+- **Rule.** A float literal whose value is zero denotes `+0.0`, whatever its sign or spelling. This covers `-0.0`, `0e5` and `-0.000`. Codegen emits `0.0` for each of them.
+- **No information an LLMLL program can see is lost.** The mathematical value of `-0.0` is 0. LLMLL `=` lowers to Haskell `==`, for which `-0.0 == 0.0` is true. There is no float printing, division or ordering until `FLOAT-OPS-1`.
+- **The two front ends already agree.** aeson's `Scientific` has no negative zero, so JSON `-0.0` already reads as `0.0`. Keeping IEEE negative zero would need a new raw-byte rule in the JSON reader in order to create a value that the language cannot observe.
+- **Rejecting is worse.** `-0.0` is a reasonable way to write zero. A diagnostic would tell the author nothing they need to act on.
+- **It fits Layer 2.** Under `FLOAT-OPS-1`, every operation result changes negative zero to positive zero. With this rule, the literals and the operation results come from the same set: finite doubles with one zero.
+- **The FFI is the only place negative zero can still come from.** Until `FLOAT-OPS-1`, a Tier 1 `float` result can still be negative zero. The Layer 2 forcer `llmll_uF` closes this; R1-1 does not.
+- **Soundness.** No verifier fact depends on a `float` value, because `float` is a carrier sort outside `Σ_auto` (§5.3.3). `codegen_semantics_version` is not spent.
+- **Positive witnesses.** These are codegen hspec cases:
+  - `(def z [] -> float -0.0)` emits `0.0`, and `isNegativeZero` of the emitted value is `False`.
+  - `(def n [] -> float -0.5)` emits `(-0.5 :: Double)`.
+  - The pattern `(Box -0.5)` emits `(Box (-0.5 :: Double))`. This fixes D8, and GHC accepts it.
+  - The JSON `lit-float` with value `-0.0` gives the same `0.0`.
+
+#### Decision R1-2: a `literal_kind` pattern key, and incompatible literal patterns become errors
+
+The engineer's default is confirmed, with one widening. The alternative was a type-directed rule, under which `2` matches a `float` scrutinee by value. It is rejected.
+
+- **Key.** A JSON-AST `literal` pattern gains the optional key `"literal_kind"`, with values `"int"` and `"float"`. The name follows the snake_case style of `return_type` and `pre_clauses`. The schema goes from 0.13.0 to 0.14.0. The change is additive, and every older version stays readable.
+- **Reading the key.**
+  - If the key is absent, the reading is the same as today: an integral number is `int`, and any other number is `float`.
+  - `"literal_kind": "float"` with the number `2` reads as the float `2.0`.
+  - `"literal_kind": "int"` with the number `2.5` is a parse error.
+  - The key on a string or boolean value is a parse error.
+- **Writing the key.** `AstEmit` writes `"literal_kind": "float"` on every float pattern. With that, the S-expression → JSON → S-expression round trip of a float pattern is exact.
+- **Why not the type-directed rule.** In expressions, `(def n2 [] -> float 1)` is a type error today ("expected float, got int", measured on v0.30.10). A type-directed pattern rule would add an `int` to `float` conversion in patterns alone, and the S-expression meaning of `2` would then depend on the scrutinee's type. One literal type rule for expressions and patterns is simpler to state and to check.
+- **The widening.** The engineer's default makes an error of an `int` literal pattern against a `float` scrutinee. Rev 1 makes an error of every literal pattern whose type `compatibleWith` refuses. Today these are warnings, emitted where `checkPatternExpanded` handles `PLiteral` in `compiler/src/LLMLL/TypeCheck.hs`.
+- **Only one case changes behaviour.** Every other incompatible pair (a string against an `int`, or a boolean against an `int`) already fails in GHC. Only an `int` literal against a `float` scrutinee compiles today, because a Haskell numeric literal pattern is overloaded. So the widening refuses no program that builds today, except that one.
+- **The corpus has no case.** A grep of the tracked `.llmll` files found float-shaped text only inside strings.
+- **Gate.** In a corpus sweep, no new error may appear except the `int`-against-`float` case.
+- **Channel.** Type, reported by `llmll check`.
+- **Positive witnesses.**
+  - `(match x (2 a) (_ b))` with `x: float` is a check error.
+  - `(match x (2.0 a) (_ b))` with `x: float` passes.
+  - Emitting that program to JSON writes `"literal_kind": "float"`. Reading it back gives `LitFloat 2.0`, not `LitInt 2`, which closes D6.
+
+#### Decision R1-3: the lexical definition of FLOAT, and how the two front ends relate
+
+**§12 text:**
+
+```
+literal  = INT | "-" INT | FLOAT | "-" FLOAT | STRING | "true" | "false" ;
+FLOAT    = DIGITS ( FRAC [ EXP ] | EXP ) ;
+DIGITS   = "0" | NZDIGIT { DIGIT } ;
+FRAC     = "." DIGIT { DIGIT } ;
+EXP      = ( "e" | "E" ) [ "+" | "-" ] DIGIT { DIGIT } ;
+```
+
+- **FLOAT is the RFC 8259 `number` production without its leading `-`, and with a fraction or an exponent required.** The sign belongs to the `"-" FLOAT` production, as the `"-" INT` production carries the sign of INT.
+- **Accepted:** `0.5`, `1.25e-3`, `1e3`, `1E+3`, `-0.5`.
+- **Refused:**
+  - `1.` and `.5`: the parser refuses them today, and so does RFC 8259.
+  - `00.5` and `01e3`: leading zeros. RFC 8259 refuses them; the parser accepts them today.
+  - A leading `+` such as `+0.5`: §12 has no `"+" INT` either.
+- **Value.** A FLOAT denotes the exact decimal value its digits and exponent spell. It is rounded to the nearest double, with ties to even.
+- **Range.** The literal is refused with `float-literal-range` in either of two cases:
+  - The rounded magnitude is infinite.
+  - The decimal value is not zero, but it rounds to zero.
+  Subnormal results are accepted.
+- **Exponent text (D7).** The exponent is read as text, and its size is not limited by a machine integer. A very large exponent gives `float-literal-range`. It must never wrap. The engineer's plan uses the S-expression lexer and a raw-byte pre-scan for JSON. That plan meets this rule.
+- **Phase.** `float-literal-range` needs the literal's text, so `llmll check` reports it in phase `parse`.
+- **S-expression and JSON.** The two front ends must accept the same set of float values. They need not accept the same set of spellings.
+  - JSON follows RFC 8259, and the node kind (`lit-float`), not the spelling, marks a float. So JSON `2` under `lit-float` is the float `2.0`. In the S-expression syntax, `2` is an INT.
+  - The two kinds of input share one range rule and one rounding rule, so a value accepted by one front end is accepted by the other.
+  - Every accepted FLOAT, with or without its sign, is also a valid RFC 8259 number. So `AstEmit` can write any S-expression float without changing its value.
+- **The leading-zero refusal changes accepted input.** The tracked corpus has no such literal. INT is not changed: `007` stays a valid INT. That asymmetry is known, and it is left alone because INT is outside this row.
+- **Unary minus stays a type error.** `(- 0.5)` remains a type error until `FLOAT-OPS-1`: the `-` operator takes two `int` operands. `float-neg` is the Layer 2 name. A negative float is written as the literal `-0.5`.
+- **Channel.** Type (a parse-phase diagnostic). No solver obligation exists.
+- **Positive witnesses.**
+  - `(def big [] -> float 1e400)` gives `float-literal-range`.
+  - `(def t [] -> float 2e-324)` gives `float-literal-range`. It is below half the smallest subnormal, so it rounds to zero.
+  - `(def s [] -> float 4.9e-324)` is accepted, as the smallest subnormal `5.0e-324`.
+  - `(def w [] -> float 1e18446744073709551617)` gives `float-literal-range`. Today it is `10.0` (D7).
+  - `(def l [] -> float 00.5)` is a parse error.
+  - `(def p [] -> float 1E+3)` is accepted as `1000.0`.
+
+#### Decision R1-4: `JSON-INT-UNBOUNDED-1` is outside `FLOAT-LIT-1`
+
+A JSON `lit-int` above 2^63 is refused, although `int` is unbounded. That is an `int` defect and does not belong to the float row. It is filed as its own row, G3, PLAN.
+
+- **Shared code, separate rows.** It can share the raw-byte number pre-scan with D7, and the engineer may ship the two together.
+- **D7 stays inside `FLOAT-LIT-1`.** The JSON `lit-int` exponent wrap (`1e18446744073709551617` read as `10`) is part of D7. It is fixed in this row, because it is the same exponent reader.
 
 ## Restatement
 
@@ -62,6 +165,8 @@ Two reference classes apply. The measurement set is the probe's Python reference
 - **D3 (latent).** `typeToSort TFloat` resolves to `FQInt`. The fallback firewall stops it today (measured). It is the same trap the JSON-1 comment names. The code should move.
 - **D4.** §13.2 calls float `=` "value equality". It is an equivalence today only because no NaN reaches the surface. A negative zero cannot be written either.
 - **D5 (adjacent).** `string-to-int` accepts `" 42"` and `"(42)"` (measured through `reads`). §13.7 says only "Parse; Error on failure". The strict `decimal-parse` below would disagree with it.
+- **D7 (Rev 1, measured by the engineer).** megaparsec and aeson read a float exponent as a bounded `Int`. `1e18446744073709551617` compiles as `10.0`, and as `10` for a JSON `lit-int`. See R1-3.
+- **D8 (Rev 1, measured by the engineer).** `emitLit` prints a float literal bare, so a negative float in a pattern such as `(Box -0.5)` fails in GHC. Codegen emits `(-0.5 :: Double)`. See R1-1.
 - **D6 (minor).** `parseLiteralValue` in `compiler/src/LLMLL/ParserJSON.hs` turns an integral JSON number into `LitInt`. A float pattern literal `2.0` therefore becomes an `int` pattern.
 
 ## Design proposal
@@ -153,6 +258,7 @@ div-half-even(n, d) == let q = (n div d), r = (n mod d) in
 - **Sort.** Give `typeToSort TFloat` an explicit opaque-carrier arm or an explicit refusal, instead of `FQInt`.
 - **Spec.** State in §3.1 that `float` has literals and `=` only, until `FLOAT-OPS-1` ships.
 - **JSON patterns.** Fix D6 in the same row.
+- **Rev 1.** The meaning of `-0.0`, the D6 mechanism and the FLOAT lexical definition are settled in R1-1 to R1-3. D7 and D8 are in this row. The schema goes to 0.14.0 (R1-2); the "no schema change" statement applies to Layer 1 only.
 
 ### Layer 2 semantics, fixed now (`FLOAT-OPS-1`)
 
@@ -314,10 +420,16 @@ div-half-even(n, d) == let q = (n div d), r = (n mod d) in
   - Option (b) and `decimal[s]` are rejected for now, with an upgrade path.
 - **Rows for the documentation lead to file:**
   - `DECIMAL-1` `[CT]`, G7, PLAN. Its prerequisite is `SIGMA-CONST-ARITH-1`.
-  - `FLOAT-LIT-1` `[CT]`, G3, PLAN. It covers drift D1, D2, D3 and D6.
+  - `FLOAT-LIT-1` `[CT]`, G3, PLAN. It covers drift D1, D2, D3, D6, D7 and D8, under decisions R1-1 to R1-3.
+  - `JSON-INT-UNBOUNDED-1` `[CT]`, G3, PLAN (Rev 1, R1-4). It is separate from `FLOAT-LIT-1`, but it may share the JSON number pre-scan.
   - `FLOAT-OPS-1` `[DESIGN]`, G7, DECIDE, trigger-gated.
   - `STR-TO-INT-STRICT-1`, G7, DECIDE. It covers drift D5.
 - **Engineer summary.**
   - `DECIMAL-1`: four builtins over `Integer`, all pure. Three are def-shell-only and `asserted`, with an oracle battery. `div-half-even` is reflected by unfolding when its divisor is a numeral. There is no schema change and no version-stamp change.
-  - `FLOAT-LIT-1`: a signed float literal, a check-time range diagnostic and a `typeToSort` arm.
+  - `FLOAT-LIT-1`, as settled in Rev 1:
+    - `"-" FLOAT` and the RFC-shaped FLOAT lexical definition (R1-3).
+    - An exponent read as text, with no wrap (D7), and a parse-phase `float-literal-range`.
+    - A zero-valued literal emitted as `0.0`, and a negative literal emitted parenthesized and annotated (R1-1, D8).
+    - The optional pattern key `literal_kind`, with the schema at 0.14.0, and every incompatible literal pattern made an error (R1-2).
+    - A `typeToSort TFloat` arm.
 - **Blocking professor questions:** none.
