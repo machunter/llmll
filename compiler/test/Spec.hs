@@ -10473,7 +10473,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             intEs   = arrayOpFuncEntries Map.empty [TInt, TString]
             aliasEs = arrayOpFuncEntries (Map.fromList [("Buf", TBytes 8)]) [TCustom "Buf"]
         map entryName bytesEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
-        map entryName mapEs   `shouldBe` ["map-has", "map-get", "map-put", "map-empty"]
+        map entryName mapEs   `shouldBe` ["map-has", "map-get", "map-put", "map-empty", "map-keys", "map-entries"]
         map entryName intEs   `shouldBe` []
         map entryName aliasEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
         [ entryPre e | e <- bytesEs, entryName e == "bytes-get" ]
@@ -18269,8 +18269,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- by the generic emission, so it lands in needsBinding: 88 -> 89.
       -- 120 -> 123 with LIST-SORT-1's list-sort, list-sort-by and
       -- list-reverse, all three generic: 89 -> 92.
-      Map.size builtinEnv      `shouldBe` 123
-      length needsBinding      `shouldBe` 92
+      -- 123 -> 125 with MAP-ITER-1's map-keys and map-entries, both generic
+      -- (inferArrayOp types them; emission is the plain call): 92 -> 94.
+      Map.size builtinEnv      `shouldBe` 125
+      length needsBinding      `shouldBe` 94
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -22499,6 +22501,83 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "LS-16 the emitted call is wrapped in the list forcer" $ do
       emitExpr (EApp "list-sort" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_sort "
       emitExpr (EApp "list-reverse" [EVar "xs"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uL llmll_uW) (list_reverse "
+
+  -- MAP-ITER-1 (docs/design/collect-order-1-proposal.md): map-keys and
+  -- map-entries, in ascending key order; D2's brief rendering.
+  describe "MAP-ITER-1 map-keys, map-entries" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("MAP-ITER-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        ev     = evalExprStatic Map.empty
+        lint   = ELit . LitInt
+        lstr   = ELit . LitString . T.pack
+        consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        put m k v = EApp "map-put" [m, k, v]
+        e0     = EApp "map-empty" []
+        emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+    it "MI-1 both builtins type over int and string keys" $
+      errs [ "(def-shell a [m: map[string, int]] -> list[string] (map-keys m))"
+           , "(def-shell b [m: map[int, string]] -> list[(int, string)] (map-entries m))"
+           , "(def-shell c [m: map[string, int]] -> int (list-length (map-keys m)))" ]
+        `shouldBe` []
+    it "MI-2 a bool key is the map-key diagnostic on the operation, and arity is checked" $ do
+      errs ["(def-shell a [m: map[bool, int]] -> list[bool] (map-keys m))"]
+        `shouldSatisfy` any (T.isInfixOf "map operation 'map-keys' requires int or string keys" . snd)
+      errs ["(def-shell a [m: map[int, int]] -> list[int] (map-keys m 1))"] `shouldSatisfy` (not . null)
+      errs ["(def-shell a [xs: list[int]] -> list[int] (map-keys xs))"] `shouldSatisfy` (not . null)
+    it "MI-3 extensionality: two insert orders list the same keys" $ do
+      let m1 = put (put e0 (lstr "b") (lint 1)) (lstr "a") (lint 2)
+          m2 = put (put e0 (lstr "a") (lint 2)) (lstr "b") (lint 1)
+      ev (EApp "map-keys" [m1]) `shouldBe` Just (consOf [lstr "a", lstr "b"])
+      ev (EApp "map-keys" [m2]) `shouldBe` Just (consOf [lstr "a", lstr "b"])
+      ev (EApp "map-entries" [m1]) `shouldBe` ev (EApp "map-entries" [m2])
+      ev (EApp "map-keys" [e0]) `shouldBe` Just (consOf [])
+    it "MI-4 an overwrite lists one entry with the last value; int keys order numerically" $ do
+      ev (EApp "map-entries" [put (put e0 (lstr "a") (lint 1)) (lstr "a") (lint 2)])
+        `shouldBe` Just (consOf [EPair (lstr "a") (lint 2)])
+      ev (EApp "map-keys" [put (put (put e0 (lint 10) (lint 0)) (lint 9) (lint 0)) (lint (-5)) (lint 0)])
+        `shouldBe` Just (consOf (map lint [-5, 9, 10]))
+    it "MI-5 map-entries is map-keys paired with map-get, and agrees with the runtime" $ property $ \kvs ->
+      let m   = foldl (\acc (k, v) -> put acc (lint k) (lint v)) e0 (kvs :: [(Integer, Integer)])
+          ref = Map.toAscList (Map.fromList kvs)
+      in ev (EApp "map-entries" [m]) == Just (consOf [ EPair (lint k) (lint v) | (k, v) <- ref ])
+         && ev (EApp "map-keys" [m]) == Just (consOf (map (lint . fst) ref))
+         && ref == RP.map_entries (Map.fromList kvs)
+    it "MI-6 llmll test evaluates a property over map-keys (not PBTSkipped)" $
+      case parseStatements GrammarCoreInversion "<t>" (T.unlines
+             [ "(check \"keys-order\" (for-all [a: int b: int] (= (map-keys (map-put (map-put (map-empty) a 0) b 0)) (map-keys (map-put (map-put (map-empty) b 0) a 0)))))" ]) of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTPassed]
+    it "MI-7 neither builtin is reflected: a body mixing map-keys and map-get falls back whole" $ do
+      er <- emitFC (unlines
+        [ "(def-shell k [m: map[string, int]] -> int"
+        , "  (pre (map-has m \"a\"))"
+        , "  (post (>= result 0))"
+        , "  (+ (list-length (map-keys m)) (map-get m \"a\")))" ])
+      lookup "k" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+      er2 <- emitFC (unlines
+        [ "(def-shell ks [m: map[string, int]] -> list[string]"
+        , "  (post (>= (list-length result) 0))"
+        , "  (map-keys m))"
+        , "(def-shell es [m: map[string, int]] -> list[(string, int)]"
+        , "  (post (>= (list-length result) 0))"
+        , "  (map-entries m))" ])
+      lookup "ks" (erFallbackConstructs er2) `shouldBe` Just ["app:map-keys"]
+      lookup "es" (erFallbackConstructs er2) `shouldBe` Just ["app:map-entries"]
+    it "MI-8 D2: no brief entry renders the int-only key, and the keys are k" $ do
+      let entryParams (FuncEntry _ ps _ _ _ _ _) = ps
+          entryRet    (FuncEntry _ _ r _ _ _ _) = r
+          es = arrayOpFuncEntries Map.empty [TMap TString TInt]
+          rendered = concatMap (\e -> entryRet e : map snd (entryParams e)) es
+      filter (T.isInfixOf "map[int") rendered `shouldBe` []
+      [ entryRet e | e <- es ] `shouldBe` ["bool", "v", "map[k,v]", "map[k,v]", "list[k]", "list[(k, v)]"]
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of

@@ -719,6 +719,14 @@ evalBuiltinApp cs fe fuel "list-sort-by" [xs, fn] = do
   ks   <- mapM ordKeyOf keys
   pure (listE (map snd (RP.list_sort_by (zip ks elts) fst)))
 evalBuiltinApp _ _ _ "list-reverse" [xs] = listE . RP.list_reverse <$> consToList xs
+-- MAP-ITER-1. The store-chain is made canonical (one entry per key, last
+-- writer wins) as a Data.Map keyed by 'OrdK', and the runtime's map_keys /
+-- map_entries list it. So two maps built in different orders list alike, the
+-- extensionality that map = has and that 'valueEq' cannot see on a chain.
+evalBuiltinApp _ _ _ "map-keys" [m] =
+  listE . map fromOrdK . RP.map_keys <$> mapChainToMap m
+evalBuiltinApp _ _ _ "map-entries" [m] =
+  listE . map snd . RP.map_entries <$> mapChainToMap m
 
 evalBuiltinApp _ _ _ _ _ = Nothing
 
@@ -738,6 +746,7 @@ modeledBuiltins = Set.fromList
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
   , "string-compare", "list-sort", "list-sort-by", "list-reverse"
+  , "map-keys", "map-entries"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"
@@ -823,6 +832,19 @@ mapChainHas (EApp "map-put" [inner, k', _]) k
   | k' == k   = True
   | otherwise = mapChainHas inner k
 mapChainHas _ _ = False
+
+-- | MAP-ITER-1: the chain as a Data.Map from the ordered key to the entry's
+-- (key, value) pair expression, so map-keys and map-entries read one
+-- structure. Built from the 'map-empty' base
+-- outward, so a later 'map-put' overwrites an earlier one. Nothing on a base
+-- that is not 'map-empty' (an unresolved map) or a key outside O.
+mapChainToMap :: Expr -> Maybe (Map OrdK Expr)
+mapChainToMap (EApp "map-empty" []) = Just Map.empty
+mapChainToMap (EApp "map-put" [inner, k, v]) = do
+  m  <- mapChainToMap inner
+  ok <- ordKeyOf k
+  pure (Map.insert ok (EPair k v) m)
+mapChainToMap _ = Nothing
 
 -- | Value at key 'k', last-writer-wins (outermost 'map-put' first). Nothing on
 -- an absent key or the 'map-empty' base — the 'map-has' precondition is

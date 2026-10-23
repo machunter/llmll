@@ -551,6 +551,14 @@ runtimePreamble =
   , "map_empty :: Map.Map k v"
   , "map_empty = Map.empty"
   , ""
+  -- MAP-ITER-1. Ascending key order: Map.keys and Map.toAscList walk the tree
+  -- in Ord order, which on Integer and String is the order on O.
+  , "map_keys :: Map.Map k v -> [k]"
+  , "map_keys = Map.keys"
+  , ""
+  , "map_entries :: Map.Map k v -> [(k, v)]"
+  , "map_entries = Map.toAscList"
+  , ""
   , "-- §13.6 String"
   , "string_length :: String -> Int"
   , "string_length = length"
@@ -3345,7 +3353,7 @@ hsPreambleNames =
   , "json_set", "list_append", "list_contains", "list_empty", "list_filter"
   , "list_fold", "list_head", "list_length", "list_map", "list_nth"
   , "list_prepend", "list_reverse", "list_sort", "list_sort_by", "list_tail"
-  , "map_empty", "map_get", "map_has", "map_put"
+  , "map_empty", "map_entries", "map_get", "map_has", "map_keys", "map_put"
   , "ok", "path_normalize", "proc_cwd", "proc_env", "proc_spec", "proc_stderr"
   , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
   , "range", "regex_find", "regex_find_all", "regex_match"
@@ -3795,6 +3803,9 @@ esResultForcers =
   , ("list-sort",          "llmll_uL llmll_uW")
   , ("list-sort-by",       "llmll_uL llmll_uW")
   , ("list-reverse",       "llmll_uL llmll_uW")
+  -- MAP-ITER-1.
+  , ("map-keys",           "llmll_uL llmll_uW")
+  , ("map-entries",        "llmll_uL llmll_uP")
   , ("list-head",          "llmll_uE llmll_uW")
   , ("list-tail",          "llmll_uE llmll_uW")
   , ("list-nth",           "llmll_uE llmll_uW")

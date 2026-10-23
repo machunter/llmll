@@ -17,7 +17,7 @@
 -- (LLMLL.md §4.4.5). An evaluator that disagreed with the built program would
 -- write evidence about a program nobody runs.
 --
--- The imports use the preamble's qualified aliases (LRX, LChar, LFold, LList) so the
+-- The imports use the preamble's qualified aliases (LRX, LChar, LFold, LList, Map) so the
 -- region is the preamble's text exactly. Leaf module: no LLMLL imports.
 module LLMLL.RuntimePure where
 
@@ -26,6 +26,7 @@ import qualified Text.Regex.TDFA as LRX
 import qualified Data.Char as LChar
 import qualified Data.Foldable as LFold
 import qualified Data.List as LList
+import qualified Data.Map.Strict as Map
 import Control.Exception (try, evaluate, SomeException)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified GHC.Arr as LArr
@@ -62,6 +63,12 @@ list_sort_by xs key = LList.sortOn key xs
 
 list_reverse :: [a] -> [a]
 list_reverse = reverse
+
+map_keys :: Map.Map k v -> [k]
+map_keys = Map.keys
+
+map_entries :: Map.Map k v -> [(k, v)]
+map_entries = Map.toAscList
 
 string_contains :: String -> String -> Bool
 string_contains haystack needle = any (needle `isPrefixOf`) (tails haystack)

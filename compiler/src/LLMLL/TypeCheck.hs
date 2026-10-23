@@ -413,7 +413,7 @@ builtinEnv = Map.fromList $
   , ("sha1",               TFn [TBytes 20] (TBytes 20))
   -- §13.12 Bytes / map operations (Lever A stage A0).
   -- Typing is special-cased in inferArrayOp (a bytes[n] length is an Int, not
-  -- a type variable, and map keys carry the v1 int-only gate — neither is
+  -- a type variable, and map keys carry the {int,string} key gate — neither is
   -- expressible as a TVar signature). These entries serve name-membership
   -- (callee admissibility, brief/report vocabulary) and map-empty's fully
   -- generic constructor path. Verification-inert at this stage: none of these
@@ -427,6 +427,11 @@ builtinEnv = Map.fromList $
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
   , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
   , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
+  -- MAP-ITER-1 (docs/design/collect-order-1-proposal.md): typed by
+  -- inferArrayOp like the three above. Outside mapOpNames, so a body that
+  -- calls either falls back whole (never partly reflected).
+  , ("map-keys",     TFn [TMap (TVar "k") (TVar "v")] (TList (TVar "k")))
+  , ("map-entries",  TFn [TMap (TVar "k") (TVar "v")] (TList (TPair (TVar "k") (TVar "v"))))
   -- §13.13 JSON (JSON-1). Thirteen operations over a SEALED OPAQUE carrier.
   --
   -- 'Json' is TCustom jsonTypeName with NO builtinAliases entry, deliberately:
@@ -3035,7 +3040,7 @@ inferExpr (EApp func args) = do
          emitTrustGap func trusts (fmap erDisplayLevel (csPost cs))
   -- LEVER-A0: bytes/map builtins are typed by inferArrayOp, ahead of the
   -- generic builtinEnv path — a bytes[n] length is an Int (not a TVar) and
-  -- map ops carry the v1 int-only key gate, neither expressible as a
+  -- map ops carry the {int,string} key gate, neither expressible as a
   -- polymorphic signature. map-empty is NOT intercepted: its
   -- TFn [] (TMap k v) entry types fully generically (list-empty precedent).
   if func `elem` arrayOpNames
@@ -3519,12 +3524,12 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 arrayOpNames :: [Name]
 arrayOpNames =
   [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
-  , "map-has", "map-get", "map-put" ]
+  , "map-has", "map-get", "map-put", "map-keys", "map-entries" ]
 
 -- | LEVER-A0: dedicated typing for the array/map operation family (proposal
 -- data-scope-lever-a-arrays-proposal.md §3). Enforces:
 --   * first-argument structure (bytes[n] / map[k,v], alias-expanded);
---   * the v1 int-only map-key gate (F2 disposition) — a diagnostic on the
+--   * the map-key gate, {int,string} since A2.2-string (F2 disposition) — a diagnostic on the
 --     OPERATION, the type former stays unrestricted;
 --   * bytes-set's length-preserving result type (bytes[n] in, bytes[n] out);
 --   * bytes-zero's determining-context rule — v1 admits it only as the full
@@ -3563,6 +3568,16 @@ inferArrayOp func args = case func of
     checkArity 2
     (_, vt) <- mapArgAndKey
     pure vt
+  -- MAP-ITER-1: ascending key order, by the order on the key class (int,
+  -- string), so two = maps list alike. The key gate is mapArg's.
+  "map-keys" -> do
+    checkArity 1
+    (kt, _) <- mapArg
+    pure (TList kt)
+  "map-entries" -> do
+    checkArity 1
+    (kt, vt) <- mapArg
+    pure (TList (TPair kt vt))
   "map-put" -> do
     checkArity 3
     (kt, vt) <- mapArgAndKey
@@ -3605,9 +3620,11 @@ inferArrayOp func args = case func of
     -- {int} to {int, string} — string keys reflect via the STRLIT interned
     -- constants + ground distinctness (Lever A §3 v1.5, delivered); other key
     -- sorts stay deferred.
-    mapArgAndKey = do
+    -- MAP-ITER-1: the first-argument half, shared by map-keys and
+    -- map-entries, which take no key argument.
+    mapArg = do
       t <- argAt 0
-      (kt, vt) <- case t of
+      case t of
         TMap kt vt -> do
           ktE <- expandAlias kt
           case ktE of
@@ -3623,6 +3640,8 @@ inferArrayOp func args = case func of
           tcError $ "function '" <> func <> "' expects map[k,v] as argument 1, got "
                     <> typeLabel other
           pure (TVar "?", TVar "?")
+    mapArgAndKey = do
+      (kt, vt) <- mapArg
       kArgTy <- argAt 1
       case kt of
         TInt -> do

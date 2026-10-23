@@ -1185,7 +1185,7 @@ bodyUnfilled body = any (isUnfilled . holeKind) (collectHolesExprPath "" "" body
     isUnfilled HProofRequired{} = False
     isUnfilled _                = True
 
--- | LEVER-A3 (proposal §10 A3 row): the eight bytes/map builtins as brief
+-- | LEVER-A3 (proposal §10 A3 row): the bytes/map builtins as brief
 -- vocabulary, listed only when a bytes/map type is visible at the hole
 -- (alias-resolved in-scope binding types) — a hole with no array types in
 -- reach gets no array noise, so every pre-A3 brief is unchanged. Entries carry
@@ -1225,12 +1225,17 @@ arrayOpFuncEntries aliasMap scopeTys =
            (Just "(and (>= p1 0) (< p1 (bytes-length p0)) (>= p2 0) (<= p2 255))")
       , mk "bytes-zero"   [] "bytes[n]" Nothing
       ]
+    -- The key k is int or string (A2.2-string; LLMLL.md §13.12). The entries
+    -- rendered map[int,v] until COLLECT-ORDER-1's D2, after string keys shipped.
     mapEntries =
-      [ mk "map-has"   ["map[int,v]", "int"] "bool" Nothing
-      , mk "map-get"   ["map[int,v]", "int"] "v"
+      [ mk "map-has"     ["map[k,v]", "k"] "bool" Nothing
+      , mk "map-get"     ["map[k,v]", "k"] "v"
            (Just "(map-has p0 p1)")
-      , mk "map-put"   ["map[int,v]", "int", "v"] "map[int,v]" Nothing
-      , mk "map-empty" [] "map[k,v]" Nothing
+      , mk "map-put"     ["map[k,v]", "k", "v"] "map[k,v]" Nothing
+      , mk "map-empty"   [] "map[k,v]" Nothing
+      -- MAP-ITER-1: ascending key order.
+      , mk "map-keys"    ["map[k,v]"] "list[k]" Nothing
+      , mk "map-entries" ["map[k,v]"] "list[(k, v)]" Nothing
       ]
 
 -- | Render ScopeSource as JSON-friendly text.

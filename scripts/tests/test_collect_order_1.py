@@ -120,3 +120,19 @@ def test_ls_sortby_is_stable(exe, tmp_path):
 def test_ls_reverse(exe, tmp_path):
     corpus = _words(50, seed=16) + ["x"]
     assert _run(exe, tmp_path, "rev", corpus) == list(reversed(corpus))
+
+
+# --- MAP-ITER-1: map-keys, map-entries ---------------------------------------
+
+def test_mi_keys_are_ascending_and_distinct(exe, tmp_path):
+    corpus = [w for w in _words(400, seed=17) if "=" not in w]
+    assert _run(exe, tmp_path, "keys", corpus) == sorted(set(corpus))
+
+
+def test_mi_entries_are_the_word_count_in_key_order(exe, tmp_path):
+    corpus = [w for w in _words(400, seed=18) if "=" not in w]
+    counts: dict[str, int] = {}
+    for w in corpus:
+        counts[w] = counts.get(w, 0) + 1
+    want = [f"{k}={counts[k]}" for k in sorted(counts)]
+    assert _run(exe, tmp_path, "entries", corpus) == want
