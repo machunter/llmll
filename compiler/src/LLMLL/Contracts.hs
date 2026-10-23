@@ -676,6 +676,9 @@ evalBuiltinApp _ _ _ "string-trim"    [s] = strE . RP.string_trim    <$> strV s
 evalBuiltinApp _ _ _ "string-lower"   [s] = strE . RP.string_lower   <$> strV s
 evalBuiltinApp _ _ _ "string-upper"   [s] = strE . RP.string_upper   <$> strV s
 evalBuiltinApp _ _ _ "path-normalize" [s] = strE . RP.path_normalize <$> strV s
+-- STR-ORDER-1.
+evalBuiltinApp _ _ _ "string-compare" [a, b] =
+  ELit . LitInt <$> (RP.string_compare <$> strV a <*> strV b)
 evalBuiltinApp _ _ _ "string-to-int" [s] =
   eitherE (ELit . LitInt) . RP.string_to_int <$> strV s
 evalBuiltinApp _ _ _ "regex-match" [p, s] =
@@ -720,6 +723,7 @@ modeledBuiltins = Set.fromList
   , "string-split", "string-trim", "string-concat-many", "regex-match", "regex-find"
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
+  , "string-compare"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"

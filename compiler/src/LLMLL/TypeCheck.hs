@@ -162,6 +162,10 @@ builtinEnv = Map.fromList $
   , ("regex-spans",     TFn [TString, TString] (TList (TPair TInt TInt)))
   , ("string-lower",    TFn [TString] TString)
   , ("string-upper",    TFn [TString] TString)
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md). -1, 0 or 1 in
+  -- code-point order. `<` stays int-only: a string `<` would hand FixpointEmit
+  -- a QF-LIA operator at sort Str. Outside Sigma_auto: a caller falls back.
+  , ("string-compare",  TFn [TString, TString] TInt)
   -- PATH-NORM-1 (docs/design/g7-tooling-builtins-proposal.md section 1).
   -- Lexical POSIX normalization, pure and total. It reads no filesystem, so a
   -- symlink before a ".." is not resolved; the spec says so. Not a wasi. name

@@ -708,6 +708,15 @@ runtimePreamble =
   , "string_upper :: String -> String"
   , "string_upper = map LChar.toUpper"
   , ""
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md). Lexicographic by
+  -- code point: `compare` on String compares Chars, which are code points.
+  -- Equal to UTF-8 byte order on text with no lone surrogate.
+  , "string_compare :: String -> String -> Integer"
+  , "string_compare a b = case compare a b of"
+  , "  LT -> -1"
+  , "  EQ -> 0"
+  , "  GT -> 1"
+  , ""
   -- PATH-NORM-1. Lexical POSIX normalization (posixpath.normpath), with one
   -- stated difference: a leading "//" becomes "/". It never reads the
   -- filesystem, so "a/link/../c" is "a/c" whatever link points to.
@@ -3326,7 +3335,7 @@ hsPreambleNames =
   , "range", "regex_find", "regex_find_all", "regex_match"
   , "regex_spans", "seq_commands", "sha1_hash"
   , "string_char_at", "string_concat", "string_concat_many"
-  , "string_contains", "string_empty'", "string_length", "string_slice"
+  , "string_compare", "string_contains", "string_empty'", "string_length", "string_slice"
   , "string_lower", "string_split", "string_to_int", "string_trim"
   , "string_upper", "unwrap", "unwrap_or"
   , "wasi_clock_monotonic", "wasi_env_get", "wasi_fs_copy", "wasi_fs_delete"

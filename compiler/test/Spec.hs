@@ -18264,8 +18264,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- wasi.fs.list-kinds, wasi.proc.exec and the seven ProcSpec builders. All
       -- ten are hand-written preamble bodies, so all ten land in needsBinding:
       -- 78 -> 88.
-      Map.size builtinEnv      `shouldBe` 119
-      length needsBinding      `shouldBe` 88
+      -- 119 -> 120 with STR-ORDER-1's string-compare: a preamble body reached
+      -- by the generic emission, so it lands in needsBinding: 88 -> 89.
+      Map.size builtinEnv      `shouldBe` 120
+      length needsBinding      `shouldBe` 89
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -22341,6 +22343,55 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Just (code, out, err, _) -> do
           (out, err) `shouldBe` ("41 42 43", "")
           code `shouldBe` ExitSuccess
+
+  -- STR-ORDER-1 (docs/design/collect-order-1-proposal.md): string-compare,
+  -- -1 / 0 / 1 in code-point order, answered in the evaluator by the same
+  -- definition the generated program runs.
+  describe "STR-ORDER-1 string-compare" $ do
+    let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("STR-ORDER-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        ev   = evalExprStatic Map.empty
+        lstr = ELit . LitString . T.pack
+        norm s = T.unpack (T.pack s)
+        cmpE a b = ev (EApp "string-compare" [lstr a, lstr b])
+    it "SO-1 string-compare types as int, and a non-string argument is a mismatch" $ do
+      errs ["(def-shell c [a: string b: string] -> int (string-compare a b))"] `shouldBe` []
+      errs ["(def-shell c [a: int b: string] -> int (string-compare a b))"] `shouldSatisfy` (not . null)
+    it "SO-2 the evaluator answers string-compare with the runtime definition" $ property $ \a0 b0 ->
+      let (a, b) = (norm a0, norm b0)
+      in cmpE a b == Just (ELit (LitInt (RP.string_compare a b)))
+    it "SO-3 prefix, case and code-point witnesses (not collation, not UTF-16)" $ do
+      cmpE "" "a" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "ab" "abc" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "abc" "abc" `shouldBe` Just (ELit (LitInt 0))
+      cmpE "Z" "a" `shouldBe` Just (ELit (LitInt (-1)))
+      cmpE "\x00E9" "z" `shouldBe` Just (ELit (LitInt 1))
+      cmpE "\xFFFF" "\x10000" `shouldBe` Just (ELit (LitInt (-1)))
+    it "SO-4 the result is in {-1,0,1} and antisymmetric" $ property $ \a b ->
+      let r = RP.string_compare a b
+      in r `elem` [-1, 0, 1] && r == negate (RP.string_compare b a)
+    it "SO-5 the = law is evaluated by llmll test and passes (not PBTSkipped)" $ do
+      let src = T.unlines
+            [ "(check \"cmp-eq\" (for-all [a: string b: string] (= (= (string-compare a b) 0) (= a b))))"
+            , "(check \"cmp-refl\" (for-all [a: string] (= (string-compare a a) 0)))" ]
+      case parseStatements GrammarCoreInversion "<t>" src of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed]
+    it "SO-6 a top-level string-compare is builtin-redefinition" $
+      map fst (errs ["(def-shell string-compare [a: string b: string] -> int 0)"])
+        `shouldBe` [Just "builtin-redefinition"]
+    it "SO-7 codegen calls the preamble's string_compare" $ do
+      let lib = cgHsSource (generateHaskell "so" (parsed ["(def-shell c [a: string b: string] -> int (string-compare a b))"]))
+      lib `shouldSatisfy` T.isInfixOf "string_compare :: String -> String -> Integer"
+      lib `shouldSatisfy` T.isInfixOf "(string_compare (a) (b))"
+    it "SO-8 a lone surrogate (U+DC80, an undecodable byte) sorts by its code point, after U+00E9" $
+      RP.string_compare "\xDC80" "\x00E9" `shouldBe` 1
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of

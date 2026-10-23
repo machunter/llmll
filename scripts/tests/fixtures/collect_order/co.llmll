@@ -1,0 +1,49 @@
+;; COLLECT-ORDER-1, end-to-end fixture (scripts/tests/test_collect_order_1.py).
+;; Design: docs/design/collect-order-1-proposal.md Rev 0.
+;;
+;; A console program driven by ONE stdin line of tab-separated fields: a mode
+;; and a corpus file. Step 0 reads the file; step 1 prints the mode's answer
+;; over its lines and halts. The corpus arrives as a FILE the test writes, so
+;; this source holds no long list literal.
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.fs (capability read "/tmp" :deterministic false))
+(export)
+
+(def-shell field [parts: list[string] i: int] -> string
+  (unwrap-or (list-nth parts i) ""))
+
+(def-shell lines-of [text: string] -> list[string]
+  (string-split "\n" text))
+
+(def-shell join-lines [xs: list[string]] -> string
+  (list-fold xs "" (fn [acc: string x: string] (string-concat acc (string-concat x "\n")))))
+
+;; STR-ORDER-1: string-compare of each line with the next one.
+(def-shell cmp-adjacent [xs: list[string]] -> string
+  (join-lines
+    (list-map (range 0 (- (list-length xs) 1))
+      (fn [i: int] (int-to-string (string-compare (field xs i) (field xs (+ i 1))))))))
+
+(def-shell answer [mode: string text: string] -> string
+  (let [(xs (lines-of text))]
+    (if (= mode "cmp") (cmp-adjacent xs)
+        (string-concat "unknown mode " mode))))
+
+(def-shell step [s: (int, string) input: string r: Response] -> ((int, string), Command)
+  (if (= (first s) 0)
+      (pair (pair 1 input) (wasi.fs.read (field (string-split "\t" input) 1)))
+      (if (= (first s) 1)
+          (pair (pair 2 (second s))
+                (wasi.io.stdout
+                  (match r
+                    ((RText t) (answer (field (string-split "\t" (second s)) 0) t))
+                    ((RErr e)  (string-concat "RErr " e))
+                    (_         "unexpected response"))))
+          (pair (pair 3 (second s)) (wasi.io.stdout "")))))
+
+(def-shell done? [s: (int, string)] -> bool (>= (first s) 3))
+
+(def-main :mode console
+  :init (pair (pair 0 "") (wasi.io.stdout ""))
+  :step step
+  :done? done?)

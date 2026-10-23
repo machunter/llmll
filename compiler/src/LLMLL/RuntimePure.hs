@@ -200,6 +200,12 @@ string_lower = map LChar.toLower
 string_upper :: String -> String
 string_upper = map LChar.toUpper
 
+string_compare :: String -> String -> Integer
+string_compare a b = case compare a b of
+  LT -> -1
+  EQ -> 0
+  GT -> 1
+
 path_normalize :: String -> String
 path_normalize "" = "."
 path_normalize p =
