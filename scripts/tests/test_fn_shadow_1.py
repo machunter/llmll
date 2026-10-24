@@ -8,8 +8,7 @@ parameter.
 What a pass here means:
 
 * run.llmll (witness S1): the built program stops with "Postcondition violated
-  in g", and `verify` on the same file no longer reports g as proved. The two
-  agree.
+  in g", and `verify` on the same file refutes g (FN-PARAM-UF-1). The two agree.
 * main.llmll (witness S4): `check` refuses the def, naming `pick` as a
   parameter or local binder. shell.llmll: the def-shell form passes `check`
   with no trust-gap warning about pk.pick.
@@ -49,10 +48,12 @@ def test_s1_build_and_verify_agree(tmp_path):
     r = subprocess.run([exes[0]], input="x\n", capture_output=True, text=True, timeout=20)
     assert r.returncode != 0
     assert "Postcondition violated in g" in r.stdout + r.stderr
+    # FN-PARAM-UF-1 (R2): the call through the parameter is an opaque call, so
+    # g is body-faithful and its false post is refuted; verify exits 1. Under
+    # FN-SHADOW-1 alone g fell back; before either, it was proved.
     v = _run(["verify", "run.llmll"], tmp_path)
-    out = v.stdout + v.stderr
-    assert "body-fallback:" in out and " g" in out.split("body-fallback:")[1].splitlines()[0]
-    assert "body-faithful: pick" in out or "body-faithful: pick\n" in out
+    assert v.returncode == 1, v.stdout + v.stderr
+    assert "body verification of 'g' failed" in v.stdout + v.stderr
 
 
 def test_s4_admission_names_the_parameter_and_no_trust_gap(tmp_path):

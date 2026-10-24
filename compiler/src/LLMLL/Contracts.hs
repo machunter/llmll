@@ -457,8 +457,16 @@ evalC cs fe fuel env (ELet bindings body) = do
 -- denotes that binder, never the program function of the same name. Such a
 -- call does not reduce here, so the sample discards: the evaluator used to
 -- run the top-level function and gave a property false `tested` evidence.
-evalC _ _ _ env (EApp func _)
-  | func `Map.member` env = Nothing
+--
+-- PBT-FN-PARAM-1: a head bound to a closure value (a lambda, with its free
+-- variables already captured by the ELambda clause below) is applied to the
+-- evaluated arguments. Any other bound value does not reduce.
+evalC cs fe fuel env (EApp func args)
+  | Just bound <- Map.lookup func env = case bound of
+      lam@(ELambda _ _) -> do
+        argVals <- mapM (evalC cs fe fuel env) args
+        applyLambda cs fe (fuel - 1) lam argVals
+      _ -> Nothing
 evalC cs fe fuel env (EApp func args) = do
   argVals <- mapM (evalC cs fe fuel env) args
   case Map.lookup func fe of

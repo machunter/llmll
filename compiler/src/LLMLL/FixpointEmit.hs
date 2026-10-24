@@ -1090,7 +1090,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
   -- top-level call in a scope the binder does not reach loses its contract
   -- and falls back. Callers still see this function's own entry in
   -- 'cenvAll'.
-  let cenv = scopedContractEnv cenvAll params mBody
+  --
+  -- FN-PARAM-UF-1 (R2): a FUNCTION-TYPED parameter is added back as a callee
+  -- with its own signature and an EMPTY contract, so a call through it is
+  -- emitted exactly as a call to an uncontracted named function: a fresh,
+  -- unconstrained result binder at the return type's sort, hoisted by ANF,
+  -- with payload-subtyping as for any callee, and no pre or post. Nothing is
+  -- assumed about the function value, so the VC holds for every value bound
+  -- to the parameter. Only parameters: a let-, match- or lambda-bound
+  -- function value stays outside the fragment.
+  let cenv = Map.union (fnParamCallees aliases params) (scopedContractEnv cenvAll params mBody)
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
   -- function's own effective precondition, so the body VC assumes them
@@ -4062,6 +4071,17 @@ scopedContractEnv cenv params mBody =
   foldr Map.delete cenv
     (map fst params ++ maybe [] (Set.toList . localBinderNames) mBody)
 
+-- | FN-PARAM-UF-1 (R2): the opaque callee entry of each function-typed
+-- parameter: its parameter types (named @p$1 .. p$n@, never mentioned by a
+-- clause), an empty contract, and its return type.
+fnParamCallees :: AliasMap -> [(Name, Type)] -> ContractEnv
+fnParamCallees aliases params = Map.fromList
+  [ (p, ( [ (p <> "$" <> T.pack (show i), t) | (i, t) <- zip [1 :: Int ..] ts ]
+        , Contract Nothing Nothing Nothing Nothing Nothing [] []
+        , Just r ))
+  | (p, pt) <- params
+  , TFn ts r <- [resolveAliasTy aliases pt] ]
+
 -- | FN-SHADOW-1: every name bound anywhere inside an expression by a let, a
 -- match pattern, a lambda parameter or a do step.
 localBinderNames :: Expr -> Set.Set Name
@@ -4228,7 +4248,20 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
         translateCallArg a = do
           mvc <- bodyToPredM env se cenv _sccSet a
           return $ case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
-    mArgPredsList <- mapM translateCallArg args
+        -- FN-PARAM-UF-1 (R3): an argument in a FUNCTION-TYPED parameter
+        -- position is not translated (a variable, a named function and a
+        -- lambda are all accepted). No translated clause of the callee can
+        -- mention that parameter, so the argument needs no term; the slot
+        -- holds a placeholder that the substitution never reads, and
+        -- 'fnPosNames' below makes any clause that did mention it fall back.
+        calleeParamTys = case Map.lookup fname cenv of
+          Just (ps, _, _) -> map snd ps
+          Nothing         -> []
+        isFnTy t = case t of { TFn _ _ -> True; _ -> False }
+        translateArgAt (a, mt) = case mt of
+          Just t | isFnTy t -> return (Just FQTrue)
+          _                 -> translateCallArg a
+    mArgPredsList <- mapM translateArgAt (zip args (map Just calleeParamTys ++ repeat Nothing))
     let mArgPreds = sequence mArgPredsList
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
@@ -4298,12 +4331,18 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             calleeCompNames = Set.fromList $ concat
               [ [ p <> "$has", p <> "$val" ]
               | p <- "result" : paramNames ]
+            -- FN-PARAM-UF-1 (R3): the callee's function-typed parameters. A
+            -- clause that mentions one has no caller-side term for it.
+            fnPosNames = Set.fromList [ q | (q, qt) <- params, isFnTy qt ]
             uncoveredComps extraKeys p =
-              any (\v -> v `Set.member` calleeCompNames
-                      && not (v `Map.member` mapCompSubst)
-                      && not (v `Set.member` extraKeys))
+              any (\v -> (v `Set.member` calleeCompNames
+                          && not (v `Map.member` mapCompSubst)
+                          && not (v `Set.member` extraKeys))
+                       || v `Set.member` fnPosNames)
                   (predVars p)
-        let subst = Map.union mapCompSubst (Map.fromList (zip paramNames argPreds))
+        let subst = Map.union mapCompSubst
+                      (Map.fromList [ (q, a) | (q, a) <- zip paramNames argPreds
+                                             , not (q `Set.member` fnPosNames) ])
         -- Issue 1 resolution: three-way pre distinction (soundness-critical)
         --   callee has no pre        → no obligation, assumption valid
         --   callee has pre, translates → obligation emitted

@@ -91,7 +91,7 @@ import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotation
 import LLMLL.AstEmit (exprToJson)
 -- PARTIAL-FNS-GRAPH-1: 'partial_fns' reads the module-qualified graph, the
 -- same one 'termination_assumed_fns' reads ('LLMLL.ProgramGraph').
-import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, extractRefs)
+import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, extractRefs, unprovedEdges)
 import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.EvidenceKey (evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM
@@ -1296,12 +1296,18 @@ uncheckedCallPres :: ModuleCache -> [Statement] -> [Name] -> [(Name, Name)]
 uncheckedCallPres cache entryStmts faithful =
   [ (f, c)
   | f <- entryFns
-  , f `notElem` faithful
-  , c <- Map.findWithDefault [] f graph
+  -- FN-PARAM-UF-1 (R5): edges, not callers. A body-faithful caller still
+  -- reports the callees its body VC proves nothing for: a function passed as
+  -- a value and a call inside a lambda body ('unprovedEdges'). A caller that
+  -- fell back reports every edge, as before.
+  , c <- if f `elem` faithful
+           then Map.findWithDefault [] f unproved
+           else Map.findWithDefault [] f graph
   , c /= f
   , Map.member c reqs ]
   where
     graph    = qualifiedCallGraph cache entryStmts
+    unproved = unprovedEdges cache entryStmts
     reqs     = collectDeclaredRequires cache entryStmts
     entryFns = nub (mapMaybe fnName entryStmts)
     fnName (SLetrec n _ _ _ _ _) = Just n
