@@ -1,0 +1,36 @@
+;; AMBIG-TVAR-1 (docs/design/ambig-tvar-1-proposal.md): the build-and-run
+;; witnesses whose value §4.7 defines. Each body leaves a type that nothing
+;; fixes under Eq or Ord; before ExtendedDefaultRules every one of them passed
+;; `check` and failed GHC with "Ambiguous type variable".
+(import wasi.io (capability stdout :deterministic false))
+(export)
+
+(def-shell w1 [] -> int (list-length (list-sort (list-empty))))
+(def-shell w2 [] -> bool (= (list-empty) (list-empty)))
+(def-shell w6 [] -> bool (= (err "x") (err "x")))
+(def-shell w9 [] -> bool (!= [(list-empty)] [(list-empty)]))
+(def-shell w15 [] -> bool (= (map-empty) (map-empty)))
+;; A NON-EMPTY value whose error type nothing fixes.
+(def-shell w20 [] -> bool (= (ok 1) (ok 1)))
+
+(def-shell tf [b: bool] -> string (if b "t" "f"))
+
+;; Expected: "0 t t f t t".
+(def-shell answer [k: int] -> string
+  (string-concat-many [(int-to-string (w1)) " " (tf (w2)) " " (tf (w6)) " " (tf (w9))
+                       " " (tf (w15)) " " (tf (w20))]))
+
+;; Console harness: step 0 prints the answer, step 1 prints nothing, and the
+;; program halts at step 2. The harness does not perform the halting step's
+;; command, so the test feeds three stdin lines.
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (if (= s 0)
+      (pair 1 (wasi.io.stdout (answer 0)))
+      (pair 2 (wasi.io.stdout ""))))
+
+(def-shell done? [s: int] -> bool (>= s 2))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout ""))
+  :step step
+  :done? done?)

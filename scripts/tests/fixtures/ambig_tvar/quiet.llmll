@@ -1,0 +1,32 @@
+;; AMBIG-TVAR-1, quiet witnesses W8, W12 and W14: a type fixed at a distance.
+;; Each built before the change; no defaulting may happen at any of them.
+(import wasi.io (capability stdout :deterministic false))
+(export)
+
+;; W8: the declared return type fixes the element type.
+(def-shell w8 [] -> list[int] (list-sort (list-empty)))
+;; W12: a callee parameter fixes it.
+(def-shell g [xs: list[int]] -> list[int] xs)
+(def-shell w12 [] -> list[int] (g (list-sort (list-empty))))
+;; W14: the return type fixes it through a let.
+(def-shell w14 [] -> list[int] (let [(e (list-sort (list-empty)))] e))
+
+;; Expected: "0 0 0".
+(def-shell answer [k: int] -> string
+  (string-concat-many [(int-to-string (list-length (w8))) " " (int-to-string (list-length (w12)))
+                       " " (int-to-string (list-length (w14)))]))
+
+;; Console harness: step 0 prints the answer, step 1 prints nothing, and the
+;; program halts at step 2. The harness does not perform the halting step's
+;; command, so the test feeds three stdin lines.
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (if (= s 0)
+      (pair 1 (wasi.io.stdout (answer 0)))
+      (pair 2 (wasi.io.stdout ""))))
+
+(def-shell done? [s: int] -> bool (>= s 2))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout ""))
+  :step step
+  :done? done?)

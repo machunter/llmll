@@ -1,0 +1,24 @@
+;; AMBIG-TVAR-1, witness W3: a failing value of an unfixed type. The program
+;; builds and fails at run time with the message a fixed-type program gives,
+;; before list_contains sees the value.
+(import wasi.io (capability stdout :deterministic false))
+(export)
+
+(def-shell w3 [] -> bool (list-contains (list-empty) (unwrap (list-head (list-empty)))))
+
+(def-shell answer [k: int] -> string (if (w3) "t" "f"))
+
+;; Console harness: step 0 prints the answer, step 1 prints nothing, and the
+;; program halts at step 2. The harness does not perform the halting step's
+;; command, so the test feeds three stdin lines.
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (if (= s 0)
+      (pair 1 (wasi.io.stdout (answer 0)))
+      (pair 2 (wasi.io.stdout ""))))
+
+(def-shell done? [s: int] -> bool (>= s 2))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout ""))
+  :step step
+  :done? done?)

@@ -393,8 +393,10 @@ lookupAliasBare am n = case Map.lookup n am of
 -- ('LLMLL.CodegenHs.emitTypeDef' derives Eq and Show only), and because the
 -- spec, not constructor declaration order, defines the order. An opaque or
 -- unbound name (@Json@, @ProcSpec@, @Command@) has no body and is refused.
--- An unresolved 'TVar' (a hole, or an unconstrained @list-empty@) is lenient,
--- on the generic path's wildcard discipline.
+-- An unresolved 'TVar' (a hole, or an unconstrained @list-empty@) is accepted
+-- by design (AMBIG-TVAR-1, docs/design/ambig-tvar-1-proposal.md): no value of
+-- an unfixed type exists at run time, and codegen's ExtendedDefaultRules
+-- instantiates it at @()@, so its order is never observed.
 noOrdWitness :: AliasMap -> Type -> Maybe Type
 noOrdWitness am = go Set.empty
   where

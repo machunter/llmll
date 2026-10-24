@@ -1,0 +1,20 @@
+w8 :: () -> [Integer]
+w8 () =
+  (case (list_empty ) of { !llmll_sa0 -> (llmll_full (llmll_uL llmll_uW) (list_sort (llmll_sa0))) })
+
+
+g :: [Integer] -> [Integer]
+g xs =
+  xs
+
+
+w12 :: () -> [Integer]
+w12 () =
+  (case (case (list_empty ) of { !llmll_sa0 -> (llmll_full (llmll_uL llmll_uW) (list_sort (llmll_sa0))) }) of { !llmll_sa0 -> (g (llmll_sa0)) })
+
+
+w14 :: () -> [Integer]
+w14 () =
+  (case (case (list_empty ) of { !llmll_sa0 -> (llmll_full (llmll_uL llmll_uW) (list_sort (llmll_sa0))) }) of { !e -> e })
+
+
