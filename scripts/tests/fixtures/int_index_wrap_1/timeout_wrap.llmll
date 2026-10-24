@@ -1,0 +1,17 @@
+;; INT-INDEX-WRAP-1 witness 7 (D2): a timeout of 18446744073710 s no longer
+;; wraps to about 0.45 s, so /bin/sleep 1 completes (RCode 0) instead of
+;; answering RErr "... exceeded ...". The exit status reports which.
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.proc (capability run :deterministic false))
+(def-shell st [s: int r: Response] -> (int, Command)
+  (match r
+    ((RCode c) (pair (if (= c 0) 0 2) (wasi.io.stdout "")))
+    ((RErr e)  (pair 3 (wasi.io.stderr e)))
+    ((RNone)   (pair 4 (wasi.io.stdout "")))
+    ((RText t) (pair 4 (wasi.io.stdout "")))
+    ((RList l) (pair 4 (wasi.io.stdout "")))))
+(def-shell fin [s: int] -> bool true)
+(def-shell code [s: int] -> int s)
+(def-main :mode cli
+  :init (pair 9 (wasi.proc.run "/bin/sleep" ["1"] "." "/dev/null" "/dev/null" 18446744073710 "/dev/null"))
+  :step st :done? fin :status code)

@@ -47,10 +47,13 @@ llmll_uS = llmll_uL llmll_uW
 list_contains :: Eq a => [a] -> a -> Bool
 list_contains = flip elem
 
-list_nth :: [a] -> Int -> Either String a
+-- INT-INDEX-WRAP-1: the index is the unbounded int. It is compared first and
+-- narrowed only once it lies inside the list, where fromInteger is exact; a
+-- narrowing seam used to wrap 2^64 to 0. The message names the true index.
+list_nth :: [a] -> Integer -> Either String a
 list_nth xs i
-  | i < 0 || i >= length xs = Left ("list_nth: index " ++ show i ++ " out of range")
-  | otherwise               = Right (xs !! i)
+  | i < 0 || i >= toInteger (length xs) = Left ("list_nth: index " ++ show i ++ " out of range")
+  | otherwise                           = Right (xs !! fromInteger i)
 
 range :: Integer -> Integer -> [Integer]
 range from to = [from .. to - 1]
@@ -81,7 +84,7 @@ llmll_appendS :: [a] -> [a] -> [a]
 llmll_appendS [] b     = b
 llmll_appendS (c:cs) b = let r = llmll_appendS cs b in r `seq` (c : r)
 
-string_slice :: String -> Int -> Int -> String
+string_slice :: String -> Integer -> Integer -> String
 -- Out-of-range endpoints CLAMP, matching the out-of-range convention
 -- string_char_at already implements below (return the empty result rather
 -- than index off the end). `from` and `to` are each clamped into [0, n],
@@ -95,27 +98,33 @@ string_slice :: String -> Int -> Int -> String
 -- STR-INDEX-LINEAR-1: a window that starts at 32 or later reads the cached
 -- array of s (llmll_strIx below), so a scan of windows over one string is
 -- linear rather than quadratic. Same result as the list walk for every input.
+-- INT-INDEX-WRAP-1: both endpoints are unbounded ints and are clamped as
+-- Integers; only the clamped values, which lie in [0, n], are narrowed.
 string_slice s from to
   | max 0 from < 32 =
-      let n  = length s
+      let n  = toInteger (length s)
           lo = min n (max 0 from)
           hi = min n (max 0 to)
-      in if hi <= lo then "" else take (hi - lo) (drop lo s)
+      in if hi <= lo then "" else take (fromInteger (hi - lo)) (drop (fromInteger lo) s)
   | otherwise =
-      let (a, n) = llmll_strIx s
+      let (a, n0) = llmll_strIx s
+          n  = toInteger n0
           lo = min n (max 0 from)
           hi = min n (max 0 to)
-      in if hi <= lo then "" else [ a LArr.! k | k <- [lo .. hi - 1] ]
+      in if hi <= lo then "" else [ a LArr.! fromInteger k | k <- [lo .. hi - 1] ]
 
 -- STR-INDEX-LINEAR-1: an index below 32 walks the list, which costs i steps
 -- and allocates nothing; a larger index reads the cached array of s. The
 -- documented decomposition (list-map (range 0 n) (fn [i] (string-char-at s i)))
 -- was quadratic through `s !! i` and is linear now.
-string_char_at :: String -> Int -> String
+-- INT-INDEX-WRAP-1: the index is compared as an unbounded int before it is
+-- narrowed, so 2^64 + 2 answers "" rather than reading index 2.
+string_char_at :: String -> Integer -> String
 string_char_at s i
   | i < 0     = ""
-  | i < 32    = case drop i s of { (c:_) -> [c]; [] -> "" }
-  | otherwise = let (a, n) = llmll_strIx s in if i < n then [a LArr.! i] else ""
+  | i < 32    = case drop (fromInteger i) s of { (c:_) -> [c]; [] -> "" }
+  | otherwise = let (a, n) = llmll_strIx s
+                in if i < toInteger n then [a LArr.! fromInteger i] else ""
 
 -- STR-INDEX-LINEAR-1. A random-access copy of each of the last four strings
 -- indexed past 32, keyed by StableName. Equal StableNames are one heap object,
@@ -267,12 +276,12 @@ llmll_max = max
 -- STR-INDEX-LINEAR-1: the list-walk definitions the cached ones replaced. Not
 -- emitted; Spec.hs checks the emitted definitions against these with
 -- QuickCheck, so the cache cannot change an answer unnoticed.
-string_slice_ref :: String -> Int -> Int -> String
+string_slice_ref :: String -> Integer -> Integer -> String
 string_slice_ref s from to =
-  let n  = length s
+  let n  = toInteger (length s)
       lo = min n (max 0 from)
       hi = min n (max 0 to)
-  in if hi <= lo then "" else take (hi - lo) (drop lo s)
+  in if hi <= lo then "" else take (fromInteger (hi - lo)) (drop (fromInteger lo) s)
 
-string_char_at_ref :: String -> Int -> String
-string_char_at_ref s i = if i >= 0 && i < length s then [s !! i] else ""
+string_char_at_ref :: String -> Integer -> String
+string_char_at_ref s i = if i >= 0 && i < toInteger (length s) then [s !! fromInteger i] else ""

@@ -414,8 +414,13 @@ evalPropertyBodyWith ctors funcEnv env body =
 -- the signed, refinement-respecting generator; the unnamed "gen1" drew every
 -- int from 'NonNegative' and ignored refinements. Change it whenever the
 -- sample distribution changes in a way a passed property's evidence rests on.
+--
+-- The tag also names the EVALUATOR semantics a sample was judged under.
+-- "gen3" (INT-INDEX-WRAP-1): an index outside Int64 no longer wraps, in the
+-- built program or in the evaluator, and genInt draws such indices, so a
+-- `tested` record judged under gen2 can be false for the program as built now.
 pbtGeneratorTag :: Text
-pbtGeneratorTag = "gen2"
+pbtGeneratorTag = "gen3"
 
 -- | LLMLL.md §5.2: rejection sampling reports a generation failure after
 -- 10,000 attempts. An attempt is one base-type candidate tested against a

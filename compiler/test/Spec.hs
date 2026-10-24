@@ -8780,13 +8780,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "A0-7 codegen: Class-A seam for bytes ops; bytes-zero reads n from the declared return; shims in the preamble" $ do
         emitApp "bytes-get" [EVar "b", ELit (LitInt 3)]
           `shouldSatisfy` T.isInfixOf "bytes_get"
+        -- INT-INDEX-WRAP-1: the index is passed unnarrowed (it was `:: Int`).
         emitApp "bytes-get" [EVar "b", ELit (LitInt 3)]
-          `shouldSatisfy` T.isInfixOf ":: Int"
+          `shouldSatisfy` (not . T.isInfixOf "fromIntegral")
         let src = case parseStatements GrammarCoreInversion "test" (T.pack "(def-shell zeros8 [] -> bytes[8] (bytes-zero))") of
                     Left err -> error (show err)
                     Right stmts -> cgHsSource (generateHaskell "t" stmts)
         src `shouldSatisfy` T.isInfixOf "(bytes_zero 8)"
-        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: [Word8] -> Int -> Integer"
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: [Word8] -> Integer -> Integer"
         T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "map_get :: (Ord k, Show k) => Map.Map k v -> k -> v"
 
       it "A0-8 verification inertness: a body using array ops falls back (unreflected ops), never crashes emission" $ do
@@ -14434,17 +14435,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         in ev (EApp "string-contains" [lstr a, lstr b]) == Just (ELit (LitBool (RP.string_contains a b)))
            && ev (EApp "string-contains" [lstr (a ++ b), lstr b]) == Just (ELit (LitBool True))
 
-      it "string-slice matches the runtime, including the Int narrowing" $ property $ \s0 f t ->
+      it "string-slice matches the runtime on unbounded endpoints (INT-INDEX-WRAP-1: no narrowing)" $ property $ \s0 f t ->
         let s = norm s0
             big = [f, t, f + 2 ^ (64 :: Int), t - 2 ^ (64 :: Int)] :: [Integer]
         in and [ ev (EApp "string-slice" [lstr s, lint x, lint y])
-                   == Just (lstr (RP.string_slice s (fromIntegral x) (fromIntegral y)))
+                   == Just (lstr (RP.string_slice s x y))
                | x <- big, y <- big ]
 
-      it "string-char-at matches the runtime, including the Int narrowing" $ property $ \s0 i ->
+      it "string-char-at matches the runtime on an unbounded index (INT-INDEX-WRAP-1: no narrowing)" $ property $ \s0 i ->
         let s = norm s0
         in all (\x -> ev (EApp "string-char-at" [lstr s, lint x])
-                        == Just (lstr (RP.string_char_at s (fromIntegral x))))
+                        == Just (lstr (RP.string_char_at s x)))
                ([i, i + 2 ^ (64 :: Int), -1, 0] :: [Integer])
 
       it "string-split matches the runtime (separator first)" $ property $ \sep0 s0 ->
@@ -14503,7 +14504,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "list-nth matches the runtime, Success and Error" $ property $ \xs i ->
         all (\x -> ev (EApp "list-nth" [consOf (map lint xs), lint x])
-                     == Just (eitherOf id (RP.list_nth (map lint xs) (fromIntegral x))))
+                     == Just (eitherOf id (RP.list_nth (map lint xs) x)))
             ([i, -1, 0, fromIntegral (length xs)] :: [Integer])
 
       it "list-contains matches the runtime" $ property $ \xs x ->
@@ -14663,14 +14664,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed]
 
     describe "STR-INDEX-LINEAR-1 linear string indexing" $ do
-      let idxs s i = [i, -1, 0, 31, 32, 33, length s - 1, length s, length s + 1]
+      -- INT-INDEX-WRAP-1: indices are the unbounded int (Integer).
+      let idxs s i = let n = toInteger (length s) in [i, -1, 0, 31, 32, 33, n - 1, n, n + 1]
 
       it "string_char_at equals the list-walk reference" $ property $ \s i ->
         all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) (idxs s i)
 
       it "string_char_at equals the reference on long strings, every index" $ property $ \c k ->
         let s = take (40 + k `mod` 60) (cycle (c : "ab,\"\n"))
-        in all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) [-2 .. length s + 2]
+        in all (\x -> RP.string_char_at s x == RP.string_char_at_ref s x) [-2 .. toInteger (length s) + 2]
 
       it "string_slice equals the list-walk reference" $ property $ \s f t ->
         let s' = s ++ replicate 40 'x'
@@ -14693,7 +14695,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               let s = take n (cycle "abc,def\n\"x\"")
               _ <- CE.evaluate (length s)
               t0 <- getCurrentTime
-              _ <- CE.evaluate (sum [ fromEnum c | i <- [0 .. n - 1], c <- RP.string_char_at s i ])
+              _ <- CE.evaluate (sum [ fromEnum c | i <- [0 .. toInteger n - 1], c <- RP.string_char_at s i ])
               t1 <- getCurrentTime
               pure (realToFrac (diffUTCTime t1 t0) :: Double)
         _  <- decompose 2000
@@ -15581,21 +15583,20 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf ":: Integer" out `shouldBe` True
       T.isInfixOf "list_length" out `shouldBe` True
 
-    -- L6: Class A `list-nth` shim — index argument wrapped in
-    -- `fromIntegral _ :: Int` so `int`-typed (Integer) values down-cast to
-    -- the underlying Haskell `Int` parameter. Catalog §3.1 row 2.
-    it "L6 emitApp \"list-nth\" down-casts index arg to Int via fromIntegral" $ do
+    -- L6: Class A `list-nth`. INT-INDEX-WRAP-1 retargeted this: the index
+    -- used to be wrapped in `fromIntegral _ :: Int`, which wrapped 2^64 to 0.
+    -- It is now passed as the unbounded Integer, and list_nth compares it.
+    it "L6 emitApp \"list-nth\" passes the index unnarrowed (INT-INDEX-WRAP-1)" $ do
       let out = emitExpr (EApp "list-nth" [EVar "xs", EVar "i"])
       T.isInfixOf "list_nth" out `shouldBe` True
-      T.isInfixOf "fromIntegral" out `shouldBe` True
-      T.isInfixOf ":: Int" out `shouldBe` True
+      T.isInfixOf "fromIntegral" out `shouldBe` False
+      T.isInfixOf ":: Int" out `shouldBe` False
 
-    -- L7: Class A `string-slice` — both endpoint arguments down-cast.
-    -- Catalog §3.1 row 4.
-    it "L7 emitApp \"string-slice\" down-casts both endpoint args" $ do
+    -- L7: Class A `string-slice`. INT-INDEX-WRAP-1 retargeted this: neither
+    -- endpoint is down-cast any more; string_slice clamps the Integers.
+    it "L7 emitApp \"string-slice\" passes both endpoints unnarrowed (INT-INDEX-WRAP-1)" $ do
       let out = emitExpr (EApp "string-slice" [EVar "s", EVar "f", EVar "t"])
-      -- Both `f` and `t` must appear under fromIntegral.
-      T.count "fromIntegral" out `shouldBe` 2
+      T.count "fromIntegral" out `shouldBe` 0
       T.isInfixOf "string_slice" out `shouldBe` True
 
     -- L8: Class B preamble — `range :: Integer -> Integer -> [Integer]`
@@ -17863,7 +17864,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- A budget overrun must arrive as a value the program can branch on.
     it "CP-14: wasi_proc_run bounds the wait and publishes RErr on overrun" $ do
       let p = T.unlines runtimePreamble
-      (T.isInfixOf "timeout (fromIntegral (secs * 1000000))" p) `shouldBe` True
+      -- INT-INDEX-WRAP-1 (D2): the microsecond count is clamped, not wrapped.
+      (T.isInfixOf "timeout (llmll_clampInt (secs * 1000000))" p) `shouldBe` True
       (T.isInfixOf "P.terminateProcess ph" p) `shouldBe` True
 
     -- Regression, from a MEASURED defect rather than a hypothetical. Built the
@@ -18308,11 +18310,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , emitApp n args /= generic n args
               , emitApp n args /= emitOp n args ]
 
-    it "twelve builtins lower through a hand-written emitApp equation" $
+    -- INT-INDEX-WRAP-1: bytes-get, bytes-set, list-nth, string-slice and
+    -- string-char-at lost their `fromIntegral _ :: Int` argument wrapper, so
+    -- their equations now emit exactly the generic form and leave this set.
+    it "seven builtins lower through a hand-written emitApp equation" $
       sort handWritten `shouldBe` sort
         [ "first", "second", "pair", "list-length", "string-length"
-        , "bytes-length", "bytes-get", "bytes-set", "list-nth"
-        , "string-slice", "string-char-at", "sha1" ]
+        , "bytes-length", "sha1" ]
 
     it "every hand-written emitApp equation is called by a build-smoke fixture" $ do
       let dir = "../scripts/build-smoke"
@@ -18860,7 +18864,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         , "    llmll_terminate :: Maybe Integer -> IO ()"
         , "    llmll_terminate Nothing  = exitWith (ExitFailure 70)"
         , "    llmll_terminate (Just 0) = exitSuccess"
-        , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
+        , "    llmll_terminate (Just n) = maybe exitSuccess (exitWith . ExitFailure) (llmll_exitStatus n)"
         , "    loop s r logHandle seqRef = do"
         , "      eof <- hIsEOF stdin"
         , "      if eof then return Nothing else do"
@@ -18900,7 +18904,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         , "    llmll_terminate :: Maybe Integer -> IO ()"
         , "    llmll_terminate Nothing  = exitWith (ExitFailure 70)"
         , "    llmll_terminate (Just 0) = exitSuccess"
-        , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
+        , "    llmll_terminate (Just n) = maybe exitSuccess (exitWith . ExitFailure) (llmll_exitStatus n)"
         , "    loop s r logHandle seqRef = do"
         , "      eof <- hIsEOF stdin"
         , "      if eof then return Nothing else do"
@@ -22681,7 +22685,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let sj = norm s0
           spec p = let sp = RP.regex_spans p sj
                        pieces = zip (0 : map snd sp) (map fst sp ++ [fromIntegral (length sj)])
-                       slice (a, b) = RP.string_slice sj (fromIntegral a) (fromIntegral b)
+                       slice (a, b) = RP.string_slice sj a b
                    in intercalate "#" (map slice pieces)
       in and [ RP.regex_replace_all p sj "#" == spec p | p <- ["a", "[0-9]+", "x*", "b|bc"] ]
 
@@ -23333,6 +23337,150 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           failed o = case o of ReplayFailClosed _ -> True; _ -> False
       classifyReplayChecked True  (Just "sha256:H") meta RSafe art `shouldBe` ReplayReproduced RSafe
       classifyReplayChecked False (Just "sha256:H") meta RSafe art `shouldSatisfy` failed
+
+  -- -----------------------------------------------------------------------
+  -- INT-INDEX-WRAP-1 (int-index-wrap-1-proposal Rev 0, D1-D3, D5): an int
+  -- argument is never narrowed by wrapping. Index arguments are compared as
+  -- unbounded Integers and narrowed only inside the collection; the process
+  -- timeout clamps; the exit status is decided on the Integer.
+  -- -----------------------------------------------------------------------
+  describe "INT-INDEX-WRAP-1 unbounded index arguments" $ do
+    let p64 = 2 ^ (64 :: Int) :: Integer
+        p63 = 2 ^ (63 :: Int) :: Integer
+        lint = ELit . LitInt
+        lstr = ELit . LitString . T.pack
+        consOf = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        ev = evalExprStatic Map.empty
+        preambleBlock nm =
+          takeWhile (not . T.null) (dropWhile (not . T.isPrefixOf (nm <> " ::")) runtimePreamble)
+        runBlocks tag imports blocks mainLines = do
+          mrunghc <- findExecutable "runghc"
+          case mrunghc of
+            Nothing -> pure Nothing
+            Just runghcExe -> do
+              tmpRoot <- getTemporaryDirectory
+              let dir  = tmpRoot </> ("llmll-iiw-" ++ tag)
+                  path = dir </> "Probe.hs"
+              createDirectoryIfMissing True dir
+              TIO.writeFile path . T.unlines $
+                ["module Main where", ""] ++ imports ++ [""]
+                ++ concatMap (\b -> preambleBlock b ++ [""]) blocks
+                ++ ("main :: IO ()" : "main = do" : mainLines)
+              (code, out, err) <- readProcessWithExitCode runghcExe [path] ""
+              removeDirectoryRecursive dir
+              pure (Just (code, out, err))
+
+    it "IIW-1 list_nth at 2^64, 2^64 + 1 and -2^64 is Error naming the true index (witnesses 1, 2)" $ do
+      RP.list_nth [10, 20, 30 :: Integer] p64 `shouldBe` Left "list_nth: index 18446744073709551616 out of range"
+      RP.list_nth [10, 20, 30 :: Integer] (p64 + 1) `shouldSatisfy` either (const True) (const False)
+      RP.list_nth [10, 20, 30 :: Integer] (negate p64) `shouldSatisfy` either (const True) (const False)
+      RP.list_nth [10, 20, 30 :: Integer] 2 `shouldBe` Right 30
+
+    it "IIW-2 string_char_at at 2^64 + 2 and at +-2^64 is \"\" (witness 4)" $
+      forM_ [p64 + 2, p64, negate p64] $ \i -> RP.string_char_at "abc" i `shouldBe` ""
+
+    it "IIW-3 string_slice clamps unbounded endpoints (witness 5)" $ do
+      RP.string_slice "abc" p64 (p64 + 2)      `shouldBe` ""
+      RP.string_slice "abc" 0 (p64 - 1)        `shouldBe` "abc"
+      RP.string_slice "abc" 0 p63              `shouldBe` "abc"
+      RP.string_slice "abc" (negate p63 - 1) 2 `shouldBe` "ab"
+
+    it "IIW-4 the three runtime definitions equal the spec's out-of-range rules on +-2^66" $
+      let wide = oneof [choose (-5, 45), choose (negate (2 ^ (66 :: Int)), 2 ^ (66 :: Int))] :: Gen Integer
+          specNth xs i
+            | i >= 0 && i < toInteger (length xs) = Right (xs !! fromInteger i)
+            | otherwise = Left ("list_nth: index " ++ show i ++ " out of range")
+          specAt s i = if i >= 0 && i < toInteger (length s) then [s !! fromInteger i] else ""
+          specSlice s f t = let n = toInteger (length s)
+                                lo = min n (max 0 f); hi = min n (max 0 t)
+                            in [ c | (k, c) <- zip [0 ..] s, k >= lo, k < hi ]
+      in property $ forAll ((,,,) <$> listOf1 (elements "abcdefgh") <*> wide <*> wide <*> elements [3, 40 :: Int]) $
+           \(s0, i, j, pad) ->
+             let s = s0 ++ replicate pad 'z'
+             in RP.list_nth s i == specNth s i
+                && RP.string_char_at s i == specAt s i
+                && RP.string_slice s i j == specSlice s i j
+
+    it "IIW-5 the evaluator agrees with the runtime at 2^64" $ do
+      ev (EApp "list-nth" [consOf [lint 10, lint 20], lint p64])
+        `shouldBe` Just (EApp "Error" [lstr "list_nth: index 18446744073709551616 out of range"])
+      ev (EApp "string-char-at" [lstr "abc", lint (p64 + 2)]) `shouldBe` Just (lstr "")
+      ev (EApp "string-slice" [lstr "abc", lint 0, lint p63]) `shouldBe` Just (lstr "abc")
+
+    it "IIW-6 no index clause of emitApp narrows with fromIntegral" $
+      forM_ [ ("list-nth", 2), ("string-char-at", 2), ("string-slice", 3), ("bytes-get", 2), ("bytes-set", 3) ] $ \(f, k) ->
+        emitApp f [ EVar (T.pack ("a" ++ show n)) | n <- [1 .. k :: Int] ]
+          `shouldSatisfy` (not . T.isInfixOf "fromIntegral")
+
+    it "IIW-7 the STR-INDEX-LINEAR-1 cache path compares before it narrows" $ do
+      let s = replicate 40 'a' ++ "xyz"
+      RP.string_char_at s 41 `shouldBe` "y"                -- primes the cache
+      RP.string_char_at s p64 `shouldBe` ""
+      RP.string_char_at s (p64 + 41) `shouldBe` ""
+      RP.string_slice s (p64 + 33) (p64 + 40) `shouldBe` ""
+
+    it "IIW-8 bytes_get / bytes_set refuse an index outside the bytes (witness 6)" $ do
+      r <- runBlocks "bytes" ["import Data.Word (Word8)", "import Control.Exception (try, evaluate, ErrorCall(..))"]
+             ["bytes_get", "bytes_set"]
+             [ "  r1 <- try (evaluate (sum (bytes_set (replicate 4 0) (2 ^ (64 :: Int) + 1) 7)))"
+             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r1 :: Either ErrorCall Word8))"
+             , "  r2 <- try (evaluate (bytes_get (replicate 4 0) (2 ^ (64 :: Int))))"
+             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r2 :: Either ErrorCall Integer))"
+             , "  print (bytes_get (bytes_set (replicate 4 0) 1 7) 1)" ]
+      case r of
+        Nothing -> pendingWith "runghc not on PATH"
+        Just (code, out, err) -> do
+          (code, err) `shouldBe` (ExitSuccess, "")
+          lines out `shouldBe`
+            [ "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes[4]"
+            , "bytes-get: pre-condition failed: index 18446744073709551616 out of bounds for bytes[4]"
+            , "7" ]
+
+    it "IIW-9 D2: the process timeout clamps into Int instead of wrapping" $ do
+      any (T.isInfixOf "fromIntegral (secs * 1000000)") runtimePreamble `shouldBe` False
+      length (filter (T.isInfixOf "timeout (llmll_clampInt (secs * 1000000))") runtimePreamble) `shouldBe` 2
+      r <- runBlocks "clamp" [] ["llmll_clampInt"]
+             [ "  print (map llmll_clampInt [2 ^ (70 :: Int), negate (2 ^ (70 :: Int)), 5000000, 18446744073710 * 1000000])" ]
+      case r of
+        Nothing -> pendingWith "runghc not on PATH"
+        Just (_, out, _) -> lines out `shouldBe`
+          [ "[9223372036854775807,-9223372036854775808,5000000,9223372036854775807]" ]
+
+    it "IIW-10 D3: the exit status is decided on the Integer, in both harnesses" $ do
+      r <- runBlocks "exit" [] ["llmll_exitStatus"]
+             [ "  print (map llmll_exitStatus [0, 1, 255, 256, 300, -1, -127, -128, 2 ^ (64 :: Int), negate (2 ^ (64 :: Int))])" ]
+      case r of
+        Nothing -> pendingWith "runghc not on PATH"
+        Just (_, out, _) -> lines out `shouldBe`
+          [ "[Nothing,Just 1,Just 255,Just 255,Just 255,Just (-1),Just (-127),Just 255,Just 255,Just 255]" ]
+      let prog mode = T.unlines
+            [ "(import wasi.io (capability stdout))"
+            , "(def-shell st [s: int r: Response] -> (int, Command) (pair s (wasi.io.stdout \"x\")))"
+            , "(def-shell stc [s: int line: string r: Response] -> (int, Command) (pair s (wasi.io.stdout \"x\")))"
+            , "(def-shell fin [s: int] -> bool true)"
+            , "(def-shell code [s: int] -> int s)"
+            , if mode == ("cli" :: T.Text)
+                then "(def-main :mode cli :init (pair 0 (wasi.io.stdout \"x\")) :step st :done? fin :status code)"
+                else "(def-main :mode console :init (pair 0 (wasi.io.stdout \"x\")) :step stc)" ]
+      forM_ ["cli", "console"] $ \mode ->
+        case parseStatements GrammarCoreInversion "<t>" (prog mode) of
+          Left e -> expectationFailure (show e)
+          Right stmts -> do
+            let r' = generateHaskell "iiwexit" stmts
+                txt = maybe "" id (cgMainHs r') <> cgHsSource r'
+            (mode, T.isInfixOf "(llmll_exitStatus n)" txt) `shouldBe` (mode, True)
+            (mode, T.isInfixOf "ExitFailure (fromIntegral n)" txt) `shouldBe` (mode, False)
+
+    it "IIW-11 D5: pbtGeneratorTag is gen3, so a gen2 witness is no longer live" $ do
+      let body     = EOp ">=" [EVar "x", ELit (LitInt 0)]
+          prop     = Property "p" [("x", TInt)] body []
+          hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
+          tagged t = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (t <> ":" <> canonicalExpr body))))
+          live     = liveCheckHashes Map.empty [SCheck prop]
+      pbtGeneratorTag `shouldBe` "gen3"
+      canonicalPropBodyHash body `shouldBe` tagged "gen3"
+      Set.member (tagged "gen2") live `shouldBe` False
+      Set.member (tagged "gen3") live `shouldBe` True
 
   describe "FLOAT-LIT-1 float literals" $ do
     let sexp s = parseExpr "<t>" (T.pack s)

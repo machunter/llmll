@@ -762,9 +762,12 @@ strV :: Expr -> Maybe String
 strV (ELit (LitString t)) = Just (T.unpack t)
 strV _                    = Nothing
 
--- | The Class A seam: 'fromIntegral' to 'Int', as 'CodegenHs.emitApp' emits.
-intIx :: Expr -> Maybe Int
-intIx (ELit (LitInt n)) = Just (fromIntegral n)
+-- | An index argument as the runtime takes it. INT-INDEX-WRAP-1: the identity on
+-- the unbounded int, because the runtime definitions ('LLMLL.RuntimePure') now
+-- compare the Integer and narrow only inside the collection. It used to copy
+-- the codegen seam, 'fromIntegral' to 'Int', and wrap 2^64 to 0 as it did.
+intIx :: Expr -> Maybe Integer
+intIx (ELit (LitInt n)) = Just n
 intIx _                 = Nothing
 
 strE :: String -> Expr

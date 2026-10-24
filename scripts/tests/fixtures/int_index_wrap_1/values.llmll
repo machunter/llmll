@@ -1,0 +1,21 @@
+;; INT-INDEX-WRAP-1 witnesses 1, 4 and 5 (int-index-wrap-1-proposal Rev 0).
+;; Up to v0.31.0 an index outside Int64 was narrowed by wrapping: 2^64 read as
+;; 0. One line per cell, KEY=value.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell nth-tag [xs: list[int] i: int] -> string
+  (match (list-nth xs i) ((Success v) (int-to-string v)) ((Error e) "Error")))
+(def-shell ln [k: string v: string] -> string (string-concat-many [k "=" v "\n"]))
+(def-shell lines [] -> string
+  (string-concat-many
+    [(ln "NTH64" (nth-tag [10 20 30] 18446744073709551616))
+    (ln "NTH64P1" (nth-tag [10 20 30] 18446744073709551617))
+    (ln "NTHNEG" (nth-tag [10 20 30] -18446744073709551616))
+    (ln "NTH2" (nth-tag [10 20 30] 2))
+    (ln "AT" (string-concat-many ["<" (string-char-at "abc" 18446744073709551618) ">"]))
+    (ln "SL1" (string-concat-many ["<" (string-slice "abc" 18446744073709551616 18446744073709551618) ">"]))
+    (ln "SL2" (string-slice "abc" 0 18446744073709551615))
+    (ln "SL3" (string-slice "abc" 0 9223372036854775808))
+    (ln "SL4" (string-slice "abc" -9223372036854775809 2))]))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (lines)))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))
