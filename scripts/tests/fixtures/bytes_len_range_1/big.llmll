@@ -1,0 +1,9 @@
+;; @expect: parse-error
+;; BYTES-LEN-RANGE-1 witness (int-index-wrap-1-proposal D4). Up to v0.31.0 this
+;; verified SAFE with a false post: bytes[2^63] narrowed to bytes[-2^63], and
+;; the verifier held bytesLen = -2^63 beside bytesLen >= 0. The sidecar next to
+;; it was written by that compiler and records `verified` for mk; the test
+;; asserts no command reaches it now.
+(def mk [] -> bytes[9223372036854775808]
+  (post (= 1 2))
+  (bytes-zero))

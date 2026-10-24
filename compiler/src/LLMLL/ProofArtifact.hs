@@ -42,6 +42,7 @@ module LLMLL.ProofArtifact
     -- * Replay (fail-closed classification — the pure spine)
   , ReplayOutcome(..)
   , classifyReplay
+  , classifyReplayChecked
     -- * Constants
   , proofArtifactVersion
   , codegenSemanticsVersion
@@ -258,6 +259,21 @@ data ReplayOutcome
 -- mismatch; a determinism-input (solver build / options / limits) mismatch; an
 -- @unknown@/timeout re-run (a distinct non-verdict); or a verdict that does not
 -- reproduce. Only an exact match on every axis honors the recorded verdict.
+-- | BYTES-LEN-RANGE-1: 'classifyReplay' behind a gate on the named source. A
+-- replay re-runs the solver on the STORED VC, so it reproduces whatever that
+-- VC says. Before BYTES-LEN-RANGE-1 a bytes[2^63] program verified SAFE on a
+-- self-contradictory VC, and its artifact would replay SAFE forever: the
+-- source hash still matches. The caller reports whether the named source still
+-- passes `llmll check` under this binary; a source that does not is refused
+-- before any other axis is consulted.
+classifyReplayChecked
+  :: Bool           -- ^ the named source parses and type-checks under this binary
+  -> Maybe Text -> SolverMeta -> SolverResult -> ProofArtifact -> ReplayOutcome
+classifyReplayChecked sourceChecks recomputedHash curMeta rerun art
+  | not sourceChecks =
+      ReplayFailClosed "the named source no longer passes `llmll check` — the recorded verdict is about a program this compiler refuses"
+  | otherwise = classifyReplay recomputedHash curMeta rerun art
+
 classifyReplay
   :: Maybe Text     -- ^ source hash recomputed from the named source at replay time
   -> SolverMeta     -- ^ the solver metadata of the replay environment

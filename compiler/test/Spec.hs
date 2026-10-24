@@ -23268,6 +23268,72 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- literal patterns as errors, negative and zero float emission (D8, R1-1),
   -- and the Flt carrier sort (D3).
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- BYTES-LEN-RANGE-1 (int-index-wrap-1-proposal D4): a bytes[n] length
+  -- outside [0, 2^63 - 1] is refused in both front ends, kind
+  -- bytes-length-range. bytes[2^63] used to narrow to TBytes (-2^63), and the
+  -- verifier then held bytesLen = -2^63 beside bytesLen >= 0: a false SAFE.
+  -- -----------------------------------------------------------------------
+  describe "BYTES-LEN-RANGE-1 bytes length range" $ do
+    let progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left err -> diagKind (megaparsecToDiagnostic "<t>" err)
+          Right _  -> Nothing
+        progOk src = either (const Nothing) Just (parseStatements GrammarCoreInversion "<t>" (T.pack src))
+        isBLR = (== Just "bytes-length-range")
+        jdoc len = BLC.pack $
+          "{\"schemaVersion\":\"0.14.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"mk\",\"params\":[],"
+          ++ "\"return_type\":{\"kind\":\"bytes\",\"length\":" ++ len ++ "},"
+          ++ "\"body\":{\"kind\":\"app\",\"fn\":\"bytes-zero\",\"args\":[]}}]}"
+        jkind len = either diagKind (const Nothing) (parseJSONAST GrammarCoreInversion "<t>" (jdoc len))
+
+    it "BLR-1 the D4 witness bytes[9223372036854775808] is bytes-length-range" $
+      progKind "(def mk [] -> bytes[9223372036854775808] (post (= 1 2)) (bytes-zero))"
+        `shouldSatisfy` isBLR
+
+    it "BLR-2 bytes[18446744073709551619] is refused, no longer read as bytes[3]" $
+      progKind "(def mk [] -> bytes[18446744073709551619] (bytes-zero))" `shouldSatisfy` isBLR
+
+    it "BLR-3 the boundaries 9223372036854775807 and 0 are accepted, unnarrowed" $ do
+      fmap (map defReturn) (progOk "(def a [] -> bytes[9223372036854775807] (bytes-zero))")
+        `shouldBe` Just [Just (TBytes maxBound)]
+      fmap (map defReturn) (progOk "(def a [] -> bytes[0] (bytes-zero))")
+        `shouldBe` Just [Just (TBytes 0)]
+
+    it "BLR-4 the kind survives the alias, parameter, return and check-binding contexts" $
+      forM_ [ "(type B bytes[9223372036854775808])"
+            , "(def-shell f [b: bytes[9223372036854775808]] -> int 0)"
+            , "(def-shell f [] -> (int, bytes[9223372036854775808]) (pair 0 (bytes-zero)))"
+            , "(check \"c\" (for-all [b: bytes[9223372036854775808]] true))" ] $ \src ->
+        (src, progKind src) `shouldSatisfy` (isBLR . snd)
+
+    it "BLR-5 JSON \"length\": -1 is bytes-length-range (E011)" $ do
+      jkind "-1" `shouldSatisfy` isBLR
+      either diagCode (const Nothing) (parseJSONAST GrammarCoreInversion "<t>" (jdoc "-1")) `shouldBe` Just "E011"
+
+    it "BLR-6 JSON \"length\": 9223372036854775808 is bytes-length-range, not a generic decode error" $
+      jkind "9223372036854775808" `shouldSatisfy` isBLR
+
+    it "BLR-7 JSON \"length\": 2.5 is bytes-length-range" $
+      jkind "2.5" `shouldSatisfy` isBLR
+
+    it "BLR-8 control: bytes[7] still emits its constructor length and is untouched" $
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(def mk [] -> bytes[7] (post (= 1 2)) (bytes-zero))") of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- emitFixpointWith defaultEmitOptions { emitBodyVCs = True } "t.llmll" stmts
+          erFQText r `shouldSatisfy` T.isInfixOf "bytes_zero_0) = 7)"
+          erFQText r `shouldSatisfy` (not . T.isInfixOf "-9223372036854775808")
+
+    it "BLR-9 replay fails closed when the named source no longer passes check" $ do
+      let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          fr   = either (error . ("mkFnRecord: " ++) . show) id (mkFnRecord (FnInputs "mk" TVerified [] Nothing False Nothing))
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+                   "big.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                   RSafe "vc" Nothing [fr] Nothing
+          failed o = case o of ReplayFailClosed _ -> True; _ -> False
+      classifyReplayChecked True  (Just "sha256:H") meta RSafe art `shouldBe` ReplayReproduced RSafe
+      classifyReplayChecked False (Just "sha256:H") meta RSafe art `shouldSatisfy` failed
+
   describe "FLOAT-LIT-1 float literals" $ do
     let sexp s = parseExpr "<t>" (T.pack s)
         sexpLit s = case sexp s of

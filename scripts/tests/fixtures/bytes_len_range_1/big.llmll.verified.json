@@ -1,0 +1,1 @@
+{"axiom_disclosure_version":"1","builtin_axioms":{"mk":["bytes-zero"]},"caller_obligations":[],"checker_soundness_version":"3","mk":{"post":{"body_faithful":true,"display_level":{"level":"verified","prover":"liquid-fixpoint"},"verified_hash":"sha256:b8a4ebcf9e08b4231a5547dc22ffa8d8d78b7c735daae55ef6503b3d1180cbce"}}}

@@ -972,12 +972,23 @@ megaparsecToDiagnostic fp bundle =
                      ErrorFail m -> "float-literal-range:" `T.isPrefixOf` T.pack m
                      _           -> False) (Set.toList fs)
       isFloatRangeFail _ = False
+      -- BYTES-LEN-RANGE-1: a bytes[n] length outside [0, 2^63-1], refused the
+      -- same way (a delayed parse error whose message begins
+      -- "bytes-length-range:").
+      isBytesRange = any (hasFailPrefix "bytes-length-range:") (NE.toList (bundleErrors bundle))
+      hasFailPrefix pre (FancyError _ fs) =
+        any (\f -> case f of
+                     ErrorFail m -> pre `T.isPrefixOf` T.pack m
+                     _           -> False) (Set.toList fs)
+      hasFailPrefix _ _ = False
       suggestion
         | isHttpRetired = Nothing
         | isFloatRange  = Just "write a float literal whose value is finite and, unless it is zero, at least about 4.9e-324 in magnitude"
+        | isBytesRange  = Just "declare a bytes[n] length between 0 and 9223372036854775807"
         | otherwise     = Just "use def, def-shell, type, import, or check at the top level"
       kind
         | isFloatRange = Just "float-literal-range"
+        | isBytesRange = Just "bytes-length-range"
         | otherwise    = Nothing
   in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing) { diagKind = kind }
   where

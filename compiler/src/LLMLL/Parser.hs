@@ -649,11 +649,31 @@ pPairType = do
     t2 <- pType
     pure (TPair t1 t2)
 
+-- | BYTES-LEN-RANGE-1 (int-index-wrap-1-proposal D4). The length is read as an
+-- unbounded Integer and must lie in [0, 2^63 - 1] before it is narrowed to the
+-- Int that 'TBytes' carries. The narrowing used to come first, so
+-- bytes[9223372036854775808] became TBytes (-2^63): the verifier then held
+-- bytesLen(r) = -2^63 beside bytesLen(r) >= 0, and every goal discharged (a
+-- false `verified`). bytes[2^64 + 3] read as bytes[3].
+--
+-- A length out of range is REGISTERED as a delayed parse error (the
+-- FLOAT-LIT-1 mechanism), so an enclosing 'try' cannot swallow it, and parsing
+-- continues with bytes[0]. The message begins "bytes-length-range:", which
+-- 'LLMLL.Diagnostic.megaparsecToDiagnostic' turns into the diagnostic kind.
+-- 'pIntLit' reads no sign, so only the upper bound can fail here.
 pBytesType :: Parser Type
 pBytesType = do
   _ <- symbol "bytes"
+  o <- getOffset
   n <- brackets pIntLit
-  pure $ TBytes (fromIntegral n)
+  if not (bytesLengthInRange n)
+    then do
+      end <- getOffset
+      setOffset o
+      registerFancyFailure (Set.singleton (ErrorFail (T.unpack (bytesLengthRangeMessage (T.pack (show n))))))
+      setOffset end
+      pure (TBytes 0)
+    else pure (TBytes (fromInteger n))
 
 pListType :: Parser Type
 pListType = do

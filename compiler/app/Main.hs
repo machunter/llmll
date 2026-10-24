@@ -438,7 +438,7 @@ main = do
     CmdHubScaffold tmpl mOut      -> doHubScaffold json gm tmpl mOut
     CmdHubQuery sig               -> doHubQuery json GrammarLegacy sig
     CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa
-    CmdReplayArtifact af -> doReplayArtifact json af
+    CmdReplayArtifact af -> doReplayArtifact json gm af
     CmdTrustReport fp             -> doTrustReport json gm fp
     CmdSpecCoverage fp            -> doSpecCoverage json gm fp
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
@@ -3452,8 +3452,8 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
     tierOf (Just DLAsserted)            = TAsserted
 
 -- | Re-derive + check a recorded artifact, fail-closed (§4.3).
-doReplayArtifact :: Bool -> FilePath -> IO ()
-doReplayArtifact _json artFp = do
+doReplayArtifact :: Bool -> GrammarMode -> FilePath -> IO ()
+doReplayArtifact json gm artFp = do
   exists <- doesFileExist artFp
   if not exists
     then TIO.putStrLn ("ERROR: artifact not found: " <> T.pack artFp) >> exitWith (ExitFailure 2)
@@ -3466,6 +3466,21 @@ doReplayArtifact _json artFp = do
         Right art -> do
           srcExists  <- doesFileExist (T.unpack (paSourcePath art))
           recomputed <- if srcExists then Just <$> sourceHashOf (T.unpack (paSourcePath art)) else pure Nothing
+          -- BYTES-LEN-RANGE-1: the named source must still pass `check` under
+          -- this binary ('classifyReplayChecked'). A missing source already
+          -- fails closed on the hash axis, so only an existing one is checked.
+          -- The check runs before the solver: a refused source needs no replay.
+          srcChecks <- if srcExists
+            then do
+              mSrc <- loadStatementsMulti json gm (T.unpack (paSourcePath art))
+              pure $ case mSrc of
+                Left ()                 -> False
+                Right (stmts, cache, _) ->
+                  reportSuccess (fst (typeCheckWithCacheRet gm cache emptyEnv stmts))
+            else pure True
+          unless srcChecks $ do
+            TIO.putStrLn ("\x26d4 replay FAILED CLOSED: the named source no longer passes `llmll check` (" <> paSourcePath art <> ")")
+            exitWith (ExitFailure 1)
           mLF <- do a <- findExecutable "liquid-fixpoint"
                     maybe (findExecutable "fixpoint") (pure . Just) a
           case mLF of
@@ -3477,7 +3492,7 @@ doReplayArtifact _json artFp = do
               (_c, o, err) <- readProcessWithExitCode lfBin ["-q", "--json", tmp] ""
               let merged = T.pack o <> T.pack err
                   rerun  = fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
-              case classifyReplay recomputed meta rerun art of
+              case classifyReplayChecked srcChecks recomputed meta rerun art of
                 ReplayReproduced r ->
                   TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess
                 ReplayFailClosed reason ->
