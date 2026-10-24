@@ -39,7 +39,7 @@ import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, posixFsPreamble, usesPosixFs, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgFfiModHs, cgFfiFiles, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, posixFsPreamble, usesPosixFs, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
@@ -22871,6 +22871,85 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        slice (a, b) = RP.string_slice sj a b
                    in intercalate "#" (map slice pieces)
       in and [ RP.regex_replace_all p sj "#" == spec p | p <- ["a", "[0-9]+", "x*", "b|bc"] ]
+
+  -- AMBIG-TVAR-1 (docs/design/ambig-tvar-1-proposal.md): every emitted module
+  -- carries ExtendedDefaultRules, and `check` does not change. The build-and-run
+  -- witnesses and the -Wtype-defaults gate are in scripts/tests/test_ambig_tvar_1.py.
+  describe "AMBIG-TVAR-1" $ do
+    let edr = "{-# LANGUAGE ExtendedDefaultRules #-}"
+        parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left err -> error ("AMBIG-TVAR-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errs src = [ (diagKind d, diagMessage d)
+                   | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsed src))
+                   , diagSeverity d == SevError ]
+        mainProg =
+          [ "(import wasi.io (capability stdout :deterministic false))"
+          , "(def-shell st [s: int input: string r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"\")))"
+          , "(def-shell fin [s: int] -> bool (>= s 1))"
+          , "(def-main :mode console :init (pair 0 (wasi.io.stdout \"\")) :step st :done? fin)" ]
+        countEdr t = length (filter (== edr) (T.lines t))
+        pragmaBefore m t = case break (== m) (T.lines t) of
+          (pre, _ : _) -> edr `elem` pre
+          _            -> False
+    it "AT-1 Lib.hs carries the pragma exactly once, before the module line" $ do
+      let lib = cgHsSource (generateHaskell "at" (parsed mainProg))
+      countEdr lib `shouldBe` 1
+      pragmaBefore "module Lib where" lib `shouldBe` True
+    it "AT-2 the Main.hs harness carries the pragma, before the module line" $
+      case cgMainHs (generateHaskell "at" (parsed mainProg)) of
+        Nothing -> expectationFailure "no Main.hs for a def-main program"
+        Just m  -> do
+          countEdr m `shouldBe` 1
+          pragmaBefore "module Main where" m `shouldBe` True
+    it "AT-3 the FFI re-export module and each C stub carry the pragma" $ do
+      let imp = SImport (ImportAt "c.mylib" (Just [("ping", TFn [TInt] TInt)]) Nothing Nothing)
+          cg  = generateHaskell "at" (imp : parsed mainProg)
+      fmap countEdr (cgFfiModHs cg) `shouldBe` Just 1
+      map (countEdr . snd) (cgFfiFiles cg) `shouldBe` [1]
+      map (pragmaBefore "module FFI.Mylib where" . snd) (cgFfiFiles cg) `shouldBe` [True]
+    it "AT-4 check is unchanged: every witness type-checks, and a list key stays order-undefined" $ do
+      let ws = [ "(def-shell w1 [] -> int (list-length (list-sort (list-empty))))"
+               , "(def-shell w2 [] -> bool (= (list-empty) (list-empty)))"
+               , "(def-shell w3 [] -> bool (list-contains (list-empty) (unwrap (list-head (list-empty)))))"
+               , "(def-shell w4 [] -> int (list-length (list-sort-by [1 2] (fn [x: int] (unwrap (list-head (list-empty)))))))"
+               , "(def-shell w5 [] -> int (list-length (map-keys (map-put (map-empty) (unwrap (list-head (list-empty))) 0))))"
+               , "(def-shell w6 [] -> bool (= (err \"x\") (err \"x\")))"
+               , "(def-shell w7 [] -> bool (= (pair (list-empty) 1) (pair (list-empty) 1)))"
+               , "(def-shell w9 [] -> bool (!= [(list-empty)] [(list-empty)]))"
+               , "(def-shell w10 [] -> bool (map-has (map-empty) (unwrap (list-head (list-empty)))))"
+               , "(def-shell w13 [] -> int (let [(e (list-empty))] (list-length (list-sort e))))"
+               , "(def-shell w15 [] -> bool (= (map-empty) (map-empty)))"
+               , "(def-shell w18 [] -> int (list-length (list-sort-by [1 2] (fn [x: int] (pair (unwrap (list-head (list-empty))) x)))))"
+               , "(def-shell w19 [] -> int (map-get (map-put (map-empty) (unwrap (list-head (list-empty))) 0) (unwrap (list-head (list-empty)))))"
+               , "(def-shell w20 [] -> bool (= (ok 1) (ok 1)))"
+               , "(def-shell w8 [] -> list[int] (list-sort (list-empty)))"
+               , "(def-shell g [xs: list[int]] -> list[int] xs)"
+               , "(def-shell w12 [] -> list[int] (g (list-sort (list-empty))))"
+               , "(def-shell w14 [] -> list[int] (let [(e (list-sort (list-empty)))] e))"
+               , "(def-shell eq [x y] (= x y))"
+               , "(def-shell w16 [] -> bool (eq 1 1))" ]
+      errs ws `shouldBe` []
+      map fst (errs ["(def-shell k [] -> int (list-length (list-sort-by (list-empty) (fn [x: int] (list-empty)))))"])
+        `shouldBe` [Just "order-undefined"]
+    it "AT-5 the quiet witnesses' user definitions are byte-identical to the pre-change emission" $ do
+      src      <- TIO.readFile "../scripts/tests/fixtures/ambig_tvar/quiet.llmll"
+      expected <- TIO.readFile "test/fixtures/ambig-tvar/quiet-user-defs.expected"
+      case parseStatements GrammarCoreInversion "quiet.llmll" src of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          let ls      = T.lines (cgHsSource (generateHaskell "quiet" stmts))
+              section = takeWhile (not . T.isPrefixOf "answer ::") (dropWhile (not . T.isPrefixOf "w8 ::") ls)
+          section `shouldSatisfy` (not . null)
+          section `shouldBe` T.lines expected
+    it "AT-6 the PBT evaluator gives the section 4.7 values (parity before and after)" $
+      case parseStatements GrammarCoreInversion "<t>" (T.unlines
+             [ "(check \"w1\" (for-all [x: int] (= (list-length (list-sort (list-empty))) 0)))"
+             , "(check \"w2\" (for-all [x: int] (= (list-empty) (list-empty))))" ]) of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTPassed]
 
   describe "CTOR-FN-FIELD-1" $ do
     let parsed src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
