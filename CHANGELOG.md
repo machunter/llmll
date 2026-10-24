@@ -32,6 +32,63 @@ decisions R1-1 to R1-3.
 - The verifier gives a `float` payload an opaque `Flt` sort instead of `int`; no verification
   condition and no version stamp changes.
 
+### `BYTES-LEN-RANGE-1`: a `bytes[n]` length outside `Int64` is refused (soundness)
+
+- **A false `verified` is closed.** `bytes[9223372036854775808]` wrapped to a negative length, and
+  JSON `"length": -1` was accepted; the `bytes-zero` axiom then contradicted `bytesLen(b) ≥ 0`, so
+  `(def mk [] -> bytes[9223372036854775808] (post (= 1 2)) (bytes-zero))` verified SAFE with any
+  post. `bytes[2⁶⁴+3]` read as `bytes[3]`. A length outside `0..9223372036854775807` is now the
+  parse-phase error **`bytes-length-range`** in both front ends.
+- **Proof artifacts made before this fix may replay a false SAFE.** `llmll replay-artifact` now
+  fails closed when its source no longer passes `check`. A `.verified.json` from such a source is
+  unreachable, because every reader parses the source first; a legal-length edit changes the
+  evidence key.
+
+### `INT-INDEX-WRAP-1`: an `int` is never narrowed by wrapping
+
+- **Indices are compared as unbounded `int`.** `list-nth`, `string-char-at`, `string-slice`,
+  `bytes-get` and `bytes-set` narrowed an index with `fromIntegral`, so `(list-nth xs 2⁶⁴)` answered
+  `Success` with the first element. An index outside the collection, including one outside
+  `Int64`, now gets the out-of-range answer: `Error`, `""`, the slice clamp, or the `bytes-*`
+  precondition failure.
+- **Process timeouts clamp** to about 292,000 years instead of wrapping (`18446744073710` s became
+  0.45 s).
+- **A `:status` above 255 or below −127 exits 255.** `2⁶⁴` crashed the harness with `exitWith:
+  invalid argument` and exit 1.
+- **`tested` evidence is downgraded once.** The PBT generator tag is now `gen3`, because the
+  evaluator answers differently outside `Int64`: every `tested` record renders `asserted` until
+  `llmll test` runs again. `codegen_semantics_version` and `checker_soundness_version` are
+  unchanged.
+
+### `BYTES-SET-PBT-PRE-1`: `llmll test` discards `bytes-set` samples outside the precondition
+
+- A sample with `i` outside `0 ≤ i < n`, `v` outside `0..255`, or an unknown base length is
+  discarded, as for `bytes-get` (`LLMLL.md` §4.4.5). A property whose every sample violated the
+  precondition passed and could earn `tested`; it is now skipped.
+
+### `SIGMA-CONST-ARITH-1`: multiplication by a constant, and `/` and `mod` by a positive constant, verify
+
+- `(* c e)` and `(* e c)` with a ground constant of any sign, and `(/ e c)` and `(mod e c)` with a
+  ground constant `> 0`, now translate to QF-LIA in `def` and `def-shell` bodies, contracts and
+  `if` guards; ground constants fold with Haskell `div` and `mod`. `(post (= result (* 8 r)))`,
+  `(mod x 8)` and `(+ (* 256 hi) lo)` were refused as `nonlinear:` and assumed; they now prove or
+  refute. An S-expression `def` using an admitted `*` or `/` passes `check`; it was a core-grammar
+  error.
+- **Still refused**, labels unchanged: a product of two non-constants, a divisor that is not a
+  positive ground constant, a `let`-bound constant, `rem`, `^` and `**`. The advisory
+  `non-linear-contract` hole fires only on refused forms.
+- `checker_soundness_version` stays `"3"`: an emission comparison over the corpus changed 3 `.fq`
+  files and added 1, all with a newly admitted term.
+
+### `AMBIG-TVAR-1`: a type nothing fixes builds
+
+- **Programs that failed GHC with `Ambiguous type variable` now build.** A type that nothing fixes
+  under `Eq`, `Ord` or `Show`, such as the element type of a sorted or compared `(list-empty)`,
+  is instantiated at `()`: every generated module enables `ExtendedDefaultRules`. Such programs
+  build with their `LLMLL.md` §4.7 value; `(= (list-empty) (list-empty))` is `true`.
+- **No program that built before changes:** a 47-program gate gives identical `-Wtype-defaults`
+  warnings with and without the pragma. `check` is unchanged.
+
 ### Documentation
 
 - **Closed** `FLOAT-LIT-1`. **Filed** `JSON-INT-UNBOUNDED-1` (G3, PLAN after a bound is decided: a
@@ -42,8 +99,16 @@ decisions R1-1 to R1-3.
   INT, the rounding and range rules, and the literal-pattern type rule; §3.1 states that `float`
   has literals and `=` only until `FLOAT-OPS-1`; the hub schema cite is 0.14.0.
   **`getting-started.md`:** the schema-version note and two examples move to 0.14.0.
+- **Closed** `BYTES-LEN-RANGE-1`, `INT-INDEX-WRAP-1`, `BYTES-SET-PBT-PRE-1`, `SIGMA-CONST-ARITH-1`,
+  `AMBIG-TVAR-1` and `EXIT-STATUS-DOC-1`. **Filed** `PBT-NOREDUCE-PASS-1`, `PBT-FN-PARAM-1` and
+  `FN-PARAM-UF-1` (G1), and `MOD-SPELLING-1`, `NEWTYPE-MATCH-1` and `CORE-SYNTAX-MSG-1` (G3).
+- **`LLMLL.md`:** §9.5 states the measured exit rule (it said 300 truncates to 44 and 256 exits 0;
+  both exit 255); §4.7 "Types that nothing fixes"; §5.3.3 and §5.3.5 the admitted constant
+  arithmetic; §13.1 the floor rounding of `/` and `mod`; §13.6 the Class A index rule; §13.9 the
+  timeout bound; §3.2 and §13.12 `bytes-length-range`; §4.4.5 the `bytes-set` discard and the
+  `gen3` tag.
 
-**Tests:** hspec 2642 → 2681, 0 failures; Python 594 passed, 5 skipped (589 at v0.31.0).
+**Tests:** hspec 2642 → 2736, 0 failures; Python 589 → 602 passed, 5 skipped (2681 and 594 after `FLOAT-LIT-1`).
 
 <a id="Latest"></a>
 
