@@ -1,0 +1,24 @@
+;; FLOAT-LIT-1: negative and zero float literals, in expressions and in
+;; patterns, built and run. float has no printing until FLOAT-OPS-1, so each
+;; cell answers through = or a literal pattern. One line per cell, KEY=value.
+(import wasi.io (capability stdout :deterministic false))
+(type Box (| Box float) (| Empty))
+(def-shell neg [] -> float -0.5)
+(def-shell nzero [] -> float -0.0)
+(def-shell big [] -> float -1.25e3)
+(def-shell yn [x: bool] -> string (if x "yes" "no"))
+(def-shell box-kind [b: Box] -> string
+  (match b ((Box -0.5) "neg-half") ((Box 0.0) "zero") ((Box _) "other") ((Empty) "empty")))
+(def-shell float-kind [x: float] -> string
+  (match x (-1250.0 "minus-1250") (0.0 "zero") (_ "other")))
+(def-shell ln [k: string v: string] -> string (string-concat-many [k "=" v "\n"]))
+(def-shell lines [] -> string
+  (string-concat-many
+    [(ln "NEG" (yn (= (neg) -0.5)))
+    (ln "PAT" (box-kind (Box (neg))))
+    (ln "ZERO" (box-kind (Box (nzero))))
+    (ln "EXP" (float-kind (big)))
+    (ln "Z2" (float-kind (nzero)))]))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (lines)))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

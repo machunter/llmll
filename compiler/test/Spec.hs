@@ -30,7 +30,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -118,7 +118,7 @@ import qualified LLMLL.RuntimePure as RP
 import qualified LLMLL.ProgramGraph as PG
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
-import Test.QuickCheck (property)
+import Test.QuickCheck (property, choose)
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -2008,17 +2008,18 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.13.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.14.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
       -- MODE-CLI-1 + MODE-HTTP-1: retargeted 0.11.0 -> 0.12.0 (def-main mode enum).
       -- AST-TYPE-ALIAS-1 + FFI-CONV-1: retargeted 0.12.0 -> 0.13.0 (alias bodies, boundary types).
+      -- FLOAT-LIT-1: retargeted 0.13.0 -> 0.14.0 (literal_kind on literal patterns).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.13.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.14.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -19675,10 +19676,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- makes the compiler emit a document it then refuses to read.
     -- MODE-CLI-1 + MODE-HTTP-1 moved the emitted stamp to 0.12.0; 0.11.0, the
     -- PROC-BOUNDARY-1 stamp, must still be read. AST-TYPE-ALIAS-1 + FFI-CONV-1
-    -- moved it to 0.13.0, and 0.12.0 must still be read.
+    -- moved it to 0.13.0, and 0.12.0 must still be read. FLOAT-LIT-1 moved it
+    -- to 0.14.0, and 0.13.0 must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.13.0"
+      expectedSchemaVersion `shouldBe` "0.14.0"
       acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+      acceptedSchemaVersions `shouldContain` ["0.13.0"]
       acceptedSchemaVersions `shouldContain` ["0.12.0"]
       acceptedSchemaVersions `shouldContain` ["0.11.0"]
       acceptedSchemaVersions `shouldContain` ["0.10.0"]
@@ -23253,10 +23256,250 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "where and sum bodies still read as before" $
       roundTrip ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"]
         `shouldBe` Right (parsed ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"])
-    it "a 0.12.0 document still reads, and the stamp is 0.13.0" $ do
+    it "a 0.12.0 document still reads, and the stamp is 0.14.0" $ do
       let doc12 = BLC.pack "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"type-decl\",\"name\":\"Name\",\"body\":{\"kind\":\"primitive\",\"name\":\"string\"}}]}"
       parseJSONAST GrammarCoreInversion "<test>" doc12 `shouldBe` Right [STypeDef "Name" TString]
-      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.13.0\""
+      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.14.0\""
+
+  -- -----------------------------------------------------------------------
+  -- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-1..R1-4): signed float
+  -- literals, the float-literal-range rule on both front ends, the exponent
+  -- read as text (D7), literal_kind on JSON literal patterns (D6), incompatible
+  -- literal patterns as errors, negative and zero float emission (D8, R1-1),
+  -- and the Flt carrier sort (D3).
+  -- -----------------------------------------------------------------------
+  describe "FLOAT-LIT-1 float literals" $ do
+    let sexp s = parseExpr "<t>" (T.pack s)
+        sexpLit s = case sexp s of
+          Right (ELit l) -> Just l
+          _              -> Nothing
+        sexpKind s = case sexp s of
+          Left err -> diagKind (megaparsecToDiagnostic "<t>" err)
+          Right _  -> Nothing
+        progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left err -> diagKind (megaparsecToDiagnostic "<t>" err)
+          Right _  -> Nothing
+        jdoc params body = BLC.pack $
+          "{\"schemaVersion\":\"0.14.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":["
+          ++ params ++ "],\"body\":" ++ body ++ "}]}"
+        jparse params body = parseJSONAST GrammarCoreInversion "<t>" (jdoc params body)
+        jbody params body = case jparse params body of
+          Right [SDefShell { defShellBody = b }] -> Just b
+          _                                      -> Nothing
+        jkind params body = either diagKind (const Nothing) (jparse params body)
+        jlitFloat v = jbody "" ("{\"kind\":\"lit-float\",\"value\":" ++ v ++ "}")
+        jpat pat = jbody "{\"name\":\"x\",\"type\":\"float\"}"
+          ("{\"kind\":\"match\",\"scrutinee\":{\"kind\":\"var\",\"name\":\"x\"},\"arms\":[{\"pattern\":"
+           ++ pat ++ ",\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}")
+        jpatKind pat = jkind "{\"name\":\"x\",\"type\":\"float\"}"
+          ("{\"kind\":\"match\",\"scrutinee\":{\"kind\":\"var\",\"name\":\"x\"},\"arms\":[{\"pattern\":"
+           ++ pat ++ ",\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}")
+        armPat b = case b of
+          Just (EMatch _ ((p, _) : _)) -> Just p
+          _                            -> Nothing
+        tcErrors src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e      -> error ("parse failed: " ++ show e)
+          Right stmts -> [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+                                         , diagSeverity d == SevError ]
+        isRange = (== Just "float-literal-range")
+
+    -- S-expression: the signed literal and INT interplay ----------------------
+    it "FL-1 -0.5, -1e-5 and -3e2 are float literals (D1)" $ do
+      sexpLit "-0.5"  `shouldBe` Just (LitFloat (-0.5))
+      sexpLit "-1e-5" `shouldBe` Just (LitFloat (-1.0e-5))
+      sexpLit "-3e2"  `shouldBe` Just (LitFloat (-300.0))
+
+    it "FL-2 a negative float pattern parses, at top level and under a constructor" $ do
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(type Box (| Box float))\n(def-shell f [b: Box x: float] -> int (match x (-0.5 (match b ((Box -0.5) 1) (_ 2))) (_ 0)))") of
+        Left e -> expectationFailure (show e)
+        Right stmts -> T.count "PLiteral (LitFloat (-0.5))" (T.pack (show stmts)) `shouldBe` 2
+
+    it "FL-3 -3 stays an int, (- x 3) stays an operator, -0 is the int 0" $ do
+      sexpLit "-3" `shouldBe` Just (LitInt (-3))
+      sexp "(- x 3)" `shouldBe` Right (EOp "-" [EVar "x", ELit (LitInt 3)])
+      sexpLit "-0" `shouldBe` Just (LitInt 0)
+
+    it "FL-4 R1-1: -0.0, 0e5 and -0.000 all denote +0.0" $
+      forM_ ["-0.0", "0e5", "-0.000"] $ \s -> case sexpLit s of
+        Just (LitFloat d) -> (d, isNegativeZero d) `shouldBe` (0.0, False)
+        other             -> expectationFailure (s ++ ": " ++ show other)
+
+    -- S-expression: the range rule -----------------------------------------
+    it "FL-5 overflow: 1e400, -1e400 and 1.8e308 are float-literal-range" $
+      forM_ ["1e400", "-1e400", "1.8e308"] $ \s -> sexpKind s `shouldSatisfy` isRange
+
+    it "FL-6 underflow: 1e-400 and 2e-324 are refused; the subnormal 4.9e-324 is accepted" $ do
+      sexpKind "1e-400" `shouldSatisfy` isRange
+      sexpKind "2e-324" `shouldSatisfy` isRange
+      sexpLit "4.9e-324" `shouldBe` Just (LitFloat 5.0e-324)
+
+    it "FL-7 D7: an exponent past 2^64 is refused, not wrapped; 0e<huge> is zero" $ do
+      sexpKind "1e18446744073709551617" `shouldSatisfy` isRange
+      sexpLit "0e99999999999999999999" `shouldBe` Just (LitFloat 0.0)
+
+    it "FL-8 the largest double 1.7976931348623157e308 is accepted" $
+      sexpLit "1.7976931348623157e308" `shouldBe` Just (LitFloat 1.7976931348623157e308)
+
+    it "FL-9 the kind survives every context a literal can sit in" $
+      forM_ [ "(def-shell f [] -> float (let [(y 1e400)] y))"
+            , "(def-shell f [] -> list[float] [1.0 1e400])"
+            , "(def-shell f [x: float] -> float (pre (= x 1e400)) x)"
+            , "(def-shell f [x: float] -> float (post (= result 1e400)) x)"
+            , "(check \"c\" (for-all [x: float] (= x 1e400)))"
+            , "(type Box (| Box float))\n(def-shell f [b: Box] -> int (match b ((Box 1e400) 1) (_ 0)))" ] $ \src ->
+        (src, progKind src) `shouldSatisfy` (isRange . snd)
+
+    it "FL-10 the S-expression channel prints :kind float-literal-range" $
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(def-shell f [] -> float 1e400)") of
+        Left err -> formatParseDiagSExp "f.llmll" (megaparsecToDiagnostic "f.llmll" err)
+                      `shouldSatisfy` T.isInfixOf ":kind \"float-literal-range\""
+        Right _  -> expectationFailure "1e400 parsed"
+
+    -- JSON-AST: the range rule and the exponent pre-scan --------------------
+    it "FL-11 JSON lit-float 1e400 is E011 float-literal-range" $ do
+      jkind "" "{\"kind\":\"lit-float\",\"value\":1e400}" `shouldSatisfy` isRange
+      either diagCode (const Nothing) (jparse "" "{\"kind\":\"lit-float\",\"value\":1e400}") `shouldBe` Just "E011"
+
+    it "FL-12 JSON lit-float 1e-400 is refused" $
+      jkind "" "{\"kind\":\"lit-float\",\"value\":1e-400}" `shouldSatisfy` isRange
+
+    it "FL-13 D7: the pre-scan refuses lit-float 1e18446744073709551617 (aeson reads 10)" $
+      jkind "" "{\"kind\":\"lit-float\",\"value\":1e18446744073709551617}" `shouldSatisfy` isRange
+
+    it "FL-14 D7: the same exponent under lit-int is refused too (aeson reads the Int 10)" $
+      jkind "" "{\"kind\":\"lit-int\",\"value\":1e18446744073709551617}" `shouldSatisfy` isRange
+
+    it "FL-15 the pre-scan ignores number-shaped text inside a string" $
+      jbody "" "{\"kind\":\"lit-string\",\"value\":\"1e18446744073709551617 \\\" 2e99999999999999999999\"}"
+        `shouldBe` Just (ELit (LitString "1e18446744073709551617 \" 2e99999999999999999999"))
+
+    it "FL-16 a literal pattern with literal_kind float and value 1e-400 is refused" $
+      jpatKind "{\"kind\":\"literal\",\"literal_kind\":\"float\",\"value\":1e-400}" `shouldSatisfy` isRange
+
+    -- D6: literal_kind ---------------------------------------------------------
+    it "FL-17 D6: literal_kind float with the number 2 reads as the float 2.0" $
+      armPat (jpat "{\"kind\":\"literal\",\"literal_kind\":\"float\",\"value\":2}")
+        `shouldBe` Just (PLiteral (LitFloat 2.0))
+
+    it "FL-18 D6: an S-expression float pattern round-trips through JSON-AST exactly" $
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(def-shell f [x: float] -> int (match x (2.0 1) (_ 0)))") of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          let emitted = emitJsonAST stmts
+          BLC.unpack emitted `shouldSatisfy` isInfixOf "\"literal_kind\": \"float\""
+          parseJSONAST GrammarCoreInversion "<t>" emitted `shouldBe` Right stmts
+          tcErrors "(def-shell f [x: float] -> int (match x (2.0 1) (_ 0)))" `shouldBe` []
+
+    it "FL-19 R1-2: an int pattern against a float scrutinee is a check error that names the fix" $
+      tcErrors "(def-shell f [x: float] -> int (match x (2 1) (_ 0)))" `shouldSatisfy` \es ->
+        any (\m -> "does not match scrutinee type float" `T.isInfixOf` m && "literal_kind" `T.isInfixOf` m) es
+
+    it "FL-20 an int pattern against an int scrutinee is unchanged" $
+      tcErrors "(def-shell f [x: int] -> int (match x (2 1) (_ 0)))" `shouldBe` []
+
+    -- Codegen: R1-1 and D8 -------------------------------------------------------
+    it "FL-21 emission: negative is annotated, zero is 0.0, positive is unchanged" $ do
+      emitLit (LitFloat (-0.5)) `shouldBe` "(-0.5 :: Double)"
+      emitLit (LitFloat 0.5)    `shouldBe` "0.5"
+      emitLit (LitFloat (-0.0)) `shouldBe` "0.0"
+      emitLit (LitFloat 0.0)    `shouldBe` "0.0"
+
+    it "FL-22 D8: a negative float under a constructor pattern emits (Box (-0.5 :: Double))" $
+      emitExpr (EMatch (EVar "b") [(PConstructor "Box" [PLiteral (LitFloat (-0.5))], ELit (LitInt 1))])
+        `shouldSatisfy` T.isInfixOf "(Box (-0.5 :: Double))"
+
+    it "FL-23 a non-finite float never emits the unbound identifier Infinity" $ do
+      emitLit (LitFloat (1 / 0)) `shouldSatisfy` (not . T.isInfixOf "Infinity")
+      emitLit (LitFloat (1 / 0)) `shouldSatisfy` T.isInfixOf "non-finite float literal"
+
+    -- D3: the Flt carrier -------------------------------------------------------
+    it "FL-24 typeToSort TFloat is the Flt carrier" $ do
+      typeToSort TFloat `shouldBe` FQFloat
+      emitSort FQFloat `shouldBe` "Flt"
+
+    it "FL-25 a float payload field is declared at Flt in the emitted .fq" $
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(type Pt (| Pt float) (| None))\n(def m [p: Pt] -> int (post (>= result 0)) (match p ((Pt f) 1) ((None) 0)))") of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- emitFixpoint "t.llmll" stmts
+          erFQText r `shouldSatisfy` T.isInfixOf "ctor_pt_0 : Flt"
+          erFQText r `shouldSatisfy` (not . T.isInfixOf "ctor_pt_0 : int")
+
+    it "FL-26 the firewall holds: a used float payload falls back, a float param gets no binder" $ do
+      case parseStatements GrammarCoreInversion "<t>" (T.pack "(type Pt (| Pt float) (| None))\n(def m2 [p: Pt] -> int (post (= result 1)) (match p ((Pt f) (if (= f f) 1 0)) ((None) 1)))") of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- emitFixpointWith defaultEmitOptions { emitBodyVCs = True } "t.llmll" stmts
+          erBodyFallback r `shouldBe` ["m2"]
+          erFallbackConstructs r `shouldBe` [("m2", ["match-payload-sort"])]
+      Map.member "x" (buildSortEnv (buildAliasMap []) [("x", TFloat), ("n", TInt)]) `shouldBe` False
+
+    -- Rev 1 additions -------------------------------------------------------------
+    it "FL-27 R1-1: JSON lit-float -0.0 reads as +0.0 and emits 0.0" $
+      case jlitFloat "-0.0" of
+        Just (ELit (LitFloat d)) -> do
+          isNegativeZero d `shouldBe` False
+          emitLit (LitFloat d) `shouldBe` "0.0"
+        other -> expectationFailure (show other)
+
+    it "FL-28 R1-2: literal_kind int with 2.5 is literal-kind-mismatch" $
+      jpatKind "{\"kind\":\"literal\",\"literal_kind\":\"int\",\"value\":2.5}" `shouldBe` Just "literal-kind-mismatch"
+
+    it "FL-29 R1-2: literal_kind next to a string or a boolean is literal-kind-mismatch" $ do
+      jpatKind "{\"kind\":\"literal\",\"literal_kind\":\"float\",\"value\":\"a\"}" `shouldBe` Just "literal-kind-mismatch"
+      jpatKind "{\"kind\":\"literal\",\"literal_kind\":\"int\",\"value\":true}"   `shouldBe` Just "literal-kind-mismatch"
+
+    it "FL-30 R1-2: a string pattern against an int scrutinee is a check error" $
+      tcErrors "(def-shell f [x: int] -> int (match x (\"a\" 1) (_ 0)))"
+        `shouldSatisfy` any ("literal pattern type string does not match scrutinee type int" `T.isInfixOf`)
+
+    it "FL-31 R1-2: a boolean pattern against an int scrutinee is a check error" $
+      tcErrors "(def-shell f [x: int] -> int (match x (true 1) (_ 0)))"
+        `shouldSatisfy` any ("literal pattern type bool does not match scrutinee type int" `T.isInfixOf`)
+
+    it "FL-32 R1-3: 00.5 and 01e3 are refused with the leading-zero message; 007 is the int 7" $ do
+      forM_ ["00.5", "01e3", "-00.5"] $ \s -> case sexp s of
+        Left err -> diagMessage (megaparsecToDiagnostic "<t>" err) `shouldSatisfy` T.isInfixOf "leading zero"
+        Right e  -> expectationFailure (s ++ " parsed as " ++ show e)
+      sexpLit "007" `shouldBe` Just (LitInt 7)
+
+    it "FL-33 R1-3: 1E+3 is 1000.0 and 1.25e-3 is accepted" $ do
+      sexpLit "1E+3"    `shouldBe` Just (LitFloat 1000.0)
+      sexpLit "1.25e-3" `shouldBe` Just (LitFloat 1.25e-3)
+
+    it "FL-34 R1-3: +0.5 is not a literal" $
+      sexpLit "+0.5" `shouldBe` Nothing
+
+    it "FL-35 R1-3: 1. and .5 are not literals" $ do
+      sexpLit "1." `shouldBe` Nothing
+      sexpLit ".5" `shouldBe` Nothing
+
+    it "FL-36 R1-3: ties round to even (2^53 + 1 reads as 2^53)" $
+      sexpLit "9007199254740993.0" `shouldBe` Just (LitFloat 9007199254740992.0)
+
+    it "FL-37 R1-3: the half-smallest-subnormal boundary" $ do
+      sexpLit "2.4703282292062328e-324" `shouldBe` Just (LitFloat 5.0e-324)
+      sexpKind "2.4703282292062327e-324" `shouldSatisfy` isRange
+
+    it "FL-38 R1-3: JSON lit-float 2 is the float 2.0" $
+      jlitFloat "2" `shouldBe` Just (ELit (LitFloat 2.0))
+
+    it "FL-39 R1-3: the S-expression and JSON readers agree on every generated FLOAT" $
+      let genFloat :: Gen String
+          genFloat = do
+            whole <- elements ["0", "1", "4", "12", "999", "2470328229206232720882", "17976931348623157"]
+            frac  <- oneof [pure Nothing, Just <$> listOf1 (elements "0123456789")]
+            ex    <- case frac of
+                       Nothing -> Just <$> choose (-420, 420 :: Int)
+                       Just _  -> oneof [pure Nothing, Just <$> choose (-420, 420 :: Int)]
+            neg   <- elements [False, True]
+            pure ((if neg then "-" else "") ++ whole ++ maybe "" ('.' :) frac ++ maybe "" (\e -> 'e' : show e) ex)
+          outcome s = ( fmap (\l -> case l of { LitFloat d -> Just d; _ -> Nothing }) (sexpLit s)
+                      , sexpKind s )
+          joutcome s = ( fmap (\e -> case e of { ELit (LitFloat d) -> Just d; _ -> Nothing }) (jlitFloat s)
+                       , jkind "" ("{\"kind\":\"lit-float\",\"value\":" ++ s ++ "}") )
+      in property $ forAll genFloat $ \s -> outcome s == joutcome s
+
 
   describe "RESERVED-NAME-1" $ do
     let parseOk src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of

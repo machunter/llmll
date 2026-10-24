@@ -38,6 +38,12 @@ import qualified Data.Aeson.Key    as Key
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic (Diagnostic(..), mkError)
+import LLMLL.FloatLit (classifyFloatLit, floatLitRangeMessage, floatLitRangeTag)
+import Data.Scientific (Scientific)
+import qualified Data.Scientific as Sci
+import qualified Data.ByteString.Lazy.Char8 as BL8
+import Data.Char (isDigit)
+import Data.Int (Int64)
 
 -- ---------------------------------------------------------------------------
 -- Public API
@@ -74,8 +80,11 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- type-decl body may be any Type (a plain alias), and Type gains the boundary
 -- kinds hs-text, hs-int and hs-maybe. Both are additive: every 0.12.0 document
 -- is a valid 0.13.0 one, so the older versions stay accepted for reading.
+-- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-2): bumped 0.13.0 → 0.14.0
+-- for the optional `literal_kind` key on a literal pattern. Additive: every
+-- 0.13.0 document is a valid 0.14.0 one, so the older versions stay accepted.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.13.0"
+expectedSchemaVersion = "0.14.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -95,12 +104,23 @@ expectedSchemaVersion = "0.13.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
 parseJSONAST :: GrammarMode -> FilePath -> BL.ByteString -> Either Diagnostic [Statement]
-parseJSONAST mode fp bs =
+parseJSONAST mode fp bs
+  -- FLOAT-LIT-1 (D7): aeson reads a number's exponent as a bounded Int, so
+  -- 1e18446744073709551617 is already the number 10 in the decoded Value and
+  -- no check on the Value can see it. The raw bytes are the last place the
+  -- exponent is still text.
+  | Just tok <- oversizedExponent bs =
+      Left (mkError Nothing (floatLitRangeMessage tok "has an exponent too large to represent"))
+             { diagKind       = Just floatLitRangeTag
+             , diagCode       = Just "E011"
+             , diagSuggestion = Just "write the number with an exponent of at most 18 digits; a float literal must round to a finite double"
+             }
+  | otherwise =
   case eitherDecode bs of
     Left err ->
       -- B1: aeson surfaces \x1b and other invalid JSON escapes as a UTF-8 decode
@@ -145,6 +165,9 @@ parseJSONAST mode fp bs =
       | "legacy-grammar-violation" `T.isInfixOf` msg = "legacy-grammar-violation"
       | "removed-construct"        `T.isInfixOf` msg = "removed-construct"
       | "unexpected-key:"          `T.isInfixOf` msg = "unexpected-key"
+      -- FLOAT-LIT-1
+      | "float-literal-range:"     `T.isInfixOf` msg = "float-literal-range"
+      | "literal-kind-mismatch:"   `T.isInfixOf` msg = "literal-kind-mismatch"
       | otherwise = "json-decode-error"
 
 -- | AST-RETURNS-KEY-1: the fix for a definition-head key the reader does not
@@ -673,7 +696,9 @@ parseExpr = withObject "Expr" $ \o -> do
     "lit-int"    -> do
       n <- o .: "value" :: Parser Int
       pure $ ELit (LitInt (fromIntegral n))
-    "lit-float"  -> ELit . LitFloat  <$> (o .: "value" :: Parser Double)
+    -- FLOAT-LIT-1: read the exact number and apply the shared range rule.
+    -- R1-3: the node kind, not the spelling, makes a float, so 2 is 2.0.
+    "lit-float"  -> ELit <$> (o .: "value" >>= jsonFloatLit)
     "lit-string" -> ELit . LitString <$> o .: "value"
     "lit-bool"   -> ELit . LitBool   <$> o .: "value"
     "lit-unit"   -> pure (ELit LitUnit)
@@ -785,19 +810,75 @@ parsePattern = withObject "Pattern" $ \o -> do
       PConstructor ctor <$> mapM parsePattern subs
     _ -> fail $ "unknown Pattern kind: " ++ T.unpack kind
 
+-- | A literal pattern's value. FLOAT-LIT-1 (Rev 1, R1-2): aeson cannot tell
+-- 2 from 2.0, so a float pattern carries @"literal_kind": "float"@.
+--
+--   * key absent: an integral number is an int, any other number a float;
+--   * @"float"@: the number is a float (2 reads as 2.0);
+--   * @"int"@: the number must be integral, otherwise a parse error;
+--   * the key next to a string or boolean value is a parse error.
 parseLiteralValue :: Object -> Parser Literal
 parseLiteralValue o = do
-  v <- o .: "value"
-  case v of
-    Number n   ->
-      let d = realToFrac n :: Double
-          i = round d :: Integer
-      in if fromIntegral i == d
-           then pure (LitInt i)
-           else pure (LitFloat d)
-    String s   -> pure (LitString s)
-    Bool b     -> pure (LitBool b)
+  v  <- o .: "value"
+  lk <- o .:? "literal_kind" :: Parser (Maybe Text)
+  case (v, lk) of
+    (Number n, Nothing)
+      | Sci.isInteger n -> pure (jsonIntPattern n)
+      | otherwise       -> jsonFloatLit n
+    (Number n, Just "float") -> jsonFloatLit n
+    (Number n, Just "int")
+      | Sci.isInteger n -> pure (jsonIntPattern n)
+      | otherwise       -> fail $ "literal-kind-mismatch: \"literal_kind\": \"int\" on the non-integral number "
+                                  ++ show n
+    (Number _, Just other) -> fail $ "literal-kind-mismatch: \"literal_kind\" must be \"int\" or \"float\", got "
+                                     ++ show other
+    (String _, Just _) -> fail "literal-kind-mismatch: \"literal_kind\" applies to a number; this pattern's value is a string"
+    (Bool _,   Just _) -> fail "literal-kind-mismatch: \"literal_kind\" applies to a number; this pattern's value is a boolean"
+    (String s, Nothing) -> pure (LitString s)
+    (Bool b,   Nothing) -> pure (LitBool b)
     _          -> fail "literal value must be number, string, or bool"
+
+-- | An integral pattern number. Exact through Int64 (read from the Scientific,
+-- not through Double); beyond that the earlier Double reading is kept, because
+-- the unbounded-int reading is JSON-INT-UNBOUNDED-1, a separate row.
+jsonIntPattern :: Scientific -> Literal
+jsonIntPattern n = case Sci.toBoundedInteger n :: Maybe Int64 of
+  Just i  -> LitInt (toInteger i)
+  Nothing -> LitInt (round (Sci.toRealFloat n :: Double))
+
+-- | FLOAT-LIT-1: a JSON number as a float literal, under the range rule both
+-- front ends share ('LLMLL.FloatLit.classifyFloatLit'). The spelling in the
+-- message is the number as aeson read it.
+jsonFloatLit :: Scientific -> Parser Literal
+jsonFloatLit n =
+  let c = Sci.coefficient n
+  in case classifyFloatLit (c < 0) (abs c) (toInteger (Sci.base10Exponent n)) of
+       Right d  -> pure (LitFloat d)
+       Left why -> fail (T.unpack (floatLitRangeMessage (T.pack (show n)) why))
+
+-- | FLOAT-LIT-1 (D7): the first number token in the raw JSON text whose
+-- exponent has more than 18 digits, if any. Such an exponent does not fit a
+-- 64-bit Int, and aeson wraps it silently. String contents (with their
+-- escapes) are skipped, so a string that merely looks like a number is not a
+-- number token. Linear in the input.
+oversizedExponent :: BL.ByteString -> Maybe Text
+oversizedExponent = go . BL8.unpack
+  where
+    go [] = Nothing
+    go ('"' : rest) = go (skipString rest)
+    go s@(c : rest)
+      | c == '-' || isDigit c =
+          let (tok, after) = span numChar s
+          in if tooLong tok then Just (T.pack tok) else go after
+      | otherwise = go rest
+    skipString ('\\' : _ : rest) = skipString rest
+    skipString ('"' : rest)        = rest
+    skipString (_ : rest)          = skipString rest
+    skipString []                  = []
+    numChar ch = isDigit ch || ch `elem` ("+-.eE" :: String)
+    tooLong tok = case break (`elem` ("eE" :: String)) tok of
+      (_, _ : ex) -> length (dropWhile (`elem` ("+-" :: String)) ex) > 18
+      _           -> False
 
 -- PR 2: unified DoStep. Only "do-step" is accepted.
 -- "bind-step"/"expr-step" are rejected: do-notation never shipped in a stable

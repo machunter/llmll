@@ -3168,6 +3168,11 @@ typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
 -- rejects equality), but a binder whose declared sort disagrees with its type is
 -- a trap for the next arm that reflects a json-* name.
 typeToSort (TCustom "Json") = FQJson
+-- FLOAT-LIT-1 (D3): float lowered to FQInt through the default below. The
+-- fallback firewall kept that from mattering (no float binder is declared and
+-- a used float payload falls back), but the declared sort disagreed with the
+-- type, the trap JSON-1 names above.
+typeToSort TFloat = FQFloat
 typeToSort (TDependent _ base _) = typeToSort base
 -- PAIR-RET: a pair lowers to the parametric product sort `(Pair2 s0 s1)`, recursively
 -- (nested pairs nest the applied sort — spike-confirmed). This is unconditional so the

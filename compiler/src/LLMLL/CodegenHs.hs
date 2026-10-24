@@ -2467,7 +2467,17 @@ rewriteCtor other     = toHsIdent other
 
 emitLit :: Literal -> Text
 emitLit (LitInt n)    = "(" <> T.pack (show n) <> " :: Integer)"  -- LT-INT (v0.11): unbounded
-emitLit (LitFloat d)  = T.pack (show d)
+-- FLOAT-LIT-1 (Rev 1, R1-1): a zero literal is +0.0, whatever its sign or
+-- spelling. A negative literal is parenthesised and annotated like the int arm
+-- (D8): bare, (Box -0.5) is GHC's parse error "Box - 0.5". `check` refuses a
+-- non-finite literal, so the last arm is unreachable; it emits a typed error
+-- rather than the unbound identifier Infinity GHC used to reject.
+emitLit (LitFloat d)
+  | isNaN d || isInfinite d =
+      "(error \"internal: non-finite float literal reached codegen (FLOAT-LIT-1)\" :: Double)"
+  | d == 0    = "0.0"
+  | d < 0     = "(" <> T.pack (show d) <> " :: Double)"
+  | otherwise = T.pack (show d)
 emitLit (LitString s) = T.pack (show (T.unpack s))  -- uses Haskell show for quoting
 emitLit (LitBool b)   = if b then "True" else "False"
 emitLit LitUnit       = "()"
