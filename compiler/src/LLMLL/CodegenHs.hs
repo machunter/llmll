@@ -499,10 +499,13 @@ runtimePreamble =
   -- result the next call discards is still evaluated, as call-by-value requires.
   , "list_fold xs acc f = foldl' f acc xs"
   , ""
-  , "list_nth :: [a] -> Int -> Either String a"
+  , "-- INT-INDEX-WRAP-1: the index is the unbounded int. It is compared first and"
+  , "-- narrowed only once it lies inside the list, where fromInteger is exact; a"
+  , "-- narrowing seam used to wrap 2^64 to 0. The message names the true index."
+  , "list_nth :: [a] -> Integer -> Either String a"
   , "list_nth xs i"
-  , "  | i < 0 || i >= length xs = Left (\"list_nth: index \" ++ show i ++ \" out of range\")"
-  , "  | otherwise               = Right (xs !! i)"
+  , "  | i < 0 || i >= toInteger (length xs) = Left (\"list_nth: index \" ++ show i ++ \" out of range\")"
+  , "  | otherwise                           = Right (xs !! fromInteger i)"
   , ""
   , "range :: Integer -> Integer -> [Integer]"  -- LT-INT (v0.11): Class B value-shape
   , "range from to = [from .. to - 1]"
@@ -525,16 +528,35 @@ runtimePreamble =
   , "bytes_length :: [Word8] -> Int"
   , "bytes_length = length"
   , ""
-  , "bytes_get :: [Word8] -> Int -> Integer"
+  -- INT-INDEX-WRAP-1: the index is the unbounded int, compared before it is
+  -- narrowed. A narrowing seam used to wrap 2^64 + 1 to 1, so the runtime
+  -- precondition saw an in-bounds index and wrote the wrong byte.
+  , "bytes_get :: [Word8] -> Integer -> Integer"
   , "bytes_get b i"
-  , "  | i < 0 || i >= length b = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | otherwise              = fromIntegral (b !! i)"
+  , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | otherwise                          = fromIntegral (b !! fromInteger i)"
   , ""
-  , "bytes_set :: [Word8] -> Int -> Integer -> [Word8]"
+  , "bytes_set :: [Word8] -> Integer -> Integer -> [Word8]"
   , "bytes_set b i v"
-  , "  | i < 0 || i >= length b = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | v < 0 || v > 255       = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
-  , "  | otherwise              = take i b ++ [fromIntegral v] ++ drop (i + 1) b"
+  , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | v < 0 || v > 255                   = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | otherwise                          = let k = fromInteger i in take k b ++ [fromIntegral v] ++ drop (k + 1) b"
+  , ""
+  -- INT-INDEX-WRAP-1 (D2): a timeout in microseconds, clamped into Int before
+  -- System.Timeout sees it. Inside Int64 it is the identity; a count past
+  -- maxBound used to wrap (18446744073710 s became 0.45 s).
+  , "llmll_clampInt :: Integer -> Int"
+  , "llmll_clampInt x = fromInteger (max (toInteger (minBound :: Int)) (min (toInteger (maxBound :: Int)) x))"
+  , ""
+  -- INT-INDEX-WRAP-1 (D3): the process exit for a :status value. Nothing is
+  -- success (0). A value above 255 or below -127 exits 255, as GHC's exitWith
+  -- already does for every Int outside -127..255; deciding on the Integer
+  -- removes the wrap (2^64 used to crash the harness with ExitFailure 0).
+  , "llmll_exitStatus :: Integer -> Maybe Int"
+  , "llmll_exitStatus 0 = Nothing"
+  , "llmll_exitStatus n"
+  , "  | n > 255 || n < (-127) = Just 255"
+  , "  | otherwise             = Just (fromInteger n)"
   , ""
   , "bytes_zero :: Int -> [Word8]"
   , "bytes_zero n = replicate n 0"
@@ -580,7 +602,7 @@ runtimePreamble =
   , "llmll_appendS [] b     = b"
   , "llmll_appendS (c:cs) b = let r = llmll_appendS cs b in r `seq` (c : r)"
   , ""
-  , "string_slice :: String -> Int -> Int -> String"
+  , "string_slice :: String -> Integer -> Integer -> String"
   , "-- Out-of-range endpoints CLAMP, matching the out-of-range convention"
   , "-- string_char_at already implements below (return the empty result rather"
   , "-- than index off the end). `from` and `to` are each clamped into [0, n],"
@@ -594,27 +616,33 @@ runtimePreamble =
   , "-- STR-INDEX-LINEAR-1: a window that starts at 32 or later reads the cached"
   , "-- array of s (llmll_strIx below), so a scan of windows over one string is"
   , "-- linear rather than quadratic. Same result as the list walk for every input."
+  , "-- INT-INDEX-WRAP-1: both endpoints are unbounded ints and are clamped as"
+  , "-- Integers; only the clamped values, which lie in [0, n], are narrowed."
   , "string_slice s from to"
   , "  | max 0 from < 32 ="
-  , "      let n  = length s"
+  , "      let n  = toInteger (length s)"
   , "          lo = min n (max 0 from)"
   , "          hi = min n (max 0 to)"
-  , "      in if hi <= lo then \"\" else take (hi - lo) (drop lo s)"
+  , "      in if hi <= lo then \"\" else take (fromInteger (hi - lo)) (drop (fromInteger lo) s)"
   , "  | otherwise ="
-  , "      let (a, n) = llmll_strIx s"
+  , "      let (a, n0) = llmll_strIx s"
+  , "          n  = toInteger n0"
   , "          lo = min n (max 0 from)"
   , "          hi = min n (max 0 to)"
-  , "      in if hi <= lo then \"\" else [ a LArr.! k | k <- [lo .. hi - 1] ]"
+  , "      in if hi <= lo then \"\" else [ a LArr.! fromInteger k | k <- [lo .. hi - 1] ]"
   , ""
   , "-- STR-INDEX-LINEAR-1: an index below 32 walks the list, which costs i steps"
   , "-- and allocates nothing; a larger index reads the cached array of s. The"
   , "-- documented decomposition (list-map (range 0 n) (fn [i] (string-char-at s i)))"
   , "-- was quadratic through `s !! i` and is linear now."
-  , "string_char_at :: String -> Int -> String"
+  , "-- INT-INDEX-WRAP-1: the index is compared as an unbounded int before it is"
+  , "-- narrowed, so 2^64 + 2 answers \"\" rather than reading index 2."
+  , "string_char_at :: String -> Integer -> String"
   , "string_char_at s i"
   , "  | i < 0     = \"\""
-  , "  | i < 32    = case drop i s of { (c:_) -> [c]; [] -> \"\" }"
-  , "  | otherwise = let (a, n) = llmll_strIx s in if i < n then [a LArr.! i] else \"\""
+  , "  | i < 32    = case drop (fromInteger i) s of { (c:_) -> [c]; [] -> \"\" }"
+  , "  | otherwise = let (a, n) = llmll_strIx s"
+  , "                in if i < toInteger n then [a LArr.! fromInteger i] else \"\""
   , ""
   , "-- STR-INDEX-LINEAR-1. A random-access copy of each of the last four strings"
   , "-- indexed past 32, keyed by StableName. Equal StableNames are one heap object,"
@@ -1344,7 +1372,7 @@ runtimePreamble =
   , "                     , P.std_out = P.UseHandle outH"
   , "                     , P.std_err = P.UseHandle errH"
   , "                     } `onException` closeAll"
-  , "  finished <- timeout (fromIntegral (secs * 1000000)) (P.waitForProcess ph)"
+  , "  finished <- timeout (llmll_clampInt (secs * 1000000)) (P.waitForProcess ph)"
   , "  case finished of"
   , "    Nothing -> do"
   , "      P.terminateProcess ph"
@@ -1389,7 +1417,7 @@ runtimePreamble =
   , "                         , P.std_out = P.UseHandle outH"
   , "                         , P.std_err = P.UseHandle errH"
   , "                         } `onException` closeAll"
-  , "      finished <- timeout (fromIntegral (secs * 1000000)) (P.waitForProcess ph)"
+  , "      finished <- timeout (llmll_clampInt (secs * 1000000)) (P.waitForProcess ph)"
   , "      case finished of"
   , "        Nothing -> do"
   , "          P.terminateProcess ph"
@@ -2286,10 +2314,13 @@ emitApp op args
   | op `elem` ["/", "mod", "%", "+", "-", "*", "=", "!=",
                "<", ">", "<=", ">=", "and", "or", "not", "=>", "<=>"]
   = emitOp op args
--- LT-INT (v0.11): Class A indexing primitives keep concrete `Int` Haskell
--- signatures per int-2-boundary-shims.md §3.1; codegen wraps `int`-typed
--- arguments (now `Integer` post-INT-2) in `fromIntegral` at the LLMLL-to-Haskell
--- call seam, and lifts `Int`-returning primitives back to `Integer`.
+-- LT-INT (v0.11): Class A LENGTH primitives keep concrete `Int` Haskell
+-- results and are lifted back to `Integer` here. INT-INDEX-WRAP-1: INDEX
+-- arguments no longer cross a `fromIntegral :: Int` seam, which wrapped 2^64
+-- to 0; list_nth, string_slice, string_char_at, bytes_get and bytes_set take
+-- the unbounded `Integer`, compare it, and narrow only inside the collection
+-- (int-index-wrap-1-proposal D1). bytes-zero keeps its seam: its length comes
+-- from a TBytes Int that BYTES-LEN-RANGE-1 already bounds.
 emitApp "list-length"   [xs]     = "(fromIntegral (list_length " <> wrap xs <> ") :: Integer)"
 emitApp "string-length" [s]      = "(fromIntegral (string_length " <> wrap s <> ") :: Integer)"
 -- LEVER-A0: bytes ops take the same Class-A seam (Int indices at the Haskell
@@ -2297,13 +2328,13 @@ emitApp "string-length" [s]      = "(fromIntegral (string_length " <> wrap s <> 
 -- and values are already Integer-typed, so the generic fallback emits
 -- (map_has (m) (k)) etc. via toHsIdent.
 emitApp "bytes-length"  [b]      = "(fromIntegral (bytes_length " <> wrap b <> ") :: Integer)"
-emitApp "bytes-get"     [b,i]    = "(bytes_get " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int))"
-emitApp "bytes-set"     [b,i,v]  = "(bytes_set " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int) " <> wrap v <> ")"
+emitApp "bytes-get"     [b,i]    = "(bytes_get " <> wrap b <> " " <> wrap i <> ")"
+emitApp "bytes-set"     [b,i,v]  = "(bytes_set " <> wrap b <> " " <> wrap i <> " " <> wrap v <> ")"
 -- EXAMPLE-BUILD-1: the length 'fillBytesZero' gives an instrumented body.
 emitApp "bytes-zero"    [n]      = "(bytes_zero (fromIntegral " <> wrap n <> " :: Int))"
-emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " (fromIntegral " <> wrap i <> " :: Int))"
-emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " (fromIntegral " <> wrap f <> " :: Int) (fromIntegral " <> wrap t <> " :: Int))"
-emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " (fromIntegral " <> wrap i <> " :: Int))"
+emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " " <> wrap i <> ")"
+emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " " <> wrap f <> " " <> wrap t <> ")"
+emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " " <> wrap i <> ")"
 -- BUILTIN-BODY-1. The preamble binding is sha1_hash, not sha1, so without
 -- this case the name reached the generic fallthrough below and emitted a
 -- call to an identifier nothing defines. A program calling sha1 passed
@@ -2872,7 +2903,7 @@ emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, def
   , "    llmll_terminate :: Maybe Integer -> IO ()"
   , exhaustionClause
   , "    llmll_terminate (Just 0) = exitSuccess"
-  , "    llmll_terminate (Just n) = exitWith (ExitFailure (fromIntegral n))"
+  , "    llmll_terminate (Just n) = maybe exitSuccess (exitWith . ExitFailure) (llmll_exitStatus n)"
   , "    loop s r logHandle seqRef = do"
   , "      eof <- hIsEOF stdin"
   , "      if eof then return Nothing else do"
@@ -2988,7 +3019,7 @@ emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step, defMainInit =
   -- ExitFailure 0 is an error in GHC, so 0 branches to exitSuccess.
   , "    llmll_terminate :: Integer -> IO ()"
   , "    llmll_terminate 0 = exitSuccess"
-  , "    llmll_terminate n = exitWith (ExitFailure (fromIntegral n))"
+  , "    llmll_terminate n = maybe exitSuccess (exitWith . ExitFailure) (llmll_exitStatus n)"
   , "    loop s r = do"
   , "      let !(s', cmd) = " <> stepCall step <> " s r"  -- EVAL-STRICT-1
   , "      if " <> doneCall <> " s' then settle s' else do"

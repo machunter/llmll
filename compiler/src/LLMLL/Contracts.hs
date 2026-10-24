@@ -646,7 +646,16 @@ evalBuiltinApp _ _ _ "map-get" [m, k]    = mapChainLookup m k
 -- the sample rather than fabricating a byte. 'bytes-length' reads the tag.
 evalBuiltinApp _ _ _ "bytes-zero" [ELit (LitInt n)] =
   Just (EApp "bytes-zero" [ELit (LitInt n)])
-evalBuiltinApp _ _ _ "bytes-set" [b, i, v]          = Just (EApp "bytes-set" [b, i, v])
+-- BYTES-SET-PBT-PRE-1: 'bytes-set' is PARTIAL on its precondition too
+-- (0 <= i < n, 0 <= v <= 255; LLMLL.md §13.12). A sample outside it fails at
+-- run time in the built program, so the evaluator discards it (Nothing), as
+-- 'bytes-get' does, instead of building a store the program never reaches.
+-- An untagged base, whose length is unknown, cannot certify the bound and
+-- discards as well. LLMLL.md §5.1 "Precondition-guarded samples".
+evalBuiltinApp _ _ _ "bytes-set" [b, ELit (LitInt i), ELit (LitInt v)]
+  | Just n <- bytesChainLen b, i >= 0, i < n, v >= 0, v <= 255 =
+      Just (EApp "bytes-set" [b, ELit (LitInt i), ELit (LitInt v)])
+evalBuiltinApp _ _ _ "bytes-set" _                  = Nothing
 evalBuiltinApp _ _ _ "bytes-length" [b]             = ELit . LitInt <$> bytesChainLen b
 evalBuiltinApp _ _ _ "bytes-get" [b, ELit (LitInt i)] = bytesChainGet b i
 
@@ -762,9 +771,12 @@ strV :: Expr -> Maybe String
 strV (ELit (LitString t)) = Just (T.unpack t)
 strV _                    = Nothing
 
--- | The Class A seam: 'fromIntegral' to 'Int', as 'CodegenHs.emitApp' emits.
-intIx :: Expr -> Maybe Int
-intIx (ELit (LitInt n)) = Just (fromIntegral n)
+-- | An index argument as the runtime takes it. INT-INDEX-WRAP-1: the identity on
+-- the unbounded int, because the runtime definitions ('LLMLL.RuntimePure') now
+-- compare the Integer and narrow only inside the collection. It used to copy
+-- the codegen seam, 'fromIntegral' to 'Int', and wrap 2^64 to 0 as it did.
+intIx :: Expr -> Maybe Integer
+intIx (ELit (LitInt n)) = Just n
 intIx _                 = Nothing
 
 strE :: String -> Expr

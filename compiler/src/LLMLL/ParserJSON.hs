@@ -167,6 +167,8 @@ parseJSONAST mode fp bs
       | "unexpected-key:"          `T.isInfixOf` msg = "unexpected-key"
       -- FLOAT-LIT-1
       | "float-literal-range:"     `T.isInfixOf` msg = "float-literal-range"
+      -- BYTES-LEN-RANGE-1
+      | "bytes-length-range:"      `T.isInfixOf` msg = "bytes-length-range"
       | "literal-kind-mismatch:"   `T.isInfixOf` msg = "literal-kind-mismatch"
       | otherwise = "json-decode-error"
 
@@ -633,7 +635,24 @@ parseType = withObject "Type" $ \o -> do
     "result"    -> TResult  <$> (o .: "ok_type"  >>= parseType)
                             <*> (o .: "err_type"  >>= parseType)
     "promise"   -> TPromise <$> (o .: "inner_type" >>= parseType)
-    "bytes"     -> TBytes   <$> o .: "length"
+    -- BYTES-LEN-RANGE-1: read the exact number. aeson's Int decoder accepted
+    -- -1 and refused 2^63 with a generic decode error; the length must be an
+    -- integer in [0, 2^63 - 1], refused with kind bytes-length-range.
+    "bytes"     -> do
+      -- toBoundedInteger, not floatingOrInteger: it refuses a huge exponent
+      -- without materialising the Integer.
+      n <- o .: "length" :: Parser Scientific
+      -- Integral once past the first guard; spell it in full unless the
+      -- exponent is large, where the Scientific form is shorter and building
+      -- the digits would be the cost toBoundedInteger avoided.
+      let spelled
+            | Sci.base10Exponent n <= 40 = show (truncate n :: Integer)
+            | otherwise                  = show n
+      if not (Sci.isInteger n)
+        then fail ("bytes-length-range: bytes length " ++ show n ++ " is not an integer")
+        else case Sci.toBoundedInteger n :: Maybe Int of
+          Just i | bytesLengthInRange (toInteger i) -> pure (TBytes i)
+          _ -> fail (T.unpack (bytesLengthRangeMessage (T.pack spelled)))
     "fn-type"   -> do
       params <- o .: "params" >>= mapM (fmap snd . parseTypedParam)
       ret    <- o .: "return_type" >>= parseType

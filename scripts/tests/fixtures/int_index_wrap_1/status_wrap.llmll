@@ -1,0 +1,7 @@
+;; INT-INDEX-WRAP-1 witness 8 (D3): a :status of 2^64 exits 255. Up to v0.31.0
+;; the harness crashed with "exitWith: invalid argument (ExitFailure 0)".
+(import wasi.io (capability stdout :deterministic false))
+(def-shell st [s: int r: Response] -> (int, Command) (pair s (wasi.io.stdout "")))
+(def-shell fin [s: int] -> bool true)
+(def-shell code [s: int] -> int 18446744073709551616)
+(def-main :mode cli :init (pair 0 (wasi.io.stdout "")) :step st :done? fin :status code)

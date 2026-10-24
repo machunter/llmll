@@ -1,0 +1,9 @@
+;; INT-INDEX-WRAP-1 witness 6: bytes-set at 2^64 + 1 fails its runtime
+;; precondition. Up to v0.31.0 the index wrapped to 1 and the write succeeded.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell z [] -> bytes[4] (bytes-zero))
+(def-shell probe [] -> string
+  (int-to-string (bytes-get (bytes-set (z) 18446744073709551617 7) 1)))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (probe)))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

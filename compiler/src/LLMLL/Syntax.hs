@@ -18,6 +18,8 @@ module LLMLL.Syntax
 
     -- * Types
   , Type(..)
+  , bytesLengthInRange
+  , bytesLengthRangeMessage
   , typeLabel
   , typeConstructorName
 
@@ -156,6 +158,20 @@ data Type
   deriving (Show, Eq, Generic)
 
 -- | Human-readable label for a type (for error messages).
+-- | BYTES-LEN-RANGE-1: a @bytes[n]@ length must lie in [0, 2^63 - 1], the range
+-- of the 'Int' that 'TBytes' carries, checked on the unbounded value before any
+-- narrowing. Shared by the S-expression and JSON-AST front ends so both refuse
+-- the same lengths with the same text.
+bytesLengthInRange :: Integer -> Bool
+bytesLengthInRange n = n >= 0 && n <= toInteger (maxBound :: Int)
+
+-- | The refusal message; it begins with the diagnostic kind.
+bytesLengthRangeMessage :: Text -> Text
+bytesLengthRangeMessage n =
+  "bytes-length-range: bytes[" <> n <> "] declares a length outside"
+  <> " 0..9223372036854775807; a bytes length must fit the runtime's Int"
+  <> " (int-index-wrap-1-proposal D4)"
+
 typeLabel :: Type -> Text
 typeLabel TInt            = "int"
 typeLabel TFloat          = "float"
