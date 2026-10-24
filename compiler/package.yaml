@@ -52,6 +52,7 @@ dependencies:
   - time >= 1.12       # v0.3: checkout lock timestamps
   - cryptohash-sha256  # v0.3.1: proof cache obligation hashing
   - regex-tdfa >= 1.3  # REGEX-CAPTURE-1: check-time validation of literal regex patterns
+  - scientific >= 0.3 # FLOAT-LIT-1: exact JSON numbers for the float-literal range rule (already in aeson's closure)
 
 library:
   source-dirs: src
@@ -75,6 +76,9 @@ library:
     # evaluator runs the code the generated program runs. Leaf module; a
     # Spec.hs test pins each block to runtimePreamble verbatim.
     - LLMLL.RuntimePure
+    # FLOAT-LIT-1: the float-literal value and range rule, shared by the
+    # S-expression parser and the JSON-AST reader. Leaf module.
+    - LLMLL.FloatLit
     # FFI-TIER1-1: the Tier 1 Hackage boundary rules, shared by the type
     # checker, the emitter and the trust report. Leaf over LLMLL.Syntax.
     - LLMLL.Ffi

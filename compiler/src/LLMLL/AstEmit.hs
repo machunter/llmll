@@ -422,6 +422,11 @@ delegateToJson kindStr spec =
 patternToJson :: Pattern -> Value
 patternToJson PWildcard           = object ["kind" .= ("wildcard" :: Text)]
 patternToJson (PVar n)            = object ["kind" .= ("bind" :: Text), "name" .= n]
+-- FLOAT-LIT-1 (Rev 1, R1-2): a float pattern carries "literal_kind": "float",
+-- because aeson writes the Double 2.0 as the number 2 and a reader could not
+-- tell it from the int pattern 2. With the key the round trip is exact.
+patternToJson (PLiteral (LitFloat d)) =
+  object ["kind" .= ("literal" :: Text), "value" .= d, "literal_kind" .= ("float" :: Text)]
 patternToJson (PLiteral lit)      = object ["kind" .= ("literal" :: Text), "value" .= litVal lit]
   where
     litVal (LitInt  i) = toJSON i

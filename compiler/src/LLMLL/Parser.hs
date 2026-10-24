@@ -26,6 +26,8 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic (modeHttpRetiredMessage)
+import LLMLL.FloatLit (classifyFloatLit, floatLitRangeMessage)
+import qualified Data.Set as Set
 
 type Parser = Parsec Void Text
 type ParseError = ParseErrorBundle Text Void
@@ -1009,7 +1011,7 @@ pAtom = choice
 
 pLiteral :: Parser Literal
 pLiteral = choice
-  [ try $ LitFloat <$> lexeme' L.float
+  [ pFloatLiteral                      -- FLOAT-LIT-1: FLOAT and "-" FLOAT
   , try $ LitInt   <$> pSignedDecimal   -- P3: negative literals e.g. -1, -42
   , LitInt <$> lexeme' L.decimal
   , LitString <$> pStringLiteral
@@ -1017,6 +1019,74 @@ pLiteral = choice
   , LitBool False <$ symbol "false"
   , LitUnit       <$ symbol "()"
   ]
+
+-- | FLOAT-LIT-1: a float literal, LLMLL.md §12 (decimal-numbers-proposal Rev 1,
+-- R1-3):
+--
+-- > FLOAT  = DIGITS ( FRAC [ EXP ] | EXP ) ;
+-- > DIGITS = "0" | NZDIGIT { DIGIT } ;
+-- > FRAC   = "." DIGIT { DIGIT } ;
+-- > EXP    = ( "e" | "E" ) [ "+" | "-" ] DIGIT { DIGIT } ;
+--
+-- with the literal production @"-" FLOAT@ (no space after the sign). Only the
+-- SHAPE is under 'try', so @-3@, @007@ and @01@, which have no fraction and no
+-- exponent, fall through to the INT parsers unchanged.
+--
+-- A literal with the float shape that the rules refuse is REGISTERED as a
+-- delayed parse error at its first character, and parsing continues with a
+-- placeholder value. It is not thrown: a thrown failure inside a 'try'ed
+-- context (a list literal, a pattern) is swallowed by the enclosing 'many' or
+-- choice and resurfaces as an unrelated "expecting ']'". Two refusals:
+--
+--   * a leading zero (@00.5@, @01e3@), which DIGITS excludes as RFC 8259 does;
+--   * the range rule ('LLMLL.FloatLit.classifyFloatLit'): the value rounds to
+--     an infinity, or a non-zero value rounds to 0.0. The message begins
+--     "float-literal-range:", which 'LLMLL.Diagnostic.megaparsecToDiagnostic'
+--     turns into the diagnostic kind.
+--
+-- Replaces megaparsec's 'L.float', which accepts @00.5@ and reads the exponent
+-- as a bounded Int, so @1e18446744073709551617@ became @10.0@ (D7). Here the
+-- exponent digits are read as an 'Integer'.
+pFloatLiteral :: Parser Literal
+pFloatLiteral = do
+  o <- getOffset
+  (spelling, negative, whole, fracDigits, ex) <- try (lexeme' pFloatShape)
+  let refuse msg = do
+        end <- getOffset
+        setOffset o
+        registerFancyFailure (Set.singleton (ErrorFail (T.unpack msg)))
+        setOffset end
+        pure (LitFloat 0.0)
+  if length whole > 1 && take 1 whole == "0"
+    then refuse ("a float literal cannot begin with a leading zero (LLMLL.md §12 FLOAT): "
+                 <> spelling <> "; write 0.5, not 00.5")
+    else case classifyFloatLit negative (read (whole ++ fracDigits))
+                                (ex - toInteger (length fracDigits)) of
+           Right d  -> pure (LitFloat d)
+           Left why -> refuse (floatLitRangeMessage spelling why)
+
+-- | The float shape with its optional sign: (spelling, negative, integer
+-- digits, fraction digits, exponent). The integer part is any digit run here
+-- so that a leading zero is reported by 'pFloatLiteral' rather than parsed as
+-- an INT followed by a stray @.5@.
+pFloatShape :: Parser (Text, Bool, String, String, Integer)
+pFloatShape = do
+  sign  <- option "" ("-" <$ char '-')
+  whole <- some digitChar
+  frac  <- optional (char '.' *> some digitChar)
+  ex    <- case frac of
+             Nothing -> Just <$> pExponent
+             Just _  -> optional pExponent
+  let (exSpelling, exValue) = maybe ("", 0) id ex
+      spelling = T.pack (sign ++ whole ++ maybe "" ('.' :) frac ++ exSpelling)
+  pure (spelling, not (null sign), whole, maybe "" id frac, exValue)
+  where
+    pExponent = do
+      e  <- oneOf ['e', 'E']
+      sg <- option "" ((: []) <$> oneOf ['+', '-'])
+      ds <- some digitChar
+      let v = read ds :: Integer
+      pure (e : sg ++ ds, if sg == "-" then negate v else v)
 
 -- | Signed decimal: matches '-' immediately followed by digits (no space).
 -- 'try' in pLiteral ensures we backtrack if '-' appears as the subtraction OP.

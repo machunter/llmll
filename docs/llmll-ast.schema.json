@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.13/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.14/ast.schema.json",
   "title": "LLMLL v0.13 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.13.0' (AST-TYPE-ALIAS-1 + FFI-CONV-1: a type-decl body may be any Type, and Type gains the boundary kinds hs-text, hs-int and hs-maybe; was 0.12.0 for MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.14.0' (FLOAT-LIT-1: a literal pattern may carry the optional 'literal_kind' key, int or float, so a float pattern such as 2.0 keeps its kind; was 0.13.0 for AST-TYPE-ALIAS-1 + FFI-CONV-1: a type-decl body may be any Type, and Type gains the boundary kinds hs-text, hs-int and hs-maybe; was 0.12.0 for MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "The compiler emits '0.13.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.13.0 lets a type-decl body be any Type, a plain alias (AST-TYPE-ALIAS-1), and adds the Tier 1 boundary type kinds hs-text, hs-int and hs-maybe (FFI-CONV-1); both are additive. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "The compiler emits '0.14.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.14.0 adds the optional 'literal_kind' key on a literal pattern (FLOAT-LIT-1), additive. v0.13.0 lets a type-decl body be any Type, a plain alias (AST-TYPE-ALIAS-1), and adds the Tier 1 boundary type kinds hs-text, hs-int and hs-maybe (FFI-CONV-1); both are additive. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "enum": ["0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+          "enum": ["0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -945,8 +945,15 @@
             "additionalProperties": false,
             "properties": {
               "kind":  { "type": "string", "const": "literal" },
-              "value": { "oneOf": [{"type": "integer"}, {"type": "number"}, {"type": "string"}, {"type": "boolean"}] }
-            }
+              "value": { "description": "anyOf, not oneOf: every JSON integer is also a JSON number, so under oneOf an integral value matched two branches and failed (FLOAT-LIT-1 found it with the first tracked integral literal pattern).", "anyOf": [{"type": "number"}, {"type": "string"}, {"type": "boolean"}] },
+              "literal_kind": {
+                "description": "FLOAT-LIT-1 (0.14.0), optional. The number's literal type. A JSON number does not keep the difference between 2 and 2.0, so a float pattern must say \"float\"; the compiler's emitter writes it on every float pattern. Absent: an integral number is an int and any other number a float. \"int\" with a non-integral number, or the key next to a string or boolean value, is a parse error (literal-kind-mismatch).",
+                "type": "string",
+                "enum": ["int", "float"]
+              }
+            },
+            "if": { "required": ["literal_kind"] },
+            "then": { "properties": { "value": { "type": "number" } } }
           }
         },
         {

@@ -3425,13 +3425,25 @@ checkPatternExpanded (PVar name) ty = do
            <> typeLabel ty <> "), so it binds as a catch-all instead of matching that "
            <> "constructor; write ((" <> name <> ") ...) for the constructor pattern"
   pure [(name, ty)]
+-- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-2): an error, no longer a
+-- warning. LLMLL has no implicit int-to-float conversion in expressions, so a
+-- pattern has none either. Every incompatible pair except an int literal
+-- against a float scrutinee already failed in GHC; that one compiled only
+-- because a Haskell numeric literal pattern is overloaded. The hint names the
+-- fix for that case, which is also what a JSON float pattern without
+-- "literal_kind" turns into.
 checkPatternExpanded (PLiteral lit) scrutTy = do
   let litTy = inferLiteral lit
   am <- gets tcAliasMap
   unless (compatibleWith am litTy scrutTy) $
-    tcWarn $ "literal pattern type " <> typeLabel litTy
-              <> " may not match scrutinee type " <> typeLabel scrutTy
+    tcError $ "literal pattern type " <> typeLabel litTy
+              <> " does not match scrutinee type " <> typeLabel scrutTy
+              <> floatHint litTy scrutTy
   pure []
+  where
+    floatHint TInt TFloat =
+      "; write the float pattern as 2.0, or in JSON-AST give the literal pattern \"literal_kind\": \"float\""
+    floatHint _ _ = ""
 checkPatternExpanded (PConstructor ctor subPats) scrutTy = do
   -- Built-in constructors: Success(v), Error(e)
   case (ctor, scrutTy) of

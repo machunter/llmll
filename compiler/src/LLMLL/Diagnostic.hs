@@ -962,10 +962,24 @@ megaparsecToDiagnostic fp bundle =
       isHttpFail (FancyError _ fs) =
         ErrorFail (T.unpack modeHttpRetiredMessage) `Set.member` fs
       isHttpFail _ = False
+      -- FLOAT-LIT-1: a float literal outside the range rule fails with a
+      -- message that begins "float-literal-range:" (LLMLL.FloatLit). It is a
+      -- parse-phase diagnostic because only the parser has the literal's
+      -- text, and it carries the kind so a consumer need not read the message.
+      isFloatRange = any isFloatRangeFail (NE.toList (bundleErrors bundle))
+      isFloatRangeFail (FancyError _ fs) =
+        any (\f -> case f of
+                     ErrorFail m -> "float-literal-range:" `T.isPrefixOf` T.pack m
+                     _           -> False) (Set.toList fs)
+      isFloatRangeFail _ = False
       suggestion
         | isHttpRetired = Nothing
+        | isFloatRange  = Just "write a float literal whose value is finite and, unless it is zero, at least about 4.9e-324 in magnitude"
         | otherwise     = Just "use def, def-shell, type, import, or check at the top level"
-  in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing)
+      kind
+        | isFloatRange = Just "float-literal-range"
+        | otherwise    = Nothing
+  in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing) { diagKind = kind }
   where
     stripLocationPrefix t =
       -- errorBundlePretty lines: "<file>:line:col:\nerror: ..."

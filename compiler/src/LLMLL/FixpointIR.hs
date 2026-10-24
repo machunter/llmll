@@ -95,6 +95,13 @@ data FQSort
   -- rather than falling through typeToSort's `_ -> FQInt` default, which
   -- declared it as an integer.
   | FQJson           -- ^ opaque JSON carrier (uninterpreted Jsn sort)
+  -- FLOAT-LIT-1 (D3): the float carrier, on the JSON-1 pattern. float is
+  -- outside Sigma_auto (LLMLL.md §5.3.3) and nothing reflects a float term:
+  -- 'buildSortEnv' declares no float binder and a used float payload falls
+  -- back (match-payload-sort). The sort exists so a float payload field or
+  -- binder is declared at an OPAQUE sort, not at int as typeToSort's default
+  -- declared it. Probe: a .fq with a Flt field and binder is accepted bare.
+  | FQFloat          -- ^ opaque float carrier (uninterpreted Flt sort)
   | FQData Text      -- ^ named ADT sort, e.g. Color
   | FQDataApp Text [FQSort]  -- ^ PAIR-RET: applied (parametric) datatype sort, e.g. (Pair2 int int)
   | FQTyVar Int      -- ^ PAIR-RET: polymorphic field tyvar @(n) inside a parametric data decl
@@ -244,6 +251,7 @@ emitSort FQBool     = "bool"
 emitSort FQUnit     = "unit"
 emitSort FQStr      = "Str"   -- liquid-fixpoint built-in string sort (opaque under path (a))
 emitSort FQList     = "Lst"   -- uninterpreted carrier sort (probe-verified accepted bare)
+emitSort FQFloat    = "Flt"   -- FLOAT-LIT-1: uninterpreted carrier, probe-verified accepted bare
 emitSort FQJson     = "Jsn"   -- JSON-1: uninterpreted carrier, same bare-acceptance path as Lst
 emitSort (FQData n) = n
 -- PAIR-RET: an applied parametric sort prints as `(TyCon arg ...)`; a field tyvar
