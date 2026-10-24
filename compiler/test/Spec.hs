@@ -23482,6 +23482,37 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       Set.member (tagged "gen2") live `shouldBe` False
       Set.member (tagged "gen3") live `shouldBe` True
 
+  -- -----------------------------------------------------------------------
+  -- BYTES-SET-PBT-PRE-1 (int-index-wrap-1-proposal edge case 11): the test
+  -- evaluator discards a bytes-set sample outside the builtin's precondition,
+  -- as it already did for bytes-get (LLMLL.md §5.1).
+  -- -----------------------------------------------------------------------
+  describe "BYTES-SET-PBT-PRE-1 bytes-set precondition in the evaluator" $ do
+    let lint = ELit . LitInt
+        z4   = EApp "bytes-zero" [lint 4]
+        ev   = evalExprStatic Map.empty
+
+    it "BSP-1 a sample outside 0 <= i < n or 0 <= v <= 255 is discarded" $ do
+      ev (EApp "bytes-set" [z4, lint 4, lint 1])    `shouldBe` Nothing
+      ev (EApp "bytes-set" [z4, lint (-1), lint 1]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [z4, lint 0, lint 256])  `shouldBe` Nothing
+      ev (EApp "bytes-set" [z4, lint 0, lint (-1)]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [EApp "bytes-zero" [], lint 0, lint 1]) `shouldBe` Nothing  -- untagged base
+
+    it "BSP-2 an in-bounds bytes-set still builds the store, and bytes-get reads it back" $ do
+      ev (EApp "bytes-get" [EApp "bytes-set" [z4, lint 3, lint 255], lint 3]) `shouldBe` Just (lint 255)
+      ev (EApp "bytes-length" [EApp "bytes-set" [z4, lint 0, lint 7]]) `shouldBe` Just (lint 4)
+
+    it "BSP-3 witness 11: a property whose every sample violates the precondition is skipped, not passed" $ do
+      let src = T.unlines
+            [ "(def-shell z [] -> bytes[4] (bytes-zero))"
+            , "(check \"p\" (for-all [x: int] (= (bytes-length (bytes-set (z) 7 1)) 4)))" ]
+      case parseStatements GrammarCoreInversion "<t>" src of
+        Left e -> expectationFailure (show e)
+        Right stmts -> do
+          r <- runPropertyTests stmts
+          map pbtStatus (pbtResults r) `shouldBe` [PBTSkipped]
+
   describe "FLOAT-LIT-1 float literals" $ do
     let sexp s = parseExpr "<t>" (T.pack s)
         sexpLit s = case sexp s of
